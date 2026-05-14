@@ -28,6 +28,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'bankr',
   'zai',
   'xai',
+  'xiaomi-mimo',
   'openai',
   'gemini',
   'mistral',
@@ -37,6 +38,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'ollama',
   'nvidia-nim',
   'minimax',
+  'venice',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -193,9 +195,15 @@ export function applyProviderFlag(
             process.env.OPENAI_API_KEY === process.env.XAI_API_KEY
           ? 'xai'
           : process.env.OPENAI_API_KEY !== undefined &&
-              process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
-            ? 'minimax'
-            : null
+              process.env.OPENAI_API_KEY === process.env.MIMO_API_KEY
+            ? 'xiaomi-mimo'
+            : process.env.OPENAI_API_KEY !== undefined &&
+                process.env.OPENAI_API_KEY === process.env.VENICE_API_KEY
+              ? 'venice'
+              : process.env.OPENAI_API_KEY !== undefined &&
+                  process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
+                ? 'minimax'
+                : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -292,6 +300,26 @@ export function applyProviderFlag(
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+      }
+      break
+
+    case 'xiaomi-mimo':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
+      }
+      break
+
+    case 'venice':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.venice.ai/api/v1'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'venice-uncensored'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.VENICE_API_KEY
       }
       break
   }

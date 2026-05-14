@@ -415,6 +415,66 @@ describe('discoverModelsForRoute', () => {
     expect(result?.routeId).toBe('lmstudio')
     expect(result?.source).toBe('network')
   })
+
+  test('openai-compatible discovery applies mapModel to filter and shape raw entries', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    registerGateway({
+      id: 'mapmodel-test',
+      label: 'MapModel Test',
+      category: 'aggregating',
+      defaultBaseUrl: 'https://mapmodel-test.example/v1',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['MAPMODEL_TEST_API_KEY'],
+      },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'dynamic',
+        discovery: {
+          kind: 'openai-compatible',
+          mapModel(raw: unknown) {
+            const model = raw as { id?: string; active?: boolean; context_window?: number }
+            if (!model.id || model.active === false) return null
+            if (/(guard|whisper)/i.test(model.id)) return null
+            return {
+              id: model.id,
+              apiName: model.id,
+              label: model.id,
+              ...(model.context_window ? { contextWindow: model.context_window } : {}),
+            }
+          },
+        },
+        discoveryCacheTtl: '1d',
+      },
+    })
+
+    setMockFetch(mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'llama-3.3-70b', context_window: 131072 },
+              { id: 'whisper-large-v3' },
+              { id: 'llama-guard-3' },
+              { id: 'inactive-model', active: false },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    ) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('mapmodel-test', {
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    expect(result?.models).toEqual([
+      { id: 'llama-3.3-70b', apiName: 'llama-3.3-70b', label: 'llama-3.3-70b', contextWindow: 131072 },
+    ])
+  })
 })
 
 describe('probeRouteReadiness', () => {

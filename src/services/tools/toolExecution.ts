@@ -20,7 +20,6 @@ import {
 } from 'src/services/analytics/metadata.js'
 import {
   addToToolDuration,
-  getCodeEditToolDecisionCounter,
   getStatsStore,
 } from '../../bootstrap/state.js'
 import {
@@ -88,17 +87,6 @@ import {
 } from '../../utils/sessionActivity.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { Stream } from '../../utils/stream.js'
-import { logOTelEvent } from '../../utils/telemetry/events.js'
-import {
-  addToolContentEvent,
-  endToolBlockedOnUserSpan,
-  endToolExecutionSpan,
-  endToolSpan,
-  isBetaTracingEnabled,
-  startToolBlockedOnUserSpan,
-  startToolExecutionSpan,
-  startToolSpan,
-} from '../../utils/telemetry/sessionTracing.js'
 import {
   formatError,
   formatZodValidationError,
@@ -938,13 +926,6 @@ async function checkPermissionsAndCallTool(
     }
   }
 
-  startToolSpan(
-    tool.name,
-    toolAttributes,
-    isBetaTracingEnabled() ? jsonStringify(processedInput) : undefined,
-  )
-  startToolBlockedOnUserSpan()
-
   // Check whether we have permission to use the tool,
   // and ask the user for permission if we don't
   const permissionMode = toolUseContext.getAppState().toolPermissionContext.mode
@@ -991,21 +972,6 @@ async function checkPermissionsAndCallTool(
       permissionDecision.decisionReason,
       permissionDecision.behavior,
     )
-    void logOTelEvent('tool_decision', {
-      decision,
-      source,
-      tool_name: sanitizeToolNameForAnalytics(tool.name),
-    })
-
-    // Increment code-edit tool decision counter for headless mode
-    if (isCodeEditingTool(tool.name)) {
-      void buildCodeEditToolAttributes(
-        tool,
-        processedInput,
-        decision,
-        source,
-      ).then(attributes => getCodeEditToolDecisionCounter()?.add(1, attributes))
-    }
   }
 
   // Add message if permission was granted/denied by PermissionRequest hook
@@ -1027,8 +993,6 @@ async function checkPermissionsAndCallTool(
   if (permissionDecision.behavior !== 'allow') {
     logForDebugging(`${tool.name} tool permission denied`)
     const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
-    endToolBlockedOnUserSpan('reject', decisionInfo?.source || 'unknown')
-    endToolSpan()
 
     logEvent('tengu_tool_use_can_use_tool_rejected', {
       messageID:
@@ -1201,11 +1165,6 @@ async function checkPermissionsAndCallTool(
   }
 
   const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
-  endToolBlockedOnUserSpan(
-    decisionInfo?.decision || 'unknown',
-    decisionInfo?.source || 'unknown',
-  )
-  startToolExecutionSpan()
 
   const startTime = Date.now()
 
@@ -1256,51 +1215,6 @@ async function checkPermissionsAndCallTool(
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
 
-    // Log tool content/output as span event if enabled
-    if (result.data && typeof result.data === 'object') {
-      const contentAttributes: Record<string, string | number | boolean> = {}
-
-      // Read tool: capture file_path and content
-      if (tool.name === FILE_READ_TOOL_NAME && 'content' in result.data) {
-        if ('file_path' in processedInput) {
-          contentAttributes.file_path = String(processedInput.file_path)
-        }
-        contentAttributes.content = String(result.data.content)
-      }
-
-      // Edit/Write tools: capture file_path and diff
-      if (
-        (tool.name === FILE_EDIT_TOOL_NAME ||
-          tool.name === FILE_WRITE_TOOL_NAME) &&
-        'file_path' in processedInput
-      ) {
-        contentAttributes.file_path = String(processedInput.file_path)
-
-        // For Edit, capture the actual changes made
-        if (tool.name === FILE_EDIT_TOOL_NAME && 'diff' in result.data) {
-          contentAttributes.diff = String(result.data.diff)
-        }
-        // For Write, capture the written content
-        if (tool.name === FILE_WRITE_TOOL_NAME && 'content' in processedInput) {
-          contentAttributes.content = String(processedInput.content)
-        }
-      }
-
-      // Bash tool: capture command
-      if (tool.name === BASH_TOOL_NAME && 'command' in processedInput) {
-        const bashInput = processedInput as BashToolInput
-        contentAttributes.bash_command = bashInput.command
-        // Also capture output if available
-        if ('output' in result.data) {
-          contentAttributes.output = String(result.data.output)
-        }
-      }
-
-      if (Object.keys(contentAttributes).length > 0) {
-        addToolContentEvent('tool.output', contentAttributes)
-      }
-    }
-
     // Capture structured output from tool result if present
     if (typeof result === 'object' && 'structured_output' in result) {
       // Store the structured output in an attachment message
@@ -1311,14 +1225,6 @@ async function checkPermissionsAndCallTool(
         }),
       })
     }
-
-    endToolExecutionSpan({ success: true })
-    // Pass tool result for new_context logging
-    const toolResultStr =
-      result.data && typeof result.data === 'object'
-        ? jsonStringify(result.data)
-        : String(result.data ?? '')
-    endToolSpan(toolResultStr)
 
     // Map the tool result to API format once and cache it. This block is reused
     // by addToolResult (skipping the remap) and measured here for analytics.
@@ -1411,22 +1317,7 @@ async function checkPermissionsAndCallTool(
       ? getMcpServerScopeFromToolName(tool.name)
       : null
 
-    void logOTelEvent('tool_result', {
-      tool_name: sanitizeToolNameForAnalytics(tool.name),
-      success: 'true',
-      duration_ms: String(durationMs),
-      ...(Object.keys(toolParameters).length > 0 && {
-        tool_parameters: jsonStringify(toolParameters),
-      }),
-      ...(telemetryToolInput && { tool_input: telemetryToolInput }),
-      tool_result_size_bytes: String(toolResultSizeBytes),
-      ...(decisionInfo && {
-        decision_source: decisionInfo.source,
-        decision_type: decisionInfo.decision,
-      }),
-      ...(mcpServerScope && { mcp_server_scope: mcpServerScope }),
-    })
-
+    
     // Run PostToolUse hooks
     let toolOutput = result.data
     const hookResults = []
@@ -1623,12 +1514,6 @@ async function checkPermissionsAndCallTool(
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
 
-    endToolExecutionSpan({
-      success: false,
-      error: errorMessage(error),
-    })
-    endToolSpan()
-
     // Handle MCP auth errors by updating the client status to 'needs-auth'
     // This updates the /mcp display to show the server needs re-authorization
     if (error instanceof McpAuthError) {
@@ -1704,23 +1589,7 @@ async function checkPermissionsAndCallTool(
         ? getMcpServerScopeFromToolName(tool.name)
         : null
 
-      void logOTelEvent('tool_result', {
-        tool_name: sanitizeToolNameForAnalytics(tool.name),
-        use_id: toolUseID,
-        success: 'false',
-        duration_ms: String(durationMs),
-        error: errorMessage(error),
-        ...(Object.keys(toolParameters).length > 0 && {
-          tool_parameters: jsonStringify(toolParameters),
-        }),
-        ...(telemetryToolInput && { tool_input: telemetryToolInput }),
-        ...(decisionInfo && {
-          decision_source: decisionInfo.source,
-          decision_type: decisionInfo.decision,
-        }),
-        ...(mcpServerScope && { mcp_server_scope: mcpServerScope }),
-      })
-    }
+          }
     const content = formatError(error)
 
     // Determine if this was a user interrupt

@@ -28,16 +28,20 @@ export function isInClaudeFolder(filePath: string): boolean {
 }
 
 /**
- * Check if a path is within the global ~/.claude/ folder.
+ * Check if a path is within the global ~/.openclaude/ folder, or the legacy
+ * ~/.claude/ folder during migration.
  * This is used to determine whether to show the special ".claude folder" permission option
  * for files in the user's home directory.
  */
 export function isInGlobalClaudeFolder(filePath: string): boolean {
   const absolutePath = expandPath(filePath);
-  const globalClaudeFolderPath = join(homedir(), '.claude');
   const normalizedAbsolutePath = normalizeCaseForComparison(absolutePath);
-  const normalizedGlobalClaudeFolderPath = normalizeCaseForComparison(globalClaudeFolderPath);
-  return normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + sep.toLowerCase()) || normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + '/');
+  const globalClaudeFolderPaths = [join(homedir(), '.openclaude'), join(homedir(), '.claude')];
+
+  return globalClaudeFolderPaths.some(globalClaudeFolderPath => {
+    const normalizedGlobalClaudeFolderPath = normalizeCaseForComparison(globalClaudeFolderPath);
+    return normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + sep.toLowerCase()) || normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + '/');
+  });
 }
 export type PermissionOption = {
   type: 'accept-once';

@@ -108,6 +108,7 @@ import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaude
 import { getContextWindowForModel } from './utils/context.js';
 import { loadConversationForResume } from './utils/conversationRecovery.js';
 import { buildDeepLinkBanner } from './utils/deepLink/banner.js';
+import { createCombinedAbortSignal } from './utils/combinedAbortSignal.js';
 import { hasNodeOption, isBareMode, isEnvTruthy, isInProtectedNamespace } from './utils/envUtils.js';
 import { refreshExampleCommands } from './utils/exampleCommands.js';
 import type { FpsMetrics } from './utils/fpsTracker.js';
@@ -414,7 +415,11 @@ export function startDeferredPrefetches(): void {
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) && !isEnvTruthy(process.env.CLAUDE_CODE_SKIP_VERTEX_AUTH)) {
     void prefetchGcpCredentialsIfSafe();
   }
-  void countFilesRoundedRg(getCwd(), AbortSignal.timeout(3000), []);
+  const { signal: countFilesSignal, cleanup: cleanupCountFilesSignal } =
+    createCombinedAbortSignal(undefined, { timeoutMs: 3000 });
+  void countFilesRoundedRg(getCwd(), countFilesSignal, []).finally(
+    cleanupCountFilesSignal,
+  );
 
   // Analytics and feature flag initialization
   void initializeAnalyticsGates();

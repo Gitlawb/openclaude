@@ -53,6 +53,7 @@ import {
   formatCreditAmount,
   getCachedReferrerReward,
 } from '../api/referral.js'
+import { sponsoredTips } from './sponsoredTips.js'
 import { getSessionsSinceLastShown } from './tipHistory.js'
 import type { Tip, TipContext } from './types.js'
 
@@ -390,7 +391,7 @@ const externalTips: Tip[] = [
   {
     id: 'custom-commands',
     content: async () =>
-      'Create skills by adding .md files to .claude/skills/ in your project or ~/.claude/skills/ for skills that work in any project',
+      'Create skills at .claude/skills/<name>/SKILL.md in your project or ~/.openclaude/skills/<name>/SKILL.md for skills that work in any project',
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()
@@ -638,13 +639,16 @@ export async function getRelevantTips(context?: TipContext): Promise<Tip[]> {
   const override = settings.spinnerTipsOverride
   const customTips = getCustomTips()
 
-  // If excludeDefault is true and there are custom tips, skip built-in tips entirely
+  // If excludeDefault is true and there are custom tips, skip built-in tips entirely.
+  // Sponsored tips are also excluded — user has opted into their own list.
   if (override?.excludeDefault && customTips.length > 0) {
     return customTips
   }
 
-  // Otherwise, filter built-in tips as before and combine with custom
-  const tips = [...externalTips, ...internalOnlyTips]
+  // Otherwise, filter built-in tips as before and combine with custom + sponsored.
+  // The scheduler enforces the sponsored frequency cap; this just returns
+  // everything currently eligible.
+  const tips = [...externalTips, ...internalOnlyTips, ...sponsoredTips]
   const isRelevant = await Promise.all(tips.map(_ => _.isRelevant(context)))
   const filtered = tips
     .filter((_, index) => isRelevant[index])

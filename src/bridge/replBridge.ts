@@ -14,6 +14,7 @@ import {
   logEvent,
 } from '../services/analytics/index.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
+import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js'
 import {
   handleIngressMessage,
   handleServerControlRequest,
@@ -454,13 +455,21 @@ export async function initBridgeCore(
       }
     }
   } else {
-    const createdSessionId = await createSession({
-      environmentId,
-      title,
-      gitRepoUrl,
-      branch,
-      signal: AbortSignal.timeout(15_000),
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: 15_000,
     })
+    let createdSessionId: string | null
+    try {
+      createdSessionId = await createSession({
+        environmentId,
+        title,
+        gitRepoUrl,
+        branch,
+        signal,
+      })
+    } finally {
+      cleanup()
+    }
 
     if (!createdSessionId) {
       logForDebugging(
@@ -761,13 +770,21 @@ export async function initBridgeCore(
     const currentTitle = getCurrentTitle()
 
     // Create a new session on the now-registered environment
-    const newSessionId = await createSession({
-      environmentId,
-      title: currentTitle,
-      gitRepoUrl,
-      branch,
-      signal: AbortSignal.timeout(15_000),
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: 15_000,
     })
+    let newSessionId: string | null
+    try {
+      newSessionId = await createSession({
+        environmentId,
+        title: currentTitle,
+        gitRepoUrl,
+        branch,
+        signal,
+      })
+    } finally {
+      cleanup()
+    }
 
     if (!newSessionId) {
       logForDebugging(

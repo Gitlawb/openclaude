@@ -38,6 +38,7 @@ export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'MINIMAX_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
+  'VENICE_API_KEY',
 ] as const
 
 type GlobalConfigWithEnv = {

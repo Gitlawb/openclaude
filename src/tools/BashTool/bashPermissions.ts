@@ -733,8 +733,14 @@ export function stripAllLeadingEnvVars(
   // dangerous forms like $(cmd), ${var}, and $((expr)). This means
   // FOO=$VAR is not stripped — adding $VAR matching creates ReDoS risk
   // (CodeQL #671) and $VAR bypasses are low-priority.
+  //
+  // SECURITY: Array subscript uses [^\]$`{(]* (not [^\]]*) to block command
+  // substitution in subscript position. Bash executes FOO[$(cmd)]=val as a
+  // side effect during assignment parsing; if the pattern matched $(cmd) in
+  // the subscript, the env-var prefix would be stripped while the substitution
+  // silently executed — bypassing deny rules that block the substituted command.
   const ENV_VAR_PATTERN =
-    /^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)\+?=(?:'[^'\n\r]*'|"(?:\\.|[^"$`\\\n\r])*"|\\.|[^ \t\n\r$`;|&()<>\\\\'"])*[ \t]+/
+    /^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]$`{(]*\])?)\+?=(?:'[^'\n\r]*'|"(?:\\.|[^"$`\\\n\r])*"|\\.|[^ \t\n\r$`;|&()<>\\\\'"])*[ \t]+/
 
   let stripped = command
   let previousStripped = ''

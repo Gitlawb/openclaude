@@ -2,6 +2,7 @@ import {
   readCodexCredentialsAsync,
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isBareMode } from '../../utils/envUtils.js'
 import {
@@ -435,21 +436,28 @@ export async function fetchCodexUsage(): Promise<CodexUsageData> {
     )
   }
 
-  const response = await fetch(getCodexUsageUrl(request.baseUrl), {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${credentials.apiKey}`,
-      'chatgpt-account-id': credentials.accountId,
-      originator: 'openclaude',
-    },
-    signal: AbortSignal.timeout(5000),
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 5000,
   })
+  try {
+    const response = await fetch(getCodexUsageUrl(request.baseUrl), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${credentials.apiKey}`,
+        'chatgpt-account-id': credentials.accountId,
+        originator: 'openclaude',
+      },
+      signal,
+    })
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => 'unknown error')
-    throw new Error(`Codex usage error ${response.status}: ${errorBody}`)
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => 'unknown error')
+      throw new Error(`Codex usage error ${response.status}: ${errorBody}`)
+    }
+
+    return normalizeCodexUsagePayload(await response.json())
+  } finally {
+    cleanup()
   }
-
-  return normalizeCodexUsagePayload(await response.json())
 }

@@ -20,6 +20,7 @@ import { createServer, type Server } from 'http'
 import { parse } from 'url'
 import xss from 'xss'
 import { openBrowser } from '../../utils/browser.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { toError } from '../../utils/errors.js'
 import { logMCPDebug } from '../../utils/log.js'
@@ -204,36 +205,43 @@ export async function discoverOidc(
 ): Promise<OpenIdProviderDiscoveryMetadata> {
   const base = idpIssuer.endsWith('/') ? idpIssuer : idpIssuer + '/'
   const url = new URL('.well-known/openid-configuration', base)
-  // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(IDP_REQUEST_TIMEOUT_MS),
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: IDP_REQUEST_TIMEOUT_MS,
   })
-  if (!res.ok) {
-    throw new Error(
-      `XAA IdP: OIDC discovery failed: HTTP ${res.status} at ${url}`,
-    )
-  }
-  // Captive portals and proxy auth pages return 200 with HTML. res.json()
-  // throws a raw SyntaxError before safeParse can give a useful message.
-  let body: unknown
   try {
-    body = await res.json()
-  } catch {
-    throw new Error(
-      `XAA IdP: OIDC discovery returned non-JSON at ${url} (captive portal or proxy?)`,
-    )
+    // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal,
+    })
+    if (!res.ok) {
+      throw new Error(
+        `XAA IdP: OIDC discovery failed: HTTP ${res.status} at ${url}`,
+      )
+    }
+    // Captive portals and proxy auth pages return 200 with HTML. res.json()
+    // throws a raw SyntaxError before safeParse can give a useful message.
+    let body: unknown
+    try {
+      body = await res.json()
+    } catch {
+      throw new Error(
+        `XAA IdP: OIDC discovery returned non-JSON at ${url} (captive portal or proxy?)`,
+      )
+    }
+    const parsed = OpenIdProviderDiscoveryMetadataSchema.safeParse(body)
+    if (!parsed.success) {
+      throw new Error(`XAA IdP: invalid OIDC metadata: ${parsed.error.message}`)
+    }
+    if (new URL(parsed.data.token_endpoint).protocol !== 'https:') {
+      throw new Error(
+        `XAA IdP: refusing non-HTTPS token endpoint: ${parsed.data.token_endpoint}`,
+      )
+    }
+    return parsed.data
+  } finally {
+    cleanup()
   }
-  const parsed = OpenIdProviderDiscoveryMetadataSchema.safeParse(body)
-  if (!parsed.success) {
-    throw new Error(`XAA IdP: invalid OIDC metadata: ${parsed.error.message}`)
-  }
-  if (new URL(parsed.data.token_endpoint).protocol !== 'https:') {
-    throw new Error(
-      `XAA IdP: refusing non-HTTPS token endpoint: ${parsed.data.token_endpoint}`,
-    )
-  }
-  return parsed.data
 }
 
 /**
@@ -456,12 +464,16 @@ export async function acquireIdpIdToken(
     authorizationCode,
     codeVerifier,
     redirectUri,
-    fetchFn: (url, init) =>
+    fetchFn: (url, init) => {
+      const { signal, cleanup } = createCombinedAbortSignal(init?.signal, {
+        timeoutMs: IDP_REQUEST_TIMEOUT_MS,
+      })
       // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
-      fetch(url, {
+      return fetch(url, {
         ...init,
-        signal: AbortSignal.timeout(IDP_REQUEST_TIMEOUT_MS),
-      }),
+        signal,
+      }).finally(cleanup)
+    },
   })
   if (!tokens.id_token) {
     throw new Error(

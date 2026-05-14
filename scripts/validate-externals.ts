@@ -5,7 +5,7 @@
  * Run as part of the build to catch missing externals early.
  */
 import { readFileSync } from 'fs'
-import { CLI_EXTERNALS, SDK_EXTERNALS, INTENTIONALLY_BUNDLED } from './externals.js'
+import { CLI_EXTERNALS, SDK_EXTERNALS, INTENTIONALLY_BUNDLED, OPTIONAL_RUNTIME_EXTERNALS } from './externals.js'
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
 const allDeps = new Set([
@@ -32,7 +32,8 @@ function validate(bundleName: string, externals: string[]): boolean {
     return false
   }
 
-  const extra = [...externalSet].filter(d => !allDeps.has(d))
+  const optionalSet = new Set(OPTIONAL_RUNTIME_EXTERNALS)
+  const extra = [...externalSet].filter(d => !allDeps.has(d) && !optionalSet.has(d))
   if (extra.length > 0) {
     console.warn(`⚠️  ${bundleName}: External entries not in package.json (may be ok):`)
     for (const dep of extra) {

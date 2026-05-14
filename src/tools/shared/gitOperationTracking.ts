@@ -8,7 +8,6 @@
  * external binaries with the same argv syntax).
  */
 
-import { getCommitCounter, getPrCounter } from '../../bootstrap/state.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -207,7 +206,6 @@ export function trackGitOperations(
           'commit_amend' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
     }
-    getCommitCounter()?.add(1)
   }
   if (GIT_PUSH_RE.test(command)) {
     logEvent('tengu_git_operation', {
@@ -223,7 +221,6 @@ export function trackGitOperations(
     })
   }
   if (prHit?.action === 'created') {
-    getPrCounter()?.add(1)
     // Auto-link session to PR if we can extract PR URL from stdout
     if (stdout) {
       const prInfo = findPrInStdout(stdout)
@@ -252,7 +249,6 @@ export function trackGitOperations(
       operation:
         'pr_create' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
-    getPrCounter()?.add(1)
   }
   // Detect PR creation via curl to REST APIs (Bitbucket, GitHub API, GitLab API)
   // Check for POST method and PR endpoint separately to handle any argument order
@@ -272,6 +268,5 @@ export function trackGitOperations(
       operation:
         'pr_create' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
-    getPrCounter()?.add(1)
   }
 }

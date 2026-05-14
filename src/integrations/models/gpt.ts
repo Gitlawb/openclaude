@@ -29,7 +29,12 @@ function gptModel(
 }
 
 export default [
-  gptModel('gpt-5.5', 'GPT-5.5', 1_050_000, 128_000),
+  // gpt-5.5 via Codex transport caps at ~272k effective input tokens; the
+  // 1.05M API descriptor value caused /context to under-report usage and
+  // auto-compact to fire too late, yielding 500 "input exceeds the context
+  // window" mid-turn (issue #1118). Use the conservative Codex limit so
+  // compaction kicks in before the request fails.
+  gptModel('gpt-5.5', 'GPT-5.5', 272_000, 128_000),
   gptModel('gpt-5.5-mini', 'GPT-5.5 Mini', 400_000, 128_000),
   gptModel('gpt-5.5-nano', 'GPT-5.5 Nano', 400_000, 128_000),
   gptModel('gpt-5.4', 'GPT-5.4', 1_050_000, 128_000),

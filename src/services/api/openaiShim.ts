@@ -191,6 +191,10 @@ function redactUrlForDiagnostics(url: string): string {
   }
 }
 
+function redactUrlsInMessage(message: string): string {
+  return message.replace(/https?:\/\/\S+/g, match => redactUrlForDiagnostics(match))
+}
+
 function sleepMs(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -1937,7 +1941,7 @@ class OpenAIShimMessages {
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
       const safeMessage =
         redactSecretValueForDisplay(
-          failure.message,
+          redactUrlsInMessage(failure.message),
           process.env as SecretValueSource,
         ) || 'Request failed'
 
@@ -1995,6 +1999,7 @@ class OpenAIShimMessages {
     let response: Response | undefined
     const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
       : request.baseUrl.includes('minimax') ? 'minimax'
+      : request.baseUrl.includes('xiaomimimo') || request.baseUrl.includes('mimo-v2') ? 'xiaomi-mimo'
       : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
       : request.baseUrl.includes('anthropic') ? 'anthropic'
       : 'openai'

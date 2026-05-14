@@ -273,7 +273,7 @@ describe('detectBestProvider — orchestrator', () => {
     expect(result?.kind).toBe('ollama')
   })
 
-  test('skipLocal prevents network probes', async () => {
+  test('skipLocal prevents network probes and falls back to opengateway', async () => {
     let probeCalled = false
     const fetchImpl = (async () => {
       probeCalled = true
@@ -286,11 +286,12 @@ describe('detectBestProvider — orchestrator', () => {
       skipLocal: true,
       hasCodexAuth: () => false,
     })
-    expect(result).toBeNull()
+    expect(result?.kind).toBe('gitlawb-opengateway')
+    expect(result?.model).toBe('mimo-v2.5-pro')
     expect(probeCalled).toBe(false)
   })
 
-  test('completely empty environment returns null', async () => {
+  test('completely empty environment falls back to Gitlawb Opengateway', async () => {
     const fetchImpl = (async () => {
       throw new Error('nothing reachable')
     }) as typeof fetch
@@ -300,6 +301,38 @@ describe('detectBestProvider — orchestrator', () => {
       fetchImpl,
       timeoutMs: 100,
       hasCodexAuth: () => false,
+    })
+    expect(result?.kind).toBe('gitlawb-opengateway')
+    expect(result?.baseUrl).toBe('https://opengateway.gitlawb.com/v1/xiaomi-mimo')
+    expect(result?.model).toBe('mimo-v2.5-pro')
+  })
+
+  test('OPENGATEWAY_BASE_URL env overrides the opengateway fallback base URL', async () => {
+    const fetchImpl = (async () => {
+      throw new Error('nothing reachable')
+    }) as typeof fetch
+
+    const result = await detectBestProvider({
+      env: { OPENGATEWAY_BASE_URL: 'http://localhost:8181/v1/xiaomi-mimo' },
+      fetchImpl,
+      timeoutMs: 100,
+      hasCodexAuth: () => false,
+    })
+    expect(result?.kind).toBe('gitlawb-opengateway')
+    expect(result?.baseUrl).toBe('http://localhost:8181/v1/xiaomi-mimo')
+  })
+
+  test('skipOpengatewayFallback returns null when nothing else is detected', async () => {
+    const fetchImpl = (async () => {
+      throw new Error('nothing reachable')
+    }) as typeof fetch
+
+    const result = await detectBestProvider({
+      env: {},
+      fetchImpl,
+      timeoutMs: 100,
+      hasCodexAuth: () => false,
+      skipOpengatewayFallback: true,
     })
     expect(result).toBeNull()
   })

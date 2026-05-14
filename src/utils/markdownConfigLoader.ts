@@ -9,6 +9,7 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { getProjectRoot } from '../bootstrap/state.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { logForDebugging } from './debug.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { isFsInaccessible } from './errors.js'
@@ -562,7 +563,9 @@ async function loadMarkdownFiles(dir: string): Promise<
   //
   // Why both? Ripgrep has poor startup performance in native builds.
   const useNative = isEnvTruthy(process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH)
-  const signal = AbortSignal.timeout(3000)
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 3000,
+  })
   let files: string[]
   try {
     files = useNative
@@ -578,6 +581,8 @@ async function loadMarkdownFiles(dir: string): Promise<
     // ripGrep rejects on inaccessible target paths.
     if (isFsInaccessible(e)) return []
     throw e
+  } finally {
+    cleanup()
   }
 
   const results = await Promise.all(

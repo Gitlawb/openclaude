@@ -10,6 +10,7 @@ import {
   CLAUDE_FOLDER_PERMISSION_PATTERN,
   FILE_EDIT_TOOL_NAME,
   GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
+  LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
 } from 'src/tools/FileEditTool/constants.js'
 import type { z } from 'zod/v4'
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
@@ -95,8 +96,10 @@ export function normalizeCaseForComparison(path: string): string {
 }
 
 /**
- * If filePath is inside a .claude/skills/{name}/ directory (project or global),
- * return the skill name and a session-allow pattern scoped to just that skill.
+ * If filePath is inside a .claude/skills/{name}/ directory (project) or
+ * .openclaude/skills/{name}/ directory (global), plus the legacy global
+ * .claude/skills path, return the skill name and a session-allow pattern
+ * scoped to just that skill.
  * Used to offer a narrower "allow edits to this skill only" option in the
  * permission dialog and SDK suggestions, so iterating on one skill doesn't
  * require granting session access to all of .claude/ (settings.json, hooks/, etc.).
@@ -111,6 +114,10 @@ export function getClaudeSkillScope(
     {
       dir: expandPath(join(getOriginalCwd(), '.claude', 'skills')),
       prefix: '/.claude/skills/',
+    },
+    {
+      dir: expandPath(join(homedir(), '.openclaude', 'skills')),
+      prefix: '~/.openclaude/skills/',
     },
     {
       dir: expandPath(join(homedir(), '.claude', 'skills')),
@@ -1282,19 +1289,23 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
     'allow',
   )
   if (claudeFolderAllowRule) {
-    // Check if this rule is scoped under .claude/ (project or global).
-    // Accepts both the broad patterns ('/.claude/**', '~/.claude/**') and
-    // narrowed ones like '/.claude/skills/my-skill/**' so users can grant
+    // Check if this rule is scoped under a Claude config folder.
+    // Accepts broad project/global patterns ('/.claude/**',
+    // '~/.openclaude/**', and legacy '~/.claude/**') plus narrowed skill
+    // patterns like '~/.openclaude/skills/my-skill/**' so users can grant
     // session access to a single skill without also exposing settings.json
     // or hooks/. The rule already matched the path via matchingRuleForInput;
     // this is an additional scope check. Reject '..' to prevent a rule like
-    // '/.claude/../**' from leaking this bypass outside .claude/.
+    // '/.claude/../**' from leaking this bypass outside the config folder.
     const ruleContent = claudeFolderAllowRule.ruleValue.ruleContent
     if (
       ruleContent &&
       (ruleContent.startsWith(CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2)) ||
         ruleContent.startsWith(
           GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
+        ) ||
+        ruleContent.startsWith(
+          LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
         )) &&
       !ruleContent.includes('..') &&
       ruleContent.endsWith('/**')

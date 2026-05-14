@@ -47,6 +47,9 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
   delete process.env.XAI_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.OPENAI_API_KEY
 }
 
 test('first-party provider keeps Anthropic account setup flow enabled', () => {

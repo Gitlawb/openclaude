@@ -7,11 +7,9 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { sanitizeToolNameForAnalytics } from 'src/services/analytics/metadata.js'
-import { getCodeEditToolDecisionCounter } from '../../bootstrap/state.js'
 import type { Tool as ToolType, ToolUseContext } from '../../Tool.js'
 import { getLanguageName } from '../../utils/cliHighlight.js'
 import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
-import { logOTelEvent } from '../../utils/telemetry/events.js'
 import type {
   PermissionApprovalSource,
   PermissionRejectionSource,
@@ -210,13 +208,6 @@ function logPermissionDecision(
 
   const sourceString = source === 'config' ? 'config' : sourceToString(source)
 
-  // Track code editing tool metrics
-  if (isCodeEditingTool(tool.name)) {
-    void buildCodeEditToolAttributes(tool, input, decision, sourceString).then(
-      attributes => getCodeEditToolDecisionCounter()?.add(1, attributes),
-    )
-  }
-
   // Persist decision on the context so downstream code can inspect what happened
   if (!toolUseContext.toolDecisions) {
     toolUseContext.toolDecisions = new Map()
@@ -225,12 +216,6 @@ function logPermissionDecision(
     source: sourceString,
     decision,
     timestamp: Date.now(),
-  })
-
-  void logOTelEvent('tool_decision', {
-    decision,
-    source: sourceString,
-    tool_name: sanitizeToolNameForAnalytics(tool.name),
   })
 }
 

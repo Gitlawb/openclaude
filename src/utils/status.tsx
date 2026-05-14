@@ -40,6 +40,7 @@ const API_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
   minimax: 'MiniMax',
   mistral: 'Mistral',
   xai: 'xAI',
+  'xiaomi-mimo': 'Xiaomi MiMo',
 };
 
 const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
@@ -68,6 +69,9 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
   xai: {
     baseUrlLabel: 'xAI base URL',
     resolveModelMetadata: true,
+  },
+  'xiaomi-mimo': {
+    baseUrlLabel: 'Xiaomi MiMo base URL',
   },
 };
 

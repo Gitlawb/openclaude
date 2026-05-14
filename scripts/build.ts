@@ -224,8 +224,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           }),
         )
 
-        // NOTE: @opentelemetry/* kept as external deps (too many named exports to stub)
-
         // Resolve native addon and missing snapshot imports to stubs
         for (const mod of [
           'audio-capture-napi',
@@ -260,8 +258,6 @@ const handler = {
   get(_, prop) {
     if (prop === '__esModule') return true;
     if (prop === 'default') return new Proxy({}, handler);
-    if (prop === 'ExportResultCode') return { SUCCESS: 0, FAILED: 1 };
-    if (prop === 'resourceFromAttributes') return () => ({});
     if (prop === 'SandboxRuntimeConfigSchema') return { parse: () => ({}) };
     return noop;
   }
@@ -280,35 +276,6 @@ export const ColorFile = null;
 export const getSyntaxTheme = noop;
 export const plot = noop;
 export const createClaudeForChromeMcpServer = noop;
-// OpenTelemetry exports
-export const ExportResultCode = { SUCCESS: 0, FAILED: 1 };
-export const resourceFromAttributes = noop;
-export const Resource = noopClass;
-export const SimpleSpanProcessor = noopClass;
-export const BatchSpanProcessor = noopClass;
-export const NodeTracerProvider = noopClass;
-export const BasicTracerProvider = noopClass;
-export const OTLPTraceExporter = noopClass;
-export const OTLPLogExporter = noopClass;
-export const OTLPMetricExporter = noopClass;
-export const PrometheusExporter = noopClass;
-export const LoggerProvider = noopClass;
-export const SimpleLogRecordProcessor = noopClass;
-export const BatchLogRecordProcessor = noopClass;
-export const MeterProvider = noopClass;
-export const PeriodicExportingMetricReader = noopClass;
-export const trace = { getTracer: () => ({ startSpan: () => ({ end: noop, setAttribute: noop, setStatus: noop, recordException: noop }) }) };
-export const context = { active: noop, with: (_, fn) => fn() };
-export const SpanStatusCode = { OK: 0, ERROR: 1, UNSET: 2 };
-export const ATTR_SERVICE_NAME = 'service.name';
-export const ATTR_SERVICE_VERSION = 'service.version';
-export const SEMRESATTRS_SERVICE_NAME = 'service.name';
-export const SEMRESATTRS_SERVICE_VERSION = 'service.version';
-export const AggregationTemporality = { CUMULATIVE: 0, DELTA: 1 };
-export const DataPointType = { HISTOGRAM: 0, SUM: 1, GAUGE: 2 };
-export const InstrumentType = { COUNTER: 0, HISTOGRAM: 1, UP_DOWN_COUNTER: 2 };
-export const PushMetricExporter = noopClass;
-export const SeverityNumber = {};
 `,
             loader: 'js',
           }),

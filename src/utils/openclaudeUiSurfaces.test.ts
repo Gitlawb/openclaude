@@ -1,9 +1,24 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { homedir } from 'os'
 import { join } from 'path'
 
+import { isInGlobalClaudeFolder } from '../components/permissions/FilePermissionDialog/permissionOptions.tsx'
 import { optionForPermissionSaveDestination } from '../components/permissions/rules/AddPermissionRules.tsx'
-import { isClaudeSettingsPath } from './permissions/filesystem.ts'
+import {
+  getClaudeSkillScope,
+  isClaudeSettingsPath,
+} from './permissions/filesystem.ts'
 import { getValidationTip } from './settings/validationTips.ts'
+
+const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+
+afterEach(() => {
+  if (originalConfigDir === undefined) {
+    delete process.env.CLAUDE_CONFIG_DIR
+  } else {
+    process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+  }
+})
 
 describe('OpenClaude settings path surfaces', () => {
   test('isClaudeSettingsPath recognizes project .openclaude settings files', () => {
@@ -40,6 +55,61 @@ describe('OpenClaude settings path surfaces', () => {
       description: 'Saved in .openclaude/settings.local.json',
       value: 'localSettings',
     })
+  })
+
+  test('permission dialog treats ~/.openclaude as the global Claude folder', () => {
+    process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
+
+    expect(
+      isInGlobalClaudeFolder(
+        join(homedir(), '.openclaude', 'settings.json'),
+      ),
+    ).toBe(true)
+    expect(
+      isInGlobalClaudeFolder(join(homedir(), '.claude', 'settings.json')),
+    ).toBe(true)
+  })
+
+  test('permission dialog does not treat arbitrary CLAUDE_CONFIG_DIR as the global Claude folder', () => {
+    process.env.CLAUDE_CONFIG_DIR = join(homedir(), 'custom-openclaude')
+
+    expect(
+      isInGlobalClaudeFolder(
+        join(homedir(), 'custom-openclaude', 'settings.json'),
+      ),
+    ).toBe(false)
+  })
+
+  test('global skill scope recognizes ~/.openclaude and legacy ~/.claude skills', () => {
+    process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
+
+    expect(
+      getClaudeSkillScope(
+        join(homedir(), '.openclaude', 'skills', 'demo', 'SKILL.md'),
+      ),
+    ).toEqual({
+      skillName: 'demo',
+      pattern: '~/.openclaude/skills/demo/**',
+    })
+
+    expect(
+      getClaudeSkillScope(
+        join(homedir(), '.claude', 'skills', 'legacy', 'SKILL.md'),
+      ),
+    ).toEqual({
+      skillName: 'legacy',
+      pattern: '~/.claude/skills/legacy/**',
+    })
+  })
+
+  test('global skill scope does not emit fixed rules for arbitrary CLAUDE_CONFIG_DIR skills', () => {
+    process.env.CLAUDE_CONFIG_DIR = join(homedir(), 'custom-openclaude')
+
+    expect(
+      getClaudeSkillScope(
+        join(homedir(), 'custom-openclaude', 'skills', 'demo', 'SKILL.md'),
+      ),
+    ).toBe(null)
   })
 })
 

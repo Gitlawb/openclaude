@@ -3,7 +3,13 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../analytics/index.js'
-import { getSessionsSinceLastShown, recordTipShown } from './tipHistory.js'
+import { getSponsoredTipsFrequency } from './sponsoredTips.js'
+import {
+  getSessionsSinceLastShown,
+  getSessionsSinceLastSponsored,
+  recordSponsoredTipShown,
+  recordTipShown,
+} from './tipHistory.js'
 import { getRelevantTips } from './tipRegistry.js'
 import type { Tip, TipContext } from './types.js'
 
@@ -29,6 +35,17 @@ export function selectTipWithLongestTimeSinceShown(
   return tipsWithSessions[0]?.tip
 }
 
+/**
+ * Decide whether this pick is eligible to show a sponsored tip.
+ * Enforces a 1-in-N cap: a sponsored tip can only show if no sponsored tip
+ * has been shown in the last N startups. Setting frequency to 0 disables.
+ */
+function isSponsoredSlotEligible(): boolean {
+  const frequency = getSponsoredTipsFrequency()
+  if (frequency === 0) return false
+  return getSessionsSinceLastSponsored() >= frequency
+}
+
 export async function getTipToShowOnSpinner(
   context?: TipContext,
 ): Promise<Tip | undefined> {
@@ -42,12 +59,25 @@ export async function getTipToShowOnSpinner(
     return undefined
   }
 
-  return selectTipWithLongestTimeSinceShown(tips)
+  const sponsored = tips.filter(t => t.sponsor)
+  const regular = tips.filter(t => !t.sponsor)
+
+  // Sponsored slot first, gated by the 1-in-N cap. Falls back to regular
+  // if no sponsored tip is currently eligible (e.g., cap not met, none relevant).
+  if (sponsored.length > 0 && isSponsoredSlotEligible()) {
+    const pick = selectTipWithLongestTimeSinceShown(sponsored)
+    if (pick) return pick
+  }
+
+  return selectTipWithLongestTimeSinceShown(regular)
 }
 
 export function recordShownTip(tip: Tip): void {
   // Record in history
   recordTipShown(tip.id)
+  if (tip.sponsor) {
+    recordSponsoredTipShown()
+  }
 
   // Log event for analytics
   logEvent('tengu_tip_shown', {

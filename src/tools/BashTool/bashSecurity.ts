@@ -2236,10 +2236,14 @@ function validateZshDangerousCommands(
     }
   }
 
-  // Check for `fc -e` which allows executing arbitrary commands via editor
+  // Check for `fc -e` which allows executing arbitrary commands via editor.
   // fc without -e is safe (just lists history), but -e specifies an editor
-  // to run on the command, effectively an eval
-  if (baseCmd === 'fc' && /\s-\S*e/.test(trimmed)) {
+  // to run on the command, effectively an eval. The regex requires `e` to
+  // be the last letter in a short POSIX-style flag bundle (matches `-e`,
+  // `-le`, `-lne`) and caps the bundle at 4 chars total so unrelated
+  // long-style flags like `-reset`, `-reverse`, or `-message` do not
+  // false-positive on `e` appearing mid-flag or at the end of a long word.
+  if (baseCmd === 'fc' && /\s-[a-zA-Z]{0,3}e(?:\s|$)/.test(trimmed)) {
     logEvent('tengu_bash_security_check_triggered', {
       checkId: BASH_SECURITY_CHECK_IDS.ZSH_DANGEROUS_COMMANDS,
       subId: 2,

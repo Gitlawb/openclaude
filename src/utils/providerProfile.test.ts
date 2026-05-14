@@ -1125,6 +1125,29 @@ test('buildStartupEnvFromProfile preserves plural-profile env when the legacy fi
   assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, 'saved_moonshot')
 })
 
+test('buildStartupEnvFromProfile ignores the legacy file when a configured provider profile already selected a concrete env', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'https://api.moonshot.ai/v1',
+    OPENAI_MODEL: 'kimi-k2.6',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-stale',
+      OPENAI_MODEL: 'Meta-Llama-3.1-70B-Instruct',
+      OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.moonshot.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'kimi-k2.6')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile falls back to legacy file when plural system has not applied', async () => {
   // Counter-example: first-run user with only the legacy file (no plural
   // active profile yet). The legacy file is the correct source, so the
@@ -1146,6 +1169,48 @@ test('buildStartupEnvFromProfile falls back to legacy file when plural system ha
   assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+})
+
+test('buildStartupEnvFromProfile still falls back to the legacy file when configured profiles exist but startup env is incomplete', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+})
+
+test('buildStartupEnvFromProfile ignores falsey provider flags when deciding whether a configured profile already selected startup env', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '0',
+    OPENAI_BASE_URL: 'https://api.stale.example/v1',
+    OPENAI_MODEL: 'stale-model',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
 })
 
 test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {
