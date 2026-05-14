@@ -173,17 +173,18 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
       })
     : null
   const models =
-    (discovered && discovered.source !== 'error'
-      ? discovered.models.map(model => model.apiName)
-      : null) ??
-    (await listOpenAICompatibleModels({
-      baseUrl,
-      apiKey,
-      headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
-    }))
+    routeId
+      ? (discovered?.models.map(model => model.apiName) ?? null)
+      : await listOpenAICompatibleModels({
+          baseUrl,
+          apiKey,
+          headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
+        })
 
   if (models === null) {
-    logForDebugging('[Bootstrap] Local OpenAI model discovery failed')
+    logForDebugging(
+      `[Bootstrap] OpenAI-compatible model discovery failed for ${baseUrl}`,
+    )
     return null
   }
 

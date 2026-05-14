@@ -143,6 +143,7 @@ Advanced and source-build guides:
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
+| AI/ML API | `/provider` or OpenAI-compatible env vars | Uses `https://api.aimlapi.com/v1`, stores keys via `AIMLAPI_API_KEY`, sends required OpenClaude attribution headers, and discovers chat-capable models from the public `/models` catalog |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | Gemini | `/provider` or env vars | Supports API key only |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
@@ -171,8 +172,9 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Tool quality depends heavily on the selected model
 - Smaller local models can struggle with long multi-step tool flows
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
+- AI/ML API uses the OpenAI-compatible route, defaults to `gpt-4o`, and only surfaces chat-capable models from its public catalog
 - Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
-- Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
+- Xiaomi MiMo uses `api-key` header auth on the OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
 
 For best results, use models with strong tool/function calling support.
 

@@ -112,6 +112,15 @@ test('detects Moonshot AI from descriptor route metadata', async () => {
   ).toBe('Moonshot AI')
 })
 
+test('detects AI/ML API from descriptor route metadata', async () => {
+  const { getLocalOpenAICompatibleProviderLabel } =
+    await loadProviderDiscoveryModule()
+
+  expect(
+    getLocalOpenAICompatibleProviderLabel('https://api.aimlapi.com/v1'),
+  ).toBe('AI/ML API')
+})
+
 test('detects Z.AI from descriptor route metadata', async () => {
   const { getLocalOpenAICompatibleProviderLabel } =
     await loadProviderDiscoveryModule()

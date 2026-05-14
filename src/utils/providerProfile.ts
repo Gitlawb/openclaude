@@ -23,6 +23,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   normalizeXiaomiMimoBaseUrl,
+  resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
   maskSecretForDisplay,
@@ -91,6 +92,7 @@ const PROFILE_ENV_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'AIMLAPI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
 ] as const
@@ -115,6 +117,7 @@ const SECRET_ENV_KEYS = [
   'MISTRAL_API_KEY',
   'BNKR_API_KEY',
   'XAI_API_KEY',
+  'AIMLAPI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
 ] as const
@@ -171,6 +174,7 @@ export type ProfileEnv = {
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
   XAI_API_KEY?: string
+  AIMLAPI_API_KEY?: string
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
 }
@@ -193,6 +197,7 @@ type SecretValueSource = Partial<
     | 'MISTRAL_API_KEY'
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
+    | 'AIMLAPI_API_KEY'
     | 'VENICE_API_KEY'
     | 'MIMO_API_KEY',
     string | undefined
@@ -642,6 +647,13 @@ export function buildOpenAIProfileEnv(options: {
   const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
 
   return {
+    ...(resolveRouteIdFromBaseUrl(
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+        (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
+        DEFAULT_OPENAI_BASE_URL,
+    ) === 'aimlapi' && key
+      ? { AIMLAPI_API_KEY: key }
+      : {}),
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||

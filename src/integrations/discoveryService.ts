@@ -211,6 +211,25 @@ function mergeCatalogEntries(
   return merged
 }
 
+function dedupeDiscoveredEntries(
+  entries: ModelCatalogEntry[],
+): ModelCatalogEntry[] {
+  const deduped: ModelCatalogEntry[] = []
+  const seenApiNames = new Set<string>()
+
+  for (const entry of entries) {
+    const apiName = entry.apiName.trim().toLowerCase()
+    if (!apiName || seenApiNames.has(apiName)) {
+      continue
+    }
+
+    seenApiNames.add(apiName)
+    deduped.push(entry)
+  }
+
+  return deduped
+}
+
 async function runDiscovery(
   routeId: string,
   options?: {
@@ -253,7 +272,7 @@ async function runDiscovery(
             entries.push(entry)
           }
         }
-        return entries
+        return dedupeDiscoveredEntries(entries)
       }
 
       const models = await listOpenAICompatibleModels({

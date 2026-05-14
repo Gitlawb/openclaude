@@ -13,6 +13,7 @@ import { getIdeClientName, type IDEExtensionInstallationStatus, isJetBrainsIde, 
 import { getClaudeAiUserDefaultModelDescription, modelDisplayString } from './model/model.js';
 import { getAPIProvider, type APIProvider } from './model/providers.js';
 import { resolveProviderRequest } from '../services/api/providerConfig.js';
+import { getRouteLabel, resolveActiveRouteIdFromEnv } from '../integrations/routeMetadata.js';
 import { getMTLSConfig } from './mtls.js';
 import { checkInstall } from './nativeInstaller/index.js';
 import { getProxyUrl } from './proxy.js';
@@ -74,6 +75,35 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
     baseUrlLabel: 'Xiaomi MiMo base URL',
   },
 };
+
+function getOpenAICompatibleStatusPresentation(
+  apiProvider: APIProvider,
+): {
+  providerLabel: string;
+  baseUrlLabel?: string;
+  resolveModelMetadata?: boolean;
+} {
+  const fallbackLabel = API_PROVIDER_LABELS[apiProvider] ?? 'OpenAI-compatible';
+
+  if (apiProvider === 'openai') {
+    const routeId = resolveActiveRouteIdFromEnv(process.env);
+    if (routeId && routeId !== 'openai' && routeId !== 'custom') {
+      const routeLabel = getRouteLabel(routeId) ?? fallbackLabel;
+      return {
+        providerLabel: routeLabel,
+        baseUrlLabel: `${routeLabel} base URL`,
+        resolveModelMetadata: true,
+      };
+    }
+  }
+
+  const metadata = OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider];
+  return {
+    providerLabel: fallbackLabel,
+    baseUrlLabel: metadata?.baseUrlLabel,
+    resolveModelMetadata: metadata?.resolveModelMetadata,
+  };
+}
 
 function formatOpenAICompatibleModelDisplay(
   model: string,
@@ -338,7 +368,8 @@ export function buildAPIProviderProperties(): Property[] {
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
   };
   if (apiProvider !== 'firstParty') {
-    const providerLabel = API_PROVIDER_LABELS[apiProvider];
+    const providerLabel =
+      getOpenAICompatibleStatusPresentation(apiProvider).providerLabel;
     properties.push({
       label: 'API provider',
       value: providerLabel
@@ -415,10 +446,10 @@ export function buildAPIProviderProperties(): Property[] {
     }
   } else if (apiProvider in OPENAI_COMPATIBLE_STATUS_METADATA) {
     const metadata =
-      OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider]!;
+      getOpenAICompatibleStatusPresentation(apiProvider);
     pushRedactedProperty(
       properties,
-      metadata.baseUrlLabel,
+      metadata.baseUrlLabel ?? 'OpenAI base URL',
       process.env.OPENAI_BASE_URL,
       secretSource,
     );

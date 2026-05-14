@@ -68,6 +68,7 @@ beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
+  delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
   clearProviderEnv()
   globalThis.fetch = originalFetch
 })
@@ -102,11 +103,11 @@ describe('discoverModelsForRoute', () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
     let callCount = 0
-    setMockFetch(mock((input: string | URL | Request, init?: RequestInit) => {
+    const calledUrls: string[] = []
+    setMockFetch(mock((input: string | URL | Request) => {
       callCount++
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      expect(url).toBe('http://127.0.0.1:1337/v1/models')
-      expect(init?.headers).toBeUndefined()
+      calledUrls.push(url)
 
       return Promise.resolve(
         new Response(
@@ -129,6 +130,7 @@ describe('discoverModelsForRoute', () => {
     })
     expect(second?.source).toBe('cache')
     expect(callCount).toBe(1)
+    expect(calledUrls).toEqual(['http://127.0.0.1:1337/v1/models'])
   })
 
   test('partitions cached discovery results by endpoint base URL', async () => {
@@ -348,6 +350,80 @@ describe('discoverModelsForRoute', () => {
     expect(cached?.source).toBe('cache')
     expect(cached?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
     expect(callCount).toBe(1)
+  })
+
+  test('AI/ML API discovery filters chat models, dedupes ids, and omits auth', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    setMockFetch(mock((_input, init) => {
+      expect(init?.headers).toEqual({
+        'HTTP-Referer': 'OpenClaude',
+        'X-Title': 'OpenClaude',
+      })
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'gpt-4o',
+                type: 'openai/chat-completions',
+                info: {
+                  name: 'GPT-4o',
+                  developer: 'OpenAI',
+                  contextLength: 128000,
+                },
+              },
+              {
+                id: 'gpt-4o',
+                type: 'openai/chat-completions',
+                info: {
+                  name: 'GPT-4o',
+                  developer: 'OpenAI',
+                  contextLength: 128000,
+                },
+              },
+              {
+                id: 'gemini-2.5-pro',
+                type: 'openai/chat-completions',
+                info: {
+                  name: 'Gemini 2.5 Pro',
+                  developer: 'Google',
+                  contextLength: 1048576,
+                },
+              },
+              {
+                id: 'whisper-large-v3',
+                type: 'openai/audio-transcriptions',
+                info: {
+                  name: 'Whisper Large V3',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('aimlapi', {
+      apiKey: 'should-not-be-sent',
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
+      'gpt-4o',
+      'gemini-2.5-pro',
+    ])
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gpt-4o')).toMatchObject({
+      id: 'aimlapi-gpt-4o',
+      label: 'GPT-4o',
+    })
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gemini-2.5-pro')).toMatchObject({
+      label: 'Gemini 2.5 Pro (Google)',
+      contextWindow: 1048576,
+    })
   })
 
   test('skips descriptor network discovery when nonessential traffic is disabled', async () => {

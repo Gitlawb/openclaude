@@ -44,6 +44,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'HICAP_API_KEY',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('aimlapi')).toEqual([
+    'AIMLAPI_API_KEY',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('venice')).toEqual([
     'VENICE_API_KEY',
     'OPENAI_API_KEY',
@@ -72,6 +76,13 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1')).toBe('venice')
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
+})
+
+test('AI/ML API route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('aimlapi')).toBe('https://api.aimlapi.com/v1')
+  expect(getRouteDefaultModel('aimlapi')).toBe('gpt-4o')
+  expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1')).toBe('aimlapi')
+  expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1/chat/completions')).toBe('aimlapi')
 })
 
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
@@ -149,6 +160,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
+  ['AI/ML API', 'https://api.aimlapi.com/v1', 'gpt-4o', 'aimlapi'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(
