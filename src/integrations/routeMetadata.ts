@@ -578,3 +578,19 @@ export function getTransportKindForRoute(
 ): TransportKind | null {
   return getRouteDescriptor(routeId)?.transportConfig.kind ?? null
 }
+
+export function getSparkBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isSparkBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isSparkBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}

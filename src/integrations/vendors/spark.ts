@@ -64,7 +64,7 @@ export default defineVendor({
   id: 'spark',
   label: 'iFlytek Spark',
   classification: 'openai-compatible',
-  defaultBaseUrl: 'https://spark-api-open.xf-yun.com/v1/chat/completions',
+  defaultBaseUrl: 'https://spark-api-open.xf-yun.com/v1',
   defaultModel: 'generalv3.5',
   requiredEnvVars: ['SPARK_API_KEY'],
   setup: {
@@ -87,6 +87,16 @@ export default defineVendor({
     apiKeyEnvVars: ['SPARK_API_KEY'],
     baseUrlEnvVars: ['SPARK_BASE_URL'],
     modelEnvVars: ['SPARK_MODEL'],
+  },
+  validation: {
+    kind: 'credential-env',
+    routing: {
+      matchDefaultBaseUrl: true,
+      matchBaseUrlHosts: ['spark-api-open.xf-yun.com'],
+    },
+    credentialEnvVars: ['SPARK_API_KEY', 'OPENAI_API_KEY'],
+    missingCredentialMessage:
+      'Spark auth is required. Set SPARK_API_KEY or OPENAI_API_KEY.',
   },
   catalog,
   usage: {

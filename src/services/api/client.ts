@@ -30,6 +30,7 @@ import {
 } from '../../utils/envUtils.js'
 import {
   getMiniMaxBaseUrlOverride,
+  getSparkBaseUrlOverride,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -117,6 +118,14 @@ function isXaiModelName(value: string | undefined): boolean {
   )
 }
 
+function isSparkModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      (normalized.startsWith('spark-') || normalized.includes('spark/')),
+  )
+}
+
 function applyMiniMaxEnvOnlyDefaults(): void {
   const baseUrlOverride = getMiniMaxBaseUrlOverride()
   const hasMiniMaxBaseOverride = baseUrlOverride !== undefined
@@ -151,6 +160,26 @@ function applyXaiEnvOnlyDefaults(): void {
       : undefined) ??
     getRouteDefaultModel('xai')
   process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function applySparkEnvOnlyDefaults(): void {
+  const baseUrlOverride = getSparkBaseUrlOverride()
+  const hasSparkBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('spark')
+  process.env.OPENAI_MODEL =
+    (hasSparkBaseOverride || isSparkModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('spark')
+  process.env.OPENAI_API_KEY = process.env.SPARK_API_KEY
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
@@ -272,20 +301,26 @@ export async function getAnthropicClient({
   const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
   const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
   const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
+  const useSparkEnvOnlyProvider = envOnlyProviderRouteId === 'spark'
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults()
   }
   if (useXaiEnvOnlyProvider) {
     applyXaiEnvOnlyDefaults()
   }
+  if (useSparkEnvOnlyProvider) {
+    applySparkEnvOnlyDefaults()
+  }
 
   if (
     useMiniMaxEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
+    useSparkEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_SPARK)
   ) {
     const { createOpenAIShimClient } = await import('./openaiShim.js')
     return createOpenAIShimClient({

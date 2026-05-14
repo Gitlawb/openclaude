@@ -9,7 +9,7 @@ test('spark vendor descriptor has correct identity', () => {
 
 test('spark vendor descriptor has correct defaults', () => {
   expect(spark.defaultBaseUrl).toBe(
-    'https://spark-api-open.xf-yun.com/v1/chat/completions',
+    'https://spark-api-open.xf-yun.com/v1',
   )
   expect(spark.defaultModel).toBe('generalv3.5')
   expect(spark.requiredEnvVars).toEqual(['SPARK_API_KEY'])

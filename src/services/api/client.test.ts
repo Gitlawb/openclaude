@@ -34,6 +34,8 @@ const originalEnv = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  SPARK_API_KEY: process.env.SPARK_API_KEY,
+  CLAUDE_CODE_USE_SPARK: process.env.CLAUDE_CODE_USE_SPARK,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
@@ -64,6 +66,7 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_SPARK
   delete process.env.GOOGLE_API_KEY
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_BASE_URL
@@ -72,6 +75,8 @@ beforeEach(() => {
   delete process.env.OPENAI_MODEL
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
+  delete process.env.SPARK_API_KEY
+  delete process.env.CLAUDE_CODE_USE_SPARK
   delete process.env.NVIDIA_NIM
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -88,6 +93,7 @@ afterEach(() => {
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
+  restoreEnv('CLAUDE_CODE_USE_SPARK', originalEnv.CLAUDE_CODE_USE_SPARK)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
@@ -100,6 +106,8 @@ afterEach(() => {
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
   restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
   restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
+  restoreEnv('SPARK_API_KEY', originalEnv.SPARK_API_KEY)
+  restoreEnv('CLAUDE_CODE_USE_SPARK', originalEnv.CLAUDE_CODE_USE_SPARK)
   restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
   restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
   restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
@@ -1031,4 +1039,132 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
   expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-test-key')
+})
+
+test('routes env-only Spark requests through the OpenAI-compatible shim', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.SPARK_API_KEY = 'spark-test-key'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-spark',
+        model: 'generalv3.5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'spark ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'generalv3.5',
+  })) as unknown as ShimClient
+
+  const response = await client.beta.messages.create({
+    model: 'generalv3.5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://spark-api-open.xf-yun.com/v1/chat/completions')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer spark-test-key')
+  expect(capturedBody?.model).toBe('generalv3.5')
+  expect(response).toMatchObject({
+    role: 'assistant',
+    model: 'generalv3.5',
+  })
+})
+
+test('CLAUDE_CODE_USE_SPARK routes through the OpenAI-compatible shim', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.CLAUDE_CODE_USE_SPARK = '1'
+  process.env.SPARK_API_KEY = 'spark-test-key'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-spark',
+        model: 'generalv3.5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'spark ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'generalv3.5',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'generalv3.5',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://spark-api-open.xf-yun.com/v1/chat/completions')
 })
