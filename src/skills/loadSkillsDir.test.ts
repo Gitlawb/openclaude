@@ -2,12 +2,17 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import { test } from 'bun:test'
 
+import {
+  getAllowedSettingSources,
+  setAllowedSettingSources,
+} from '../bootstrap/state.ts'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import type { SettingSource } from '../utils/settings/constants.ts'
 import {
   clearDynamicSkills,
   clearSkillCaches,
@@ -48,11 +53,24 @@ function writeUserSkill(
   )
 }
 
+function enableUserAndProjectSettingSources(): SettingSource[] {
+  const originalSources = getAllowedSettingSources()
+  setAllowedSettingSources([
+    'userSettings',
+    'projectSettings',
+    'localSettings',
+    'flagSettings',
+    'policySettings',
+  ])
+  return originalSources
+}
+
 test('loads flat and nested skills with colon namespaces', async () => {
   await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const originalSources = enableUserAndProjectSettingSources()
 
   try {
     mkdirSync(cwd, { recursive: true })
@@ -104,6 +122,7 @@ test('prefers .openclaude project skills over legacy .claude skills with the sam
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const originalSources = enableUserAndProjectSettingSources()
 
   try {
     mkdirSync(cwd, { recursive: true })
@@ -135,6 +154,7 @@ test('prefers .openclaude project skills over legacy .claude skills with the sam
       process.env.CLAUDE_CONFIG_DIR = originalConfigDir
     }
     clearSkillCaches()
+    setAllowedSettingSources(originalSources)
     rmSync(configDir, { recursive: true, force: true })
   }
 })
@@ -143,6 +163,7 @@ test('project skills are ordered before user skills with the same name', async (
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const originalSources = enableUserAndProjectSettingSources()
 
   try {
     mkdirSync(cwd, { recursive: true })
@@ -171,6 +192,7 @@ test('project skills are ordered before user skills with the same name', async (
       process.env.CLAUDE_CONFIG_DIR = originalConfigDir
     }
     clearSkillCaches()
+    setAllowedSettingSources(originalSources)
     rmSync(configDir, { recursive: true, force: true })
   }
 })
