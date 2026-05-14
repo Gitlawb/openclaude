@@ -12,6 +12,7 @@ export type InstallOptions = {
   global?: boolean
   force?: boolean
   registry?: string
+  projectDir?: string
 }
 
 type SkillRegistryEntry = {
@@ -60,7 +61,7 @@ async function pathExists(path: string): Promise<boolean> {
 function installRoot(options: InstallOptions): string {
   return options.global
     ? join(getClaudeConfigHomeDir(), 'skills')
-    : join(getCwd(), '.openclaude', 'skills')
+    : join(options.projectDir ?? getCwd(), '.openclaude', 'skills')
 }
 
 function normalizeRegistryEntries(parsed: unknown): SkillRegistryEntry[] {

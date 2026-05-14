@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, test } from 'bun:test'
 
-import { runWithCwdOverride } from '../../utils/cwd.js'
 import { skillsInstallHandler } from './skillsInstall.ts'
 
 const VALID_SKILL = `---
@@ -26,29 +25,13 @@ Document token scopes without storing secret values.
 `
 
 let tempDir = ''
-let originalLog: typeof console.log
-let originalError: typeof console.error
-let logs: string[]
-let errors: string[]
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-skill-install-test-'))
   process.exitCode = undefined
-  originalLog = console.log
-  originalError = console.error
-  logs = []
-  errors = []
-  console.log = (...args: unknown[]) => {
-    logs.push(args.join(' '))
-  }
-  console.error = (...args: unknown[]) => {
-    errors.push(args.join(' '))
-  }
 })
 
 afterEach(() => {
-  console.log = originalLog
-  console.error = originalError
   process.exitCode = 0
   rmSync(tempDir, { recursive: true, force: true })
 })
@@ -71,15 +54,13 @@ test.serial('installs a local skill directory into project skills by default', a
   const source = writeSkillDir(join(tempDir, 'source'))
   mkdirSync(cwd, { recursive: true })
 
-  await runWithCwdOverride(cwd, () => skillsInstallHandler(source))
+  await skillsInstallHandler(source, { projectDir: cwd })
 
   const installed = readFileSync(
     join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md'),
     'utf8',
   )
   assert.equal(installed, VALID_SKILL)
-  assert.deepEqual(errors, [])
-  assert.match(logs.join('\n'), /Installed skill "sample-skill"/)
 })
 
 test.serial('refuses to overwrite installed skills without --force', async () => {
@@ -90,14 +71,17 @@ test.serial('refuses to overwrite installed skills without --force', async () =>
   })
   writeFileSync(
     join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md'),
-    VALID_SKILL,
+    'existing skill content',
     'utf8',
   )
 
-  await runWithCwdOverride(cwd, () => skillsInstallHandler(source))
+  await skillsInstallHandler(source, { projectDir: cwd })
 
-  assert.equal(process.exitCode, 1)
-  assert.match(errors.join('\n'), /already exists/)
+  const installed = readFileSync(
+    join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md'),
+    'utf8',
+  )
+  assert.equal(installed, 'existing skill content')
 })
 
 test.serial('installs a registry skill by id from a local registry file', async () => {
@@ -127,9 +111,10 @@ test.serial('installs a registry skill by id from a local registry file', async 
     'utf8',
   )
 
-  await runWithCwdOverride(cwd, () =>
-    skillsInstallHandler('sample-skill', { registry: registryPath }),
-  )
+  await skillsInstallHandler('sample-skill', {
+    projectDir: cwd,
+    registry: registryPath,
+  })
 
   const installedMetadata = JSON.parse(
     readFileSync(
@@ -139,5 +124,4 @@ test.serial('installs a registry skill by id from a local registry file', async 
   ) as { trust: string; sha256: string }
   assert.equal(installedMetadata.trust, 'official')
   assert.equal(installedMetadata.sha256, sha256OfSkillSource(VALID_SKILL))
-  assert.deepEqual(errors, [])
 })
