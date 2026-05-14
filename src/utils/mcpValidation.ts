@@ -169,7 +169,9 @@ export async function mcpContentNeedsTruncation(
         : [{ role: 'user' as const, content }]
 
     const tokenCount = await countMessagesTokensWithAPI(messages, [])
-    return !!(tokenCount && tokenCount > getMaxMcpOutputTokens())
+    // null means token count is unavailable — fail-closed (same as throw path)
+    if (tokenCount == null) return true
+    return tokenCount > getMaxMcpOutputTokens()
   } catch (error) {
     logError(error)
     // Fail-closed: if token count is unavailable, assume truncation is needed
@@ -187,12 +189,17 @@ export async function truncateMcpContent(
   const truncationMsg = getTruncationMessage()
 
   if (typeof content === 'string') {
-    // Reserve space for the truncation message so total stays within maxChars.
-    const budget = Math.max(0, maxChars - truncationMsg.length)
+    // When the notice itself exceeds the budget, return only the notice (capped).
+    if (truncationMsg.length >= maxChars) {
+      return truncationMsg.slice(0, maxChars)
+    }
+    const budget = maxChars - truncationMsg.length
     return truncateString(content, budget) + truncationMsg
   } else {
-    // Same reservation for block content.
-    const budget = Math.max(0, maxChars - truncationMsg.length)
+    if (truncationMsg.length >= maxChars) {
+      return [{ type: 'text', text: truncationMsg.slice(0, maxChars) }]
+    }
+    const budget = maxChars - truncationMsg.length
     const truncatedBlocks = await truncateContentBlocks(
       content as ContentBlockParam[],
       budget,
