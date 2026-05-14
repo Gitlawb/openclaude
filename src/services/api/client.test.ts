@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { getAnthropicClient } from './client.js'
 
 type FetchType = typeof globalThis.fetch
@@ -49,7 +50,8 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('client.test.ts')
   ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
   process.env.GEMINI_API_KEY = 'gemini-test-key'
@@ -79,33 +81,40 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  ;(globalThis as Record<string, unknown>).MACRO = originalMacro
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
-  restoreEnv('CLAUDE_CODE_SKIP_BEDROCK_AUTH', originalEnv.CLAUDE_CODE_SKIP_BEDROCK_AUTH)
-  restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
-  restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
-  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
-  restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
-  restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
-  restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
-  restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
-  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
-  restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
-  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
-  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
-  restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
-  restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
-  restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
-  restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
-  restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
-  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
-  globalThis.fetch = originalFetch
+  try {
+    ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+    restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
+    restoreEnv(
+      'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+      originalEnv.CLAUDE_CODE_SKIP_BEDROCK_AUTH,
+    )
+    restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
+    restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
+    restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+    restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+    restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
+    restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
+    restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
+    restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
+    restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
+    restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
+    restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
+    restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+    restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
+    restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
+    restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
+    restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
+    restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
+    restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
+    restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    globalThis.fetch = originalFetch
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('first-party Anthropic requests execute the configured fetch wrapper without runtime symbol errors', async () => {
