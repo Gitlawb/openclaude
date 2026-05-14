@@ -596,10 +596,26 @@ function getToolDirectoryLines(tools: OpenAITool[]): string {
     .join('\n')
 }
 
+function getForcedToolChoiceName(toolChoice: unknown): string | undefined {
+  if (!toolChoice || typeof toolChoice !== 'object' || Array.isArray(toolChoice)) {
+    return undefined
+  }
+
+  const record = toolChoice as Record<string, unknown>
+  return record.type === 'tool' && typeof record.name === 'string'
+    ? record.name
+    : undefined
+}
+
+function hasOpenAIToolNamed(tools: OpenAITool[], name: string): boolean {
+  return tools.some(tool => tool.function.name === name)
+}
+
 function selectShimToolSet(
   converted: OpenAITool[],
   messages: unknown[],
   mode: Exclude<ShimToolSearchMode, 'off' | 'lazy'>,
+  forcedToolName?: string,
 ): OpenAITool[] {
   if (mode === 'minify') return minifyToolSchemas(converted)
 
@@ -607,12 +623,13 @@ function selectShimToolSet(
   if (predicted === null) {
     return minifyToolSchemas(converted)
   }
-  if (predicted.size === 0) {
+  if (predicted.size === 0 && !forcedToolName) {
     return []
   }
 
   const wanted = new Set<string>(CORE_TOOL_NAMES)
   for (const toolName of predicted) wanted.add(toolName)
+  if (forcedToolName) wanted.add(forcedToolName)
   const filtered = converted.filter(tool => wanted.has(tool.function.name))
   return minifyToolSchemas(filtered.length > 0 ? filtered : converted)
 }
@@ -1940,9 +1957,14 @@ class OpenAIShimMessages {
         shimToolSearchMode === 'lazy' &&
         params.tools && (params.tools as unknown[]).length > 0
       ) {
+        const forcedToolName = getForcedToolChoiceName(params.tool_choice)
         const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
         const predicted = predictNeededTools(msgs)
-        if (predicted !== null && predicted.size === 0) {
+        if (
+          predicted !== null &&
+          predicted.size === 0 &&
+          (!forcedToolName || forcedToolName === 'request_tools')
+        ) {
           const shimResult = await self._shimToolSearchCreate(request, params, options)
           httpResponse = shimResult.response
           if (shimResult.converted) {
@@ -2238,7 +2260,9 @@ class OpenAIShimMessages {
     debugShimToolSearch(`Phase 2: model requested tools: ${requestedNames.join(', ')}`)
 
     // Build full tool set from the original params, filtered + minified
+    const forcedToolName = getForcedToolChoiceName(params.tool_choice)
     const wanted = new Set([...requestedNames, ...CORE_TOOL_NAMES])
+    if (forcedToolName && forcedToolName !== 'request_tools') wanted.add(forcedToolName)
     const filtered = allConverted.filter(t => wanted.has(t.function.name))
     const toolSet = minifyToolSchemas(
       parsedRequestedNames && requestedNames.length > 0 && filtered.length > 0
@@ -2398,20 +2422,21 @@ class OpenAIShimMessages {
       )
       if (converted.length > 0) {
         const shimToolSearchMode = getShimToolSearchMode()
+        const forcedToolName = getForcedToolChoiceName(params.tool_choice)
         if (convertedToolOverride || isRequestToolsOnly(converted)) {
           body.tools = convertedToolOverride
             ? convertedToolOverride
             : converted
         } else if (shimToolSearchMode === 'minify' || shimToolSearchMode === 'predict') {
           const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
-          const toolSet = selectShimToolSet(converted, msgs, shimToolSearchMode)
+          const toolSet = selectShimToolSet(converted, msgs, shimToolSearchMode, forcedToolName)
           body.tools = toolSet
           const names = toolSet.map(t => t.function.name)
           const totalChars = JSON.stringify(toolSet).length
           debugShimToolSearch(`${shimToolSearchMode}: ${toolSet.length} tools (${totalChars} chars): ${names.join(', ')}`)
         } else if (shimToolSearchMode === 'lazy') {
           const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
-          body.tools = selectShimToolSet(converted, msgs, 'predict')
+          body.tools = selectShimToolSet(converted, msgs, 'predict', forcedToolName)
         } else {
           body.tools = converted
         }
@@ -2419,7 +2444,11 @@ class OpenAIShimMessages {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {
             body.tool_choice = 'auto'
-          } else if (tc.type === 'tool' && tc.name) {
+          } else if (
+            tc.type === 'tool' &&
+            tc.name &&
+            hasOpenAIToolNamed(body.tools as OpenAITool[], tc.name)
+          ) {
             body.tool_choice = {
               type: 'function',
               function: { name: tc.name },
@@ -2476,10 +2505,12 @@ class OpenAIShimMessages {
       if (params.temperature !== undefined) responsesBody.temperature = params.temperature
       if (params.top_p !== undefined) responsesBody.top_p = params.top_p
 
-      if (!omitResponsesTools && Array.isArray(body.tools) && body.tools.length > 0) {
-        const convertedTools = convertOpenAIToolsToResponsesTools(body.tools as OpenAITool[])
-        if (convertedTools.length > 0) {
-          responsesBody.tools = convertedTools
+      if (!omitResponsesTools && Array.isArray(body.tools)) {
+        if (body.tools.length > 0) {
+          const convertedTools = convertOpenAIToolsToResponsesTools(body.tools as OpenAITool[])
+          if (convertedTools.length > 0) {
+            responsesBody.tools = convertedTools
+          }
         }
       } else if (!omitResponsesTools && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
