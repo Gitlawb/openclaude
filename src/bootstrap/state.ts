@@ -514,7 +514,10 @@ export const onSessionSwitch = sessionSwitched.subscribe
  */
 export function getSessionProjectDir(): string | null {
   const ctx = getSdkContext()
-  return ctx?.sessionProjectDir ?? STATE.sessionProjectDir
+  if (ctx) {
+    return ctx.sessionProjectDir
+  }
+  return STATE.sessionProjectDir
 }
 
 export function getOriginalCwd(): string {

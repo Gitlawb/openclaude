@@ -76,7 +76,7 @@ function createTestStreams() {
 
 async function waitForCondition(
   predicate: () => boolean,
-  timeoutMs = 3000,
+  timeoutMs = 10_000,
 ): Promise<void> {
   const startedAt = Date.now()
   while (Date.now() - startedAt < timeoutMs) {

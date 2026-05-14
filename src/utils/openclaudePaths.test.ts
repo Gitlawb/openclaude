@@ -43,6 +43,7 @@ afterEach(() => {
   process.argv = [...originalArgv]
   mock.restore()
   mock.module('os', () => originalOs)
+  mock.module('fs/promises', () => fsPromises)
 })
 
 describe('OpenClaude paths', () => {
