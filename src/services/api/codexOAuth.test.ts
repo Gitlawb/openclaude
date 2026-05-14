@@ -1,29 +1,68 @@
 import { createServer } from 'node:http'
 
 import { afterEach, expect, mock, test } from 'bun:test'
+import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
 
 import { CodexOAuthService } from './codexOAuth.js'
 
-const originalFetch = globalThis.fetch
-const originalCallbackPort = process.env.CODEX_OAUTH_CALLBACK_PORT
-const originalClientId = process.env.CODEX_OAUTH_CLIENT_ID
-
 afterEach(() => {
   mock.restore()
-  globalThis.fetch = originalFetch
+  restoreCodexOAuthTestIsolation()
+})
 
-  if (originalCallbackPort === undefined) {
+type CodexOAuthTestSnapshot = {
+  fetch: typeof globalThis.fetch
+  callbackPort: string | undefined
+  callbackHost: string | undefined
+  clientId: string | undefined
+}
+
+let activeSnapshot: CodexOAuthTestSnapshot | null = null
+
+async function acquireCodexOAuthTestIsolation(): Promise<CodexOAuthTestSnapshot> {
+  const result = await acquireEnvMutex()
+  expect(result.acquired).toBe(true)
+
+  activeSnapshot = {
+    fetch: globalThis.fetch,
+    callbackPort: process.env.CODEX_OAUTH_CALLBACK_PORT,
+    callbackHost: process.env.CODEX_OAUTH_CALLBACK_HOST,
+    clientId: process.env.CODEX_OAUTH_CLIENT_ID,
+  }
+
+  return activeSnapshot
+}
+
+function restoreCodexOAuthTestIsolation(): void {
+  if (!activeSnapshot) {
+    return
+  }
+
+  const snapshot = activeSnapshot
+  activeSnapshot = null
+
+  globalThis.fetch = snapshot.fetch
+
+  if (snapshot.callbackPort === undefined) {
     delete process.env.CODEX_OAUTH_CALLBACK_PORT
   } else {
-    process.env.CODEX_OAUTH_CALLBACK_PORT = originalCallbackPort
+    process.env.CODEX_OAUTH_CALLBACK_PORT = snapshot.callbackPort
   }
 
-  if (originalClientId === undefined) {
+  if (snapshot.callbackHost === undefined) {
+    delete process.env.CODEX_OAUTH_CALLBACK_HOST
+  } else {
+    process.env.CODEX_OAUTH_CALLBACK_HOST = snapshot.callbackHost
+  }
+
+  if (snapshot.clientId === undefined) {
     delete process.env.CODEX_OAUTH_CLIENT_ID
   } else {
-    process.env.CODEX_OAUTH_CLIENT_ID = originalClientId
+    process.env.CODEX_OAUTH_CLIENT_ID = snapshot.clientId
   }
-})
+
+  releaseEnvMutex()
+}
 
 async function getFreePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
@@ -65,102 +104,116 @@ function buildCallbackRequest(authUrl: string): string {
 }
 
 test('serves updated success copy after a successful Codex OAuth flow', async () => {
-  const callbackPort = await getFreePort()
-  process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
-  process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
+  await acquireCodexOAuthTestIsolation()
 
-  globalThis.fetch = mock(async (input, init) => {
-    const url = String(input)
-    if (url.startsWith('http://localhost:')) {
-      return originalFetch(input, init)
-    }
+  try {
+    const callbackPort = await getFreePort()
+    process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
+    process.env.CODEX_OAUTH_CALLBACK_HOST = '127.0.0.1'
+    process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
-    return new Response(
-      JSON.stringify({
-        access_token: 'access-token',
-        refresh_token: 'refresh-token',
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      },
+    globalThis.fetch = mock(async (input, init) => {
+      const url = String(input)
+      if (url.startsWith('http://localhost:')) {
+        return activeSnapshot!.fetch(input, init)
+      }
+
+      return new Response(
+        JSON.stringify({
+          access_token: 'access-token',
+          refresh_token: 'refresh-token',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+    }) as typeof fetch
+
+    const service = new CodexOAuthService()
+    let callbackResponsePromise!: Promise<Response>
+
+    const flowPromise = service.startOAuthFlow(async authUrl => {
+      callbackResponsePromise = activeSnapshot!.fetch(buildCallbackRequest(authUrl))
+    })
+
+    const tokens = await flowPromise
+    const callbackResponse = await callbackResponsePromise
+    const html = await callbackResponse.text()
+
+    expect(tokens.accessToken).toBe('access-token')
+    expect(tokens.refreshToken).toBe('refresh-token')
+    expect(html).toContain('You can return to OpenClaude now.')
+    expect(html).toContain(
+      'OpenClaude will finish activating your new Codex OAuth login.',
     )
-  }) as typeof fetch
-
-  const service = new CodexOAuthService()
-  let callbackResponsePromise!: Promise<Response>
-
-  const flowPromise = service.startOAuthFlow(async authUrl => {
-    callbackResponsePromise = originalFetch(buildCallbackRequest(authUrl))
-  })
-
-  const tokens = await flowPromise
-  const callbackResponse = await callbackResponsePromise
-  const html = await callbackResponse.text()
-
-  expect(tokens.accessToken).toBe('access-token')
-  expect(tokens.refreshToken).toBe('refresh-token')
-  expect(html).toContain('You can return to OpenClaude now.')
-  expect(html).toContain(
-    'OpenClaude will finish activating your new Codex OAuth login.',
-  )
-  expect(html).not.toContain('continue automatically')
+    expect(html).not.toContain('continue automatically')
+  } finally {
+    restoreCodexOAuthTestIsolation()
+  }
 })
 
 test('cancellation during token exchange returns a cancelled page and rejects the flow', async () => {
-  const callbackPort = await getFreePort()
-  process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
-  process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
+  await acquireCodexOAuthTestIsolation()
 
-  let resolveFetchStart!: () => void
-  const fetchStarted = new Promise<void>(resolve => {
-    resolveFetchStart = resolve
-  })
+  try {
+    const callbackPort = await getFreePort()
+    process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
+    process.env.CODEX_OAUTH_CALLBACK_HOST = '127.0.0.1'
+    process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
-  globalThis.fetch = mock((input, init) => {
-    const url = String(input)
-    if (url.startsWith('http://localhost:')) {
-      return originalFetch(input, init)
-    }
-
-    return new Promise<Response>((_resolve, reject) => {
-      resolveFetchStart()
-
-      const signal = init?.signal
-      if (!signal) {
-        return
-      }
-
-      if (signal.aborted) {
-        reject(signal.reason)
-        return
-      }
-
-      signal.addEventListener(
-        'abort',
-        () => {
-          reject(signal.reason)
-        },
-        { once: true },
-      )
+    let resolveFetchStart!: () => void
+    const fetchStarted = new Promise<void>(resolve => {
+      resolveFetchStart = resolve
     })
-  }) as typeof fetch
 
-  const service = new CodexOAuthService()
-  let callbackResponsePromise!: Promise<Response>
+    globalThis.fetch = mock((input, init) => {
+      const url = String(input)
+      if (url.startsWith('http://localhost:')) {
+        return activeSnapshot!.fetch(input, init)
+      }
 
-  const flowPromise = service.startOAuthFlow(async authUrl => {
-    callbackResponsePromise = originalFetch(buildCallbackRequest(authUrl))
-  })
+      return new Promise<Response>((_resolve, reject) => {
+        resolveFetchStart()
 
-  await fetchStarted
-  service.cleanup()
+        const signal = init?.signal
+        if (!signal) {
+          return
+        }
 
-  await expect(flowPromise).rejects.toThrow('Codex OAuth flow was cancelled.')
+        if (signal.aborted) {
+          reject(signal.reason)
+          return
+        }
 
-  const callbackResponse = await callbackResponsePromise
-  const html = await callbackResponse.text()
+        signal.addEventListener(
+          'abort',
+          () => {
+            reject(signal.reason)
+          },
+          { once: true },
+        )
+      })
+    }) as typeof fetch
 
-  expect(html).toContain('Codex login cancelled')
-  expect(html).toContain('retry in OpenClaude')
+    const service = new CodexOAuthService()
+    let callbackResponsePromise!: Promise<Response>
+
+    const flowPromise = service.startOAuthFlow(async authUrl => {
+      callbackResponsePromise = activeSnapshot!.fetch(buildCallbackRequest(authUrl))
+    })
+
+    await fetchStarted
+    service.cleanup()
+
+    await expect(flowPromise).rejects.toThrow('Codex OAuth flow was cancelled.')
+
+    const callbackResponse = await callbackResponsePromise
+    const html = await callbackResponse.text()
+
+    expect(html).toContain('Codex login cancelled')
+    expect(html).toContain('retry in OpenClaude')
+  } finally {
+    restoreCodexOAuthTestIsolation()
+  }
 })

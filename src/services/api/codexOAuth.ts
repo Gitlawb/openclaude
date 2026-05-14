@@ -10,6 +10,8 @@ import {
   CODEX_OAUTH_ORIGINATOR,
   CODEX_OAUTH_SCOPE,
   escapeHtml,
+  getCodexOAuthCallbackHost,
+  getCodexOAuthCallbackOrigin,
   exchangeCodexIdTokenForApiKey,
   getCodexOAuthCallbackPort,
   getCodexOAuthClientId,
@@ -36,7 +38,7 @@ function buildCodexAuthorizeUrl(options: {
   codeChallenge: string
   state: string
 }): string {
-  const redirectUri = `http://localhost:${options.port}/auth/callback`
+  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port)}/auth/callback`
   const authUrl = new URL(`${CODEX_OAUTH_ISSUER}/oauth/authorize`)
 
   authUrl.searchParams.append('response_type', 'code')
@@ -119,7 +121,7 @@ async function exchangeAuthorizationCode(options: {
   port: number
   signal?: AbortSignal
 }): Promise<CodexOAuthTokens> {
-  const redirectUri = `http://localhost:${options.port}/auth/callback`
+  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port)}/auth/callback`
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: options.authorizationCode,
@@ -199,7 +201,8 @@ export class CodexOAuthService {
     this.port = null
 
     try {
-      const port = await authCodeListener.start(callbackPort)
+      const callbackHost = getCodexOAuthCallbackHost()
+      const port = await authCodeListener.start(callbackPort, callbackHost)
       this.port = port
 
       const state = generateState()
@@ -286,7 +289,7 @@ export class CodexOAuthService {
         message.includes(String(callbackPort))
       ) {
         throw new Error(
-          `Codex OAuth needs localhost:${callbackPort} for its callback. Close any app already using that port and try again.`,
+          `Codex OAuth needs ${getCodexOAuthCallbackHost()}:${callbackPort} for its callback. Close any app already using that port and try again.`,
         )
       }
       throw error
