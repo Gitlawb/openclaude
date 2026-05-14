@@ -180,6 +180,19 @@ function hasNonEmptyEnvValue(value: string | undefined): boolean {
   return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
 }
 
+export function isSparkBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'spark-api-open.xf-yun.com'
+  } catch {
+    return false
+  }
+}
+
 export function isMiniMaxBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {
@@ -322,6 +335,7 @@ function hasNoExplicitNonOpenAICompatibleProvider(
   processEnv: NodeJS.ProcessEnv,
 ): boolean {
   return (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_SPARK) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
@@ -338,6 +352,17 @@ export function hasXaiEnvOnlyProviderIntent(
   return (
     hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXaiBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+export function hasSparkEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.SPARK_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isSparkBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
 }
@@ -383,9 +408,13 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
 
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | null {
+): 'xai' | 'minimax' | 'spark' | 'venice' | 'xiaomi-mimo' | null {
   if (hasXaiEnvOnlyProviderIntent(processEnv)) {
     return 'xai'
+  }
+
+  if (hasSparkEnvOnlyProviderIntent(processEnv)) {
+    return 'spark'
   }
 
   if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
@@ -597,6 +626,9 @@ export function resolveActiveRouteIdFromEnv(
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return 'github'
   }
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_SPARK)) {
+    return 'spark'
+  }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK)) {
     return 'bedrock'
   }
@@ -649,4 +681,20 @@ export function getTransportKindForRoute(
   routeId: string,
 ): TransportKind | null {
   return getRouteDescriptor(routeId)?.transportConfig.kind ?? null
+}
+
+export function getSparkBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isSparkBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isSparkBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
 }

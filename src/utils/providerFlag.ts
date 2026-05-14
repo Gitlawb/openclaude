@@ -195,15 +195,18 @@ export function applyProviderFlag(
             process.env.OPENAI_API_KEY === process.env.XAI_API_KEY
           ? 'xai'
           : process.env.OPENAI_API_KEY !== undefined &&
-              process.env.OPENAI_API_KEY === process.env.MIMO_API_KEY
-            ? 'xiaomi-mimo'
+              process.env.OPENAI_API_KEY === process.env.SPARK_API_KEY
+            ? 'spark'
             : process.env.OPENAI_API_KEY !== undefined &&
-                process.env.OPENAI_API_KEY === process.env.VENICE_API_KEY
-              ? 'venice'
+                process.env.OPENAI_API_KEY === process.env.MIMO_API_KEY
+              ? 'xiaomi-mimo'
               : process.env.OPENAI_API_KEY !== undefined &&
-                  process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
-                ? 'minimax'
-                : null
+                  process.env.OPENAI_API_KEY === process.env.VENICE_API_KEY
+                ? 'venice'
+                : process.env.OPENAI_API_KEY !== undefined &&
+                    process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
+                  ? 'minimax'
+                  : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -211,6 +214,7 @@ export function applyProviderFlag(
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_SPARK
   delete process.env.NVIDIA_NIM
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
@@ -279,6 +283,16 @@ export function applyProviderFlag(
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
+      }
+      break
+
+    case 'spark':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://spark-api-open.xf-yun.com/v1'
+      process.env.OPENAI_MODEL ??= 'generalv3.5'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.SPARK_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.SPARK_API_KEY
       }
       break
 

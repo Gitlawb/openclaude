@@ -9,6 +9,7 @@ import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
 import vendorOpenai from '../vendors/openai.js'
+import vendorSpark from '../vendors/spark.js'
 import vendorVenice from '../vendors/venice.js'
 import vendorXai from '../vendors/xai.js'
 import vendorXiaomiMimo from '../vendors/xiaomi-mimo.js'
@@ -59,7 +60,7 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorSpark, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
 export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
@@ -173,6 +174,22 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
+    ]
+  },
+  {
+    "preset": "spark",
+    "routeKind": "vendor",
+    "routeId": "spark",
+    "vendorId": "spark",
+    "description": "iFlytek Spark OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "SPARK_API_KEY"
+    ],
+    "baseUrlEnvVars": [
+      "SPARK_BASE_URL"
+    ],
+    "modelEnvVars": [
+      "SPARK_MODEL"
     ]
   },
   {
@@ -384,6 +401,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "gemini",
   "groq",
   "hicap",
+  "spark",
   "lmstudio",
   "atomic-chat",
   "ollama",
