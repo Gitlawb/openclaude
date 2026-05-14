@@ -18,6 +18,7 @@ import {
   formatSkillsListForDisplay,
   formatSkillsListJson,
 } from './skillsListFormat.ts'
+import { getSkillRemoveNotFoundMessage } from './skillsRemoveMessage.ts'
 
 type SkillCommand = Command & { type: 'prompt' }
 
@@ -246,6 +247,39 @@ test('formats all-bundled skills as empty json', () => {
 
   assert.equal(parsed.enabledCount, 0)
   assert.deepEqual(parsed.skills, [])
+})
+
+test('explains remove scope mismatch for globally installed skills', () => {
+  assert.equal(
+    getSkillRemoveNotFoundMessage(
+      [skill('pr-review', 'Reviews pull requests.', 'userSettings')],
+      'pr-review',
+      {},
+    ),
+    'Skill "pr-review" is installed globally. Use --global to remove it.',
+  )
+})
+
+test('explains remove scope mismatch for project installed skills', () => {
+  assert.equal(
+    getSkillRemoveNotFoundMessage(
+      [skill('docs-writer', 'Writes documentation.', 'projectSettings')],
+      'docs-writer',
+      { global: true },
+    ),
+    'Skill "docs-writer" is installed in this project. Remove it without --global.',
+  )
+})
+
+test('keeps remove not-found generic for hidden bundled skills', () => {
+  assert.equal(
+    getSkillRemoveNotFoundMessage(
+      [skill('batch', 'Bundled skill.', 'bundled')],
+      'batch',
+      {},
+    ),
+    'Skill "batch" not found.',
+  )
 })
 
 test.serial('installs a local skill directory into project skills by default', async () => {
