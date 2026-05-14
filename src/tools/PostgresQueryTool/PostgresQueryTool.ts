@@ -54,7 +54,13 @@ function parseAligned(stdout: string): { rows: Record<string, unknown>[]; column
     // Single-column output: no pipe separators
     // header: " count", separator: "-------", data: " 42"
     const header = lines[0].trim()
-    const dataLines = lines.slice(2).filter(l => l.trim() && !l.includes('---'))
+    const dataLines = lines.slice(2).filter(l => {
+      const t = l.trim()
+      if (!t || t.includes('---')) return false
+      // Filter psql footers like "(1 row)" or "(2 rows)"
+      if (t.startsWith('(') && t.endsWith(')') && /\d+\s+rows?/.test(t)) return false
+      return true
+    })
     const rows = dataLines.map(line => {
       const val = line.trim()
       return { [header]: /^\d+(\.\d+)?$/.test(val) ? (val.includes('.') ? parseFloat(val) : parseInt(val, 10)) : val }

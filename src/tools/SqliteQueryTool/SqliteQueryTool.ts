@@ -36,6 +36,14 @@ const MAX_RESULT_ROWS = 1000
 const MAX_RESULT_CHARS = 100_000
 
 function parseOutput(stdout: string): { rows: Record<string, unknown>[]; columns: string[] } {
+  try {
+    const parsed = JSON.parse(stdout) as Record<string, unknown>[]
+    if (Array.isArray(parsed)) {
+      const columns = parsed.length > 0 ? Object.keys(parsed[0]) : []
+      return { rows: parsed, columns }
+    }
+  } catch { /* fall through to pipe parsing for older sqlite */ }
+  // Fallback for sqlite3 without -json support: parse pipe-separated output
   const lines = stdout.trim().split('\n').filter(l => l.trim())
   if (lines.length < 2) return { rows: [], columns: [] }
   const columns = lines[0].split('|').map(c => c.trim())
@@ -115,12 +123,9 @@ export const SqliteQueryTool = buildTool({
     if (readOnly && isWriteQuery(input.query)) return { data: { success: false, durationMs: Date.now() - startTime, error: `Write queries not allowed in read mode. Set mode to 'write' to execute: ${input.query.slice(0, 100)}`, dbPath: resolvedPath } }
 
     try {
-      const args: string[] = ['-header', '-separator', '|']
+      const args: string[] = ['-json']
       if (readOnly) args.push('-readonly')
-      // Use a marker query appended to the same sqlite3 invocation for row count
-      const CHG_MARKER = '!CHG!'
-      const fullSql = isWriteQuery(input.query) ? `${input.query}; SELECT '${CHG_MARKER}', changes();` : input.query
-      args.push(resolvedPath, fullSql)
+      args.push(resolvedPath, input.query)
 
       const result = spawnSync('sqlite3', args, { timeout: 30000, maxBuffer: MAX_RESULT_CHARS, encoding: 'utf-8' })
       if (result.error) return { data: { success: false, durationMs: Date.now() - startTime, error: `Binary not found: sqlite3. Install it and try again.`, dbPath: resolvedPath } }
@@ -129,27 +134,21 @@ export const SqliteQueryTool = buildTool({
 
       if ((result.status ?? 1) !== 0) return { data: { success: false, durationMs: Date.now() - startTime, error: (stdout + '\n' + stderr).trim().slice(0, 2000) || `sqlite3 exited with code ${result.status}`, dbPath: resolvedPath } }
 
-      // Extract changes() from the last line of output, then strip marker lines
-      let rowCount: number | undefined
-      let cleanStdout = stdout
-      if (isWriteQuery(input.query)) {
-        const lines = stdout.split('\n')
-        // Scan backwards for the marker line: !CHG!|N
-        let markerIdx = -1
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const m = lines[i].trim().match(new RegExp(`^${CHG_MARKER}\\|(\\d+)$`))
-          if (m) { rowCount = parseInt(m[1], 10); markerIdx = i; break }
-        }
-        if (markerIdx >= 0) {
-          // Remove the marker data line + its header line (markerIdx-1 should be header)
-          const remove = new Set([markerIdx, markerIdx - 1])
-          cleanStdout = lines.filter((_, i) => !remove.has(i)).join('\n').trim()
-        }
-      }
+      // Parse JSON output (handles all text values correctly, no pipe-separator corruption)
+      const { rows, columns } = parseOutput(stdout)
 
-      const { rows, columns } = parseOutput(cleanStdout)
-      const isSelectLike = !isWriteQuery(input.query)
-      if (isSelectLike) rowCount = rows.length
+      // For write queries, get affected row count from a separate invocation
+      let rowCount: number | undefined
+      if (isWriteQuery(input.query)) {
+        try {
+          const cr = spawnSync('sqlite3', ['-json', resolvedPath, 'SELECT changes()'], { timeout: 5000, encoding: 'utf-8' })
+          if (!cr.error && (cr.status ?? 0) === 0) {
+            const crParsed = JSON.parse(cr.stdout ?? '[]') as Array<Record<string, unknown>>
+            rowCount = parseInt(String(crParsed[0]?.['changes()'] ?? -1), 10)
+            if (isNaN(rowCount) || rowCount < 0) rowCount = undefined
+          }
+        } catch { rowCount = rows.length }
+      } else rowCount = rows.length
 
       const truncated = rows.length > MAX_RESULT_ROWS
       return { data: { success: true, rows: truncated ? rows.slice(0, MAX_RESULT_ROWS) : rows, rowCount: rowCount ?? rows.length, columns, durationMs: Date.now() - startTime, truncated, dbPath: resolvedPath } }
