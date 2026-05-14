@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
-import { resolve } from 'path'
+import { resolve, dirname, basename } from 'path'
 import { z } from 'zod/v4'
 import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
@@ -117,19 +117,22 @@ export const LintTool = buildTool({
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
   renderToolUseMessage(input) {
-    return { type: 'text', text: `Running ${input.tool ?? 'auto'} linter on ${input.path}` }
+    return `Running ${input.tool ?? 'auto'} linter on ${input.path}`
   },
   renderToolResultMessage(output) {
-    if (!output.success) return { type: 'text', text: `Linter failed: ${output.error}` }
+    if (!output.success) return `Linter failed: ${output.error}`
     const parts = [`${output.tool}: ${output.errors} errors, ${output.warnings} warnings`]
     if (output.fixed) parts.push(`${output.fixed} auto-fixed`)
     parts.push(`in ${output.durationMs}ms`)
-    return { type: 'text', text: parts.join(', ') }
+    return parts.join(', ')
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
     const startTime = Date.now()
     const targetPath = resolve(expandPath(input.path ?? '.'))
-    const toolName = input.tool ?? detectTool(targetPath)
+    // Separate working dir from file target: use parent dir when path targets a specific file
+    const hasFileExt = /\.[a-zA-Z0-9]+$/.test(basename(targetPath))
+    const workingDir = hasFileExt && !existsSync(targetPath) ? dirname(targetPath) : targetPath
+    const toolName = input.tool ?? detectTool(workingDir)
 
     if (!toolName) return { data: { success: false, tool: 'unknown', errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: 'No linter config detected. Specify a tool or add a config file.' } }
 
@@ -143,7 +146,7 @@ export const LintTool = buildTool({
       else if (toolName === 'clippy') { args.push('clippy'); args.push('--'); args.push('-D', 'warnings') }
 
       const binary = LINTERS[toolName].binary
-      const result = spawnSync(binary, args, { cwd: targetPath, timeout: 120_000, maxBuffer: 100_000, encoding: 'utf-8' })
+      const result = spawnSync(binary, args, { cwd: workingDir, timeout: 120_000, maxBuffer: 100_000, encoding: 'utf-8' })
 
       if (result.error) return { data: { success: false, tool: toolName, errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: `Failed to run ${binary}: ${result.error.message}` } }
 

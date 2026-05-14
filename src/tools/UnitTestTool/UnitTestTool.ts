@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
-import { resolve } from 'path'
+import { resolve, dirname, basename } from 'path'
 import { z } from 'zod/v4'
 import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
@@ -78,20 +78,22 @@ export const UnitTestTool = buildTool({
   renderToolUseMessage(input) {
     const fw = input.framework ?? 'auto-detected'
     const cov = input.coverage ? ' with coverage' : ''
-    return { type: 'text', text: `Running ${fw} tests${cov} on ${input.path}` }
+    return `Running ${fw} tests${cov} on ${input.path}`
   },
   renderToolResultMessage(output) {
-    if (!output.success && output.error) return { type: 'text', text: `Tests failed (${output.framework}): ${output.error}` }
-    if (output.total === 0) return { type: 'text', text: `${output.framework}: No tests found in ${output.durationMs}ms` }
+    if (!output.success && output.error) return `Tests failed (${output.framework}): ${output.error}`
+    if (output.total === 0) return `${output.framework}: No tests found in ${output.durationMs}ms`
     let msg = `${output.framework}: ${output.passed}/${output.total} passed in ${output.durationMs}ms`
     if (output.failed > 0) msg = `${output.framework}: ${output.failed} failed, ${output.passed} passed in ${output.durationMs}ms`
     if (output.coverage?.lines) msg += ` (lines: ${output.coverage.lines}%)`
-    return { type: 'text', text: msg }
+    return msg
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
     const startTime = Date.now()
     const targetPath = resolve(expandPath(input.path ?? '.'))
-    const fwName = input.framework ?? detectFramework(targetPath)
+    const hasFileExt = /\.[a-zA-Z0-9]+$/.test(basename(targetPath))
+    const workingDir = hasFileExt && !existsSync(targetPath) ? dirname(targetPath) : targetPath
+    const fwName = input.framework ?? detectFramework(workingDir)
 
     if (!fwName) return { data: { success: false, framework: 'unknown', passed: 0, failed: 0, total: 0, durationMs: Date.now() - startTime, error: 'No test framework detected.' } }
 
@@ -107,7 +109,7 @@ export const UnitTestTool = buildTool({
       if (fwName !== 'bun') args.push(targetPath)
       else if (input.filter) args.push('--test-name-pattern', input.filter)
 
-      const result = spawnSync(fw.binary, args, { cwd: targetPath, timeout: (input.timeout ?? 300) * 1000, maxBuffer: 200_000, encoding: 'utf-8' })
+      const result = spawnSync(fw.binary, args, { cwd: workingDir, timeout: (input.timeout ?? 300) * 1000, maxBuffer: 200_000, encoding: 'utf-8' })
 
       if (result.error) return { data: { success: false, framework: fwName, passed: 0, failed: 0, total: 0, durationMs: Date.now() - startTime, error: `Failed to run ${fw.binary}: ${result.error.message}` } }
 

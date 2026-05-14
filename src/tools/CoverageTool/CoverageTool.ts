@@ -21,7 +21,6 @@ const outputSchema = lazySchema(() =>
     format: z.string(),
     lines: z.number().min(0).max(100),
     branches: z.number().optional(),
-    functions: z.number().optional(),
     totalLines: z.number().optional(),
     coveredLines: z.number().optional(),
     files: z.array(z.object({ file: z.string(), lines: z.number(), covered: z.number(), total: z.number() })).optional(),
@@ -51,8 +50,8 @@ function parseLcov(content: string): { lines: number; branches?: number; totalLi
         const e = fileMap.get(currentFile)!; e.total++; totalLines++
         if (parseInt(p[1], 10) > 0) { e.covered++; coveredLines++ }
       }
-    } else if (t.startsWith('BRF:')) branchFound = parseInt(t.slice(4), 10)
-    else if (t.startsWith('BRH:')) branchHits = parseInt(t.slice(4), 10)
+    } else if (t.startsWith('BRF:')) branchFound += parseInt(t.slice(4), 10)  // accumulate across files
+    else if (t.startsWith('BRH:')) branchHits += parseInt(t.slice(4), 10)  // accumulate across files
   }
 
   const lines = totalLines > 0 ? Math.round((coveredLines / totalLines) * 10000) / 100 : 0
