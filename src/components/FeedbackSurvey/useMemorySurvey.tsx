@@ -10,7 +10,6 @@ import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import { isAutoManagedMemoryFile } from '../../utils/memoryFileDetection.js';
 import { extractTextContent, getLastAssistantMessage } from '../../utils/messages.js';
-import { logOTelEvent } from '../../utils/telemetry/events.js';
 import { submitTranscriptShare } from './submitTranscriptShare.js';
 import type { TranscriptShareResponse } from './TranscriptSharePrompt.js';
 import { useSurveyState } from './useSurveyState.js';
@@ -67,25 +66,14 @@ export function useMemorySurvey(messages: Message[], isLoading: boolean, hasActi
       event_type: 'appeared' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       appearance_id: appearanceId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
-    void logOTelEvent('feedback_survey', {
-      event_type: 'appeared',
-      appearance_id: appearanceId,
-      survey_type: 'memory'
-    });
-  }, []);
+      }, []);
   const onSelect = useCallback((appearanceId_0: string, selected: FeedbackSurveyResponse) => {
     logEvent(MEMORY_SURVEY_EVENT, {
       event_type: 'responded' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       appearance_id: appearanceId_0 as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       response: selected as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
-    void logOTelEvent('feedback_survey', {
-      event_type: 'responded',
-      appearance_id: appearanceId_0,
-      response: selected,
-      survey_type: 'memory'
-    });
-  }, []);
+      }, []);
   const shouldShowTranscriptPrompt = useCallback((selected_0: FeedbackSurveyResponse) => {
     if ("external" !== 'ant') {
       return false;
@@ -107,12 +95,7 @@ export function useMemorySurvey(messages: Message[], isLoading: boolean, hasActi
       appearance_id: appearanceId_1 as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       trigger: TRANSCRIPT_SHARE_TRIGGER as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
-    void logOTelEvent('feedback_survey', {
-      event_type: 'transcript_prompt_appeared',
-      appearance_id: appearanceId_1,
-      survey_type: 'memory'
-    });
-  }, []);
+      }, []);
   const onTranscriptSelect = useCallback(async (appearanceId_2: string, selected_1: TranscriptShareResponse): Promise<boolean> => {
     logEvent(MEMORY_SURVEY_EVENT, {
       event_type: `transcript_share_${selected_1}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

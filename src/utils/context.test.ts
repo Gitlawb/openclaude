@@ -199,6 +199,19 @@ test('gpt-4o clamps oversized max output overrides to the provider limit', () =>
   expect(getMaxOutputTokensForModel('gpt-4o')).toBe(16_384)
 })
 
+test('gpt-5.5 uses conservative Codex-route context window (issue #1118)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  // gpt-5.5 is primarily routed through the Codex transport in this repo
+  // (see src/services/api/providerConfig.ts). The 1.05M API descriptor value
+  // caused /context to under-report and auto-compact to fire too late,
+  // resulting in mid-turn 500s. The descriptor is pinned to the Codex
+  // effective limit until provider-aware context windows land.
+  expect(getContextWindowForModel('gpt-5.5')).toBe(272_000)
+})
+
 test('gpt-5.4 family uses provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
@@ -265,6 +278,12 @@ test('env-only xAI key uses provider-specific context and output caps before cli
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
+  expect(getContextWindowForModel('grok-4.3')).toBe(1_000_000)
+  expect(getModelMaxOutputTokens('grok-4.3')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+  expect(getMaxOutputTokensForModel('grok-4.3')).toBe(32_768)
   expect(getContextWindowForModel('grok-4')).toBe(2_000_000)
   expect(getModelMaxOutputTokens('grok-4')).toEqual({
     default: 32_768,

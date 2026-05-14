@@ -23,6 +23,7 @@ import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
+import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js'
 import { logForDebugging } from '../utils/debug.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 import { isENOENT } from '../utils/errors.js'
@@ -269,20 +270,28 @@ async function downloadCaBundle(
   outPath: string,
 ): Promise<boolean> {
   try {
-    // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
-    const resp = await fetch(`${baseUrl}/v1/code/upstreamproxy/ca-cert`, {
-      // Bun has no default fetch timeout — a hung endpoint would block CLI
-      // startup forever. 5s is generous for a small PEM.
-      signal: AbortSignal.timeout(5000),
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: 5000,
     })
-    if (!resp.ok) {
-      logForDebugging(
-        `[upstreamproxy] ca-cert fetch ${resp.status}; proxy disabled`,
-        { level: 'warn' },
-      )
-      return false
+    let ccrCa: string
+    try {
+      // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
+      const resp = await fetch(`${baseUrl}/v1/code/upstreamproxy/ca-cert`, {
+        // Bun has no default fetch timeout — a hung endpoint would block CLI
+        // startup forever. 5s is generous for a small PEM.
+        signal,
+      })
+      if (!resp.ok) {
+        logForDebugging(
+          `[upstreamproxy] ca-cert fetch ${resp.status}; proxy disabled`,
+          { level: 'warn' },
+        )
+        return false
+      }
+      ccrCa = await resp.text()
+    } finally {
+      cleanup()
     }
-    const ccrCa = await resp.text()
     if (!isValidPemContent(ccrCa)) {
       logForDebugging(
         `[upstreamproxy] ca-cert response is not valid PEM; proxy disabled`,

@@ -108,8 +108,14 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
+  const hasConfiguredProviderProfile = await (async () => {
+    const { getActiveProviderProfile } = await import('../utils/providerProfiles.js')
+    return getActiveProviderProfile() !== undefined
+  })()
+
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
+    hasConfiguredProviderProfile,
   })
   if (startupEnv !== process.env) {
     const startupProfileError = await getProviderValidationError(startupEnv)
@@ -133,6 +139,13 @@ async function main(): Promise<void> {
   }
 
   await validateProviderEnvForStartupOrExit()
+
+  // #808: --model alone (no --provider) — route to the env var matching the
+  // active provider before the banner prints so the override is visible.
+  if (args.includes('--model')) {
+    const { applyModelFlagFromArgs } = await import('../utils/providerFlag.js')
+    applyModelFlagFromArgs(args)
+  }
 
   // Parse --model early so the startup screen can display the override
   const { eagerParseCliFlag } = await import('../utils/cliArgs.js')

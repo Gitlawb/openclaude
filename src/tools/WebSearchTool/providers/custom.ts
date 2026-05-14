@@ -27,6 +27,7 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
+import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
 import {
   applyDomainFilters,
   normalizeHit,
@@ -47,6 +48,18 @@ interface ProviderPreset {
   authScheme?: string
   jsonPath?: string
   responseAdapter?: (data: any) => SearchHit[]
+  /**
+   * When set, the API key (WEB_KEY) is sent as this query parameter instead
+   * of in an HTTP header. Auth headers are suppressed automatically unless
+   * WEB_AUTH_HEADER is explicitly set by the user.
+   */
+  authQueryParam?: string
+  /**
+   * Additional query params sourced from environment variables.
+   * Format: { paramName: ENV_VAR_NAME } (e.g. { cx: 'GOOGLE_CSE_ID' }).
+   * The named env var must be set or the request fails fast with a clear error.
+   */
+  envQueryParams?: Record<string, string>
 }
 
 const BUILT_IN_PROVIDERS: Record<string, ProviderPreset> = {
@@ -67,10 +80,17 @@ const BUILT_IN_PROVIDERS: Record<string, ProviderPreset> = {
     },
   },
   google: {
+    // Google Custom Search JSON API requires both `key` (API key) and
+    // `cx` (Programmable Search Engine ID) as query parameters. There is
+    // no Bearer-token auth path. Set WEB_KEY=<api-key> and
+    // GOOGLE_CSE_ID=<engine-id>.
+    //
+    // ⚠️  Google has announced this API will be discontinued on 2027-01-01
+    // and is closed to new customers. Prefer Brave/Tavily/Exa where possible.
     urlTemplate: 'https://www.googleapis.com/customsearch/v1',
     queryParam: 'q',
-    authHeader: 'Authorization',
-    authScheme: 'Bearer',
+    authQueryParam: 'key',
+    envQueryParams: { cx: 'GOOGLE_CSE_ID' },
     responseAdapter(data: any) {
       return (data.items ?? []).map((r: any) => ({
         title: r.title ?? '',
@@ -84,6 +104,9 @@ const BUILT_IN_PROVIDERS: Record<string, ProviderPreset> = {
     urlTemplate: 'https://api.search.brave.com/res/v1/web/search',
     queryParam: 'q',
     authHeader: 'X-Subscription-Token',
+    // Brave wants the bare token in X-Subscription-Token, NOT "Bearer <token>".
+    // Empty scheme overrides the default 'Bearer' applied by buildAuthHeadersForPreset.
+    authScheme: '',
     responseAdapter(data: any) {
       return (data.web?.results ?? []).map((r: any) => ({
         title: r.title ?? '',
@@ -343,6 +366,13 @@ function auditLogCustomSearch(url: string): void {
 // ---------------------------------------------------------------------------
 
 export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
+  // Presets that authenticate via a query parameter (e.g. Google's `?key=...`)
+  // do not send an Authorization header. The user can still force a header by
+  // setting WEB_AUTH_HEADER explicitly.
+  if (preset?.authQueryParam && process.env.WEB_AUTH_HEADER === undefined) {
+    return {}
+  }
+
   const apiKey = process.env.WEB_KEY
   if (!apiKey) return {}
 
@@ -354,7 +384,9 @@ export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<strin
   const scheme = process.env.WEB_AUTH_SCHEME !== undefined
     ? process.env.WEB_AUTH_SCHEME
     : (preset?.authScheme ?? 'Bearer')
-  return { [headerName]: `${scheme} ${apiKey}`.trim() }
+  // Empty scheme → bare key, no leading space (e.g. Brave's X-Subscription-Token)
+  const value = scheme ? `${scheme} ${apiKey}` : apiKey
+  return { [headerName]: value }
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +430,7 @@ function parseExtraParams(): Record<string, string> {
 function buildRequest(query: string) {
   const config = resolveConfig()
   const method = config.method.toUpperCase()
+  const preset = config.preset
 
   // --- URL ---
   const rawTemplate = config.urlTemplate
@@ -414,6 +447,34 @@ function buildRequest(query: string) {
     url.searchParams.set(config.queryParam, query)
   }
 
+  // Preset env-sourced params (e.g. Google's `cx` from GOOGLE_CSE_ID).
+  // Fail fast with a clear error if the named env var isn't set, since the
+  // upstream API will reject the request anyway.
+  if (preset?.envQueryParams) {
+    for (const [paramName, envVar] of Object.entries(preset.envQueryParams)) {
+      const value = process.env[envVar]
+      if (!value) {
+        throw new Error(
+          `Search preset "${process.env.WEB_PROVIDER}" requires environment ` +
+          `variable ${envVar} (used as ?${paramName}=). Set ${envVar} and try again.`,
+        )
+      }
+      url.searchParams.set(paramName, value)
+    }
+  }
+
+  // Preset query-param auth (e.g. Google's `?key=...`).
+  if (preset?.authQueryParam) {
+    const apiKey = process.env.WEB_KEY
+    if (!apiKey) {
+      throw new Error(
+        `Search preset "${process.env.WEB_PROVIDER}" requires WEB_KEY ` +
+        `(sent as ?${preset.authQueryParam}=). Set WEB_KEY and try again.`,
+      )
+    }
+    url.searchParams.set(preset.authQueryParam, apiKey)
+  }
+
   const urlString = url.toString()
 
   // --- Security validation ---
@@ -422,7 +483,7 @@ function buildRequest(query: string) {
 
   // --- Headers ---
   const headers: Record<string, string> = {
-    ...buildAuthHeadersForPreset(config.preset),
+    ...buildAuthHeadersForPreset(preset),
   }
 
   // Merge WEB_HEADERS with allowlist enforcement
@@ -527,14 +588,13 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
   let lastStatus: number | undefined
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    // Compose timeout with caller signal via AbortSignal.any so each attempt
+    // Compose timeout with caller signal so each attempt
     // has a fresh timeout and we don't leak an abort listener on `signal`
     // (the previous implementation added one per attempt and never removed
     // it, and the listener kept a reference to a stale AbortController).
-    const timeoutSignal = AbortSignal.timeout(timeoutMs)
-    const combined = signal
-      ? AbortSignal.any([signal, timeoutSignal])
-      : timeoutSignal
+    const { signal: combined, cleanup } = createCombinedAbortSignal(signal, {
+      timeoutMs,
+    })
 
     lastStatus = undefined
     try {
@@ -551,8 +611,8 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
       // Caller-initiated abort wins — propagate without retry or rewrite.
       if (signal?.aborted) throw lastErr
 
-      // Timeout (TimeoutError on Bun/Node, or AbortError with timeoutSignal aborted).
-      if (timeoutSignal.aborted) {
+      // Timeout (TimeoutError on Bun/Node, or AbortError with timeout signal aborted).
+      if (combined.aborted) {
         throw new Error(`Custom search timed out after ${timeoutSec}s`)
       }
 
@@ -562,6 +622,8 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
         continue
       }
       throw lastErr
+    } finally {
+      cleanup()
     }
   }
   throw lastErr!

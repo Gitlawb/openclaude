@@ -8,8 +8,10 @@ import {
   getDisplayedEffortLevel,
   getEffortLevelDescription,
   getEffortLevelLabel,
+  isOpenAIEffortLevel,
   modelSupportsEffort,
   modelUsesOpenAIEffort,
+  openAIEffortToStandard,
 } from '../utils/effort.js'
 import { getAPIProvider } from '../utils/model/providers.js'
 import { getReasoningEffortForModel } from '../services/api/providerConfig.js'
@@ -76,7 +78,12 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       }))
       onSelect(undefined)
     } else {
-      const effortLevel = value as EffortLevel
+      // Normalize OpenAI-shaped 'xhigh' to the standard EffortLevel ('max')
+      // so AppState + settings.json always hold a persistable value. The shim
+      // converts back to 'xhigh' at the request boundary.
+      const effortLevel = isOpenAIEffortLevel(value)
+        ? openAIEffortToStandard(value)
+        : (value as EffortLevel)
       setAppState(prev => ({
         ...prev,
         effortValue: effortLevel,
@@ -90,10 +97,15 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   }
 
   const supportsEffort = modelSupportsEffort(model)
-  // For OpenAI/Codex, use the model's default reasoning effort as initial focus
-  // For Claude, use the displayed effort level or 'auto'
+  // For OpenAI/Codex: prefer the user's current selection (max → xhigh for
+  // option matching), otherwise the model's alias default, otherwise auto.
+  // For Claude: user's current selection or auto.
   const initialFocus = usesOpenAIEffort
-    ? (modelReasoningEffort || 'auto')
+    ? (appStateEffort === 'max'
+        ? 'xhigh'
+        : appStateEffort
+          ? String(appStateEffort)
+          : (modelReasoningEffort || 'auto'))
     : (appStateEffort ? String(appStateEffort) : 'auto')
 
   return (

@@ -294,6 +294,13 @@ export type GlobalConfig = {
     [tipId: string]: number // Key is tipId, value is the numStartups when tip was last shown
   }
 
+  // Sponsored tip throttling. lastShownAt is numStartups when last sponsored tip
+  // was displayed; used with sponsoredTipsFrequency to enforce a 1-in-N cap.
+  sponsoredTipsHistory?: {
+    lastShownAt: number
+    totalShown: number
+  }
+
   // /buddy companion soul — bones regenerated from userId on read. See src/buddy/.
   companion?: import('../buddy/types.js').StoredCompanion
   companionMuted?: boolean
@@ -624,6 +631,12 @@ export type GlobalConfig = {
 
   // Knowledge Graph configuration
   knowledgeGraphEnabled: boolean
+
+  // Startup splash logo color scheme — set via /logo. See
+  // src/components/StartupScreen.palettes.ts for valid values. Stored as a
+  // plain string (validated on read) to avoid pulling a UI module into the
+  // config layer. Falls back to 'sunset' if missing or unrecognized.
+  logoColor?: string
 }
 
 /**
@@ -697,6 +710,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'diffTool',
   'env',
   'tipsHistory',
+  'sponsoredTipsHistory',
   'todoFeatureEnabled',
   'showExpandedTodos',
   'messageIdleNotifThresholdMs',
@@ -722,6 +736,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'remoteControlAtStartup',
   'remoteDialogSeen',
   'knowledgeGraphEnabled',
+  'logoColor',
 ] as const
 
 export type GlobalConfigKey = (typeof GLOBAL_CONFIG_KEYS)[number]

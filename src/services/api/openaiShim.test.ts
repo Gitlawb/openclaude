@@ -33,6 +33,7 @@ const originalEnv = {
   BANKR_MODEL: process.env.BANKR_MODEL,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
 }
 
 const originalFetch = globalThis.fetch
@@ -113,6 +114,7 @@ beforeEach(() => {
   delete process.env.BANKR_MODEL
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
+  delete process.env.MIMO_API_KEY
 })
 
 afterEach(() => {
@@ -144,6 +146,7 @@ afterEach(() => {
   restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
   restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
   restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
+  restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
   globalThis.fetch = originalFetch
 })
 
@@ -1629,6 +1632,57 @@ test('does not use MINIMAX_API_KEY for non-MiniMax OpenAI-compatible routes', as
   })
 
   expect(capturedAuthorization).toBeNull()
+})
+
+test('xiaomi mimo route uses api-key auth header and max_completion_tokens', async () => {
+  let capturedHeaders: Record<string, string> | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.MIMO_API_KEY = 'mimo-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = init?.headers as Record<string, string>
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedHeaders).toMatchObject({ 'api-key': 'mimo-live-key' })
+  expect(capturedHeaders).not.toHaveProperty('Authorization')
+  expect(capturedBody).toMatchObject({ max_completion_tokens: 32 })
+  expect(capturedBody).not.toHaveProperty('max_tokens')
 })
 
 test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async () => {
@@ -3568,6 +3622,39 @@ test('streaming: preserves prose without tags (no phrase-based false positive)',
   )
 })
 
+test('strips credentials and query params from URL in fetch network error message', async () => {
+  process.env.OPENAI_BASE_URL =
+    'https://user:password@internal.example.test/v1?token=abc123'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  globalThis.fetch = (async () => {
+    throw new TypeError(
+      'fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions',
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  }
+
+  const message = (caught as Error).message
+  expect(message).toContain('internal.example.test')
+  expect(message).toContain('fetch failed')
+  expect(message).not.toContain('password')
+  expect(message).not.toContain('user:')
+  expect(message).not.toContain('token=abc123')
+})
+
 test('classifies localhost transport failures with actionable category marker', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
@@ -4095,6 +4182,70 @@ test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', a
 
   expect(requestBody?.max_tokens).toBe(256)
   expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Cerebras: strips unsupported store on chat_completions (#1023)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.cerebras.ai/v1'
+  process.env.OPENAI_API_KEY = 'csk-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama3.1-8b',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'llama3.1-8b',
+    system: 'you are cerebras',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Local provider (vLLM/Ollama/etc.): strips unsupported store on chat_completions (#672)', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:8000/v1'
+  process.env.OPENAI_API_KEY = 'sk-local'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen-3.5-27b',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'qwen-3.5-27b',
+    system: 'you are local',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
   expect(requestBody?.store).toBeUndefined()
 })
 
@@ -5018,4 +5169,114 @@ test('strips Anthropic attribution header block from responses-API instructions 
   expect(instructions).not.toContain('x-anthropic-billing-header')
   expect(instructions).not.toContain('cc_version=')
   expect(instructions).toContain('You are Claude Code.')
+})
+
+test('emits reasoning_effort on chat_completions when reasoningEffort is passed', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5.4',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(requestBody?.reasoning_effort).toBe('xhigh')
+})
+
+test('omits reasoning_effort on chat_completions when no override and model has no alias default', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(requestBody && 'reasoning_effort' in requestBody).toBe(false)
+})
+
+test('emits reasoning_effort from codex alias default when no override is passed', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5.4',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(requestBody?.reasoning_effort).toBe('high')
 })

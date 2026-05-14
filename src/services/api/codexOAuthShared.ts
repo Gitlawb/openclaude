@@ -1,3 +1,5 @@
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
+
 export const CODEX_OAUTH_ISSUER = 'https://auth.openai.com'
 export const CODEX_REFRESH_URL = `${CODEX_OAUTH_ISSUER}/oauth/token`
 export const DEFAULT_CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -109,31 +111,38 @@ export async function exchangeCodexIdTokenForApiKey(
     subject_token_type: CODEX_ID_TOKEN_SUBJECT_TYPE,
   })
 
-  const response = await fetch(CODEX_REFRESH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-    signal: AbortSignal.timeout(15_000),
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 15_000,
   })
+  try {
+    const response = await fetch(CODEX_REFRESH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+      signal,
+    })
 
-  if (!response.ok) {
-    const bodyText = await response.text().catch(() => '')
-    throw new Error(
-      bodyText.trim()
-        ? `Codex API key exchange failed (${response.status}): ${bodyText.trim()}`
-        : `Codex API key exchange failed with status ${response.status}.`,
-    )
+    if (!response.ok) {
+      const bodyText = await response.text().catch(() => '')
+      throw new Error(
+        bodyText.trim()
+          ? `Codex API key exchange failed (${response.status}): ${bodyText.trim()}`
+          : `Codex API key exchange failed with status ${response.status}.`,
+      )
+    }
+
+    const payload = (await response.json()) as { access_token?: string }
+    const apiKey = asTrimmedString(payload.access_token)
+    if (!apiKey) {
+      throw new Error(
+        'Codex API key exchange completed, but no API key token was returned.',
+      )
+    }
+
+    return apiKey
+  } finally {
+    cleanup()
   }
-
-  const payload = (await response.json()) as { access_token?: string }
-  const apiKey = asTrimmedString(payload.access_token)
-  if (!apiKey) {
-    throw new Error(
-      'Codex API key exchange completed, but no API key token was returned.',
-    )
-  }
-
-  return apiKey
 }

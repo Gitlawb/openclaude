@@ -180,8 +180,17 @@ export async function generateAgent(
     parsed = jsonParse(jsonMatch[0])
   }
 
-  if (!parsed.identifier || !parsed.whenToUse || !parsed.systemPrompt) {
-    throw new Error('Invalid agent configuration generated')
+  if (
+    typeof parsed.identifier !== 'string' ||
+    typeof parsed.whenToUse !== 'string' ||
+    typeof parsed.systemPrompt !== 'string' ||
+    !parsed.identifier ||
+    !parsed.whenToUse ||
+    !parsed.systemPrompt
+  ) {
+    throw new Error(
+      'Invalid agent configuration generated: identifier, whenToUse, and systemPrompt must be non-empty strings',
+    )
   }
 
   logEvent('tengu_agent_definition_generated', {
