@@ -580,7 +580,9 @@ async function maybeSemanticCompression(messages: Message[]): Promise<Microcompa
     const compressedTokens = compressedMessages.reduce((sum, m) => {
       const content = typeof m.message?.content === 'string'
         ? m.message.content
-        : ''
+        : Array.isArray(m.message?.content)
+          ? m.message.content.map(c => typeof c === 'object' && c !== null && 'text' in c ? (c as any).text : '').join(' ')
+          : ''
       return sum + roughTokenCountEstimation(content)
     }, 0)
 

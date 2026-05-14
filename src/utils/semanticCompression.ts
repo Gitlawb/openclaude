@@ -145,6 +145,10 @@ export function semanticCompress(
   
   if (actualRatio < targetRatio) {
     if (preserveMeaning) {
+      // When preserving meaning, skip template rewriting which replaces
+      // quoted strings, numeric IDs, and long tokens with generic placeholders.
+      // That would corrupt user-authored values like version numbers, IDs, URLs.
+    } else {
       const template = compressToTemplate(compressed)
       const templateTokens = roughTokenCountEstimation(template)
       if (templateTokens < compressedTokens) {
