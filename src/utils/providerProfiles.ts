@@ -25,6 +25,7 @@ import {
   buildXiaomiMimoProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
+  type ProfileFileLocation,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
@@ -1128,6 +1129,7 @@ function triggerStartupDiscoveryRefreshForProfile(
 
 export function setActiveProviderProfile(
   profileId: string,
+  options?: ProfileFileLocation,
 ): ProviderProfile | null {
   const current = getGlobalConfig()
   const profiles = getProviderProfiles(current)
@@ -1158,7 +1160,7 @@ export function setActiveProviderProfile(
 
   if (startupProfile) {
     const file = createProfileFile(startupProfile.profile, startupProfile.env)
-    saveProfileFile(file)
+    saveProfileFile(file, options)
   }
 
   return activeProfile
