@@ -269,14 +269,17 @@ export function formatTotalCost(): string {
   const totalOutput = getTotalOutputTokens()
   const totalCacheRead = getTotalCacheReadInputTokens()
   const totalCacheCreation = getTotalCacheCreationInputTokens()
-  const maxTokens = Math.max(totalInput, totalOutput, totalCacheRead, totalCacheCreation, 1)
-
-  const tokenBars = [
-    formatTokenBar('Input tokens', totalInput, maxTokens, chalk.blue),
-    formatTokenBar('Output tokens', totalOutput, maxTokens, chalk.green),
-    totalCacheRead > 0 ? formatTokenBar('Cache read', totalCacheRead, maxTokens, chalk.cyan) : null,
-    totalCacheCreation > 0 ? formatTokenBar('Cache write', totalCacheCreation, maxTokens, chalk.yellow) : null,
-  ].filter(Boolean).join('\n')
+  const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheCreation
+  const tokenSection = totalTokens > 0 ? (() => {
+    const maxTokens = Math.max(totalInput, totalOutput, totalCacheRead, totalCacheCreation, 1)
+    const tokenBars = [
+      formatTokenBar('Input tokens', totalInput, maxTokens, chalk.blue),
+      formatTokenBar('Output tokens', totalOutput, maxTokens, chalk.green),
+      totalCacheRead > 0 ? formatTokenBar('Cache read', totalCacheRead, maxTokens, chalk.cyan) : null,
+      totalCacheCreation > 0 ? formatTokenBar('Cache write', totalCacheCreation, maxTokens, chalk.yellow) : null,
+    ].filter(Boolean).join('\n')
+    return `\nToken usage:\n${tokenBars}`
+  })() : ''
 
   const statsBlock = chalk.dim(
     `Total cost:            ${costDisplay}\n` +
@@ -285,10 +288,7 @@ Total duration (wall): ${formatDuration(getTotalDuration())}
 Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed`,
   )
 
-  return `${statsBlock}
-
-Token usage:
-${tokenBars}
+  return `${statsBlock}${tokenSection}
 
 ${modelUsageDisplay}`
 }
