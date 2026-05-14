@@ -14,6 +14,23 @@ const emptyGraph = {
   lastUpdateTime: 1,
 }
 
+function captureConsoleError<T>(run: () => T): { result: T; calls: unknown[][] } {
+  const originalConsoleError = console.error
+  const calls: unknown[][] = []
+  console.error = (...args: unknown[]) => {
+    calls.push(args)
+  }
+
+  try {
+    return {
+      result: run(),
+      calls,
+    }
+  } finally {
+    console.error = originalConsoleError
+  }
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
@@ -29,7 +46,13 @@ describe('JSONProvider', () => {
     mkdirSync(join(projectDir, 'knowledge_graph.json'))
 
     const provider = new JSONProvider(projectDir)
-    expect(provider.saveGraph(emptyGraph)).toBe(false)
+    const { result, calls } = captureConsoleError(() =>
+      provider.saveGraph(emptyGraph),
+    )
+
+    expect(result).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(String(calls[0][0])).toContain('Failed to save project graph to JSON')
   })
 
   it('reports delete failure when the graph path is a directory', () => {

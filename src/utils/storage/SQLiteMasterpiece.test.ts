@@ -18,7 +18,16 @@ import { getFsImplementation } from '../fsOperations.js'
 
 describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const originalConsoleError = console.error
+  const originalConsoleWarn = console.warn
   const rootTestDir = mkdtempSync(join(tmpdir(), 'openclaude-masterpiece-'))
+  let capturedConsoleErrors: unknown[][] = []
+  let capturedConsoleWarnings: unknown[][] = []
+  let expectRecoveryLogsForCurrentTest = false
+  let originalFsCwd: (() => string) | null = null
+  let testCwd = ''
+  let project1Dir = ''
+  let project2Dir = ''
   const removeDirWithRetry = (dir: string) => {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -42,14 +51,29 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
       }
     }
   }
-  
-  const project1Dir = join(rootTestDir, 'proj1')
-  const project2Dir = join(rootTestDir, 'proj2')
-
   beforeEach(async () => {
     await acquireEnvMutex()
+    capturedConsoleErrors = []
+    capturedConsoleWarnings = []
+    expectRecoveryLogsForCurrentTest = false
+    console.error = (...args: unknown[]) => {
+      capturedConsoleErrors.push(args)
+    }
+    console.warn = (...args: unknown[]) => {
+      capturedConsoleWarnings.push(args)
+    }
     process.env.CLAUDE_CONFIG_DIR = rootTestDir
     setClaudeConfigHomeDirForTesting(rootTestDir)
+    const fs = getFsImplementation()
+    originalFsCwd = fs.cwd
+    testCwd = join(
+      rootTestDir,
+      'suite-cwds',
+      `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    )
+    project1Dir = join(testCwd, 'proj1')
+    project2Dir = join(testCwd, 'proj2')
+    fs.cwd = () => testCwd
     resetGlobalGraph()
     if (!existsSync(project1Dir)) mkdirSync(project1Dir, { recursive: true })
     if (!existsSync(project2Dir)) mkdirSync(project2Dir, { recursive: true })
@@ -59,13 +83,36 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
     try {
       resetGlobalGraph()
       clearMemoryOnly()
+      const projectsDir = join(rootTestDir, 'projects')
+      if (existsSync(projectsDir)) {
+        removeDirWithRetry(projectsDir)
+      }
+      if (existsSync(testCwd)) {
+        removeDirWithRetry(testCwd)
+      }
       if (originalConfigDir === undefined) {
         delete process.env.CLAUDE_CONFIG_DIR
       } else {
         process.env.CLAUDE_CONFIG_DIR = originalConfigDir
       }
       setClaudeConfigHomeDirForTesting(undefined)
+      if (expectRecoveryLogsForCurrentTest) {
+        expect(
+          capturedConsoleErrors.some(call =>
+            String(call[0]).includes('Failed to initialize SQLite database'),
+          ),
+        ).toBe(true)
+        expect(capturedConsoleWarnings).toHaveLength(0)
+      } else {
+        expect(capturedConsoleErrors).toHaveLength(0)
+        expect(capturedConsoleWarnings).toHaveLength(0)
+      }
     } finally {
+      if (originalFsCwd) {
+        getFsImplementation().cwd = originalFsCwd
+      }
+      console.error = originalConsoleError
+      console.warn = originalConsoleWarn
       releaseEnvMutex()
     }
   })
@@ -150,6 +197,7 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
   })
 
   it('recovers from corrupted SQLite header (SHORT_READ/Disk Error)', async () => {
+    expectRecoveryLogsForCurrentTest = true
     const cwd = getFsImplementation().cwd()
     const projectDir = join(getProjectsDir(), sanitizePath(cwd))
     const sqlitePath = join(projectDir, 'knowledge.db')
@@ -165,7 +213,9 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
     // 3. System should detect error during init, delete corrupted db, and rebuild from JSON
     await initOrama(cwd)
     const graph = getGlobalGraph()
-    expect(Object.values(graph.entities).some(e => e.name === 'survivor')).toBe(true)
+    expect(Object.values(graph.entities).some(e => e.name === 'survivor')).toBe(
+      true,
+    )
     expect(existsSync(sqlitePath)).toBe(true) // Recreated
   })
 

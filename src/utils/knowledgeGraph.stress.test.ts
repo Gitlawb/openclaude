@@ -79,16 +79,12 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
 
   it('handles high-volume entity insertion (Stress Test)', async () => {
     const count = 50
-    const start = Date.now()
-    
+
     // Use sequential insertion to avoid Orama race conditions on disk/ID collisions
     for (let i = 0; i < count; i++) {
       await addGlobalEntity('stress_test', `entity_${i}`, { index: String(i), category: 'test' })
     }
-    
-    const duration = Date.now() - start
-    console.log(`Inserted ${count} entities into Orama in ${duration}ms`)
-    
+
     const graph = getGlobalGraph()
     expect(Object.keys(graph.entities).length).toBe(count)
 
@@ -131,9 +127,7 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     // 5. Verify the corrupted file was moved
     const { readdirSync } = await import('fs')
     const projectsBaseDir = join(configDir, 'projects')
-    if (!existsSync(projectsBaseDir)) {
-      console.log('Projects base dir not found, checking alternative path...')
-    }
+    expect(existsSync(projectsBaseDir)).toBe(true)
     // Search recursively for the corrupted file
     const findCorrupted = (dir: string): boolean => {
       const entries = readdirSync(dir, { withFileTypes: true })

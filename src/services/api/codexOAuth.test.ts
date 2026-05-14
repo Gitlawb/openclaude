@@ -1,12 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
-
 import { CodexOAuthService } from './codexOAuth.js'
-
-afterEach(() => {
-  mock.restore()
-  restoreCodexOAuthTestIsolation()
-})
 
 type CodexOAuthTestSnapshot = {
   fetch: typeof globalThis.fetch
@@ -15,7 +9,145 @@ type CodexOAuthTestSnapshot = {
   clientId: string | undefined
 }
 
+type FakeResponseCapture = {
+  body: string
+  headers: Record<string, string>
+  statusCode: number | null
+}
+
+type FakeServerResponse = {
+  destroyed: boolean
+  headersSent: boolean
+  writableEnded: boolean
+  writeHead: (statusCode: number, headers?: Record<string, string>) => void
+  end: (chunk?: string) => void
+}
+
+type FakeAuthCodeListenerInstance = {
+  callbackPath: string
+  capture: FakeResponseCapture | null
+  cancelCalls: Error[]
+  closeCalls: number
+  hasPendingResponse: () => boolean
+  start: (port?: number, host?: string) => Promise<number>
+  waitForAuthorization: (
+    state: string,
+    onReady: () => Promise<void>,
+  ) => Promise<string>
+  handleSuccessRedirect: (
+    scopes: string[],
+    customHandler?: (res: FakeServerResponse, scopes: string[]) => void,
+  ) => void
+  handleErrorRedirect: (customHandler?: (res: FakeServerResponse) => void) => void
+  cancelPendingAuthorization: (error?: Error) => void
+  close: () => void
+}
+
 let activeSnapshot: CodexOAuthTestSnapshot | null = null
+let fakeListenerInstance: FakeAuthCodeListenerInstance | null = null
+let nextFakePort = 41000
+
+function createFakeServerResponse(capture: FakeResponseCapture): FakeServerResponse {
+  return {
+    destroyed: false,
+    headersSent: false,
+    writableEnded: false,
+    writeHead(statusCode: number, headers?: Record<string, string>) {
+      capture.statusCode = statusCode
+      capture.headers = { ...(headers ?? {}) }
+      this.headersSent = true
+    },
+    end(chunk?: string) {
+      if (chunk) {
+        capture.body += chunk
+      }
+      this.writableEnded = true
+    },
+  }
+}
+
+function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerInstance {
+  fakeListenerInstance = null
+  class FakeAuthCodeListener {
+    callbackPath: string
+    capture: FakeResponseCapture | null = null
+    cancelCalls: Error[] = []
+    closeCalls = 0
+    private pending = false
+    private boundPort = 0
+    private boundHost = 'localhost'
+
+    constructor(callbackPath: string = '/callback') {
+      this.callbackPath = callbackPath
+      fakeListenerInstance = this as unknown as FakeAuthCodeListenerInstance
+    }
+
+    hasPendingResponse(): boolean {
+      return this.pending
+    }
+
+    async start(port?: number, host: string = 'localhost'): Promise<number> {
+      this.boundHost = host
+      this.boundPort = port && port > 0 ? port : nextFakePort++
+      return this.boundPort
+    }
+
+    async waitForAuthorization(
+      state: string,
+      onReady: () => Promise<void>,
+    ): Promise<string> {
+      this.pending = true
+      this.capture = { body: '', headers: {}, statusCode: null }
+      await onReady()
+      void state
+      return 'auth-code'
+    }
+
+    handleSuccessRedirect(
+      scopes: string[],
+      customHandler?: (res: FakeServerResponse, scopes: string[]) => void,
+    ): void {
+      if (!this.pending || !this.capture) {
+        return
+      }
+
+      const res = createFakeServerResponse(this.capture)
+      customHandler?.(res, scopes)
+      if (!res.writableEnded) {
+        res.end()
+      }
+      this.pending = false
+    }
+
+    handleErrorRedirect(
+      customHandler?: (res: FakeServerResponse) => void,
+    ): void {
+      if (!this.pending || !this.capture) {
+        return
+      }
+
+      const res = createFakeServerResponse(this.capture)
+      customHandler?.(res)
+      if (!res.writableEnded) {
+        res.end()
+      }
+      this.pending = false
+    }
+
+    cancelPendingAuthorization(
+      error: Error = new Error('OAuth authorization was cancelled.'),
+    ): void {
+      this.cancelCalls.push(error)
+    }
+
+    close(): void {
+      this.closeCalls += 1
+      this.pending = false
+    }
+  }
+
+  return new FakeAuthCodeListener(callbackPath) as FakeAuthCodeListenerInstance
+}
 
 async function acquireCodexOAuthTestIsolation(): Promise<CodexOAuthTestSnapshot> {
   const result = await acquireEnvMutex()
@@ -38,6 +170,7 @@ function restoreCodexOAuthTestIsolation(): void {
 
   const snapshot = activeSnapshot
   activeSnapshot = null
+  fakeListenerInstance = null
 
   globalThis.fetch = snapshot.fetch
 
@@ -62,52 +195,10 @@ function restoreCodexOAuthTestIsolation(): void {
   releaseEnvMutex()
 }
 
-function isConnectionRefusedError(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === 'object' &&
-    'code' in error &&
-    error.code === 'ConnectionRefused'
-  )
-}
-
-async function fetchCallbackResponse(authUrl: string): Promise<Response> {
-  const callbackUrl = buildCallbackRequest(authUrl)
-  const deadline = Date.now() + 1_000
-  let lastError: unknown
-
-  while (Date.now() < deadline) {
-    try {
-      return await activeSnapshot!.fetch(callbackUrl)
-    } catch (error) {
-      if (!isConnectionRefusedError(error)) {
-        throw error
-      }
-
-      lastError = error
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`Timed out waiting for OAuth callback listener at ${callbackUrl}`)
-}
-
-function buildCallbackRequest(authUrl: string): string {
-  const authorizeUrl = new URL(authUrl)
-  const redirectUri = authorizeUrl.searchParams.get('redirect_uri')
-  const state = authorizeUrl.searchParams.get('state')
-
-  if (!redirectUri || !state) {
-    throw new Error('Codex OAuth test did not receive a valid authorization URL.')
-  }
-
-  const callbackUrl = new URL(redirectUri)
-  callbackUrl.searchParams.set('code', 'auth-code')
-  callbackUrl.searchParams.set('state', state)
-  return callbackUrl.toString()
-}
+afterEach(() => {
+  mock.restore()
+  restoreCodexOAuthTestIsolation()
+})
 
 test('serves updated success copy after a successful Codex OAuth flow', async () => {
   await acquireCodexOAuthTestIsolation()
@@ -115,16 +206,7 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   try {
     process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
-    globalThis.fetch = mock(async (input, init) => {
-      const url = String(input)
-      if (
-        url.startsWith('http://localhost:') ||
-        url.startsWith('http://127.0.0.1:') ||
-        url.startsWith('http://[::1]:')
-      ) {
-        return activeSnapshot!.fetch(input, init)
-      }
-
+    globalThis.fetch = mock(async () => {
       return new Response(
         JSON.stringify({
           access_token: 'access-token',
@@ -140,24 +222,30 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
     const service = new CodexOAuthService({
       callbackPort: 0,
       callbackHost: '127.0.0.1',
-    })
-    let callbackResponsePromise!: Promise<Response>
-
-    const flowPromise = service.startOAuthFlow(async authUrl => {
-      callbackResponsePromise = fetchCallbackResponse(authUrl)
+      createAuthCodeListener: createFakeAuthCodeListener,
     })
 
-    const tokens = await flowPromise
-    const callbackResponse = await callbackResponsePromise
-    const html = await callbackResponse.text()
+    let capturedAuthUrl = ''
+    const tokens = await service.startOAuthFlow(async authUrl => {
+      capturedAuthUrl = authUrl
+    })
 
     expect(tokens.accessToken).toBe('access-token')
     expect(tokens.refreshToken).toBe('refresh-token')
-    expect(html).toContain('You can return to OpenClaude now.')
-    expect(html).toContain(
+    expect(capturedAuthUrl).toContain('client_id=test-client-id')
+    expect(capturedAuthUrl).toContain(
+      encodeURIComponent('http://127.0.0.1:41000/auth/callback'),
+    )
+    expect(fakeListenerInstance?.capture?.statusCode).toBe(200)
+    expect(fakeListenerInstance?.capture?.body).toContain(
+      'You can return to OpenClaude now.',
+    )
+    expect(fakeListenerInstance?.capture?.body).toContain(
       'OpenClaude will finish activating your new Codex OAuth login.',
     )
-    expect(html).not.toContain('continue automatically')
+    expect(fakeListenerInstance?.capture?.body).not.toContain(
+      'continue automatically',
+    )
   } finally {
     restoreCodexOAuthTestIsolation()
   }
@@ -174,16 +262,7 @@ test('cancellation during token exchange returns a cancelled page and rejects th
       resolveFetchStart = resolve
     })
 
-    globalThis.fetch = mock((input, init) => {
-      const url = String(input)
-      if (
-        url.startsWith('http://localhost:') ||
-        url.startsWith('http://127.0.0.1:') ||
-        url.startsWith('http://[::1]:')
-      ) {
-        return activeSnapshot!.fetch(input, init)
-      }
-
+    globalThis.fetch = mock((_input, init) => {
       return new Promise<Response>((_resolve, reject) => {
         resolveFetchStart()
 
@@ -210,23 +289,22 @@ test('cancellation during token exchange returns a cancelled page and rejects th
     const service = new CodexOAuthService({
       callbackPort: 0,
       callbackHost: '127.0.0.1',
+      createAuthCodeListener: createFakeAuthCodeListener,
     })
-    let callbackResponsePromise!: Promise<Response>
 
-    const flowPromise = service.startOAuthFlow(async authUrl => {
-      callbackResponsePromise = fetchCallbackResponse(authUrl)
-    })
+    const flowPromise = service.startOAuthFlow(async () => {})
 
     await fetchStarted
     service.cleanup()
 
     await expect(flowPromise).rejects.toThrow('Codex OAuth flow was cancelled.')
-
-    const callbackResponse = await callbackResponsePromise
-    const html = await callbackResponse.text()
-
-    expect(html).toContain('Codex login cancelled')
-    expect(html).toContain('retry in OpenClaude')
+    expect(fakeListenerInstance?.capture?.statusCode).toBe(200)
+    expect(fakeListenerInstance?.capture?.body).toContain(
+      'Codex login cancelled',
+    )
+    expect(fakeListenerInstance?.capture?.body).toContain(
+      'retry in OpenClaude',
+    )
   } finally {
     restoreCodexOAuthTestIsolation()
   }

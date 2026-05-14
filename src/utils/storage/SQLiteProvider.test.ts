@@ -164,16 +164,12 @@ describe('SQLite Storage Layer', () => {
 
   it('handles large transactions (Stress Test)', async () => {
     const count = 100
-    const start = Date.now()
     
     // Add 100 entities sequentially (mutation queue)
     for (let i = 0; i < count; i++) {
       await addGlobalEntity('bulk', `item_${i}`, { index: String(i) })
     }
-    
-    const duration = Date.now() - start
-    console.log(`Inserted ${count} items into SQLite+JSON+Orama in ${duration}ms`)
-    
+
     clearMemoryOnly()
     const graph = getGlobalGraph()
     expect(Object.keys(graph.entities).length).toBe(count)

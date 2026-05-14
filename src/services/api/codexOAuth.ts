@@ -190,10 +190,21 @@ async function exchangeAuthorizationCode(options: {
 type CodexOAuthServiceOptions = {
   callbackPort?: number
   callbackHost?: string
+  createAuthCodeListener?: (callbackPath: string) => CodexOAuthListener
 }
 
+type CodexOAuthListener = Pick<
+  AuthCodeListener,
+  | 'start'
+  | 'hasPendingResponse'
+  | 'waitForAuthorization'
+  | 'handleSuccessRedirect'
+  | 'handleErrorRedirect'
+  | 'cancelPendingAuthorization'
+>
+
 export class CodexOAuthService {
-  private authCodeListener: AuthCodeListener | null = null
+  private authCodeListener: CodexOAuthListener | null = null
   private port: number | null = null
   private tokenExchangeAbortController: AbortController | null = null
 
@@ -211,7 +222,9 @@ export class CodexOAuthService {
       this.options.callbackPort ?? getCodexOAuthCallbackPort()
     const callbackHost =
       this.options.callbackHost ?? getCodexOAuthCallbackHost()
-    const authCodeListener = new AuthCodeListener('/auth/callback')
+    const authCodeListener =
+      this.options.createAuthCodeListener?.('/auth/callback') ??
+      new AuthCodeListener('/auth/callback')
 
     this.authCodeListener = authCodeListener
     this.port = null

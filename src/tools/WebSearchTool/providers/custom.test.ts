@@ -227,9 +227,15 @@ describe('built-in preset request shapes', () => {
   ]
   const savedEnv: Record<string, string | undefined> = {}
   const originalFetch = globalThis.fetch
+  const originalConsoleWarn = console.warn
+  let capturedWarnings: unknown[][] = []
 
   beforeEach(() => {
     for (const k of PRESET_ENV_KEYS) savedEnv[k] = process.env[k]
+    capturedWarnings = []
+    console.warn = (...args: unknown[]) => {
+      capturedWarnings.push(args)
+    }
   })
 
   afterEach(() => {
@@ -238,6 +244,7 @@ describe('built-in preset request shapes', () => {
       else process.env[k] = v
     }
     globalThis.fetch = originalFetch
+    console.warn = originalConsoleWarn
   })
 
   test('google preset sends ?key= and ?cx= as query params, no auth header', async () => {
@@ -262,6 +269,11 @@ describe('built-in preset request shapes', () => {
     expect(capturedUrl).toContain('cx=cse-test-id')
     expect(capturedUrl).toContain('q=hello+world')
     expect(capturedHeaders.Authorization).toBeUndefined()
+    expect(
+      capturedWarnings.some(call =>
+        String(call[0]).includes('Custom search provider is active'),
+      ),
+    ).toBe(true)
   })
 
   test('google preset throws clear error when GOOGLE_CSE_ID is missing', async () => {
