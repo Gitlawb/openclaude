@@ -4278,11 +4278,13 @@ async function run(): Promise<CommanderCommand> {
   });
 
   const skillsCmd = program.command('skills').description('List, inspect, validate, and manage OpenClaude skills').configureHelp(createSortedHelpConfig());
-  skillsCmd.command('list').description('List configured skills').action(async () => {
+  skillsCmd.command('list').description('List configured skills').option('--json', 'Output as JSON').action(async (options: {
+    json?: boolean;
+  }) => {
     const {
       skillsListHandler
     } = await import('./cli/handlers/skills.js');
-    await skillsListHandler();
+    await skillsListHandler(options);
     process.exit(process.exitCode ?? 0);
   });
   skillsCmd.command('show <name>').description('Show details for a configured skill').action(async (name: string) => {

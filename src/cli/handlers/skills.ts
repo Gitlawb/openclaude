@@ -15,8 +15,17 @@ import { initBundledSkills } from '../../skills/bundled/index.js'
 import { getCwd } from '../../utils/cwd.js'
 import { getDisplayPath } from '../../utils/file.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import {
+  formatSkillsListForDisplay,
+  formatSkillsListJson,
+  locationLabel,
+  sourceLabel,
+  trustLabel,
+  type SkillListCommand,
+} from './skillsListFormat.js'
 
-type SkillCommand = Command & { type: 'prompt' }
+type SkillCommand = SkillListCommand
+type ListOptions = { json?: boolean }
 type RemoveOptions = { global?: boolean }
 
 const REQUIRED_METADATA = [
@@ -55,27 +64,6 @@ function isSkillCommand(cmd: Command): cmd is SkillCommand {
       cmd.loadedFrom === 'bundled' ||
       cmd.loadedFrom === 'mcp')
   )
-}
-
-function sourceLabel(skill: SkillCommand): string {
-  if (skill.source === 'projectSettings') return 'project'
-  if (skill.source === 'userSettings') return 'user'
-  if (skill.source === 'policySettings') return 'managed'
-  return skill.source
-}
-
-function trustLabel(skill: SkillCommand): string {
-  if (skill.source === 'bundled') return 'bundled'
-  if (skill.source === 'plugin') return 'plugin'
-  if (skill.source === 'mcp') return 'mcp'
-  if (skill.source === 'policySettings') return 'managed'
-  return 'local'
-}
-
-function locationLabel(skill: SkillCommand): string {
-  if (skill.skillFilePath) return getDisplayPath(skill.skillFilePath)
-  if (skill.skillRoot) return getDisplayPath(skill.skillRoot)
-  return '-'
 }
 
 function loadSkills(): Promise<SkillCommand[]> {
@@ -231,60 +219,15 @@ async function validateSkillPath(path: string): Promise<string[]> {
   return [...new Set(errors)]
 }
 
-function getResolutionState(skills: SkillCommand[]): Map<SkillCommand, string> {
-  const winners = new Map<string, SkillCommand>()
-  const states = new Map<SkillCommand, string>()
-
-  for (const skill of skills) {
-    const key = getCommandName(skill)
-    const winner = winners.get(key)
-    if (winner) {
-      states.set(skill, `shadowed by ${sourceLabel(winner)}`)
-    } else {
-      winners.set(key, skill)
-      states.set(skill, 'enabled')
-    }
-  }
-
-  return states
-}
-
-function formatSkillRow(skill: SkillCommand, state: string): string {
-  const version = skill.version ?? '-'
-  const title = getCommandName(skill)
-  return [
-    title,
-    sourceLabel(skill),
-    trustLabel(skill),
-    version,
-    state,
-    skill.description,
-  ].join(' | ')
-}
-
-export async function skillsListHandler(): Promise<void> {
+export async function skillsListHandler(options: ListOptions = {}): Promise<void> {
   const skills = await loadSkills()
-  if (skills.length === 0) {
-    console.log(
-      'No skills found. Create project skills in .openclaude/skills/<name>/SKILL.md.',
-    )
+
+  if (options.json) {
+    console.log(formatSkillsListJson(skills))
     return
   }
 
-  const states = getResolutionState(skills)
-  const enabledCount = [...states.values()].filter(s => s === 'enabled').length
-  const lines = [
-    `${enabledCount} active skills`,
-    '',
-    'name | source | trust | version | state | description',
-    '--- | --- | --- | --- | --- | ---',
-    ...skills
-      .slice()
-      .sort((a, b) => getCommandName(a).localeCompare(getCommandName(b)))
-      .map(skill => formatSkillRow(skill, states.get(skill) ?? 'enabled')),
-  ]
-
-  console.log(lines.join('\n'))
+  console.log(formatSkillsListForDisplay(skills))
 }
 
 export async function skillsShowHandler(name: string): Promise<void> {
