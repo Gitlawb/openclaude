@@ -148,7 +148,6 @@ Notes:
 - Near-cap RPD warnings are written to debug logs, so you may only see them when running with `--debug` or debug logging enabled.
 - If RPD state cannot be persisted (permissions/path issues), requests are blocked with a clear error.
 - When RPM is exceeded, OpenClaude waits until a slot is available.
-
 ## Setup Guides
 
 Beginner-friendly guides:
@@ -173,7 +172,7 @@ Advanced and source-build guides:
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
-| Ollama | `/provider`, env vars, or `ollama launch` | Local inference with no API key |
+| Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
 
