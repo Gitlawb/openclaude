@@ -82,16 +82,16 @@ export const CoverageTool = buildTool({
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
   renderToolUseMessage(input) {
-    return { type: 'text', text: `Reading coverage report at ${input.path}` }
+    return `Reading coverage report at ${input.path}`
   },
   renderToolResultMessage(output) {
-    if (!output.success) return { type: 'text', text: `Coverage analysis failed: ${output.error}` }
+    if (!output.success) return `Coverage analysis failed: ${output.error}`
     let msg = `lcov: ${output.lines}% lines`
     if (output.branches !== undefined) msg += `, ${output.branches}% branches`
     msg += ` in ${output.durationMs}ms`
     if (output.uncoveredFiles?.length) msg += `, ${output.uncoveredFiles.length} files with 0% coverage`
     if (output.meetsThreshold !== undefined) msg += output.meetsThreshold ? ' ✅ meets threshold' : ' ❌ below threshold'
-    return { type: 'text', text: msg }
+    return msg
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
     const startTime = Date.now()
