@@ -514,7 +514,7 @@ export const onSessionSwitch = sessionSwitched.subscribe
  */
 export function getSessionProjectDir(): string | null {
   const ctx = getSdkContext()
-  return ctx?.sessionProjectDir ?? STATE.sessionProjectDir
+  return ctx ? ctx.sessionProjectDir : STATE.sessionProjectDir
 }
 
 export function getOriginalCwd(): string {
@@ -1651,4 +1651,3 @@ export function isReplBridgeActive(): boolean {
 export function getReplBridgeHandle(): null {
   return null
 }
-
