@@ -1284,6 +1284,28 @@ function checkSandboxAutoAllow(
   // would return 'ask' before a prefix deny rule on a subcommand (e.g., Bash(rm:*))
   // gets checked, downgrading a deny to an ask.
   const subcommands = splitCommand(command)
+
+  // CC-643: Mirror the cap applied in `bashToolHasPermission` (see the
+  // MAX_SUBCOMMANDS_FOR_SECURITY_CHECK branch below `astSubcommands ?? ...`).
+  // Without it, a crafted compound command whose legacy `splitCommand` output
+  // explodes can iterate `matchingRulesForInput` N times in this sandbox
+  // auto-allow path before the main path's cap ever gets a chance to run.
+  if (subcommands.length > MAX_SUBCOMMANDS_FOR_SECURITY_CHECK) {
+    logForDebugging(
+      `bashPermissions(sandboxAutoAllow): ${subcommands.length} subcommands exceeds cap (${MAX_SUBCOMMANDS_FOR_SECURITY_CHECK}) — returning ask`,
+      { level: 'debug' },
+    )
+    const decisionReason = {
+      type: 'other' as const,
+      reason: `Command splits into ${subcommands.length} subcommands, too many to safety-check individually`,
+    }
+    return {
+      behavior: 'ask',
+      message: createPermissionRequestMessage(BashTool.name, decisionReason),
+      decisionReason,
+    }
+  }
+
   if (subcommands.length > 1) {
     let firstAskRule: PermissionRule | undefined
     for (const sub of subcommands) {

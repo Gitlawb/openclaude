@@ -58,6 +58,35 @@ test('sandbox auto-allow still enforces Bash path constraints', async () => {
   expect(result.message).toContain('passwd')
 })
 
+// CC-643 regression: the subcommand-fanout cap must apply on the sandbox
+// auto-allow path too, not only the main `bashToolHasPermission` body.
+// Otherwise a crafted compound command can iterate `matchingRulesForInput`
+// N times in the auto-allow path before the main cap ever runs.
+test('sandbox auto-allow caps subcommand fanout at MAX_SUBCOMMANDS_FOR_SECURITY_CHECK', async () => {
+  ;(globalThis as unknown as { MACRO: { VERSION: string } }).MACRO = {
+    VERSION: 'test',
+  }
+
+  SandboxManager.isSandboxingEnabled = () => true
+  SandboxManager.isAutoAllowBashIfSandboxedEnabled = () => true
+  SandboxManager.areUnsandboxedCommandsAllowed = () => true
+  SandboxManager.getExcludedCommands = () => []
+
+  // 60 `echo`s chained with `&&` blow past the 50-subcommand cap.
+  const command = Array.from({ length: 60 }, () => 'echo x').join(' && ')
+
+  const result = await bashToolHasPermission(
+    { command },
+    makeToolUseContext(),
+  )
+
+  expect(result.behavior).toBe('ask')
+  expect(result.decisionReason).toMatchObject({
+    type: 'other',
+    reason: expect.stringContaining('too many to safety-check individually'),
+  })
+})
+
 // SEC-02 regression: array subscript with command substitution must NOT be stripped.
 // Bash executes FOO[$(cmd)]=val as a side effect; if the pattern matched the
 // subscript, the env-var prefix would be stripped while $(cmd) silently ran.
