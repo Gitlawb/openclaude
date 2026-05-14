@@ -4181,6 +4181,17 @@ async function run(): Promise<CommanderCommand> {
     await skillsValidateHandler(path);
     process.exit(process.exitCode ?? 0);
   });
+  skillsCmd.command('install <idOrUrlOrPath>').description('Install a skill from the registry, URL, or local path').option('--registry <urlOrPath>', 'Registry JSON URL/path for registry ID installs').option('--global', 'Install to the user-global skills directory').option('--force', 'Overwrite an existing installed skill').action(async (idOrUrlOrPath: string, options: {
+    registry?: string;
+    global?: boolean;
+    force?: boolean;
+  }) => {
+    const {
+      skillsInstallHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsInstallHandler(idOrUrlOrPath, options);
+    process.exit(process.exitCode ?? 0);
+  });
   skillsCmd.command('remove <name>').description('Remove a local project skill').option('--global', 'Remove from the user-global skills directory').action(async (name: string, options: {
     global?: boolean;
   }) => {
