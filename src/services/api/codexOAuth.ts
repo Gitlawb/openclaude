@@ -35,10 +35,13 @@ export type CodexOAuthTokens = {
 
 function buildCodexAuthorizeUrl(options: {
   port: number
+  host: string
   codeChallenge: string
   state: string
 }): string {
-  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port)}/auth/callback`
+  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port, {
+    CODEX_OAUTH_CALLBACK_HOST: options.host,
+  } as NodeJS.ProcessEnv)}/auth/callback`
   const authUrl = new URL(`${CODEX_OAUTH_ISSUER}/oauth/authorize`)
 
   authUrl.searchParams.append('response_type', 'code')
@@ -119,9 +122,12 @@ async function exchangeAuthorizationCode(options: {
   authorizationCode: string
   codeVerifier: string
   port: number
+  host: string
   signal?: AbortSignal
 }): Promise<CodexOAuthTokens> {
-  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port)}/auth/callback`
+  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port, {
+    CODEX_OAUTH_CALLBACK_HOST: options.host,
+  } as NodeJS.ProcessEnv)}/auth/callback`
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: options.authorizationCode,
@@ -181,10 +187,17 @@ async function exchangeAuthorizationCode(options: {
   }
 }
 
+type CodexOAuthServiceOptions = {
+  callbackPort?: number
+  callbackHost?: string
+}
+
 export class CodexOAuthService {
   private authCodeListener: AuthCodeListener | null = null
   private port: number | null = null
   private tokenExchangeAbortController: AbortController | null = null
+
+  constructor(private readonly options: CodexOAuthServiceOptions = {}) {}
 
   private buildCancellationError(): Error {
     return new Error('Codex OAuth flow was cancelled.')
@@ -194,14 +207,16 @@ export class CodexOAuthService {
     authURLHandler: (authUrl: string) => Promise<void>,
   ): Promise<CodexOAuthTokens> {
     const codeVerifier = generateCodeVerifier()
-    const callbackPort = getCodexOAuthCallbackPort()
+    const callbackPort =
+      this.options.callbackPort ?? getCodexOAuthCallbackPort()
+    const callbackHost =
+      this.options.callbackHost ?? getCodexOAuthCallbackHost()
     const authCodeListener = new AuthCodeListener('/auth/callback')
 
     this.authCodeListener = authCodeListener
     this.port = null
 
     try {
-      const callbackHost = getCodexOAuthCallbackHost()
       const port = await authCodeListener.start(callbackPort, callbackHost)
       this.port = port
 
@@ -209,6 +224,7 @@ export class CodexOAuthService {
       const codeChallenge = await generateCodeChallenge(codeVerifier)
       const authUrl = buildCodexAuthorizeUrl({
         port,
+        host: callbackHost,
         codeChallenge,
         state,
       })
@@ -230,6 +246,7 @@ export class CodexOAuthService {
             authorizationCode,
             codeVerifier,
             port,
+            host: callbackHost,
             signal: tokenExchangeAbortController.signal,
           })
         } finally {
@@ -289,7 +306,7 @@ export class CodexOAuthService {
         message.includes(String(callbackPort))
       ) {
         throw new Error(
-          `Codex OAuth needs ${getCodexOAuthCallbackHost()}:${callbackPort} for its callback. Close any app already using that port and try again.`,
+          `Codex OAuth needs ${callbackHost}:${callbackPort} for its callback. Close any app already using that port and try again.`,
         )
       }
       throw error

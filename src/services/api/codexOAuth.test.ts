@@ -1,5 +1,3 @@
-import { createServer } from 'node:http'
-
 import { afterEach, expect, mock, test } from 'bun:test'
 import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
 
@@ -64,28 +62,36 @@ function restoreCodexOAuthTestIsolation(): void {
   releaseEnvMutex()
 }
 
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const server = createServer()
+function isConnectionRefusedError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'ConnectionRefused'
+  )
+}
 
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      if (!address || typeof address === 'string') {
-        server.close(() => reject(new Error('Failed to allocate test port.')))
-        return
+async function fetchCallbackResponse(authUrl: string): Promise<Response> {
+  const callbackUrl = buildCallbackRequest(authUrl)
+  const deadline = Date.now() + 1_000
+  let lastError: unknown
+
+  while (Date.now() < deadline) {
+    try {
+      return await activeSnapshot!.fetch(callbackUrl)
+    } catch (error) {
+      if (!isConnectionRefusedError(error)) {
+        throw error
       }
 
-      const { port } = address
-      server.close(error => {
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve(port)
-      })
-    })
-  })
+      lastError = error
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Timed out waiting for OAuth callback listener at ${callbackUrl}`)
 }
 
 function buildCallbackRequest(authUrl: string): string {
@@ -107,14 +113,15 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   await acquireCodexOAuthTestIsolation()
 
   try {
-    const callbackPort = await getFreePort()
-    process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
-    process.env.CODEX_OAUTH_CALLBACK_HOST = '127.0.0.1'
     process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
     globalThis.fetch = mock(async (input, init) => {
       const url = String(input)
-      if (url.startsWith('http://localhost:')) {
+      if (
+        url.startsWith('http://localhost:') ||
+        url.startsWith('http://127.0.0.1:') ||
+        url.startsWith('http://[::1]:')
+      ) {
         return activeSnapshot!.fetch(input, init)
       }
 
@@ -130,11 +137,14 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
       )
     }) as typeof fetch
 
-    const service = new CodexOAuthService()
+    const service = new CodexOAuthService({
+      callbackPort: 0,
+      callbackHost: '127.0.0.1',
+    })
     let callbackResponsePromise!: Promise<Response>
 
     const flowPromise = service.startOAuthFlow(async authUrl => {
-      callbackResponsePromise = activeSnapshot!.fetch(buildCallbackRequest(authUrl))
+      callbackResponsePromise = fetchCallbackResponse(authUrl)
     })
 
     const tokens = await flowPromise
@@ -157,9 +167,6 @@ test('cancellation during token exchange returns a cancelled page and rejects th
   await acquireCodexOAuthTestIsolation()
 
   try {
-    const callbackPort = await getFreePort()
-    process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
-    process.env.CODEX_OAUTH_CALLBACK_HOST = '127.0.0.1'
     process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
     let resolveFetchStart!: () => void
@@ -169,7 +176,11 @@ test('cancellation during token exchange returns a cancelled page and rejects th
 
     globalThis.fetch = mock((input, init) => {
       const url = String(input)
-      if (url.startsWith('http://localhost:')) {
+      if (
+        url.startsWith('http://localhost:') ||
+        url.startsWith('http://127.0.0.1:') ||
+        url.startsWith('http://[::1]:')
+      ) {
         return activeSnapshot!.fetch(input, init)
       }
 
@@ -196,11 +207,14 @@ test('cancellation during token exchange returns a cancelled page and rejects th
       })
     }) as typeof fetch
 
-    const service = new CodexOAuthService()
+    const service = new CodexOAuthService({
+      callbackPort: 0,
+      callbackHost: '127.0.0.1',
+    })
     let callbackResponsePromise!: Promise<Response>
 
     const flowPromise = service.startOAuthFlow(async authUrl => {
-      callbackResponsePromise = activeSnapshot!.fetch(buildCallbackRequest(authUrl))
+      callbackResponsePromise = fetchCallbackResponse(authUrl)
     })
 
     await fetchStarted
