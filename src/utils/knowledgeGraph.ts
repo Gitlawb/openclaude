@@ -10,6 +10,11 @@ import { SQLiteProvider } from './storage/SQLiteProvider.js'
 import { JSONProvider } from './storage/JSONProvider.js'
 import { writeFileSyncAndFlush_DEPRECATED } from './file.js'
 
+function removePathWithRetry(path: string): void {
+  if (!existsSync(path)) return
+  try { rmSync(path, { force: true }) } catch { setTimeout(() => { try { rmSync(path, { force: true }) } catch {} }, 100) }
+}
+
 export interface Entity {
   id: string
   type: string
@@ -637,8 +642,13 @@ export function resetGlobalGraph(): void {
   sqlite.close()
   
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
-  const sqlitePath = join(projectDir, 'knowledge.db')
-  try { if (existsSync(sqlitePath)) rmSync(sqlitePath, { force: true }) } catch {}
+  for (const sqlitePath of [
+    join(projectDir, 'knowledge.db'),
+    join(projectDir, 'knowledge.db-wal'),
+    join(projectDir, 'knowledge.db-shm'),
+  ]) {
+    removePathWithRetry(sqlitePath)
+  }
   
   const oramaPath = getOramaPersistencePath(cwd)
   try { rmSync(oramaPath, { force: true }) } catch {}
