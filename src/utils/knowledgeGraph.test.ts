@@ -12,27 +12,62 @@ import {
 import { mkdtempSync, rmSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { getProjectsDir } from './envUtils.js'
+import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
+import { getProjectsDir, setClaudeConfigHomeDirForTesting } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 
 describe('KnowledgeGraph Global Persistence & RAG', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-test-'))
-  process.env.CLAUDE_CONFIG_DIR = configDir
   const cwd = process.cwd()
+  const removeDirWithRetry = (dir: string) => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        rmSync(dir, { recursive: true, force: true })
+        return
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'EBUSY' && code !== 'EPERM') {
+          throw error
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1))
+      }
+    }
 
-  beforeEach(() => {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'EBUSY' && code !== 'EPERM') {
+        throw error
+      }
+    }
+  }
+
+  beforeEach(async () => {
+    await acquireEnvMutex()
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    setClaudeConfigHomeDirForTesting(configDir)
     resetGlobalGraph()
   })
 
-  afterAll(() => {
-    resetGlobalGraph()
-    if (originalConfigDir === undefined) {
-      delete process.env.CLAUDE_CONFIG_DIR
-    } else {
-      process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+  afterEach(() => {
+    try {
+      resetGlobalGraph()
+      clearMemoryOnly()
+      if (originalConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+      }
+      setClaudeConfigHomeDirForTesting(undefined)
+    } finally {
+      releaseEnvMutex()
     }
-    rmSync(configDir, { recursive: true, force: true })
+  })
+
+  afterAll(() => {
+    removeDirWithRetry(configDir)
   })
 
   it('persists entities across loads', async () => {

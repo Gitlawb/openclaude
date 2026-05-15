@@ -156,10 +156,22 @@ export function resolveClaudeConfigHomeDir(options?: {
   return openClaudeDir.normalize('NFC')
 }
 
+let claudeConfigHomeDirOverride: string | undefined
+
+export function setClaudeConfigHomeDirForTesting(
+  configDir: string | undefined,
+): void {
+  claudeConfigHomeDirOverride = configDir?.normalize('NFC')
+}
+
 // Memoized: 150+ callers, many on hot paths. Keyed off CLAUDE_CONFIG_DIR so
 // tests that change the env var get a fresh value without explicit cache.clear.
 export const getClaudeConfigHomeDir = memoize(
   (): string => {
+    if (claudeConfigHomeDirOverride) {
+      return claudeConfigHomeDirOverride
+    }
+
     const configDirEnv = process.env.CLAUDE_CONFIG_DIR
     const homeDir = homedir()
     const migrationSucceeded = migrateLegacyClaudeConfigHome({
@@ -183,7 +195,7 @@ export const getClaudeConfigHomeDir = memoize(
       homeDir,
     })
   },
-  () => process.env.CLAUDE_CONFIG_DIR,
+  () => `${claudeConfigHomeDirOverride ?? ''}\0${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
 )
 
 export function getTeamsDir(): string {

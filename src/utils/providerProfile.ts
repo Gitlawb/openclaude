@@ -199,13 +199,14 @@ type SecretValueSource = Partial<
   >
 >
 
-type ProfileFileLocation = {
+export type ProfileFileLocation = {
+  configDir?: string
   cwd?: string
   filePath?: string
 }
 
-export function getDefaultProfileFilePath(): string {
-  return join(getClaudeConfigHomeDir(), PROFILE_FILE_NAME)
+export function getDefaultProfileFilePath(configDir?: string): string {
+  return join(configDir ?? getClaudeConfigHomeDir(), PROFILE_FILE_NAME)
 }
 
 function resolveLegacyProfileFilePath(cwd = process.cwd()): string {
@@ -217,16 +218,16 @@ function resolveProfileFilePath(options?: ProfileFileLocation): string {
     return options.filePath
   }
 
-  if (options?.cwd) {
+  if (options?.cwd && !options?.configDir) {
     return resolveLegacyProfileFilePath(options.cwd)
   }
 
-  return getDefaultProfileFilePath()
+  return getDefaultProfileFilePath(options?.configDir)
 }
 
 function resolveProfileFileReadPaths(options?: ProfileFileLocation): string[] {
   const primary = resolveProfileFilePath(options)
-  if (options?.filePath || options?.cwd) {
+  if (options?.filePath || (options?.cwd && !options?.configDir)) {
     return [primary]
   }
 
@@ -234,17 +235,17 @@ function resolveProfileFileReadPaths(options?: ProfileFileLocation): string[] {
     return [primary]
   }
 
-  const legacy = resolveLegacyProfileFilePath()
+  const legacy = resolveLegacyProfileFilePath(options?.cwd)
   return legacy === primary ? [primary] : [primary, legacy]
 }
 
 function resolveProfileFileCleanupPaths(options?: ProfileFileLocation): string[] {
   const primary = resolveProfileFilePath(options)
-  if (options?.filePath || options?.cwd) {
+  if (options?.filePath || (options?.cwd && !options?.configDir)) {
     return [primary]
   }
 
-  const legacy = resolveLegacyProfileFilePath()
+  const legacy = resolveLegacyProfileFilePath(options?.cwd)
   return legacy === primary ? [primary] : [primary, legacy]
 }
 
@@ -946,13 +947,12 @@ export function saveProfileFile(
 
 export function deleteProfileFile(options?: ProfileFileLocation): string {
   const filePath = resolveProfileFilePath(options)
-  rmSync(filePath, { force: true })
-  if (!options?.filePath && !options?.cwd) {
-    const legacyPath = resolveLegacyProfileFilePath()
-    if (legacyPath !== filePath) {
-      rmSync(legacyPath, { force: true })
-    }
+  const cleanupPaths = new Set(resolveProfileFileCleanupPaths(options))
+
+  for (const cleanupPath of cleanupPaths) {
+    rmSync(cleanupPath, { force: true })
   }
+
   return filePath
 }
 

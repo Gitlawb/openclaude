@@ -1,41 +1,25 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { parseOpenAIDuration } from './withRetry.js'
-
-// Helper to build a mock APIError with specific headers
-function makeError(headers: Record<string, string>): APIError {
-  const headersObj = new Headers(headers)
-  return {
-    headers: headersObj,
-    status: 429,
-    message: 'rate limit exceeded',
-    name: 'APIError',
-    error: {},
-  } as unknown as APIError
-}
-
-// Save/restore env vars between tests
-const originalEnv = { ...process.env }
-
-const envKeys = [
-  'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  'OPENAI_MODEL',
-  'OPENAI_BASE_URL',
-  'OPENAI_API_BASE',
-] as const
+beforeEach(async () => {
+  await acquireSharedMutationLock('withRetry.test.ts')
+  for (const key of envKeys) {
+    delete process.env[key]
+  }
+})
 
 afterEach(() => {
-  // Restore the original env keys plus any additional test-specific keys
-  for (const key of [...envKeys, 'CLAUDE_CODE_UNATTENDED_RETRY']) {
-    if (originalEnv[key] === undefined) delete process.env[key]
-    else process.env[key] = originalEnv[key]
+  try {
+    // Restore environment variables, including the unattended retry flag
+    for (const key of [...envKeys, 'CLAUDE_CODE_UNATTENDED_RETRY']) {
+      if (originalEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = originalEnv[key]
+    }
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
   }
-  mock.restore()
 })
     'CLAUDE_CODE_UNATTENDED_RETRY',
   ]) {
@@ -44,8 +28,25 @@ afterEach(() => {
 >>>>>>> ad724dc (Improve GitHub Copilot provider: official OAuth onboarding, Copilot API routing, and test hardening and auto refresh token logic (#288))
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
+=======
+beforeEach(async () => {
+  await acquireSharedMutationLock('withRetry.test.ts')
+  for (const key of envKeys) {
+    delete process.env[key]
   }
-  mock.restore()
+})
+
+afterEach(() => {
+  try {
+    for (const key of envKeys) {
+      if (originalEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = originalEnv[key]
+    }
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+>>>>>>> 94e8ff3 (chore: centralize Bun version and refresh CI tool pins (#1171))
+  }
 })
 
 async function importFreshWithRetryModule(

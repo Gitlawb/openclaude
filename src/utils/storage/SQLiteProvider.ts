@@ -259,8 +259,31 @@ export class SQLiteProvider {
     }
   }
 
+  public clear(): boolean {
+    if (!this.db) {
+      return !existsSync(this.dbPath)
+    }
+
+    try {
+      this.db.transaction(() => {
+        this.db!.exec('DELETE FROM relations')
+        this.db!.exec('DELETE FROM entities')
+        this.db!.exec('DELETE FROM summaries')
+        this.db!.exec('DELETE FROM rules')
+        this.db!.exec('DELETE FROM sync_meta')
+      })()
+      return true
+    } catch (e) {
+      console.error('Failed to clear SQLite knowledge graph:', e)
+      return false
+    }
+  }
+
   public close(): void {
     if (this.db) {
+      try {
+        this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);')
+      } catch {}
       try {
         this.db.close()
       } catch {}
