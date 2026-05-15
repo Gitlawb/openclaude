@@ -51,6 +51,33 @@ function detectManager(dir: string): string | null {
 
 function parseAdvisories(stdout: string, mgr: string, minSev: number): Output['advisories'] {
   const result: Output['advisories'] = []
+
+  // govulncheck emits newline-delimited JSON messages, not a single object
+  if (mgr === 'go') {
+    for (const line of stdout.split('\n')) {
+      const t = line.trim()
+      if (!t) continue
+      try {
+        const msg = JSON.parse(t)
+        // govulncheck messages: finding type has osv with aliases[] and details
+        if (msg.type === 'finding' || msg.osv) {
+          const osv = msg.osv ?? msg
+          const sevRaw = ((osv.severity ?? osv.criticality ?? 'medium') + '').toLowerCase()
+          const sev = SEVERITY_MAP[sevRaw] ?? 'medium'
+          if ((SEVERITY_ORDER[sev] ?? 99) > minSev) continue
+          result.push({
+            package: msg.message?.name ?? msg.module ?? osv.package?.name ?? 'unknown',
+            severity: sev,
+            title: osv.details ?? osv.summary ?? msg.details ?? 'Go vulnerability',
+            patchedIn: osv.patched ?? undefined,
+            moreInfo: osv.url ?? (osv.aliases?.[0] ? `https://pkg.go.dev/vuln/${osv.aliases[0]}` : undefined),
+          })
+        }
+      } catch { /* skip unparseable lines */ }
+    }
+    return result.slice(0, MAX_ADVISORIES)
+  }
+
   try {
     const data = JSON.parse(stdout)
     // pip-audit uses dependencies[].vulns[] shape

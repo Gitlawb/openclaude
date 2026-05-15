@@ -52,7 +52,22 @@ function detectManager(dir: string): string | null {
 
 function buildArgs(input: z.infer<InputSchema>, mgr: string): string[] {
   const a: string[] = []
-  const pkgs = (input.packages ?? []).map(p => p.replace(/[^a-zA-Z0-9@\-_./~]/g, ''))
+  // Validate package specs per-manager instead of silently rewriting
+  const allowedChars: Record<string, RegExp> = {
+    npm: /^[a-zA-Z0-9@\-_./~][a-zA-Z0-9@\-_./~!*()'^]+$/,
+    pip: /^[a-zA-Z0-9\-_.\[\]]+(==|>=|<=|!=|~=|>|<)?[a-zA-Z0-9\-_.*]*$/,
+    go: /^[a-zA-Z0-9\-_.\/]+$/,
+    cargo: /^[a-zA-Z0-9\-_]+$/,
+    bun: /^[a-zA-Z0-9@\-_./~]+$/,
+    brew: /^[a-zA-Z0-9\-_+]+$/,
+  }
+  const validator = allowedChars[mgr]
+  const pkgs = (input.packages ?? []).map(p => p.trim()).filter(p => {
+    if (!p) return false
+    if (validator && !validator.test(p)) return false
+    return true
+  })
+  // If packages were provided but all were rejected, the call will get empty args and fail cleanly
   const dry = input.dryRun
 
   switch (input.action) {
@@ -77,8 +92,8 @@ function buildArgs(input: z.infer<InputSchema>, mgr: string): string[] {
       else if (mgr === 'pip') { a.push('uninstall', '-y'); a.push(...pkgs) }
       else if (mgr === 'cargo') { a.push('remove'); a.push(...pkgs) }
       else if (mgr === 'bun') { a.push('remove'); a.push(...pkgs) }
-      else if (mgr === 'brew') { a.push('uninstall'); a.push(...pkgs) }
-      else if (mgr === 'go') { a.push('mod', 'tidy') }
+      else       if (mgr === 'brew') { a.push('uninstall'); a.push(...pkgs) }
+      else if (mgr === 'go') { pkgs.forEach(p => { a.push('get', `${p}@none`) }); a.push('mod', 'tidy') }
       break
     case 'list':
       if (mgr === 'npm') a.push('list', '--depth=0')
@@ -158,7 +173,8 @@ export const PackageManagerTool = buildTool({
       const stderr = (result.stderr ?? '').slice(0, 2000)
       const changed = ['install', 'update', 'remove'].includes(input.action) ? input.packages : undefined
 
-      return { data: { success: (result.status ?? 1) === 0, manager: mgrName, action: input.action, output: stdout || stderr, packagesChanged: changed, durationMs: Date.now() - startTime } }
+      const success = ['audit', 'outdated'].includes(input.action) ? !!stdout : (result.status ?? 1) === 0
+      return { data: { success, manager: mgrName, action: input.action, output: stdout || stderr, packagesChanged: changed, durationMs: Date.now() - startTime, error: success ? undefined : (stderr || stdout || `${MANAGERS[mgrName].binary} exited with code ${result.status}`).slice(0, 2000) } }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       return { data: { success: false, manager: mgrName, action: input.action, output: '', durationMs: Date.now() - startTime, error: msg } }
