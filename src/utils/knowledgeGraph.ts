@@ -638,7 +638,7 @@ export function resetGlobalGraph(): void {
   
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
   const sqlitePath = join(projectDir, 'knowledge.db')
-  if (existsSync(sqlitePath)) rmSync(sqlitePath, { force: true })
+  if (existsSync(sqlitePath)) try { rmSync(sqlitePath, { force: true }) } catch {}
   
   const oramaPath = getOramaPersistencePath(cwd)
   try { rmSync(oramaPath, { force: true }) } catch {}
@@ -659,5 +659,18 @@ export function clearMemoryOnly(): void {
   if (providers) {
     providers.sqlite.close()
     providerCache.delete(projectDir)
+  }
+}
+
+/**
+ * Close all cached provider connections and clear state.
+ * Used by tests to ensure clean teardown without file lock issues.
+ */
+export function closeAllProviders(): void {
+  projectGraph = null
+  oramaDb = null
+  for (const [key, providers] of providerCache) {
+    try { providers.sqlite.close() } catch {}
+    providerCache.delete(key)
   }
 }

@@ -6,7 +6,8 @@ import {
   resetGlobalGraph,
   initOrama,
   getGlobalGraph,
-  clearMemoryOnly
+  clearMemoryOnly,
+  closeAllProviders
 } from './knowledgeGraph.js'
 import { mkdtempSync, rmSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
@@ -25,9 +26,14 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     resetGlobalGraph()
   })
 
-  afterAll(() => {
+  afterEach(() => {
+    closeAllProviders()
+  })
+
+  afterAll(async () => {
     resetGlobalGraph()
     clearMemoryOnly()
+    closeAllProviders()
     
     // Restore config dir
     if (originalConfigDir === undefined) {
@@ -43,7 +49,16 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
       process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = originalOrama
     }
     
-    rmSync(configDir, { recursive: true, force: true })
+    // Clean up temp directory — suppress EBUSY on Windows (temp file lock)
+    try {
+      rmSync(configDir, { recursive: true, force: true })
+    } catch (e) {
+      if (String(e).includes('EBUSY')) {
+        console.warn(`Temp dir cleanup deferred (EBUSY - Windows file lock): ${configDir}`)
+      } else {
+        throw e
+      }
+    }
   })
 
   it('handles high-volume entity insertion (Stress Test)', async () => {
