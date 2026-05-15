@@ -111,6 +111,8 @@ type DraftField =
   | 'authHeader'
   | 'authHeaderValue'
   | 'customHeaders'
+  | 'contextWindowSize'
+  | 'maxOutputTokens'
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -194,6 +196,20 @@ const FORM_STEPS: Array<{
     helpText: 'Optional. Extra non-auth request headers for providers that support them.',
     optional: true,
   },
+  {
+    key: 'contextWindowSize',
+    label: 'Context window size',
+    placeholder: 'e.g. 128000',
+    helpText: 'Optional. Max tokens for context (input + output + history).',
+    optional: true,
+  },
+  {
+    key: 'maxOutputTokens',
+    label: 'Max output tokens',
+    placeholder: 'e.g. 4096',
+    helpText: 'Optional. Max tokens the model can generate in a single turn.',
+    optional: true,
+  },
 ]
 
 const GITHUB_PROVIDER_ID = '__github_models__'
@@ -215,6 +231,8 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
     customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
+    contextWindowSize: profile.contextWindowSize ? String(profile.contextWindowSize) : '',
+    maxOutputTokens: profile.maxOutputTokens ? String(profile.maxOutputTokens) : '',
   }
 }
 
@@ -251,6 +269,8 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     authHeader: '',
     authHeaderValue: '',
     customHeaders: '',
+    contextWindowSize: '',
+    maxOutputTokens: '',
   }
 }
 
@@ -282,7 +302,13 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
     routeSupportsAuthHeaders(routeId) && profile.authHeader
       ? ` · ${profile.authHeader} auth`
       : ''
-  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
+  const contextInfo = profile.contextWindowSize
+    ? ` · ${Math.round(profile.contextWindowSize / 1000)}k ctx`
+    : ''
+  const tokensInfo = profile.maxOutputTokens
+    ? ` · ${profile.maxOutputTokens} out`
+    : ''
+  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo}${contextInfo}${tokensInfo} · ${keyInfo}${activeSuffix}`
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -1229,6 +1255,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         Object.keys(parsedCustomHeaders.headers).length > 0
           ? parsedCustomHeaders.headers
           : undefined,
+      contextWindowSize: nextDraft.contextWindowSize
+        ? parseInt(nextDraft.contextWindowSize, 10)
+        : undefined,
+      maxOutputTokens: nextDraft.maxOutputTokens
+        ? parseInt(nextDraft.maxOutputTokens, 10)
+        : undefined,
     }
 
     const saved = profileId
@@ -1467,6 +1499,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (!currentStep.optional && trimmed.length === 0) {
       setErrorMessage(`${currentStep.label} is required.`)
       return
+    }
+
+    if (
+      (currentStepKey === 'contextWindowSize' ||
+        currentStepKey === 'maxOutputTokens') &&
+      trimmed.length > 0
+    ) {
+      const parsed = parseInt(trimmed, 10)
+      if (isNaN(parsed) || parsed <= 0) {
+        setErrorMessage(`${currentStep.label} must be a positive number.`)
+        return
+      }
     }
 
     const nextDraft = {

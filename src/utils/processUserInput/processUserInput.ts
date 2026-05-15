@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type {
   Base64ImageSource,
   ContentBlockParam,
@@ -465,7 +464,7 @@ async function processUserInputBase(
   // path below (no await between setUserInputOnProcessing and setAppState —
   // React batches both into one render, no flash).
   if (
-    feature('ULTRAPLAN') &&
+    false &&
     mode === 'prompt' &&
     !context.options.isNonInteractiveSession &&
     inputString !== null &&

@@ -93,6 +93,8 @@ const PROFILE_ENV_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'OPENAI_CONTEXT_WINDOW_SIZE',
+  'OPENAI_MAX_OUTPUT_TOKENS',
 ] as const
 
 export type CompatibilityProfileMode =
@@ -173,6 +175,8 @@ export type ProfileEnv = {
   XAI_API_KEY?: string
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
+  OPENAI_CONTEXT_WINDOW_SIZE?: string
+  OPENAI_MAX_OUTPUT_TOKENS?: string
 }
 
 export type ProfileFile = {

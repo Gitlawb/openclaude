@@ -3,7 +3,6 @@
  * Tracks access to session memory and transcript files via Read, Grep, Glob tools.
  * Also tracks memdir file access via Read, Grep, Glob, Edit, and Write tools.
  */
-import { feature } from 'bun:bundle'
 import { registerHookCallbacks } from '../bootstrap/state.js'
 import type { HookInput, HookJSONOutput } from '../entrypoints/agentSdkTypes.js'
 import {
@@ -29,13 +28,13 @@ import {
 } from './memoryFileDetection.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const teamMemPaths = feature('TEAMMEM')
+const teamMemPaths = true
   ? (require('../memdir/teamMemPaths.js') as typeof import('../memdir/teamMemPaths.js'))
   : null
-const teamMemWatcher = feature('TEAMMEM')
+const teamMemWatcher = true
   ? (require('../services/teamMemorySync/watcher.js') as typeof import('../services/teamMemorySync/watcher.js'))
   : null
-const memoryShapeTelemetry = feature('MEMORY_SHAPE_TELEMETRY')
+const memoryShapeTelemetry = false
   ? (require('../memdir/memoryShapeTelemetry.js') as typeof import('../memdir/memoryShapeTelemetry.js'))
   : null
 
@@ -132,7 +131,7 @@ export function isMemoryFileAccess(
   if (
     filePath &&
     (isAutoMemFile(filePath) ||
-      (feature('TEAMMEM') && teamMemPaths!.isTeamMemFile(filePath)))
+      (true && teamMemPaths!.isTeamMemFile(filePath)))
   ) {
     return true
   }
@@ -186,7 +185,7 @@ async function handleSessionFileAccess(
   }
 
   // Team memory access tracking
-  if (feature('TEAMMEM') && filePath && teamMemPaths!.isTeamMemFile(filePath)) {
+  if (true && filePath && teamMemPaths!.isTeamMemFile(filePath)) {
     logEvent('tengu_team_mem_accessed', {
       tool: input.tool_name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       ...subagentProps,
@@ -207,7 +206,7 @@ async function handleSessionFileAccess(
     }
   }
 
-  if (feature('MEMORY_SHAPE_TELEMETRY') && filePath) {
+  if (false && filePath) {
     const scope = memoryScopeForPath(filePath)
     if (
       scope !== null &&

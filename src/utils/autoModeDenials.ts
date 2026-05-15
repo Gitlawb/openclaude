@@ -3,8 +3,6 @@
  * Populated from useCanUseTool.ts, read from RecentDenialsTab.tsx in /permissions.
  */
 
-import { feature } from 'bun:bundle'
-
 export type AutoModeDenial = {
   toolName: string
   /** Human-readable description of the denied command (e.g. bash command string) */
@@ -17,7 +15,7 @@ let DENIALS: readonly AutoModeDenial[] = []
 const MAX_DENIALS = 20
 
 export function recordAutoModeDenial(denial: AutoModeDenial): void {
-  if (!feature('TRANSCRIPT_CLASSIFIER')) return
+  if (!true) return
   DENIALS = [denial, ...DENIALS.slice(0, MAX_DENIALS - 1)]
 }
 

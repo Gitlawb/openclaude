@@ -1,10 +1,9 @@
-import { feature } from 'bun:bundle'
 import { join } from 'path'
 import { getFsImplementation } from '../utils/fsOperations.js'
 import { getAutoMemPath, isAutoMemoryEnabled } from './paths.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const teamMemPaths = feature('TEAMMEM')
+const teamMemPaths = true
   ? (require('./teamMemPaths.js') as typeof import('./teamMemPaths.js'))
   : null
 
@@ -103,7 +102,7 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const teamMemPrompts = feature('TEAMMEM')
+const teamMemPrompts = true
   ? (require('./teamMemPrompts.js') as typeof import('./teamMemPrompts.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -316,7 +315,7 @@ export function buildMemoryPrompt(params: {
 }
 
 /**
- * Assistant-mode daily-log prompt. Gated behind feature('KAIROS').
+ * Assistant-mode daily-log prompt. Gated behind false.
  *
  * Assistant sessions are effectively perpetual, so the agent writes memories
  * append-only to a date-named log file rather than maintaining MEMORY.md as
@@ -429,7 +428,7 @@ export async function loadMemoryPrompt(): Promise<string | null> {
   // MEMORY.md that both sides read + write). Gating on `autoEnabled` here
   // means the !autoEnabled case falls through to the tengu_memdir_disabled
   // telemetry block below, matching the non-KAIROS path.
-  if (feature('KAIROS') && autoEnabled && getKairosActive()) {
+  if (false && autoEnabled && getKairosActive()) {
     logMemoryDirCounts(getAutoMemPath(), {
       memory_type:
         'auto' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -445,7 +444,7 @@ export async function loadMemoryPrompt(): Promise<string | null> {
       ? [coworkExtraGuidelines]
       : undefined
 
-  if (feature('TEAMMEM')) {
+  if (true) {
     if (teamMemPaths!.isTeamMemoryEnabled()) {
       const autoDir = getAutoMemPath()
       const teamDir = teamMemPaths!.getTeamMemPath()

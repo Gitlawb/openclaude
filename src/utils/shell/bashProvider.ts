@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { access } from 'fs/promises'
 import { tmpdir as osTmpdir } from 'os'
 import { join as nativeJoin } from 'path'
@@ -131,7 +130,7 @@ export async function createBashShellProvider(
       // Debug logging for heredoc/multiline commands to trace trailer handling
       // Only log when commit attribution is enabled to avoid noise
       if (
-        feature('COMMIT_ATTRIBUTION') &&
+        false &&
         (command.includes('<<') || command.includes('\n'))
       ) {
         logForDebugging(

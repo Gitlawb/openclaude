@@ -60,6 +60,8 @@ export type ProviderProfileInput = {
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
+  contextWindowSize?: number
+  maxOutputTokens?: number
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -172,6 +174,8 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     baseUrl,
     model,
     apiKey: trimOrUndefined(profile.apiKey),
+    contextWindowSize: profile.contextWindowSize,
+    maxOutputTokens: profile.maxOutputTokens,
   }
   if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat
@@ -225,6 +229,8 @@ function toProfile(
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
     customHeaders: input.customHeaders,
+    contextWindowSize: input.contextWindowSize,
+    maxOutputTokens: input.maxOutputTokens,
   })
 }
 
@@ -674,6 +680,13 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     profileEnv = openAIProfileEnv
   }
 
+  if (profile.contextWindowSize) {
+    profileEnv.OPENAI_CONTEXT_WINDOW_SIZE = String(profile.contextWindowSize)
+  }
+  if (profile.maxOutputTokens) {
+    profileEnv.OPENAI_MAX_OUTPUT_TOKENS = String(profile.maxOutputTokens)
+  }
+
   profileEnv = applySupportedProfileCustomHeaders(profile, profileEnv)
 
   const nextEnv = buildCompatibilityProcessEnv({
@@ -976,6 +989,12 @@ function buildOpenAICompatibleStartupEnv(
   } else {
     delete env.OPENAI_API_KEY
   }
+  if (activeProfile.contextWindowSize) {
+    env.OPENAI_CONTEXT_WINDOW_SIZE = String(activeProfile.contextWindowSize)
+  }
+  if (activeProfile.maxOutputTokens) {
+    env.OPENAI_MAX_OUTPUT_TOKENS = String(activeProfile.maxOutputTokens)
+  }
   return applySupportedProfileCustomHeaders(activeProfile, env)
 }
 
@@ -987,124 +1006,168 @@ function buildStartupProfileFromActiveProfile(
 } | null {
   const { route, compatibilityMode } = resolveProfileCompatibility(activeProfile.provider)
 
-  switch (compatibilityMode) {
-    case 'anthropic':
-      return {
-        profile: 'anthropic',
-        env: applySupportedProfileCustomHeaders(activeProfile, {
-          ANTHROPIC_BASE_URL: activeProfile.baseUrl,
-          ANTHROPIC_MODEL: getPrimaryModel(activeProfile.model),
-          ...(activeProfile.apiKey
-            ? { ANTHROPIC_API_KEY: activeProfile.apiKey }
-            : {}),
-        }),
+  const startup = (() => {
+    switch (compatibilityMode) {
+      case 'anthropic':
+        return {
+          profile: 'anthropic' as const,
+          env: applySupportedProfileCustomHeaders(activeProfile, {
+            ANTHROPIC_BASE_URL: activeProfile.baseUrl,
+            ANTHROPIC_MODEL: getPrimaryModel(activeProfile.model),
+            ...(activeProfile.apiKey
+              ? { ANTHROPIC_API_KEY: activeProfile.apiKey }
+              : {}),
+          }),
+        }
+      case 'gemini': {
+        const env =
+          buildGeminiProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            authMode: 'api-key',
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? {
+              profile: 'gemini' as const,
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
+          : null
       }
-    case 'gemini': {
-      const env =
-        buildGeminiProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-          apiKey: activeProfile.apiKey,
-          authMode: 'api-key',
-          processEnv: process.env,
-        }) ?? null
-      return env
-        ? { profile: 'gemini', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-        : null
+      case 'mistral': {
+        const env =
+          buildMistralProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? {
+              profile: 'mistral' as const,
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
+          : null
+      }
+      case 'github':
+        return {
+          profile: 'github' as const,
+          env: applySupportedProfileCustomHeaders(
+            activeProfile,
+            buildGithubProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+            }),
+          ),
+        }
+      case 'bedrock':
+        return {
+          profile: 'bedrock' as const,
+          env: applySupportedProfileCustomHeaders(
+            activeProfile,
+            buildBedrockProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+            }),
+          ),
+        }
+      case 'vertex':
+        return {
+          profile: 'vertex' as const,
+          env: applySupportedProfileCustomHeaders(
+            activeProfile,
+            buildVertexProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+            }),
+          ),
+        }
+      case 'openai': {
+        if (route.gatewayId === 'nvidia-nim') {
+          const env =
+            buildNvidiaNimProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+              apiKey: activeProfile.apiKey,
+              processEnv: process.env,
+            }) ?? null
+          return env
+            ? {
+                profile: 'nvidia-nim' as const,
+                env: applySupportedProfileCustomHeaders(activeProfile, env),
+              }
+            : null
+        }
+
+        if (route.vendorId === 'minimax') {
+          const env =
+            buildMiniMaxProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+              apiKey: activeProfile.apiKey,
+              processEnv: process.env,
+            }) ?? null
+          return env
+            ? {
+                profile: 'minimax' as const,
+                env: applySupportedProfileCustomHeaders(activeProfile, env),
+              }
+            : null
+        }
+
+        if (route.vendorId === 'venice') {
+          const env =
+            buildVeniceProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+              apiKey: activeProfile.apiKey,
+              processEnv: process.env,
+            }) ?? null
+          return env
+            ? {
+                profile: 'openai' as const,
+                env: applySupportedProfileCustomHeaders(activeProfile, env),
+              }
+            : null
+        }
+
+        if (route.vendorId === 'xiaomi-mimo') {
+          const env =
+            buildXiaomiMimoProfileEnv({
+              model: getPrimaryModel(activeProfile.model),
+              baseUrl: activeProfile.baseUrl,
+              apiKey: activeProfile.apiKey,
+              processEnv: process.env,
+            }) ?? null
+          return env
+            ? {
+                profile: 'openai' as const,
+                env: applySupportedProfileCustomHeaders(activeProfile, env),
+              }
+            : null
+        }
+
+        const env = buildOpenAICompatibleStartupEnv(activeProfile)
+        return env ? { profile: 'openai' as const, env } : null
+      }
     }
-    case 'mistral': {
-      const env =
-        buildMistralProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-          apiKey: activeProfile.apiKey,
-          processEnv: process.env,
-        }) ?? null
-      return env
-        ? { profile: 'mistral', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-        : null
-    }
-    case 'github':
-      return {
-        profile: 'github',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildGithubProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
-      }
-    case 'bedrock':
-      return {
-        profile: 'bedrock',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildBedrockProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
-      }
-    case 'vertex':
-      return {
-        profile: 'vertex',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildVertexProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
-      }
-    case 'openai': {
-      if (route.gatewayId === 'nvidia-nim') {
-        const env =
-          buildNvidiaNimProfileEnv({
-            model: getPrimaryModel(activeProfile.model),
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        return env
-          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-          : null
-      }
+  })()
 
-      if (route.vendorId === 'minimax') {
-        const env =
-          buildMiniMaxProfileEnv({
-            model: getPrimaryModel(activeProfile.model),
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        return env
-          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-          : null
-      }
-
-      if (route.vendorId === 'venice') {
-        const env =
-          buildVeniceProfileEnv({
-            model: getPrimaryModel(activeProfile.model),
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-          : null
-      }
-
-      if (route.vendorId === 'xiaomi-mimo') {
-        const env =
-          buildXiaomiMimoProfileEnv({
-            model: getPrimaryModel(activeProfile.model),
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-          : null
-      }
-
-      const env = buildOpenAICompatibleStartupEnv(activeProfile)
-      return env ? { profile: 'openai', env } : null
-    }
+  if (!startup) {
+    return null
   }
+
+  if (activeProfile.contextWindowSize) {
+    startup.env.OPENAI_CONTEXT_WINDOW_SIZE = String(
+      activeProfile.contextWindowSize,
+    )
+  }
+  if (activeProfile.maxOutputTokens) {
+    startup.env.OPENAI_MAX_OUTPUT_TOKENS = String(activeProfile.maxOutputTokens)
+  }
+
+  return startup
 }
 
 function triggerStartupDiscoveryRefreshForProfile(

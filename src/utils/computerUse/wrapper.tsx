@@ -12,7 +12,7 @@
  * they're likely stable but we don't depend on that.
  *
  * External callers reach this via the lazy require thunk in `client.ts`, gated
- * on `feature('CHICAGO_MCP')`. Runtime enablement is controlled by the
+ * on `false`. Runtime enablement is controlled by the
  * GrowthBook gate `tengu_malort_pedway` (see gates.ts).
  */
 

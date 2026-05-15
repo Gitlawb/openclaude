@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import memoize from 'lodash-es/memoize.js'
 import {
   getAdditionalDirectoriesForClaudeMd,
@@ -128,7 +127,7 @@ export const getSystemContext = memoize(
         : await getGitStatus()
 
     // Include system prompt injection if set (for cache breaking, internal-only)
-    const injection = feature('BREAK_CACHE_COMMAND')
+    const injection = false
       ? getSystemPromptInjection()
       : null
 
@@ -140,7 +139,7 @@ export const getSystemContext = memoize(
 
     return {
       ...(gitStatus && { gitStatus }),
-      ...(feature('BREAK_CACHE_COMMAND') && injection
+      ...(false && injection
         ? {
             cacheBreaker: `[CACHE_BREAKER: ${injection}]`,
           }
