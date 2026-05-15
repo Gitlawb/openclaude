@@ -2578,6 +2578,25 @@ class OpenAIShimMessages {
     // Local backends do not implement prefix caching, so the deep key-sort
     // is pure CPU overhead per request (issue #1016). Drop to the native
     // `JSON.stringify` fast path when the fast-path config opts out.
+    const bodyContainsImages = (): boolean => {
+      if (request.transport === 'responses') {
+        const responsesBody = buildResponsesBody()
+        const input = responsesBody.input as Array<Record<string, unknown>> | undefined
+        if (!Array.isArray(input)) return false
+        return input.some(item => {
+          const content = item.content as Array<Record<string, unknown>> | undefined
+          return Array.isArray(content) && content.some(part => part.type === 'input_image')
+        })
+      }
+      const messages = body.messages as Array<Record<string, unknown>> | undefined
+      if (!Array.isArray(messages)) return false
+      return messages.some(msg => {
+        const content = msg.content
+        if (!Array.isArray(content)) return false
+        return content.some((part: Record<string, unknown>) => part.type === 'image_url')
+      })
+    }
+
     const serializeBody = (): string => {
       const payload =
         effectiveTransport === 'responses' ? buildResponsesBody()
@@ -2658,7 +2677,7 @@ class OpenAIShimMessages {
           status,
           body: errorBody,
           url: requestUrl,
-          hasImages: serializedBody.includes('"image_url"'),
+          hasImages: bodyContainsImages(),
         })
       const failureWithUrl = { ...failure, requestUrl: failure.requestUrl ?? requestUrl }
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
@@ -2786,7 +2805,7 @@ class OpenAIShimMessages {
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,
-            hasImages: serializedBody.includes('"image_url"'),
+            hasImages: bodyContainsImages(),
           })
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
@@ -2805,7 +2824,7 @@ class OpenAIShimMessages {
       const failure = classifyOpenAIHttpFailure({
         status: response.status,
         body: errorBody,
-        hasImages: serializedBody.includes('"image_url"'),
+        hasImages: bodyContainsImages(),
       })
 
       if (
