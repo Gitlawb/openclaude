@@ -68,7 +68,7 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
         process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = originalOrama
       }
       setClaudeConfigHomeDirForTesting(undefined)
-} finally {
+    } finally {
       releaseEnvMutex()
     }
   })
