@@ -1284,11 +1284,33 @@ function checkSandboxAutoAllow(
   // would return 'ask' before a prefix deny rule on a subcommand (e.g., Bash(rm:*))
   // gets checked, downgrading a deny to an ask.
   const subcommands = splitCommand(command)
-  // CC-643: Apply the same subcommand cap as bashToolHasPermission (line ~2144).
-  // splitCommand_DEPRECATED can produce exponentially many subcommands on crafted
-  // compound commands (#21405's fix may be incomplete — see comment at line ~99).
-  // Without this guard, a malicious command could cause unbounded matchingRulesForInput
-  // iterations here, starving the event loop for users with sandbox+autoAllow enabled.
+  // Deny rules must be checked across ALL subcommands before the subcommand cap fires.
+  // A command like "echo a && ... && rm -rf /" must return 'deny' even when it has
+  // >MAX_SUBCOMMANDS_FOR_SECURITY_CHECK parts — the cap must never downgrade a deny
+  // to an ask.
+  if (subcommands.length > 1) {
+    for (const sub of subcommands) {
+      const subResult = matchingRulesForInput(
+        { command: sub },
+        toolPermissionContext,
+        'prefix',
+      )
+      if (subResult.matchingDenyRules[0] !== undefined) {
+        return {
+          behavior: 'deny',
+          message: `Permission to use ${BashTool.name} with command ${command} has been denied.`,
+          decisionReason: {
+            type: 'rule',
+            rule: subResult.matchingDenyRules[0],
+          },
+        }
+      }
+    }
+  }
+  // CC-643: Apply the subcommand cap for ask/allow evaluation only — after deny rules
+  // have already been checked above. splitCommand_DEPRECATED can produce exponentially
+  // many subcommands on crafted compound commands; without this guard a malicious
+  // command could starve the event loop for users with sandbox+autoAllow enabled.
   if (subcommands.length > MAX_SUBCOMMANDS_FOR_SECURITY_CHECK) {
     return {
       behavior: 'ask',
@@ -1307,18 +1329,7 @@ function checkSandboxAutoAllow(
         toolPermissionContext,
         'prefix',
       )
-      // Deny takes priority — return immediately
-      if (subResult.matchingDenyRules[0] !== undefined) {
-        return {
-          behavior: 'deny',
-          message: `Permission to use ${BashTool.name} with command ${command} has been denied.`,
-          decisionReason: {
-            type: 'rule',
-            rule: subResult.matchingDenyRules[0],
-          },
-        }
-      }
-      // Stash first ask match; don't return yet (deny across all subs takes priority)
+      // Stash first ask match; deny was already handled above
       firstAskRule ??= subResult.matchingAskRules[0]
     }
     if (firstAskRule) {
