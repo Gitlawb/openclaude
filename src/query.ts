@@ -1297,8 +1297,18 @@ async function* queryLoop(
       // hasAttemptedContextOverflowRecovery gates re-entry, and the
       // autocompact 3-strike circuit breaker in autoCompact.ts handles
       // deeper recursion if the post-compact retry overflows again.
+      //
+      // Skip for compact/session_memory fork sources — those are forked
+      // worker queries whose messagesForQuery is the worker prompt, not the
+      // original conversation. Recovering here would re-enter
+      // compactConversation with the worker prompt as forkContextMessages,
+      // bypassing the dedicated compact retry path and producing a
+      // misleading post-compact retry. Mirrors the pre-flight blocking-limit
+      // guard at the top of this loop body (~line 691).
       const isWithheldContextOverflow =
         !hasAttemptedContextOverflowRecovery &&
+        querySource !== 'compact' &&
+        querySource !== 'session_memory' &&
         lastMessage?.type === 'assistant' &&
         lastMessage.isApiErrorMessage === true &&
         isContextOverflowMessage(lastMessage)
