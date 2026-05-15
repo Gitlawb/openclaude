@@ -39,6 +39,22 @@ Use this skill for install tests.
 Document token scopes without storing secret values.
 `
 
+const NAMESPACED_SKILL = `---
+name: git:commit
+title: Git Commit
+description: Nested git commit skill used by install tests.
+version: 0.1.0
+category: test
+author: OpenClaude Tests
+license: MIT
+trust: local
+---
+
+# Git Commit
+
+Use this skill for commit workflows.
+`
+
 const PATH_TRAVERSAL_SKILL = `---
 name: ../escape
 title: Unsafe Skill
@@ -295,6 +311,30 @@ test.serial('installs a local skill directory into project skills by default', a
       'utf8',
     )
     assert.equal(installed, VALID_SKILL)
+  })
+})
+
+test.serial('preserves namespaced names when installing local skill directories', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const source = join(tempDir, 'source', 'git', 'commit')
+    mkdirSync(source, { recursive: true })
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(join(source, 'SKILL.md'), NAMESPACED_SKILL, 'utf8')
+
+    await skillsInstallHandler(source, { projectDir: cwd })
+
+    const nestedPath = join(
+      cwd,
+      '.openclaude',
+      'skills',
+      'git',
+      'commit',
+      'SKILL.md',
+    )
+    const flatPath = join(cwd, '.openclaude', 'skills', 'commit', 'SKILL.md')
+    assert.equal(existsSync(flatPath), false)
+    assert.equal(readFileSync(nestedPath, 'utf8'), NAMESPACED_SKILL)
   })
 })
 

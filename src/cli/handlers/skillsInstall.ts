@@ -209,6 +209,25 @@ function resolveContainedPath(root: string, child: string): string {
   return resolvedChild
 }
 
+function skillNameToInstallPath(skillName: string): string {
+  return join(...skillName.split(':'))
+}
+
+function resolveSkillInstallPath(root: string, skillName: string): string {
+  return resolveContainedPath(root, skillNameToInstallPath(skillName))
+}
+
+async function getSkillNameFromDirectory(sourcePath: string): Promise<string> {
+  const fallbackName = basename(sourcePath)
+  try {
+    const markdown = await readFile(join(sourcePath, 'SKILL.md'), 'utf8')
+    return getSkillNameFromMarkdown(markdown, fallbackName)
+  } catch {
+    // Validation reports missing or malformed SKILL.md after the directory is staged.
+    return fallbackName
+  }
+}
+
 async function prepareSkillFromMarkdown({
   markdown,
   fallbackName,
@@ -224,7 +243,7 @@ async function prepareSkillFromMarkdown({
       : getSkillNameFromMarkdown(markdown, fallbackName),
   )
   const tempRoot = await mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
-  const tempDir = resolveContainedPath(tempRoot, skillName)
+  const tempDir = resolveSkillInstallPath(tempRoot, skillName)
   await mkdir(tempDir, { recursive: true })
   await writeFile(join(tempDir, 'SKILL.md'), markdown, 'utf8')
   if (registryEntry) {
@@ -251,9 +270,11 @@ async function prepareInstallCandidate(
     const sourcePath = resolve(spec)
     const sourceStats = await stat(sourcePath)
     if (sourceStats.isDirectory()) {
-      const skillName = normalizeInstallSkillName(basename(sourcePath))
+      const skillName = normalizeInstallSkillName(
+        await getSkillNameFromDirectory(sourcePath),
+      )
       const tempRoot = await mkdtemp(join(tmpdir(), 'openclaude-skill-install-'))
-      const tempDir = resolveContainedPath(tempRoot, skillName)
+      const tempDir = resolveSkillInstallPath(tempRoot, skillName)
       await cp(sourcePath, tempDir, {
         recursive: true,
         errorOnExist: true,
@@ -340,7 +361,7 @@ export async function skillsInstallHandler(
     }
 
     const root = installRoot(options)
-    const targetDir = resolveContainedPath(root, candidate.skillName)
+    const targetDir = resolveSkillInstallPath(root, candidate.skillName)
     if ((await pathExists(targetDir)) && !options.force) {
       console.error(
         `Skill "${candidate.skillName}" already exists at ${getDisplayPath(targetDir)}. Use --force to overwrite.`,
