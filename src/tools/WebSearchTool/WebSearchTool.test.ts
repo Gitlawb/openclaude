@@ -5,7 +5,7 @@ import { __test } from './WebSearchTool.js'
 const {
   buildEmptyAdapterResultHint,
   formatProviderOutputWithEmptyHint,
-  withAdapterFallthroughNotice,
+  buildAdapterUnavailableError,
 } = __test
 
 describe('buildEmptyAdapterResultHint', () => {
@@ -53,38 +53,6 @@ describe('formatProviderOutputWithEmptyHint', () => {
     expect(out.query).toBe('cat facts')
   })
 
-  test('returns input unchanged when no notice is supplied', () => {
-    const out = {
-      query: 'cat facts',
-      results: ['existing string'],
-      durationSeconds: 0.5,
-    }
-    expect(withAdapterFallthroughNotice(out, undefined)).toBe(out)
-  })
-
-  // Regression for #994: when the adapter path (DDG / Firecrawl / Tavily / etc.)
-  // fails in auto mode and we fall through to native/Codex search, the user
-  // must see *why* the adapter failed instead of getting "no results found"
-  // with no explanation. The notice gets prepended to the results array.
-  test('prepends notice when the adapter path failed before native search ran', () => {
-    const out = {
-      query: 'cat facts',
-      results: ['native result text'],
-      durationSeconds: 1.1,
-    }
-    const result = withAdapterFallthroughNotice(
-      out,
-      'Web search adapter failed before falling back to native search: rate-limited',
-    )
-    expect(result.results).toHaveLength(2)
-    expect(result.results[0]).toMatch(/^Web search adapter failed/)
-    expect(result.results[1]).toBe('native result text')
-    expect(result.query).toBe(out.query)
-    expect(result.durationSeconds).toBe(out.durationSeconds)
-    // Input is not mutated.
-    expect(out.results).toHaveLength(1)
-  })
-
   test('does not mutate the result when hits are present', () => {
     const po: ProviderOutput = {
       hits: [
@@ -104,5 +72,35 @@ describe('formatProviderOutputWithEmptyHint', () => {
     expect(typeof out.results[0]).toBe('string')
     expect(out.results[0]).toContain('Cats')
     expect(out.results[0]).toContain('https://example.com/cats')
+  })
+})
+
+// Regression for #994: when the adapter path fails in auto mode on an
+// openai-shim provider with NO native web-search fallback (moonshot, minimax,
+// nvidia-nim, github copilot, etc.), the user must see the underlying adapter
+// failure embedded in the thrown error instead of getting "Did 0 searches"
+// from a silent fall-through to the native path. This is the only reachable
+// surfacing path under the current `shouldUseAdapterProvider()` /
+// `hasNativeSearchFallback()` semantics — auto mode prefers native whenever
+// it exists, so the "adapter tried then native ran" config is not actually
+// invoked today.
+describe('buildAdapterUnavailableError', () => {
+  test('names the active provider', () => {
+    const msg = buildAdapterUnavailableError('minimax', 'rate limited')
+    expect(msg).toContain('minimax')
+  })
+
+  test('embeds the underlying adapter error message verbatim', () => {
+    const msg = buildAdapterUnavailableError(
+      'moonshot',
+      'duckduckgo: 429 Too Many Requests',
+    )
+    expect(msg).toContain('duckduckgo: 429 Too Many Requests')
+  })
+
+  test('points the user at a working native-search provider', () => {
+    const msg = buildAdapterUnavailableError('nvidia-nim', 'timeout')
+    expect(msg).toMatch(/Anthropic/)
+    expect(msg).toMatch(/Codex/)
   })
 })
