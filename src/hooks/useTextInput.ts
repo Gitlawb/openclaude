@@ -486,7 +486,19 @@ export function useTextInput({
                 .replace(/(?<=[^\\\r\n])\r$/, '')
                 .replace(/\r/g, '\n')
               if (cursor.isAtStart() && isInputModeCharacter(input)) {
-                return cursor.insert(text).left()
+                // Issue #1179: emit the mode character as a one-shot
+                // onChange notification but do NOT advance the local cursor
+                // mirror. Returning undefined here means setValue is not
+                // called, so liveValueRef="" / liveOffsetRef=0 stay clean
+                // and the parent's strip handler operates on (and renders
+                // into) an empty buffer. Previous behaviour was
+                // `cursor.insert(text).left()` which left `!` in the local
+                // mirror, and because the parent's strip leaves controlled
+                // props numerically equal to what they were before the
+                // keystroke, useLayoutEffect never resynced the mirror — so
+                // the next character landed beside the retained `!`.
+                onChange(text)
+                return undefined
               }
               return cursor.insert(text)
             }
