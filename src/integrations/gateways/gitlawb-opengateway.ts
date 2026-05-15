@@ -14,6 +14,9 @@ export default defineGateway({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    headers: {
+      'Accept-Encoding': 'identity',
+    },
     openaiShim: {
       defaultAuthHeader: {
         name: 'api-key',
