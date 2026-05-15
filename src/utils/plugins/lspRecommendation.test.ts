@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 type MarketplaceEntry = {
   name: string
@@ -57,6 +61,10 @@ const {
   listLspPluginCandidates,
 } = await import('./lspRecommendation.js')
 
+afterAll(() => {
+  mock.restore()
+})
+
 function lspPlugin(
   name: string,
   command: string,
@@ -77,7 +85,8 @@ function lspPlugin(
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/plugins/lspRecommendation.test.ts')
   marketplaces = {
     'claude-plugins-official': [
       lspPlugin('typescript-lsp', 'typescript-language-server', [
@@ -97,6 +106,10 @@ beforeEach(() => {
     lspRecommendationIgnoredCount: 0,
   }
   addMarketplaceSourceFn.mockClear()
+})
+
+afterEach(() => {
+  releaseSharedMutationLock()
 })
 
 describe('listLspPluginCandidates', () => {

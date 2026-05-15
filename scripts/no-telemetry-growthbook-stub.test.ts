@@ -2,12 +2,19 @@ import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { acquireEnvMutex, releaseEnvMutex } from '../src/entrypoints/sdk/shared.js'
 
 // ---------------------------------------------------------------------------
 // Setup: dynamically import the source-level growthbook no-op stub.
 // The stub reads ~/.claude/feature-flags.json for local flag overrides.
 // ---------------------------------------------------------------------------
 
+const envLock = await acquireEnvMutex()
+if (!envLock.acquired) {
+  throw new Error('Failed to acquire env mutex for growthbook stub test')
+}
+
+const originalFlagsFile = process.env.CLAUDE_FEATURE_FLAGS_FILE
 const testDir = join(tmpdir(), `growthbook-stub-test-${process.pid}`)
 const flagsFile = join(testDir, 'test-flags.json')
 
@@ -29,8 +36,16 @@ describe('growthbook stub — local feature flag overrides', () => {
   })
 
   afterAll(() => {
-    rmSync(testDir, { recursive: true, force: true })
-    delete process.env.CLAUDE_FEATURE_FLAGS_FILE
+    try {
+      rmSync(testDir, { recursive: true, force: true })
+      if (originalFlagsFile === undefined) {
+        delete process.env.CLAUDE_FEATURE_FLAGS_FILE
+      } else {
+        process.env.CLAUDE_FEATURE_FLAGS_FILE = originalFlagsFile
+      }
+    } finally {
+      releaseEnvMutex()
+    }
   })
 
   // ── File absent ──────────────────────────────────────────────────

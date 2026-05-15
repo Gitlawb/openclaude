@@ -1,4 +1,8 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 // MACRO is replaced at build time by Bun.define but not in test mode.
 // Define it globally so tests that import modules using MACRO don't crash.
@@ -22,9 +26,21 @@ import { STATUSLINE_SETUP_AGENT } from '../tools/AgentTool/built-in/statuslineSe
 
 const originalSimpleEnv = process.env.CLAUDE_CODE_SIMPLE
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('constants/promptIdentity.test.ts')
+})
+
 afterEach(() => {
-  process.env.CLAUDE_CODE_SIMPLE = originalSimpleEnv
-  clearSystemPromptSections()
+  try {
+    if (originalSimpleEnv === undefined) {
+      delete process.env.CLAUDE_CODE_SIMPLE
+    } else {
+      process.env.CLAUDE_CODE_SIMPLE = originalSimpleEnv
+    }
+    clearSystemPromptSections()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('CLI identity prefixes describe OpenClaude instead of Claude Code', () => {

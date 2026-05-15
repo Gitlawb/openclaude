@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { getEmptyToolPermissionContext } from '../../Tool.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import { bashToolHasPermission, stripAllLeadingEnvVars } from './bashPermissions.js'
 
@@ -11,15 +15,30 @@ const originalSandboxMethods = {
   areUnsandboxedCommandsAllowed: SandboxManager.areUnsandboxedCommandsAllowed,
   getExcludedCommands: SandboxManager.getExcludedCommands,
 }
+const originalMacro = (globalThis as Record<string, unknown>).MACRO
+const hadOriginalMacro = Object.hasOwn(globalThis, 'MACRO')
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('tools/BashTool/bashPermissions.test.ts')
+})
 
 afterEach(() => {
-  SandboxManager.isSandboxingEnabled =
-    originalSandboxMethods.isSandboxingEnabled
-  SandboxManager.isAutoAllowBashIfSandboxedEnabled =
-    originalSandboxMethods.isAutoAllowBashIfSandboxedEnabled
-  SandboxManager.areUnsandboxedCommandsAllowed =
-    originalSandboxMethods.areUnsandboxedCommandsAllowed
-  SandboxManager.getExcludedCommands = originalSandboxMethods.getExcludedCommands
+  try {
+    SandboxManager.isSandboxingEnabled =
+      originalSandboxMethods.isSandboxingEnabled
+    SandboxManager.isAutoAllowBashIfSandboxedEnabled =
+      originalSandboxMethods.isAutoAllowBashIfSandboxedEnabled
+    SandboxManager.areUnsandboxedCommandsAllowed =
+      originalSandboxMethods.areUnsandboxedCommandsAllowed
+    SandboxManager.getExcludedCommands = originalSandboxMethods.getExcludedCommands
+    if (hadOriginalMacro) {
+      ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    } else {
+      delete (globalThis as Record<string, unknown>).MACRO
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 function makeToolUseContext() {

@@ -3,7 +3,7 @@
  * conversationRecovery so Bun's mock.module can replace sessionStart before
  * that module is first loaded.
  */
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,11 +44,14 @@ async function writeJsonl(entry: unknown): Promise<string> {
   return filePath
 }
 
-afterEach(async () => {
-  mock.restore()
+beforeEach(() => {
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'firstParty',
   }))
+})
+
+afterEach(async () => {
+  mock.restore()
   process.env = { ...originalEnv }
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })

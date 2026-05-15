@@ -1,4 +1,8 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { Tip } from './types.js'
 
 const settingsRef: {
@@ -38,6 +42,18 @@ mock.module('./tipRegistry.js', () => ({
 mock.module('../analytics/index.js', () => ({
   logEvent: () => undefined,
 }))
+
+beforeAll(async () => {
+  await acquireSharedMutationLock('services/tips/tipScheduler.test.ts')
+})
+
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 async function freshScheduler() {
   const stamp = `${Date.now()}-${Math.random()}`

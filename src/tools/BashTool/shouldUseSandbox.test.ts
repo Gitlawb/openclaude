@@ -1,5 +1,9 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import { BashTool } from './BashTool.js'
 import { PowerShellTool } from '../PowerShellTool/PowerShellTool.js'
@@ -10,11 +14,19 @@ const originalSandboxMethods = {
   areUnsandboxedCommandsAllowed: SandboxManager.areUnsandboxedCommandsAllowed,
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('tools/BashTool/shouldUseSandbox.test.ts')
+})
+
 afterEach(() => {
-  SandboxManager.isSandboxingEnabled =
-    originalSandboxMethods.isSandboxingEnabled
-  SandboxManager.areUnsandboxedCommandsAllowed =
-    originalSandboxMethods.areUnsandboxedCommandsAllowed
+  try {
+    SandboxManager.isSandboxingEnabled =
+      originalSandboxMethods.isSandboxingEnabled
+    SandboxManager.areUnsandboxedCommandsAllowed =
+      originalSandboxMethods.areUnsandboxedCommandsAllowed
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('model-facing Bash schema rejects dangerouslyDisableSandbox', () => {

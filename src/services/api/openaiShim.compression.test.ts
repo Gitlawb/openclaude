@@ -114,6 +114,7 @@ afterEach(() => {
     if (originalEnv.OPENAI_MODEL === undefined) delete process.env.OPENAI_MODEL
     else process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
     globalThis.fetch = originalFetch
+    mock.restore()
   } finally {
     releaseSharedMutationLock()
   }

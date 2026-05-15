@@ -1,4 +1,8 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { compressToolHistory, getTiers } from './compressToolHistory.js'
 
 // Mock the two dependencies so tests are deterministic and don't read disk config.
@@ -17,14 +21,21 @@ mock.module('../compact/autoCompact.js', () => ({
   getEffectiveContextWindowSize: () => mockState.effectiveWindow,
 }))
 
+beforeAll(async () => {
+  await acquireSharedMutationLock('services/api/compressToolHistory.test.ts')
+})
+
 beforeEach(() => {
   mockState.enabled = true
   mockState.effectiveWindow = 100_000
 })
 
-afterEach(() => {
-  mockState.enabled = true
-  mockState.effectiveWindow = 100_000
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 type Block = Record<string, unknown>

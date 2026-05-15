@@ -1,5 +1,5 @@
 
-import { expect, test, mock, describe, beforeEach, afterEach } from "bun:test";
+import { expect, test, mock, describe, beforeEach, afterEach, afterAll } from "bun:test";
 import { linuxSecretStorage } from "./linuxSecretStorage.js";
 import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
@@ -31,6 +31,10 @@ describe("Secure Storage Platform Implementations", () => {
     } finally {
       releaseSharedMutationLock();
     }
+  });
+
+  afterAll(() => {
+    mock.restore();
   });
 
   const testData = {

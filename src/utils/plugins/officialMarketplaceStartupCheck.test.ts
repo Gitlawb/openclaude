@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 type TestGlobalConfig = {
   officialMarketplaceAutoInstallAttempted?: boolean
@@ -77,7 +81,12 @@ const { checkAndInstallOfficialMarketplace } = await import(
   './officialMarketplaceStartupCheck.js'
 )
 
-beforeEach(() => {
+afterAll(() => {
+  mock.restore()
+})
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
   config = {}
   knownMarketplaces = {}
   saveGlobalConfig.mockClear()
@@ -85,6 +94,10 @@ beforeEach(() => {
   fetchOfficialMarketplaceFromGcs.mockClear()
   fetchOfficialMarketplaceFromGcs.mockImplementation(async () => 'sha')
   addMarketplaceSource.mockClear()
+})
+
+afterEach(() => {
+  releaseSharedMutationLock()
 })
 
 describe('checkAndInstallOfficialMarketplace', () => {

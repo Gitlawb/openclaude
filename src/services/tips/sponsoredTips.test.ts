@@ -1,4 +1,8 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 type StubSettings = {
   sponsoredTipsEnabled?: boolean
@@ -24,6 +28,18 @@ mock.module('../../utils/config.js', () => ({
     configRef.value = mut(configRef.value)
   },
 }))
+
+beforeAll(async () => {
+  await acquireSharedMutationLock('services/tips/sponsoredTips.test.ts')
+})
+
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 async function freshImport() {
   const stamp = `${Date.now()}-${Math.random()}`

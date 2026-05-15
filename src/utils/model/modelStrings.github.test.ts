@@ -1,6 +1,10 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { parseUserSpecifiedModel } from './model.js'
 import { getModelStrings } from './modelStrings.js'
 
@@ -22,14 +26,27 @@ function clearProviderFlags(): void {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
 }
 
+function restoreEnv(key: keyof typeof originalEnv): void {
+  if (originalEnv[key] === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = originalEnv[key]
+  }
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/modelStrings.github.test.ts')
+})
+
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
-  process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
-  process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
-  process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
-  resetModelStringsForTestingOnly()
+  try {
+    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+      restoreEnv(key)
+    }
+    resetModelStringsForTestingOnly()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('GitHub provider model strings are concrete IDs', () => {
