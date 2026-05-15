@@ -1,19 +1,25 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import { getLocalFastPathConfig } from './providerConfig.js'
 
 const ENV_VAR = 'OPENCLAUDE_LOCAL_FAST_PATH'
 const originalEnv = process.env[ENV_VAR]
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('providerConfig.localFastPath.test.ts')
   delete process.env[ENV_VAR]
 })
 
 afterEach(() => {
-  if (originalEnv === undefined) {
-    delete process.env[ENV_VAR]
-  } else {
-    process.env[ENV_VAR] = originalEnv
+  try {
+    if (originalEnv === undefined) {
+      delete process.env[ENV_VAR]
+    } else {
+      process.env[ENV_VAR] = originalEnv
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

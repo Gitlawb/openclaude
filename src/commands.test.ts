@@ -1,9 +1,38 @@
 import { describe, expect, test } from 'bun:test'
-import { builtInCommandNames, formatDescriptionWithSource } from './commands.js'
+import {
+  builtInCommandNames,
+  formatDescriptionWithSource,
+} from './commands.js'
+import { isCommand } from './types/command.js'
 
 describe('builtInCommandNames', () => {
   test('includes the LSP command', () => {
     expect(builtInCommandNames()).toContain('lsp')
+  })
+})
+
+describe('isCommand', () => {
+  test('rejects generated missing-module noop stubs', () => {
+    function noop19() {
+      return null
+    }
+
+    expect(isCommand(noop19)).toBe(false)
+    expect(isCommand({ isHidden: true, name: 'stub' })).toBe(false)
+  })
+
+  test('accepts real command objects', () => {
+    expect(
+      isCommand({
+        type: 'local',
+        name: 'example',
+        description: 'example command',
+        supportsNonInteractive: false,
+        load: async () => ({
+          call: async () => ({ type: 'skip' }),
+        }),
+      }),
+    ).toBe(true)
   })
 })
 

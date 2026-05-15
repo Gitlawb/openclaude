@@ -53,6 +53,7 @@ import {
   formatCreditAmount,
   getCachedReferrerReward,
 } from '../api/referral.js'
+import { sponsoredTips } from './sponsoredTips.js'
 import { getSessionsSinceLastShown } from './tipHistory.js'
 import type { Tip, TipContext } from './types.js'
 
@@ -638,13 +639,16 @@ export async function getRelevantTips(context?: TipContext): Promise<Tip[]> {
   const override = settings.spinnerTipsOverride
   const customTips = getCustomTips()
 
-  // If excludeDefault is true and there are custom tips, skip built-in tips entirely
+  // If excludeDefault is true and there are custom tips, skip built-in tips entirely.
+  // Sponsored tips are also excluded — user has opted into their own list.
   if (override?.excludeDefault && customTips.length > 0) {
     return customTips
   }
 
-  // Otherwise, filter built-in tips as before and combine with custom
-  const tips = [...externalTips, ...internalOnlyTips]
+  // Otherwise, filter built-in tips as before and combine with custom + sponsored.
+  // The scheduler enforces the sponsored frequency cap; this just returns
+  // everything currently eligible.
+  const tips = [...externalTips, ...internalOnlyTips, ...sponsoredTips]
   const isRelevant = await Promise.all(tips.map(_ => _.isRelevant(context)))
   const filtered = tips
     .filter((_, index) => isRelevant[index])

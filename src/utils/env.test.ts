@@ -2,6 +2,10 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalEnv = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
@@ -11,7 +15,8 @@ const originalEnv = {
 
 let tempDir: string
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('env.test.ts')
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-env-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL
@@ -19,21 +24,25 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(tempDir, { recursive: true, force: true })
-  if (originalEnv.CLAUDE_CONFIG_DIR === undefined) {
-    delete process.env.CLAUDE_CONFIG_DIR
-  } else {
-    process.env.CLAUDE_CONFIG_DIR = originalEnv.CLAUDE_CONFIG_DIR
-  }
-  if (originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL === undefined) {
-    delete process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL
-  } else {
-    process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL = originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL
-  }
-  if (originalEnv.USER_TYPE === undefined) {
-    delete process.env.USER_TYPE
-  } else {
-    process.env.USER_TYPE = originalEnv.USER_TYPE
+  try {
+    rmSync(tempDir, { recursive: true, force: true })
+    if (originalEnv.CLAUDE_CONFIG_DIR === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalEnv.CLAUDE_CONFIG_DIR
+    }
+    if (originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL === undefined) {
+      delete process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL
+    } else {
+      process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL = originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL
+    }
+    if (originalEnv.USER_TYPE === undefined) {
+      delete process.env.USER_TYPE
+    } else {
+      process.env.USER_TYPE = originalEnv.USER_TYPE
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

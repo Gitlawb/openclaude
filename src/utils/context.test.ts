@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
 import {
@@ -20,7 +21,8 @@ const originalEnv = {
   XAI_API_KEY: process.env.XAI_API_KEY,
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('context.test.ts')
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
@@ -33,53 +35,57 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
-    delete process.env.CLAUDE_CODE_USE_OPENAI
-  } else {
-    process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  }
-  if (originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS === undefined) {
-    delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
-  } else {
-    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
-      originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
-  }
-  if (originalEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS === undefined) {
-    delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
-  } else {
-    process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS =
-      originalEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
-  }
-  if (originalEnv.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS === undefined) {
-    delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
-  } else {
-    process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS =
-      originalEnv.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
-  }
-  if (originalEnv.OPENAI_MODEL === undefined) {
-    delete process.env.OPENAI_MODEL
-  } else {
-    process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
-  }
-  if (originalEnv.OPENAI_BASE_URL === undefined) {
-    delete process.env.OPENAI_BASE_URL
-  } else {
-    process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  }
-  if (originalEnv.OPENAI_API_BASE === undefined) {
-    delete process.env.OPENAI_API_BASE
-  } else {
-    process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
-  }
-  if (originalEnv.MINIMAX_API_KEY === undefined) {
-    delete process.env.MINIMAX_API_KEY
-  } else {
-    process.env.MINIMAX_API_KEY = originalEnv.MINIMAX_API_KEY
-  }
-  if (originalEnv.XAI_API_KEY === undefined) {
-    delete process.env.XAI_API_KEY
-  } else {
-    process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+  try {
+    if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
+    }
+    if (originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS === undefined) {
+      delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    } else {
+      process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
+        originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    }
+    if (originalEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS === undefined) {
+      delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+    } else {
+      process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS =
+        originalEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+    }
+    if (originalEnv.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS === undefined) {
+      delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+    } else {
+      process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS =
+        originalEnv.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+    }
+    if (originalEnv.OPENAI_MODEL === undefined) {
+      delete process.env.OPENAI_MODEL
+    } else {
+      process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
+    }
+    if (originalEnv.OPENAI_BASE_URL === undefined) {
+      delete process.env.OPENAI_BASE_URL
+    } else {
+      process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+    }
+    if (originalEnv.OPENAI_API_BASE === undefined) {
+      delete process.env.OPENAI_API_BASE
+    } else {
+      process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
+    }
+    if (originalEnv.MINIMAX_API_KEY === undefined) {
+      delete process.env.MINIMAX_API_KEY
+    } else {
+      process.env.MINIMAX_API_KEY = originalEnv.MINIMAX_API_KEY
+    }
+    if (originalEnv.XAI_API_KEY === undefined) {
+      delete process.env.XAI_API_KEY
+    } else {
+      process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
@@ -197,6 +203,19 @@ test('gpt-4o clamps oversized max output overrides to the provider limit', () =>
   delete process.env.OPENAI_MODEL
 
   expect(getMaxOutputTokensForModel('gpt-4o')).toBe(16_384)
+})
+
+test('gpt-5.5 uses conservative Codex-route context window (issue #1118)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  // gpt-5.5 is primarily routed through the Codex transport in this repo
+  // (see src/services/api/providerConfig.ts). The 1.05M API descriptor value
+  // caused /context to under-report and auto-compact to fire too late,
+  // resulting in mid-turn 500s. The descriptor is pinned to the Codex
+  // effective limit until provider-aware context windows land.
+  expect(getContextWindowForModel('gpt-5.5')).toBe(272_000)
 })
 
 test('gpt-5.4 family uses provider-specific context and output caps', () => {

@@ -827,9 +827,12 @@ export function getInitialSettings(): SettingsJson {
 }
 
 /**
- * @deprecated Use getInitialSettings() instead. This alias exists for backwards compatibility.
+ * @deprecated Use getInitialSettings() instead. Keep this as a function
+ * declaration so cyclic test-only module graphs never observe it in TDZ.
  */
-export const getSettings_DEPRECATED = getInitialSettings
+export function getSettings_DEPRECATED(): SettingsJson {
+  return getInitialSettings()
+}
 
 export type SettingsWithSources = {
   effective: SettingsJson

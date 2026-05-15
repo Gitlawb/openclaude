@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import test, { afterEach, beforeEach } from 'node:test'
 
+import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import {
   applySavedProfileToCurrentSession,
@@ -50,6 +51,14 @@ async function importFreshProviderProfileModule() {
 }
 
 const missingCodexAuthPath = join(tmpdir(), 'openclaude-missing-codex-auth.json')
+
+beforeEach(async () => {
+  await acquireEnvMutex()
+})
+
+afterEach(() => {
+  releaseEnvMutex()
+})
 
 test('matching persisted ollama env is reused for ollama launch', async () => {
   const env = await buildLaunchEnv({
@@ -603,13 +612,15 @@ test('saveProfileFile defaults to user config instead of the working directory',
       OPENAI_MODEL: 'gpt-4o',
     })
 
-    const filePath = saveProfileFile(persisted)
+    const filePath = saveProfileFile(persisted, { configDir })
 
     assert.equal(filePath, join(configDir, PROFILE_FILE_NAME))
-    assert.equal(getDefaultProfileFilePath(), join(configDir, PROFILE_FILE_NAME))
+    assert.equal(getDefaultProfileFilePath(configDir), join(configDir, PROFILE_FILE_NAME))
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
-    assert.equal(statSync(configDir).mode & 0o777, 0o700)
-    assert.deepEqual(loadProfileFile(), persisted)
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(configDir).mode & 0o777, 0o700)
+    }
+    assert.deepEqual(loadProfileFile({ configDir, cwd }), persisted)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -642,7 +653,7 @@ test('loadProfileFile keeps project-local files as a legacy fallback', () => {
       'utf8',
     )
 
-    assert.deepEqual(loadProfileFile(), legacyProfile)
+    assert.deepEqual(loadProfileFile({ configDir, cwd }), legacyProfile)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -676,7 +687,7 @@ test('loadProfileFile does not fall back when user config profile is invalid', (
       'utf8',
     )
 
-    assert.equal(loadProfileFile(), null)
+    assert.equal(loadProfileFile({ configDir, cwd }), null)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -719,6 +730,48 @@ test('deleteProfileFile clears the default profile and legacy workspace fallback
     assert.equal(existsSync(join(configDir, PROFILE_FILE_NAME)), false)
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
     assert.equal(loadProfileFile(), null)
+  } finally {
+    process.chdir(previousCwd)
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+    }
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(configDir, { recursive: true, force: true })
+  }
+})
+
+test('deleteProfileFile with configDir and cwd clears both user config and legacy fallback', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-delete-mixed-profile-'))
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-delete-mixed-config-profile-'))
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const previousCwd = process.cwd()
+
+  try {
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.chdir(cwd)
+
+    const configProfile = createProfileFile('openai', {
+      OPENAI_API_KEY: 'sk-test',
+    })
+    const legacyProfile = createProfileFile('ollama', {
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+      OPENAI_MODEL: 'llama3.1:8b',
+    })
+
+    saveProfileFile(configProfile, { configDir, cwd })
+    writeFileSync(
+      join(cwd, PROFILE_FILE_NAME),
+      JSON.stringify(legacyProfile, null, 2),
+      'utf8',
+    )
+
+    deleteProfileFile({ configDir, cwd })
+
+    assert.equal(existsSync(join(configDir, PROFILE_FILE_NAME)), false)
+    assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
+    assert.equal(loadProfileFile({ configDir, cwd }), null)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -801,7 +854,7 @@ test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profile
   }
 })
 
-test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', () => {
+test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-profile-'))
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-config-'))
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -811,27 +864,35 @@ test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profi
     process.env.CLAUDE_CONFIG_DIR = configDir
     process.chdir(cwd)
 
-    const oauthProfile = createProfileFile('codex', {
+    const {
+      PROFILE_FILE_NAME: freshProfileFileName,
+      clearPersistedCodexOAuthProfile: clearPersistedCodexOAuthProfileFresh,
+      createProfileFile: createProfileFileFresh,
+      loadProfileFile: loadProfileFileFresh,
+      saveProfileFile: saveProfileFileFresh,
+    } = await importFreshProviderProfileModule()
+
+    const oauthProfile = createProfileFileFresh('codex', {
       OPENAI_MODEL: 'codexplan',
       OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
       CHATGPT_ACCOUNT_ID: 'acct_oauth',
       CODEX_CREDENTIAL_SOURCE: 'oauth',
     })
 
-    saveProfileFile(oauthProfile)
+    saveProfileFileFresh(oauthProfile, { configDir })
     writeFileSync(
-      join(cwd, PROFILE_FILE_NAME),
+      join(cwd, freshProfileFileName),
       JSON.stringify(oauthProfile, null, 2),
       'utf8',
     )
 
     assert.equal(
-      clearPersistedCodexOAuthProfile(),
-      join(configDir, PROFILE_FILE_NAME),
+      clearPersistedCodexOAuthProfileFresh({ configDir, cwd }),
+      join(configDir, freshProfileFileName),
     )
-    assert.equal(existsSync(join(configDir, PROFILE_FILE_NAME)), false)
-    assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
-    assert.equal(loadProfileFile(), null)
+    assert.equal(existsSync(join(configDir, freshProfileFileName)), false)
+    assert.equal(existsSync(join(cwd, freshProfileFileName)), false)
+    assert.equal(loadProfileFileFresh({ configDir, cwd }), null)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -1125,6 +1186,29 @@ test('buildStartupEnvFromProfile preserves plural-profile env when the legacy fi
   assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, 'saved_moonshot')
 })
 
+test('buildStartupEnvFromProfile ignores the legacy file when a configured provider profile already selected a concrete env', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'https://api.moonshot.ai/v1',
+    OPENAI_MODEL: 'kimi-k2.6',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-stale',
+      OPENAI_MODEL: 'Meta-Llama-3.1-70B-Instruct',
+      OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.moonshot.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'kimi-k2.6')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile falls back to legacy file when plural system has not applied', async () => {
   // Counter-example: first-run user with only the legacy file (no plural
   // active profile yet). The legacy file is the correct source, so the
@@ -1146,6 +1230,48 @@ test('buildStartupEnvFromProfile falls back to legacy file when plural system ha
   assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+})
+
+test('buildStartupEnvFromProfile still falls back to the legacy file when configured profiles exist but startup env is incomplete', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+})
+
+test('buildStartupEnvFromProfile ignores falsey provider flags when deciding whether a configured profile already selected startup env', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '0',
+    OPENAI_BASE_URL: 'https://api.stale.example/v1',
+    OPENAI_MODEL: 'stale-model',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
 })
 
 test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {

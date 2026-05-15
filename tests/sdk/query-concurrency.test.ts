@@ -1,6 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { query } from '../../src/entrypoints/sdk/index.js'
 import { getSessionId, getSessionProjectDir, runWithSdkContext } from '../../src/bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 import { randomUUID } from 'crypto'
 import type { SessionId } from '../../src/types/ids.js'
 import { drainQuery, UUID_REGEX } from './helpers/query-test-doubles.js'
@@ -9,14 +13,19 @@ import { drainQuery, UUID_REGEX } from './helpers/query-test-doubles.js'
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
-beforeAll(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('sdk-query-concurrency')
   savedApiKey = process.env[AUTH_KEY]
   if (!savedApiKey) process.env[AUTH_KEY] = 'sk-test-concurrency-stub'
 })
 
-afterAll(() => {
-  if (savedApiKey === undefined) delete process.env[AUTH_KEY]
-  else process.env[AUTH_KEY] = savedApiKey
+afterEach(() => {
+  try {
+    if (savedApiKey === undefined) delete process.env[AUTH_KEY]
+    else process.env[AUTH_KEY] = savedApiKey
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('SEC-1: env override isolation', () => {

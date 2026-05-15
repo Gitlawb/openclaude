@@ -48,6 +48,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'VENICE_API_KEY',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('xiaomi-mimo')).toEqual([
+    'MIMO_API_KEY',
+    'OPENAI_API_KEY',
+  ])
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -68,6 +72,22 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1')).toBe('venice')
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
+})
+
+test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe('https://api.xiaomimimo.com/v1')
+  expect(getRouteDefaultModel('xiaomi-mimo')).toBe('mimo-v2.5-pro')
+  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1')).toBe('xiaomi-mimo')
+  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1/chat/completions')).toBe('xiaomi-mimo')
+  expect(resolveRouteIdFromBaseUrl('https://api.mimo-v2.com/v1')).toBe('xiaomi-mimo')
+})
+
+test('resolveActiveRouteIdFromEnv treats Xiaomi MiMo credential-only env as Xiaomi MiMo', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      MIMO_API_KEY: 'mimo-key',
+    }),
+  ).toBe('xiaomi-mimo')
 })
 
 test('resolveActiveRouteIdFromEnv treats MiniMax credential-only env as MiniMax', () => {
@@ -129,6 +149,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
+  ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(
   'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',

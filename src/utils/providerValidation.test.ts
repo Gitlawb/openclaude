@@ -27,6 +27,7 @@ const ENV_KEYS = [
   'OPENROUTER_API_KEY',
   'DEEPSEEK_API_KEY',
   'MOONSHOT_API_KEY',
+  'MIMO_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
   'GEMINI_ACCESS_TOKEN',
@@ -220,6 +221,15 @@ test('moonshot validation accepts MOONSHOT_API_KEY without OPENAI_API_KEY', asyn
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
   process.env.MOONSHOT_API_KEY = 'moonshot-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('xiaomi mimo validation accepts MIMO_API_KEY without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.MIMO_API_KEY = 'mimo-live-key'
   delete process.env.OPENAI_API_KEY
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()

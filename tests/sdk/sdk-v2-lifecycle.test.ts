@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { randomUUID } from 'crypto'
 import { rmSync } from 'fs'
 import {
@@ -6,7 +6,20 @@ import {
   unstable_v2_resumeSession,
   unstable_v2_prompt,
 } from '../../src/entrypoints/sdk/index.js'
-import { getSessionProjectDir } from '../../src/bootstrap/state.js'
+import {
+  getCwdState,
+  getOriginalCwd,
+  getSessionId,
+  getSessionProjectDir,
+  setCwdState,
+  setOriginalCwd,
+  switchSession,
+} from '../../src/bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
+import type { SessionId } from '../../src/entrypoints/agentSdkTypes.js'
 import {
   drainQuery,
   withTempDir,
@@ -19,25 +32,44 @@ import {
 // sendMessage drains trigger init(), which checks auth. Stub it for CI.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
+let originalSessionId: SessionId
+let originalSessionProjectDir: string | null
+let originalCwd: string
+let originalOriginalCwd: string
 
-beforeAll(() => {
+// Collect temp dirs for cleanup
+const tempDirs: string[] = []
+
+beforeAll(async () => {
+  await acquireSharedMutationLock('sdk-v2-lifecycle')
   savedApiKey = process.env[AUTH_KEY]
   if (!savedApiKey) process.env[AUTH_KEY] = 'sk-test-v2-lifecycle-stub'
 })
 
 afterAll(() => {
-  if (savedApiKey === undefined) delete process.env[AUTH_KEY]
-  else process.env[AUTH_KEY] = savedApiKey
+  try {
+    if (savedApiKey === undefined) delete process.env[AUTH_KEY]
+    else process.env[AUTH_KEY] = savedApiKey
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
-// Collect temp dirs for cleanup
-const tempDirs: string[] = []
-
 afterEach(() => {
+  switchSession(originalSessionId, originalSessionProjectDir)
+  setCwdState(originalCwd)
+  setOriginalCwd(originalOriginalCwd)
   for (const dir of tempDirs) {
     try { rmSync(dir, { recursive: true, force: true }) } catch {}
   }
   tempDirs.length = 0
+})
+
+beforeEach(() => {
+  originalSessionId = getSessionId()
+  originalSessionProjectDir = getSessionProjectDir()
+  originalCwd = getCwdState()
+  originalOriginalCwd = getOriginalCwd()
 })
 
 describe('V2: session creation', () => {

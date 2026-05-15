@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { homedir } from 'os'
 import { join } from 'path'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 import { isInGlobalClaudeFolder } from '../components/permissions/FilePermissionDialog/permissionOptions.tsx'
 import { optionForPermissionSaveDestination } from '../components/permissions/rules/AddPermissionRules.tsx'
@@ -12,11 +16,19 @@ import { getValidationTip } from './settings/validationTips.ts'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('openclaudeUiSurfaces.test.ts')
+})
+
 afterEach(() => {
-  if (originalConfigDir === undefined) {
-    delete process.env.CLAUDE_CONFIG_DIR
-  } else {
-    process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+  try {
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

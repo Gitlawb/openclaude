@@ -9,6 +9,7 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { type ReleaseChannel, saveGlobalConfig } from './config.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { getAPIProvider } from './model/providers.js'
 import { logForDebugging } from './debug.js'
 import { env } from './env.js'
@@ -32,6 +33,20 @@ const GCS_BUCKET_URL =
   'https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases'
 
 class AutoUpdaterError extends ClaudeError {}
+
+async function withTimeoutSignal<T>(
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs,
+  })
+  try {
+    return await run(signal)
+  } finally {
+    cleanup()
+  }
+}
 
 export type InstallStatus =
   | 'success'
@@ -330,10 +345,12 @@ export async function getLatestVersion(
 
   // Run from home directory to avoid reading project-level .npmrc
   // which could be maliciously crafted to redirect to an attacker's registry
-  const result = await execFileNoThrowWithCwd(
-    'npm',
-    ['view', `${MACRO.PACKAGE_URL}@${npmTag}`, 'version', '--prefer-online'],
-    { abortSignal: AbortSignal.timeout(5000), cwd: homedir() },
+  const result = await withTimeoutSignal(5000, abortSignal =>
+    execFileNoThrowWithCwd(
+      'npm',
+      ['view', `${MACRO.PACKAGE_URL}@${npmTag}`, 'version', '--prefer-online'],
+      { abortSignal, cwd: homedir() },
+    ),
   )
   if (result.code !== 0) {
     logForDebugging(`npm view failed with code ${result.code}`)
@@ -361,10 +378,12 @@ export type NpmDistTags = {
  */
 export async function getNpmDistTags(): Promise<NpmDistTags> {
   // Run from home directory to avoid reading project-level .npmrc
-  const result = await execFileNoThrowWithCwd(
-    'npm',
-    ['view', MACRO.PACKAGE_URL, 'dist-tags', '--json', '--prefer-online'],
-    { abortSignal: AbortSignal.timeout(5000), cwd: homedir() },
+  const result = await withTimeoutSignal(5000, abortSignal =>
+    execFileNoThrowWithCwd(
+      'npm',
+      ['view', MACRO.PACKAGE_URL, 'dist-tags', '--json', '--prefer-online'],
+      { abortSignal, cwd: homedir() },
+    ),
   )
 
   if (result.code !== 0) {
@@ -435,11 +454,13 @@ export async function getVersionHistory(limit: number): Promise<string[]> {
   const packageUrl = MACRO.NATIVE_PACKAGE_URL ?? MACRO.PACKAGE_URL
 
   // Run from home directory to avoid reading project-level .npmrc
-  const result = await execFileNoThrowWithCwd(
-    'npm',
-    ['view', packageUrl, 'versions', '--json', '--prefer-online'],
-    // Longer timeout for version list
-    { abortSignal: AbortSignal.timeout(30000), cwd: homedir() },
+  const result = await withTimeoutSignal(30000, abortSignal =>
+    execFileNoThrowWithCwd(
+      'npm',
+      ['view', packageUrl, 'versions', '--json', '--prefer-online'],
+      // Longer timeout for version list
+      { abortSignal, cwd: homedir() },
+    ),
   )
 
   if (result.code !== 0) {

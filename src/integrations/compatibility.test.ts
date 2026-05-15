@@ -36,9 +36,11 @@ const EXPECTED_PRESETS = [
   'minimax',
   'xai',
   'venice',
+  'xiaomi-mimo',
   'zai',
   'bankr',
   'atomic-chat',
+  'gitlawb-opengateway',
 ] as const satisfies readonly ProviderPreset[]
 
 describe('compatibility mappings', () => {

@@ -163,7 +163,7 @@ import {
 } from './hooks/sessionHooks.js'
 import type { AppState } from '../state/AppState.js'
 import { jsonStringify, jsonParse } from './slowOperations.js'
-import { stableStringify } from './stableStringify.js'
+import { stableStringifyJson } from './stableStringify.js'
 import { isEnvTruthy } from './envUtils.js'
 import { errorMessage, getErrnoCode } from './errors.js'
 import { getAgentName, getTeamName, getTeammateColor } from './teammate.js'
@@ -190,7 +190,7 @@ function dedupeRegisteredPluginHooks(
       continue
     }
 
-    const pluginMatcherKey = stableStringify({
+    const pluginMatcherKey = stableStringifyJson({
       pluginId: matcher.pluginId,
       pluginName: matcher.pluginName,
       pluginRoot: matcher.pluginRoot,
@@ -4850,7 +4850,9 @@ export async function executeStatusLineCommand(
   }
 
   // Use provided signal or create a default one
-  const abortSignal = signal || AbortSignal.timeout(timeoutMs)
+  const { signal: abortSignal, cleanup } = signal
+    ? { signal, cleanup: () => {} }
+    : createCombinedAbortSignal(undefined, { timeoutMs })
 
   try {
     // Convert status input to JSON
@@ -4897,6 +4899,8 @@ export async function executeStatusLineCommand(
   } catch (error) {
     logForDebugging(`Status hook failed: ${error}`, { level: 'error' })
     return undefined
+  } finally {
+    cleanup()
   }
 }
 
@@ -4940,7 +4944,9 @@ export async function executeFileSuggestionCommand(
   }
 
   // Use provided signal or create a default one
-  const abortSignal = signal || AbortSignal.timeout(timeoutMs)
+  const { signal: abortSignal, cleanup } = signal
+    ? { signal, cleanup: () => {} }
+    : createCombinedAbortSignal(undefined, { timeoutMs })
 
   try {
     const jsonInput = jsonStringify(fileSuggestionInput)
@@ -4969,6 +4975,8 @@ export async function executeFileSuggestionCommand(
       level: 'error',
     })
     return []
+  } finally {
+    cleanup()
   }
 }
 

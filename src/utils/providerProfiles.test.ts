@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
+import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import type { ProviderProfile } from './config.js'
 
 async function importFreshProvidersModule() {
@@ -59,6 +60,7 @@ const RESTORED_KEYS = [
   'BANKR_MODEL',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
   'HICAP_API_KEY',
 ] as const
 
@@ -91,7 +93,8 @@ function saveMockGlobalConfig(
   mockConfigState = updater(mockConfigState)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireEnvMutex()
   for (const key of RESTORED_KEYS) {
     delete process.env[key]
   }
@@ -100,20 +103,24 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const key of RESTORED_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    for (const key of RESTORED_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
-  }
 
-  mock.restore()
-  mockConfigState = createMockConfigState()
-  process.chdir(originalCwd)
-  if (testConfigDir) {
-    rmSync(testConfigDir, { recursive: true, force: true })
-    testConfigDir = null
+    mock.restore()
+    mockConfigState = createMockConfigState()
+    process.chdir(originalCwd)
+    if (testConfigDir) {
+      rmSync(testConfigDir, { recursive: true, force: true })
+      testConfigDir = null
+    }
+  } finally {
+    releaseEnvMutex()
   }
 })
 
@@ -188,6 +195,17 @@ function buildVeniceProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
     baseUrl: 'https://api.venice.ai/api/v1',
     model: 'venice-uncensored',
     apiKey: 'venice-test-key',
+    ...overrides,
+  })
+}
+
+function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'xiaomi-mimo',
+    name: 'Xiaomi MiMo',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'mimo-test-key',
     ...overrides,
   })
 }
@@ -494,6 +512,38 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
+  test('xiaomi mimo profile applies OpenAI-compatible env with MIMO_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('mimo-test-key')
+    expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoProfile({
+      baseUrl: 'https://api.mimo-v2.com/v1',
+    }))
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
+    expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -1098,6 +1148,36 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('xiaomi mimo preset defaults to the official Xiaomi MiMo endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.MIMO_API_KEY = 'mimo-live-key'
+
+    const defaults = getProviderPresetDefaults('xiaomi-mimo')
+
+    expect(defaults.provider).toBe('xiaomi-mimo')
+    expect(defaults.name).toBe('Xiaomi MiMo')
+    expect(defaults.baseUrl).toBe('https://api.xiaomimimo.com/v1')
+    expect(defaults.model).toBe('mimo-v2.5-pro')
+    expect(defaults.apiKey).toBe('mimo-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('xai preset ignores stale generic OpenAI model when creating defaults', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_MODEL = 'gpt-5.4'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.XAI_API_KEY = 'xai-live-key'
+
+    const defaults = getProviderPresetDefaults('xai')
+
+    expect(defaults.provider).toBe('xai')
+    expect(defaults.name).toBe('xAI')
+    expect(defaults.baseUrl).toBe('https://api.x.ai/v1')
+    expect(defaults.model).toBe('grok-4.3')
+    expect(defaults.apiKey).toBe('xai-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('zai preset defaults to Z.AI GLM Coding Plan endpoint', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
@@ -1132,7 +1212,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [openaiProfile],
       }))
 
-      const result = setActiveProviderProfile('openai_prof')
+      const result = setActiveProviderProfile('openai_prof', {
+        configDir: testConfigDir ?? undefined,
+      })
 
       expect(result?.id).toBe('openai_prof')
       expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
@@ -1170,7 +1252,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [ollamaProfile],
       }))
 
-      const result = setActiveProviderProfile('ollama_prof')
+      const result = setActiveProviderProfile('ollama_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1213,7 +1297,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [deepSeekProfile],
       }))
 
-      const result = setActiveProviderProfile('deepseek_prof')
+      const result = setActiveProviderProfile('deepseek_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1256,7 +1342,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [deepSeekProfile],
       }))
 
-      const result = setActiveProviderProfile('deepseek_vendor_prof')
+      const result = setActiveProviderProfile('deepseek_vendor_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1295,7 +1383,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [veniceProfile],
       }))
 
-      const result = setActiveProviderProfile('venice_prof')
+      const result = setActiveProviderProfile('venice_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1308,6 +1398,49 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'venice-uncensored',
         OPENAI_API_KEY: 'venice-test-key',
         VENICE_API_KEY: 'venice-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists Xiaomi MiMo profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const mimoProfile = buildXiaomiMimoProfile({
+        baseUrl: 'https://api.mimo-v2.com/v1',
+        id: 'mimo_prof',
+        model: 'mimo-v2.5-pro, mimo-v2-flash',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [mimoProfile],
+      }))
+
+      const result = setActiveProviderProfile('mimo_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('mimo_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.xiaomimimo.com/v1',
+        OPENAI_MODEL: 'mimo-v2.5-pro',
+        OPENAI_API_KEY: 'mimo-test-key',
+        MIMO_API_KEY: 'mimo-test-key',
       })
     } finally {
       process.chdir(originalCwd)
@@ -1338,7 +1471,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [bedrockProfile],
       }))
 
-      const result = setActiveProviderProfile('bedrock_prof')
+      const result = setActiveProviderProfile('bedrock_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1380,7 +1515,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [anthropicProfile],
       }))
 
-      const result = setActiveProviderProfile('anthro_persisted_prof')
+      const result = setActiveProviderProfile('anthro_persisted_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1416,7 +1553,9 @@ describe('setActiveProviderProfile', () => {
       providerProfiles: [anthropicProfile],
     }))
 
-    const result = setActiveProviderProfile('anthro_prof')
+    const result = setActiveProviderProfile('anthro_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result?.id).toBe('anthro_prof')
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
@@ -1454,12 +1593,16 @@ describe('setActiveProviderProfile', () => {
     }))
 
     // First activate the openai profile
-    setActiveProviderProfile('openai_prof')
+    setActiveProviderProfile('openai_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
 
     // Now switch to the anthropic profile
-    const result = setActiveProviderProfile('anthro_prof')
+    const result = setActiveProviderProfile('anthro_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result?.id).toBe('anthro_prof')
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
@@ -1499,12 +1642,16 @@ describe('setActiveProviderProfile', () => {
     }))
 
     // First activate the anthropic profile
-    setActiveProviderProfile('anthro_prof')
+    setActiveProviderProfile('anthro_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
 
     // Now switch to the openai profile
-    const result = setActiveProviderProfile('openai_prof')
+    const result = setActiveProviderProfile('openai_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result?.id).toBe('openai_prof')
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
@@ -1528,7 +1675,9 @@ describe('setActiveProviderProfile', () => {
       providerProfiles: [openaiProfile],
     }))
 
-    const result = setActiveProviderProfile('nonexistent_prof')
+    const result = setActiveProviderProfile('nonexistent_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result).toBeNull()
   })
@@ -1743,7 +1892,9 @@ describe('setActiveProviderProfile model cache', () => {
       ],
     }
 
-    setActiveProviderProfile('multi_provider')
+    setActiveProviderProfile('multi_provider', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     const cache = getActiveOpenAIModelOptionsCache()
     const cacheValues = cache.map((opt: { value: string }) => opt.value)
@@ -1784,7 +1935,9 @@ describe('setActiveProviderProfile model cache', () => {
       },
     }
 
-    setActiveProviderProfile('multi_provider')
+    setActiveProviderProfile('multi_provider', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(getActiveOpenAIModelOptionsCache()).toEqual([
       {
