@@ -2658,6 +2658,7 @@ class OpenAIShimMessages {
           status,
           body: errorBody,
           url: requestUrl,
+          hasImages: serializedBody.includes('"image_url"'),
         })
       const failureWithUrl = { ...failure, requestUrl: failure.requestUrl ?? requestUrl }
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
@@ -2785,6 +2786,7 @@ class OpenAIShimMessages {
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,
+            hasImages: serializedBody.includes('"image_url"'),
           })
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
@@ -2803,6 +2805,7 @@ class OpenAIShimMessages {
       const failure = classifyOpenAIHttpFailure({
         status: response.status,
         body: errorBody,
+        hasImages: serializedBody.includes('"image_url"'),
       })
 
       if (
