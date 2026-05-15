@@ -9,6 +9,7 @@
  * - Cleanup on completion or abort
  */
 
+import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { getSystemPrompt } from '../../constants/prompts.js'
 import { TEAMMATE_MESSAGE_TAG } from '../../constants/xml.js'
@@ -156,7 +157,7 @@ function createInProcessCanUseTool(
     // Agents await the classifier result (rather than racing it against user
     // interaction like the main agent).
     if (
-      false &&
+      feature('BASH_CLASSIFIER') &&
       tool.name === BASH_TOOL_NAME &&
       result.pendingClassifierCheck
     ) {

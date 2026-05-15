@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { WriteFileOptions } from 'fs'
 import {
   closeSync,
@@ -153,7 +154,7 @@ function slowLoggingExternal(): Disposable {
  */
 export const slowLogging: {
   (strings: TemplateStringsArray, ...values: unknown[]): Disposable
-} = false ? slowLoggingAnt : slowLoggingExternal
+} = feature('SLOW_OPERATION_LOGGING') ? slowLoggingAnt : slowLoggingExternal
 
 // --- Wrapped operations ---
 

@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { isReplBridgeActive } from '../../bootstrap/state.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import type { Tool } from '../../Tool.js'
@@ -6,12 +7,12 @@ import { AGENT_TOOL_NAME } from '../AgentTool/constants.js'
 // Dead code elimination: Brief tool name only needed when KAIROS or KAIROS_BRIEF is on
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BRIEF_TOOL_NAME: string | null =
-  false || false
+  feature('KAIROS') || feature('KAIROS_BRIEF')
     ? (
         require('../BriefTool/prompt.js') as typeof import('../BriefTool/prompt.js')
       ).BRIEF_TOOL_NAME
     : null
-const SEND_USER_FILE_TOOL_NAME: string | null = false
+const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
   ? (
       require('../SendUserFileTool/prompt.js') as typeof import('../SendUserFileTool/prompt.js')
     ).SEND_USER_FILE_TOOL_NAME
@@ -72,7 +73,7 @@ export function isDeferredTool(tool: Tool): boolean {
   // Fork-first experiment: Agent must be available turn 1, not behind ToolSearch.
   // Lazy require: static import of forkSubagent → coordinatorMode creates a cycle
   // through constants/tools.ts at module init.
-  if (true && tool.name === AGENT_TOOL_NAME) {
+  if (feature('FORK_SUBAGENT') && tool.name === AGENT_TOOL_NAME) {
     type ForkMod = typeof import('../AgentTool/forkSubagent.js')
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const m = require('../AgentTool/forkSubagent.js') as ForkMod
@@ -85,7 +86,7 @@ export function isDeferredTool(tool: Tool): boolean {
   // tool's isEnabled() IS isBriefEnabled(), so being asked about its deferral
   // status implies the gate already passed.
   if (
-    (false || false) &&
+    (feature('KAIROS') || feature('KAIROS_BRIEF')) &&
     BRIEF_TOOL_NAME &&
     tool.name === BRIEF_TOOL_NAME
   ) {
@@ -95,7 +96,7 @@ export function isDeferredTool(tool: Tool): boolean {
   // SendUserFile is a file-delivery communication channel (sibling of Brief).
   // Must be immediately available without a ToolSearch round-trip.
   if (
-    false &&
+    feature('KAIROS') &&
     SEND_USER_FILE_TOOL_NAME &&
     tool.name === SEND_USER_FILE_TOOL_NAME &&
     isReplBridgeActive()

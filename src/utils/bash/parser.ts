@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { logEvent } from '../../services/analytics/index.js'
 import { logForDebugging } from '../debug.js'
 import {
@@ -47,7 +48,7 @@ function logLoadOnce(success: boolean): void {
  * parseCommand/parseCommandRaw for the parser to be available. Idempotent.
  */
 export async function ensureInitialized(): Promise<void> {
-  if (false || false) {
+  if (feature('TREE_SITTER_BASH') || feature('TREE_SITTER_BASH_SHADOW')) {
     await ensureParserInitialized()
   }
 }
@@ -61,7 +62,7 @@ export async function parseCommand(
   // regex/shell-quote path. Guarding the whole body inside the positive
   // branch lets Bun DCE the NAPI import AND keeps telemetry honest — we
   // only fire tengu_tree_sitter_load when a load was genuinely attempted.
-  if (false) {
+  if (feature('TREE_SITTER_BASH')) {
     await ensureParserInitialized()
     const mod = getParserModule()
     logLoadOnce(mod !== null)
@@ -104,7 +105,7 @@ export async function parseCommandRaw(
   command: string,
 ): Promise<Node | null | typeof PARSE_ABORTED> {
   if (!command || command.length > MAX_COMMAND_LENGTH) return null
-  if (false || false) {
+  if (feature('TREE_SITTER_BASH') || feature('TREE_SITTER_BASH_SHADOW')) {
     await ensureParserInitialized()
     const mod = getParserModule()
     logLoadOnce(mod !== null)

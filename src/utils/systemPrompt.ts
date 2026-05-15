@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -15,7 +16,7 @@ export { asSystemPrompt, type SystemPrompt } from './systemPromptType.js'
 // into non-proactive builds.
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactiveModule =
-  false || false
+  feature('PROACTIVE') || feature('KAIROS')
     ? (require('../proactive/index.js') as typeof import('../proactive/index.js'))
     : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -59,7 +60,7 @@ export function buildEffectiveSystemPrompt({
   // Use inline env check instead of coordinatorModule to avoid circular
   // dependency issues during test module loading.
   if (
-    true &&
+    feature('COORDINATOR_MODE') &&
     isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) &&
     !mainThreadAgentDefinition
   ) {
@@ -101,7 +102,7 @@ export function buildEffectiveSystemPrompt({
   // add domain-specific behavior on top — same pattern as teammates.
   if (
     agentSystemPrompt &&
-    (false || false) &&
+    (feature('PROACTIVE') || feature('KAIROS')) &&
     isProactiveActive_SAFE_TO_CALL_ANYWHERE()
   ) {
     return asSystemPrompt([

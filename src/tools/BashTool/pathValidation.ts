@@ -1156,7 +1156,7 @@ function astRedirectsToOutputRedirections(redirects: Redirect[]): {
 // exports an older narrower copy (timeout/nice-n-N only) that is DEAD CODE
 // — no prod consumer — but CANNOT be removed: bashPermissions.ts is right
 // at Bun's feature() DCE complexity threshold, and deleting ~80 lines from
-// that module silently breaks false evaluation (drops
+// that module silently breaks feature('BASH_CLASSIFIER') evaluation (drops
 // every pendingClassifierCheck spread). Verified in PR #21503 round 3:
 // baseline classifier tests 30/30 pass, after deletion 22/30 fail. See
 // team memory: bun-feature-dce-cliff.md. Hit 3× in PR #21075 + twice in

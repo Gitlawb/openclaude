@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { getSessionId } from '../../bootstrap/state.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
@@ -74,7 +75,7 @@ export const TodoWriteTool = buildTool({
     // happen ("when the last task closed, the loop exited").
     let verificationNudgeNeeded = false
     if (
-      true &&
+      feature('VERIFICATION_AGENT') &&
       getFeatureValue_CACHED_MAY_BE_STALE('tengu_hive_evidence', false) &&
       !context.agentId &&
       allDone &&

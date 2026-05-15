@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { dirname } from 'path'
@@ -101,10 +102,10 @@ import type { SkillToolProgress as Progress } from '../../types/tools.js'
 // pull in akiBackend.ts (via remoteSkillLoader → akiBackend), which has
 // module-level memoize()/lazySchema() consts that survive tree-shaking as
 // side-effecting initializers. All usages are inside
-// false guards, so remoteSkillModules is
+// feature('EXPERIMENTAL_SKILL_SEARCH') guards, so remoteSkillModules is
 // non-null at every call site.
 /* eslint-disable @typescript-eslint/no-require-imports */
-const remoteSkillModules = false
+const remoteSkillModules = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? {
       ...(require('../../services/skillSearch/remoteSkillState.js') as typeof import('../../services/skillSearch/remoteSkillState.js')),
       ...(require('../../services/skillSearch/remoteSkillLoader.js') as typeof import('../../services/skillSearch/remoteSkillLoader.js')),
@@ -136,7 +137,7 @@ async function executeForkedSkill(
     isBuiltIn || isBundled || isOfficialSkill ? commandName : 'custom'
 
   const wasDiscoveredField =
-    false &&
+    feature('EXPERIMENTAL_SKILL_SEARCH') &&
     remoteSkillModules!.isSkillSearchEnabled()
       ? {
           was_discovered:
@@ -384,7 +385,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     // `_canonical_<slug>` names before local command lookup since remote
     // skills are not in the local command registry.
     if (
-      false &&
+      feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
       const slug = remoteSkillModules!.stripCanonicalPrefix(
@@ -499,7 +500,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     // deny rule is honored (same pattern as safe-properties auto-allow below).
     // The skill content itself is canonical/curated, not user-authored.
     if (
-      false &&
+      feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
       const slug = remoteSkillModules!.stripCanonicalPrefix(commandName)
@@ -612,7 +613,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     // Remote skills are declarative markdown so no slash-command expansion
     // (no !command substitution, no $ARGUMENTS interpolation) is needed.
     if (
-      false &&
+      feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
       const slug = remoteSkillModules!.stripCanonicalPrefix(commandName)
@@ -668,7 +669,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       isBuiltIn || isBundled || isOfficialSkill ? commandName : 'custom'
 
     const wasDiscoveredField =
-      false &&
+      feature('EXPERIMENTAL_SKILL_SEARCH') &&
       remoteSkillModules!.isSkillSearchEnabled()
         ? {
             was_discovered:
@@ -972,7 +973,7 @@ function extractUrlScheme(url: string): 'gs' | 'http' | 'https' | 's3' {
  * The skill is also registered with addInvokedSkill so it survives compaction
  * (same as local skills).
  *
- * Only called from within a false guard in
+ * Only called from within a feature('EXPERIMENTAL_SKILL_SEARCH') guard in
  * call() — remoteSkillModules is non-null here.
  */
 async function executeRemoteSkill(

@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { satisfies } from 'src/utils/semver.js'
 import { isRunningWithBun } from '../utils/bundledMode.js'
 import { getPlatform } from '../utils/platform.js'
@@ -41,14 +42,14 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       'ctrl+l': 'app:redraw',
       'ctrl+t': 'app:toggleTodos',
       'ctrl+o': 'app:toggleTranscript',
-      ...(false || false
+      ...(feature('KAIROS') || feature('KAIROS_BRIEF')
         ? { 'ctrl+shift+b': 'app:toggleBrief' as const }
         : {}),
       'ctrl+shift+o': 'app:toggleTeammatePreview',
       'ctrl+r': 'history:search',
       // File navigation. cmd+ bindings only fire on kitty-protocol terminals;
       // ctrl+shift is the portable fallback.
-      ...(true
+      ...(feature('QUICK_SEARCH')
         ? {
             'ctrl+shift+f': 'app:globalSearch' as const,
             'cmd+shift+f': 'app:globalSearch' as const,
@@ -56,7 +57,7 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
             'cmd+shift+p': 'app:quickOpen' as const,
           }
         : {}),
-      ...(false ? { 'meta+j': 'app:toggleTerminal' } : {}),
+      ...(feature('TERMINAL_PANEL') ? { 'meta+j': 'app:toggleTerminal' } : {}),
     },
   },
   {
@@ -84,7 +85,7 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       'ctrl+s': 'chat:stash',
       // Image paste shortcut (platform-specific key defined above)
       [IMAGE_PASTE_KEY]: 'chat:imagePaste',
-      ...(true
+      ...(feature('MESSAGE_ACTIONS')
         ? { 'shift+up': 'chat:messageActions' as const }
         : {}),
       // Voice activation (hold-to-talk). Registered so getShortcutDisplay
@@ -92,7 +93,7 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       // add a voice:pushToTalk entry (last wins); to disable, use /voice
       // — null-unbinding space hits a pre-existing useKeybinding.ts trap
       // where 'unbound' swallows the event (space dead for typing).
-      ...(false ? { space: 'voice:pushToTalk' } : {}),
+      ...(feature('VOICE_MODE') ? { space: 'voice:pushToTalk' } : {}),
     },
   },
   {
@@ -264,7 +265,7 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
     },
   },
   // PromptInput unmounts while cursor active — no key conflict.
-  ...(true
+  ...(feature('MESSAGE_ACTIONS')
     ? [
         {
           context: 'MessageActions' as const,

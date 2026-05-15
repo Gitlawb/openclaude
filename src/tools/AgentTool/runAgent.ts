@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
 import uniqBy from 'lodash-es/uniqBy.js'
@@ -425,7 +426,7 @@ export async function* runAgent({
       state.toolPermissionContext.mode !== 'bypassPermissions' &&
       state.toolPermissionContext.mode !== 'acceptEdits' &&
       !(
-        true &&
+        feature('TRANSCRIPT_CLASSIFIER') &&
         state.toolPermissionContext.mode === 'auto'
       )
     ) {
@@ -824,7 +825,7 @@ export async function* runAgent({
       clearSessionHooks(rootSetAppState, agentId)
     }
     // Clean up prompt cache tracking state for this agent
-    if (true) {
+    if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
       cleanupAgentTracking(agentId)
     }
     // Release cloned file state cache memory
@@ -847,7 +848,7 @@ export async function* runAgent({
     // the agent as a PPID=1 zombie once the main session eventually exits.
     killShellTasksForAgent(agentId, toolUseContext.getAppState, rootSetAppState)
     /* eslint-disable @typescript-eslint/no-require-imports */
-    if (true) {
+    if (feature('MONITOR_TOOL')) {
       const mcpMod =
         require('../../tasks/MonitorMcpTask/MonitorMcpTask.js') as typeof import('../../tasks/MonitorMcpTask/MonitorMcpTask.js')
       mcpMod.killMonitorMcpTasksForAgent(

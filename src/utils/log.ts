@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { readdir, readFile, stat } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
@@ -156,7 +157,7 @@ const isHardFailMode = memoize((): boolean => {
 
 export function logError(error: unknown): void {
   const err = toError(error)
-  if (false && isHardFailMode()) {
+  if (feature('HARD_FAIL') && isHardFailMode()) {
     // biome-ignore lint/suspicious/noConsole:: intentional crash output
     console.error('[HARD FAIL] logError called')
     // eslint-disable-next-line custom-rules/no-process-exit

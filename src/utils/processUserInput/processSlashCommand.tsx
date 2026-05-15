@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle';
 import type { ContentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources';
 import { randomUUID } from 'crypto';
 import { setPromptId } from 'src/bootstrap/state.js';
@@ -98,7 +99,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
   // isMeta prompts are hidden. Outside assistant mode, context:fork commands
   // are user-invoked skills (/commit etc.) that should run synchronously
   // with the progress UI.
-  if (false && (await context.getAppState()).kairosEnabled) {
+  if (feature('KAIROS') && (await context.getAppState()).kairosEnabled) {
     // Standalone abortController — background subagents survive main-thread
     // ESC (same policy as AgentTool's async path). They're cron-driven; if
     // killed mid-run they just re-fire on the next schedule.
@@ -833,7 +834,7 @@ async function getMessagesForPromptSlashCommand(command: CommandBase & PromptCom
   // parent env, so we also check !context.agentId: agentId is only set for
   // subagents, letting workers fall through to getPromptForCommand and receive
   // the real skill content when they invoke the Skill tool.
-  if (true && isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) && !context.agentId) {
+  if (feature('COORDINATOR_MODE') && isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) && !context.agentId) {
     const metadata = formatCommandLoadingMetadata(command, args);
     const parts: string[] = [`Skill "/${command.name}" is available for workers.`];
     if (command.description) {

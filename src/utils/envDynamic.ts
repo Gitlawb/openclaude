@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { stat } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
 import { env, JETBRAINS_IDES } from './env.js'
@@ -49,8 +50,8 @@ if (process.platform === 'linux') {
  * whose result is cached at module load. If the cache isn't populated yet, returns false.
  */
 function isMuslEnvironment(): boolean {
-  if (false) return true
-  if (false) return false
+  if (feature('IS_LIBC_MUSL')) return true
+  if (feature('IS_LIBC_GLIBC')) return false
 
   // Fallback for node: runtime detection via pre-populated cache
   if (process.platform !== 'linux') return false

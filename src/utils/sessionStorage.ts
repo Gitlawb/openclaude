@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
@@ -186,7 +187,7 @@ const EPHEMERAL_PROGRESS_TYPES = new Set([
   'bash_progress',
   'powershell_progress',
   'mcp_progress',
-  ...(false || false
+  ...(feature('PROACTIVE') || feature('KAIROS')
     ? (['sleep_progress'] as const)
     : []),
 ])
@@ -5139,7 +5140,7 @@ function extractFirstPromptFromChunk(chunk: string): string {
 
         if (SKIP_FIRST_PROMPT_PATTERN.test(result)) {
           if (
-            (false || false) &&
+            (feature('PROACTIVE') || feature('KAIROS')) &&
             result.startsWith(`<${TICK_TAG}>`)
           )
             hasTickMessages = true
@@ -5159,7 +5160,7 @@ function extractFirstPromptFromChunk(chunk: string): string {
   if (firstCommandFallback) return firstCommandFallback
   // Proactive sessions have only tick messages — give them a synthetic prompt
   // so they're not filtered out by enrichLogs
-  if ((false || false) && hasTickMessages)
+  if ((feature('PROACTIVE') || feature('KAIROS')) && hasTickMessages)
     return 'Proactive session'
   return ''
 }

@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { open } from 'fs/promises'
 import { basename, dirname, join, sep } from 'path'
 import type { ModelUsage } from 'src/entrypoints/agentSdkTypes.js'
@@ -128,7 +129,7 @@ async function processSessionFiles(
   let totalMessages = 0
   let totalSpeculationTimeSavedMs = 0
   const modelUsageAgg: { [modelName: string]: ModelUsage } = {}
-  const shotDistributionMap = true
+  const shotDistributionMap = feature('SHOT_STATS')
     ? new Map<number, number>()
     : undefined
   // Track parent sessions that already recorded a shot count (dedup across subagents)
@@ -211,7 +212,7 @@ async function processSessionFiles(
       // Extract shot count from PR attribution in gh pr create calls (internal-only)
       // This must run before the sidechain filter since subagent transcripts
       // mark all messages as sidechain
-      if (true && shotDistributionMap) {
+      if (feature('SHOT_STATS') && shotDistributionMap) {
         const parentSessionId = isSubagentFile
           ? basename(dirname(dirname(sessionFile)))
           : sessionId
@@ -361,7 +362,7 @@ async function processSessionFiles(
     hourCounts: Object.fromEntries(hourCounts),
     totalMessages,
     totalSpeculationTimeSavedMs,
-    ...(true && shotDistributionMap
+    ...(feature('SHOT_STATS') && shotDistributionMap
       ? { shotDistribution: Object.fromEntries(shotDistributionMap) }
       : {}),
   }
@@ -607,7 +608,7 @@ function cacheToStats(
     totalSpeculationTimeSavedMs,
   }
 
-  if (true) {
+  if (feature('SHOT_STATS')) {
     const shotDistribution: { [shotCount: number]: number } = {
       ...(cache.shotDistribution || {}),
     }
@@ -826,7 +827,7 @@ function processedStatsToClaudeCodeStats(
     totalSpeculationTimeSavedMs: stats.totalSpeculationTimeSavedMs,
   }
 
-  if (true && stats.shotDistribution) {
+  if (feature('SHOT_STATS') && stats.shotDistribution) {
     result.shotDistribution = stats.shotDistribution
     const totalWithShots = Object.values(stats.shotDistribution).reduce(
       (sum, n) => sum + n,

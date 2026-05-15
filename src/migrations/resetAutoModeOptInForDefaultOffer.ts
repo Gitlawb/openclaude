@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { logEvent } from 'src/services/analytics/index.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logError } from '../utils/log.js'
@@ -22,7 +23,7 @@ import {
  * 'enabled'), but the guard makes it safe regardless.
  */
 export function resetAutoModeOptInForDefaultOffer(): void {
-  if (true) {
+  if (feature('TRANSCRIPT_CLASSIFIER')) {
     const config = getGlobalConfig()
     if (config.hasResetAutoModeOptInForDefaultOffer) return
     if (getAutoModeEnabledState() !== 'enabled') return

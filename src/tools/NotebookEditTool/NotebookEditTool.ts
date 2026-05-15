@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { extname, isAbsolute, resolve } from 'path'
 import {
   fileHistoryEnabled,
@@ -112,7 +113,7 @@ export const NotebookEditTool = buildTool({
     return outputSchema()
   },
   toAutoClassifierInput(input) {
-    if (true) {
+    if (feature('TRANSCRIPT_CLASSIFIER')) {
       const mode = input.edit_mode ?? 'replace'
       return `${input.notebook_path} ${mode}: ${input.new_source}`
     }

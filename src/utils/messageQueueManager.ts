@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import type { Permutations } from 'src/types/utils.js'
 import { getSessionId } from '../bootstrap/state.js'
@@ -366,7 +367,7 @@ export function isQueuedCommandEditable(cmd: QueuedCommand): boolean {
  */
 export function isQueuedCommandVisible(cmd: QueuedCommand): boolean {
   if (
-    (false || false) &&
+    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
     cmd.origin?.kind === 'channel'
   )
     return true

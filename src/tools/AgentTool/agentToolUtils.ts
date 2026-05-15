@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { clearInvokedSkillsForAgent } from '../../bootstrap/state.js'
 import {
@@ -400,7 +401,7 @@ export async function classifyHandoffIfNeeded({
   subagentType: string
   totalToolUseCount: number
 }): Promise<string | null> {
-  if (true) {
+  if (feature('TRANSCRIPT_CLASSIFIER')) {
     if (toolPermissionContext.mode !== 'auto') return null
 
     const agentTranscript = buildTranscriptForClassifier(agentMessages, tools)
@@ -603,7 +604,7 @@ export async function runAsyncAgentLifecycle({
 
     let finalMessage = extractTextContent(agentResult.content, '\n')
 
-    if (true) {
+    if (feature('TRANSCRIPT_CLASSIFIER')) {
       const handoffWarning = await classifyHandoffIfNeeded({
         agentMessages,
         tools: toolUseContext.options.tools,

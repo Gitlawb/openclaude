@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { Anthropic } from '@anthropic-ai/sdk'
 import {
   getSystemPrompt,
@@ -1110,12 +1111,12 @@ export async function analyzeContextUsage(
   // shouldAutoCompact, so the 33k buffer shown here would be a lie too.
   let reservedTokens = 0
   let skipReservedBuffer = false
-  if (false) {
+  if (feature('REACTIVE_COMPACT')) {
     if (getFeatureValue_CACHED_MAY_BE_STALE('tengu_cobalt_raccoon', false)) {
       skipReservedBuffer = true
     }
   }
-  if (false) {
+  if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { isContextCollapseEnabled } =
       require('../services/contextCollapse/index.js') as typeof import('../services/contextCollapse/index.js')

@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import { isReplBridgeActive } from '../../bootstrap/state.js'
 import { getReplBridgeHandle } from '../../bridge/replBridgeHandle.js'
@@ -68,7 +69,7 @@ const inputSchema = lazySchema(() =>
     to: z
       .string()
       .describe(
-        false
+        feature('UDS_INBOX')
           ? 'Recipient: teammate name, "*" for broadcast, "uds:<socket-path>" for a local peer, or "bridge:<session-id>" for a Remote Control peer (use ListPeers to discover)'
           : 'Recipient: teammate name, or "*" for broadcast to all teammates',
       ),
@@ -582,7 +583,7 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
     },
 
     async checkPermissions(input, _context) {
-      if (false && parseAddress(input.to).scheme === 'bridge') {
+      if (feature('UDS_INBOX') && parseAddress(input.to).scheme === 'bridge') {
         return {
           behavior: 'ask' as const,
           message: `Send a message to Remote Control session ${input.to}? It arrives as a user prompt on the receiving Claude (possibly another machine) via Anthropic's servers.`,
@@ -627,7 +628,7 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
           errorCode: 9,
         }
       }
-      if (false && parseAddress(input.to).scheme === 'bridge') {
+      if (feature('UDS_INBOX') && parseAddress(input.to).scheme === 'bridge') {
         // Structured-message rejection first — it's the permanent constraint.
         // Showing "not connected" first would make the user reconnect only to
         // hit this error on retry.
@@ -654,7 +655,7 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
         return { result: true }
       }
       if (
-        false &&
+        feature('UDS_INBOX') &&
         parseAddress(input.to).scheme === 'uds' &&
         typeof input.message === 'string'
       ) {
@@ -681,7 +682,7 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
           errorCode: 9,
         }
       }
-      if (false && parseAddress(input.to).scheme !== 'other') {
+      if (feature('UDS_INBOX') && parseAddress(input.to).scheme !== 'other') {
         return {
           result: false,
           message:
@@ -738,7 +739,7 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
     },
 
     async call(input, context, canUseTool, assistantMessage) {
-      if (false && typeof input.message === 'string') {
+      if (feature('UDS_INBOX') && typeof input.message === 'string') {
         const addr = parseAddress(input.to)
         if (addr.scheme === 'bridge') {
           // Re-check handle — checkPermissions blocks on user approval (can be

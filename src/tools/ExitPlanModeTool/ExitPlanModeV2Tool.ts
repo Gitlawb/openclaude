@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { writeFile } from 'fs/promises'
 import { z } from 'zod/v4'
 import {
@@ -48,10 +49,10 @@ import {
 } from './UI.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const autoModeStateModule = true
+const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
   ? (require('../../utils/permissions/autoModeState.js') as typeof import('../../utils/permissions/autoModeState.js'))
   : null
-const permissionSetupModule = true
+const permissionSetupModule = feature('TRANSCRIPT_CLASSIFIER')
   ? (require('../../utils/permissions/permissionSetup.js') as typeof import('../../utils/permissions/permissionSetup.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -168,7 +169,7 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
     // watching the TUI. The plan-approval dialog would hang. Paired with the
     // same gate on EnterPlanMode so plan mode isn't a trap.
     if (
-      (false || false) &&
+      (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
       getAllowedChannels().length > 0
     ) {
       return false
@@ -324,7 +325,7 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
     // 'default' instead. Without this, ExitPlanMode would bypass the circuit
     // breaker by calling setAutoModeActive(true) directly.
     let gateFallbackNotification: string | null = null
-    if (true) {
+    if (feature('TRANSCRIPT_CLASSIFIER')) {
       const prePlanRaw = appState.toolPermissionContext.prePlanMode ?? 'default'
       if (
         prePlanRaw === 'auto' &&
@@ -358,7 +359,7 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
       setHasExitedPlanMode(true)
       setNeedsPlanModeExitAttachment(true)
       let restoreMode = prev.toolPermissionContext.prePlanMode ?? 'default'
-      if (true) {
+      if (feature('TRANSCRIPT_CLASSIFIER')) {
         if (
           restoreMode === 'auto' &&
           !(permissionSetupModule?.isAutoModeGateEnabled() ?? false)

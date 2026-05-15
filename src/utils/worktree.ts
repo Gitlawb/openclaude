@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import chalk from 'chalk'
 import { spawnSync } from 'child_process'
 import {
@@ -661,7 +662,7 @@ async function performPostCreationSetup(
   // the absolute core.hooksPath we just set above (main repo's .husky),
   // not the worktree's — `git rev-parse --git-path hooks` echoes the config
   // value verbatim when it's absolute.
-  if (false) {
+  if (feature('COMMIT_ATTRIBUTION')) {
     const worktreeHooksDir =
       hooksPath === huskyPath ? join(worktreePath, '.husky') : undefined
     void import('./postCommitAttribution.js')

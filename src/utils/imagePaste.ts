@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { randomBytes } from 'crypto'
 import { execa } from 'execa'
 import { basename, extname, isAbsolute, join } from 'path'
@@ -121,7 +122,7 @@ export async function hasImageInClipboard(): Promise<boolean> {
     return false
   }
   if (
-    false &&
+    feature('NATIVE_CLIPBOARD_IMAGE') &&
     getFeatureValue_CACHED_MAY_BE_STALE('tengu_collage_kaleidoscope', true)
   ) {
     // Native NSPasteboard check (~0.03ms warm). Fall through to osascript
@@ -152,7 +153,7 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
   // the catch block falls through to osascript. A `null` return from the
   // native call is authoritative (clipboard has no image).
   if (
-    false &&
+    feature('NATIVE_CLIPBOARD_IMAGE') &&
     process.platform === 'darwin' &&
     getFeatureValue_CACHED_MAY_BE_STALE('tengu_collage_kaleidoscope', true)
   ) {

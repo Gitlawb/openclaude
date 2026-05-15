@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -109,10 +110,10 @@ export const ConfigTool = buildTool({
   renderToolUseRejectedMessage,
   async call({ setting, value }: Input, context): Promise<{ data: Output }> {
     // 1. Check if setting is supported
-    // Voice settings are registered at build-time (false), but
+    // Voice settings are registered at build-time (feature('VOICE_MODE')), but
     // must also be gated at runtime. When the kill-switch is on, treat
     // voiceEnabled as an unknown setting so no voice-specific strings leak.
-    if (false && setting === 'voiceEnabled') {
+    if (feature('VOICE_MODE') && setting === 'voiceEnabled') {
       const { isVoiceGrowthBookEnabled } = await import(
         '../../voice/voiceModeEnabled.js'
       )
@@ -229,7 +230,7 @@ export const ConfigTool = buildTool({
 
     // Pre-flight checks for voice mode
     if (
-      false &&
+      feature('VOICE_MODE') &&
       setting === 'voiceEnabled' &&
       finalValue === true
     ) {
@@ -344,7 +345,7 @@ export const ConfigTool = buildTool({
       // 5a. Voice needs notifyChange so applySettingsChange resyncs
       // AppState.settings (useVoiceEnabled reads settings.voiceEnabled)
       // and the settings cache resets for the next /voice read.
-      if (false && setting === 'voiceEnabled') {
+      if (feature('VOICE_MODE') && setting === 'voiceEnabled') {
         const { settingsChangeDetector } = await import(
           '../../utils/settings/changeDetector.js'
         )

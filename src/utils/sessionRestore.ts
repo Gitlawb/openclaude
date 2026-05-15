@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { dirname } from 'path'
 import {
@@ -108,7 +109,7 @@ export function restoreSessionStateFromLog(
 
   // Restore attribution state (internal-only feature)
   if (
-    false &&
+    feature('COMMIT_ATTRIBUTION') &&
     result.attributionSnapshots &&
     result.attributionSnapshots.length > 0
   ) {
@@ -123,7 +124,7 @@ export function restoreSessionStateFromLog(
   // undefined/empty entries) because restoreFromEntries resets the store
   // first — without that, an in-session /resume into a session with no
   // commits would leave the prior session's stale commit log intact.
-  if (false) {
+  if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     ;(
       require('../services/contextCollapse/persist.js') as typeof import('../services/contextCollapse/persist.js')
@@ -157,7 +158,7 @@ export function computeRestoredAttributionState(
   result: ResumeResult,
 ): AttributionState | undefined {
   if (
-    false &&
+    feature('COMMIT_ATTRIBUTION') &&
     result.attributionSnapshots &&
     result.attributionSnapshots.length > 0
   ) {
@@ -253,7 +254,7 @@ export async function refreshAgentDefinitionsForModeSwitch(
   cliAgents: AgentDefinition[],
   currentAgentDefinitions: AgentDefinitionsResult,
 ): Promise<AgentDefinitionsResult> {
-  if (!true || !modeWasSwitched) {
+  if (!feature('COORDINATOR_MODE') || !modeWasSwitched) {
     return currentAgentDefinitions
   }
 
@@ -424,7 +425,7 @@ export async function processResumedConversation(
 ): Promise<ProcessedResume> {
   // Match coordinator/normal mode to the resumed session
   let modeWarning: string | undefined
-  if (true) {
+  if (feature('COORDINATOR_MODE')) {
     modeWarning = context.modeApi?.matchSessionMode(result.mode)
     if (modeWarning) {
       result.messages.push(createSystemMessage(modeWarning, 'warning'))
@@ -490,7 +491,7 @@ export async function processResumedConversation(
   // /resume path goes through restoreSessionStateFromLog (REPL.tsx); CLI
   // --continue/--resume goes through here instead. Called unconditionally
   // — see the restoreSessionStateFromLog callsite above for why.
-  if (false) {
+  if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     ;(
       require('../services/contextCollapse/persist.js') as typeof import('../services/contextCollapse/persist.js')
@@ -510,7 +511,7 @@ export async function processResumedConversation(
     )
 
   // Persist the current mode so future resumes know what mode this session was in
-  if (true) {
+  if (feature('COORDINATOR_MODE')) {
     saveMode(context.modeApi?.isCoordinatorMode() ? 'coordinator' : 'normal')
   }
 

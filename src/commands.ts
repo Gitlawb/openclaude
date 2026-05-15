@@ -64,61 +64,62 @@ import usage from './commands/usage/index.js'
 import theme from './commands/theme/index.js'
 import logo from './commands/logo/index.js'
 import vim from './commands/vim/index.js'
+import { feature } from 'bun:bundle'
 import { isBuddyEnabled } from './buddy/feature.js'
 // Dead code elimination: conditional imports
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactive =
-  false || false
+  feature('PROACTIVE') || feature('KAIROS')
     ? require('./commands/proactive.js').default
     : null
 const briefCommand =
-  false || false
+  feature('KAIROS') || feature('KAIROS_BRIEF')
     ? require('./commands/brief.js').default
     : null
-const assistantCommand = false
+const assistantCommand = feature('KAIROS')
   ? require('./commands/assistant/index.js').default
   : null
-const bridge = false
+const bridge = feature('BRIDGE_MODE')
   ? require('./commands/bridge/index.js').default
   : null
 const remoteControlServerCommand =
-  false && false
+  feature('DAEMON') && feature('BRIDGE_MODE')
     ? require('./commands/remoteControlServer/index.js').default
     : null
-const voiceCommand = false
+const voiceCommand = feature('VOICE_MODE')
   ? require('./commands/voice/index.js').default
   : null
-const forceSnip = false
+const forceSnip = feature('HISTORY_SNIP')
   ? require('./commands/force-snip.js').default
   : null
-const workflowsCmd = false
+const workflowsCmd = feature('WORKFLOW_SCRIPTS')
   ? (
       require('./commands/workflows/index.js') as typeof import('./commands/workflows/index.js')
     ).default
   : null
-const webCmd = false
+const webCmd = feature('CCR_REMOTE_SETUP')
   ? (
       require('./commands/remote-setup/index.js') as typeof import('./commands/remote-setup/index.js')
     ).default
   : null
-const clearSkillIndexCache = false
+const clearSkillIndexCache = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? (
       require('./services/skillSearch/localSearch.js') as typeof import('./services/skillSearch/localSearch.js')
     ).clearSkillIndexCache
   : null
-const subscribePr = false
+const subscribePr = feature('KAIROS_GITHUB_WEBHOOKS')
   ? require('./commands/subscribe-pr.js').default
   : null
-const ultraplan = false
+const ultraplan = feature('ULTRAPLAN')
   ? require('./commands/ultraplan.js').default
   : null
-const torch = false ? require('./commands/torch.js').default : null
-const peersCmd = false
+const torch = feature('TORCH') ? require('./commands/torch.js').default : null
+const peersCmd = feature('UDS_INBOX')
   ? (
       require('./commands/peers/index.js') as typeof import('./commands/peers/index.js')
     ).default
   : null
-const forkCmd = true
+const forkCmd = feature('FORK_SUBAGENT')
   ? (
       require('./commands/fork/index.js') as typeof import('./commands/fork/index.js')
     ).default
@@ -421,7 +422,7 @@ async function getSkills(cwd: string): Promise<{
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const getWorkflowCommands = false
+const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
   ? (
       require('./tools/WorkflowTool/createWorkflowCommand.js') as typeof import('./tools/WorkflowTool/createWorkflowCommand.js')
     ).getWorkflowCommands
@@ -570,7 +571,7 @@ export function clearCommandsCache(): void {
 export function getMcpSkillCommands(
   mcpCommands: readonly Command[],
 ): readonly Command[] {
-  if (false) {
+  if (feature('MCP_SKILLS')) {
     return mcpCommands.filter(
       cmd =>
         cmd.type === 'prompt' &&

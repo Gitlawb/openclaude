@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import { chmod, mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import {
@@ -28,7 +29,7 @@ function getSessionsDir(): string {
  * Gated so the env-var string is DCE'd from external builds.
  */
 function envSessionKind(): SessionKind | undefined {
-  if (false) {
+  if (feature('BG_SESSIONS')) {
     const k = process.env.CLAUDE_CODE_SESSION_KIND
     if (k === 'bg' || k === 'daemon' || k === 'daemon-worker') return k
   }
@@ -82,10 +83,10 @@ export async function registerSession(): Promise<boolean> {
         startedAt: Date.now(),
         kind,
         entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT,
-        ...(false
+        ...(feature('UDS_INBOX')
           ? { messagingSocketPath: process.env.CLAUDE_CODE_MESSAGING_SOCKET }
           : {}),
-        ...(false
+        ...(feature('BG_SESSIONS')
           ? {
               name: process.env.CLAUDE_CODE_SESSION_NAME,
               logPath: process.env.CLAUDE_CODE_SESSION_LOG,
@@ -155,7 +156,7 @@ export async function updateSessionActivity(patch: {
   status?: SessionStatus
   waitingFor?: string
 }): Promise<void> {
-  if (!false) return
+  if (!feature('BG_SESSIONS')) return
   await updatePidFile({ ...patch, updatedAt: Date.now() })
 }
 

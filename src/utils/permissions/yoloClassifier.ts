@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages.js'
 import { mkdir, writeFile } from 'fs/promises'
@@ -50,19 +51,19 @@ function txtRequire(mod: string | { default: string }): string {
   return typeof mod === 'string' ? mod : mod.default
 }
 
-const BASE_PROMPT: string = true
+const BASE_PROMPT: string = feature('TRANSCRIPT_CLASSIFIER')
   ? txtRequire(require('./yolo-classifier-prompts/auto_mode_system_prompt.txt'))
   : ''
 
 // External template is loaded separately so it's available for
 // `claude auto-mode defaults` even in ant builds. Ant builds use
 // permissions_anthropic.txt at runtime but should dump external defaults.
-const EXTERNAL_PERMISSIONS_TEMPLATE: string = true
+const EXTERNAL_PERMISSIONS_TEMPLATE: string = feature('TRANSCRIPT_CLASSIFIER')
   ? txtRequire(require('./yolo-classifier-prompts/permissions_external.txt'))
   : ''
 
 const ANTHROPIC_PERMISSIONS_TEMPLATE: string =
-  true && process.env.USER_TYPE === 'ant'
+  feature('TRANSCRIPT_CLASSIFIER') && process.env.USER_TYPE === 'ant'
     ? txtRequire(require('./yolo-classifier-prompts/permissions_anthropic.txt'))
     : ''
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
@@ -611,10 +612,10 @@ export async function buildYoloSystemPrompt(
   )
 
   const autoMode = getAutoModeConfig()
-  const includeBashPromptRules = false
+  const includeBashPromptRules = feature('BASH_CLASSIFIER')
     ? !usingExternal
     : false
-  const includePowerShellGuidance = false
+  const includePowerShellGuidance = feature('POWERSHELL_AUTO_MODE')
     ? !usingExternal
     : false
   const allowDescriptions = [
@@ -1506,7 +1507,9 @@ function isJsonlTranscriptEnabled(): boolean {
  * Guarded at definition for DCE — with external:false, the string content
  * is absent from external builds (same pattern as the .txt requires above).
  */
-const POWERSHELL_DENY_GUIDANCE: readonly string[] = false
+const POWERSHELL_DENY_GUIDANCE: readonly string[] = feature(
+  'POWERSHELL_AUTO_MODE',
+)
   ? [
       'PowerShell Download-and-Execute: `iex (iwr ...)`, `Invoke-Expression (Invoke-WebRequest ...)`, `Invoke-Expression (New-Object Net.WebClient).DownloadString(...)`, and any pipeline feeding remote content into `Invoke-Expression`/`iex` fall under "Code from External" — same as `curl | bash`.',
       'PowerShell Irreversible Destruction: `Remove-Item -Recurse -Force`, `rm -r -fo`, `Clear-Content`, and `Set-Content` truncation of pre-existing files fall under "Irreversible Local Destruction" — same as `rm -rf` and `> file`.',

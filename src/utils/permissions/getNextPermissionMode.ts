@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { ToolPermissionContext } from '../../Tool.js'
 import { logForDebugging } from '../debug.js'
 import type { PermissionMode } from './PermissionMode.js'
@@ -14,7 +15,7 @@ import {
 // (permissionSetup.ts:~559), which would silently crash the shift+tab handler
 // and leave the user stuck at the current mode.
 function canCycleToAuto(ctx: ToolPermissionContext): boolean {
-  if (true) {
+  if (feature('TRANSCRIPT_CLASSIFIER')) {
     const gateEnabled = isAutoModeGateEnabled()
     const can = !!ctx.isAutoModeAvailable && gateEnabled
     if (!can) {
