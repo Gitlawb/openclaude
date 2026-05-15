@@ -6,6 +6,10 @@ import { tmpdir } from 'os'
 import { getProjectDir } from '../../src/utils/sessionStoragePortable.js'
 import { query } from '../../src/entrypoints/sdk/index.js'
 import { unstable_v2_resumeSession } from '../../src/entrypoints/sdk/index.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 
 /**
  * Regression test for compact preserved segment handling in SDK resume.
@@ -140,11 +144,19 @@ function createCompactTranscriptWithPreservedSegment(
 
 let tempDirs: string[] = []
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('sdk-preserved-segment')
+})
+
 afterEach(() => {
-  for (const dir of tempDirs) {
-    rmSync(dir, { recursive: true, force: true })
+  try {
+    for (const dir of tempDirs) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    tempDirs = []
+  } finally {
+    releaseSharedMutationLock()
   }
-  tempDirs = []
 })
 
 describe('Compact preserved segment regression', () => {
