@@ -43,7 +43,7 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
       process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = originalOrama
     }
     
-    rmSync(configDir, { recursive: true, force: true })
+    try { rmSync(configDir, { recursive: true, force: true }) } catch {}
   })
 
   it('handles high-volume entity insertion (Stress Test)', async () => {
