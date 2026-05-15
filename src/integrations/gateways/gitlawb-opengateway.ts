@@ -14,10 +14,10 @@ export default defineGateway({
   },
   transportConfig: {
     kind: 'openai-compatible',
-    headers: {
-      'Accept-Encoding': 'identity',
-    },
     openaiShim: {
+      headers: {
+        'Accept-Encoding': 'identity',
+      },
       defaultAuthHeader: {
         name: 'api-key',
         scheme: 'raw',
