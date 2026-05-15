@@ -1054,6 +1054,32 @@ async function* openaiStreamToAnthropic(
         continue
       }
 
+      // In-stream error event. Used by OpenAI when a stream fails after
+      // headers have been sent, and by intermediaries (e.g. gateways) that
+      // want to signal a structured failure without dropping the TCP
+      // connection. Surface it as an APIError so callers see a clean
+      // message instead of "stream ended without [DONE]".
+      const inStreamError = (chunk as unknown as { error?: { message?: string; type?: string; code?: string } }).error
+      if (inStreamError && typeof inStreamError === 'object') {
+        const message =
+          typeof inStreamError.message === 'string'
+            ? inStreamError.message
+            : 'Provider returned an in-stream error'
+        const errorPayload = {
+          error: {
+            message,
+            type: inStreamError.type ?? 'api_error',
+            code: inStreamError.code ?? null,
+          },
+        }
+        throw APIError.generate(
+          (response.status ?? 200) as number,
+          errorPayload,
+          message,
+          response.headers as unknown as Headers,
+        )
+      }
+
       const chunkUsage = convertChunkUsage(chunk.usage)
 
       for (const choice of chunk.choices ?? []) {
@@ -1288,6 +1314,24 @@ async function* openaiStreamToAnthropic(
               type: 'content_block_delta',
               index: contentBlockIndex,
               delta: { type: 'text_delta', text: '\n\n[Content blocked by provider safety filter]' },
+            }
+          } else if (choice.finish_reason === 'length') {
+            // Response was truncated — either the model hit max_tokens, or
+            // an upstream/gateway watchdog synthesized a graceful end after
+            // detecting a stalled stream. Either way, the user should know
+            // the answer they're seeing isn't complete.
+            if (!hasEmittedContentStart) {
+              yield {
+                type: 'content_block_start',
+                index: contentBlockIndex,
+                content_block: { type: 'text', text: '' },
+              }
+              hasEmittedContentStart = true
+            }
+            yield {
+              type: 'content_block_delta',
+              index: contentBlockIndex,
+              delta: { type: 'text_delta', text: '\n\n[Response truncated — reached length limit or upstream stalled. Ask the model to continue.]' },
             }
           }
           lastStopReason = stopReason
