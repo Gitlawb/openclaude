@@ -60,6 +60,18 @@ test('classifies generic 404 responses as endpoint_not_found', () => {
   expect(failure.hint).toContain('/v1')
 })
 
+test('classifies 404 with images as vision_not_supported', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 404,
+    body: 'Not Found',
+    hasImages: true,
+  })
+
+  expect(failure.category).toBe('vision_not_supported')
+  expect(failure.retryable).toBe(false)
+  expect(failure.hint).toContain('image')
+})
+
 test('classifies context-overflow responses', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 500,
