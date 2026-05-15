@@ -638,7 +638,7 @@ export function resetGlobalGraph(): void {
   
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
   const sqlitePath = join(projectDir, 'knowledge.db')
-  if (existsSync(sqlitePath)) rmSync(sqlitePath, { force: true })
+  try { if (existsSync(sqlitePath)) rmSync(sqlitePath, { force: true }) } catch {}
   
   const oramaPath = getOramaPersistencePath(cwd)
   try { rmSync(oramaPath, { force: true }) } catch {}

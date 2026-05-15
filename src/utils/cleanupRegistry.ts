@@ -26,10 +26,10 @@ export async function runCleanupFunctions(): Promise<void> {
 
 // --- Cleanup-safe timer and AbortController helpers ---
 
-export function setCleanupTimeout(fn: (...args: any[]) => void, ms: number): ReturnType<typeof setTimeout> {
+export function setCleanupTimeout(fn: (...args: any[]) => void, ms: number): { id: ReturnType<typeof setTimeout>; unregister: () => void } {
   const id = setTimeout(fn, ms)
-  registerCleanup(() => clearTimeout(id))
-  return id
+  const unregister = registerCleanup(() => clearTimeout(id))
+  return { id, unregister }
 }
 
 export function setCleanupInterval(fn: (...args: any[]) => void, ms: number): ReturnType<typeof setInterval> {

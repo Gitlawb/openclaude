@@ -77,12 +77,12 @@ export const GraphqlTool = buildTool({
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
+    const ac = new AbortController()
+    const { unregister } = setCleanupTimeout(() => { try { ac.abort() } catch {} }, (input.timeout ?? 30) * 1000)
     try {
       const body: Record<string, unknown> = { query: input.query }
       if (input.variables) body.variables = input.variables
       if (input.operationName) body.operationName = input.operationName
-      const ac = new AbortController()
-      setCleanupTimeout(() => { try { ac.abort() } catch {} }, (input.timeout ?? 30) * 1000)
       const resp = await fetch(input.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...input.headers }, body: JSON.stringify(body), signal: ac.signal })
       const text = await resp.text()
       if (text.length > MAX_RESPONSE_CHARS) return { data: { success: false, durationMs: Date.now() - startTime, error: 'Response too large' } }
@@ -90,6 +90,8 @@ export const GraphqlTool = buildTool({
       return { data: { success: !(parsed.errors?.length), data: parsed.data, errors: parsed.errors, durationMs: Date.now() - startTime } }
     } catch (err) {
       return { data: { success: false, durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err) } }
+    } finally {
+      unregister()
     }
   },
 })

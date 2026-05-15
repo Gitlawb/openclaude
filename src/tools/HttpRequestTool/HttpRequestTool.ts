@@ -67,12 +67,12 @@ export const HttpRequestTool = buildTool({
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
+    const ac = new AbortController()
+    const { unregister } = setCleanupTimeout(() => { try { ac.abort() } catch {} }, (input.timeout ?? 30) * 1000)
     try {
       const urlObj = new URL(input.url)
       if (input.query) for (const [k, v] of Object.entries(input.query)) urlObj.searchParams.set(k, v)
       const headers: Record<string, string> = { ...input.headers }
-      const ac = new AbortController()
-      setCleanupTimeout(() => { try { ac.abort() } catch {} }, (input.timeout ?? 30) * 1000)
       const fetchOpts: RequestInit = { method: input.method, headers, redirect: input.followRedirects ? 'follow' : 'manual', signal: ac.signal }
       if (input.body) {
         const bodyStr = typeof input.body === 'string' ? input.body : JSON.stringify(input.body)
@@ -88,6 +88,8 @@ export const HttpRequestTool = buildTool({
       return { data: { success: true, response: { status: resp.status, statusText: resp.statusText, headers: respHeaders, body: bodyText, bodyTruncated }, durationMs: Date.now() - startTime } }
     } catch (err) {
       return { data: { success: false, durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err) } }
+    } finally {
+      unregister()
     }
   },
 })
