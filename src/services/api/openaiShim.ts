@@ -1574,12 +1574,10 @@ async function* openaiStreamToAnthropic(
               ollamaClosedContentBlock = true
               if (hasEmittedContentStart) {
                 const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
-                // Also remove <think>...</think> blocks — accumulatedText is raw
-                // (unfiltered), so think content that was already hidden from the
-                // user would otherwise re-surface here.
-                const strippedVisible = stripped
-                  .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                  .trim()
+                // Use stripThinkTags (handles closed pairs, unterminated opens, and
+                // orphan tags) so hidden <think> content in the raw accumulator never
+                // resurfaces as visible assistant text in the fallback path.
+                const strippedVisible = stripThinkTags(stripped).trim()
                 if (strippedVisible) {
                   yield {
                     type: 'content_block_delta',
