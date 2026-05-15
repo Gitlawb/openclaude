@@ -7,9 +7,19 @@ import { getProjectDir } from '../../src/utils/sessionStoragePortable.js'
 import { query } from '../../src/entrypoints/sdk/index.js'
 import { unstable_v2_resumeSession } from '../../src/entrypoints/sdk/index.js'
 import {
+  getCwdState,
+  getOriginalCwd,
+  getSessionId,
+  getSessionProjectDir,
+  setCwdState,
+  setOriginalCwd,
+  switchSession,
+} from '../../src/bootstrap/state.js'
+import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../src/test/sharedMutationLock.js'
+import type { SessionId } from '../../src/entrypoints/agentSdkTypes.js'
 
 /**
  * Regression test for compact preserved segment handling in SDK resume.
@@ -143,13 +153,24 @@ function createCompactTranscriptWithPreservedSegment(
 }
 
 let tempDirs: string[] = []
+let originalSessionId: SessionId
+let originalSessionProjectDir: string | null
+let originalCwd: string
+let originalOriginalCwd: string
 
 beforeEach(async () => {
   await acquireSharedMutationLock('sdk-preserved-segment')
+  originalSessionId = getSessionId()
+  originalSessionProjectDir = getSessionProjectDir()
+  originalCwd = getCwdState()
+  originalOriginalCwd = getOriginalCwd()
 })
 
 afterEach(() => {
   try {
+    switchSession(originalSessionId, originalSessionProjectDir)
+    setCwdState(originalCwd)
+    setOriginalCwd(originalOriginalCwd)
     for (const dir of tempDirs) {
       rmSync(dir, { recursive: true, force: true })
     }

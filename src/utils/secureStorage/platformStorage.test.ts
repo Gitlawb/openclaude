@@ -3,6 +3,10 @@ import { expect, test, mock, describe, beforeEach, afterEach } from "bun:test";
 import { linuxSecretStorage } from "./linuxSecretStorage.js";
 import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from "../../test/sharedMutationLock.js";
 
 // Mock execaSync
 const mockExecaSync = mock(() => ({ exitCode: 0, stdout: "" }));
@@ -13,7 +17,8 @@ mock.module("execa", () => ({
 describe("Secure Storage Platform Implementations", () => {
   const originalEnv = process.env;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock("platformStorage.test.ts");
     process.env = { ...originalEnv };
     mockExecaSync.mockClear();
     // Default mock behavior
@@ -21,7 +26,11 @@ describe("Secure Storage Platform Implementations", () => {
   });
 
   afterEach(() => {
-    process.env = originalEnv;
+    try {
+      process.env = originalEnv;
+    } finally {
+      releaseSharedMutationLock();
+    }
   });
 
   const testData = {
