@@ -2,6 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mock } = require('bun:test');
 
+test.afterEach(() => {
+  mock.restore();
+});
+
 function createStatus(overrides = {}) {
   return {
     installed: true,

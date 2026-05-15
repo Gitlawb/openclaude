@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalEnv = { ...process.env }
+const originalMacro = (globalThis as Record<string, unknown>).MACRO
 
 async function importFreshUserModule() {
   return import(`./user.ts?ts=${Date.now()}-${Math.random()}`)
@@ -57,10 +62,22 @@ function installCommonMocks(options?: {
   }))
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/user.test.ts')
+})
+
 afterEach(() => {
-  mock.restore()
-  process.env = { ...originalEnv }
-  delete (globalThis as Record<string, unknown>).MACRO
+  try {
+    mock.restore()
+    process.env = { ...originalEnv }
+    if (originalMacro === undefined) {
+      delete (globalThis as Record<string, unknown>).MACRO
+    } else {
+      ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('user email fallbacks', () => {

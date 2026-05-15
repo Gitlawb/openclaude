@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 async function importFreshModule() {
   mock.restore()
@@ -13,17 +17,23 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     GH_TOKEN: process.env.GH_TOKEN,
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/githubModelsCredentials.refresh.test.ts')
     mock.restore()
   })
 
   afterEach(() => {
-    for (const [k, v] of Object.entries(orig)) {
-      if (v === undefined) {
-        delete process.env[k as keyof typeof orig]
-      } else {
-        process.env[k as keyof typeof orig] = v
+    try {
+      mock.restore()
+      for (const [k, v] of Object.entries(orig)) {
+        if (v === undefined) {
+          delete process.env[k as keyof typeof orig]
+        } else {
+          process.env[k as keyof typeof orig] = v
+        }
       }
+    } finally {
+      releaseSharedMutationLock()
     }
   })
 

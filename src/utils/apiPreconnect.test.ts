@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -8,14 +12,19 @@ async function importFreshModule() {
   return import(`./apiPreconnect.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/apiPreconnect.test.ts')
   process.env = { ...originalEnv }
 })
 
 afterEach(() => {
-  process.env = { ...originalEnv }
-  globalThis.fetch = originalFetch
-  mock.restore()
+  try {
+    process.env = { ...originalEnv }
+    globalThis.fetch = originalFetch
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('preconnectAnthropicApi', () => {

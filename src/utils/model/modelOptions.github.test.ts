@@ -36,7 +36,22 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   ANTHROPIC_CUSTOM_MODEL_OPTION: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION,
 }
-const originalConfig = getGlobalConfig()
+const initialConfig = getGlobalConfig()
+const originalConfig = {
+  additionalModelOptionsCache: structuredClone(
+    initialConfig.additionalModelOptionsCache ?? [],
+  ),
+  additionalModelOptionsCacheScope:
+    initialConfig.additionalModelOptionsCacheScope,
+  openaiAdditionalModelOptionsCache: structuredClone(
+    initialConfig.openaiAdditionalModelOptionsCache ?? [],
+  ),
+  openaiAdditionalModelOptionsCacheByProfile: structuredClone(
+    initialConfig.openaiAdditionalModelOptionsCacheByProfile ?? {},
+  ),
+  providerProfiles: structuredClone(initialConfig.providerProfiles ?? []),
+  activeProviderProfileId: initialConfig.activeProviderProfileId,
+}
 
 function restoreEnvValue(
   key: keyof typeof originalEnv,

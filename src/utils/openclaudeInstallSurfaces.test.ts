@@ -1,15 +1,31 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import * as fsPromises from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalEnv = { ...process.env }
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/openclaudeInstallSurfaces.test.ts')
+})
+
 afterEach(() => {
-  process.env = { ...originalEnv }
-  ;(globalThis as Record<string, unknown>).MACRO = originalMacro
-  mock.restore()
+  try {
+    process.env = { ...originalEnv }
+    if (originalMacro === undefined) {
+      delete (globalThis as Record<string, unknown>).MACRO
+    } else {
+      ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    }
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function importFreshInstallCommand() {

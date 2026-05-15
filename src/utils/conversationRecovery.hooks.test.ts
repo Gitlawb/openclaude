@@ -7,6 +7,10 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const tempDirs: string[] = []
 const originalEnv = { ...process.env }
@@ -44,16 +48,21 @@ async function writeJsonl(entry: unknown): Promise<string> {
   return filePath
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/conversationRecovery.hooks.test.ts')
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'firstParty',
   }))
 })
 
 afterEach(async () => {
-  mock.restore()
-  process.env = { ...originalEnv }
-  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+  try {
+    mock.restore()
+    process.env = { ...originalEnv }
+    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('loadConversationForResume rejects oversized transcripts before resume hooks run', async () => {

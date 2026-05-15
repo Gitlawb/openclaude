@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -45,8 +45,29 @@ mock.module('../../services/analytics/index.js', () => ({
 }))
 
 mock.module('../config.js', () => ({
+  checkHasTrustDialogAccepted: () => true,
+  enableConfigs: mock(() => {}),
+  getCurrentProjectConfig: () => ({}),
   getGlobalConfig: () => config,
+  getGlobalConfigWriteCount: () => 0,
+  getAutoUpdaterDisabledReason: () => null,
+  formatAutoUpdaterDisabledReason: () => 'enabled',
+  getManagedClaudeRulesDir: () => '/tmp/openclaude-managed-rules',
+  getMemoryPath: () => '/tmp/openclaude-memory.md',
+  getOrCreateUserID: () => 'test-user-id',
+  getProjectPathForConfig: () => '/tmp/openclaude-project-config.json',
+  getRemoteControlAtStartup: () => false,
+  getUserClaudeRulesDir: () => '/tmp/openclaude-user-rules',
+  isAutoUpdaterDisabled: () => false,
+  recordFirstStartTime: mock(() => {}),
+  getCustomApiKeyStatus: () => ({ hasCustomApiKey: false }),
+  isGlobalConfigKey: () => false,
+  isPathTrusted: () => true,
+  isProjectConfigKey: () => false,
+  resetTrustDialogAcceptedCacheForTesting: mock(() => {}),
+  shouldSkipPluginAutoupdate: () => false,
   saveGlobalConfig,
+  saveCurrentProjectConfig: mock(() => {}),
 }))
 
 mock.module('../debug.js', () => ({
@@ -68,8 +89,13 @@ mock.module('./marketplaceHelpers.js', () => ({
 
 mock.module('./marketplaceManager.js', () => ({
   addMarketplaceSource,
+  getMarketplace: async () => ({ plugins: [] }),
+  getMarketplaceCacheOnly: async () => ({ plugins: [] }),
   getMarketplacesCacheDir: () => '/tmp/openclaude-marketplaces',
+  getPluginById: async () => undefined,
+  getPluginByIdCacheOnly: async () => undefined,
   loadKnownMarketplacesConfig: async () => knownMarketplaces,
+  loadKnownMarketplacesConfigSafe: async () => knownMarketplaces,
   saveKnownMarketplacesConfig,
 }))
 
@@ -77,16 +103,24 @@ mock.module('./officialMarketplaceGcs.js', () => ({
   fetchOfficialMarketplaceFromGcs,
 }))
 
-const { checkAndInstallOfficialMarketplace } = await import(
-  './officialMarketplaceStartupCheck.js'
-)
+let checkAndInstallOfficialMarketplace:
+  typeof import('./officialMarketplaceStartupCheck.js').checkAndInstallOfficialMarketplace
 
-afterAll(() => {
-  mock.restore()
+beforeAll(async () => {
+  await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
+  const mod = await import('./officialMarketplaceStartupCheck.js')
+  checkAndInstallOfficialMarketplace = mod.checkAndInstallOfficialMarketplace
 })
 
-beforeEach(async () => {
-  await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
+
+beforeEach(() => {
   config = {}
   knownMarketplaces = {}
   saveGlobalConfig.mockClear()
@@ -94,10 +128,6 @@ beforeEach(async () => {
   fetchOfficialMarketplaceFromGcs.mockClear()
   fetchOfficialMarketplaceFromGcs.mockImplementation(async () => 'sha')
   addMarketplaceSource.mockClear()
-})
-
-afterEach(() => {
-  releaseSharedMutationLock()
 })
 
 describe('checkAndInstallOfficialMarketplace', () => {
