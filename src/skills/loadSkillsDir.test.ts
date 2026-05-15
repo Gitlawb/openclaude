@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -170,9 +169,11 @@ test('prefers .openclaude project skills over legacy .claude skills with the sam
 })
 
 test('project skills are ordered before user skills with the same name', async () => {
+  await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
-  const scriptPath = join(configDir, 'check-skill-order.mjs')
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const originalSources = enableUserAndProjectSettingSources()
 
   try {
     mkdirSync(cwd, { recursive: true })
@@ -182,44 +183,33 @@ test('project skills are ordered before user skills with the same name', async (
       description: 'project skill',
     })
 
-    writeFileSync(
-      scriptPath,
-      `
-        import { clearSkillCaches, getSkillDirCommands } from ${JSON.stringify(join(process.cwd(), 'src/skills/loadSkillsDir.ts'))}
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    clearSkillCaches()
 
-        clearSkillCaches()
-        const skills = await getSkillDirCommands(${JSON.stringify(cwd)})
-        const sharedSkills = skills
-          .filter(skill => skill.type === 'prompt' && skill.name === 'shared')
-          .map(skill => ({
-            description: skill.description,
-            source: skill.source,
-          }))
-        console.log(JSON.stringify(sharedSkills))
-      `,
-      'utf8',
-    )
-
-    const result = spawnSync(process.execPath, [scriptPath], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        CLAUDE_CONFIG_DIR: configDir,
-      },
-      encoding: 'utf8',
-    })
-
-    assert.equal(result.status, 0, result.stderr)
-    const sharedSkills = JSON.parse(result.stdout) as Array<{
-      description: string
-      source: string
-    }>
+    const skills = await getSkillDirCommands(cwd)
+    const sharedSkills = skills
+      .filter(skill => skill.type === 'prompt' && skill.name === 'shared')
+      .map(skill => ({
+        description: skill.description,
+        source: skill.source,
+      }))
 
     assert.equal(sharedSkills.length, 2)
     assert.equal(sharedSkills[0]?.description, 'project skill')
     assert.equal(sharedSkills[0]?.source, 'projectSettings')
   } finally {
-    rmSync(configDir, { recursive: true, force: true })
+    try {
+      if (originalConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+      }
+      clearSkillCaches()
+      setAllowedSettingSources(originalSources)
+      rmSync(configDir, { recursive: true, force: true })
+    } finally {
+      releaseSharedMutationLock()
+    }
   }
 })
 
