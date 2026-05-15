@@ -428,6 +428,32 @@ test('buildProfileSaveMessage labels descriptor-backed Venice profiles consisten
   expect(message).not.toContain('sk-venice-secret-12345678')
 })
 
+test('buildProfileSaveMessage labels descriptor-backed Cloudflare Workers AI profiles consistently', () => {
+  // Cloudflare URLs embed the user's account id, so the saved profile reflects
+  // the literal substituted URL. Make sure the label still routes through the
+  // descriptor preset rather than falling back to a generic "OpenAI-compatible"
+  // string, matching the Venice / MiMo / Bankr coverage above.
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEY: 'cf-secret-token-12345678',
+      CLOUDFLARE_API_TOKEN: 'cf-secret-token-12345678',
+      OPENAI_MODEL: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      OPENAI_BASE_URL:
+        'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved Cloudflare Workers AI profile.')
+  expect(message).toContain('Model: @cf/meta/llama-3.3-70b-instruct-fp8-fast')
+  expect(message).toContain(
+    'Endpoint: https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+  )
+  expect(message).toContain('Credentials: configured')
+  expect(message).not.toContain('cf-secret-token-12345678')
+})
+
 test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly', () => {
   const message = buildProfileSaveMessage(
     'gemini',

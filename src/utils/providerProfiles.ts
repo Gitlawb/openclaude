@@ -46,6 +46,7 @@ import {
   type ProviderPreset,
 } from '../integrations/index.js'
 import {
+  isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isFireworksBaseUrl,
   isNearaiBaseUrl,
@@ -720,6 +721,11 @@ function isProcessEnvAlignedWithProfile(
     (isFireworksBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('api.cloudflare.com') ||
+      profile.baseUrl?.toLowerCase().includes('gateway.ai.cloudflare.com')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CLOUDFLARE_API_TOKEN, profile.apiKey)
       : true)
   )
 }
@@ -885,6 +891,9 @@ export function applyProviderProfileToProcessEnv(
       }
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'cloudflare' || profile.baseUrl.toLowerCase().includes('api.cloudflare.com') || profile.baseUrl.toLowerCase().includes('gateway.ai.cloudflare.com')) {
+        openAIProfileEnv.CLOUDFLARE_API_TOKEN = profile.apiKey
       }
     }
     if (isAimlapiProfile) {
@@ -1223,6 +1232,16 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isFireworksBaseUrl(activeProfile.baseUrl)) {
       env.FIREWORKS_API_KEY = activeProfile.apiKey
+    }
+    // Cloudflare Workers AI authenticates over the generic OpenAI-compatible
+    // header, so mirror the saved key into CLOUDFLARE_API_TOKEN only when the
+    // endpoint is the real Workers AI route: api.cloudflare.com with the
+    // /client/v4/accounts/<id>/ai/v1 path over HTTPS (isCloudflareBaseUrl).
+    // Non-Workers api.cloudflare.com paths and the shared AI Gateway host
+    // (gateway.ai.cloudflare.com) are excluded — they proxy arbitrary
+    // providers (#1100 review).
+    if (isCloudflareBaseUrl(activeProfile.baseUrl)) {
+      env.CLOUDFLARE_API_TOKEN = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY

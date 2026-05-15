@@ -326,6 +326,17 @@ For direct TEE completions (lower latency, verifiable privacy):
 export OPENAI_BASE_URL=https://qwen35-122b.completions.near.ai/v1
 ```
 
+### Cloudflare Workers AI
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export CLOUDFLARE_API_TOKEN=...
+export OPENAI_BASE_URL=https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1
+export OPENAI_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast
+```
+
+Replace `<ACCOUNT_ID>` with your Cloudflare account id (visible in the Cloudflare dashboard URL). `OPENAI_API_KEY` also works as a compatibility fallback, but `CLOUDFLARE_API_TOKEN` keeps the profile tied to the Cloudflare preset. The `/provider` Cloudflare Workers AI preset stores the token under `CLOUDFLARE_API_TOKEN`.
+
 ### Mistral
 
 ```bash

@@ -271,6 +271,19 @@ function buildClinePassProfile(overrides: Partial<ProviderProfile> = {}): Provid
   })
 }
 
+function buildCloudflareProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'cloudflare',
+    name: 'Cloudflare Workers AI',
+    // Account-scoped URL — users substitute `<ACCOUNT_ID>` for their account.
+    // Tests use a literal id so host-matching for the descriptor is exercised.
+    baseUrl: 'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    apiKey: 'cloudflare-test-token',
+    ...overrides,
+  })
+}
+
 describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -760,6 +773,32 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('deepseek-ai/deepseek-v4-pro')
     expect(process.env.OPENAI_API_KEY).toBe('atlas-test-key')
     expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('cloudflare profile applies OpenAI-compatible env with CLOUDFLARE_API_TOKEN mirror', async () => {
+    // Account-scoped URL: a real user has substituted `<ACCOUNT_ID>` for their
+    // Cloudflare account id. The env-build path should mirror the api key into
+    // `CLOUDFLARE_API_TOKEN` so the descriptor's host-based route detection
+    // picks the cloudflare preset back up on the next reload.
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildCloudflareProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe(
+      '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    )
+    expect(process.env.OPENAI_API_KEY).toBe('cloudflare-test-token')
+    expect(process.env.CLOUDFLARE_API_TOKEN).toBe('cloudflare-test-token')
     expect(getFreshAPIProvider()).toBe('openai')
   })
 

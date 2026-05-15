@@ -301,7 +301,10 @@ export function applyProviderFlag(
                       opengatewayApiKey.length > 0 &&
                       process.env.OPENAI_API_KEY === opengatewayApiKey
                     ? 'gitlawb-opengateway'
-                    : null
+                    : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.CLOUDFLARE_API_TOKEN
+                      ? 'cloudflare'
+                      : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI

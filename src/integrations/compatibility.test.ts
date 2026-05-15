@@ -44,6 +44,7 @@ const EXPECTED_PRESETS = [
   'zai',
   'bankr',
   'atomic-chat',
+  'cloudflare',
   'gitlawb-opengateway',
   'nearai',
   'fireworks',
