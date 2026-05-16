@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/Gitlawb/openclaude/compare/v0.12.0...v0.12.1) (2026-05-16)
+
+
+### Bug Fixes
+
+* **entrypoint:** apply --max-old-space-size=8192 universally, not just CCR ([#1191](https://github.com/Gitlawb/openclaude/issues/1191)) ([4d0603e](https://github.com/Gitlawb/openclaude/commit/4d0603e9906b24d0f4f3fc683db1950879875e16))
+* **gemini:** preserve tool calls through opengateway ([#1204](https://github.com/Gitlawb/openclaude/issues/1204)) ([13a0901](https://github.com/Gitlawb/openclaude/commit/13a090162f9b0c53080aaaa1cfa937cd9981596e))
+
 ## [0.12.0](https://github.com/Gitlawb/openclaude/compare/v0.11.0...v0.12.0) (2026-05-16)
 
 
