@@ -250,7 +250,13 @@ export function resolveOpenAIShimRuntimeContext(options?: {
   const inferredConfig =
     options?.treatAsLocal === true
       ? {
-          maxTokensField: 'max_tokens' as const,
+          // Don't hardcode maxTokensField here — let the descriptor (via
+          // mergeOpenAIShimConfig) or the model-inferred value take precedence.
+          // Hardcoding 'max_tokens' breaks providers like MiMo that require
+          // 'max_completion_tokens', even when accessed through a local proxy.
+          ...(remoteModelInferredConfig?.maxTokensField !== undefined
+            ? { maxTokensField: remoteModelInferredConfig.maxTokensField }
+            : { maxTokensField: 'max_tokens' as const }),
           // Local proxies (e.g. key routers like grouter) may forward to remote
           // reasoning models that require reasoning_content. Preserve the
           // model-inferred config for reasoning fields so local routing doesn't
