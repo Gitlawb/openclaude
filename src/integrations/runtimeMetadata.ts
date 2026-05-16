@@ -142,7 +142,7 @@ function inferRemoteModelOpenAIShimConfig(
     return undefined
   }
 
-  if (normalizedModel.includes('deepseek')) {
+  if (normalizedModel.startsWith('deepseek')) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
@@ -153,7 +153,10 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
-  if (normalizedModel.includes('kimi') || normalizedModel.includes('moonshot')) {
+  if (
+    normalizedModel.startsWith('kimi') ||
+    normalizedModel.startsWith('moonshot')
+  ) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
