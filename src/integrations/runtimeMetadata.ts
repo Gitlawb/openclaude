@@ -92,10 +92,19 @@ function mergeOpenAIShimConfig(
   entryConfig: Partial<OpenAIShimTransportConfig> | undefined,
   inferredConfig: Partial<OpenAIShimTransportConfig> | undefined,
 ): OpenAIShimTransportConfig {
+  const descriptorMaxTokensField =
+    entryConfig?.maxTokensField ?? baseConfig?.maxTokensField
+
   return {
     ...baseConfig,
     ...entryConfig,
     ...inferredConfig,
+    // Preserve descriptor-level maxTokensField over model-inferred value.
+    // Direct providers (e.g. Xiaomi) declare their own token field in the
+    // descriptor; model-name inference should not override it.
+    ...(descriptorMaxTokensField !== undefined
+      ? { maxTokensField: descriptorMaxTokensField }
+      : {}),
     removeBodyFields: mergeRemoveBodyFields(
       baseConfig?.removeBodyFields,
       entryConfig?.removeBodyFields,
