@@ -42,23 +42,31 @@ type Options = {
 const useInput = (inputHandler: Handler, options: Options = {}) => {
   const { setRawMode, internal_exitOnCtrlC, internal_eventEmitter } = useStdin()
 
-  // useLayoutEffect (not useEffect) so that raw mode is enabled synchronously
-  // during React's commit phase, before render() returns. With useEffect, raw
-  // mode setup is deferred to the next event loop tick via React's scheduler,
-  // leaving the terminal in cooked mode — keystrokes echo and the cursor is
-  // visible until the effect fires.
-  useLayoutEffect(() => {
-    if (options.isActive === false) {
-      return
-    }
+   // useLayoutEffect (not useEffect) so that raw mode is enabled synchronously
+   // during React's commit phase, before render() returns. With useEffect, raw
+   // mode setup is deferred to the next event loop tick via React's scheduler,
+   // leaving the terminal in cooked mode — keystrokes echo and the cursor is
+   // visible until the effect fires.
+   useLayoutEffect(() => {
+     if (options.isActive === false) {
+       return
+     }
 
-    setRawMode(true)
+     setRawMode(true)
 
-    return () => {
-      // Intentionally no-op: preserve raw mode for process lifetime.
-      // Raw mode is reset explicitly on shutdown in bridgeMain.
-    }
-  }, [options.isActive, setRawMode])
+     return () => {
+       // Re-check isActive so we skip the (false → false) path
+       // produced by Ink's PreserveFocus unmount/remount cycles
+       // during MCP async re-render churn. A single commit round-trip
+       // unmounts the leaf and re-mounts it before the next tick;
+       // keeping raw mode on avoids deregistering the stdin listener.
+       if (options.isActive !== false) {
+         return
+       }
+
+       setRawMode(false)
+     }
+   }, [options.isActive, setRawMode])
 
   // Register the listener once on mount so its slot in the EventEmitter's
   // listener array is stable. If isActive were in the effect's deps, the
@@ -101,3 +109,4 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
 }
 
 export default useInput
+
