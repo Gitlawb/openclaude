@@ -23,3 +23,25 @@ export function registerCleanup(cleanupFn: () => Promise<void>): () => void {
 export async function runCleanupFunctions(): Promise<void> {
   await Promise.all(Array.from(cleanupFunctions).map(fn => fn()))
 }
+
+// --- Cleanup-safe timer and AbortController helpers ---
+
+export function setCleanupTimeout(fn: (...args: any[]) => void, ms: number): { id: ReturnType<typeof setTimeout>; unregister: () => void } {
+  const id = setTimeout(fn, ms)
+  const unregister = registerCleanup(() => clearTimeout(id))
+  return { id, unregister }
+}
+
+export function setCleanupInterval(fn: (...args: any[]) => void, ms: number): ReturnType<typeof setInterval> {
+  const id = setInterval(fn, ms)
+  registerCleanup(() => clearInterval(id))
+  return id
+}
+
+export function createCleanupAbortController(): AbortController {
+  const controller = new AbortController()
+  registerCleanup(() => {
+    try { controller.abort() } catch {}
+  })
+  return controller
+}
