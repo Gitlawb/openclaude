@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -11,6 +11,8 @@ const mockState = {
   effectiveWindow: 100_000,
 }
 
+await acquireSharedMutationLock('services/api/compressToolHistory.test.ts')
+
 mock.module('../../utils/config.js', () => ({
   getGlobalConfig: () => ({
     toolHistoryCompressionEnabled: mockState.enabled,
@@ -20,10 +22,6 @@ mock.module('../../utils/config.js', () => ({
 mock.module('../compact/autoCompact.js', () => ({
   getEffectiveContextWindowSize: () => mockState.effectiveWindow,
 }))
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('services/api/compressToolHistory.test.ts')
-})
 
 beforeEach(() => {
   mockState.enabled = true

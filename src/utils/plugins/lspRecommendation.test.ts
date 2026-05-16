@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -26,6 +26,8 @@ let config = {
   lspRecommendationIgnoredCount: 0,
 }
 let addMarketplaceSourceFn = mock(() => {})
+
+await acquireSharedMutationLock('utils/plugins/lspRecommendation.test.ts')
 
 mock.module('./marketplaceManager.js', () => ({
   addMarketplaceSource: addMarketplaceSourceFn,
@@ -134,13 +136,10 @@ function resetTestState(): void {
   addMarketplaceSourceFn.mockClear()
 }
 
-beforeAll(async () => {
-  await acquireSharedMutationLock('utils/plugins/lspRecommendation.test.ts')
-  resetTestState()
-  const mod = await import('./lspRecommendation.js')
-  getMatchingLspPlugins = mod.getMatchingLspPlugins
-  listLspPluginCandidates = mod.listLspPluginCandidates
-})
+resetTestState()
+const mod = await import('./lspRecommendation.js')
+getMatchingLspPlugins = mod.getMatchingLspPlugins
+listLspPluginCandidates = mod.listLspPluginCandidates
 
 afterAll(() => {
   try {

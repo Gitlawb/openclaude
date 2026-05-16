@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
 import { getEmptyToolPermissionContext } from './Tool.js'
 import {
   acquireSharedMutationLock,
@@ -36,6 +36,8 @@ const HOOK_EVENTS = [
   'FileChanged',
 ] as const
 
+await acquireSharedMutationLock('tools.lsp.test.ts')
+
 mock.module('./entrypoints/agentSdkTypes.js', () => ({ HOOK_EVENTS }))
 mock.module('src/entrypoints/agentSdkTypes.js', () => ({ HOOK_EVENTS }))
 
@@ -51,10 +53,6 @@ mock.module('./services/lsp/manager.js', () => ({
 }))
 
 const { getAllBaseTools, getTools } = await import('./tools.js')
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('tools.lsp.test.ts')
-})
 
 afterAll(() => {
   try {

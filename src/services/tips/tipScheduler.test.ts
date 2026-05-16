@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -22,6 +22,8 @@ const configRef: {
 
 const relevantTipsRef: { value: Tip[] } = { value: [] }
 
+await acquireSharedMutationLock('services/tips/tipScheduler.test.ts')
+
 mock.module('../../utils/settings/settings.js', () => ({
   getSettings_DEPRECATED: () => settingsRef.value,
   getInitialSettings: () => settingsRef.value,
@@ -42,10 +44,6 @@ mock.module('./tipRegistry.js', () => ({
 mock.module('../analytics/index.js', () => ({
   logEvent: () => undefined,
 }))
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('services/tips/tipScheduler.test.ts')
-})
 
 afterAll(() => {
   try {

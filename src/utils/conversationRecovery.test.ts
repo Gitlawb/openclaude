@@ -6,6 +6,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realProviders from './model/providers.js'
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
@@ -70,6 +71,7 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    mock.module('./model/providers.js', () => realProviders)
     if (originalSimple === undefined) {
       delete process.env.CLAUDE_CODE_SIMPLE
     } else {
@@ -92,6 +94,7 @@ afterEach(async () => {
 async function importFreshConversationRecovery() {
   mock.restore()
   mock.module('./model/providers.js', () => ({
+    ...realProviders,
     getAPIProvider: () => {
       if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
       if (process.env.CLAUDE_CODE_USE_OPENAI) return 'openai'

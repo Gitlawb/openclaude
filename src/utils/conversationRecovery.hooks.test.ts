@@ -11,6 +11,8 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realProviders from './model/providers.js'
+import * as realSessionStart from './sessionStart.js'
 
 const tempDirs: string[] = []
 const originalEnv = { ...process.env }
@@ -51,6 +53,7 @@ async function writeJsonl(entry: unknown): Promise<string> {
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/conversationRecovery.hooks.test.ts')
   mock.module('./model/providers.js', () => ({
+    ...realProviders,
     getAPIProvider: () => 'firstParty',
   }))
 })
@@ -58,6 +61,8 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    mock.module('./model/providers.js', () => realProviders)
+    mock.module('./sessionStart.js', () => realSessionStart)
     process.env = { ...originalEnv }
     await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
   } finally {
@@ -72,6 +77,7 @@ test('loadConversationForResume rejects oversized transcripts before resume hook
   const hookSpy = mock(() => Promise.resolve([{ type: 'hook' }]))
 
   mock.module('./sessionStart.js', () => ({
+    ...realSessionStart,
     processSessionStartHooks: hookSpy,
   }))
 
@@ -121,6 +127,7 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   ]
 
   mock.module('./model/providers.js', () => ({
+    ...realProviders,
     getAPIProvider: () => 'openai',
   }))
 
@@ -142,6 +149,7 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   ).not.toContain('only hidden reasoning')
 
   mock.module('./model/providers.js', () => ({
+    ...realProviders,
     getAPIProvider: () => 'bedrock',
   }))
 

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, it, expect, mock } from 'bun:test'
+import { afterAll, describe, it, expect, mock } from 'bun:test'
 import { getCombinedTools, loadReexposedMcpTools } from './mcp.js'
 import type { Tool as InternalTool } from '../Tool.js'
 import type { MCPServerConnection } from '../services/mcp/types.js'
@@ -8,15 +8,13 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+await acquireSharedMutationLock('entrypoints/mcp.test.ts')
+
 // Mock the MCP client service to control the tools and connections returned
 const mockGetMcpToolsCommandsAndResources = mock(async (onConnectionAttempt: any) => {})
 mock.module('../services/mcp/client.js', () => ({
   getMcpToolsCommandsAndResources: mockGetMcpToolsCommandsAndResources
 }))
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('entrypoints/mcp.test.ts')
-})
 
 afterAll(() => {
   try {

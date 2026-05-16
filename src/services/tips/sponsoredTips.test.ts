@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -16,6 +16,8 @@ const configRef: {
 } = { value: { numStartups: 100 } }
 
 // mock.module is process-global — install once, then mutate the refs per test.
+await acquireSharedMutationLock('services/tips/sponsoredTips.test.ts')
+
 mock.module('../../utils/settings/settings.js', () => ({
   getSettings_DEPRECATED: () => settingsRef.value,
   getInitialSettings: () => settingsRef.value,
@@ -28,10 +30,6 @@ mock.module('../../utils/config.js', () => ({
     configRef.value = mut(configRef.value)
   },
 }))
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('services/tips/sponsoredTips.test.ts')
-})
 
 afterAll(() => {
   try {

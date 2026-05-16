@@ -18,7 +18,7 @@
  */
 import { PassThrough } from 'node:stream'
 
-import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
+import { afterAll, expect, mock, test } from 'bun:test'
 import React, { useEffect } from 'react'
 import stripAnsi from 'strip-ansi'
 
@@ -30,6 +30,8 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 import { ThemeProvider, usePreviewTheme } from './ThemeProvider.js'
+
+await acquireSharedMutationLock('components/design-system/ThemeProvider.test.tsx')
 
 mock.module('../StructuredDiff.js', () => ({
   StructuredDiff: function StructuredDiffPreview(): React.ReactNode {
@@ -101,10 +103,6 @@ async function waitForFrame(
   })
   return frame
 }
-
-beforeAll(async () => {
-  await acquireSharedMutationLock('components/design-system/ThemeProvider.test.tsx')
-})
 
 afterAll(() => {
   try {

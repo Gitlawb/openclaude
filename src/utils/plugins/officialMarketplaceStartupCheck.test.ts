@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -35,6 +35,8 @@ const addMarketplaceSource = mock(async () => ({
   alreadyMaterialized: false,
   resolvedSource: {},
 }))
+
+await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
 
 mock.module('../../services/analytics/growthbook.js', () => ({
   getFeatureValue_CACHED_MAY_BE_STALE: () => true,
@@ -106,11 +108,8 @@ mock.module('./officialMarketplaceGcs.js', () => ({
 let checkAndInstallOfficialMarketplace:
   typeof import('./officialMarketplaceStartupCheck.js').checkAndInstallOfficialMarketplace
 
-beforeAll(async () => {
-  await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
-  const mod = await import('./officialMarketplaceStartupCheck.js')
-  checkAndInstallOfficialMarketplace = mod.checkAndInstallOfficialMarketplace
-})
+const mod = await import('./officialMarketplaceStartupCheck.js')
+checkAndInstallOfficialMarketplace = mod.checkAndInstallOfficialMarketplace
 
 afterAll(() => {
   try {

@@ -3,6 +3,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -22,6 +23,7 @@ afterEach(() => {
     process.env = { ...originalEnv }
     globalThis.fetch = originalFetch
     mock.restore()
+    mock.module('./model/providers.js', () => realProviders)
   } finally {
     releaseSharedMutationLock()
   }
@@ -31,6 +33,7 @@ describe('preconnectAnthropicApi', () => {
   test('does not fetch when OpenAI mode is enabled', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     mock.module('./model/providers.js', () => ({
+      ...realProviders,
       getAPIProvider: () => 'openai',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
@@ -45,6 +48,7 @@ describe('preconnectAnthropicApi', () => {
   test('does not fetch when Gemini mode is enabled', async () => {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     mock.module('./model/providers.js', () => ({
+      ...realProviders,
       getAPIProvider: () => 'gemini',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
@@ -59,6 +63,7 @@ describe('preconnectAnthropicApi', () => {
   test('does not fetch when GitHub mode is enabled', async () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     mock.module('./model/providers.js', () => ({
+      ...realProviders,
       getAPIProvider: () => 'github',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
@@ -86,6 +91,7 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_CLIENT_KEY
 
     mock.module('./model/providers.js', () => ({
+      ...realProviders,
       getAPIProvider: () => 'firstParty',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
