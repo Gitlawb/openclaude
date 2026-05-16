@@ -178,6 +178,8 @@ function inferRemoteModelOpenAIShimConfig(
       requireReasoningContentOnAssistantMessages: true,
       reasoningContentFallback: '',
       thinkingRequestFormat: 'deepseek-compatible',
+      maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store'],
     }
   }
 
@@ -187,6 +189,8 @@ function inferRemoteModelOpenAIShimConfig(
       requireReasoningContentOnAssistantMessages: true,
       reasoningContentFallback: '',
       thinkingRequestFormat: 'deepseek-compatible',
+      maxTokensField: 'max_tokens',
+      removeBodyFields: ['store'],
     }
   }
 
