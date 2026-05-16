@@ -38,6 +38,50 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
 
+const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
+  '--bare',
+  '--debug',
+  '--debug-to-stderr',
+  '--mcp-debug',
+  '--verbose',
+])
+
+const SKILLS_LEADING_VALUE_FLAGS = new Set([
+  '--debug-file',
+  '--model',
+  '--provider',
+])
+
+function getSkillsCliArgs(args: string[]): string[] | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === 'skills') {
+      return args.slice(index)
+    }
+    if (SKILLS_LEADING_BOOLEAN_FLAGS.has(arg)) {
+      continue
+    }
+    if (
+      SKILLS_LEADING_VALUE_FLAGS.has(arg) &&
+      args[index + 1] &&
+      !args[index + 1]!.startsWith('-')
+    ) {
+      index += 1
+      continue
+    }
+    if (
+      Array.from(SKILLS_LEADING_VALUE_FLAGS).some(flag =>
+        arg?.startsWith(`${flag}=`),
+      )
+    ) {
+      continue
+    }
+    return undefined
+  }
+
+  return undefined
+}
+
 // Set max heap size for child processes. The current CLI process is already
 // running by this point; the package launcher raises its heap before importing
 // dist/cli.mjs. Keeping NODE_OPTIONS here preserves the larger cap for tools or
@@ -238,6 +282,16 @@ export async function main(
     applySafeConfigEnvironmentVariables()
   }
   reapplyExplicitProviderInputs()
+
+  // Local skills management must stay available even when provider startup
+  // configuration is broken, so users can inspect/fix skills from scripts.
+  const skillsCliArgs = getSkillsCliArgs(args)
+  if (skillsCliArgs) {
+    const { runSkillsCli } = await import('../cli/handlers/skillsCli.js')
+    process.argv = [process.argv[0]!, process.argv[1]!, ...skillsCliArgs]
+    await runSkillsCli(skillsCliArgs)
+    return
+  }
 
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
   await applyStartupEnvFromProfile({
