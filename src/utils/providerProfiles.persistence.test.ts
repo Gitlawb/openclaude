@@ -13,8 +13,8 @@ const RESTORED_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
-  'OPENAI_CONTEXT_WINDOW_SIZE',
-  'OPENAI_MAX_OUTPUT_TOKENS',
+  'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
+  'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
 ] as const
 
 type MockConfigState = {
@@ -104,8 +104,8 @@ describe('Provider Profile Persistence (Context Window & Max Tokens)', () => {
 
     setActiveProviderProfile('test_params', { configDir: testConfigDir! })
 
-    expect(process.env.OPENAI_CONTEXT_WINDOW_SIZE).toBe('200000')
-    expect(process.env.OPENAI_MAX_OUTPUT_TOKENS).toBe('8192')
+    expect(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('200000')
+    expect(process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('8192')
   })
 
   test('persists new parameters to .openclaude-profile.json for startup fallback', async () => {
@@ -131,8 +131,8 @@ describe('Provider Profile Persistence (Context Window & Max Tokens)', () => {
     const persistedPath = join(testConfigDir!, '.openclaude-profile.json')
     const persisted = JSON.parse(readFileSync(persistedPath, 'utf8'))
 
-    expect(persisted.env.OPENAI_CONTEXT_WINDOW_SIZE).toBe('64000')
-    expect(persisted.env.OPENAI_MAX_OUTPUT_TOKENS).toBe('2048')
+    expect(persisted.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('64000')
+    expect(persisted.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('2048')
   })
 
   test('uses empty string for unspecified parameters (no default values stored)', async () => {

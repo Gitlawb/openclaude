@@ -681,10 +681,10 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   }
 
   if (profile.contextWindowSize) {
-    profileEnv.OPENAI_CONTEXT_WINDOW_SIZE = String(profile.contextWindowSize)
+    profileEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(profile.contextWindowSize)
   }
   if (profile.maxOutputTokens) {
-    profileEnv.OPENAI_MAX_OUTPUT_TOKENS = String(profile.maxOutputTokens)
+    profileEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(profile.maxOutputTokens)
   }
 
   profileEnv = applySupportedProfileCustomHeaders(profile, profileEnv)
@@ -990,10 +990,10 @@ function buildOpenAICompatibleStartupEnv(
     delete env.OPENAI_API_KEY
   }
   if (activeProfile.contextWindowSize) {
-    env.OPENAI_CONTEXT_WINDOW_SIZE = String(activeProfile.contextWindowSize)
+    env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(activeProfile.contextWindowSize)
   }
   if (activeProfile.maxOutputTokens) {
-    env.OPENAI_MAX_OUTPUT_TOKENS = String(activeProfile.maxOutputTokens)
+    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(activeProfile.maxOutputTokens)
   }
   return applySupportedProfileCustomHeaders(activeProfile, env)
 }
@@ -1159,12 +1159,12 @@ function buildStartupProfileFromActiveProfile(
   }
 
   if (activeProfile.contextWindowSize) {
-    startup.env.OPENAI_CONTEXT_WINDOW_SIZE = String(
+    startup.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(
       activeProfile.contextWindowSize,
     )
   }
   if (activeProfile.maxOutputTokens) {
-    startup.env.OPENAI_MAX_OUTPUT_TOKENS = String(activeProfile.maxOutputTokens)
+    startup.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(activeProfile.maxOutputTokens)
   }
 
   return startup
