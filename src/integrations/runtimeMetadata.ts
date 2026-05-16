@@ -263,6 +263,9 @@ export function resolveOpenAIShimRuntimeContext(options?: {
           ...(remoteModelInferredConfig?.thinkingRequestFormat !== undefined
             ? { thinkingRequestFormat: remoteModelInferredConfig.thinkingRequestFormat }
             : {}),
+          ...(remoteModelInferredConfig?.removeBodyFields !== undefined
+            ? { removeBodyFields: remoteModelInferredConfig.removeBodyFields }
+            : {}),
         }
       : remoteModelInferredConfig
 
