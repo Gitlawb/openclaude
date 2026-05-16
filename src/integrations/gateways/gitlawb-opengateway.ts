@@ -72,21 +72,14 @@ export default defineGateway({
         modelDescriptorId: 'mimo-v2-flash',
       },
       // Non-Xiaomi models reachable through the same gateway endpoint. The
-      // gateway routes by model name (see opengateway/src/providers.ts —
-      // `zai-org/*` and `google/*` are dispatched to GMI Cloud), so the
-      // gateway URL stays unchanged; only the apiName the client sends
+      // gateway routes by model name (see opengateway/src/providers.ts), so
+      // the gateway URL stays unchanged; only the apiName the client sends
       // determines the upstream.
       {
         id: 'opengateway-gemini-3.1-flash-lite-preview',
         apiName: 'google/gemini-3.1-flash-lite-preview',
         label: 'Gemini 3.1 Flash Lite Preview (via Opengateway)',
         modelDescriptorId: 'gemini-3.1-flash-lite-preview',
-      },
-      {
-        id: 'opengateway-glm-5.1-fp8',
-        apiName: 'zai-org/GLM-5.1-FP8',
-        label: 'GLM 5.1 FP8 (via Opengateway)',
-        modelDescriptorId: 'GLM-5.1',
       },
     ],
   },
