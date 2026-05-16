@@ -162,7 +162,7 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Tool quality depends heavily on the selected model
 - Smaller local models can struggle with long multi-step tool flows
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
-- Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*`, `zai-org/GLM-5.1-FP8`, and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
+- Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
 - Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
 
 For best results, use models with strong tool/function calling support.

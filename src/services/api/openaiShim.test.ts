@@ -1110,6 +1110,87 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
   })
 })
 
+test('replays Gemini tool signatures for OpenGateway Gemini models', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [
+      { role: 'user', content: 'Use Write' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Write',
+            input: { file_path: 'todo.md', content: 'todo' },
+            signature: 'sig-opengateway',
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: 'created',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  ) as { tool_calls?: Array<Record<string, unknown>> } | undefined
+
+  expect(assistantWithToolCall?.tool_calls?.[0]).toMatchObject({
+    id: 'call_1',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-opengateway',
+      },
+    },
+  })
+})
+
 test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -1826,6 +1907,160 @@ test('preserves Gemini tool call extra_content from streaming chunks', async () 
         thought_signature: 'sig-stream',
       },
     },
+  })
+})
+
+test('preserves Gemini thought signature from streaming delta extra_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              extra_content: {
+                google: {
+                  thought_signature: 'sig-delta',
+                },
+              },
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Write',
+                    arguments: '{"file_path":"todo.md","content":"todo"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-flash-lite-preview',
+      messages: [{ role: 'user', content: 'Use Write' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'function-call-1',
+    name: 'Write',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-delta',
+      },
+    },
+    signature: 'sig-delta',
+  })
+})
+
+test('preserves Gemini thought signature from non-streaming message extra_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              extra_content: {
+                google: {
+                  thought_signature: 'sig-message',
+                },
+              },
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Write',
+                    arguments: '{"file_path":"todo.md","content":"todo"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [{ role: 'user', content: 'Use Write' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content?.[0]).toMatchObject({
+    type: 'tool_use',
+    id: 'function-call-1',
+    name: 'Write',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-message',
+      },
+    },
+    signature: 'sig-message',
   })
 })
 

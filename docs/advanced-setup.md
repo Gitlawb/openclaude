@@ -166,7 +166,6 @@ The Opengateway route is a smart gateway. Keep the base URL at `/v1` and switch
 models with `/model` or `OPENAI_MODEL`. Current partner models include:
 
 - `mimo-v2.5-pro`
-- `zai-org/GLM-5.1-FP8`
 - `google/gemini-3.1-flash-lite-preview`
 
 ### Xiaomi MiMo
