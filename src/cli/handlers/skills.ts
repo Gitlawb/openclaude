@@ -10,7 +10,6 @@ import {
   getCommands,
   type Command,
 } from '../../commands.js'
-import { initBundledSkills } from '../../skills/bundled/index.js'
 import { getCwd } from '../../utils/cwd.js'
 import { getDisplayPath } from '../../utils/file.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
@@ -47,7 +46,6 @@ function isSkillCommand(cmd: Command): cmd is SkillCommand {
 }
 
 function loadSkills(): Promise<SkillCommand[]> {
-  initBundledSkills()
   return getCommands(getCwd()).then(commands => commands.filter(isSkillCommand))
 }
 
