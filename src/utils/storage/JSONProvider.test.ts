@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { join } from 'path'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { JSONProvider } from './JSONProvider.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 const tempDirs: string[] = []
 
@@ -31,11 +35,19 @@ function captureConsoleError<T>(run: () => T): { result: T; calls: unknown[][] }
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/storage/JSONProvider.test.ts')
+})
+
 afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop()
-    if (!dir) continue
-    rmSync(dir, { recursive: true, force: true })
+  try {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop()
+      if (!dir) continue
+      rmSync(dir, { recursive: true, force: true })
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

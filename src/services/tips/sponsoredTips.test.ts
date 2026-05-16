@@ -1,4 +1,8 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 type StubSettings = {
   sponsoredTipsEnabled?: boolean
@@ -12,6 +16,8 @@ const configRef: {
 } = { value: { numStartups: 100 } }
 
 // mock.module is process-global — install once, then mutate the refs per test.
+await acquireSharedMutationLock('services/tips/sponsoredTips.test.ts')
+
 mock.module('../../utils/settings/settings.js', () => ({
   getSettings_DEPRECATED: () => settingsRef.value,
   getInitialSettings: () => settingsRef.value,
@@ -24,6 +30,14 @@ mock.module('../../utils/config.js', () => ({
     configRef.value = mut(configRef.value)
   },
 }))
+
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 async function freshImport() {
   const stamp = `${Date.now()}-${Math.random()}`

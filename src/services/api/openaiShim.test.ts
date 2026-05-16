@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
-import { registerGateway } from '../../integrations/index.ts'
+import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
@@ -151,6 +151,8 @@ afterEach(() => {
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     globalThis.fetch = originalFetch
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
   } finally {
     releaseSharedMutationLock()
   }

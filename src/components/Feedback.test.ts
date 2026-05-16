@@ -1,8 +1,29 @@
-import { expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import { createGitHubIssueUrl } from './Feedback.tsx'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
-(globalThis as { MACRO?: { VERSION?: string } }).MACRO = { VERSION: '0.1.7' }
+const originalMacro = (globalThis as { MACRO?: unknown }).MACRO
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('Feedback.test.ts')
+  ;(globalThis as { MACRO?: { VERSION?: string } }).MACRO = { VERSION: '0.1.7' }
+})
+
+afterEach(() => {
+  try {
+    if (originalMacro === undefined) {
+      delete (globalThis as { MACRO?: unknown }).MACRO
+    } else {
+      ;(globalThis as { MACRO?: unknown }).MACRO = originalMacro
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 test('createGitHubIssueUrl omits empty feedback IDs', () => {
   const url = decodeURIComponent(

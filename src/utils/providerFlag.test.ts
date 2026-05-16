@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+import {
   parseProviderFlag,
   parseModelFlag,
   applyProviderFlag,
@@ -32,7 +36,8 @@ const ENV_KEYS = [
 
 const originalEnv: Record<string, string | undefined> = {}
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/providerFlag.test.ts')
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
@@ -68,12 +73,16 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

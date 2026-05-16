@@ -1,8 +1,31 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   getEffectiveContextWindowSize,
   getAutoCompactThreshold,
 } from './autoCompact.ts'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+
+let originalUseOpenAI: string | undefined
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('services/compact/autoCompact.test.ts')
+  originalUseOpenAI = process.env.CLAUDE_CODE_USE_OPENAI
+})
+
+afterEach(() => {
+  try {
+    if (originalUseOpenAI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = originalUseOpenAI
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 describe('getEffectiveContextWindowSize', () => {
   test('returns positive value for known models with large context windows', () => {
@@ -24,16 +47,12 @@ describe('getEffectiveContextWindowSize', () => {
     // disabled it's 20k + 13k = 33k. Assert the worst case so the test is
     // stable regardless of flag state in CI vs local.
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    try {
-      const effective = getEffectiveContextWindowSize('some-unknown-3p-model')
-      expect(effective).toBeGreaterThan(0)
-      // 21k = CAPPED_DEFAULT_MAX_TOKENS (8k) + AUTOCOMPACT_BUFFER_TOKENS (13k).
-      // Covers the anti-regression intent of issue #635 without assuming
-      // the GrowthBook flag state.
-      expect(effective).toBeGreaterThanOrEqual(21_000)
-    } finally {
-      delete process.env.CLAUDE_CODE_USE_OPENAI
-    }
+    const effective = getEffectiveContextWindowSize('some-unknown-3p-model')
+    expect(effective).toBeGreaterThan(0)
+    // 21k = CAPPED_DEFAULT_MAX_TOKENS (8k) + AUTOCOMPACT_BUFFER_TOKENS (13k).
+    // Covers the anti-regression intent of issue #635 without assuming
+    // the GrowthBook flag state.
+    expect(effective).toBeGreaterThanOrEqual(21_000)
   })
 })
 
@@ -45,11 +64,7 @@ describe('getAutoCompactThreshold', () => {
 
   test('never returns negative threshold even for unknown 3P models (issue #635)', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    try {
-      const threshold = getAutoCompactThreshold('some-unknown-3p-model')
-      expect(threshold).toBeGreaterThan(0)
-    } finally {
-      delete process.env.CLAUDE_CODE_USE_OPENAI
-    }
+    const threshold = getAutoCompactThreshold('some-unknown-3p-model')
+    expect(threshold).toBeGreaterThan(0)
   })
 })

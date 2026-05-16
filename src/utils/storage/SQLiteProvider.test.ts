@@ -175,7 +175,7 @@ describe('SQLite Storage Layer', () => {
     expect(Object.keys(graph.entities).length).toBe(count)
   })
 
-  it('does not report a closed on-disk database as cleared', async () => {
+  it('clears a closed on-disk database without an existing provider handle', async () => {
     const projectDir = join(getProjectsDir(), sanitizePath(workspaceDir))
     const sqlitePath = join(projectDir, 'knowledge.db')
 
@@ -185,6 +185,10 @@ describe('SQLite Storage Layer', () => {
     clearMemoryOnly()
 
     const closedProvider = new SQLiteProvider(projectDir)
-    expect(closedProvider.clear()).toBe(false)
+    expect(closedProvider.clear()).toBe(true)
+
+    await closedProvider.init()
+    expect(closedProvider.loadGraph()).toBeNull()
+    closedProvider.close()
   })
 })

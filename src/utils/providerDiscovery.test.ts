@@ -1,4 +1,9 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 async function loadProviderDiscoveryModule() {
   // @ts-expect-error cache-busting query string for Bun module mocks
@@ -10,9 +15,26 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
 }
 
+function restoreEnv(key: keyof typeof originalEnv): void {
+  if (originalEnv[key] === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = originalEnv[key]
+  }
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('providerDiscovery.test.ts')
+})
+
 afterEach(() => {
-  globalThis.fetch = originalFetch
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+  try {
+    mock.restore()
+    globalThis.fetch = originalFetch
+    restoreEnv('OPENAI_BASE_URL')
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('lists models from a local openai-compatible /models endpoint', async () => {

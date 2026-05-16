@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { registerGateway } from './index.js'
+import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from './index.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -90,6 +90,8 @@ afterEach(() => {
     restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
     restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
     restoreEnvValue('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
   } finally {
     releaseSharedMutationLock()
   }
