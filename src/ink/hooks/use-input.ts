@@ -55,7 +55,8 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
     setRawMode(true)
 
     return () => {
-      setRawMode(false)
+      // Intentionally no-op: preserve raw mode for process lifetime.
+      // Raw mode is reset explicitly on shutdown in bridgeMain.
     }
   }, [options.isActive, setRawMode])
 
