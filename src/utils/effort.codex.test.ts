@@ -57,6 +57,15 @@ function installProviderMock(provider?: TestProvider): void {
   }))
 }
 
+function restoreProcessGlobalMocks(): void {
+  mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./model/modelSupportOverrides.js', () => actualModelSupportOverrides)
+  mock.module('../services/api/providerConfig.js', () => actualProviderConfig)
+  mock.module('./auth.js', () => actualAuth)
+  mock.module('./thinking.js', () => actualThinking)
+  mock.module('src/services/analytics/growthbook.js', () => actualGrowthbook)
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
   mock.restore()
@@ -76,6 +85,7 @@ afterEach(() => {
       }
     }
     mock.restore()
+    restoreProcessGlobalMocks()
   } finally {
     releaseSharedMutationLock()
   }
