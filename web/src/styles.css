@@ -193,6 +193,11 @@ body, html, #root {
   font-weight: bold;
 }
 
+.message-row {
+  display: flex;
+  width: 100%;
+}
+
 .message-row.user {
   justify-content: flex-end;
 }
@@ -202,7 +207,7 @@ body, html, #root {
 }
 
 .message-bubble {
-  max-width: 85%;
+  max-width: 80%;
   padding: 12px 20px;
   line-height: 1.6;
 }
@@ -211,6 +216,7 @@ body, html, #root {
   background-color: var(--bubble-user);
   color: white;
   border-radius: 18px 18px 2px 18px;
+  box-shadow: 0 2px 8px rgba(215, 119, 87, 0.2);
 }
 
 .message-row.assistant .message-bubble {
