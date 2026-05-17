@@ -2569,15 +2569,6 @@ class OpenAIShimMessages {
       return false
     }
 
-    // WHY: byte-identity required for implicit prefix caching in
-    // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
-    // depth so spurious insertion-order differences across rebuilds of
-    // `body` (spread-merge, conditional assignments above) don't bust
-    // the provider's prefix hash.
-    //
-    // Local backends do not implement prefix caching, so the deep key-sort
-    // is pure CPU overhead per request (issue #1016). Drop to the native
-    // `JSON.stringify` fast path when the fast-path config opts out.
     const bodyContainsImages = (): boolean => {
       if (request.transport === 'responses') {
         const responsesBody = buildResponsesBody()
@@ -2597,6 +2588,15 @@ class OpenAIShimMessages {
       })
     }
 
+    // WHY: byte-identity required for implicit prefix caching in
+    // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
+    // depth so spurious insertion-order differences across rebuilds of
+    // `body` (spread-merge, conditional assignments above) don't bust
+    // the provider's prefix hash.
+    //
+    // Local backends do not implement prefix caching, so the deep key-sort
+    // is pure CPU overhead per request (issue #1016). Drop to the native
+    // `JSON.stringify` fast path when the fast-path config opts out.
     const serializeBody = (): string => {
       const payload =
         effectiveTransport === 'responses' ? buildResponsesBody()
