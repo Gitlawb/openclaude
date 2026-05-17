@@ -161,9 +161,9 @@ body, html, #root {
 }
 
 .ascii-logo {
-  font-family: "Courier New", Courier, monospace;
-  font-size: 8px;
-  line-height: 1.2;
+  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 9px;
+  line-height: 1;
   font-weight: bold;
   background: linear-gradient(180deg, #ff8c00 0%, #ff4500 50%, #d77757 100%);
   -webkit-background-clip: text;
