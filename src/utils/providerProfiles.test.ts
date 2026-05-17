@@ -2041,3 +2041,9 @@ describe('setActiveProviderProfile model cache', () => {
     ])
   })
 })
+
+test('DEFAULT_MISTRAL_MODEL matches the mistral gateway defaultModel', async () => {
+  const { DEFAULT_MISTRAL_MODEL } = await import('./providerProfile.js')
+  const { default: mistralGateway } = await import('../integrations/gateways/mistral.js')
+  expect(DEFAULT_MISTRAL_MODEL).toBe(mistralGateway.defaultModel)
+})
