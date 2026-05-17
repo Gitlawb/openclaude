@@ -96,7 +96,7 @@ function App() {
 
       <main className="chat-area">
         <header className="chat-header">
-           <h2>Agent Console [v3]</h2>
+           <h2>Agent CLI</h2>
            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
              {!connected && <span className="model-tag" style={{ background: '#ff4444', color: 'white' }}>DISCONNECTED</span>}
              <span className="model-tag">{activeModel.toUpperCase()}</span>
