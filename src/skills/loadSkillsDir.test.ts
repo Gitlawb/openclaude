@@ -111,6 +111,7 @@ test('loads flat and nested skills with colon namespaces', async () => {
         process.env.CLAUDE_CONFIG_DIR = originalConfigDir
       }
       clearSkillCaches()
+      setAllowedSettingSources(originalSources)
       rmSync(configDir, { recursive: true, force: true })
     } finally {
       releaseSharedMutationLock()
