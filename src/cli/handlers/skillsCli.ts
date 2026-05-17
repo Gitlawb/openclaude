@@ -56,6 +56,17 @@ function parseSkillsCliArgs(args: string[]): {
   return { options, positionals }
 }
 
+export async function runSkillsCliAction(
+  action: () => Promise<void>,
+): Promise<void> {
+  try {
+    await action()
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  }
+}
+
 export async function runSkillsCli(args: string[]): Promise<void> {
   const subcommand = args[1] ?? 'list'
   const { options, positionals, error } = parseSkillsCliArgs(args.slice(2))
@@ -76,50 +87,52 @@ export async function runSkillsCli(args: string[]): Promise<void> {
     skillsValidateHandler,
   } = await import('./skills.js')
 
-  switch (subcommand) {
-    case 'list':
-      await skillsListHandler({ json: options.json })
-      break
-    case 'show': {
-      const name = positionals[0]
-      if (!name) {
-        console.error('Skill name is required.')
-        process.exit(1)
+  await runSkillsCliAction(async () => {
+    switch (subcommand) {
+      case 'list':
+        await skillsListHandler({ json: options.json })
+        break
+      case 'show': {
+        const name = positionals[0]
+        if (!name) {
+          console.error('Skill name is required.')
+          process.exit(1)
+        }
+        await skillsShowHandler(name)
+        break
       }
-      await skillsShowHandler(name)
-      break
-    }
-    case 'validate': {
-      const path = positionals[0]
-      if (!path) {
-        console.error('Skill path is required.')
-        process.exit(1)
+      case 'validate': {
+        const path = positionals[0]
+        if (!path) {
+          console.error('Skill path is required.')
+          process.exit(1)
+        }
+        await skillsValidateHandler(path)
+        break
       }
-      await skillsValidateHandler(path)
-      break
-    }
-    case 'install': {
-      const idOrUrlOrPath = positionals[0]
-      if (!idOrUrlOrPath) {
-        console.error('Skill ID, URL, or path is required.')
-        process.exit(1)
+      case 'install': {
+        const idOrUrlOrPath = positionals[0]
+        if (!idOrUrlOrPath) {
+          console.error('Skill ID, URL, or path is required.')
+          process.exit(1)
+        }
+        await skillsInstallHandler(idOrUrlOrPath, options)
+        break
       }
-      await skillsInstallHandler(idOrUrlOrPath, options)
-      break
-    }
-    case 'remove': {
-      const name = positionals[0]
-      if (!name) {
-        console.error('Skill name is required.')
-        process.exit(1)
+      case 'remove': {
+        const name = positionals[0]
+        if (!name) {
+          console.error('Skill name is required.')
+          process.exit(1)
+        }
+        await skillsRemoveHandler(name, { global: options.global })
+        break
       }
-      await skillsRemoveHandler(name, { global: options.global })
-      break
+      default:
+        console.error(`Unknown skills command: ${subcommand}`)
+        process.exit(1)
     }
-    default:
-      console.error(`Unknown skills command: ${subcommand}`)
-      process.exit(1)
-  }
+  })
 
   process.exit(process.exitCode ?? 0)
 }

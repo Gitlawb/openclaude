@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -101,6 +102,34 @@ function sha256OfSkillSource(text: string): string {
   return createHash('sha256')
     .update(text.replace(/\r\n/g, '\n'), 'utf8')
     .digest('hex')
+}
+
+function buildRegistryEntry(
+  sourceDir: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: 'gitlawb/sample-skill',
+    name: 'sample-skill',
+    title: 'Sample Skill',
+    description: 'Sample skill used by install tests.',
+    trust: 'official',
+    version: '0.1.0',
+    license: 'MIT',
+    author: 'OpenClaude Tests',
+    source: join(sourceDir, 'SKILL.md'),
+    ...overrides,
+  }
+}
+
+function stagedInstallTempDirs(): string[] {
+  return readdirSync(tmpdir()).filter(entry =>
+    entry.startsWith('openclaude-skill-install-'),
+  )
+}
+
+function assertNoNewStagedInstallDirs(before: string[]): void {
+  assert.deepEqual(stagedInstallTempDirs().sort(), before.sort())
 }
 
 async function withTempDir<T>(fn: (tempDir: string) => Promise<T>): Promise<T> {
@@ -370,21 +399,14 @@ test.serial('installs a registry skill by id from a local registry file', async 
     writeFileSync(
       registryPath,
       JSON.stringify([
-        {
-          id: 'gitlawb/sample-skill',
-          name: 'sample-skill',
-          title: 'Sample Skill',
-          description: 'Sample skill used by install tests.',
-          trust: 'official',
-          version: '0.1.0',
-          license: 'MIT',
-          author: 'OpenClaude Tests',
-          source: join(sourceDir, 'SKILL.md'),
+        buildRegistryEntry(sourceDir, {
           repo: 'https://github.com/Gitlawb/openclaude-skills',
           path: 'skills/sample-skill/SKILL.md',
           homepage: 'https://github.com/Gitlawb/openclaude-skills/tree/main/skills/sample-skill',
           sha256: sha256OfSkillSource(VALID_SKILL),
-        },
+          min_openclaude_version: '0.1.0',
+          tools_required: ['Read', 'Bash'],
+        }),
       ]),
       'utf8',
     )
@@ -399,9 +421,71 @@ test.serial('installs a registry skill by id from a local registry file', async 
         join(cwd, '.openclaude', 'skills', 'sample-skill', 'skill.json'),
         'utf8',
       ),
-    ) as { trust: string; sha256: string }
+    ) as {
+      trust: string
+      sha256: string
+      min_openclaude_version: string
+      tools_required: string[]
+    }
     assert.equal(installedMetadata.trust, 'official')
     assert.equal(installedMetadata.sha256, sha256OfSkillSource(VALID_SKILL))
+    assert.equal(installedMetadata.min_openclaude_version, '0.1.0')
+    assert.deepEqual(installedMetadata.tools_required, ['Read', 'Bash'])
+  })
+})
+
+test.serial('rejects registry skills without a sha256 pin', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir),
+      ]),
+      'utf8',
+    )
+
+    const stagedBefore = stagedInstallTempDirs()
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    assertNoNewStagedInstallDirs(stagedBefore)
+  })
+})
+
+test.serial('rejects registry skills that require a newer OpenClaude version', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+          min_openclaude_version: '999.0.0',
+        }),
+      ]),
+      'utf8',
+    )
+
+    const stagedBefore = stagedInstallTempDirs()
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    assertNoNewStagedInstallDirs(stagedBefore)
   })
 })
 
@@ -430,18 +514,10 @@ test.serial('rejects registry names that would escape the install root', async (
     writeFileSync(
       registryPath,
       JSON.stringify([
-        {
-          id: 'gitlawb/sample-skill',
+        buildRegistryEntry(sourceDir, {
           name: '../escape',
-          title: 'Sample Skill',
-          description: 'Sample skill used by install tests.',
-          trust: 'official',
-          version: '0.1.0',
-          license: 'MIT',
-          author: 'OpenClaude Tests',
-          source: join(sourceDir, 'SKILL.md'),
           sha256: sha256OfSkillSource(VALID_SKILL),
-        },
+        }),
       ]),
       'utf8',
     )

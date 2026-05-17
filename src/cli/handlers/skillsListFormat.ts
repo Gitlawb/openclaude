@@ -26,7 +26,7 @@ export function locationLabel(skill: SkillListCommand): string {
 }
 
 export function isPublicSkill(skill: SkillListCommand): boolean {
-  return sourceLabel(skill) !== 'bundled'
+  return skill.source !== 'bundled'
 }
 
 function publicSkills(skills: SkillListCommand[]): SkillListCommand[] {
@@ -170,10 +170,11 @@ export function formatSkillsListForDisplay(
   skills: SkillListCommand[],
   columns = terminalWidth(),
 ): string {
-  const sortedSkills = publicSkills(skills)
+  const visibleSkills = publicSkills(skills)
+  const states = getResolutionState(visibleSkills)
+  const sortedSkills = visibleSkills
     .slice()
     .sort((a, b) => getCommandName(a).localeCompare(getCommandName(b)))
-  const states = getResolutionState(sortedSkills)
   const enabledCount = sortedSkills.filter(
     skill => states.get(skill) === 'enabled',
   ).length

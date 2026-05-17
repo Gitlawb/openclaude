@@ -61,6 +61,7 @@ async function readSkillResource(
       markdownContent,
       source: 'mcp',
       baseDir: undefined,
+      skillFilePath: undefined,
       loadedFrom: 'mcp',
       paths: undefined,
       executionContext: parsed.executionContext,

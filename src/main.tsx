@@ -4161,24 +4161,30 @@ async function run(): Promise<CommanderCommand> {
   skillsCmd.command('list').description('List configured skills').option('--json', 'Output as JSON').action(async (options: {
     json?: boolean;
   }) => {
-    const {
+    const [{
       skillsListHandler
-    } = await import('./cli/handlers/skills.js');
-    await skillsListHandler(options);
+    }, {
+      runSkillsCliAction
+    }] = await Promise.all([import('./cli/handlers/skills.js'), import('./cli/handlers/skillsCli.js')]);
+    await runSkillsCliAction(() => skillsListHandler(options));
     process.exit(process.exitCode ?? 0);
   });
   skillsCmd.command('show <name>').description('Show details for a configured skill').action(async (name: string) => {
-    const {
+    const [{
       skillsShowHandler
-    } = await import('./cli/handlers/skills.js');
-    await skillsShowHandler(name);
+    }, {
+      runSkillsCliAction
+    }] = await Promise.all([import('./cli/handlers/skills.js'), import('./cli/handlers/skillsCli.js')]);
+    await runSkillsCliAction(() => skillsShowHandler(name));
     process.exit(process.exitCode ?? 0);
   });
   skillsCmd.command('validate <path>').description('Validate a local skill directory').action(async (path: string) => {
-    const {
+    const [{
       skillsValidateHandler
-    } = await import('./cli/handlers/skills.js');
-    await skillsValidateHandler(path);
+    }, {
+      runSkillsCliAction
+    }] = await Promise.all([import('./cli/handlers/skills.js'), import('./cli/handlers/skillsCli.js')]);
+    await runSkillsCliAction(() => skillsValidateHandler(path));
     process.exit(process.exitCode ?? 0);
   });
   skillsCmd.command('install <idOrUrlOrPath>').description('Install a skill from the registry, URL, or local path').option('--registry <urlOrPath>', 'Registry JSON URL/path for registry ID installs').option('--global', 'Install to the user-global skills directory').option('--force', 'Overwrite an existing installed skill').action(async (idOrUrlOrPath: string, options: {
@@ -4186,19 +4192,23 @@ async function run(): Promise<CommanderCommand> {
     global?: boolean;
     force?: boolean;
   }) => {
-    const {
+    const [{
       skillsInstallHandler
-    } = await import('./cli/handlers/skills.js');
-    await skillsInstallHandler(idOrUrlOrPath, options);
+    }, {
+      runSkillsCliAction
+    }] = await Promise.all([import('./cli/handlers/skills.js'), import('./cli/handlers/skillsCli.js')]);
+    await runSkillsCliAction(() => skillsInstallHandler(idOrUrlOrPath, options));
     process.exit(process.exitCode ?? 0);
   });
   skillsCmd.command('remove <name>').description('Remove a local project skill').option('--global', 'Remove from the user-global skills directory').action(async (name: string, options: {
     global?: boolean;
   }) => {
-    const {
+    const [{
       skillsRemoveHandler
-    } = await import('./cli/handlers/skills.js');
-    await skillsRemoveHandler(name, options);
+    }, {
+      runSkillsCliAction
+    }] = await Promise.all([import('./cli/handlers/skills.js'), import('./cli/handlers/skillsCli.js')]);
+    await runSkillsCliAction(() => skillsRemoveHandler(name, options));
     process.exit(process.exitCode ?? 0);
   });
   if (feature('TRANSCRIPT_CLASSIFIER')) {

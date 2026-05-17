@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, stat } from 'fs/promises'
+import { lstat, open, readdir, readFile, stat } from 'fs/promises'
 import { basename, join, resolve, sep } from 'path'
 import { getDisplayPath } from '../../utils/file.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
@@ -95,8 +95,14 @@ async function collectSkillFiles(skillDir: string): Promise<string[]> {
 }
 
 async function fileLooksBinary(path: string): Promise<boolean> {
-  const sample = await readFile(path)
-  return sample.subarray(0, 4096).includes(0)
+  const file = await open(path, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(4096)
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
+    return buffer.subarray(0, bytesRead).includes(0)
+  } finally {
+    await file.close()
+  }
 }
 
 export async function validateSkillPath(path: string): Promise<string[]> {

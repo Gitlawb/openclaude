@@ -2,10 +2,13 @@ import { createHash } from 'crypto'
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
+import { coerce, lt } from 'semver'
 import { getCwd } from '../../utils/cwd.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getDisplayPath } from '../../utils/file.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { publicBuildVersion } from '../../utils/version.js'
 import { validateSkillPath } from './skillsValidation.js'
 
 export type InstallOptions = {
@@ -28,6 +31,8 @@ type SkillRegistryEntry = {
   path?: unknown
   homepage?: unknown
   sha256?: unknown
+  min_openclaude_version?: unknown
+  tools_required?: unknown
   category?: unknown
   tags?: unknown
   author?: unknown
@@ -36,6 +41,8 @@ type SkillRegistryEntry = {
 const DEFAULT_SKILLS_REGISTRY_URL =
   'https://raw.githubusercontent.com/Gitlawb/openclaude-skills/main/registry.json'
 const VALID_INSTALL_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
+const REMOTE_SOURCE_TIMEOUT_MS = 30_000
+const MAX_REMOTE_SOURCE_BYTES = 1024 * 1024
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -82,11 +89,48 @@ async function readSourceText(source: string): Promise<string> {
       return readFile(url, 'utf8')
     }
 
-    const response = await fetch(url)
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: REMOTE_SOURCE_TIMEOUT_MS,
+    })
+    let response: Response
+    try {
+      response = await fetch(url, { signal })
+    } finally {
+      cleanup()
+    }
     if (!response.ok) {
       throw new Error(`Failed to fetch ${source}: HTTP ${response.status}`)
     }
-    return response.text()
+
+    const contentLength = response.headers.get('content-length')
+    if (
+      contentLength &&
+      Number.parseInt(contentLength, 10) > MAX_REMOTE_SOURCE_BYTES
+    ) {
+      throw new Error(`Remote source ${source} is too large to install.`)
+    }
+
+    if (!response.body) {
+      return ''
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let bytesRead = 0
+    let text = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytesRead += value.byteLength
+      if (bytesRead > MAX_REMOTE_SOURCE_BYTES) {
+        await reader.cancel()
+        throw new Error(`Remote source ${source} is too large to install.`)
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+
+    return text + decoder.decode()
   }
 
   return readFile(resolve(source), 'utf8')
@@ -147,6 +191,8 @@ function registryMetadata(entry: SkillRegistryEntry): Record<string, unknown> {
     'path',
     'homepage',
     'sha256',
+    'min_openclaude_version',
+    'tools_required',
   ] as const) {
     const value = entry[key]
     if (value !== undefined) metadata[key] = value
@@ -157,6 +203,63 @@ function registryMetadata(entry: SkillRegistryEntry): Record<string, unknown> {
 function sha256OfSkillSource(text: string): string {
   const normalized = text.replace(/\r\n/g, '\n')
   return createHash('sha256').update(normalized, 'utf8').digest('hex')
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+}
+
+function requireRegistrySha256(entry: SkillRegistryEntry, spec: string): string {
+  if (typeof entry.sha256 !== 'string' || entry.sha256.trim() === '') {
+    throw new Error(
+      `Registry entry "${spec}" is missing sha256. Refusing to install an unpinned skill.`,
+    )
+  }
+  return entry.sha256.trim()
+}
+
+function assertCompatibleOpenClaudeVersion(entry: SkillRegistryEntry, spec: string): string | undefined {
+  if (
+    typeof entry.min_openclaude_version !== 'string' ||
+    entry.min_openclaude_version.trim() === ''
+  ) {
+    return undefined
+  }
+
+  const minimum = entry.min_openclaude_version.trim()
+  const current = coerce(publicBuildVersion)
+  const required = coerce(minimum)
+
+  if (!current || !required) {
+    throw new Error(
+      `Registry entry "${spec}" has an invalid min_openclaude_version value: ${minimum}.`,
+    )
+  }
+
+  if (lt(current, required)) {
+    throw new Error(
+      `Skill "${spec}" requires OpenClaude ${required.version} or newer. Current version is ${current.version}.`,
+    )
+  }
+
+  return minimum
+}
+
+function trustInstallWarning(trust: string): string | null {
+  if (trust === 'official') {
+    return null
+  }
+  if (trust === 'verified') {
+    return 'Warning: this verified community skill was reviewed, but is not maintained as an official OpenClaude skill.'
+  }
+  if (trust === 'community') {
+    return 'Warning: this community skill passed registry validation, but may not be deeply reviewed or maintained by OpenClaude maintainers.'
+  }
+  if (trust === 'deprecated') {
+    return 'Warning: this skill is marked deprecated. Install only if you intentionally need this older workflow.'
+  }
+  return `Warning: this skill has trust tier "${trust}". Review SKILL.md before using it.`
 }
 
 function getSkillNameFromMarkdown(markdown: string, fallback: string): string {
@@ -265,6 +368,8 @@ async function prepareInstallCandidate(
   skillName: string
   sourceDescription: string
   trust: string
+  toolsRequired: string[]
+  minOpenClaudeVersion?: string
 }> {
   if (!isUrl(spec) && (await pathExists(resolve(spec)))) {
     const sourcePath = resolve(spec)
@@ -287,6 +392,7 @@ async function prepareInstallCandidate(
         skillName,
         sourceDescription: getDisplayPath(sourcePath),
         trust: 'local',
+        toolsRequired: [],
       }
     }
 
@@ -297,6 +403,7 @@ async function prepareInstallCandidate(
       ...prepared,
       sourceDescription: getDisplayPath(sourcePath),
       trust: 'local',
+      toolsRequired: [],
     }
   }
 
@@ -308,6 +415,7 @@ async function prepareInstallCandidate(
       ...prepared,
       sourceDescription: spec,
       trust: 'url',
+      toolsRequired: [],
     }
   }
 
@@ -316,14 +424,14 @@ async function prepareInstallCandidate(
     throw new Error(`Skill "${spec}" was not found in the registry.`)
   }
 
+  const expectedSha256 = requireRegistrySha256(entry, spec)
+  const minOpenClaudeVersion = assertCompatibleOpenClaudeVersion(entry, spec)
   const markdown = await readSourceText(entry.source)
-  if (typeof entry.sha256 === 'string') {
-    const actual = sha256OfSkillSource(markdown)
-    if (actual !== entry.sha256) {
-      throw new Error(
-        `Registry checksum mismatch for "${spec}". Expected ${entry.sha256}, got ${actual}.`,
-      )
-    }
+  const actual = sha256OfSkillSource(markdown)
+  if (actual !== expectedSha256) {
+    throw new Error(
+      `Registry checksum mismatch for "${spec}". Expected ${expectedSha256}, got ${actual}.`,
+    )
   }
 
   const fallbackName =
@@ -337,6 +445,8 @@ async function prepareInstallCandidate(
     ...prepared,
     sourceDescription: entry.source,
     trust: typeof entry.trust === 'string' ? entry.trust : 'registry',
+    toolsRequired: stringArray(entry.tools_required),
+    minOpenClaudeVersion,
   }
 }
 
@@ -373,6 +483,16 @@ export async function skillsInstallHandler(
     console.log(`Installing skill "${candidate.skillName}"`)
     console.log(`Source: ${candidate.sourceDescription}`)
     console.log(`Trust: ${candidate.trust}`)
+    const trustWarning = trustInstallWarning(candidate.trust)
+    if (trustWarning) {
+      console.warn(trustWarning)
+    }
+    if (candidate.toolsRequired.length > 0) {
+      console.log(`Tools required: ${candidate.toolsRequired.join(', ')}`)
+    }
+    if (candidate.minOpenClaudeVersion) {
+      console.log(`Requires OpenClaude: >= ${candidate.minOpenClaudeVersion}`)
+    }
     console.log(`Target: ${getDisplayPath(targetDir)}`)
 
     await mkdir(root, { recursive: true })

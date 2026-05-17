@@ -229,25 +229,28 @@ const getDefaultClaudeConfigHomeDir = memoize(
   () => homedir(),
 )
 
-export function getClaudeConfigHomeDir(): string {
-  if (claudeConfigHomeDirOverride) {
-    return claudeConfigHomeDirOverride
-  }
+export const getClaudeConfigHomeDir = Object.assign(
+  (): string => {
+    if (claudeConfigHomeDirOverride) {
+      return claudeConfigHomeDirOverride
+    }
 
-  const configDirEnv = resolveConfigDirEnv({
-    openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
-    legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
-    warn: message => {
-      // eslint-disable-next-line no-console
-      console.warn(`[openclaude] ${message}`)
-    },
-  })
-  if (configDirEnv) {
-    return resolveClaudeConfigHomeDir({ configDirEnv })
-  }
+    const configDirEnv = resolveConfigDirEnv({
+      openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+      legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
+      warn: message => {
+        // eslint-disable-next-line no-console
+        console.warn(`[openclaude] ${message}`)
+      },
+    })
+    if (configDirEnv) {
+      return resolveClaudeConfigHomeDir({ configDirEnv })
+    }
 
-  return getDefaultClaudeConfigHomeDir()
-}
+    return getDefaultClaudeConfigHomeDir()
+  },
+  { cache: getDefaultClaudeConfigHomeDir.cache },
+)
 
 export function getTeamsDir(): string {
   return join(getClaudeConfigHomeDir(), 'teams')
