@@ -99,6 +99,10 @@ import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
+import {
+  createToolFailureLoopGuardState,
+  updateToolFailureLoopGuard,
+} from './query/toolFailureLoopGuard.js'
 import { buildQueryConfig } from './query/config.js'
 import { getGlobalConfig } from './utils/config.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
@@ -304,6 +308,7 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  const toolFailureGuardState = createToolFailureLoopGuardState()
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
@@ -1591,6 +1596,75 @@ async function* queryLoop(
       await finalizeArcTurn()
     }
 
+    // We were aborted during tool calls
+    if (toolUseContext.abortController.signal.aborted) {
+      // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
+      // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
+      // Main thread only — see stopHooks.ts for the subagent rationale.
+      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
+        try {
+          const { cleanupComputerUseAfterTurn } = await import(
+            './utils/computerUse/cleanup.js'
+          )
+          await cleanupComputerUseAfterTurn(toolUseContext)
+        } catch {
+          // Failures are silent — this is dogfooding cleanup, not critical path
+        }
+      }
+      // Skip the interruption message for submit-interrupts — the queued
+      // user message that follows provides sufficient context.
+      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+        yield createUserInterruptionMessage({
+          toolUse: true,
+        })
+      }
+      // Check maxTurns before returning when aborted
+      const nextTurnCountOnAbort = turnCount + 1
+      if (maxTurns && nextTurnCountOnAbort > maxTurns) {
+        yield createAttachmentMessage({
+          type: 'max_turns_reached',
+          maxTurns,
+          turnCount: nextTurnCountOnAbort,
+        })
+      }
+      return { reason: 'aborted_tools' }
+    }
+
+    // If a hook indicated to prevent continuation, stop here
+    if (shouldPreventContinuation) {
+      return { reason: 'hook_stopped' }
+    }
+
+    const toolFailureLoopDecision = updateToolFailureLoopGuard({
+      state: toolFailureGuardState,
+      toolUseBlocks,
+      toolResults,
+    })
+    if (toolFailureLoopDecision.tripped) {
+      logForDebugging(
+        `Tool failure loop guard tripped: kind=${toolFailureLoopDecision.kind} ` +
+          `threshold=${toolFailureLoopDecision.threshold} ` +
+          `hasToolName=${toolFailureLoopDecision.toolName !== undefined} ` +
+          `hasErrorCategory=${toolFailureLoopDecision.errorCategory !== undefined} ` +
+          `hasPath=${toolFailureLoopDecision.path !== undefined}`,
+      )
+      logEvent('tengu_tool_failure_loop_guard_tripped', {
+        threshold: toolFailureLoopDecision.threshold,
+        isPathTrip: toolFailureLoopDecision.kind === 'path',
+        isSignatureTrip: toolFailureLoopDecision.kind === 'signature',
+        isCategoryTrip: toolFailureLoopDecision.kind === 'category',
+        hasToolName: toolFailureLoopDecision.toolName !== undefined,
+        hasErrorCategory:
+          toolFailureLoopDecision.errorCategory !== undefined,
+        hasPath: toolFailureLoopDecision.path !== undefined,
+        queryDepth: queryTracking.depth,
+      })
+      yield createAssistantAPIErrorMessage({
+        content: toolFailureLoopDecision.message,
+      })
+      return { reason: 'tool_failure_loop' }
+    }
+
     // Generate tool use summary after tool batch completes — passed to next recursive call
     let nextPendingToolUseSummary:
       | Promise<ToolUseSummaryMessage | null>
@@ -1662,45 +1736,6 @@ async function* queryLoop(
           return null
         })
         .catch(() => null)
-    }
-
-    // We were aborted during tool calls
-    if (toolUseContext.abortController.signal.aborted) {
-      // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
-      // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
-      // Main thread only — see stopHooks.ts for the subagent rationale.
-      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
-        try {
-          const { cleanupComputerUseAfterTurn } = await import(
-            './utils/computerUse/cleanup.js'
-          )
-          await cleanupComputerUseAfterTurn(toolUseContext)
-        } catch {
-          // Failures are silent — this is dogfooding cleanup, not critical path
-        }
-      }
-      // Skip the interruption message for submit-interrupts — the queued
-      // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
-        yield createUserInterruptionMessage({
-          toolUse: true,
-        })
-      }
-      // Check maxTurns before returning when aborted
-      const nextTurnCountOnAbort = turnCount + 1
-      if (maxTurns && nextTurnCountOnAbort > maxTurns) {
-        yield createAttachmentMessage({
-          type: 'max_turns_reached',
-          maxTurns,
-          turnCount: nextTurnCountOnAbort,
-        })
-      }
-      return { reason: 'aborted_tools' }
-    }
-
-    // If a hook indicated to prevent continuation, stop here
-    if (shouldPreventContinuation) {
-      return { reason: 'hook_stopped' }
     }
 
     if (tracking?.compacted) {
