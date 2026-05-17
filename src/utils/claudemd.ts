@@ -844,7 +844,7 @@ export const getMemoryFiles = memoize(
           userClaudeMd,
           'User',
           processedPaths,
-          true, // User memory can always include external files
+          includeExternal, // Global external-includes gate (line 812)
         )),
       )
       // Process User ~/.claude/rules/*.md files
@@ -854,7 +854,7 @@ export const getMemoryFiles = memoize(
           rulesDir: userClaudeRulesDir,
           type: 'User',
           processedPaths,
-          includeExternal: true,
+           includeExternal,
           conditionalRule: false,
         })),
       )
