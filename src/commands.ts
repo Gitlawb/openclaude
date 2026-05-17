@@ -19,7 +19,7 @@ import { context, contextNonInteractive } from './commands/context/index.js'
 import cost from './commands/cost/index.js'
 import diff from './commands/diff/index.js'
 import dream from './commands/dream/index.js'
-import ctx_viz, { ctxNonInteractive } from './commands/ctx_viz/index.js'
+import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import knowledge from './commands/knowledge/index.js'
@@ -286,7 +286,6 @@ const COMMANDS = memoize((): Command[] => [
   context,
   contextNonInteractive,
   cost,
-  ctxNonInteractive,
   ctx_viz,
   diff,
   dream,
@@ -650,7 +649,7 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   color, // Change agent color
   vim, // Toggle vim mode
   cost, // Show session cost (local cost tracking)
-  ctxNonInteractive, // Context window usage
+  ctx_viz, // Context window usage
   usage, // Show usage info
   copy, // Copy last message
   btw, // Quick note
@@ -679,7 +678,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     compact, // Shrink context — useful mid-session from a phone
     clear, // Wipe transcript
     cost, // Show session cost
-    ctxNonInteractive, // Context window usage
+    ctx_viz, // Context window usage
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
