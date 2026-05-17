@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useEventCallback } from 'usehooks-ts'
 import type { InputEvent, Key } from '../events/input-event.js'
 import useStdin from './use-stdin.js'
@@ -47,26 +47,28 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
    // mode setup is deferred to the next event loop tick via React's scheduler,
    // leaving the terminal in cooked mode — keystrokes echo and the cursor is
    // visible until the effect fires.
-   useLayoutEffect(() => {
-     if (options.isActive === false) {
-       return
-     }
+useLayoutEffect(() => {
+      // Track whether we actually enabled raw mode this activation cycle
+      const rawModeEnabled = { current: false }
 
-     setRawMode(true)
+      if (options.isActive === false) {
+        return
+      }
 
-     return () => {
-       // Re-check isActive so we skip the (false → false) path
-       // produced by Ink's PreserveFocus unmount/remount cycles
-       // during MCP async re-render churn. A single commit round-trip
-       // unmounts the leaf and re-mounts it before the next tick;
-       // keeping raw mode on avoids deregistering the stdin listener.
-       if (options.isActive !== false) {
-         return
-       }
+      setRawMode(true)
+      rawModeEnabled.current = true
 
-       setRawMode(false)
-     }
-   }, [options.isActive, setRawMode])
+      return () => {
+        // Only disable raw mode if we actually enabled it during this activation.
+        // This handles the true -> false transition correctly: the cleanup
+        // runs with the OLD isActive value in closure (true), but we check
+        // whether raw mode was actually enabled, not the stale isActive.
+        // Also handles unmount: if rawModeEnabled is true, we need to clean up.
+        if (rawModeEnabled.current) {
+          setRawMode(false)
+        }
+      }
+    }, [options.isActive, setRawMode])
 
   // Register the listener once on mount so its slot in the EventEmitter's
   // listener array is stable. If isActive were in the effect's deps, the
