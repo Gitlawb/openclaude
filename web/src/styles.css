@@ -161,8 +161,8 @@ body, html, #root {
 }
 
 .ascii-logo {
-  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Monaco, 'Courier New', monospace;
-  font-size: 9px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 8px;
   line-height: 1;
   font-weight: bold;
   background: linear-gradient(180deg, #ff8c00 0%, #ff4500 50%, #d77757 100%);
@@ -170,6 +170,8 @@ body, html, #root {
   -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 5px rgba(215, 119, 87, 0.3));
   margin-bottom: 20px;
+  white-space: pre;
+  text-align: left;
 }
 
 .slogan {
