@@ -441,6 +441,24 @@ function isScratchpadPath(absolutePath: string): boolean {
   )
 }
 
+function pathsEqualForPermission(a: string, b: string): boolean {
+  return normalizeCaseForComparison(normalize(a)) ===
+    normalizeCaseForComparison(normalize(b))
+}
+
+export function isOpenClaudeCommitMessagePath(absolutePath: string): boolean {
+  const expectedPath = join(getOriginalCwd(), '.git', 'OPENCLAUDE_COMMIT_MSG')
+  const expectedForms = getPathsForPermissionCheck(expectedPath)
+  const targetForms = getPathsForPermissionCheck(absolutePath)
+
+  return (
+    targetForms.length > 0 &&
+    targetForms.every(target =>
+      expectedForms.some(expected => pathsEqualForPermission(target, expected)),
+    )
+  )
+}
+
 /**
  * Check if a file path is dangerous to auto-edit without explicit permission.
  * This includes:
@@ -1262,6 +1280,7 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   const internalEditResult = checkEditableInternalPath(
     absolutePathForEdit,
     input,
+    toolPermissionContext,
   )
   if (internalEditResult.behavior !== 'passthrough') {
     return internalEditResult
@@ -1501,6 +1520,7 @@ export function generateSuggestions(
 export function checkEditableInternalPath(
   absolutePath: string,
   input: { [key: string]: unknown },
+  toolPermissionContext?: ToolPermissionContext,
 ): PermissionResult {
   // SECURITY: Normalize path to prevent traversal bypasses via .. segments
   // This is defense-in-depth; individual helper functions also normalize
@@ -1619,6 +1639,24 @@ export function checkEditableInternalPath(
       decisionReason: {
         type: 'other',
         reason: 'Preview launch config is allowed for writing',
+      },
+    }
+  }
+
+  // /commit uses this project-local file to pass multi-line commit messages
+  // safely through shells on Windows. It is data-only and intentionally scoped
+  // to one exact file; other .git/ paths still go through safety checks.
+  if (
+    (toolPermissionContext?.mode === 'bypassPermissions' ||
+      toolPermissionContext?.mode === 'fullAccess') &&
+    isOpenClaudeCommitMessagePath(normalizedPath)
+  ) {
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      decisionReason: {
+        type: 'other',
+        reason: 'OpenClaude commit message file is allowed for writing',
       },
     }
   }

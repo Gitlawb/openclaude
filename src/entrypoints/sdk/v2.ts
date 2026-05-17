@@ -82,6 +82,8 @@ export type SDKSessionOptions = {
   model?: string
   /** Permission mode for tool access. */
   permissionMode?: QueryPermissionMode
+  /** Skip permission prompts entirely (dangerous). */
+  allowDangerouslySkipPermissions?: boolean
   /** AbortController to cancel the session. */
   abortController?: AbortController
   /**
@@ -457,7 +459,13 @@ function createEngineFromOptions(
   initialMessages?: any[],
   sessionId?: string,
 ): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {
-  const { cwd, model, abortController, permissionMode } = options
+  const {
+    cwd,
+    model,
+    abortController,
+    permissionMode,
+    allowDangerouslySkipPermissions,
+  } = options
 
   if (!cwd) {
     throw new Error('SDKSessionOptions requires cwd')
@@ -471,6 +479,7 @@ function createEngineFromOptions(
   const permissionContext = buildPermissionContext({
     cwd,
     permissionMode,
+    allowDangerouslySkipPermissions,
     disallowedTools: options.disallowedTools,
   })
 

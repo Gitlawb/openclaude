@@ -171,3 +171,17 @@ test('deserializeMessages preserves thinking blocks for GitHub native Claude tra
   }>
   expect(content.some(block => block.type === 'thinking')).toBe(true)
 })
+
+test('deserializeMessages strips dangerous permission modes from rewindable user messages', async () => {
+  clearProviderEnv()
+  const { deserializeMessages } = await importFreshConversationRecovery()
+
+  const deserialized = deserializeMessages([
+    {
+      ...user(id(3), 'run it'),
+      permissionMode: 'fullAccess',
+    } as any,
+  ])
+
+  expect((deserialized[0] as any)?.permissionMode).toBeUndefined()
+})

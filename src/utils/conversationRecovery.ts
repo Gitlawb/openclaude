@@ -51,6 +51,7 @@ import {
 } from './sessionStorage.js'
 import { jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
+import { isDangerousPermissionMode } from './permissions/PermissionMode.js'
 
 // Dead code elimination: internal-only tool names are conditionally required so
 // their strings don't leak into external builds. Static imports always bundle.
@@ -223,14 +224,16 @@ export function deserializeMessagesWithInterruptDetection(
       migrateLegacyAttachmentTypes,
     )
 
-    // Strip invalid permissionMode values from deserialized user messages.
-    // The field is unvalidated JSON from disk and may contain modes from a different build.
+    // Strip invalid or dangerous permissionMode values from deserialized user
+    // messages. The field is unvalidated JSON from disk and only
+    // non-dangerous modes are eligible for rewind restoration.
     const validModes = new Set<string>(PERMISSION_MODES)
     for (const msg of migratedMessages) {
       if (
         msg.type === 'user' &&
         msg.permissionMode !== undefined &&
-        !validModes.has(msg.permissionMode)
+        (!validModes.has(msg.permissionMode) ||
+          isDangerousPermissionMode(msg.permissionMode))
       ) {
         msg.permissionMode = undefined
       }

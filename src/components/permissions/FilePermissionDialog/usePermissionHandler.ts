@@ -16,6 +16,7 @@ import {
   type CompletionType,
   logUnaryEvent,
 } from '../../../utils/unaryLogging.js'
+import { executePermissionAction } from '../simplePermissionActions.js'
 import type { ToolUseConfirm } from '../PermissionRequest.js'
 import type {
   FileOperationType,
@@ -41,6 +42,55 @@ function logPermissionEvent(
   })
 }
 
+function logSubmissionEvent(
+  event: 'accept' | 'reject',
+  toolUseConfirm: ToolUseConfirm,
+  options?: PermissionHandlerOptions,
+): void {
+  logEvent(
+    event === 'accept' ? 'tengu_accept_submitted' : 'tengu_reject_submitted',
+    {
+      toolName: sanitizeToolNameForAnalytics(
+        toolUseConfirm.tool.name,
+      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      isMcp: toolUseConfirm.tool.isMcp ?? false,
+      has_instructions: !!options?.feedback,
+      instructions_length: options?.feedback?.length ?? 0,
+      entered_feedback_mode: options?.enteredFeedbackMode ?? false,
+    },
+  )
+}
+
+function buildSessionPermissionUpdates(
+  path: string | null,
+  operationType: FileOperationType,
+  toolPermissionContext: ToolPermissionContext,
+  scope?: 'claude-folder' | 'global-claude-folder',
+): PermissionUpdate[] {
+  if (scope === 'claude-folder' || scope === 'global-claude-folder') {
+    return [
+      {
+        type: 'addRules',
+        rules: [
+          {
+            toolName: FILE_EDIT_TOOL_NAME,
+            ruleContent:
+              scope === 'global-claude-folder'
+                ? GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN
+                : CLAUDE_FOLDER_PERMISSION_PATTERN,
+          },
+        ],
+        behavior: 'allow',
+        destination: 'session',
+      },
+    ]
+  }
+
+  return path
+    ? generateSuggestions(path, operationType, toolPermissionContext)
+    : []
+}
+
 export type PermissionHandlerParams = {
   messageId: string
   path: string | null
@@ -58,33 +108,11 @@ export type PermissionHandlerOptions = {
   feedback?: string
   enteredFeedbackMode?: boolean
   scope?: 'claude-folder' | 'global-claude-folder'
+  input?: unknown
 }
 
-function handleAcceptOnce(
-  params: PermissionHandlerParams,
-  options?: PermissionHandlerOptions,
-): void {
-  const { messageId, toolUseConfirm, onDone, completionType, languageName } =
-    params
-
-  logPermissionEvent('accept', completionType, languageName, messageId)
-
-  // Log accept submission with feedback context
-  logEvent('tengu_accept_submitted', {
-    toolName: sanitizeToolNameForAnalytics(
-      toolUseConfirm.tool.name,
-    ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    isMcp: toolUseConfirm.tool.isMcp ?? false,
-    has_instructions: !!options?.feedback,
-    instructions_length: options?.feedback?.length ?? 0,
-    entered_feedback_mode: options?.enteredFeedbackMode ?? false,
-  })
-
-  onDone()
-  toolUseConfirm.onAllow(toolUseConfirm.input, [], options?.feedback)
-}
-
-function handleAcceptSession(
+export function executeFilePermissionAction(
+  optionType: PermissionOption['type'],
   params: PermissionHandlerParams,
   options?: PermissionHandlerOptions,
 ): void {
@@ -94,92 +122,46 @@ function handleAcceptSession(
     toolUseConfirm,
     toolPermissionContext,
     onDone,
+    onReject,
     completionType,
     languageName,
     operationType,
   } = params
 
-  logPermissionEvent('accept', completionType, languageName, messageId)
-
-  // For claude-folder scope, grant session-level access to all .claude/ files
-  if (
-    options?.scope === 'claude-folder' ||
-    options?.scope === 'global-claude-folder'
-  ) {
-    const pattern =
-      options.scope === 'global-claude-folder'
-        ? GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN
-        : CLAUDE_FOLDER_PERMISSION_PATTERN
-    const suggestions: PermissionUpdate[] = [
-      {
-        type: 'addRules',
-        rules: [
-          {
-            toolName: FILE_EDIT_TOOL_NAME,
-            ruleContent: pattern,
-          },
-        ],
-        behavior: 'allow',
-        destination: 'session',
-      },
-    ]
-    onDone()
-    toolUseConfirm.onAllow(toolUseConfirm.input, suggestions)
-    return
-  }
-
-  // Generate permission updates if path is provided
-  const suggestions = path
-    ? generateSuggestions(path, operationType, toolPermissionContext)
-    : []
-
-  onDone()
-  // Pass permission updates directly to onAllow
-  toolUseConfirm.onAllow(toolUseConfirm.input, suggestions)
-}
-
-function handleReject(
-  params: PermissionHandlerParams,
-  options?: PermissionHandlerOptions,
-): void {
-  const {
-    messageId,
-    toolUseConfirm,
-    onDone,
-    onReject,
-    completionType,
-    languageName,
-  } = params
-
+  const isReject = optionType === 'reject'
   logPermissionEvent(
-    'reject',
+    isReject ? 'reject' : 'accept',
     completionType,
     languageName,
     messageId,
     options?.hasFeedback,
   )
+  logSubmissionEvent(isReject ? 'reject' : 'accept', toolUseConfirm, options)
 
-  // Log reject submission with feedback context
-  logEvent('tengu_reject_submitted', {
-    toolName: sanitizeToolNameForAnalytics(
-      toolUseConfirm.tool.name,
-    ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    isMcp: toolUseConfirm.tool.isMcp ?? false,
-    has_instructions: !!options?.feedback,
-    instructions_length: options?.feedback?.length ?? 0,
-    entered_feedback_mode: options?.enteredFeedbackMode ?? false,
+  if (isReject) {
+    executePermissionAction(toolUseConfirm, { onDone, onReject }, {
+      behavior: 'reject',
+      feedback: options?.feedback,
+    })
+    return
+  }
+
+  const updates: PermissionUpdate[] =
+    optionType === 'accept-once'
+      ? []
+      : optionType === 'accept-full-access'
+        ? [{ type: 'setMode', mode: 'fullAccess', destination: 'session' }]
+        : buildSessionPermissionUpdates(
+            path,
+            operationType,
+            toolPermissionContext,
+            options?.scope,
+          )
+
+  executePermissionAction(toolUseConfirm, { onDone }, {
+    behavior: 'allow',
+    input: options?.input,
+    updates,
+    feedback: optionType === 'accept-once' ? options?.feedback : undefined,
   })
-
-  onDone()
-  onReject()
-  toolUseConfirm.onReject(options?.feedback)
-}
-
-export const PERMISSION_HANDLERS: Record<
-  PermissionOption['type'],
-  (params: PermissionHandlerParams, options?: PermissionHandlerOptions) => void
-> = {
-  'accept-once': handleAcceptOnce,
-  'accept-session': handleAcceptSession,
-  reject: handleReject,
 }

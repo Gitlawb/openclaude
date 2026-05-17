@@ -424,6 +424,7 @@ export async function* runAgent({
     if (
       agentPermissionMode &&
       state.toolPermissionContext.mode !== 'bypassPermissions' &&
+      state.toolPermissionContext.mode !== 'fullAccess' &&
       state.toolPermissionContext.mode !== 'acceptEdits' &&
       !(
         feature('TRANSCRIPT_CLASSIFIER') &&
