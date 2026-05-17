@@ -248,25 +248,16 @@ export function deserializeMessagesWithInterruptDetection(
       filteredToolUses,
     ) as NormalizedMessage[]
 
-    // Strip thinking/redacted_thinking content blocks from assistant messages
-    // when resuming against a 3P provider. These Anthropic-specific blocks cause
-    // 400 errors or context corruption on OpenAI-compatible providers (issue #248 finding 5).
-    const provider = getAPIProvider()
-    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
-      processEnv: process.env,
-      model: process.env.OPENAI_MODEL,
-      providerCategory: provider,
-    })
-    const isThirdPartyProvider =
-      provider !== 'foundry' && !isAnthropicNativeTransport
-    const thinkingStripped = isThirdPartyProvider
-      ? stripThinkingBlocks(filteredThinking)
-      : filteredThinking
+    // Provider-specific normalization is handled downstream in openaiShim.ts.
+    // DeepSeek and Moonshot require thinking continuity to reconstruct
+    // reasoning_content on replayed assistant messages.
+    // Removing thinking blocks here prevents the shim from restoring
+    // reasoning_content correctly.
 
     // Filter out assistant messages with only whitespace text content.
     // This can happen when model outputs "\n\n" before thinking, user cancels mid-stream.
     const filteredMessages = filterWhitespaceOnlyAssistantMessages(
-      thinkingStripped,
+      filteredThinking,
     ) as NormalizedMessage[]
 
     const internalState = detectTurnInterruption(filteredMessages)
