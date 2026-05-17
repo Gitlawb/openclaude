@@ -1521,3 +1521,24 @@ test('atomic-chat launch ignores mismatched persisted openai env', async () => {
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
 })
+
+test('buildStartupEnvFromProfile preserves persisted token limits', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: {
+      profile: 'openai',
+      env: {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: '50000',
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4096',
+      },
+      createdAt: new Date().toISOString(),
+    },
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '50000')
+  assert.equal(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '4096')
+})

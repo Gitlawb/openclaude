@@ -1160,6 +1160,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       authHeader: '',
       authHeaderValue: '',
       customHeaders: '',
+      contextWindowSize: '',
+      maxOutputTokens: '',
     }
     setEditingProfileId(null)
     setDraftProvider(provider)

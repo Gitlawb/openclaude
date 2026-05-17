@@ -1072,6 +1072,16 @@ export async function buildLaunchEnv(options: {
   const persistedOpenAIAuthHeaderValue = sanitizeApiKey(
     persistedEnv.OPENAI_AUTH_HEADER_VALUE,
   )
+  const contextTokens =
+    sanitizeProviderConfigValue(processEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS) ||
+    sanitizeProviderConfigValue(persistedEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+  const outputTokens =
+    sanitizeProviderConfigValue(processEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS) ||
+    sanitizeProviderConfigValue(persistedEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS)
+  const tokenEnv: ProfileEnv = {
+    ...(contextTokens ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: contextTokens } : {}),
+    ...(outputTokens ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: outputTokens } : {}),
+  }
   const persistedCustomHeaders = persistedEnv.ANTHROPIC_CUSTOM_HEADERS
   const shellCustomHeaders = processEnv.ANTHROPIC_CUSTOM_HEADERS
   const shellOpenAIModel = normalizeProfileModel(
@@ -1143,10 +1153,13 @@ export async function buildLaunchEnv(options: {
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'github',
-      profileEnv: buildGithubProfileEnv({
-        model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
-        baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
-      }),
+      profileEnv: {
+        ...tokenEnv,
+        ...buildGithubProfileEnv({
+          model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
+          baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
+        }),
+      },
     })
   }
 
@@ -1162,6 +1175,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'anthropic',
       profileEnv: {
+        ...tokenEnv,
         ...(anthropicBaseUrl
           ? { ANTHROPIC_BASE_URL: anthropicBaseUrl }
           : {}),
@@ -1188,17 +1202,20 @@ export async function buildLaunchEnv(options: {
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'bedrock',
-      profileEnv: buildBedrockProfileEnv({
-        model:
-          normalizeProfileModel(
-            sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
-          ) ||
-          normalizeProfileModel(
-            sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
-          ) ||
-          'claude-sonnet-4-6',
-        baseUrl: bedrockBaseUrl,
-      }),
+      profileEnv: {
+        ...tokenEnv,
+        ...buildBedrockProfileEnv({
+          model:
+            normalizeProfileModel(
+              sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
+            ) ||
+            normalizeProfileModel(
+              sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
+            ) ||
+            'claude-sonnet-4-6',
+          baseUrl: bedrockBaseUrl,
+        }),
+      },
     })
   }
 
@@ -1210,22 +1227,26 @@ export async function buildLaunchEnv(options: {
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'vertex',
-      profileEnv: buildVertexProfileEnv({
-        model:
-          normalizeProfileModel(
-            sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
-          ) ||
-          normalizeProfileModel(
-            sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
-          ) ||
-          'claude-sonnet-4-6',
-        baseUrl: vertexBaseUrl,
-      }),
+      profileEnv: {
+        ...tokenEnv,
+        ...buildVertexProfileEnv({
+          model:
+            normalizeProfileModel(
+              sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
+            ) ||
+            normalizeProfileModel(
+              sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
+            ) ||
+            'claude-sonnet-4-6',
+          baseUrl: vertexBaseUrl,
+        }),
+      },
     })
   }
 
   if (options.profile === 'gemini') {
     const env: ProfileEnv = {
+      ...tokenEnv,
       GEMINI_MODEL:
         shellGeminiModel ||
         persistedGeminiModel ||
@@ -1286,6 +1307,7 @@ export async function buildLaunchEnv(options: {
     const mistralKey = shellMistralKey || persistedMistralKey
 
     const env: ProfileEnv = {
+      ...tokenEnv,
       MISTRAL_MODEL:
         shellMistralModel || persistedMistralModel || DEFAULT_MISTRAL_MODEL,
     }
@@ -1312,12 +1334,15 @@ export async function buildLaunchEnv(options: {
       sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
       sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
 
-    const env = buildXaiProfileEnv({
-      model: shellOpenAIModel || persistedOpenAIModel,
-      baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
-      apiKey: xaiKey,
-      processEnv,
-    })
+    const env = {
+      ...tokenEnv,
+      ...buildXaiProfileEnv({
+        model: shellOpenAIModel || persistedOpenAIModel,
+        baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
+        apiKey: xaiKey,
+        processEnv,
+      }),
+    }
     const customHeaders = shellCustomHeaders || persistedCustomHeaders
     if (customHeaders) {
       env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
@@ -1340,6 +1365,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
+        ...tokenEnv,
         OPENAI_BASE_URL: persistedOpenAIBaseUrl || getOllamaBaseUrl(),
         OPENAI_MODEL:
           persistedOpenAIModel ||
@@ -1358,6 +1384,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
+        ...tokenEnv,
         OPENAI_BASE_URL: persistedEnv.OPENAI_BASE_URL || getAtomicChatBaseUrl(),
         OPENAI_MODEL:
           persistedEnv.OPENAI_MODEL ||
@@ -1388,6 +1415,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
+        ...tokenEnv,
         OPENAI_BASE_URL:
           persistedOpenAIBaseUrl && isCodexBaseUrl(persistedOpenAIBaseUrl)
             ? persistedOpenAIBaseUrl
@@ -1418,6 +1446,7 @@ export async function buildLaunchEnv(options: {
     persistedOpenAIRequest.transport !== 'codex_responses'
 
   const env: ProfileEnv = {
+    ...tokenEnv,
     OPENAI_BASE_URL:
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       (usePersistedOpenAIConfig ? persistedOpenAIBaseUrl : undefined) ||
@@ -1531,18 +1560,32 @@ export async function buildStartupEnvFromProfile(options?: {
     // If Codex credentials are available (OAuth or existing), use Codex.
     // Otherwise inject the Codex env defaults so the provider picker
     // shows GPT 5.5 as the default model when the user lands on it.
+    const contextTokens = sanitizeProviderConfigValue(
+      processEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+    )
+    const outputTokens = sanitizeProviderConfigValue(
+      processEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+    )
+    const tokenEnv: ProfileEnv = {
+      ...(contextTokens
+        ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: contextTokens }
+        : {}),
+      ...(outputTokens ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: outputTokens } : {}),
+    }
+
     const codexEnv = buildCodexProfileEnv({})
     if (codexEnv) {
       return buildCompatibilityProcessEnv({
         processEnv,
         compatibilityMode: 'openai',
-        profileEnv: codexEnv,
+        profileEnv: { ...tokenEnv, ...codexEnv },
       })
     }
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
+        ...tokenEnv,
         OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
         OPENAI_MODEL: 'codexplan',
       },
