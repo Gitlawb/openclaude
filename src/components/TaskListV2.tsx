@@ -361,7 +361,7 @@ function TaskItem(t0) {
   }
   let t12;
   if ($[34] !== t10 || $[35] !== t11) {
-    t12 = <Box flexDirection="column" width="100%">{t10}{t11}</Box>;
+    t12 = <Box flexDirection="column" width="100%" overflowX="hidden">{t10}{t11}</Box>;
     $[34] = t10;
     $[35] = t11;
     $[36] = t12;
