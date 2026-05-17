@@ -252,6 +252,14 @@ test('opengateway validation allows no-auth access without OPENAI_API_KEY', asyn
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('opengateway validation allows no-auth access with model-specific path', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('github validation stays descriptor-selected and reports missing auth', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.CLAUDE_CODE_USE_OPENAI
