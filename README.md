@@ -17,41 +17,36 @@ OpenClaude is also mirrored to GitLawb:
 
 ## Sponsors
 
-<p align="center">
-  <a href="https://gitlawb.com">
-    <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="96">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://bankr.bot">
-    <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://atomic.chat/">
-    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://api.xiaomimimo.com/v1">
-    <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="96">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://api.xiaomimimo.com/v1"><strong>Xiaomi MiMo</strong></a>
-</p>
-
-### Sponsored Tips: Xiaomi MiMo
-
-1. Increase your context window with Xiaomi MiMo
-2. MiMo performs well on coding benchmarks
-3. Hugging Face shows MiMo among top coding models
-4. You can switch to Xiaomi MiMo in compatible tools
-5. MiMo's true value: efficiently solving developers' real problems
+<table align="center">
+  <tr>
+    <td align="center" width="150" height="80">
+      <a href="https://gitlawb.com">
+        <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="72">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://bankr.bot">
+        <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="72">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://atomic.chat/">
+        <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="72">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://api.xiaomimimo.com/v1">
+        <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="136">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://gitlawb.com"><strong>GitLawb</strong></a></td>
+    <td align="center"><a href="https://bankr.bot"><strong>Bankr.bot</strong></a></td>
+    <td align="center"><a href="https://atomic.chat/"><strong>Atomic Chat</strong></a></td>
+    <td align="center"><a href="https://api.xiaomimimo.com/v1"><strong>Xiaomi MiMo</strong></a></td>
+  </tr>
+</table>
 
 ## Star History
 

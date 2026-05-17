@@ -24,6 +24,11 @@ const ATOMIC: TipSponsor = {
   url: 'https://atomic.chat/',
 }
 
+const XIAOMI_MIMO: TipSponsor = {
+  name: 'Xiaomi MiMo',
+  url: 'https://api.xiaomimimo.com/v1',
+}
+
 function renderSponsoredTip(
   sponsor: TipSponsor,
   body: string,
@@ -81,6 +86,66 @@ export const sponsoredTips: Tip[] = [
       renderSponsoredTip(
         ATOMIC,
         '30% less RAM usage with Atomic Chat local models',
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'xiaomi-mimo-context-window',
+    sponsor: XIAOMI_MIMO,
+    content: async ctx =>
+      renderSponsoredTip(
+        XIAOMI_MIMO,
+        'Increase your context window with Xiaomi MiMo',
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'xiaomi-mimo-coding-benchmarks',
+    sponsor: XIAOMI_MIMO,
+    content: async ctx =>
+      renderSponsoredTip(
+        XIAOMI_MIMO,
+        'MiMo performs well on coding benchmarks',
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'xiaomi-mimo-hugging-face-ranking',
+    sponsor: XIAOMI_MIMO,
+    content: async ctx =>
+      renderSponsoredTip(
+        XIAOMI_MIMO,
+        'Hugging Face shows MiMo among top coding models',
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'xiaomi-mimo-compatible-tools',
+    sponsor: XIAOMI_MIMO,
+    content: async ctx =>
+      renderSponsoredTip(
+        XIAOMI_MIMO,
+        'You can switch to Xiaomi MiMo in compatible tools',
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'xiaomi-mimo-real-problems',
+    sponsor: XIAOMI_MIMO,
+    content: async ctx =>
+      renderSponsoredTip(
+        XIAOMI_MIMO,
+        "MiMo's true value: efficiently solving developers' real problems",
         ctx,
       ),
     cooldownSessions: 20,
