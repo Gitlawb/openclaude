@@ -27,6 +27,7 @@ body, html, #root {
 /* SIDEBAR */
 .sidebar {
   width: 260px;
+  flex-shrink: 0;
   background-color: var(--sidebar-bg);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -109,6 +110,7 @@ body, html, #root {
 /* CHAT AREA */
 .chat-area {
   flex-grow: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   position: relative;
