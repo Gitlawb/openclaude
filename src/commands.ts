@@ -61,6 +61,7 @@ import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
 import usage from './commands/usage/index.js'
+import web from './commands/web/index.js'
 import theme from './commands/theme/index.js'
 import logo from './commands/logo/index.js'
 import vim from './commands/vim/index.js'
@@ -340,6 +341,7 @@ const COMMANDS = memoize((): Command[] => [
   usage,
   usageReport,
   vim,
+  web,
   wiki,
   ...(webCmd ? [webCmd] : []),
   ...(forkCmd ? [forkCmd] : []),

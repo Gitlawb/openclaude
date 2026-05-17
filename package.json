@@ -17,7 +17,9 @@
   "files": [
     "bin/",
     "dist/cli.mjs",
+    "dist/web.mjs",
     "dist/sdk.mjs",
+    "web/dist/",
     "src/entrypoints/sdk.d.ts",
     "src/entrypoints/sdk/coreTypes.generated.ts",
     "README.md"
@@ -45,6 +47,7 @@
     "dev:code": "bun run profile:code && bun run dev:profile",
     "dev:grpc": "bun run scripts/start-grpc.ts",
     "dev:grpc:cli": "bun run scripts/grpc-cli.ts",
+    "dev:web": "bun run src/entrypoints/web.ts",
     "start": "node dist/cli.mjs",
     "web:dev": "bun run --cwd web dev",
     "web:build": "bun run --cwd web build",

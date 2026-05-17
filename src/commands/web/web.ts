@@ -1,0 +1,67 @@
+import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
+import { existsSync, openSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
+import type { ToolUseContext } from '../../Tool.js'
+import type {
+  LocalJSXCommandContext,
+  LocalJSXCommandOnDone,
+} from '../../types/command.js'
+
+export async function call(
+  onDone: LocalJSXCommandOnDone,
+  _context: ToolUseContext & LocalJSXCommandContext,
+  _args: string,
+): Promise<null> {
+  const lines: string[] = ['🚀 Launching OpenClaude Web Console...']
+  
+  // Robust directory resolution
+  const currentDir = fileURLToPath(new URL('.', import.meta.url))
+  
+  // In the built bundle, cli.mjs and web.mjs are in the same folder
+  const builtPath = resolve(currentDir, 'web.mjs')
+  // In development, we look for the TS source
+  const devPath = resolve(currentDir, '../../entrypoints/web.ts')
+
+  let serverPath = ''
+  if (existsSync(builtPath)) {
+    serverPath = builtPath
+  } else if (existsSync(devPath)) {
+    serverPath = devPath
+  }
+
+  if (!serverPath) {
+    onDone('❌ Could not find web server entrypoint (web.mjs or web.ts).', { display: 'system' })
+    return null
+  }
+
+  try {
+    // If it's a TS file, we need bun. If it's the MJS bundle, we use the current node/bun process.
+    const runner = serverPath.endsWith('.ts') ? 'bun' : process.execPath
+    const args = serverPath.endsWith('.ts') ? ['run', serverPath] : [serverPath]
+
+    const logFile = resolve(tmpdir(), 'openclaude-web.log')
+    const out = openSync(logFile, 'a')
+
+    const child = spawn(runner, args, {
+      detached: true,
+      stdio: ['ignore', out, out],
+      env: { ...process.env, PORT: '3000' }
+    })
+
+    if (!child.pid) {
+      throw new Error('Process failed to start (no PID)')
+    }
+
+    child.unref()
+    
+    lines.push('✨ Web Console is running at http://localhost:3000')
+    lines.push('📱 Use Tailscale or Cloudflare Tunnel to access it from your mobile!')
+    onDone(lines.join('\n'), { display: 'system' })
+  } catch (err: any) {
+    onDone(`❌ Failed to launch web server: ${err.message}`, { display: 'system' })
+  }
+
+  return null
+}

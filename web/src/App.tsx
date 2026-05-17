@@ -1,195 +1,163 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import './styles.css'
-import { features, installCommand, navLinks } from './content'
 
-type Theme = 'light' | 'dark'
-
-function readInitialTheme(): Theme {
-  if (typeof document === 'undefined') return 'light'
-  const attr = document.documentElement.dataset.theme
-  if (attr === 'light' || attr === 'dark') return attr
-  return 'light'
+type Message = {
+  role: 'user' | 'assistant'
+  text: string
 }
 
 function App() {
-  const [theme, setTheme] = useState<Theme>(readInitialTheme)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
+  const [status, setStatus] = useState<'idle' | 'thinking'>('idle')
+  const [activeModel, setActiveModel] = useState('...')
+  const [version, setVersion] = useState('')
+  const [connected, setConnected] = useState(false)
+  const ws = useRef<WebSocket | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom on new messages or thinking status
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages, status])
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    document.documentElement.style.colorScheme = theme
-    try {
-      localStorage.setItem('openclaude-theme', theme)
-    } catch {
-      /* storage unavailable */
+    console.log('🚀 Connecting to OpenClaude...')
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const socket = new WebSocket(`${protocol}//${window.location.host}`)
+    
+    socket.onopen = () => {
+      console.log('✅ WebSocket Connected')
+      setConnected(true)
     }
-  }, [theme])
 
-  const toggleTheme = () => setTheme(t => (t === 'dark' ? 'light' : 'dark'))
-
-  return (
-    <div className="site-shell">
-      <header className="site-header">
-        <nav className="nav" aria-label="primary">
-          <a className="brand" href="/" aria-label="openclaude home">
-            <img src="/openclaude.png" alt="" />
-            <span>openclaude</span>
-            <span className="ver">v0.7</span>
-          </a>
-          <div className="nav-right">
-            <div className="nav-links">
-              {navLinks.map(l => (
-                <a key={l.href} href={l.href}>{l.label}</a>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="theme-toggle"
-              onClick={toggleTheme}
-              aria-label={`switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-              title={`switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            >
-              {theme === 'dark' ? '☀' : '☾'}
-            </button>
-          </div>
-        </nav>
-        <div className="nav-rule" aria-hidden="true" />
-      </header>
-
-      <main className="shell-main">
-        <Hero />
-
-        <section id="features" className="features" aria-labelledby="features-heading">
-          <div className="section-head">
-            <p className="eyebrow">// features</p>
-            <h2 id="features-heading">built for agents that ship code.</h2>
-          </div>
-          <ul className="feature-list">
-            {features.map(f => (
-              <li key={f.title} className="feature-row">
-                <h3>{f.title}</h3>
-                <p>— {f.body}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section id="install" className="install-block" aria-labelledby="install-heading">
-          <div className="section-head">
-            <p className="eyebrow">// install</p>
-            <h2 id="install-heading">one line. then write a task.</h2>
-          </div>
-          <div className="install-grid">
-            <CopyableCommand command={installCommand} />
-            <ol className="install-steps">
-              <li>
-                <span className="step-num">01</span>
-                <div>
-                  <strong>install</strong>
-                  <p>requires node ≥ 20.</p>
-                </div>
-              </li>
-              <li>
-                <span className="step-num">02</span>
-                <div>
-                  <strong>start</strong>
-                  <p>run <code>openclaude</code> in any repo.</p>
-                </div>
-              </li>
-              <li>
-                <span className="step-num">03</span>
-                <div>
-                  <strong>pick a provider</strong>
-                  <p>type <code>/provider</code> to wire openai, ollama, gemini, or a gateway.</p>
-                </div>
-              </li>
-            </ol>
-          </div>
-        </section>
-      </main>
-
-      <footer className="footer">
-        <div className="footer-line">
-          <span className="brand">
-            <img src="/openclaude.png" alt="" />
-            <span>openclaude</span>
-            <span className="ver">v0.7.0</span>
-          </span>
-          <span className="sep">|</span>
-          <a href="https://gitlawb.com">gitlawb ↗</a>
-          <span className="sep">|</span>
-          <a href="https://github.com/Gitlawb/openclaude/blob/main/LICENSE">license</a>
-          <span className="sep">·</span>
-          <span>{new Date().getFullYear()}</span>
-        </div>
-      </footer>
-    </div>
-  )
-}
-
-function Hero() {
-  return (
-    <section className="hero" aria-labelledby="hero-heading">
-      <div className="hero-eyebrow">
-        <span className="dot" aria-hidden="true" />
-        open source · gitlawb-aligned · model-neutral
-      </div>
-
-      <h1 id="hero-heading" className="hero-title">
-        runs anywhere.<br />
-        uses anything.
-      </h1>
-
-      <p className="hero-sub">
-        not a chatbot wrapper or another ide plugin. an open coding agent that runs in your
-        terminal, talks to any model, and keeps every change reviewable.
-      </p>
-
-      <div className="hero-cta">
-        <CopyableCommand command={installCommand} variant="hero" />
-        <a className="button button-ghost" href="https://github.com/Gitlawb/openclaude">
-          view on github →
-        </a>
-      </div>
-
-      <p className="hero-foot">
-        works with openai, gemini, codex, ollama, lm studio, litellm, and 200+ models.
-      </p>
-    </section>
-  )
-}
-
-function CopyableCommand({
-  command,
-  variant,
-}: {
-  command: string
-  variant?: 'hero'
-}) {
-  const [copied, setCopied] = useState(false)
-
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1400)
-    } catch {
-      /* clipboard unavailable */
+    socket.onmessage = (event) => {
+      console.log('📨 Received message:', event.data)
+      const msg = JSON.parse(event.data)
+      if (msg.type === 'init') {
+        setActiveModel(msg.model)
+        setVersion(msg.version)
+        socket.send(JSON.stringify({ type: 'ready' }))
+        console.log('✨ Model initialized:', msg.model)
+      } else if (msg.type === 'stream_event') {
+        const delta = msg.event?.delta?.text
+        if (delta) {
+          setMessages(prev => {
+            const last = prev[prev.length - 1]
+            if (last?.role === 'assistant') {
+              return [...prev.slice(0, -1), { ...last, text: last.text + delta }]
+            }
+            return [...prev, { role: 'assistant', text: delta }]
+          })
+        }
+      } else if (msg.type === 'done') {
+        setStatus('idle')
+      }
     }
+
+    ws.current = socket
+    return () => socket.close()
+  }, [])
+
+  const sendMessage = () => {
+    if (!input.trim() || !ws.current) return
+    
+    const newMsg: Message = { role: 'user', text: input }
+    setMessages(prev => [...prev, newMsg])
+    ws.current.send(JSON.stringify({ type: 'chat', message: input, model: activeModel }))
+    
+    setInput('')
+    setStatus('thinking')
   }
 
   return (
-    <button
-      type="button"
-      onClick={onCopy}
-      className={['copy-cmd', variant === 'hero' ? 'copy-cmd-hero' : ''].filter(Boolean).join(' ')}
-      aria-label={`copy install command: ${command}`}
-    >
-      <span className="copy-prefix">$</span>
-      <span className="copy-text">{command}</span>
-      <span className="copy-icon" aria-hidden="true">
-        {copied ? '✓ copied' : 'copy'}
-      </span>
-    </button>
+    <div className="web-console">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+           <span className="logo-dot"></span>
+           <h1>OpenClaude</h1>
+        </div>
+        <nav className="sessions">
+           <div className="session-item active">Current Session</div>
+        </nav>
+        <div className="sidebar-footer">
+          <div className="status-badge">
+             <span className={`pulse ${connected ? 'connected' : 'disconnected'}`}></span>
+             {connected ? 'CONNECTED' : 'OFFLINE'}
+          </div>
+          <div className="status-badge" style={{ marginTop: '10px' }}>
+             <span className={`pulse ${status}`}></span>
+             {status.toUpperCase()}
+          </div>
+        </div>
+      </aside>
+
+      <main className="chat-area">
+        <header className="chat-header">
+           <h2>Agent Console [v3]</h2>
+           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+             {!connected && <span className="model-tag" style={{ background: '#ff4444', color: 'white' }}>DISCONNECTED</span>}
+             <span className="model-tag">{activeModel.toUpperCase()}</span>
+           </div>
+        </header>
+
+        <div className="message-list" ref={scrollRef}>
+          {messages.length === 0 && (
+            <div className="welcome-screen">
+              <pre className="ascii-logo">
+{`████████╗ ████████╗ ████████╗ ██╗  ██╗
+██╔════██║ ██╔════██║ ██╔═════╝ ████╗ ██║
+██║   ██║ ████████║ ██████╗   ██████║
+██║   ██║ ██╔═════╝ ██╔═══╝   ██╔████║
+████████║ ██║       ████████╗ ██║ ╚███║
+╚═══════╝ ╚═╝       ╚═══════╝ ╚═╝  ╚══╝
+
+████████╗ ██╗      ████████╗ ██╗   ██╗ ████████╗  ████████╗
+██╔═════╝ ██║      ██╔════██║ ██║   ██║ ██╔════██╗ ██╔═════╝
+██║       ██║      ████████║ ██║   ██║ ██║   ██║ ██████╗  
+██║       ██║      ██╔════██║ ██║   ██║ ██║   ██║ ██╔═══╝  
+████████╗ ████████╗██║   ██║ ╚██████╔╝ ██████╔╝ ████████╗
+╚═══════╝ ╚═══════╝╚═╝   ╚═╝  ╚═════╝  ╚═════╝  ╚═══════╝`}
+              </pre>
+              <div className="slogan">
+                <span>✦</span> Any model. Every tool. Zero limits. <span>✦</span>
+              </div>
+              <div className="version-info">
+                openclaude <span className="version-tag">v{version}</span>
+              </div>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`message-row ${m.role}`}>
+              <div className="message-bubble">
+                <pre>{m.text}</pre>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <footer className="input-area">
+          <div className="input-container">
+            <textarea 
+              placeholder="Message OpenClaude..." 
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  sendMessage()
+                }
+              }}
+            />
+            <button className="send-btn" onClick={sendMessage} disabled={status === 'thinking'}>
+              {status === 'thinking' ? '...' : '↑'}
+            </button>
+          </div>
+        </footer>
+      </main>
+    </div>
   )
 }
 

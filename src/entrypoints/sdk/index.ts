@@ -33,7 +33,12 @@ function detectStubLeaks(): void {
   ]
 
   for (const { name, mod } of criticalImports) {
-    if ('__stub' in mod && mod.__stub === true) {
+    if (
+      mod &&
+      (typeof mod === 'object' || typeof mod === 'function') &&
+      '__stub' in mod &&
+      mod.__stub === true
+    ) {
       throw new Error(
         `SDK init error: "${name}" resolved to a build stub at runtime. ` +
         `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
