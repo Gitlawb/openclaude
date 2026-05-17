@@ -1,6 +1,7 @@
 import { join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { randomBytes } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
@@ -30,6 +31,7 @@ if (!(globalThis as any).MACRO) {
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000
+const AUTH_TOKEN = process.env.OPENCLAUDE_WEB_TOKEN || randomBytes(16).toString('hex')
 const WEB_DIST_PATH = existsSync(resolve(__dirname, '../web/dist')) 
   ? resolve(__dirname, '../web/dist')
   : resolve(__dirname, '../../web/dist')
@@ -40,6 +42,19 @@ async function main() {
   await init()
 
   const app = new Hono()
+
+  // Authentication Middleware
+  app.use('*', async (c, next) => {
+    const url = new URL(c.req.url)
+    const token = url.searchParams.get('token') || c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    // Allow serving the login/root page if we wanted, but here we require token for EVERYTHING
+    // including static assets for maximum security.
+    if (token !== AUTH_TOKEN) {
+      return c.text('Unauthorized: Missing or invalid token', 401)
+    }
+    await next()
+  })
 
   // Static files with SPA fallback
   app.use('*', serveStatic({ 
@@ -53,20 +68,32 @@ async function main() {
     }
   }))
 
-  // Start the server and get the instance
+  // Start the server (bind to localhost by default for security)
   const server = serve({
     fetch: app.fetch,
-    port: PORT
+    port: PORT,
+    hostname: '127.0.0.1' 
   }, (info) => {
-    console.log(`✨ OpenClaude Web Console available at http://localhost:${info.port}`)
+    console.log(`✨ OpenClaude Web Console available at http://${info.address}:${info.port}/?token=${AUTH_TOKEN}`)
+    console.log('🔒 Security: Token authentication is enabled.')
   })
 
-  // Set up WebSockets using 'ws' package attached to the same server
+  // Set up WebSockets using 'ws' package
   const wss = new WebSocketServer({ noServer: true })
 
-  // @ts-ignore - access the node server to hook upgrade
+  // @ts-ignore
   server.on('upgrade', (request, socket, head) => {
-    console.log(`🔌 Upgrade request for: ${request.url}`)
+    const url = new URL(request.url || '', `http://${request.headers.host}`)
+    const token = url.searchParams.get('token')
+
+    if (token !== AUTH_TOKEN) {
+      console.log('⚠️ Rejected unauthorized WebSocket upgrade request')
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    console.log(`🔌 Upgrade request authorized for: ${request.url}`)
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request)
     })
@@ -88,7 +115,6 @@ async function main() {
     const currentModel = getPrimaryModel(appState.mainLoopModel) || 'Claude'
     const version = (globalThis as any).MACRO.DISPLAY_VERSION || (globalThis as any).MACRO.VERSION
     
-    console.log(`✉️ Sending init to client: ${currentModel} (v${version})`)
     ws.send(JSON.stringify({ type: 'init', model: currentModel, version }))
 
     let engine: QueryEngine | null = null
@@ -96,12 +122,7 @@ async function main() {
     ws.on('message', async (message) => {
       try {
         const payload = JSON.parse(message.toString())
-        console.log('📩 RECEIVED:', payload.type)
-
-        if (payload.type === 'ready') {
-          console.log('✅ Client reported READY')
-          return
-        }
+        if (payload.type === 'ready') return
 
         if (payload.type === 'chat') {
           const { message: text, model } = payload

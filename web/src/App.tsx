@@ -43,8 +43,10 @@ function App() {
 
   useEffect(() => {
     console.log('🚀 Connecting to OpenClaude...')
+    const url = new URL(window.location.href)
+    const token = url.searchParams.get('token')
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}`)
+    const socket = new WebSocket(`${protocol}//${window.location.host}/?token=${token || ''}`)
     
     socket.onopen = () => {
       console.log('✅ WebSocket Connected')
