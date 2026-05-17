@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { randomBytes } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
 import { Hono } from 'hono'
+import { getCookie, setCookie } from 'hono/cookie'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { init } from './init.js'
@@ -43,17 +44,30 @@ async function main() {
 
   const app = new Hono()
 
-  // Authentication Middleware
+  // Authentication Middleware with Cookie support
   app.use('*', async (c, next) => {
     const url = new URL(c.req.url)
-    const token = url.searchParams.get('token') || c.req.header('Authorization')?.replace('Bearer ', '')
+    const token = url.searchParams.get('token')
+    const cookieToken = getCookie(c, 'oc_token')
     
-    // Allow serving the login/root page if we wanted, but here we require token for EVERYTHING
-    // including static assets for maximum security.
-    if (token !== AUTH_TOKEN) {
-      return c.text('Unauthorized: Missing or invalid token', 401)
+    // If token is in URL, validate it and set cookie
+    if (token === AUTH_TOKEN) {
+      setCookie(c, 'oc_token', AUTH_TOKEN, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'Strict',
+        maxAge: 3600 // 1 hour
+      })
+      return await next()
     }
-    await next()
+
+    // Otherwise check cookie
+    if (cookieToken === AUTH_TOKEN) {
+      return await next()
+    }
+
+    console.log(`🚫 Auth failed for ${c.req.path} (no token/cookie)`)
+    return c.text('Unauthorized: Missing or invalid token. Please use the full link from your terminal.', 401)
   })
 
   // Static files with SPA fallback
@@ -85,8 +99,10 @@ async function main() {
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host}`)
     const token = url.searchParams.get('token')
+    const cookieHeader = request.headers.cookie || ''
+    const hasCookie = cookieHeader.includes(`oc_token=${AUTH_TOKEN}`)
 
-    if (token !== AUTH_TOKEN) {
+    if (token !== AUTH_TOKEN && !hasCookie) {
       console.log('⚠️ Rejected unauthorized WebSocket upgrade request')
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()

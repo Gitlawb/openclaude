@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { existsSync, openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import type { ToolUseContext } from '../../Tool.js'
 import type {
   LocalJSXCommandContext,
@@ -54,6 +55,10 @@ export async function call(
   }
 
   try {
+    // Generate a random token for this session
+    const token = randomBytes(16).toString('hex')
+    const port = process.env.PORT || '3000'
+
     // If it's a TS file, we need bun. If it's the MJS bundle, we use the current node/bun process.
     const runner = serverPath.endsWith('.ts') ? 'bun' : process.execPath
     const args = serverPath.endsWith('.ts') ? ['run', serverPath] : [serverPath]
@@ -63,7 +68,11 @@ export async function call(
 
     const child = spawn(runner, args, {
       stdio: ['ignore', out, out],
-      env: { ...process.env, PORT: '3000' }
+      env: { 
+        ...process.env, 
+        PORT: port,
+        OPENCLAUDE_WEB_TOKEN: token
+      }
     })
 
     if (!child.pid) {
@@ -72,8 +81,10 @@ export async function call(
 
     activeServerProcess = child
     
-    lines.push('✨ Web Console is running at http://localhost:3000')
-    lines.push('📱 Use Tailscale or Cloudflare Tunnel to access it from your mobile!')
+    const url = `http://localhost:${port}/?token=${token}`
+    lines.push(`✨ Web Console is running at ${url}`)
+    lines.push('🔒 Security: Token authentication is enabled.')
+    lines.push('📱 Mobile: Use Tailscale/Cloudflare and keep the token in the URL!')
     onDone(lines.join('\n'), { display: 'system' })
   } catch (err: any) {
     onDone(`❌ Failed to launch web server: ${err.message}`, { display: 'system' })
