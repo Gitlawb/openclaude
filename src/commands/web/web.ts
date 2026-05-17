@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { resolve } from 'node:path'
 import { existsSync, openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,17 @@ import type {
   LocalJSXCommandContext,
   LocalJSXCommandOnDone,
 } from '../../types/command.js'
+import { registerCleanup } from '../../utils/cleanupRegistry.js'
+
+let activeServerProcess: ChildProcess | null = null
+
+// Register cleanup once at module level
+registerCleanup(async () => {
+  if (activeServerProcess) {
+    activeServerProcess.kill('SIGTERM')
+    activeServerProcess = null
+  }
+})
 
 export async function call(
   onDone: LocalJSXCommandOnDone,
@@ -16,6 +27,12 @@ export async function call(
 ): Promise<null> {
   const lines: string[] = ['🚀 Launching OpenClaude Web Console...']
   
+  if (activeServerProcess) {
+    lines.push('♻️ Restarting existing web server...')
+    activeServerProcess.kill('SIGTERM')
+    activeServerProcess = null
+  }
+
   // Robust directory resolution
   const currentDir = fileURLToPath(new URL('.', import.meta.url))
   
@@ -45,7 +62,6 @@ export async function call(
     const out = openSync(logFile, 'a')
 
     const child = spawn(runner, args, {
-      detached: true,
       stdio: ['ignore', out, out],
       env: { ...process.env, PORT: '3000' }
     })
@@ -54,7 +70,7 @@ export async function call(
       throw new Error('Process failed to start (no PID)')
     }
 
-    child.unref()
+    activeServerProcess = child
     
     lines.push('✨ Web Console is running at http://localhost:3000')
     lines.push('📱 Use Tailscale or Cloudflare Tunnel to access it from your mobile!')
