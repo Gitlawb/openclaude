@@ -960,11 +960,19 @@ export const connectToServer = memoize(
         transport = clientTransport
         logMCPDebug(name, `In-process Computer Use MCP server started`)
       } else if (serverRef.type === 'stdio' || !serverRef.type) {
-        const finalCommand =
-          process.env.CLAUDE_CODE_SHELL_PREFIX || serverRef.command
-        const finalArgs = process.env.CLAUDE_CODE_SHELL_PREFIX
-          ? [[serverRef.command, ...serverRef.args].join(' ')]
-          : serverRef.args
+        // Split the prefix into separate args so we hand a real array to the
+        // MCP SDK's stdio transport.  Joining the server command + its args
+        // into one string and putting that single string inside a one-element
+        // array causes the SDK to shell-invoke the whole blob, letting shell
+        // metacharacters in serverRef.args run arbitrary commands before the
+        // target binary even starts.
+        const prefixParts = process.env.CLAUDE_CODE_SHELL_PREFIX
+          ? process.env.CLAUDE_CODE_SHELL_PREFIX.split(/\s+/).filter(Boolean)
+          : []
+        const finalCommand = prefixParts[0] || serverRef.command
+        const finalArgs = prefixParts.length > 0
+          ? [...prefixParts.slice(1), serverRef.command, ...(serverRef.args ?? [])]
+          : serverRef.args ?? []
         transport = new StdioClientTransport({
           command: finalCommand,
           args: finalArgs,
