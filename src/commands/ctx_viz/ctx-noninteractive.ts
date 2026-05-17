@@ -212,7 +212,7 @@ export async function call(
     lines.push('')
   }
 
-  if (d.sessionCost > 0 || d.sessionInput > 0) {
+  if (d.sessionCost > 0 || d.sessionInput > 0 || d.linesAdded > 0 || d.linesRemoved > 0) {
     lines.push(chalk.bold('  Session Summary'))
     if (d.sessionCost > 0) {
       lines.push(`    ${figures.bullet} Cost:          ${chalk.bold(chalk.yellow(`$${d.sessionCost.toFixed(4)}`))}`)
