@@ -29,6 +29,10 @@ OpenClaude is also mirrored to GitLawb:
   <a href="https://atomic.chat/">
     <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
   </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://api.xiaomimimo.com/v1">
+    <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="96">
+  </a>
 </p>
 
 <p align="center">
@@ -37,7 +41,17 @@ OpenClaude is also mirrored to GitLawb:
   <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://api.xiaomimimo.com/v1"><strong>Xiaomi MiMo</strong></a>
 </p>
+
+### Sponsored Tips: Xiaomi MiMo
+
+1. Increase your context window with Xiaomi MiMo
+2. MiMo performs well on coding benchmarks
+3. Hugging Face shows MiMo among top coding models
+4. You can switch to Xiaomi MiMo in compatible tools
+5. MiMo's true value: efficiently solving developers' real problems
 
 ## Star History
 
