@@ -2064,6 +2064,170 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
   })
 })
 
+test('converts Gemini raw tool-call text into streaming tool_use blocks', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-raw-tool',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: 'Tool calls',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-raw-tool',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content:
+                ' requested:\n- Write({"file_path":"style.css","content":"ul { padding: 0; }"}) [id: call79435b5a26564619b0151197]',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-raw-tool',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-flash-lite-preview',
+      messages: [{ role: 'user', content: 'Write CSS' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  expect(
+    events.some(
+      event =>
+        event.type === 'content_block_start' &&
+        (event.content_block as Record<string, unknown> | undefined)?.type ===
+          'text',
+    ),
+  ).toBe(false)
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type ===
+        'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call79435b5a26564619b0151197',
+    name: 'Write',
+  })
+
+  const toolInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        (event.delta as Record<string, unknown> | undefined)?.type ===
+          'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+  expect(JSON.parse(toolInput)).toEqual({
+    file_path: 'style.css',
+    content: 'ul { padding: 0; }',
+  })
+
+  const stop = events.find(event => event.type === 'message_delta') as
+    | { delta?: Record<string, unknown> }
+    | undefined
+  expect(stop?.delta?.stop_reason).toBe('tool_use')
+})
+
+test('converts Gemini raw tool-call text into non-streaming tool_use blocks', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-raw-tool',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Tool calls requested:\n- Agent({"description":"Verify the todo list application functionality.","prompt":"Check files.","subagent_type":"verification"}) [id: call9a8b7c6d5e4f3a2b1c0d9e8f]',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [{ role: 'user', content: 'Verify' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    stop_reason?: string
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.stop_reason).toBe('tool_use')
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'call9a8b7c6d5e4f3a2b1c0d9e8f',
+      name: 'Agent',
+      input: {
+        description: 'Verify the todo list application functionality.',
+        prompt: 'Check files.',
+        subagent_type: 'verification',
+      },
+    },
+  ])
+})
+
 test('normalizes plain string Bash tool arguments from OpenAI-compatible responses', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
