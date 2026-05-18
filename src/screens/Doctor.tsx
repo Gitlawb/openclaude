@@ -18,9 +18,11 @@ import { useExitOnCtrlCDWithKeybindings } from '../hooks/useExitOnCtrlCDWithKeyb
 import { Box, Text } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState } from '../state/AppState.js';
+import { assembleToolPool } from '../tools.js';
 import { getPluginErrorMessage } from '../types/plugin.js';
 import { getGcsDistTags, getNpmDistTags, type NpmDistTags } from '../utils/autoUpdater.js';
 import { type ContextWarnings, checkContextWarnings } from '../utils/doctorContextWarnings.js';
+import { buildLocalModelContextLoad, isActiveProviderLocalModel } from '../utils/statusNoticeLocalModel.js';
 import { type DiagnosticInfo, getDoctorDiagnostic } from '../utils/doctorDiagnostic.js';
 import { validateBoundedIntEnvVar } from '../utils/envValidation.js';
 import { pathExists } from '../utils/file.js';
@@ -98,7 +100,7 @@ function DistTagsDisplay(t0) {
   return t3;
 }
 export function Doctor(t0) {
-  const $ = _c(84);
+  const $ = _c(88);
   const {
     onDone
   } = t0;
@@ -107,15 +109,10 @@ export function Doctor(t0) {
   const toolPermissionContext = useAppState(_temp3);
   const pluginsErrors = useAppState(_temp4);
   useExitOnCtrlCDWithKeybindings();
-  let t1;
-  if ($[0] !== mcpTools) {
-    t1 = mcpTools || [];
-    $[0] = mcpTools;
-    $[1] = t1;
-  } else {
-    t1 = $[1];
-  }
-  const tools = t1;
+  const tools = useMemo(
+    () => assembleToolPool(toolPermissionContext, mcpTools || []),
+    [toolPermissionContext, mcpTools],
+  );
   const [diagnostic, setDiagnostic] = useState(null);
   const [agentInfo, setAgentInfo] = useState(null);
   const [contextWarnings, setContextWarnings] = useState(null);
@@ -469,36 +466,54 @@ export function Doctor(t0) {
   } else {
     t38 = $[72];
   }
+  const isLocalModel = isActiveProviderLocalModel();
+  const localModelContextLoad = isLocalModel ? buildLocalModelContextLoad(contextWarnings) : null;
   let t39;
-  if ($[73] !== contextWarnings) {
-    t39 = contextWarnings && (contextWarnings.claudeMdWarning || contextWarnings.agentWarning || contextWarnings.mcpWarning) && <Box flexDirection="column"><Text bold={true}>Context Usage Warnings</Text>{contextWarnings.claudeMdWarning && <><Text>└{" "}<Text color="warning">{figures.warning} {contextWarnings.claudeMdWarning.message}</Text></Text><Text>{"  "}└ Files:</Text>{contextWarnings.claudeMdWarning.details.map(_temp16)}</>}{contextWarnings.agentWarning && <><Text>└{" "}<Text color="warning">{figures.warning} {contextWarnings.agentWarning.message}</Text></Text><Text>{"  "}└ Top contributors:</Text>{contextWarnings.agentWarning.details.map(_temp17)}</>}{contextWarnings.mcpWarning && <><Text>└{" "}<Text color="warning">{figures.warning} {contextWarnings.mcpWarning.message}</Text></Text><Text>{"  "}└ MCP servers:</Text>{contextWarnings.mcpWarning.details.map(_temp18)}</>}</Box>;
+  if ($[73] !== contextWarnings || $[74] !== localModelContextLoad) {
+    t39 = !localModelContextLoad && contextWarnings && (contextWarnings.claudeMdWarning || contextWarnings.agentWarning || contextWarnings.mcpWarning) && <Box flexDirection="column"><Text bold={true}>Context Usage Warnings</Text>{contextWarnings.claudeMdWarning && <><Text>└{" "}<Text color="warning">{figures.warning} {contextWarnings.claudeMdWarning.message}</Text></Text><Text>{"  "}└ Files:</Text>{contextWarnings.claudeMdWarning.details.map(_temp16)}</>}{contextWarnings.agentWarning && <><Text>└{" "}<Text color="warning">{figures.warning} {contextWarnings.agentWarning.message}</Text></Text><Text>{"  "}└ Top contributors:</Text>{contextWarnings.agentWarning.details.map(_temp17)}</>}{contextWarnings.mcpWarning && <><Text>└{" "}<Text color="warning">{figures.warning} {contextWarnings.mcpWarning.message}</Text></Text><Text>{"  "}└ MCP servers:</Text>{contextWarnings.mcpWarning.details.map(_temp18)}</>}</Box>;
     $[73] = contextWarnings;
-    $[74] = t39;
+    $[74] = localModelContextLoad;
+    $[75] = t39;
   } else {
-    t39 = $[74];
+    t39 = $[75];
+  }
+  let t39b;
+  if ($[76] !== localModelContextLoad) {
+    t39b = localModelContextLoad && <Box flexDirection="column"><Text bold={true}>Local Model Context Load</Text><Text>└ Large context loaded before turn one for this local provider:</Text>{localModelContextLoad.contributors.map(_temp19)}<Text dimColor={true}>└ Disable unused MCP servers, agents, or oversized memory files to free context.</Text></Box>;
+    $[76] = localModelContextLoad;
+    $[77] = t39b;
+  } else {
+    t39b = $[77];
   }
   let t40;
-  if ($[75] === Symbol.for("react.memo_cache_sentinel")) {
+  if ($[78] === Symbol.for("react.memo_cache_sentinel")) {
     t40 = <Box><PressEnterToContinue /></Box>;
-    $[75] = t40;
+    $[78] = t40;
   } else {
-    t40 = $[75];
+    t40 = $[78];
   }
   let t41;
-  if ($[76] !== t23 || $[77] !== t30 || $[78] !== t35 || $[79] !== t36 || $[80] !== t37 || $[81] !== t38 || $[82] !== t39) {
-    t41 = <Pane>{t23}{t30}{t31}{t32}{t33}{t34}{t35}{t36}{t37}{t38}{t39}{t40}</Pane>;
-    $[76] = t23;
-    $[77] = t30;
-    $[78] = t35;
-    $[79] = t36;
-    $[80] = t37;
-    $[81] = t38;
-    $[82] = t39;
-    $[83] = t41;
+  if ($[79] !== t23 || $[80] !== t30 || $[81] !== t35 || $[82] !== t36 || $[83] !== t37 || $[84] !== t38 || $[85] !== t39 || $[86] !== t39b) {
+    t41 = <Pane>{t23}{t30}{t31}{t32}{t33}{t34}{t35}{t36}{t37}{t38}{t39}{t39b}{t40}</Pane>;
+    $[79] = t23;
+    $[80] = t30;
+    $[81] = t35;
+    $[82] = t36;
+    $[83] = t37;
+    $[84] = t38;
+    $[85] = t39;
+    $[86] = t39b;
+    $[87] = t41;
   } else {
-    t41 = $[83];
+    t41 = $[87];
   }
   return t41;
+}
+function _temp19(contributor) {
+  return <React.Fragment key={contributor.id}><Text>└{" "}<Text color="warning">{figures.warning} {contributor.message}</Text></Text>{contributor.details.map(_temp20)}</React.Fragment>;
+}
+function _temp20(detail, i) {
+  return <Text key={i} dimColor={true}>{"  "}└ {detail}</Text>;
 }
 function _temp18(detail_2, i_8) {
   return <Text key={i_8} dimColor={true}>{"    "}└ {detail_2}</Text>;
