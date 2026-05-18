@@ -24,7 +24,6 @@ test('parses OpenRouter-style max token affordability errors', () => {
       'requested up to 32,000 tokens, but can only afford 27,342',
     ),
   ).toBe(27_342)
-  expect(parseProviderMaxTokensCap('can only afford 27342')).toBe(27_342)
 })
 
 test('parses provider maximum output token errors for max_tokens', () => {
@@ -79,6 +78,19 @@ test('does not parse malformed or unsafe provider caps', () => {
     parseProviderMaxTokensCap(
       'requested up to 32000 tokens, but can only afford 27,34',
     ),
+  ).toBeUndefined()
+})
+
+test('does not parse non-token affordability messages', () => {
+  expect(parseProviderMaxTokensCap('can only afford 27342')).toBeUndefined()
+  expect(
+    parseProviderMaxTokensCap('account can only afford 5 credits'),
+  ).toBeUndefined()
+  expect(
+    parseProviderMaxTokensCap('quota can only afford 100 requests'),
+  ).toBeUndefined()
+  expect(
+    parseProviderMaxTokensCap('billing can only afford 42 units'),
   ).toBeUndefined()
 })
 

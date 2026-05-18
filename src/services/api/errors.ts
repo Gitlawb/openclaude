@@ -233,10 +233,6 @@ const PROVIDER_MAX_TOKENS_CAP_PATTERNS = [
     'is',
   ),
   new RegExp(
-    `can only afford\\s+${PROVIDER_MAX_TOKENS_CAP_NUMBER}(?![0-9,]|\\.[0-9])`,
-    'i',
-  ),
-  new RegExp(
     `\\bmax_(?:completion_)?tokens\\b.{0,240}?\\bmaximum\\s+(?:output|completion)\\s+tokens?\\b[^0-9]{0,80}${PROVIDER_MAX_TOKENS_CAP_NUMBER}(?![0-9,]|\\.[0-9])`,
     'is',
   ),

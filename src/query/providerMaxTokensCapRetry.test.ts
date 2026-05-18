@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
+import { z } from 'zod/v4'
 
 import { query, type QueryParams } from '../query.js'
+import { buildTool, type Tools } from '../Tool.js'
 import type { QueryDeps } from './deps.js'
 import {
   createAssistantAPIErrorMessage,
@@ -11,8 +13,37 @@ import {
 import { asSystemPrompt } from '../utils/systemPromptType.js'
 import { getAssistantMessageFromError } from '../services/api/errors.js'
 
-function makeToolUseContext(): QueryParams['toolUseContext'] {
+const echoTool = buildTool({
+  name: 'Echo',
+  inputSchema: z.object({ text: z.string() }),
+  maxResultSizeChars: Infinity,
+  async description() {
+    return 'Echo input text'
+  },
+  async prompt() {
+    return ''
+  },
+  async call(input) {
+    return { data: `echo:${input.text}` }
+  },
+  mapToolResultToToolResultBlockParam(content, toolUseID) {
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUseID,
+      content: String(content),
+    }
+  },
+  renderToolUseMessage() {
+    return null
+  },
+  renderToolResultMessage() {
+    return null
+  },
+})
+
+function makeToolUseContext(tools: Tools = []): QueryParams['toolUseContext'] {
   const abortController = new AbortController()
+  let inProgressToolUseIDs = new Set<string>()
 
   return {
     abortController,
@@ -26,8 +57,13 @@ function makeToolUseContext(): QueryParams['toolUseContext'] {
       advisorModel: undefined,
     }),
     options: {
+      commands: [],
+      debug: false,
       thinkingConfig: { type: 'disabled' },
-      tools: [],
+      tools,
+      verbose: false,
+      mcpClients: [],
+      mcpResources: {},
       isNonInteractiveSession: false,
       agentDefinitions: { activeAgents: [], allowedAgentTypes: undefined },
       appendSystemPrompt: undefined,
@@ -35,17 +71,27 @@ function makeToolUseContext(): QueryParams['toolUseContext'] {
       mainLoopModel: 'gpt-4o',
     },
     addNotification: () => {},
+    messages: [],
+    setInProgressToolUseIDs: updater => {
+      inProgressToolUseIDs = updater(inProgressToolUseIDs)
+    },
+    setResponseLength: () => {},
+    updateFileHistoryState: () => {},
+    updateAttributionState: () => {},
   } as QueryParams['toolUseContext']
 }
 
-function makeParams(callModel: QueryDeps['callModel']): QueryParams {
+function makeParams(
+  callModel: QueryDeps['callModel'],
+  tools: Tools = [],
+): QueryParams {
   return {
     messages: [createUserMessage({ content: 'hello' })],
     systemPrompt: asSystemPrompt([]),
     userContext: {},
     systemContext: {},
     canUseTool: async () => ({ result: true }),
-    toolUseContext: makeToolUseContext(),
+    toolUseContext: makeToolUseContext(tools),
     querySource: 'sdk',
     deps: {
       callModel,
@@ -112,6 +158,62 @@ test('retries once with provider-capped max output tokens', async () => {
         ),
     ),
   ).toBe(true)
+  expect(
+    messages.some(
+      message =>
+        message?.type === 'assistant' &&
+        message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
+    ),
+  ).toBe(false)
+})
+
+test('keeps provider-capped max output tokens for follow-up calls after tool use', async () => {
+  const seenOverrides: Array<number | undefined> = []
+  const callModel: QueryDeps['callModel'] = async function* ({ options }) {
+    seenOverrides.push(options.maxOutputTokensOverride)
+
+    if (seenOverrides.length === 1) {
+      yield getAssistantMessageFromError(
+        APIError.generate(
+          400,
+          undefined,
+          'OpenAI API error 400: requested up to 32000 tokens, but can only afford 27342. [openai_category=unknown]',
+          new Headers(),
+        ),
+        'openrouter/model',
+      )
+      return
+    }
+
+    if (seenOverrides.length === 2) {
+      yield createAssistantMessage({
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_echo',
+            name: 'Echo',
+            input: { text: 'ping' },
+          },
+        ],
+      })
+      return
+    }
+
+    yield createAssistantMessage({ content: 'ok after tool' })
+  }
+
+  const messages = await collect(makeParams(callModel, [echoTool]))
+
+  expect(seenOverrides).toEqual([undefined, 27_342, 27_342])
+  expect(
+    messages.filter(
+      message =>
+        message?.type === 'system' &&
+        message?.content?.includes(
+          'Provider limited max_tokens to 27,342; retrying with that cap.',
+        ),
+    ),
+  ).toHaveLength(1)
   expect(
     messages.some(
       message =>
