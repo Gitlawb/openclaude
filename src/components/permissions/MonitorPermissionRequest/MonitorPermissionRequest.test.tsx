@@ -1,9 +1,13 @@
 import { PassThrough } from 'node:stream'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
 import stripAnsi from 'strip-ansi'
 
+import { getOriginalCwd, setOriginalCwd } from '../../../bootstrap/state.js'
 import { handleInteractivePermission } from '../../../hooks/toolPermission/handlers/interactiveHandler.js'
 import { createPermissionContext } from '../../../hooks/toolPermission/PermissionContext.js'
 import { createRoot } from '../../../ink.js'
@@ -400,6 +404,35 @@ describe('MonitorPermissionRequest', () => {
       expect(toolUseConfirm.onReject).not.toHaveBeenCalled()
     } finally {
       mounted.cleanup()
+    }
+  })
+
+  test('rendered persistent allow resolves the real pending permission promise with a Bash allow rule', async () => {
+    const originalCwd = getOriginalCwd()
+    const tempCwd = mkdtempSync(join(tmpdir(), 'monitor-permission-'))
+    const onDone = mock(() => {})
+
+    setOriginalCwd(tempCwd)
+    const { toolUseConfirm, toolUseContext, decisionPromise } =
+      createInteractiveMonitorPermission()
+    const mounted = await renderMonitorPermission(toolUseConfirm, { onDone })
+
+    try {
+      mounted.stdin.write('2')
+
+      await waitFor(() => onDone.mock.calls.length === 1)
+      const decision = await decisionPromise
+
+      expectAllowDecision(decision)
+      expect(decision.updatedInput).toEqual(toolUseConfirm.input)
+      expect(
+        toolUseContext.getAppState().toolPermissionContext.alwaysAllowRules
+          .localSettings,
+      ).toContain('Bash(tail -f:*)')
+    } finally {
+      mounted.cleanup()
+      setOriginalCwd(originalCwd)
+      rmSync(tempCwd, { recursive: true, force: true })
     }
   })
 
