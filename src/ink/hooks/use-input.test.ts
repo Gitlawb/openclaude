@@ -1,115 +1,113 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test'
-import { renderHook, act } from '@testing-library/react'
-import { useInput } from '../use-input'
 
-// Mock useStdin
-vi.mock('../use-stdin', () => ({
+// Hoist the mock so it's available before module load
+const mockSetRawMode = vi.fn()
+const mockEventEmitter = { on: vi.fn(), removeListener: vi.fn(), emit: vi.fn() }
+
+vi.mock('./use-stdin.js', () => ({
   default: () => ({
-    setRawMode: vi.fn(),
+    setRawMode: mockSetRawMode,
     internal_exitOnCtrlC: false,
-    internal_eventEmitter: { on: vi.fn(), off: vi.fn(), emit: vi.fn() },
+    internal_eventEmitter: mockEventEmitter,
   }),
 }))
 
-describe('useInput raw mode balance', () => {
-  let mockSetRawMode: ReturnType<typeof vi.fn>
+// Dynamic import after mock is registered
+const { renderHook, act } = await import('@testing-library/react-hooks')
+const useInput = (await import('./use-input.js')).default
 
+describe('useInput — raw mode lifecycle', () => {
   beforeEach(() => {
-    mockSetRawMode = vi.fn()
-    vi.mock('../use-stdin', () => ({
-      default: () => ({
-        setRawMode: mockSetRawMode,
-        internal_exitOnCtrlC: false,
-        internal_eventEmitter: { on: vi.fn(), off: vi.fn(), emit: vi.fn() },
-      }),
-    }))
+    vi.useFakeTimers()
+    mockSetRawMode.mockClear()
   })
 
   afterEach(() => {
-    vi.clearAllMocks()
+    vi.useRealTimers()
   })
 
-  it('should enable raw mode on mount when isActive is true', () => {
+  it('enables raw mode on mount when isActive is true (default)', () => {
     const handler = vi.fn()
-    
-    // This test verifies the basic behavior - raw mode is enabled
-    // Full integration testing would require more complex setup
+    renderHook(() => useInput(handler))
+
+    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+  })
+
+  it('does NOT enable raw mode when isActive is false', () => {
+    const handler = vi.fn()
+    renderHook(() => useInput(handler, { isActive: false }))
+
     expect(mockSetRawMode).not.toHaveBeenCalled()
   })
 
-  it('should disable raw mode on cleanup when it was enabled', () => {
-    // The fix ensures that if setRawMode(true) was called,
-    // then setRawMode(false) will be called on cleanup,
-    // regardless of the stale isActive value in closure.
-    // 
-    // This tests the fix for: "the cleanup returns before calling
-    // setRawMode(false), leaving App.rawModeEnabledCount incremented"
-    //
-    // The key fix: using a ref to track whether raw mode was actually
-    // enabled, rather than relying on the stale isActive closure value.
-    
-    const wasEnabled = { current: true }
-    // Simulating cleanup that checks wasEnabled.current
-    const shouldDisable = wasEnabled.current
-    
-    expect(shouldDisable).toBe(true) // Should call setRawMode(false)
+  it('defers setRawMode(false) on unmount — fires after one tick', () => {
+    const handler = vi.fn()
+    const { unmount } = renderHook(() => useInput(handler))
+
+    unmount()
+
+    // Immediately after unmount, setRawMode(false) has NOT yet fired
+    expect(mockSetRawMode).toHaveBeenCalledTimes(1) // only the initial true
+    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+
+    // Advance timers — the deferred reset fires
+    vi.advanceTimersByTime(1)
+
+    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
+    expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
   })
 
-  it('should NOT disable raw mode on cleanup when it was NOT enabled', () => {
-    // When isActive is false from the start, we shouldn't have called setRawMode(true)
-    // so cleanup shouldn't call setRawMode(false)
-    
-    const wasEnabled = { current: false }
-    // Simulating cleanup where we never enabled raw mode
-    const shouldDisable = wasEnabled.current
-    
-    expect(shouldDisable).toBe(false) // Should NOT call setRawMode(false)
-  })
-})
+  it('cancels deferred reset on rapid remount (MCP re-render churn)', () => {
+    const handler = vi.fn()
+    const { unmount, rerender } = renderHook(
+      ({ isActive }) => useInput(handler, { isActive }),
+      { initialProps: { isActive: true } },
+    )
 
-describe('raw mode balance fix for isActive: false transition', () => {
-  it('tracks raw mode enable state separately from isActive closure', () => {
-    // The bug: cleanup closes over options.isActive which is still true
-    // during a true -> false transition, causing early return without
-    // calling setRawMode(false)
-    
-    // The fix: use a ref to track whether we actually called setRawMode(true)
-    // Then check the ref in cleanup, not the stale isActive value
-    
-    // Simulate the old buggy behavior
-    const oldIsActive = true // captured in closure
-    const shouldCleanupOld = oldIsActive !== false // true, so returns early!
-    expect(shouldCleanupOld).toBe(true) // Bug: returns without cleaning up
-    
-    // Simulate the new fixed behavior  
-    const wasEnabled = { current: true } // Track actual enable
-    const shouldCleanupNew = wasEnabled.current // Check actual state
-    expect(shouldCleanupNew).toBe(true) // Correctly cleans up
-  })
+    // Simulate MCP churn: unmount + immediate remount
+    unmount()
 
-  it('handles unmount correctly - raw mode was enabled', () => {
-    // Unmount case: raw mode was enabled during mount, now unmounting
-    // Should call setRawMode(false)
-    
-    const wasEnabled = { current: true }
-    const cleanupNeeded = wasEnabled.current
-    
-    expect(cleanupNeeded).toBe(true) // Should clean up
+    // The deferred reset is scheduled but hasn't fired yet
+    expect(mockSetRawMode).toHaveBeenCalledTimes(1) // only initial true
+    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+
+    // Remount before the timer fires — the deferred reset should be cancelled
+    const { unmount: unmount2 } = renderHook(() => useInput(handler))
+
+    // The remount calls setRawMode(true) again and cancels the pending reset
+    expect(mockSetRawMode).toHaveBeenCalledTimes(2) // two setRawMode(true) calls
+    expect(mockSetRawMode).toHaveBeenLastCalledWith(true)
+
+    // Advance timers — the cancelled reset should NOT fire
+    vi.advanceTimersByTime(100)
+
+    // Still only 2 calls (two setRawMode(true)), no setRawMode(false)
+    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
+
+    // Clean up: final unmount fires the deferred reset
+    unmount2()
+    vi.advanceTimersByTime(1)
+
+    expect(mockSetRawMode).toHaveBeenCalledTimes(3)
+    expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
   })
 
-  it('handles isActive true -> false transition correctly', () => {
-    // The specific case from the bug: isActive goes from true to false
-    // Old code: cleanup sees old isActive (true) in closure, returns early
-    // New code: cleanup checks if raw mode was actually enabled
-    
-    // Old behavior - closure captures isActive=true
-    const oldIsActive = true
-    const oldResult = oldIsActive !== false // true, so NO cleanup!
-    expect(oldResult).toBe(true) // Bug!
-    
-    // New behavior - check actual raw mode state
-    const rawModeActuallyEnabled = { current: true }
-    const newResult = rawModeActuallyEnabled.current
-    expect(newResult).toBe(true) // Correctly cleans up
+  it('handles isActive true → false transition: disables raw mode', () => {
+    const handler = vi.fn()
+    const { rerender } = renderHook(
+      ({ isActive }) => useInput(handler, { isActive }),
+      { initialProps: { isActive: true } },
+    )
+
+    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+
+    // Transition to inactive
+    rerender({ isActive: false })
+
+    // The effect cleanup from the previous isActive=true run
+    // schedules a deferred reset
+    vi.advanceTimersByTime(1)
+
+    expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
   })
 })

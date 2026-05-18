@@ -42,33 +42,46 @@ type Options = {
 const useInput = (inputHandler: Handler, options: Options = {}) => {
   const { setRawMode, internal_exitOnCtrlC, internal_eventEmitter } = useStdin()
 
-   // useLayoutEffect (not useEffect) so that raw mode is enabled synchronously
-   // during React's commit phase, before render() returns. With useEffect, raw
-   // mode setup is deferred to the next event loop tick via React's scheduler,
-   // leaving the terminal in cooked mode — keystrokes echo and the cursor is
-   // visible until the effect fires.
-useLayoutEffect(() => {
-      // Track whether we actually enabled raw mode this activation cycle
-      const rawModeEnabled = { current: false }
+  // Timer handle for the deferred raw-mode reset. Persists across renders
+  // so the setup phase of a remount can cancel a pending reset from cleanup.
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-      if (options.isActive === false) {
-        return
-      }
+  // useLayoutEffect (not useEffect) so that raw mode is enabled synchronously
+  // during React's commit phase, before render() returns. With useEffect, raw
+  // mode setup is deferred to the next event loop tick via React's scheduler,
+  // leaving the terminal in cooked mode — keystrokes echo and the cursor is
+  // visible until the effect fires.
+  useLayoutEffect(() => {
+    if (options.isActive === false) {
+      return
+    }
 
-      setRawMode(true)
-      rawModeEnabled.current = true
+    setRawMode(true)
 
-      return () => {
-        // Only disable raw mode if we actually enabled it during this activation.
-        // This handles the true -> false transition correctly: the cleanup
-        // runs with the OLD isActive value in closure (true), but we check
-        // whether raw mode was actually enabled, not the stale isActive.
-        // Also handles unmount: if rawModeEnabled is true, we need to clean up.
-        if (rawModeEnabled.current) {
-          setRawMode(false)
-        }
-      }
-    }, [options.isActive, setRawMode])
+    // If a prior cleanup scheduled a deferred reset (MCP re-render churn),
+    // cancel it — we're remounting in the same commit cycle so raw mode
+    // must stay enabled.
+    if (resetTimerRef.current !== null) {
+      clearTimeout(resetTimerRef.current)
+      resetTimerRef.current = null
+    }
+
+    return () => {
+      // Defer the raw-mode reset by one macrotask instead of calling it
+      // synchronously. During MCP async re-render churn the component
+      // unmounts and remounts within a single React commit — the remount's
+      // setup clears this timer before it fires, so raw mode is never
+      // actually disabled and the stdin listener stays registered.
+      //
+      // For a genuine unmount (navigation, isActive→false, process exit)
+      // no remount cancels the timer, so it fires on the next tick and
+      // properly restores cooked mode.
+      resetTimerRef.current = setTimeout(() => {
+        setRawMode(false)
+        resetTimerRef.current = null
+      }, 0)
+    }
+  }, [options.isActive, setRawMode])
 
   // Register the listener once on mount so its slot in the EventEmitter's
   // listener array is stable. If isActive were in the effect's deps, the
