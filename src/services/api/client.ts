@@ -48,6 +48,7 @@ import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
 } from './authRouting.js'
+import { AnthropicVertex } from './vertexClient.js'
 
 const importRuntimeModule = new Function(
   'specifier',
@@ -564,10 +565,7 @@ export async function getAnthropicClient({
       await refreshGcpCredentialsIfNeeded()
     }
 
-    const [{ AnthropicVertex }, { GoogleAuth }] = await Promise.all([
-      importRuntimeModule('@anthropic-ai/vertex-sdk'),
-      importRuntimeModule('google-auth-library'),
-    ])
+    const { GoogleAuth } = await importRuntimeModule('google-auth-library')
     // TODO: Cache either GoogleAuth instance or AuthClient to improve performance
     // Currently we create a new GoogleAuth instance for every getAnthropicClient() call
     // This could cause repeated authentication flows and metadata server checks
