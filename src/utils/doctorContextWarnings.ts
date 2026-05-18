@@ -54,6 +54,16 @@ export type ContextWarnings = {
   unreachableRulesWarning: ContextWarning | null
 }
 
+async function safeWarning(
+  run: () => Promise<ContextWarning | null>,
+): Promise<ContextWarning | null> {
+  try {
+    return await run()
+  } catch {
+    return null
+  }
+}
+
 async function checkClaudeMdFiles(
   memoryFiles?: MemoryFileInfo[],
 ): Promise<ContextWarning | null> {
@@ -345,16 +355,18 @@ export async function checkContextWarnings(
   const includeUnreachableRules = options.includeUnreachableRules ?? true
   const [claudeMdWarning, agentWarning, mcpWarning, unreachableRulesWarning] =
     await Promise.all([
-      checkClaudeMdFiles(options.memoryFiles),
-      checkAgentDescriptions(agentInfo),
-      checkMcpTools(
-        tools,
-        getToolPermissionContext,
-        agentInfo,
-        options.mcpTokenStrategy,
+      safeWarning(() => checkClaudeMdFiles(options.memoryFiles)),
+      safeWarning(() => checkAgentDescriptions(agentInfo)),
+      safeWarning(() =>
+        checkMcpTools(
+          tools,
+          getToolPermissionContext,
+          agentInfo,
+          options.mcpTokenStrategy,
+        ),
       ),
       includeUnreachableRules
-        ? checkUnreachableRules(getToolPermissionContext)
+        ? safeWarning(() => checkUnreachableRules(getToolPermissionContext))
         : Promise.resolve(null),
     ])
 

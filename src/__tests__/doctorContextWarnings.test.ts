@@ -150,4 +150,29 @@ describe('checkContextWarnings', () => {
       }
     }
   })
+
+  test('keeps CLAUDE.md warning when unreachable-rules diagnostics fail', async () => {
+    const warnings = await checkContextWarnings(
+      [],
+      null,
+      async () => {
+        throw new Error('permission context unavailable')
+      },
+      {
+        memoryFiles: [
+          {
+            path: '/repo/CLAUDE.md',
+            type: 'Project',
+            content: 'x'.repeat(50_000),
+          },
+        ],
+      },
+    )
+
+    expect(warnings.claudeMdWarning?.message).toContain(
+      'Large CLAUDE.md file detected',
+    )
+    expect(warnings.mcpWarning).toBeNull()
+    expect(warnings.unreachableRulesWarning).toBeNull()
+  })
 })

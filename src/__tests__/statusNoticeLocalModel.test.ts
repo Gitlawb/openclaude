@@ -350,4 +350,20 @@ describe('startup status notices', () => {
     expect(ids).toContain('large-agent-descriptions')
     expect(ids).not.toContain('local-model-context-load')
   })
+
+  test('local providers keep generic context notices while aggregate warning is pending', () => {
+    const context = {
+      config: {},
+      agentDefinitions: largeAgentDefinitions,
+      memoryFiles: [largeMemoryFile],
+      isLocalModel: true,
+      localModelContextLoad: undefined,
+    } as StatusNoticeContext
+
+    const ids = getActiveContextNoticeIds(context)
+
+    expect(ids).toContain('large-memory-files')
+    expect(ids).toContain('large-agent-descriptions')
+    expect(ids).not.toContain('local-model-context-load')
+  })
 })
