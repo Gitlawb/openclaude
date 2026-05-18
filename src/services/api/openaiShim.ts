@@ -1775,7 +1775,7 @@ async function* openaiStreamToAnthropic(
             bufferedRawToolCallsText = null
           }
           for (const tc of delta.tool_calls) {
-            if (tc.id && tc.function?.name) {
+            if (tc.function?.name) {
               // New tool call starting — close any open thinking block first
               if (hasEmittedThinkingStart && !hasClosedThinking) {
                 yield { type: 'content_block_stop', index: contentBlockIndex }
@@ -1818,8 +1818,12 @@ async function* openaiStreamToAnthropic(
                 toolSignature,
               )
               processStreamChunk(streamState, tc.function.arguments ?? '')
+              // Ollama (and some OpenAI-compat providers) may omit id or send null.
+              // Fall back to a deterministic synthetic id so tool_use blocks are
+              // still emitted and downstream matching can tie tool_calls to results.
+              const toolCallId = tc.id ?? `tc-${tc.index}-${tc.function.name}`
               activeToolCalls.set(tc.index, {
-                id: tc.id,
+                id: toolCallId,
                 name: tc.function.name,
                 index: toolBlockIndex,
                 jsonBuffer: initialArguments,
@@ -1831,7 +1835,7 @@ async function* openaiStreamToAnthropic(
                 index: toolBlockIndex,
                 content_block: {
                   type: 'tool_use',
-                  id: tc.id,
+                  id: toolCallId,
                   name: tc.function.name,
                   input: {},
                   ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
@@ -3375,7 +3379,9 @@ class OpenAIShimMessages {
     }
 
     if (choice?.message?.tool_calls) {
+      const _toolIndex = 0 // stable counter for synthetic id generation
       for (const tc of choice.message.tool_calls) {
+        if (!tc.function?.name) continue
         const input = normalizeToolArguments(
           tc.function.name,
           tc.function.arguments,
@@ -3390,7 +3396,7 @@ class OpenAIShimMessages {
         )
         content.push({
           type: 'tool_use',
-          id: tc.id,
+          id: tc.id ?? `tc-${_toolIndex++}-${tc.function.name}`,
           name: tc.function.name,
           input,
           ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
