@@ -492,7 +492,6 @@ function convertMessages(
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
-  const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
@@ -578,10 +577,15 @@ function convertMessages(
           (b: { type?: string }) => b.type === 'tool_use',
         )
         const thinkingBlock = content.find(
-          (b: { type?: string }) => b.type === 'thinking',
+          (b: { type?: string }) =>
+            b.type === 'thinking' ||
+            b.type === 'redacted_thinking',
         )
         const textContent = content.filter(
-          (b: { type?: string }) => b.type !== 'tool_use' && b.type !== 'thinking',
+          (b: { type?: string }) =>
+            b.type !== 'tool_use' &&
+            b.type !== 'thinking' &&
+            b.type !== 'redacted_thinking',
         )
 
         const assistantMsg: OpenAIMessage = {
@@ -605,15 +609,10 @@ function convertMessages(
         // Gated per-provider because other endpoints either ignore the field
         // (harmless) or strict-reject unknown fields (harmful).
         if (preserveReasoningContent) {
-          const thinkingText = (thinkingBlock as { thinking?: string } | undefined)?.thinking
-          if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
-            assistantMsg.reasoning_content = thinkingText
-          } else if (
-            toolUses.length > 0 &&
-            reasoningContentFallback === ''
-          ) {
-            assistantMsg.reasoning_content = ''
-          }
+          const reasoningText =
+            (thinkingBlock as { thinking?: string } | undefined)?.thinking ?? ''
+
+          assistantMsg.reasoning_content = reasoningText
         }
 
         if (toolUses.length > 0) {
@@ -681,9 +680,13 @@ function convertMessages(
           }
         }
 
-        // Only push assistant message if it has content or tool calls.
-        // Stripped thinking-only blocks from user interruptions are empty and cause 400s.
-        if (assistantMsg.content || assistantMsg.tool_calls?.length) {
+        // Only push assistant message if it has content or tool calls
+        // or reasoning_content (needed for DeepSeek V4 thinking continuity).
+        if (
+          assistantMsg.content ||
+          assistantMsg.tool_calls?.length ||
+          assistantMsg.reasoning_content !== undefined
+        ) {
           result.push(assistantMsg)
         }
       } else {
@@ -697,9 +700,15 @@ function convertMessages(
                 ? c.map((p: { text?: string }) => p.text ?? '').join('')
                 : ''
           })(),
+          ...(preserveReasoningContent && {
+            reasoning_content: '',
+          }),
         }
 
-        if (assistantMsg.content) {
+        if (
+          assistantMsg.content ||
+          assistantMsg.reasoning_content !== undefined
+        ) {
           result.push(assistantMsg)
         }
       }
@@ -723,6 +732,9 @@ function convertMessages(
       coalesced.push({
         role: 'assistant',
         content: '[Tool execution interrupted by user]',
+        ...(preserveReasoningContent && {
+          reasoning_content: '',
+        }),
       })
     }
 

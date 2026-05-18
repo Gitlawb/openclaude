@@ -5687,3 +5687,220 @@ test('emits reasoning_effort from codex alias default when no override is passed
 
   expect(requestBody?.reasoning_effort).toBe('high')
 })
+
+test('DeepSeek: array-content assistant without thinking block still gets reasoning_content: ""', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Using search tool.' },
+          {
+            type: 'tool_use',
+            id: 'call_search_1',
+            name: 'search',
+            input: { query: 'test' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_search_1', content: 'results' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  // reasoning_content must be "" not undefined — DeepSeek rejects undefined
+  expect(assistantWithToolCall?.reasoning_content).toBe('')
+})
+
+test('DeepSeek: string-content assistant message gets reasoning_content: ""', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'Just a plain text reply.' },
+      { role: 'user', content: 'follow up' },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantMsg = messages.find(m => m.role === 'assistant')
+  expect(assistantMsg).toBeDefined()
+  // String-content assistant must also carry reasoning_content for DeepSeek continuity
+  expect(assistantMsg?.reasoning_content).toBe('')
+})
+
+test('DeepSeek: synthetic interruption assistant message carries reasoning_content: ""', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'search please' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Searching...' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'search',
+            input: { q: 'data' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'result data' },
+        ],
+      },
+      { role: 'user', content: 'never mind, cancel' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // The interruption injects a semantic assistant message between tool and user.
+  // It must carry reasoning_content: "" for DeepSeek V4 continuity.
+  const interruptionMsg = messages.find(
+    m => m.role === 'assistant' && m.content === '[Tool execution interrupted by user]',
+  )
+  expect(interruptionMsg).toBeDefined()
+  expect(interruptionMsg?.reasoning_content).toBe('')
+})
+
+test('DeepSeek: redacted_thinking block preserves continuity with reasoning_content: ""', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'analyze this' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'redacted_thinking', thinking: '', signature: 'sig123' },
+          { type: 'text', text: 'Analysis complete.' },
+          {
+            type: 'tool_use',
+            id: 'call_redacted_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_redacted_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  // redacted_thinking is recognized as a thinking block; its .thinking is ""
+  expect(assistantWithToolCall?.reasoning_content).toBe('')
+})

@@ -173,6 +173,7 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
 - Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
 - Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
+- **DeepSeek V4 thinking mode** (`deepseek-chat`, `deepseek-v4-flash`): requires every assistant message in the conversation history to contain `reasoning_content`, including tool-call messages and synthetic interruption messages. The shim guarantees this automatically when the DeepSeek base URL is detected. Missing `reasoning_content` causes a `400 invalid_request_error` during multi-turn tool calling. See `openaiShim.ts`'s `preserveReasoningContent` gate for implementation details.
 
 For best results, use models with strong tool/function calling support.
 

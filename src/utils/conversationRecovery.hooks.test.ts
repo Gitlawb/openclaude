@@ -91,7 +91,7 @@ test('loadConversationForResume rejects oversized transcripts before resume hook
   expect(hookSpy).not.toHaveBeenCalled()
 })
 
-test('deserializeMessagesWithInterruptDetection strips thinking blocks only for OpenAI-compatible providers', async () => {
+test('deserializeMessagesWithInterruptDetection preserves thinking blocks for downstream reasoning reconstruction', async () => {
   const serializedMessages = [
     user(id(10), 'hello'),
     {
@@ -105,8 +105,8 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
       message: {
         role: 'assistant',
         content: [
-          { type: 'thinking', thinking: 'secret reasoning' },
-          { type: 'text', text: 'visible reply' },
+          { type: 'thinking', thinking: 'I am reasoning...' },
+          { type: 'text', text: 'Here is my answer.' },
         ],
       },
     },
@@ -126,6 +126,8 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     user(id(13), 'follow up'),
   ]
 
+  // Third-party provider (e.g. OpenAI-compatible): thinking blocks are now preserved
+  // so openaiShim.ts can reconstruct reasoning_content downstream.
   mock.module('./model/providers.js', () => ({
     ...realProviders,
     getAPIProvider: () => 'openai',
@@ -138,16 +140,17 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   )
 
   expect(thirdPartyAssistantMessages).toHaveLength(2)
+  // Thinking blocks are preserved for downstream shim to reconstruct reasoning_content
   expect(thirdPartyAssistantMessages[0]?.message?.content).toEqual([
-    { type: 'text', text: 'visible reply' },
+    { type: 'thinking', thinking: 'I am reasoning...' },
+    { type: 'text', text: 'Here is my answer.' },
   ])
-  expect(
-    JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
-  ).not.toContain('secret reasoning')
+  // Orphaned thinking-only messages (no text) are still filtered out
   expect(
     JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
   ).not.toContain('only hidden reasoning')
 
+  // Anthropic-native provider: thinking blocks are preserved as expected
   mock.module('./model/providers.js', () => ({
     ...realProviders,
     getAPIProvider: () => 'bedrock',
@@ -161,12 +164,12 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
 
   expect(anthropicAssistantMessages).toHaveLength(2)
   expect(anthropicAssistantMessages[0]?.message?.content).toEqual([
-    { type: 'thinking', thinking: 'secret reasoning' },
-    { type: 'text', text: 'visible reply' },
+    { type: 'thinking', thinking: 'I am reasoning...' },
+    { type: 'text', text: 'Here is my answer.' },
   ])
   expect(
     JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
-  ).toContain('secret reasoning')
+  ).toContain('I am reasoning')
   expect(
     JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
   ).not.toContain('only hidden reasoning')
