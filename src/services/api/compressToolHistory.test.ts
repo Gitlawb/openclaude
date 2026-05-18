@@ -1,4 +1,8 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { compressToolHistory, getTiers } from './compressToolHistory.js'
 
 // Mock the two dependencies so tests are deterministic and don't read disk config.
@@ -6,6 +10,8 @@ const mockState = {
   enabled: true,
   effectiveWindow: 100_000,
 }
+
+await acquireSharedMutationLock('services/api/compressToolHistory.test.ts')
 
 mock.module('../../utils/config.js', () => ({
   getGlobalConfig: () => ({
@@ -22,9 +28,12 @@ beforeEach(() => {
   mockState.effectiveWindow = 100_000
 })
 
-afterEach(() => {
-  mockState.enabled = true
-  mockState.effectiveWindow = 100_000
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 type Block = Record<string, unknown>

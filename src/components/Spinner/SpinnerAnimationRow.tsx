@@ -174,11 +174,15 @@ export function SpinnerAnimationRow({
   let thinkingWidthValue = thinkingText ? stringWidth(thinkingText) : 0;
 
   // === Progressive width gating ===
+  // messageWidth = glimmer text + spinner glyph (width: 2).
+  // parensWidth = 3 accounts for " (" and ")" wrapping the status parts.
+  // The extra 1 is a safety margin so content never touches the right edge.
   const messageWidth = glimmerMessageWidth + 2;
   const sep = SEP_WIDTH;
+  const parensWidth = 4;
   const wantsThinking = thinkingStatus !== null;
   const wantsTimerAndTokens = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TOKENS_AFTER_MS;
-  const availableSpace = columns - messageWidth - 5;
+  const availableSpace = columns - messageWidth - parensWidth;
   let showThinking = wantsThinking && availableSpace > thinkingWidthValue;
   if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && effortSuffix) {
     if (availableSpace > THINKING_BARE_WIDTH) {
@@ -225,7 +229,7 @@ export function SpinnerAnimationRow({
           <Text dimColor>)</Text>
         </> : null;
   return <FullWidthRow>
-      <Box ref={viewportRef} flexDirection="row" flexWrap="wrap" marginTop={1}>
+      <Box ref={viewportRef} flexDirection="row" flexWrap="nowrap" marginTop={1}>
         <SpinnerGlyph frame={frame} messageColor={messageColor} stalledIntensity={overrideColor ? 0 : stalledIntensity} reducedMotion={reducedMotion} time={time} />
         <GlimmerMessage message={message} mode={mode} messageColor={messageColor} glimmerIndex={glimmerIndex} flashOpacity={flashOpacity} shimmerColor={shimmerColor} stalledIntensity={overrideColor ? 0 : stalledIntensity} />
         {status}

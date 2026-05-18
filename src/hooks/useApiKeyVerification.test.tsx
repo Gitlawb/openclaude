@@ -1,8 +1,12 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { createRoot, Text } from '../ink.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 type AuthState = {
   anthropicAuthEnabled: boolean
@@ -53,8 +57,16 @@ async function waitForCondition(
   throw new Error('Timed out waiting for useApiKeyVerification test state')
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('hooks/useApiKeyVerification.test.tsx')
+})
+
 afterEach(() => {
-  mock.restore()
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('useApiKeyVerification resets stale missing status when the session switches to a third-party provider', async () => {

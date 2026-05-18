@@ -702,7 +702,7 @@ export function resetGlobalGraph(): void {
     join(projectDir, 'knowledge.db-wal'),
     join(projectDir, 'knowledge.db-shm'),
   ]) {
-    removePathWithRetry(sqlitePath)
+    removePathWithRetry(sqlitePath, { requireMissingAfterCleanup: !sqliteCleared })
   }
   
   const oramaPath = getOramaPersistencePath(cwd)

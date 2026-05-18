@@ -1,14 +1,28 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { afterAll, describe, it, expect, mock } from 'bun:test'
 import { getCombinedTools, loadReexposedMcpTools } from './mcp.js'
 import type { Tool as InternalTool } from '../Tool.js'
 import type { MCPServerConnection } from '../services/mcp/types.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+
+await acquireSharedMutationLock('entrypoints/mcp.test.ts')
 
 // Mock the MCP client service to control the tools and connections returned
 const mockGetMcpToolsCommandsAndResources = mock(async (onConnectionAttempt: any) => {})
 mock.module('../services/mcp/client.js', () => ({
   getMcpToolsCommandsAndResources: mockGetMcpToolsCommandsAndResources
 }))
+
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 describe('getCombinedTools', () => {
   it('deduplicates builtins when mcpTools have the same name, prioritizing mcpTools', () => {

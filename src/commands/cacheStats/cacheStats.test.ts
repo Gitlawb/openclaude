@@ -5,7 +5,11 @@
  * label padding, conditional N/A footnote, recent-rows cap) which can
  * silently regress — these snapshot tests keep it honest.
  */
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { CacheMetrics } from '../../services/api/cacheMetrics.js'
 import {
   _setHistoryCapForTesting,
@@ -50,9 +54,19 @@ async function runCommand(): Promise<string> {
   return result.value
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('commands/cacheStats/cacheStats.test.ts')
   resetSessionCacheStats()
   _setHistoryCapForTesting(500)
+})
+
+afterEach(() => {
+  try {
+    resetSessionCacheStats()
+    _setHistoryCapForTesting(500)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('/cache-stats — empty session', () => {

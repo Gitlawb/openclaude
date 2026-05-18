@@ -4,10 +4,10 @@ export default defineGateway({
   id: 'gitlawb-opengateway',
   label: 'Gitlawb Opengateway',
   category: 'aggregating',
-  defaultBaseUrl: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo',
+  defaultBaseUrl: 'https://opengateway.gitlawb.com/v1',
   defaultModel: 'mimo-v2.5-pro',
   supportsModelRouting: true,
-  vendorId: 'xiaomi-mimo',
+  vendorId: 'openai',
   setup: {
     requiresAuth: false,
     authMode: 'none',
@@ -29,13 +29,13 @@ export default defineGateway({
   },
   preset: {
     id: 'gitlawb-opengateway',
-    description: 'Gitlawb Opengateway — free hosted MiMo (Xiaomi partnership)',
+    description: 'Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models',
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
-    vendorId: 'xiaomi-mimo',
+    vendorId: 'openai',
     modelEnvVars: ['OPENAI_MODEL'],
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
-    fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo',
+    fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
     fallbackModel: 'mimo-v2.5-pro',
   },
   catalog: {
@@ -70,6 +70,16 @@ export default defineGateway({
         apiName: 'mimo-v2-flash',
         label: 'MiMo V2 Flash (via Opengateway)',
         modelDescriptorId: 'mimo-v2-flash',
+      },
+      // Non-Xiaomi models reachable through the same gateway endpoint. The
+      // gateway routes by model name (see opengateway/src/providers.ts), so
+      // the gateway URL stays unchanged; only the apiName the client sends
+      // determines the upstream.
+      {
+        id: 'opengateway-gemini-3.1-flash-lite-preview',
+        apiName: 'google/gemini-3.1-flash-lite-preview',
+        label: 'Gemini 3.1 Flash Lite Preview (via Opengateway)',
+        modelDescriptorId: 'gemini-3.1-flash-lite-preview',
       },
     ],
   },

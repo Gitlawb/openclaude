@@ -1,5 +1,9 @@
 import { afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { ensureIntegrationsLoaded, getAllGateways } from '../integrations/index.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 import {
   getProviderValidationError,
@@ -41,7 +45,8 @@ beforeAll(() => {
   ensureIntegrationsLoaded()
 })
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/providerValidation.test.ts')
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
@@ -49,12 +54,16 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

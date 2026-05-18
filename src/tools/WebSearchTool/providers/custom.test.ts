@@ -1,5 +1,22 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
 import { extractHits, customProvider, isPrivateHostname } from './custom.js'
+
+async function importFreshCustomProvider() {
+  const stamp = `${Date.now()}-${Math.random()}`
+  return import(`./custom.ts?ts=${stamp}`)
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('WebSearchTool/providers/custom.test.ts')
+})
+
+afterEach(() => {
+  releaseSharedMutationLock()
+})
 
 // ---------------------------------------------------------------------------
 // extractHits — flexible response parsing
@@ -261,8 +278,8 @@ describe('built-in preset request shapes', () => {
       return new Response(JSON.stringify({ items: [] }), { status: 200 })
     }) as typeof fetch
 
-    const { customProvider } = require('./custom.js')
-    await customProvider.search({ query: 'hello world' })
+    const { customProvider: freshCustomProvider } = await importFreshCustomProvider()
+    await freshCustomProvider.search({ query: 'hello world' })
 
     expect(capturedUrl).toContain('https://www.googleapis.com/customsearch/v1')
     expect(capturedUrl).toContain('key=gck-test-key')

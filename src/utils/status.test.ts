@@ -1,6 +1,10 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const ORIGINAL_ENV = { ...process.env }
 
@@ -41,9 +45,17 @@ async function readPropertyValue(
     ?.value
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/status.test.ts')
+})
+
 afterEach(() => {
-  mock.restore()
-  restoreEnv()
+  try {
+    mock.restore()
+    restoreEnv()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('buildAPIProviderProperties labels NVIDIA NIM sessions', async () => {

@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 type MockStorageData = Record<string, unknown>
 
@@ -26,7 +30,8 @@ async function importFreshModule() {
   return import(`./geminiCredentials.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/geminiCredentials.test.ts')
   process.env = { ...originalEnv }
   delete process.env.CLAUDE_CODE_SIMPLE
   process.argv = originalArgv.filter(arg => arg !== '--bare')
@@ -34,10 +39,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.env = { ...originalEnv }
-  process.argv = [...originalArgv]
-  storageState = {}
-  mock.restore()
+  try {
+    process.env = { ...originalEnv }
+    process.argv = [...originalArgv]
+    storageState = {}
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('saveGeminiAccessToken stores and reads back the token', async () => {

@@ -153,6 +153,21 @@ export OPENAI_MODEL=llama-3.3-70b-versatile
 
 `GROQ_API_KEY` matches the built-in Groq gateway preset. `OPENAI_API_KEY` also works as a fallback on the generic OpenAI-compatible path, but `GROQ_API_KEY` is the preferred variable for Groq-specific setup.
 
+### Gitlawb Opengateway
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=https://opengateway.gitlawb.com/v1
+export OPENAI_API_KEY=anything
+export OPENAI_MODEL=mimo-v2.5-pro
+```
+
+The Opengateway route is a smart gateway. Keep the base URL at `/v1` and switch
+models with `/model` or `OPENAI_MODEL`. Current partner models include:
+
+- `mimo-v2.5-pro`
+- `google/gemini-3.1-flash-lite-preview`
+
 ### Xiaomi MiMo
 
 ```bash
