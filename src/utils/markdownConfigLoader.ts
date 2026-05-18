@@ -40,6 +40,29 @@ export type ClaudeConfigDirectory = (typeof CLAUDE_CONFIG_DIRECTORIES)[number]
 
 const PROJECT_CONFIG_DIR_NAMES = ['.claude', '.openclaude'] as const
 
+// Concurrency cap for parallel readFile + parseFrontmatter when loading
+// commands/agents/skills/etc. With unbounded Promise.all, a directory holding
+// thousands of markdown files (e.g., an Obsidian vault symlinked into
+// ~/.openclaude/agents — see issue #769) opens that many fds and blocks the
+// event loop on parse work, freezing the REPL at startup. Batching keeps fd
+// pressure and CPU bursts bounded.
+const MARKDOWN_LOAD_BATCH_SIZE = 32
+
+// Max file size to ingest. Legitimate commands/agents/skills are small (a few
+// KB). Files larger than this are almost always vault notes or unrelated docs
+// that got dragged in via symlink — reading them all into memory causes the
+// same freeze (#769). Override with CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES.
+const DEFAULT_MAX_MARKDOWN_FILE_SIZE_BYTES = 256 * 1024
+
+function getMaxMarkdownFileSizeBytes(): number {
+  const raw = process.env.CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES
+  if (!raw) return DEFAULT_MAX_MARKDOWN_FILE_SIZE_BYTES
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MAX_MARKDOWN_FILE_SIZE_BYTES
+}
+
 export type MarkdownFile = {
   filePath: string
   baseDir: string
@@ -585,27 +608,49 @@ async function loadMarkdownFiles(dir: string): Promise<
     cleanup()
   }
 
-  const results = await Promise.all(
-    files.map(async filePath => {
-      try {
-        const rawContent = await readFile(filePath, { encoding: 'utf-8' })
-        const { frontmatter, content } = parseFrontmatter(rawContent, filePath)
+  const maxFileSize = getMaxMarkdownFileSizeBytes()
+  const results: ({
+    filePath: string
+    frontmatter: FrontmatterData
+    content: string
+  } | null)[] = []
 
-        return {
-          filePath,
-          frontmatter,
-          content,
+  // Batch reads to cap fd usage and event-loop blocking on huge directories
+  // (issue #769). Unbounded Promise.all on a multi-thousand-file vault freezes
+  // the REPL during startup; 32 at a time keeps progress streaming.
+  for (let i = 0; i < files.length; i += MARKDOWN_LOAD_BATCH_SIZE) {
+    const batch = files.slice(i, i + MARKDOWN_LOAD_BATCH_SIZE)
+    const batchResults = await Promise.all(
+      batch.map(async filePath => {
+        try {
+          const fileStat = await stat(filePath)
+          if (fileStat.size > maxFileSize) {
+            logForDebugging(
+              `Skipping oversized markdown file ${filePath} (${fileStat.size} bytes > ${maxFileSize} max). Set CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES to override.`,
+              { level: 'warn' },
+            )
+            return null
+          }
+          const rawContent = await readFile(filePath, { encoding: 'utf-8' })
+          const { frontmatter, content } = parseFrontmatter(rawContent, filePath)
+
+          return {
+            filePath,
+            frontmatter,
+            content,
+          }
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error)
+          logForDebugging(
+            `Failed to read/parse markdown file:  ${filePath}: ${errorMessage}`,
+          )
+          return null
         }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error)
-        logForDebugging(
-          `Failed to read/parse markdown file:  ${filePath}: ${errorMessage}`,
-        )
-        return null
-      }
-    }),
-  )
+      }),
+    )
+    results.push(...batchResults)
+  }
 
   return results.filter(_ => _ !== null)
 }
