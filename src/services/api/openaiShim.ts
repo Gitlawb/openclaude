@@ -2504,7 +2504,7 @@ class OpenAIShimMessages {
     }
 
     if (choice?.message?.tool_calls) {
-      const _toolIndex = 0 // stable counter for synthetic id generation
+      let _toolIndex = 0 // stable counter for synthetic id generation
       for (const tc of choice.message.tool_calls) {
         if (!tc.function?.name) continue
         const input = normalizeToolArguments(
