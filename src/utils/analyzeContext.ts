@@ -704,7 +704,8 @@ export async function countMcpToolTokens(
       name: tool.name,
       serverName: tool.name.split('__')[1] || 'unknown',
       tokens: mcpToolTokensByTool[i]!,
-      isLoaded: loadedMcpToolNames.has(tool.name) || !isDeferredTool(tool),
+      isLoaded:
+        !isDeferred || loadedMcpToolNames.has(tool.name) || !isDeferredTool(tool),
     })
   }
 
