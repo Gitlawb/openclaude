@@ -57,35 +57,37 @@ describe('useInput — raw mode lifecycle', () => {
     expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
   })
 
-  it('cancels deferred reset on rapid remount (MCP re-render churn)', () => {
+  it('cancels deferred reset on isActive false→true transition (MCP re-render churn)', () => {
     const handler = vi.fn()
-    const { unmount, rerender } = renderHook(
-      ({ isActive }) => useInput(handler, { isActive }),
+    const { rerender, unmount } = renderHook(
+      ({ isActive }: { isActive: boolean }) => useInput(handler, { isActive }),
       { initialProps: { isActive: true } },
     )
 
-    // Simulate MCP churn: unmount + immediate remount
-    unmount()
-
-    // The deferred reset is scheduled but hasn't fired yet
-    expect(mockSetRawMode).toHaveBeenCalledTimes(1) // only initial true
+    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
     expect(mockSetRawMode).toHaveBeenCalledWith(true)
 
-    // Remount before the timer fires — the deferred reset should be cancelled
-    const { unmount: unmount2 } = renderHook(() => useInput(handler))
+    // Toggle to inactive — effect cleanup schedules deferred reset
+    rerender({ isActive: false })
 
-    // The remount calls setRawMode(true) again and cancels the pending reset
-    expect(mockSetRawMode).toHaveBeenCalledTimes(2) // two setRawMode(true) calls
+    // Cleanup ran: timer scheduled but hasn't fired yet
+    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
+
+    // Toggle back to active before timer fires — setup cancels pending reset
+    rerender({ isActive: true })
+
+    // Setup cleared the pending timer and called setRawMode(true)
+    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
     expect(mockSetRawMode).toHaveBeenLastCalledWith(true)
 
     // Advance timers — the cancelled reset should NOT fire
     vi.advanceTimersByTime(100)
 
-    // Still only 2 calls (two setRawMode(true)), no setRawMode(false)
+    // Still only 2 calls (no setRawMode(false))
     expect(mockSetRawMode).toHaveBeenCalledTimes(2)
 
     // Clean up: final unmount fires the deferred reset
-    unmount2()
+    unmount()
     vi.advanceTimersByTime(1)
 
     expect(mockSetRawMode).toHaveBeenCalledTimes(3)
