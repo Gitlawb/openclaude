@@ -362,6 +362,66 @@ describe('request size breakdown', () => {
     expect(output).not.toContain('Fetch|token=')
   })
 
+  test('formatted report describes a token-derived context estimate with media caveat', () => {
+    const output = formatRequestSizeReport(
+      createRequestSizeReport(
+        makeContextData({
+          categories: [
+            { name: 'System prompt', tokens: 1_000, color: 'permission' },
+            { name: 'Messages', tokens: 2_000, color: 'permission' },
+          ],
+          messageBreakdown: {
+            toolCallTokens: 0,
+            toolResultTokens: 0,
+            attachmentTokens: 1_000,
+            assistantMessageTokens: 500,
+            userMessageTokens: 500,
+            toolCallsByType: [],
+            attachmentsByType: [{ name: 'image', tokens: 1_000 }],
+          },
+        }),
+      ),
+    )
+
+    expect(output).toContain('Request context size')
+    expect(output).toContain('Estimated context load:')
+    expect(output).toContain('rough byte equivalent at ~4 bytes/token')
+    expect(output).toContain(
+      'This is a context/token estimate, not the serialized JSON request-body size.',
+    )
+    expect(output).toContain(
+      'Base64 image/PDF/media payloads may be much larger on the wire.',
+    )
+    expect(output).not.toContain('Estimated request size:')
+  })
+
+  test('formatted report does not print request content', () => {
+    const output = formatRequestSizeReport(
+      createRequestSizeReport(
+        makeContextData({
+          categories: [{ name: 'Messages', tokens: 8_000, color: 'permission' }],
+          messageBreakdown: {
+            toolCallTokens: 0,
+            toolResultTokens: 0,
+            attachmentTokens: 8_000,
+            assistantMessageTokens: 0,
+            userMessageTokens: 0,
+            toolCallsByType: [],
+            attachmentsByType: [
+              {
+                name: 'image/png;base64,SECRET_IMAGE_BYTES_SHOULD_NOT_PRINT',
+                tokens: 8_000,
+              },
+            ],
+          },
+        }),
+      ),
+    )
+
+    expect(output).toContain('Attachments/media')
+    expect(output).not.toContain('SECRET_IMAGE_BYTES_SHOULD_NOT_PRINT')
+  })
+
   test('unknown request categories are reported as other request content', () => {
     const report = createRequestSizeReport(
       makeContextData({
@@ -415,7 +475,7 @@ describe('request size breakdown', () => {
         ),
       )
 
-      expect(output).toContain('Estimated request size:')
+      expect(output).toContain('Estimated context load:')
     } finally {
       if (originalAnthropicKey === undefined) {
         delete process.env.ANTHROPIC_API_KEY

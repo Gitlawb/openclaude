@@ -13,9 +13,9 @@ export const call: LocalCommandCall = async (_args, context) => {
     value = formatRequestSizeReport(report)
   } catch {
     value = [
-      'Request size',
+      'Request context size',
       '',
-      'Unable to estimate request size for the current context.',
+      'Unable to estimate request context size for the current context.',
     ].join('\n')
   }
 

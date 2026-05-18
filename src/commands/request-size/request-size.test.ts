@@ -138,7 +138,7 @@ test('interactive command failures still render transient output', async () => {
   expect(isValidElement(result)).toBe(true)
   expect(
     (result as { props: { reportText: string } }).props.reportText,
-  ).toContain('Unable to estimate request size')
+  ).toContain('Unable to estimate request context size')
   expect(onDone).not.toHaveBeenCalled()
 })
 
@@ -157,7 +157,7 @@ test('noninteractive command returns a text result without provider credentials'
 
   expect(result.type).toBe('text')
   expect(result.type === 'text' ? result.value : '').toContain(
-    'Estimated request size:',
+    'Estimated context load:',
   )
   expect(result.type === 'text' ? result.display : undefined).toBe('skip')
 })
@@ -185,7 +185,7 @@ test('noninteractive slash command returns text without transcript messages', as
   )
 
   expect(result.shouldQuery).toBe(false)
-  expect(result.resultText).toContain('Estimated request size:')
+  expect(result.resultText).toContain('Estimated context load:')
   expect(result.messages).toEqual([])
 })
 
@@ -214,7 +214,7 @@ test('noninteractive command failures return text without transcript messages', 
   )
 
   expect(result.shouldQuery).toBe(false)
-  expect(result.resultText).toContain('Unable to estimate request size')
+  expect(result.resultText).toContain('Unable to estimate request context size')
   expect(result.messages).toEqual([])
 })
 
@@ -251,7 +251,7 @@ test('slash command processing does not create transcript messages after close',
   const localJSX = await waitForCaptured(() => capturedToolJSX)
   expect(localJSX.jsx.props).toEqual(
     expect.objectContaining({
-      reportText: expect.stringContaining('Estimated request size:'),
+      reportText: expect.stringContaining('Estimated context load:'),
     }),
   )
 

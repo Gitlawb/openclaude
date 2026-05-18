@@ -43,6 +43,7 @@ function sanitizeDisplayName(value: string | undefined): string {
   const printable = redactUrlForDisplay(secretRedacted)
     .replace(/[^\x20-\x7e]/g, '?')
     .replace(/\|/g, '/')
+    .replace(/(base64,)[^,\s;|)]+/gi, '$1redacted')
     .replace(/sk-ant-[A-Za-z0-9_-]{8,}/g, 'redacted')
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'redacted')
     .replace(/AIza[A-Za-z0-9_-]{20,}/g, 'redacted')
@@ -347,12 +348,12 @@ export function createRequestSizeReport(data: ContextData): RequestSizeReport {
 
 export function formatRequestSizeReport(report: RequestSizeReport): string {
   const lines = [
-    'Request size',
+    'Request context size',
     '',
-    `Estimated request size: ${formatFileSize(report.estimatedBytes)} (~${formatTokens(report.estimatedTokens)} tokens)`,
+    `Estimated context load: ${formatFileSize(report.estimatedBytes)} (~${formatTokens(report.estimatedTokens)} tokens; rough byte equivalent at ~4 bytes/token)`,
     [
-      'Estimate method: current context diagnostics at ~4 bytes/token;',
-      'provider-specific JSON wrappers can vary.',
+      'Caveat: This is a context/token estimate, not the serialized JSON request-body size.',
+      'Base64 image/PDF/media payloads may be much larger on the wire.',
     ].join(' '),
     [
       'Privacy: shows contributor names and sizes only;',
@@ -368,8 +369,8 @@ export function formatRequestSizeReport(report: RequestSizeReport): string {
 
   lines.push('Top contributors:')
   lines.push('')
-  lines.push('| # | Contributor | Tokens | Estimated size |')
-  lines.push('|---|-------------|--------|----------------|')
+  lines.push('| # | Contributor | Tokens | Context byte equiv. |')
+  lines.push('|---|-------------|--------|---------------------|')
 
   for (const [index, contributor] of report.topContributors.entries()) {
     const details = contributor.details ? ` (${contributor.details})` : ''
