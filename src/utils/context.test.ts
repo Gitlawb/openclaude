@@ -16,6 +16,7 @@ const originalEnv = {
     process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
@@ -29,6 +30,7 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
@@ -73,6 +75,11 @@ afterEach(() => {
       delete process.env.OPENAI_API_BASE
     } else {
       process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
+    }
+    if (originalEnv.OPENAI_API_KEY === undefined) {
+      delete process.env.OPENAI_API_KEY
+    } else {
+      process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY
     }
     if (originalEnv.MINIMAX_API_KEY === undefined) {
       delete process.env.MINIMAX_API_KEY
