@@ -1812,8 +1812,8 @@ async function* queryModel(
           model: options.model,
           fetchOverride: options.fetchOverride,
           source: options.querySource,
-          providerOverride: options.providerOverride,
-          effortValue: effort,
+            providerOverride: options.providerOverride,
+            ...(typeof effort !== 'undefined' ? { effortValue: effort } : {}),
         }),
       async (anthropic, attempt, context) => {
         attemptNumber = attempt
@@ -2687,7 +2687,11 @@ async function* queryModel(
             model: options.model,
             source: options.querySource,
             providerOverride: options.providerOverride,
+<<<<<<< HEAD
             ...(typeof effort !== 'undefined' ? { effortValue: effort } : {}),
+=======
+            effortValue: effort,
+>>>>>>> 93edf4c (feat(api): add opt-in client RPM/RPD quota guards)
           },
           {
             model: options.model,
