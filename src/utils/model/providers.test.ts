@@ -1,4 +1,9 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -13,21 +18,31 @@ const originalEnv = {
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  VENICE_API_KEY: process.env.VENICE_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 }
 
+function restoreEnv(key: keyof typeof originalEnv): void {
+  if (originalEnv[key] === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = originalEnv[key]
+  }
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/providers.test.ts')
+})
+
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
-  process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
-  process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
-  process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
-  process.env.NVIDIA_NIM = originalEnv.NVIDIA_NIM
-  process.env.MINIMAX_API_KEY = originalEnv.MINIMAX_API_KEY
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
-  process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
-  process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+  try {
+    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+      restoreEnv(key)
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function importFreshProvidersModule() {

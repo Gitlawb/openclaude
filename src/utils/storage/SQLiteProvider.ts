@@ -261,7 +261,27 @@ export class SQLiteProvider {
 
   public clear(): boolean {
     if (!this.db) {
-      return !existsSync(this.dbPath)
+      if (!existsSync(this.dbPath)) {
+        return true
+      }
+
+      if (typeof Bun === 'undefined') {
+        return false
+      }
+
+      try {
+        const { Database } = require('bun:sqlite')
+        this.db = new Database(this.dbPath)
+        this.db.exec('PRAGMA journal_mode = WAL;')
+        this.db.exec('PRAGMA foreign_keys = ON;')
+        this.createTables()
+        return this.clear()
+      } catch (e) {
+        console.error('Failed to open SQLite knowledge graph for clearing:', e)
+        return false
+      } finally {
+        this.close()
+      }
     }
 
     try {

@@ -1,9 +1,21 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 describe('getAgentModel provider-aware fallback', () => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/model/agent.test.ts')
+  })
+
   // Restore all mocks after each test
   afterEach(() => {
-    mock.restore()
+    try {
+      mock.restore()
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   describe('Claude-native providers', () => {

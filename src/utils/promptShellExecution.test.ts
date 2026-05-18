@@ -1,16 +1,28 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getEmptyToolPermissionContext } from '../Tool.js'
 import { BashTool } from '../tools/BashTool/BashTool.js'
 import { executeShellCommandsInPrompt } from './promptShellExecution.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalCall = BashTool.call
 const originalMapToolResultToToolResultBlockParam =
   BashTool.mapToolResultToToolResultBlockParam
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/promptShellExecution.test.ts')
+})
+
 afterEach(() => {
-  BashTool.call = originalCall
-  BashTool.mapToolResultToToolResultBlockParam =
-    originalMapToolResultToToolResultBlockParam
+  try {
+    BashTool.call = originalCall
+    BashTool.mapToolResultToToolResultBlockParam =
+      originalMapToolResultToToolResultBlockParam
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('executeShellCommandsInPrompt normalizes null shell output', async () => {

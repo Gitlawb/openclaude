@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import stripAnsi from 'strip-ansi'
 
@@ -16,6 +16,10 @@ import {
   ProviderWizard,
   TextEntryDialog,
 } from './provider.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { createProfileFile } from '../../utils/providerProfile.js'
 
 const SYNC_START = '\x1B[?2026h'
@@ -156,31 +160,39 @@ function createTestStreams(): {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('commands/provider/provider.test.tsx')
+})
+
 afterEach(() => {
-  mock.restore()
+  try {
+    mock.restore()
 
-  if (ORIGINAL_SIMPLE_ENV === undefined) {
-    delete process.env.CLAUDE_CODE_SIMPLE
-  } else {
-    process.env.CLAUDE_CODE_SIMPLE = ORIGINAL_SIMPLE_ENV
-  }
+    if (ORIGINAL_SIMPLE_ENV === undefined) {
+      delete process.env.CLAUDE_CODE_SIMPLE
+    } else {
+      process.env.CLAUDE_CODE_SIMPLE = ORIGINAL_SIMPLE_ENV
+    }
 
-  if (ORIGINAL_CODEX_API_KEY === undefined) {
-    delete process.env.CODEX_API_KEY
-  } else {
-    process.env.CODEX_API_KEY = ORIGINAL_CODEX_API_KEY
-  }
+    if (ORIGINAL_CODEX_API_KEY === undefined) {
+      delete process.env.CODEX_API_KEY
+    } else {
+      process.env.CODEX_API_KEY = ORIGINAL_CODEX_API_KEY
+    }
 
-  if (ORIGINAL_CHATGPT_ACCOUNT_ID === undefined) {
-    delete process.env.CHATGPT_ACCOUNT_ID
-  } else {
-    process.env.CHATGPT_ACCOUNT_ID = ORIGINAL_CHATGPT_ACCOUNT_ID
-  }
+    if (ORIGINAL_CHATGPT_ACCOUNT_ID === undefined) {
+      delete process.env.CHATGPT_ACCOUNT_ID
+    } else {
+      process.env.CHATGPT_ACCOUNT_ID = ORIGINAL_CHATGPT_ACCOUNT_ID
+    }
 
-  if (ORIGINAL_CODEX_ACCOUNT_ID === undefined) {
-    delete process.env.CODEX_ACCOUNT_ID
-  } else {
-    process.env.CODEX_ACCOUNT_ID = ORIGINAL_CODEX_ACCOUNT_ID
+    if (ORIGINAL_CODEX_ACCOUNT_ID === undefined) {
+      delete process.env.CODEX_ACCOUNT_ID
+    } else {
+      process.env.CODEX_ACCOUNT_ID = ORIGINAL_CODEX_ACCOUNT_ID
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
@@ -244,9 +256,9 @@ test('wizard step remount prevents a typed API key from leaking into the next fi
     </AppStateProvider>,
   )
 
-  await Bun.sleep(25)
+  await waitForOutput(getOutput, output => output.includes('API key step'))
   stdin.write('sk-secret-12345678')
-  await Bun.sleep(25)
+  await waitForOutput(getOutput, output => output.includes('********'))
 
   root.render(
     <AppStateProvider>
@@ -262,13 +274,14 @@ test('wizard step remount prevents a typed API key from leaking into the next fi
     </AppStateProvider>,
   )
 
-  await Bun.sleep(25)
+  const output = await waitForOutput(
+    getOutput,
+    frame => frame.includes('Model step') && !frame.includes('sk-secret-12345678'),
+  )
   root.unmount()
   stdin.end()
   stdout.end()
-  await Bun.sleep(25)
 
-  const output = stripAnsi(extractLastFrame(getOutput()))
   expect(output).toContain('Model step')
   expect(output).not.toContain('sk-secret-12345678')
 })

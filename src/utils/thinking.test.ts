@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { resetSettingsCache } from './settings/settingsCache.js'
 
 const ENV_KEYS = [
@@ -26,7 +30,8 @@ const ENV_KEYS = [
 
 const originalEnv: Record<string, string | undefined> = {}
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/thinking.test.ts')
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
@@ -35,15 +40,19 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  mock.restore()
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    mock.restore()
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
+    resetSettingsCache()
+  } finally {
+    releaseSharedMutationLock()
   }
-  resetSettingsCache()
 })
 
 async function importFreshThinkingModule() {

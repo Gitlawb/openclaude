@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach, afterAll } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 import {
   addGlobalEntity,
   addGlobalRelation,
@@ -18,8 +18,9 @@ import { sanitizePath } from './sessionStoragePortable.js'
 
 describe('KnowledgeGraph Global Persistence & RAG', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-test-'))
   const cwd = process.cwd()
+  let configDir: string | undefined
+
   const removeDirWithRetry = (dir: string) => {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -46,6 +47,7 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
 
   beforeEach(async () => {
     await acquireEnvMutex()
+    configDir = mkdtempSync(join(tmpdir(), 'openclaude-test-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
     setClaudeConfigHomeDirForTesting(configDir)
     resetGlobalGraph()
@@ -62,12 +64,16 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
       }
       setClaudeConfigHomeDirForTesting(undefined)
     } finally {
-      releaseEnvMutex()
+      const dirToRemove = configDir
+      configDir = undefined
+      try {
+        if (dirToRemove) {
+          removeDirWithRetry(dirToRemove)
+        }
+      } finally {
+        releaseEnvMutex()
+      }
     }
-  })
-
-  afterAll(() => {
-    removeDirWithRetry(configDir)
   })
 
   it('persists entities across loads', async () => {

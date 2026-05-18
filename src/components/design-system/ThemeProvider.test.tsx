@@ -18,14 +18,20 @@
  */
 import { PassThrough } from 'node:stream'
 
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterAll, expect, mock, test } from 'bun:test'
 import React, { useEffect } from 'react'
 import stripAnsi from 'strip-ansi'
 
 import { createRoot, Text, useTheme } from '../../ink.js'
 import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js'
 import { AppStateProvider } from '../../state/AppState.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { ThemeProvider, usePreviewTheme } from './ThemeProvider.js'
+
+await acquireSharedMutationLock('components/design-system/ThemeProvider.test.tsx')
 
 mock.module('../StructuredDiff.js', () => ({
   StructuredDiff: function StructuredDiffPreview(): React.ReactNode {
@@ -98,8 +104,12 @@ async function waitForFrame(
   return frame
 }
 
-afterEach(() => {
-  mock.restore()
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 /**

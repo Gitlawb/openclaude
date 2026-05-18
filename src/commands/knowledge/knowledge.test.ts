@@ -1,15 +1,52 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { call as knowledgeCall } from './knowledge.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { getArc, addEntity, resetArc } from '../../utils/conversationArc.js'
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js'
+import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 describe('knowledge command', () => {
   const mockContext = {} as any
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  let configDir: string | undefined
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('commands/knowledge.test.ts')
+    configDir = mkdtempSync(join(tmpdir(), 'openclaude-knowledge-command-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    setClaudeConfigHomeDirForTesting(configDir)
     resetArc()
     resetGlobalGraph()
+  })
+
+  afterEach(() => {
+    try {
+      resetArc()
+      resetGlobalGraph()
+      if (originalConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+      }
+      setClaudeConfigHomeDirForTesting(undefined)
+    } finally {
+      const dirToRemove = configDir
+      configDir = undefined
+      try {
+        if (dirToRemove) {
+          rmSync(dirToRemove, { recursive: true, force: true })
+        }
+      } finally {
+        releaseSharedMutationLock()
+      }
+    }
   })
   
   const knowledgeCallWithCapture = async (args: string) => {

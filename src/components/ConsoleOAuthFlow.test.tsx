@@ -87,13 +87,34 @@ async function renderFrame(node: React.ReactNode): Promise<string> {
     </AppStateProvider>,
   )
 
-  await Bun.sleep(50)
-  root.unmount()
-  stdin.end()
-  stdout.end()
-  await Bun.sleep(25)
+  try {
+    return await waitForOutput(
+      getOutput,
+      output => output.includes('Select login method:') || output.includes('Set up provider'),
+    )
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+  }
+}
 
-  return stripAnsi(extractLastFrame(getOutput()))
+async function waitForOutput(
+  getOutput: () => string,
+  predicate: (output: string) => boolean,
+  timeoutMs = 2500,
+): Promise<string> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const output = stripAnsi(extractLastFrame(getOutput()))
+    if (predicate(output)) {
+      return output
+    }
+    await Bun.sleep(10)
+  }
+
+  throw new Error('Timed out waiting for ConsoleOAuthFlow test output')
 }
 
 test('login picker shows the third-party platform option', async () => {
