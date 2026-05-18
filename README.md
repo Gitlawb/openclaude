@@ -124,7 +124,6 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 
 openclaude
 ```
-
 ### Using Ollama's launch command
 
 If you have [Ollama](https://ollama.com) installed, you can skip the env var setup entirely:
