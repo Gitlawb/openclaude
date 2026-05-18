@@ -35,7 +35,7 @@ const largeMemoryFilesNotice: StatusNoticeDefinition = {
   id: 'large-memory-files',
   type: 'warning',
   isActive: ctx => {
-    if (ctx.isLocalModel && ctx.localModelContextLoad !== null) {
+    if (ctx.isLocalModel && ctx.localModelContextLoad) {
       return false;
     }
     return getLargeMemoryFiles(ctx.memoryFiles).length > 0;
@@ -149,7 +149,7 @@ const largeAgentDescriptionsNotice: StatusNoticeDefinition = {
   id: 'large-agent-descriptions',
   type: 'warning',
   isActive: context => {
-    if (context.isLocalModel && context.localModelContextLoad !== null) {
+    if (context.isLocalModel && context.localModelContextLoad) {
       return false;
     }
     const totalTokens = getAgentDescriptionsTotalTokens(context.agentDefinitions);
