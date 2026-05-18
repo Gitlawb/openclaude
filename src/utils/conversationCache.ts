@@ -153,6 +153,20 @@ export interface Message {
   usage?: unknown
   is_development?: boolean
   index?: number
+  uuid?: string
+  session_id?: string
+  parent_tool_use_id?: string | null
+  tool_use_result?: unknown
+  message?: unknown
+  subtype?: string
+  result?: string
+  event?: unknown
+  error?: string
+  errors?: string[]
+  status?: string | null
+  compact_metadata?: unknown
+  tool_name?: string
+  elapsed_time_seconds?: number
 }
 
 export type CacheMessage = Message

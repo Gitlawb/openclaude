@@ -109,6 +109,8 @@ function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
     if ('type' in m) cacheMsg.type = m.type
     // Assistant message payload
     if ('message' in m) cacheMsg.message = m.message as CacheMessage['message']
+    // Assistant error (SDKAssistantMessage only)
+    if ('error' in m) cacheMsg.error = m.error as string
     // User message fields
     if ('uuid' in m) cacheMsg.uuid = m.uuid
     if ('session_id' in m) cacheMsg.session_id = m.session_id
@@ -122,11 +124,20 @@ function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
     // Result/system fields
     if ('subtype' in m) cacheMsg.subtype = m.subtype
     if ('result' in m) cacheMsg.result = m.result as CacheMessage['result']
+    // Result errors (SDKResultMessage error variant only)
+    if ('errors' in m) cacheMsg.errors = m.errors as string[]
     // Stream event payload
     if ('event' in m) cacheMsg.event = m.event as CacheMessage['event']
     // Generic metadata
     if ('is_development' in m) cacheMsg.is_development = m.is_development
     if ('index' in m && typeof m.index === 'number') cacheMsg.index = m.index
+    // System status (SDKStatusMessage only - persist 'compacting', skip null)
+    if ('status' in m && m.status) cacheMsg.status = m.status as string
+    // Compact boundary metadata (SDKCompactBoundaryMessage only)
+    if ('compact_metadata' in m) cacheMsg.compact_metadata = m.compact_metadata as unknown
+    // Tool progress fields (SDKToolProgressMessage only)
+    if ('tool_name' in m) cacheMsg.tool_name = m.tool_name as string
+    if ('elapsed_time_seconds' in m) cacheMsg.elapsed_time_seconds = m.elapsed_time_seconds as number
     return cacheMsg
   })
 }
@@ -167,6 +178,17 @@ function deserializeFromCacheMessage(messages: CacheMessage[]): SDKMessage[] {
     if (m.event) msg.event = m.event as SDKMessage['event']
     if (typeof m.is_development === 'boolean') msg.is_development = m.is_development
     if (typeof m.index === 'number') msg.index = m.index
+    // Assistant error (SDKAssistantMessage)
+    if (m.error) msg.error = m.error as SDKMessage['error']
+    // Result errors (SDKResultMessage error variant)
+    if (m.errors) msg.errors = m.errors as SDKMessage['errors']
+    // System status (SDKStatusMessage - only truthy values get serialized)
+    if (m.status) msg.status = m.status as SDKMessage['status']
+    // Compact boundary metadata (SDKCompactBoundaryMessage)
+    if (m.compact_metadata) msg.compact_metadata = m.compact_metadata as SDKMessage['compact_metadata']
+    // Tool progress fields (SDKToolProgressMessage)
+    if (m.tool_name) msg.tool_name = m.tool_name as SDKMessage['tool_name']
+    if (m.elapsed_time_seconds !== undefined) msg.elapsed_time_seconds = m.elapsed_time_seconds as SDKMessage['elapsed_time_seconds']
     return msg
   })
 }
