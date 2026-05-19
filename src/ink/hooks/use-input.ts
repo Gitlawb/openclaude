@@ -56,14 +56,16 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
       return
     }
 
-    setRawMode(true)
-
     // If a prior cleanup scheduled a deferred reset (MCP re-render churn),
-    // cancel it — we're remounting in the same commit cycle so raw mode
-    // must stay enabled.
+    // cancel it and skip setRawMode(true). The counter was never decremented
+    // — the reset was deferred via setTimeout and aborted before it fired —
+    // so calling setRawMode(true) again would over-increment the counter
+    // and leak raw mode on final unmount.
     if (resetTimerRef.current !== null) {
       clearTimeout(resetTimerRef.current)
       resetTimerRef.current = null
+    } else {
+      setRawMode(true)
     }
 
     return () => {

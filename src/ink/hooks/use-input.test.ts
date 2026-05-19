@@ -76,21 +76,22 @@ describe('useInput — raw mode lifecycle', () => {
     // Toggle back to active before timer fires — setup cancels pending reset
     rerender({ isActive: true })
 
-    // Setup cleared the pending timer and called setRawMode(true)
-    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
+    // Setup cleared the pending timer but did NOT call setRawMode(true)
+    // because the counter was never decremented by the deferred reset.
+    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
     expect(mockSetRawMode).toHaveBeenLastCalledWith(true)
 
     // Advance timers — the cancelled reset should NOT fire
     vi.advanceTimersByTime(100)
 
-    // Still only 2 calls (no setRawMode(false))
-    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
+    // Still only 1 call (no setRawMode(false), no redundant setRawMode(true))
+    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
 
     // Clean up: final unmount fires the deferred reset
     unmount()
     vi.advanceTimersByTime(1)
 
-    expect(mockSetRawMode).toHaveBeenCalledTimes(3)
+    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
     expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
   })
 
