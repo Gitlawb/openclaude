@@ -853,7 +853,7 @@ export function buildCompatibilityProcessEnv(options: {
   const nextEnv: NodeJS.ProcessEnv = { ...options.profileEnv }
   const flag = getCompatibilityProfileFlag(options.compatibilityMode)
 
-  if (flag) {
+  if (flag && (env[flag] === undefined || isEnvTruthy(env[flag]))) {
     nextEnv[flag] = '1'
   }
 
@@ -1503,6 +1503,16 @@ export async function buildStartupEnvFromProfile(options?: {
   // "banner shows gpt-4o / api.openai.com even though my saved profile is
   // Moonshot" bug.
   if (profileManagedEnv) {
+    return processEnv
+  }
+
+  // If the user explicitly disabled a provider via env (e.g. CLAUDE_CODE_USE_OPENAI=0),
+  // respect that choice and do NOT inject default profile env. This prevents the
+  // fallback logic from overriding an intentional opt-out.
+  if (
+    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+  ) {
     return processEnv
   }
 
