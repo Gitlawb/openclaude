@@ -29,6 +29,7 @@ function mistralModel(
 }
 
 export default [
+  mistralModel('mistral-vibe-cli-latest', 'Mistral Vibe (CLI) Latest', 256_000, 32_768),
   mistralModel('mistral-large-latest', 'Mistral Large Latest', 256_000, 32_768),
   mistralModel('mistral-small-latest', 'Mistral Small Latest', 256_000, 32_768),
   mistralModel('devstral-latest', 'Devstral Latest', 256_000, 32_768),
