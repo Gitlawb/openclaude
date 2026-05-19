@@ -999,6 +999,11 @@ function couldBeRawToolCallsRequestedPrefix(text: string): boolean {
   )
 }
 
+function couldBeRawJsonContent(text: string): boolean {
+  const trimmedStart = text.trimStart()
+  return trimmedStart.startsWith('{') || trimmedStart.startsWith('[')
+}
+
 function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | null {
   const trimmed = text.trim()
   if (!trimmed.startsWith(RAW_TOOL_CALLS_REQUESTED_PREFIX)) {
@@ -1032,6 +1037,30 @@ function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | nul
   }
 
   return toolCalls.length > 0 ? toolCalls : null
+}
+
+function parseRawJsonToolCallsFromContent(text: string): ParsedRawToolCall[] | null {
+  const trimmed = text.trim()
+  const firstChar = trimmed[0]
+  if (firstChar !== '{' && firstChar !== '[') return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    const items = Array.isArray(parsed) ? parsed : [parsed]
+    const calls: ParsedRawToolCall[] = []
+    for (const item of items) {
+      if (item && typeof item === 'object' && typeof item.name === 'string') {
+        const rawArgs = item.arguments ?? item.input ?? {}
+        calls.push({
+          id: item.id ?? `tc-${calls.length}-${item.name}`,
+          name: item.name,
+          argumentsJson: typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs),
+        })
+      }
+    }
+    return calls.length > 0 ? calls : null
+  } catch {
+    return null
+  }
 }
 
 function repairPossiblyTruncatedObjectJson(raw: string): string | null {
@@ -1744,14 +1773,17 @@ async function* openaiStreamToAnthropic(
           } else if (
             !hasEmittedContentStart &&
             bufferedRawToolCallsText === null &&
-            couldBeRawToolCallsRequestedPrefix(delta.content)
+            (couldBeRawToolCallsRequestedPrefix(delta.content) || couldBeRawJsonContent(delta.content))
           ) {
             bufferedRawToolCallsText = delta.content
             processStreamChunk(streamState, delta.content)
           } else if (bufferedRawToolCallsText !== null) {
             bufferedRawToolCallsText += delta.content
             processStreamChunk(streamState, delta.content)
-            if (!couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)) {
+            if (
+              !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText) &&
+              !couldBeRawJsonContent(bufferedRawToolCallsText)
+            ) {
               yield* emitTextDelta(bufferedRawToolCallsText)
               bufferedRawToolCallsText = null
             }
@@ -1765,7 +1797,7 @@ async function* openaiStreamToAnthropic(
           if (bufferedRawToolCallsText !== null) {
             const parsedBufferedToolCalls = parseRawToolCallsRequestedText(
               bufferedRawToolCallsText,
-            )
+            ) ?? parseRawJsonToolCallsFromContent(bufferedRawToolCallsText)
             if (
               !parsedBufferedToolCalls &&
               !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)
@@ -1980,7 +2012,8 @@ async function* openaiStreamToAnthropic(
 
           // Flush bufferedRawToolCallsText for non-Ollama providers
           const parsedBufferedToolCalls = bufferedRawToolCallsText
-            ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
+            ? (parseRawToolCallsRequestedText(bufferedRawToolCallsText) ??
+               parseRawJsonToolCallsFromContent(bufferedRawToolCallsText))
             : null
           if (parsedBufferedToolCalls) {
             yield* emitParsedRawToolCalls(parsedBufferedToolCalls)
@@ -3326,7 +3359,8 @@ class OpenAIShimMessages {
       const strippedContent = stripThinkTags(rawContent)
       const rawToolCalls = choice?.message?.tool_calls
         ? null
-        : parseRawToolCallsRequestedText(strippedContent)
+        : (parseRawToolCallsRequestedText(strippedContent) ??
+           parseRawJsonToolCallsFromContent(strippedContent))
       if (rawToolCalls) {
         for (const toolCall of rawToolCalls) {
           content.push({
@@ -3359,7 +3393,8 @@ class OpenAIShimMessages {
         const strippedContent = stripThinkTags(joined)
         const rawToolCalls = choice?.message?.tool_calls
           ? null
-          : parseRawToolCallsRequestedText(strippedContent)
+          : (parseRawToolCallsRequestedText(strippedContent) ??
+             parseRawJsonToolCallsFromContent(strippedContent))
         if (rawToolCalls) {
           for (const toolCall of rawToolCalls) {
             content.push({
