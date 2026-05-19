@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { BashTool } from './BashTool.js'
+import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { ShellError } from '../../utils/errors.js'
 import { formatError } from '../../utils/toolErrors.js'
 
@@ -13,9 +14,11 @@ import { formatError } from '../../utils/toolErrors.js'
 // the captured output alongside the exit code.
 
 function makeCtx() {
+  const toolPermissionContext = getEmptyToolPermissionContext()
   return {
     abortController: new AbortController(),
-    getAppState: () => ({ toolPermissionContext: { mode: 'default' } } as never),
+    options: { isNonInteractiveSession: false },
+    getAppState: () => ({ toolPermissionContext } as never),
     setAppState: () => undefined,
     setToolJSX: undefined,
     toolUseId: 'test-bash-error-output',
