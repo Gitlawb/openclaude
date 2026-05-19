@@ -113,27 +113,24 @@ export const CronCreateTool = buildTool({
         errorCode: 4,
       }
     }
+    // Reject durable prompts that exceed the hard limit so a misbehaving or
+    // adversarial model cannot write a payload so large it overflows the
+    // durable cron file or injects content that would execute at next startup
+    // without re-authentication. Session-only (durable: false) jobs are never
+    // persisted and don't need this guard.
+    if (input.durable && input.prompt.length > MAX_CRON_PROMPT_CHARS) {
+      return {
+        result: false,
+        message: `Cron prompt exceeds maximum length of ${MAX_CRON_PROMPT_CHARS} characters (got ${input.prompt.length}). Shorten the prompt or split into multiple jobs.`,
+        errorCode: 5,
+      }
+    }
     return { result: true }
   },
   async call({ cron, prompt, recurring = true, durable = false }) {
     // Kill switch forces session-only; schema stays stable so the model sees
     // no validation errors when the gate flips mid-session.
     const effectiveDurable = durable && isDurableCronEnabled()
-
-    // Defensive cap: reject prompts that exceed the hard limit so a
-    // misbehaving or adversarial model cannot write a payload so large
-    // it overflows the durable cron file or injects content that would
-    // execute at next startup without re-authentication.
-    // Only applied to durable crons — session-only (durable: false) jobs
-    // are never persisted and don't need this guard.
-    if (effectiveDurable && prompt.length > MAX_CRON_PROMPT_CHARS) {
-      return {
-        data: {
-          success: false,
-          error: `Cron prompt exceeds maximum length of ${MAX_CRON_PROMPT_CHARS} characters (got ${prompt.length}). Shorten the prompt or split into multiple jobs.`,
-        },
-      }
-    }
 
     const id = await addCronTask(
       cron,
