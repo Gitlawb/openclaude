@@ -211,7 +211,7 @@ export async function fetchLatestEvents(
     const metadata = getSessionCacheMetadata(sessionId)
     return {
       events: cached,
-      firstId: cached[0]?.id ?? null,
+      firstId: metadata?.lastId ?? null,
       hasMore: metadata?.hasMore ?? false,
     }
   }
@@ -243,15 +243,15 @@ export async function cacheSession(
 
   sessionMetadataCache.set(sessionId, { hasMore, lastId })
 
-  const newIds = new Set(events.map(e => e.id))
-  const lastIds = lastSavedIds.get(sessionId)
+  const newUuids = new Set(events.map(e => e.uuid))
+  const lastUuids = lastSavedIds.get(sessionId)
   const newCount = events.length
   const lastCount = lastSavedCounts.get(sessionId) ?? 0
 
-  const hasNewIds = !lastIds || [...newIds].some(id => !lastIds.has(id))
-  if (hasNewIds || newCount !== lastCount) {
+  const hasNewUuids = !lastUuids || [...newUuids].some(uuid => !lastUuids.has(uuid))
+  if (hasNewUuids || newCount !== lastCount) {
     lastSavedCounts.set(sessionId, newCount)
-    lastSavedIds.set(sessionId, newIds)
+    lastSavedIds.set(sessionId, newUuids)
 
     const session = createSession(
       messages as never,
