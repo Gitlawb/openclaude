@@ -1191,6 +1191,80 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
   })
 })
 
+test('does not add empty reasoning_content for OpenGateway MiMo tool history', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-opengateway-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall).not.toHaveProperty('reasoning_content')
+})
+
 test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
   let requestBody: Record<string, unknown> | undefined
 
