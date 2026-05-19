@@ -198,6 +198,11 @@ function stripThinkingBlocks(messages: NormalizedMessage[]): NormalizedMessage[]
   }, [])
 }
 
+function shouldPreserveThinkingBlocksForProviderReplay(): boolean {
+  const model = process.env.OPENAI_MODEL?.trim().toLowerCase() ?? ''
+  return model.startsWith('mimo-v2')
+}
+
 /**
  * Deserializes messages from a log file into the format expected by the REPL.
  * Filters unresolved tool uses, orphaned thinking messages, and appends a
@@ -260,6 +265,7 @@ export function deserializeMessagesWithInterruptDetection(
     const isThirdPartyProvider =
       provider !== 'foundry' && !isAnthropicNativeTransport
     const thinkingStripped = isThirdPartyProvider
+      && !shouldPreserveThinkingBlocksForProviderReplay()
       ? stripThinkingBlocks(filteredThinking)
       : filteredThinking
 

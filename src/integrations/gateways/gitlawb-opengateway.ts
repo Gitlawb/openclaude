@@ -20,6 +20,7 @@ export default defineGateway({
         scheme: 'raw',
       },
       maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store', 'stream_options'],
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },
