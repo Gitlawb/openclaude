@@ -813,6 +813,10 @@ export const getMemoryFiles = memoize(
       forceIncludeExternal ||
       config.hasClaudeMdExternalIncludesApproved ||
       false
+    const includeExternalForUser =
+      forceIncludeExternal ||
+      config.hasClaudeMdExternalIncludesApprovedForUser ||
+      false
 
     // Process Managed file first (always loaded - policy settings)
     const managedClaudeMd = getMemoryPath('Managed')
@@ -844,7 +848,7 @@ export const getMemoryFiles = memoize(
           userClaudeMd,
           'User',
           processedPaths,
-          includeExternal, // Global external-includes gate (line 812)
+          includeExternalForUser, // User-scope external-includes gate
         )),
       )
       // Process User ~/.claude/rules/*.md files
@@ -854,7 +858,7 @@ export const getMemoryFiles = memoize(
           rulesDir: userClaudeRulesDir,
           type: 'User',
           processedPaths,
-           includeExternal,
+          includeExternal: includeExternalForUser, // User-scope external-includes gate
           conditionalRule: false,
         })),
       )
@@ -1426,9 +1430,11 @@ export type ExternalClaudeMdInclude = {
 
 export function getExternalClaudeMdIncludes(
   files: MemoryFileInfo[],
+  types?: MemoryType[],
 ): ExternalClaudeMdInclude[] {
   const externals: ExternalClaudeMdInclude[] = []
   for (const file of files) {
+    if (types && !types.includes(file.type)) continue
     if (file.parent && !pathInOriginalCwd(file.path)) {
       externals.push({ path: file.path, parent: file.parent })
     }
@@ -1436,20 +1442,27 @@ export function getExternalClaudeMdIncludes(
   return externals
 }
 
-export function hasExternalClaudeMdIncludes(files: MemoryFileInfo[]): boolean {
-  return getExternalClaudeMdIncludes(files).length > 0
+export function hasExternalClaudeMdIncludes(files: MemoryFileInfo[], types?: MemoryType[]): boolean {
+  return getExternalClaudeMdIncludes(files, types).length > 0
 }
 
-export async function shouldShowClaudeMdExternalIncludesWarning(): Promise<boolean> {
-  const config = getCurrentProjectConfig()
-  if (
-    config.hasClaudeMdExternalIncludesApproved ||
-    config.hasClaudeMdExternalIncludesWarningShown
-  ) {
-    return false
-  }
+export type ExternalIncludesScope = 'User' | 'Project' | 'None'
 
-  return hasExternalClaudeMdIncludes(await getMemoryFiles(true))
+export async function shouldShowClaudeMdExternalIncludesWarning(): Promise<ExternalIncludesScope> {
+  const config = getCurrentProjectConfig()
+  const files = await getMemoryFiles(true)
+
+  const hasProjectExternals =
+    !config.hasClaudeMdExternalIncludesApproved &&
+    hasExternalClaudeMdIncludes(files, ['Project', 'Local'])
+
+  const hasUserExternals =
+    !config.hasClaudeMdExternalIncludesApprovedForUser &&
+    hasExternalClaudeMdIncludes(files, ['User'])
+
+  if (hasProjectExternals) return 'Project'
+  if (hasUserExternals) return 'User'
+  return 'None'
 }
 
 /**

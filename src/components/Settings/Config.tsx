@@ -1553,7 +1553,7 @@ export function Config({
           <ClaudeMdExternalIncludesDialog onDone={() => {
         setShowSubmenu(null);
         setTabsHidden(false);
-      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles)} />
+      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles, ['Project', 'Local'])} scope="Project" />
           <Text dimColor>
             <Byline>
               <KeyboardShortcutHint shortcut="Enter" action="confirm" />
