@@ -827,7 +827,7 @@ test('env-only MiniMax fallback yields to explicit Bedrock selection', async () 
 
   globalThis.fetch = (async () => {
     throw new Error('MiniMax/OpenAI shim fetch should not run')
-  }) as FetchType
+  }) as unknown as FetchType
 
   await getAnthropicClient({
     maxRetries: 0,
@@ -852,7 +852,7 @@ test('env-only xAI fallback yields to explicit Bedrock selection', async () => {
 
   globalThis.fetch = (async () => {
     throw new Error('xAI/OpenAI shim fetch should not run')
-  }) as FetchType
+  }) as unknown as FetchType
 
   await getAnthropicClient({
     maxRetries: 0,
