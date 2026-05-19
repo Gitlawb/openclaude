@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import {
   getEmptyToolPermissionContext,
   type Tool,
@@ -8,37 +8,12 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import * as realTokenEstimation from '../services/tokenEstimation.js'
+import { countMcpToolTokens } from './analyzeContext.js'
 
 await acquireSharedMutationLock('utils/analyzeContext.mcp.test.ts')
 
-const countMessagesTokensWithAPI = mock(async () => 40_500)
-
-mock.module('../services/tokenEstimation.js', () => ({
-  ...realTokenEstimation,
-  countMessagesTokensWithAPI,
-  countTokensViaHaikuFallback: mock(async () => null),
-  roughTokenCountEstimation: (content: string, bytesPerToken = 4) =>
-    Math.round(content.length / bytesPerToken),
-}))
-
-mock.module('./toolSearch.js', () => ({
-  isToolSearchEnabled: mock(async () => false),
-}))
-
-mock.module('../tools/ToolSearchTool/prompt.js', () => ({
-  TOOL_SEARCH_TOOL_NAME: 'ToolSearch',
-  isDeferredTool: (tool: Tool) => tool.isMcp === true,
-}))
-
-const { countMcpToolTokens } = await import('./analyzeContext.js')
-
 afterAll(() => {
-  try {
-    mock.restore()
-  } finally {
-    releaseSharedMutationLock()
-  }
+  releaseSharedMutationLock()
 })
 
 function mcpTool(name: string, descriptionLength: number): Tool {
@@ -58,6 +33,8 @@ const emptyPermissionContext = async (): Promise<ToolPermissionContext> =>
 
 describe('countMcpToolTokens', () => {
   test('marks MCP tools as loaded when Tool Search is disabled', async () => {
+    const countToolDefinitions = async () => 40_500
+
     const result = await countMcpToolTokens(
       [
         mcpTool('mcp__github__search', 80_000),
@@ -66,6 +43,8 @@ describe('countMcpToolTokens', () => {
       emptyPermissionContext,
       null,
       'claude-sonnet-4',
+      undefined,
+      countToolDefinitions,
     )
 
     expect(result.mcpToolTokens).toBe(40_000)
