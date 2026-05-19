@@ -47,9 +47,16 @@ export default defineVendor({
     kind: 'credential-env',
     routing: {
       // `<ACCOUNT_ID>` placeholder won't match a real URL, so rely on host
-      // matching to associate user-edited Cloudflare URLs back to this preset.
+      // matching to associate user-edited Workers-AI URLs back to this preset.
+      // `gateway.ai.cloudflare.com` is intentionally NOT listed — it is the
+      // shared host for *all* Cloudflare AI Gateway routes (Workers AI,
+      // Anthropic, OpenAI, etc.) and matching here would apply Workers-AI
+      // runtime metadata + credential precedence to other providers' Gateway
+      // URLs (jatmn / Vasanthdev2004 / gnanam1990 review on #1100). A
+      // dedicated AI Gateway integration with path-aware routing is the right
+      // follow-up — see the file header comment.
       matchDefaultBaseUrl: false,
-      matchBaseUrlHosts: ['api.cloudflare.com', 'gateway.ai.cloudflare.com'],
+      matchBaseUrlHosts: ['api.cloudflare.com'],
     },
     credentialEnvVars: ['CLOUDFLARE_API_TOKEN', 'OPENAI_API_KEY'],
     missingCredentialMessage:

@@ -180,6 +180,30 @@ test('AI/ML API route credential discovery ignores placeholder dedicated key', (
   ).toBe('sk-openai-fallback')
 })
 
+test('Cloudflare Workers AI route only matches api.cloudflare.com, not the shared AI Gateway host (#1100)', () => {
+  // api.cloudflare.com is the Workers AI host — direct match is fine.
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/acc-123/ai/v1',
+    ),
+  ).toBe('cloudflare')
+  // gateway.ai.cloudflare.com is the shared host for all AI Gateway routes
+  // (Workers AI, Anthropic, OpenAI, etc.). Matching here would apply
+  // Workers-AI runtime metadata + credential precedence to other providers'
+  // Gateway URLs, so the route MUST NOT claim it. Falls back to custom/
+  // OpenAI-compatible (null) per resolveRouteIdFromBaseUrl semantics.
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/anthropic',
+    ),
+  ).not.toBe('cloudflare')
+  expect(
+    resolveRouteIdFromBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/openai',
+    ),
+  ).not.toBe('cloudflare')
+})
+
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe('https://api.xiaomimimo.com/v1')
   expect(getRouteDefaultModel('xiaomi-mimo')).toBe('mimo-v2.5-pro')
