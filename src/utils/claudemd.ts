@@ -1429,7 +1429,7 @@ export function getExternalClaudeMdIncludes(
 ): ExternalClaudeMdInclude[] {
   const externals: ExternalClaudeMdInclude[] = []
   for (const file of files) {
-    if (file.type !== 'User' && file.parent && !pathInOriginalCwd(file.path)) {
+    if (file.parent && !pathInOriginalCwd(file.path)) {
       externals.push({ path: file.path, parent: file.parent })
     }
   }
