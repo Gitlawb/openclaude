@@ -71,7 +71,15 @@ const FORMATTING_PATTERNS: Array<[RegExp, string]> = [
 ]
 
 function isCodeLike(text: string): boolean {
-  return /[{}\[\];]/.test(text) && (text.includes('function') || text.includes('const ') || text.includes('let ') || text.includes('=>'))
+  if (/[{}\[\];]/.test(text) && (text.includes('function') || text.includes('const ') || text.includes('let ') || text.includes('=>'))) {
+    return true
+  }
+  if (/^\s*[\[{]/.test(text.trim())) return true
+  if (/^[\s]*[a-zA-Z_-]+:\s/m.test(text) || /^\s*-\s/m.test(text)) return true
+  if (/\b(SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(text)) return true
+  if (/^\$\s/m.test(text) || /^\s*(sudo|apt|npm|yarn|pip|git|docker|kubectl|curl|wget)\s/m.test(text)) return true
+  if (/```[\s\S]*```/m.test(text)) return true
+  return false
 }
 
 function hasUrls(text: string): boolean {
