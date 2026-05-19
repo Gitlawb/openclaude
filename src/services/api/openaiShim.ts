@@ -1749,17 +1749,27 @@ async function* openaiStreamToAnthropic(
                 contentBlockIndex++
                 hasClosedThinking = true
               }
-              if (hasEmittedContentStart) {
-                // Flush buffered Ollama text before closing the text block so
-                // visible prose that preceded a real structured tool call is not lost.
-                if (isOllamaStream && ollamaTextBuffer) {
+              // Flush buffered Ollama text before processing the tool call.
+              // Must run before hasEmittedContentStart check because for Ollama
+              // streams the text block may not have been opened yet (we buffer
+              // instead of emitting during the streaming phase).
+              if (isOllamaStream && ollamaTextBuffer) {
+                if (!hasEmittedContentStart) {
                   yield {
-                    type: 'content_block_delta',
+                    type: 'content_block_start',
                     index: contentBlockIndex,
-                    delta: { type: 'text_delta', text: ollamaTextBuffer },
+                    content_block: { type: 'text', text: '' },
                   }
-                  ollamaTextBuffer = ''
+                  hasEmittedContentStart = true
                 }
+                yield {
+                  type: 'content_block_delta',
+                  index: contentBlockIndex,
+                  delta: { type: 'text_delta', text: ollamaTextBuffer },
+                }
+                ollamaTextBuffer = ''
+              }
+              if (hasEmittedContentStart) {
                 yield* closeActiveContentBlock()
               }
 
