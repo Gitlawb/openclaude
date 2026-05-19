@@ -178,5 +178,41 @@ describe('importanceWeightedContext', () => {
       )
       expect(hasOrphan).toBe(false)
     })
+
+    it('filters orphaned tool_use when matching tool_result is dropped (bidirectional invariant)', () => {
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Read', input: { file: 'small.txt' } },
+            ],
+            created_at: 1000,
+          },
+        } as any,
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'tu1', content: 'x'.repeat(5000) },
+            ],
+            created_at: 2000,
+          },
+        } as any,
+        createMessage('user', 'Recent message', 3000),
+      ]
+
+      // maxTokens tight: only the small tool_use and recent message fit,
+      // the large tool_result is dropped. The orphaned tool_use should
+      // also be removed since its matching tool_result was dropped.
+      const selected = selectWeightedMessages(messages, { maxTokens: 80, preserveRecent: 1 })
+      const hasOrphanToolUse = selected.some(m =>
+        Array.isArray(m.message?.content) &&
+        m.message.content.some((b: any) => b?.type === 'tool_use')
+      )
+      expect(hasOrphanToolUse).toBe(false)
+    })
   })
 })

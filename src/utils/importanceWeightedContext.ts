@@ -34,6 +34,59 @@ const DEFAULT_OPTIONS: Required<WeightedContextOptions> = {
   decayFactor: 0.95,
 }
 
+function filterOrphanedToolCalls(messages: Message[], allMessages?: Message[]): Message[] {
+  const source = allMessages ?? messages
+  const sourceToolUseIds = new Set<string>()
+  const pairedToolUseIds = new Set<string>()
+  for (const msg of source) {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block) {
+          if (block.type === 'tool_use' && 'id' in block) {
+            sourceToolUseIds.add((block as { id: string }).id)
+          }
+          if (block.type === 'tool_result' && 'tool_use_id' in block) {
+            pairedToolUseIds.add((block as { tool_use_id: string }).tool_use_id)
+          }
+        }
+      }
+    }
+  }
+  const keptToolResultIds = new Set<string>()
+  for (const msg of messages) {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
+          keptToolResultIds.add((block as { tool_use_id: string }).tool_use_id)
+        }
+      }
+    }
+  }
+  return messages.filter(msg => {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block) {
+          if (block.type === 'tool_result' && 'tool_use_id' in block) {
+            if (!sourceToolUseIds.has((block as { tool_use_id: string }).tool_use_id)) {
+              return false
+            }
+          }
+          if (block.type === 'tool_use' && 'id' in block) {
+            const id = (block as { id: string }).id
+            if (pairedToolUseIds.has(id) && !keptToolResultIds.has(id)) {
+              return false
+            }
+          }
+        }
+      }
+    }
+    return true
+  })
+}
+
 function getContent(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -171,33 +224,10 @@ export function selectWeightedMessages(
         used += tok
       }
     }
-    // Preserve tool-use invariant: remove orphaned tool_results whose
-    // matching tool_use was truncated. Otherwise the Anthropic API
-    // rejects the stream with a 400.
-    const toolUseIds = new Set<string>()
-    for (const msg of truncated) {
-      const content = msg.message?.content
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_use' && 'id' in block) {
-            toolUseIds.add((block as { id: string }).id)
-          }
-        }
-      }
-    }
-    return truncated.filter(msg => {
-      const content = msg.message?.content
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
-            if (!toolUseIds.has((block as { tool_use_id: string }).tool_use_id)) {
-              return false
-            }
-          }
-        }
-      }
-      return true
-    })
+    // Preserve tool-use invariant in both directions: remove orphaned
+    // tool_results without their tool_use AND tool_uses without their
+    // tool_result. Otherwise the Anthropic API rejects with a 400.
+    return filterOrphanedToolCalls(truncated, messages)
   }
 
   scores.sort((a, b) => b.score - a.score)
@@ -217,18 +247,6 @@ export function selectWeightedMessages(
     totalTokens += tokens
   }
 
-  const toolUseIds = new Set<string>()
-  for (const msg of selected) {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_use' && 'id' in block) {
-          toolUseIds.add((block as { id: string }).id)
-        }
-      }
-    }
-  }
-
   const combined = [...selected, ...recent]
   const seen = new Set<string>()
   const deduped: Message[] = []
@@ -241,34 +259,7 @@ export function selectWeightedMessages(
     }
   }
 
-  const allToolUseIds = new Set<string>()
-  for (const msg of deduped) {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_use' && 'id' in block) {
-          allToolUseIds.add((block as { id: string }).id)
-        }
-      }
-    }
-  }
-
-  const finalFiltered = deduped.filter(msg => {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
-          const toolUseId = (block as { tool_use_id: string }).tool_use_id
-          if (!allToolUseIds.has(toolUseId)) {
-            return false
-          }
-        }
-      }
-    }
-    return true
-  })
-
-  return finalFiltered.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
+  return filterOrphanedToolCalls(deduped, messages).sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
 }
 
 export function getWeightedStats(
