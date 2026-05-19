@@ -142,11 +142,20 @@ function inferRemoteModelOpenAIShimConfig(
     return undefined
   }
 
-   // Segment-boundary-aware matcher: avoids false-positives like "my-deepseek-rag"
-   // while still catching aggregator paths e.g. "openrouter/deepseek/deepseek-chat".
-   const segments = normalizedModel.split('/')
-   const hasDeepseek = segments.some(s => s.startsWith('deepseek'))
-   if (hasDeepseek) {
+  if (normalizedModel.startsWith('mimo-v2')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store', 'stream_options'],
+    }
+  }
+
+  // Segment-boundary-aware matcher: avoids false-positives like "my-deepseek-rag"
+  // while still catching aggregator paths e.g. "openrouter/deepseek/deepseek-chat".
+  const segments = normalizedModel.split('/')
+  const hasDeepseek = segments.some(s => s.startsWith('deepseek'))
+  if (hasDeepseek) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,

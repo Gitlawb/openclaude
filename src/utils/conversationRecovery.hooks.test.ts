@@ -148,6 +148,31 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
   ).not.toContain('only hidden reasoning')
 
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  mock.module('./model/providers.js', () => ({
+    ...realProviders,
+    getAPIProvider: () => 'openai',
+  }))
+
+  const mimoModule = await import(`./conversationRecovery.ts?provider=mimo-${Date.now()}`)
+  const mimo = mimoModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const mimoAssistantMessages = mimo.messages.filter(
+    message => message.type === 'assistant',
+  )
+
+  expect(mimoAssistantMessages).toHaveLength(2)
+  expect(mimoAssistantMessages[0]?.message?.content).toEqual([
+    { type: 'thinking', thinking: 'secret reasoning' },
+    { type: 'text', text: 'visible reply' },
+  ])
+  expect(
+    JSON.stringify(mimoAssistantMessages.map(message => message.message?.content)),
+  ).toContain('secret reasoning')
+  expect(
+    JSON.stringify(mimoAssistantMessages.map(message => message.message?.content)),
+  ).not.toContain('only hidden reasoning')
+  delete process.env.OPENAI_MODEL
+
   mock.module('./model/providers.js', () => ({
     ...realProviders,
     getAPIProvider: () => 'bedrock',

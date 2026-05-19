@@ -12,6 +12,13 @@ export default defineGateway({
     requiresAuth: false,
     authMode: 'none',
   },
+  validation: {
+    kind: 'credential-env',
+    credentialEnvVars: [],
+    routing: {
+      matchBaseUrlHosts: ['opengateway.gitlawb.com', 'opengateway.fly.dev'],
+    },
+  },
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
@@ -19,10 +26,8 @@ export default defineGateway({
         name: 'api-key',
         scheme: 'raw',
       },
-      preserveReasoningContent: true,
-      requireReasoningContentOnAssistantMessages: true,
-      reasoningContentFallback: '',
       maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store', 'stream_options'],
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },
