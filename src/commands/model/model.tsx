@@ -342,6 +342,31 @@ function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
   }
 }
 
+// Reconciles fast-mode state when /model picks a new target — both the regular
+// switch path and the cross-profile switch path (#1119 / jatmn review) call
+// this so a latched fastMode never carries past a model that can't support it.
+// Pure: returns the result and lets callers apply state mutations.
+export type FastModeReconcileResult = 'on' | 'off' | 'unchanged'
+
+export function reconcileFastModeForSwitch(
+  targetModel: string | null,
+  isFastModeOn: boolean,
+): FastModeReconcileResult {
+  if (!isFastModeEnabled()) return 'unchanged'
+  clearFastModeCooldown()
+  if (!isFastModeSupportedByModel(targetModel) && isFastModeOn) {
+    return 'off'
+  }
+  if (
+    isFastModeSupportedByModel(targetModel) &&
+    isFastModeAvailable() &&
+    isFastModeOn
+  ) {
+    return 'on'
+  }
+  return 'unchanged'
+}
+
 export function shouldAutoRefreshRouteCatalog(options: {
   catalog: ModelCatalogConfig
   hasCachedModels: boolean
@@ -646,9 +671,26 @@ function ModelPickerWrapper({
         mainLoopModel: switchTarget.model,
         mainLoopModelForSession: null,
       }))
-      onDone(
-        `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`,
+
+      // Run the same fast-mode reconciliation as the regular switch path —
+      // otherwise a user with fastMode latched on Anthropic would carry the
+      // latched state into the new profile even when its model can't support
+      // it (jatmn review, #1119).
+      const switchFastMode = reconcileFastModeForSwitch(
+        switchTarget.model,
+        isFastMode,
       )
+      if (switchFastMode === 'off') {
+        setAppState(prev => ({ ...prev, fastMode: false }))
+      }
+
+      let switchMessage = `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`
+      if (switchFastMode === 'on') {
+        switchMessage += ' · Fast mode ON'
+      } else if (switchFastMode === 'off') {
+        switchMessage += ' · Fast mode OFF'
+      }
+      onDone(switchMessage)
       return
     }
 
@@ -677,23 +719,21 @@ function ModelPickerWrapper({
       message += ` with ${chalk.bold(effort)} effort`
     }
 
-    let wasFastModeToggledOn: boolean | undefined
-    if (isFastModeEnabled()) {
-      clearFastModeCooldown()
-      if (!isFastModeSupportedByModel(model) && isFastMode) {
-        setAppState(prev => ({
-          ...prev,
-          fastMode: false,
-        }))
-        wasFastModeToggledOn = false
-      } else if (
-        isFastModeSupportedByModel(model) &&
-        isFastModeAvailable() &&
-        isFastMode
-      ) {
-        message += ' · Fast mode ON'
-        wasFastModeToggledOn = true
-      }
+    const fastModeResult = reconcileFastModeForSwitch(model, isFastMode)
+    if (fastModeResult === 'off') {
+      setAppState(prev => ({
+        ...prev,
+        fastMode: false,
+      }))
+    }
+    const wasFastModeToggledOn: boolean | undefined =
+      fastModeResult === 'on'
+        ? true
+        : fastModeResult === 'off'
+        ? false
+        : undefined
+    if (fastModeResult === 'on') {
+      message += ' · Fast mode ON'
     }
 
     if (
