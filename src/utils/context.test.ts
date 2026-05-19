@@ -7,6 +7,7 @@ import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
 } from './context.ts'
+import { calculateTokenBudget } from './tokenBudgetCalculator.ts'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -765,4 +766,68 @@ test('DashScope models clamp oversized max output overrides to the provider limi
   expect(getMaxOutputTokensForModel('kimi-k2.5')).toBe(32_768)
   expect(getMaxOutputTokensForModel('glm-5')).toBe(16_384)
   expect(getMaxOutputTokensForModel('glm-5.1')).toBe(16_384)
+})
+
+test('calculateTokenBudget returns expected structure for Message[] history', () => {
+  const budget = calculateTokenBudget({
+    model: 'gpt-4o',
+    systemPrompt: 'You are a helpful assistant.',
+    toolsSchema: '{"type":"function","function":{"name":"test"}}',
+    historyMessages: [
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'Hello, how can I help you today?' }],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [{ type: 'text', text: 'Write a function to calculate fibonacci numbers.' }],
+        },
+      },
+    ],
+  })
+  expect(budget.total).toBeGreaterThan(0)
+  expect(budget.systemPrompt).toBeGreaterThan(0)
+  expect(budget.tools).toBeGreaterThan(0)
+  expect(budget.history).toBeGreaterThan(0)
+  expect(budget.reserved).toBeGreaterThan(0)
+  expect(budget.available).toBeGreaterThan(0)
+  expect(budget.available).toBe(budget.total - budget.systemPrompt - budget.tools - budget.history - budget.reserved)
+})
+
+test('calculateTokenBudget uses numeric fallback for history count', () => {
+  const budget = calculateTokenBudget({
+    model: 'gpt-4o',
+    historyMessages: 10,
+  })
+  expect(budget.history).toBe(1000)
+  expect(budget.available).toBeGreaterThan(0)
+})
+
+test('calculateTokenBudget reserves model default output when no buffer given', () => {
+  const budget = calculateTokenBudget({
+    model: 'gpt-4o',
+  })
+  expect(budget.reserved).toBeGreaterThan(0)
+  expect(budget.available).toBe(budget.total - budget.reserved)
+})
+
+test('calculateTokenBudget uses custom output buffer', () => {
+  const budget = calculateTokenBudget({
+    model: 'gpt-4o',
+    outputBuffer: 500,
+  })
+  expect(budget.reserved).toBe(500)
+  expect(budget.available).toBe(budget.total - budget.reserved)
+})
+
+test('calculateTokenBudget handles unknown model gracefully', () => {
+  const budget = calculateTokenBudget({
+    model: 'unknown-model',
+    historyMessages: [],
+  })
+  expect(budget.total).toBeGreaterThan(0)
+  expect(budget.available).toBeGreaterThanOrEqual(0)
 })
