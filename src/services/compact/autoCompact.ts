@@ -12,6 +12,7 @@ import { hasExactErrorMessage } from '../../utils/errors.js'
 import type { CacheSafeParams } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
+import { selectWeightedMessages } from '../../utils/importanceWeightedContext.js'
 import { partitionContext } from '../../utils/contextPartitioning.js'
 import { pruneByRelevance } from '../../utils/relevancePruning.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
@@ -288,36 +289,36 @@ export async function autoCompactIfNeeded(
     return { wasCompacted: false }
   }
 
-  const contextWindow = getContextWindowForModel(model, getSdkBetas())
+  if (feature('PARTITION_AND_PRUNE')) {
+    const contextWindow = getContextWindowForModel(model, getSdkBetas())
 
-  const partitioned = partitionContext(messages, {
-    contextWindow,
-    recentCount: 5,
-  })
-  const availableSpace = partitioned.canFitInWindow
-    ? contextWindow - partitioned.totalTokens
-    : Math.floor(contextWindow * 0.1)
-
-  if (!partitioned.canFitInWindow && availableSpace > 1000) {
-    // Preserve system messages
-    const systemMessages = messages.filter(m => m.message?.role === 'system')
-    const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
-    
-    const pruned = pruneByRelevance(nonSystemMessages, {
-      targetTokens: availableSpace,
-      preserveRecent: 3,
-      preserveTools: true,
-      preserveErrors: true,
+    const partitioned = partitionContext(messages, {
+      contextWindow,
+      recentCount: 5,
     })
-    
-    // Combine preserved system + pruned
-    const finalMessages = [...systemMessages, ...pruned]
-    
-    if (finalMessages.length > 0 && finalMessages.length < messages.length) {
-      logForDebugging(
-        `partition+prune: ${messages.length} -> ${finalMessages.length} messages`,
-      )
-      messages = finalMessages
+    const availableSpace = partitioned.canFitInWindow
+      ? contextWindow - partitioned.totalTokens
+      : Math.floor(contextWindow * 0.1)
+
+    if (!partitioned.canFitInWindow && availableSpace > 1000) {
+      const systemMessages = messages.filter(m => m.message?.role === 'system')
+      const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
+      
+      const pruned = pruneByRelevance(nonSystemMessages, {
+        targetTokens: availableSpace,
+        preserveRecent: 3,
+        preserveTools: true,
+        preserveErrors: true,
+      })
+      
+      const finalMessages = [...systemMessages, ...pruned]
+      
+      if (finalMessages.length > 0 && finalMessages.length < messages.length) {
+        logForDebugging(
+          `partition+prune: ${messages.length} -> ${finalMessages.length} messages`,
+        )
+        messages = finalMessages
+      }
     }
   }
 
@@ -351,6 +352,21 @@ export async function autoCompactIfNeeded(
     return {
       wasCompacted: true,
       compactionResult: sessionMemoryResult,
+    }
+  }
+
+  // Lightweight pruning using importance-weighted selection (feature flag gated)
+  if (feature('IMPORTANCE_WEIGHTED_PRUNING')) {
+    const autoCompactThreshold = getAutoCompactThreshold(model)
+    const messagesTokenCount = tokenCountWithEstimation(messages)
+    if (messagesTokenCount > autoCompactThreshold * 0.8) {
+      const prunedMessages = selectWeightedMessages(messages, {
+        maxTokens: Math.floor(autoCompactThreshold * 0.85),
+        preserveRecent: 5,
+      })
+      if (prunedMessages.length > 0 && prunedMessages.length < messages.length) {
+        messages = prunedMessages
+      }
     }
   }
 
