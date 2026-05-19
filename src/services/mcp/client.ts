@@ -966,13 +966,11 @@ export const connectToServer = memoize(
         // array causes the SDK to shell-invoke the whole blob, letting shell
         // metacharacters in serverRef.args run arbitrary commands before the
         // target binary even starts.
-        const prefixParts = process.env.CLAUDE_CODE_SHELL_PREFIX
-          ? process.env.CLAUDE_CODE_SHELL_PREFIX.split(/\s+/).filter(Boolean)
-          : []
-        const finalCommand = prefixParts[0] || serverRef.command
-        const finalArgs = prefixParts.length > 0
-          ? [...prefixParts.slice(1), serverRef.command, ...(serverRef.args ?? [])]
-          : serverRef.args ?? []
+        const { command: finalCommand, args: finalArgs } = buildMcpStdioCommand(
+          serverRef.command,
+          serverRef.args ?? [],
+          process.env.CLAUDE_CODE_SHELL_PREFIX,
+        )
         transport = new StdioClientTransport({
           command: finalCommand,
           args: finalArgs,
@@ -3317,6 +3315,32 @@ function extractToolUseId(message: AssistantMessage): string | undefined {
     return undefined
   }
   return message.message.content[0].id
+}
+
+/**
+ * Build the command and args for a stdio MCP transport, applying the
+ * CLAUDE_CODE_SHELL_PREFIX split into separate argv entries. This
+ * ensures the MCP SDK receives a proper command + args[] instead of
+ * a shell-joined string, preventing shell metacharacter injection
+ * from serverRef.args.
+ *
+ * When a prefix is set, prefixParts[0] becomes the command and
+ * prefixParts[1..] + original command + original args become the
+ * argv array.
+ */
+export function buildMcpStdioCommand(
+  command: string,
+  args: string[],
+  shellPrefix?: string,
+): { command: string; args: string[] } {
+  const prefixParts = shellPrefix
+    ? shellPrefix.split(/\s+/).filter(Boolean)
+    : []
+  const finalCommand = prefixParts[0] || command
+  const finalArgs = prefixParts.length > 0
+    ? [...prefixParts.slice(1), command, ...args]
+    : args
+  return { command: finalCommand, args: finalArgs }
 }
 
 /**
