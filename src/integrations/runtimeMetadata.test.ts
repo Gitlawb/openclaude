@@ -8,7 +8,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // Should NOT trigger the DeepSeek detection
       const result = resolveOpenAIShimRuntimeContext({
         model: 'my-deepseek-rag',
-        provider: 'openai-shim',
       })
       // Custom aliases should NOT get preserveReasoningContent
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
@@ -19,7 +18,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // Should trigger the DeepSeek detection
       const result = resolveOpenAIShimRuntimeContext({
         model: 'openrouter/deepseek/deepseek-chat',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
       expect(result.openaiShimConfig.reasoningContentFallback).toBe('')
@@ -30,7 +28,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // Should trigger the DeepSeek detection
       const result = resolveOpenAIShimRuntimeContext({
         model: 'accounts/fireworks/models/deepseek-v3',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
       expect(result.openaiShimConfig.reasoningContentFallback).toBe('')
@@ -39,7 +36,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should infer preserveReasoningContent for deepseek-chat directly (standard case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
         model: 'deepseek-chat',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
@@ -47,7 +43,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should infer preserveReasoningContent for deepseek-coder (model name)', () => {
       const result = resolveOpenAIShimRuntimeContext({
         model: 'deepseek-coder',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
@@ -58,7 +53,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // Custom alias should not trigger
       const result = resolveOpenAIShimRuntimeContext({
         model: 'my-kimi-assistant',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
     })
@@ -66,7 +60,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should infer preserveReasoningContent for moonshot AI paths', () => {
       const result = resolveOpenAIShimRuntimeContext({
         model: 'moonshot/moonshot-v1',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
@@ -74,7 +67,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should infer preserveReasoningContent for kimi on moonshot paths', () => {
       const result = resolveOpenAIShimRuntimeContext({
         model: 'moonshot/kimi-kpro',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
@@ -84,7 +76,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should return undefined for gpt-4o (negative case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
         model: 'gpt-4o',
-        provider: 'openai-shim',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
     })
@@ -92,7 +83,6 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should return undefined for claude models (negative case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
         model: 'claude-sonnet-4-20250514',
-        provider: 'anthropic',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
     })
