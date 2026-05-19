@@ -3336,11 +3336,32 @@ export function buildMcpStdioCommand(
   const prefixParts = shellPrefix
     ? shellPrefix.split(/\s+/).filter(Boolean)
     : []
-  const finalCommand = prefixParts[0] || command
-  const finalArgs = prefixParts.length > 0
-    ? [...prefixParts.slice(1), command, ...args]
-    : args
-  return { command: finalCommand, args: finalArgs }
+
+  if (prefixParts.length === 0) {
+    return { command, args }
+  }
+
+  const finalCommand = prefixParts[0]
+
+  // Shell -c prefix (e.g. sh -c, bash -c): everything after -c is a single
+  // shell command string, not individual argv entries. Without this join,
+  // sh -c runs only the first word as the command string and treats the
+  // remaining entries as shell positional parameters ($0, $1, ...), so the
+  // MCP server never receives its configured arguments.
+  if (prefixParts.includes('-c')) {
+    const cmdStr = [command, ...args].join(' ')
+    return {
+      command: finalCommand,
+      args: [...prefixParts.slice(1), cmdStr],
+    }
+  }
+
+  // Non-shell prefix (docker run --rm -i, bunx, etc.): each prefix part is
+  // a separate argv entry, followed by the original command and its args
+  return {
+    command: finalCommand,
+    args: [...prefixParts.slice(1), command, ...args],
+  }
 }
 
 /**

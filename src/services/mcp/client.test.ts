@@ -107,3 +107,13 @@ test('buildMcpStdioCommand — whitespace in prefix is normalized (multiple spac
   assert.equal(command, 'sudo')
   assert.deepEqual(args, ['-u', 'bob', 'cmd'])
 })
+
+test('buildMcpStdioCommand — shell -c prefix joins command+args as single string (sh -c pattern)', () => {
+  const { command, args } = buildMcpStdioCommand(
+    'some-server',
+    ['--port=8080', '--debug'],
+    'sh -c',
+  )
+  assert.equal(command, 'sh')
+  assert.deepEqual(args, ['-c', 'some-server --port=8080 --debug'])
+})
