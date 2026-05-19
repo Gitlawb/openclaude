@@ -1048,12 +1048,20 @@ function parseRawJsonToolCallsFromContent(text: string): ParsedRawToolCall[] | n
     const items = Array.isArray(parsed) ? parsed : [parsed]
     const calls: ParsedRawToolCall[] = []
     for (const item of items) {
-      if (item && typeof item === 'object' && typeof item.name === 'string') {
-        const rawArgs = item.arguments ?? item.input ?? {}
+      if (
+        item &&
+        typeof item === 'object' &&
+        typeof item.name === 'string' &&
+        (item.arguments != null || item.input != null)
+      ) {
+        const rawArgs = item.arguments ?? item.input
+        const argsIsObject = typeof rawArgs === 'object' && rawArgs !== null && !Array.isArray(rawArgs)
+        const argsIsString = typeof rawArgs === 'string'
+        if (!argsIsObject && !argsIsString) continue
         calls.push({
           id: item.id ?? `tc-${calls.length}-${item.name}`,
           name: item.name,
-          argumentsJson: typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs),
+          argumentsJson: argsIsString ? rawArgs : JSON.stringify(rawArgs),
         })
       }
     }

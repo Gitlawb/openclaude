@@ -6833,3 +6833,37 @@ test('non-streaming: parses plain-content JSON tool call array from Ollama conte
   ])
 >>>>>>> fix(openai-shim): handle plain-content JSON tool calls from Ollama and add regression tests (PR #433 review)
 })
+
+test('non-streaming: does not treat arbitrary JSON with name but no arguments as tool call (PR #433 P1)', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-json-name-only',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "Alice"}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'who are you' }],
+    max_tokens: 64,
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    { type: 'text', text: '{"name": "Alice"}' },
+  ])
+})
