@@ -1506,16 +1506,6 @@ export async function buildStartupEnvFromProfile(options?: {
     return processEnv
   }
 
-  // If the user explicitly disabled a provider via env (e.g. CLAUDE_CODE_USE_OPENAI=0),
-  // respect that choice and do NOT inject default profile env. This prevents the
-  // fallback logic from overriding an intentional opt-out.
-  if (
-    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
-  ) {
-    return processEnv
-  }
-
   // If startup already has a concrete provider selection and the modern
   // plural-profile system is configured, keep trusting that selection.
   // This prevents the legacy single-profile file from becoming a silent
