@@ -259,6 +259,62 @@ test('TextInput resyncs local mirror after parent strips bash-mode `!` from empt
   expect(output).not.toContain('!')
 })
 
+// Regression: when the buffer is non-empty and the cursor is at offset 0,
+// typing `!` must prepend `!` to the buffer rather than emit a bare `!`
+// onChange (which would clobber the buffer to "").
+function PrependBangTextInput(): React.ReactNode {
+  const [value, setValue] = React.useState('git status')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  return (
+    <AppStateProvider>
+      <TextInput
+        value={value}
+        onChange={nextValue => {
+          if (nextValue.startsWith('!')) {
+            setValue(nextValue.slice(1))
+            setCursorOffset(0)
+            return
+          }
+          setValue(nextValue)
+        }}
+        onSubmit={() => {}}
+        placeholder="Type here..."
+        columns={60}
+        cursorOffset={cursorOffset}
+        onChangeCursorOffset={setCursorOffset}
+        focus
+        showCursor
+        multiline
+      />
+    </AppStateProvider>
+  )
+}
+
+test('TextInput prepends `!` to existing buffer when cursor is at offset 0', async () => {
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  root.render(<PrependBangTextInput />)
+
+  await Bun.sleep(50)
+  stdin.write('!')
+  await Bun.sleep(25)
+
+  const output = stripAnsi(extractLastFrame(getOutput()))
+
+  root.unmount()
+  stdin.end()
+  stdout.end()
+  await Bun.sleep(25)
+
+  expect(output).toContain('git status')
+  expect(output).not.toMatch(/^!\s*$/m)
+})
+
 test('TextInput renders typed characters before delayed parent value commits', async () => {
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
