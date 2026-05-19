@@ -12,6 +12,13 @@ export default defineGateway({
     requiresAuth: false,
     authMode: 'none',
   },
+  validation: {
+    kind: 'credential-env',
+    credentialEnvVars: [],
+    routing: {
+      matchBaseUrlHosts: ['opengateway.gitlawb.com', 'opengateway.fly.dev'],
+    },
+  },
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {

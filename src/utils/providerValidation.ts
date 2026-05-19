@@ -470,6 +470,21 @@ export async function getProviderValidationError(
   }
 
   if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
+    // If we have a validation target that explicitly says it doesn't require auth,
+    // we should not require OPENAI_API_KEY.
+    if (validationTarget?.descriptor.setup?.requiresAuth === false) {
+      return null
+    }
+
+    // For other OpenAI-compatible providers, check if any of their specific
+    // credential env vars are set before falling back to the generic error.
+    if (validationTarget?.kind === 'vendor' || validationTarget?.kind === 'gateway') {
+      const envVars = validationTarget.descriptor.setup?.credentialEnvVars ?? []
+      if (envVars.some(v => env[v])) {
+        return null
+      }
+    }
+
     return getOpenAIMissingKeyMessage()
   }
 
