@@ -715,8 +715,26 @@ export const BashTool = buildTool({
         }
       }
 
-      // Annotate output with sandbox violations if any (stderr is in stdout)
-      const outputWithSbFailures = SandboxManager.annotateStderrWithSandboxFailures(input.command, result.stdout || '');
+      // Annotate output with sandbox violations if any (stderr is in stdout).
+      // Issue #1231: prefer the accumulator content as the source of truth.
+      // The accumulator mirrors the success-path stdout (after the trimEnd +
+      // EOL normalization at line 696) plus the "Exit code N" marker we
+      // appended above. When result.stdout is empty for any reason — the
+      // shell runner streamed everything through the accumulator and the
+      // returned ExecResult.stdout slot was left empty, the final fd flush
+      // arrived after the result was assembled, etc. — using result.stdout
+      // directly would reduce the error to a bare "Error: Exit code N".
+      // Strip the trailing "Exit code N" so getErrorParts() doesn't duplicate
+      // it; ShellError carries the code separately.
+      const accumulatedOutput = stdoutAccumulator
+        .toString()
+        .replace(new RegExp(`\\nExit code ${result.code}$`), '')
+        .replace(new RegExp(`^Exit code ${result.code}$`), '');
+      const failureOutput =
+        accumulatedOutput.trim() !== ''
+          ? accumulatedOutput
+          : (result.stdout || '');
+      const outputWithSbFailures = SandboxManager.annotateStderrWithSandboxFailures(input.command, failureOutput);
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }
