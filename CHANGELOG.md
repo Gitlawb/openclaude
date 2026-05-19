@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.0](https://github.com/Gitlawb/openclaude/compare/v0.12.1...v0.13.0) (2026-05-17)
+
+
+### Features
+
+* **export:** add Markdown and JSON conversation exports ([#1193](https://github.com/Gitlawb/openclaude/issues/1193)) ([271bad4](https://github.com/Gitlawb/openclaude/commit/271bad4209563176ff240c89535cbb64990c23ff))
+
+
+### Bug Fixes
+
+* **bashPermissions:** apply MAX_SUBCOMMANDS cap in sandbox auto-allow path ([#1057](https://github.com/Gitlawb/openclaude/issues/1057)) ([#1166](https://github.com/Gitlawb/openclaude/issues/1166)) ([c53ef18](https://github.com/Gitlawb/openclaude/commit/c53ef1871627a4497c042199449f4f538a9c6ffa))
+* **gemini:** parse raw tool call text ([#1212](https://github.com/Gitlawb/openclaude/issues/1212)) ([2d20109](https://github.com/Gitlawb/openclaude/commit/2d20109edc8b238d7c6118ab9c5a4126ad0726bc))
+* **spinner:** prevent layout shift during thinking and orphaned task icons ([#1211](https://github.com/Gitlawb/openclaude/issues/1211)) ([8470832](https://github.com/Gitlawb/openclaude/commit/8470832e5c705d98dc0ec50066be3537c8a1b589))
+* **websearch:** surface adapter failure when auto mode falls back to native ([#994](https://github.com/Gitlawb/openclaude/issues/994)) ([#1168](https://github.com/Gitlawb/openclaude/issues/1168)) ([b3b7714](https://github.com/Gitlawb/openclaude/commit/b3b771476d8c3678c0225b32515e02c1dd730571))
+
 ## [0.12.1](https://github.com/Gitlawb/openclaude/compare/v0.12.0...v0.12.1) (2026-05-16)
 
 
