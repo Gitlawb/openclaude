@@ -405,14 +405,12 @@ export async function setup(
 
   // Surface a startup warning when permissive permission modes are combined
   // with a third-party provider. modelSupportsAutoMode() short-circuits to
-  // false for non-firstParty providers when USER_TYPE !== 'ant' (see
-  // utils/betas.ts), so the AI-based tool-call classifier never runs in this
-  // configuration even though acceptEdits / bypassPermissions / --dangerously-
-  // skip-permissions auto-allow tool calls. Static pattern checks still
-  // apply; the warning makes the absent safety layer visible to the user.
-  // Tracks #244 finding 1.
+  // false for non-firstParty providers (see utils/betas.ts), so the AI-based
+  // tool-call classifier never runs in this configuration even though
+  // acceptEdits / bypassPermissions / --dangerously-skip-permissions auto-
+  // allow tool calls. Static pattern checks still apply; the warning makes
+  // the absent safety layer visible to the user. Tracks #244 finding 1.
   if (
-    process.env.USER_TYPE !== 'ant' &&
     getAPIProvider() !== 'firstParty' &&
     (permissionMode === 'acceptEdits' ||
       permissionMode === 'bypassPermissions' ||
