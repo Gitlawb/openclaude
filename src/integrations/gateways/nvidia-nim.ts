@@ -1,19 +1,23 @@
 import { defineGateway } from '../define.js'
 
-// Patterns for catalog entries returned by https://integrate.api.nvidia.com/v1/models
-// that are NOT chat/instruct models and would clutter the /model picker:
-//   - embedding / retrieval / reranking
-//   - ASR (whisper, parakeet, canary, riva)
-//   - TTS / voice / audio
-//   - image generation (sdxl, flux, kosmos, stable-diffusion)
-//   - safety / guard / reward
-//   - vision-only models without a chat tail (note: chat models that *also* have
-//     vision keep "-vision-" but match an instruct/chat tail and stay)
+// Positive allowlist for catalog entries returned by
+// https://integrate.api.nvidia.com/v1/models. An id must match at least one
+// of these chat/instruct/reasoning/code markers to land in the /model picker.
+// This is the inverse of the previous exclusion-based filter, which silently
+// admitted any non-chat model whose id did not contain one of a fixed set of
+// keywords (e.g. `baai/bge-m3`, `google/deplot`, `nvidia/gliner-pii`).
 //
-// Anchored as substrings rather than word-boundaries because NVIDIA ids use
-// `/` and `-` inconsistently (e.g. `nvidia/embed-qa-4`, `microsoft/florence-2`).
+// Substring match against the raw id is intentional — NVIDIA mixes `/`, `-`,
+// and `_` separators inconsistently, and most chat ids carry an unambiguous
+// instruct/reasoning/code marker somewhere in the id.
+const NVIDIA_CHAT_MODEL_PATTERN =
+  /(instruct|chat(?:qa)?|nemotron|reasoning|reasoner|thinker|thinking|coder|codellama|starcoder|codestral|mathstral|magistral|ministral|devstral|codegemma|qwq|hermes|openchat|magpie|kimi|gpt-?oss|jamba|palmyra|dbrx|seed-oss|yi-large|glm-?\d|minimax-m|mistral-(?:large|medium|small|nemotron|\d)|mixtral|deepseek-(?:v\d|r\d|coder)|llama-?[34]|qwen-?\d|gemma-?\d|phi-?\d|granite-?\d)/i
+
+// Defense-in-depth blacklist: even if an entry slips through the allowlist
+// (e.g. an "instruct"-tuned classifier), reject anything that is clearly not
+// a generic chat model.
 const NVIDIA_NON_CHAT_PATTERN =
-  /(embed|retriever|rerank|reward|nemoguard|content-safety|guard|whisper|parakeet|canary|riva|stable-diffusion|sdxl|flux|kosmos|florence|nvclip|colpali|pho-tabuloud|tts|voice)/i
+  /(embed|retriever|rerank|reward|nemoguard|content-safety|guard|whisper|parakeet|canary|riva|stable-diffusion|sdxl|flux|kosmos|florence|nvclip|colpali|tts|voice|tabular|gliner|video-detector|deplot|ising)/i
 
 export default defineGateway({
   id: 'nvidia-nim',
@@ -60,6 +64,9 @@ export default defineGateway({
           context_window?: number
         }
         if (!model.id || model.active === false) {
+          return null
+        }
+        if (!NVIDIA_CHAT_MODEL_PATTERN.test(model.id)) {
           return null
         }
         if (NVIDIA_NON_CHAT_PATTERN.test(model.id)) {

@@ -75,6 +75,23 @@ describe('nvidia-nim gateway mapModel filter', () => {
     }
   })
 
+  test('drops non-chat live-catalog entries that have no chat marker', () => {
+    if (!mapModel) throw new Error('mapModel missing')
+    // Reviewer-named bad ids the live NVIDIA endpoint currently returns. The
+    // previous exclusion regex admitted them silently; the allowlist drops
+    // them because none carry an instruct/chat/reasoning/code marker.
+    const drop = [
+      'baai/bge-m3',
+      'google/deplot',
+      'nvidia/ai-synthetic-video-detector',
+      'nvidia/gliner-pii',
+      'nvidia/ising-calibration-llama-3-8b',
+    ]
+    for (const id of drop) {
+      expect(mapModel(shape(id))).toBeNull()
+    }
+  })
+
   test('drops image-gen / vision-only embedding models', () => {
     if (!mapModel) throw new Error('mapModel missing')
     const drop = [
