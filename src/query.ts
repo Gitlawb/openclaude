@@ -919,8 +919,15 @@ async function* queryLoop(
             // reactiveCompact wasn't compiled in (external builds) or it didn't
             // match (new category). Skipped once already attempted in this turn —
             // hasAttemptedContextOverflowRecovery is the matching guard.
+            //
+            // Skip for compact/session_memory fork sources — those are forked
+            // worker queries whose specialized callers need the original error
+            // to drive their own retry. Mirrors the same guard on the recovery
+            // branch in queryLoop (jatmn + techbrewboss review on #1169).
             if (
               !hasAttemptedContextOverflowRecovery &&
+              querySource !== 'compact' &&
+              querySource !== 'session_memory' &&
               message.type === 'assistant' &&
               isContextOverflowMessage(message)
             ) {
