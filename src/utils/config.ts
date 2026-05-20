@@ -200,6 +200,8 @@ export type ProviderProfile = {
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
   customHeaders?: Record<string, string>
+  contextWindowSize?: number
+  maxOutputTokens?: number
 }
 
 export type GlobalConfig = {

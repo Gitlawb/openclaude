@@ -62,6 +62,8 @@ const RESTORED_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'HICAP_API_KEY',
+  'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
+  'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
 ] as const
 
 type MockConfigState = {

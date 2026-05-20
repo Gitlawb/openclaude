@@ -9,9 +9,13 @@ import {
 } from '../integrations/routeMetadata.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
+import { resolveAntModel } from './model/antModels.js'
+
+import { validateBoundedIntEnvVar } from './envValidation.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
+export const MODEL_CONTEXT_WINDOW_UPPER_LIMIT = 1_000_000
 
 // Fallback context window for unknown 3P models. Must be large enough that
 // the effective context (this minus output token reservation) stays positive,
@@ -80,20 +84,26 @@ export function getContextWindowForModel(
   model: string,
   betas?: string[],
 ): number {
-  // Allow override via environment variable (internal-only)
+  const contextWindowSize = getContextWindowForModelInternal(model, betas)
+
+  // Allow override via environment variable
   // This takes precedence over all other context window resolution, including 1M detection,
   // so users can cap the effective context window for local decisions (auto-compact, etc.)
   // while still using a 1M-capable endpoint.
-  if (
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
-  ) {
-    const override = parseInt(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, 10)
-    if (!isNaN(override) && override > 0) {
-      return override
-    }
-  }
+  // Note: CLAUDE_CODE_MAX_CONTEXT_TOKENS now applies to all users.
+  const result = validateBoundedIntEnvVar(
+    'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
+    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+    contextWindowSize,
+    MODEL_CONTEXT_WINDOW_UPPER_LIMIT,
+  )
+  return result.effective
+}
 
+function getContextWindowForModelInternal(
+  model: string,
+  betas?: string[],
+): number {
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
     return 1_000_000
