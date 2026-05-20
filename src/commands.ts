@@ -238,7 +238,6 @@ export { getCommandName, isCommandEnabled } from './types/command.js'
 export const INTERNAL_ONLY_COMMANDS = [
   backfillSessions,
   breakCache,
-  bughunter,
   commit,
   commitPushPr,
   ctx_viz,
@@ -274,6 +273,7 @@ const COMMANDS = memoize((): Command[] => [
   agents,
   autoFix,
   branch,
+  bughunter,
   btw,
   cacheProbe,
   cacheStats,
@@ -545,6 +545,8 @@ export async function getCommands(cwd: string): Promise<Command[]> {
  * Use this when dynamic skills are added to invalidate cached command lists.
  */
 export function clearCommandMemoizationCaches(): void {
+  COMMANDS.cache?.clear?.()
+  builtInCommandNames.cache?.clear?.()
   loadAllCommands.cache?.clear?.()
   getSkillToolCommands.cache?.clear?.()
   getSlashCommandToolSkills.cache?.clear?.()
