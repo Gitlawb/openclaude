@@ -5892,3 +5892,78 @@ test('non-streaming: does not treat arbitrary JSON with name but no arguments as
     { type: 'text', text: '{"name": "Alice"}' },
   ])
 })
+
+test('non-streaming: rejects plain-content JSON tool call when name does not match any requested tool', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-json-bad-name',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "NotATool", "arguments": {"query": "Paris"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    tools: [
+      { name: 'WebSearch', description: 'Search', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ],
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  // NotATool is not in the tools list, so it should be treated as text
+  expect(message.content).toEqual([
+    { type: 'text', text: '{"name": "NotATool", "arguments": {"query": "Paris"}}' },
+  ])
+})
+
+test('non-streaming: accepts plain-content JSON tool call when name matches a requested tool', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-json-matching-name',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    tools: [
+      { name: 'WebSearch', description: 'Search', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ],
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    { type: 'tool_use', id: 'tc-0-WebSearch', name: 'WebSearch', input: { query: 'Paris weather' } },
+  ])
+})
