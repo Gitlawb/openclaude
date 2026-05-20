@@ -619,6 +619,7 @@ export async function countMcpToolTokens(
   agentInfo: AgentDefinitionsResult | null,
   model: string,
   messages?: Message[],
+  countToolDefinitionTokensForContext = countToolDefinitionTokens,
 ): Promise<{
   mcpToolTokens: number
   mcpToolDetails: McpTool[]
@@ -628,7 +629,7 @@ export async function countMcpToolTokens(
   const mcpTools = tools.filter(tool => tool.isMcp)
   const mcpToolDetails: McpTool[] = []
   // Single bulk API call for all MCP tools (instead of N individual calls)
-  const totalTokensRaw = await countToolDefinitionTokens(
+  const totalTokensRaw = await countToolDefinitionTokensForContext(
     mcpTools,
     getToolPermissionContext,
     agentInfo,
@@ -704,7 +705,8 @@ export async function countMcpToolTokens(
       name: tool.name,
       serverName: tool.name.split('__')[1] || 'unknown',
       tokens: mcpToolTokensByTool[i]!,
-      isLoaded: loadedMcpToolNames.has(tool.name) || !isDeferredTool(tool),
+      isLoaded:
+        !isDeferred || loadedMcpToolNames.has(tool.name) || !isDeferredTool(tool),
     })
   }
 
