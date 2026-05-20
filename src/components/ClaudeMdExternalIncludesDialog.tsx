@@ -16,13 +16,13 @@ function acceptProject(current: any) {
   return { ...current, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true };
 }
 function acceptUser(current: any) {
-  return { ...current, hasClaudeMdExternalIncludesApprovedForUser: true, hasClaudeMdExternalIncludesWarningShown: true };
+  return { ...current, hasClaudeMdExternalIncludesApprovedForUser: true, hasClaudeMdExternalIncludesWarningShownForUser: true };
 }
 function declineProject(current: any) {
   return { ...current, hasClaudeMdExternalIncludesApproved: false, hasClaudeMdExternalIncludesWarningShown: true };
 }
 function declineUser(current: any) {
-  return { ...current, hasClaudeMdExternalIncludesApprovedForUser: false, hasClaudeMdExternalIncludesWarningShown: true };
+  return { ...current, hasClaudeMdExternalIncludesApprovedForUser: false, hasClaudeMdExternalIncludesWarningShownForUser: true };
 }
 export function ClaudeMdExternalIncludesDialog(t0: Props) {
   const $ = _c(18);

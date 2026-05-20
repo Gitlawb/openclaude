@@ -1454,10 +1454,12 @@ export async function shouldShowClaudeMdExternalIncludesWarning(): Promise<Exter
 
   const hasProjectExternals =
     !config.hasClaudeMdExternalIncludesApproved &&
+    !config.hasClaudeMdExternalIncludesWarningShown &&
     hasExternalClaudeMdIncludes(files, ['Project', 'Local'])
 
   const hasUserExternals =
     !config.hasClaudeMdExternalIncludesApprovedForUser &&
+    !config.hasClaudeMdExternalIncludesWarningShownForUser &&
     hasExternalClaudeMdIncludes(files, ['User'])
 
   if (hasProjectExternals) return 'Project'
