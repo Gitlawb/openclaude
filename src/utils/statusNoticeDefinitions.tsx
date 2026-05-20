@@ -12,6 +12,9 @@ import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js
 import { getAgentDescriptionsTotalTokens, AGENT_DESCRIPTIONS_THRESHOLD } from './statusNoticeHelpers.js';
 import { isSupportedJetBrainsTerminal, toIDEDisplayName, getTerminalIdeType } from './ide.js';
 import { isJetBrainsPluginInstalledCachedSync } from './jetbrains.js';
+import type { PermissionMode } from './permissions/PermissionMode.js';
+import { modelSupportsAutoMode } from './betas.js';
+import { getAPIProvider } from './model/providers.js';
 
 // Types
 export type StatusNoticeType = 'warning' | 'info';
@@ -19,6 +22,11 @@ export type StatusNoticeContext = {
   config: ReturnType<typeof getGlobalConfig>;
   agentDefinitions?: AgentDefinitionsResult;
   memoryFiles: MemoryFileInfo[];
+  /** Active session permission mode. Used by the 3P-safety notices. */
+  permissionMode?: PermissionMode;
+  /** Current main-loop model id. Used by the 3P-safety notices to decide
+   * whether the AI classifier would actually run. */
+  mainLoopModel?: string;
 };
 export type StatusNoticeDefinition = {
   id: string;
@@ -188,8 +196,46 @@ const jetbrainsPluginNotice: StatusNoticeDefinition = {
   }
 };
 
+// Permissive permission modes (acceptEdits, bypassPermissions, auto) suppress
+// the per-tool consent prompt that normally gives the user a moment to inspect
+// what the model is about to do. On first-party Claude, the AI safety
+// classifier (gated by `modelSupportsAutoMode`) is the backstop that catches
+// PI-driven dangerous calls in that consent-free path. For 3P providers the
+// classifier never runs (betas.ts:166), so users get the consent shortcut
+// without the safety net — silently. See issue #244 finding 1.
+const PERMISSIVE_MODES_REQUIRING_CLASSIFIER: ReadonlyArray<PermissionMode> = [
+  'acceptEdits',
+  'bypassPermissions',
+];
+const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
+  id: 'third-party-permissive-mode',
+  type: 'warning',
+  isActive: ctx => {
+    const mode = ctx.permissionMode;
+    if (!mode || !PERMISSIVE_MODES_REQUIRING_CLASSIFIER.includes(mode)) {
+      return false;
+    }
+    // If the active model supports the AI classifier the safety net is in place,
+    // so suppress the notice even on 3P. Treat unknown model as classifier-off.
+    if (ctx.mainLoopModel && modelSupportsAutoMode(ctx.mainLoopModel)) {
+      return false;
+    }
+    return getAPIProvider() !== 'firstParty';
+  },
+  render: ctx => {
+    const mode = ctx.permissionMode;
+    return <Box flexDirection="row">
+        <Text color="warning">{figures.warning}</Text>
+        <Text color="warning">
+          <Text bold>{mode}</Text> mode is active on a third-party provider —
+          tool calls run without the AI safety classifier.
+          <Text dimColor> Inspect tool calls manually, especially when working with untrusted code.</Text>
+        </Text>
+      </Box>;
+  }
+};
 // All notice definitions
-export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice];
+export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice, thirdPartyPermissiveModeNotice];
 
 // Helper functions for external use
 export function getActiveNotices(context: StatusNoticeContext): StatusNoticeDefinition[] {
