@@ -993,6 +993,34 @@ function hasExplicitFalseyProviderFlag(
   )
 }
 
+function isProfileExplicitlyDisabled(
+  profile: ProviderProfile,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  switch (profile) {
+    case 'openai':
+    case 'codex':
+      return isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_OPENAI)
+    case 'github':
+      return isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_GITHUB)
+    case 'gemini':
+      return isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_GEMINI)
+    case 'mistral':
+      return isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_MISTRAL)
+    case 'bedrock':
+      return isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_BEDROCK)
+    case 'vertex':
+      return isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_VERTEX)
+    case 'anthropic':
+    case 'ollama':
+    case 'atomic-chat':
+    case 'nvidia-nim':
+    case 'minimax':
+    case 'xai':
+      return false
+  }
+}
+
 function hasConcreteProviderSelection(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -1524,7 +1552,11 @@ export async function buildStartupEnvFromProfile(options?: {
     return processEnv
   }
 
-  if (hasExplicitFalseyProviderFlag(processEnv)) {
+  if (!persisted && hasExplicitFalseyProviderFlag(processEnv)) {
+    return processEnv
+  }
+
+  if (persisted && isProfileExplicitlyDisabled(persisted.profile, processEnv)) {
     return processEnv
   }
 

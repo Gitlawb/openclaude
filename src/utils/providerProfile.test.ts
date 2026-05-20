@@ -1276,7 +1276,7 @@ test('buildStartupEnvFromProfile respects explicit falsey provider flags and doe
   assert.equal('OPENAI_API_KEY' in env, false)
 })
 
-test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {
+test('buildStartupEnvFromProfile applies a different saved profile when one provider flag is falsey', async () => {
   const processEnv = {
     CLAUDE_CODE_USE_OPENAI: '0',
   }
@@ -1289,11 +1289,10 @@ test('buildStartupEnvFromProfile treats explicit falsey provider flags as user i
     processEnv,
   })
 
-  // Explicit CLAUDE_CODE_USE_OPENAI=0 should be respected — return processEnv unchanged
-  // Do NOT inject a Gemini profile when the user has explicitly disabled OpenAI
-  assert.equal(env, processEnv)
-  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '0')
-  assert.equal('CLAUDE_CODE_USE_GEMINI' in env, false)
+  assert.notEqual(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_API_KEY, 'gem-persisted')
+  assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
 })
 
 test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
