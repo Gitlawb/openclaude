@@ -5744,6 +5744,113 @@ test('Xiaomi MiMo image tool results are split into a user image message', async
   })
 })
 
+test('Xiaomi MiMo image tool results keep multiple tool messages contiguous', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5'
+  process.env.MIMO_API_KEY = 'mimo-test-key'
+  delete process.env.OPENAI_API_KEY
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mimo',
+        model: 'mimo-v2.5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Read these files' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_text',
+            name: 'Read',
+            input: { file_path: 'notes.txt' },
+          },
+          {
+            type: 'tool_use',
+            id: 'call_image',
+            name: 'Read',
+            input: { file_path: 'appicon.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_text',
+            content: 'notes',
+          },
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_image',
+            content: [
+              { type: 'text', text: 'Read appicon.png' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'ZmFrZQ==',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const firstToolIndex = messages.findIndex(message => message.role === 'tool')
+  expect(messages[firstToolIndex]).toMatchObject({
+    role: 'tool',
+    tool_call_id: 'call_text',
+    content: 'notes',
+  })
+  expect(messages[firstToolIndex + 1]).toMatchObject({
+    role: 'tool',
+    tool_call_id: 'call_image',
+    content: 'Read appicon.png',
+  })
+  expect(messages[firstToolIndex + 2]).toMatchObject({
+    role: 'assistant',
+    content: 'Tool returned image content; attaching it for analysis.',
+  })
+  expect(messages[firstToolIndex + 3]).toMatchObject({
+    role: 'user',
+  })
+})
+
 test('collapses multiple text blocks into a single string for DeepSeek compatibility (issue #774)', async () => {
   let requestBody: Record<string, unknown> | undefined
 

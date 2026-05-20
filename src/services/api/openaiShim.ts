@@ -600,6 +600,7 @@ function convertMessages(
         // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
         // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
         // emitting it here would cause a "role must alternate" or "unexpected role" error.
+        const deferredToolImageMessages: OpenAIMessage[] = []
         for (const tr of toolResults) {
           const id = tr.tool_use_id ?? 'unknown'
           if (knownToolCallIds.has(id)) {
@@ -618,13 +619,13 @@ function convertMessages(
               content: converted.toolContent,
             })
             if (converted.assistantContent) {
-              result.push({
+              deferredToolImageMessages.push({
                 role: 'assistant',
                 content: converted.assistantContent,
               })
             }
             if (converted.userImageContent) {
-              result.push({
+              deferredToolImageMessages.push({
                 role: 'user',
                 content: converted.userImageContent,
               })
@@ -635,6 +636,7 @@ function convertMessages(
             )
           }
         }
+        result.push(...deferredToolImageMessages)
 
         // Emit remaining user content
         if (otherContent.length > 0) {
