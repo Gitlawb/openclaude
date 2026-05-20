@@ -660,6 +660,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'xai' || profile.baseUrl.toLowerCase().includes('x.ai')) {
         openAIProfileEnv.XAI_API_KEY = profile.apiKey
       }
+      if (route.routeId === 'aimlapi' || profile.baseUrl.toLowerCase().includes('api.aimlapi.com')) {
+        openAIProfileEnv.AIMLAPI_API_KEY = profile.apiKey
+      }
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
@@ -963,6 +966,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
       env.XAI_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('api.aimlapi.com')) {
+      env.AIMLAPI_API_KEY = activeProfile.apiKey
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
       env.VENICE_API_KEY = activeProfile.apiKey

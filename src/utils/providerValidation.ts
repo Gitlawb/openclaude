@@ -383,6 +383,7 @@ export async function getProviderValidationError(
     GOOGLE_API_KEY: env.GOOGLE_API_KEY,
     MISTRAL_API_KEY: env.MISTRAL_API_KEY,
     BNKR_API_KEY: env.BNKR_API_KEY,
+    AIMLAPI_API_KEY: env.AIMLAPI_API_KEY,
   }
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const validationTarget = getRuntimeValidationTarget(env)

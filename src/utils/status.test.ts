@@ -98,3 +98,15 @@ test('buildAPIProviderProperties keeps Codex-specific labels on the shared OpenA
   )
   expect(await readPropertyValue('Model', 'codex')).toBe('gpt-5.5 (high)')
 })
+
+test('buildAPIProviderProperties uses the resolved route label for AI/ML API sessions', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.aimlapi.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+
+  expect(await readPropertyValue('API provider', 'openai')).toBe('AI/ML API')
+  expect(await readPropertyValue('AI/ML API base URL', 'openai')).toBe(
+    'https://api.aimlapi.com/v1',
+  )
+  expect(await readPropertyValue('Model', 'openai')).toBe('gpt-4o')
+})

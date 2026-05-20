@@ -59,6 +59,7 @@ const RESTORED_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'AIMLAPI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'HICAP_API_KEY',
@@ -544,6 +545,29 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
   })
+
+  test('aimlapi profile applies OpenAI-compatible env with AIMLAPI_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-test-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.aimlapi.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_API_KEY).toBe('aimlapi-test-key')
+    expect(process.env.AIMLAPI_API_KEY).toBe('aimlapi-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  }, 20_000)
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -1162,6 +1186,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('aimlapi preset defaults to the official AI/ML API endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'aimlapi-live-key'
+
+    const defaults = getProviderPresetDefaults('aimlapi')
+
+    expect(defaults.provider).toBe('aimlapi')
+    expect(defaults.name).toBe('AI/ML API')
+    expect(defaults.baseUrl).toBe('https://api.aimlapi.com/v1')
+    expect(defaults.model).toBe('gpt-4o')
+    expect(defaults.apiKey).toBe('aimlapi-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('xai preset ignores stale generic OpenAI model when creating defaults', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     process.env.OPENAI_MODEL = 'gpt-5.4'
@@ -1441,6 +1479,50 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'mimo-v2.5-pro',
         OPENAI_API_KEY: 'mimo-test-key',
         MIMO_API_KEY: 'mimo-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists AI/ML API profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const aimlapiProfile = buildProfile({
+        id: 'aimlapi_prof',
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o, o4-mini',
+        apiKey: 'aimlapi-test-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [aimlapiProfile],
+      }))
+
+      const result = setActiveProviderProfile('aimlapi_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('aimlapi_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        AIMLAPI_API_KEY: 'aimlapi-test-key',
+        OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEY: 'aimlapi-test-key',
       })
     } finally {
       process.chdir(originalCwd)
