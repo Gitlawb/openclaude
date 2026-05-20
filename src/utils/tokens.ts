@@ -1,9 +1,22 @@
+import { createHash } from 'crypto'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import { roughTokenCountEstimation, roughTokenCountEstimationForMessages, roughTokenCountEstimationForMessage } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
+import { InMemoryTokenCache } from './inMemoryTokenCache.js'
 import { IncrementalTokenCounter } from './incrementalTokenCounter.js'
+
+let _inMemoryTokenCache: InMemoryTokenCache | undefined
+
+export function getInMemoryTokenCache(): InMemoryTokenCache {
+  if (!_inMemoryTokenCache) {
+    _inMemoryTokenCache = new InMemoryTokenCache(200, 48 * 60 * 60 * 1000)
+  }
+  return _inMemoryTokenCache
+}
+
+export const inMemoryTokenCache = { get cache() { return getInMemoryTokenCache() } }
 
 let _tokenCounter: IncrementalTokenCounter | undefined
 
@@ -16,6 +29,29 @@ export function getIncrementalTokenCounter(): IncrementalTokenCounter {
     })
   }
   return _tokenCounter
+}
+
+function getMessageHash(message: Message): string {
+  return createHash('sha256')
+    .update(jsonStringify(message.message?.content ?? ''))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function cachedMessageTokenEstimate(message: Message): number {
+  const hash = getMessageHash(message)
+  const { value } = getInMemoryTokenCache().getOrCreateWithEstimate(hash, () =>
+    roughTokenCountEstimationForMessage(message),
+  )
+  return value
+}
+
+function cachedRoughTokenCountForMessages(messages: readonly Message[]): number {
+  let total = 0
+  for (const msg of messages) {
+    total += cachedMessageTokenEstimate(msg)
+  }
+  return total
 }
 
 export function getTokenUsage(message: Message): Usage | undefined {
@@ -458,12 +494,12 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
       }
       return (
         getTokenCountFromUsage(usage) +
-        getIncrementalTokenCounter().getCount(messages.slice(i + 1))
+        cachedRoughTokenCountForMessages(messages.slice(i + 1))
       )
     }
     i--
   }
-  return getIncrementalTokenCounter().getCount(messages)
+  return cachedRoughTokenCountForMessages(messages)
 }
 
 

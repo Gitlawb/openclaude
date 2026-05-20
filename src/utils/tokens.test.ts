@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
 import {
   getTokenCountFromUsage,
+  tokenCountWithEstimation,
 } from './tokens.js'
 import { IncrementalTokenCounter } from './incrementalTokenCounter.js'
 
@@ -10,9 +11,6 @@ interface FakeUsage {
   cache_read_input_tokens?: number
   cache_creation_input_tokens?: number
 }
-
-describe('tokens', () => {
-})
 
 describe('IncrementalTokenCounter', () => {
   it('uses cached count for same message length', () => {
@@ -48,5 +46,43 @@ describe('IncrementalTokenCounter', () => {
     
     expect(counter.cachedCount).toBe(0)
     expect(counter.messageCount).toBe(0)
+  })
+})
+
+describe('tokenCountWithEstimation — cachedMessageTokenEstimate regression', () => {
+  it('estimates follow-up user messages (not 0 — bug fix)', () => {
+    const assistantWithUsage = {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: 'Hi' }],
+        usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+      messageId: 'resp-1',
+    }
+    const userFollowUp = {
+      type: 'user',
+      message: { content: 'hello world hello world hello world hello world' },
+    }
+
+    const count = tokenCountWithEstimation([assistantWithUsage, userFollowUp] as any)
+    // Should include estimate for follow-up (was 0 due to passing message.message)
+    expect(count).toBeGreaterThan(0)
+    // Should be > usage total alone (20 vs 15+)
+    expect(count).toBeGreaterThan(15)
+  })
+
+  it('handles attachment messages without throwing', () => {
+    const attachmentMsg = {
+      type: 'user',
+      attachment: { type: 'image', path: '/tmp/test.png' },
+    }
+    const msg = {
+      type: 'user',
+      message: { content: 'hello' },
+    }
+
+    expect(() => {
+      tokenCountWithEstimation([msg, attachmentMsg] as any)
+    }).not.toThrow()
   })
 })
