@@ -2,13 +2,20 @@
  * Runtime overrides for OpenAI-compatible model limits.
  *
  * Built-in model limits, including legacy aliases, live in
- * src/integrations/models. These helpers only preserve the documented JSON env
- * override path for custom/private deployments.
+ * src/integrations/models. These helpers preserve the documented JSON env
+ * override path for custom/private deployments and a `modelLimits` settings
+ * map for the same effect via settings.json.
+ *
+ * Resolution order: env var → settings.json `modelLimits` → built-in catalog.
  */
+
+import { getGlobalConfig } from '../config.js'
 
 type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
   | 'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS'
+
+type SettingsLimitKey = 'contextWindow' | 'maxOutputTokens'
 
 function readExternalLimits(
   envVarName: LimitEnvVar,
@@ -114,14 +121,48 @@ function lookupExternalLimit(
   )
 }
 
+function readSettingsLimits(key: SettingsLimitKey): Record<string, number> {
+  let limits: unknown
+  try {
+    limits = getGlobalConfig().modelLimits
+  } catch {
+    return {}
+  }
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
+    return {}
+  }
+  const result: Record<string, number> = {}
+  for (const [modelName, entry] of Object.entries(limits)) {
+    if (!entry || typeof entry !== 'object') continue
+    const value = (entry as Record<string, unknown>)[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      const trimmed = modelName.trim()
+      if (trimmed.length > 0) {
+        result[trimmed] = value
+      }
+    }
+  }
+  return result
+}
+
+function lookupSettingsLimit(
+  key: SettingsLimitKey,
+  model: string | undefined,
+  processEnv: NodeJS.ProcessEnv,
+): number | undefined {
+  return lookupByModel(readSettingsLimits(key), model, processEnv)
+}
+
 export function getOpenAIContextWindow(
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): number | undefined {
-  return lookupExternalLimit(
-    'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
-    model,
-    processEnv,
+  return (
+    lookupExternalLimit(
+      'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
+      model,
+      processEnv,
+    ) ?? lookupSettingsLimit('contextWindow', model, processEnv)
   )
 }
 
@@ -129,9 +170,11 @@ export function getOpenAIMaxOutputTokens(
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): number | undefined {
-  return lookupExternalLimit(
-    'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
-    model,
-    processEnv,
+  return (
+    lookupExternalLimit(
+      'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
+      model,
+      processEnv,
+    ) ?? lookupSettingsLimit('maxOutputTokens', model, processEnv)
   )
 }
