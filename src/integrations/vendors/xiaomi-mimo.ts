@@ -59,6 +59,7 @@ export default defineVendor({
       requireReasoningContentOnAssistantMessages: true,
       maxTokensField: 'max_completion_tokens',
       removeBodyFields: ['store', 'stream_options'],
+      toolResultImageHandling: 'split-user-message',
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },

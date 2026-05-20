@@ -28,6 +28,7 @@ export default defineGateway({
       },
       maxTokensField: 'max_completion_tokens',
       removeBodyFields: ['store', 'stream_options'],
+      toolResultImageHandling: 'split-user-message',
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },

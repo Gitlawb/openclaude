@@ -148,6 +148,7 @@ function inferRemoteModelOpenAIShimConfig(
       requireReasoningContentOnAssistantMessages: true,
       maxTokensField: 'max_completion_tokens',
       removeBodyFields: ['store', 'stream_options'],
+      toolResultImageHandling: 'split-user-message',
     }
   }
 
@@ -159,6 +160,7 @@ function inferRemoteModelOpenAIShimConfig(
       thinkingRequestFormat: 'deepseek-compatible',
       maxTokensField: 'max_tokens',
       removeBodyFields: ['store'],
+      toolResultImageHandling: 'text-only',
     }
   }
 

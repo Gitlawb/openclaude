@@ -21,6 +21,7 @@ export default defineVendor({
       thinkingRequestFormat: 'deepseek-compatible',
       maxTokensField: 'max_tokens',
       removeBodyFields: ['store'],
+      toolResultImageHandling: 'text-only',
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
     },

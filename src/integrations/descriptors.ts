@@ -15,6 +15,10 @@ export type TransportKind =
 
 export type OpenAIShimTokenField = 'max_tokens' | 'max_completion_tokens'
 export type OpenAIShimAuthScheme = 'bearer' | 'raw'
+export type OpenAIShimToolResultImageHandling =
+  | 'tool-message'
+  | 'split-user-message'
+  | 'text-only'
 
 export interface OpenAIShimAuthHeaderConfig {
   name: string
@@ -40,6 +44,7 @@ export interface OpenAIShimTransportConfig {
   thinkingRequestFormat?: 'none' | 'deepseek-compatible'
   maxTokensField?: OpenAIShimTokenField
   removeBodyFields?: string[]
+  toolResultImageHandling?: OpenAIShimToolResultImageHandling
 }
 
 export interface CapabilityFlags {

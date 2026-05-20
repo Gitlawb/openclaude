@@ -5558,6 +5558,192 @@ test('collapses multiple text blocks in tool_result to string for DeepSeek compa
   expect(toolMessages[0].content).toBe('line one\n\nline two')
 })
 
+test('DeepSeek image tool results become text-only tool messages', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek-v4-pro'
+  process.env.DEEPSEEK_API_KEY = 'deepseek-test-key'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'deepseek-v4-pro',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Read this image' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_image_1',
+            name: 'Read',
+            input: { file_path: 'appicon.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_image_1',
+            content: [
+              { type: 'text', text: 'Read appicon.png' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'ZmFrZQ==',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const toolMessages = messages.filter(message => message.role === 'tool')
+  expect(toolMessages.length).toBe(1)
+  expect(typeof toolMessages[0].content).toBe('string')
+  expect(toolMessages[0].content).toContain('Read appicon.png')
+  expect(toolMessages[0].content).toContain('Image content omitted')
+  expect(messages.some(message => Array.isArray(message.content))).toBe(false)
+})
+
+test('Xiaomi MiMo image tool results are split into a user image message', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5'
+  process.env.MIMO_API_KEY = 'mimo-test-key'
+  delete process.env.OPENAI_API_KEY
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mimo',
+        model: 'mimo-v2.5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Read this image' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_image_2',
+            name: 'Read',
+            input: { file_path: 'appicon.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_image_2',
+            content: [
+              { type: 'text', text: 'Read appicon.png' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'ZmFrZQ==',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const toolMessageIndex = messages.findIndex(message => message.role === 'tool')
+  expect(toolMessageIndex).toBeGreaterThan(-1)
+  expect(messages[toolMessageIndex].content).toBe('Read appicon.png')
+  expect(messages[toolMessageIndex + 1]).toMatchObject({
+    role: 'assistant',
+    content: 'Tool returned image content; attaching it for analysis.',
+  })
+  const userImageMessage = messages[toolMessageIndex + 2] as {
+    role?: string
+    content?: Array<{ type: string; text?: string; image_url?: { url: string } }>
+  }
+  expect(userImageMessage.role).toBe('user')
+  expect(userImageMessage.content?.[0]).toEqual({
+    type: 'text',
+    text: 'Image returned by tool result call_image_2.',
+  })
+  expect(userImageMessage.content?.[1]).toEqual({
+    type: 'image_url',
+    image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+  })
+})
+
 test('collapses multiple text blocks into a single string for DeepSeek compatibility (issue #774)', async () => {
   let requestBody: Record<string, unknown> | undefined
 

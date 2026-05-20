@@ -35,6 +35,7 @@ import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
+import type { OpenAIShimToolResultImageHandling } from '../../integrations/descriptors.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
 import {
@@ -252,7 +253,7 @@ function sleepMs(ms: number): Promise<void> {
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content?: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  content?: string | OpenAIContentPart[]
   tool_calls?: Array<{
     id: string
     type: 'function'
@@ -269,6 +270,12 @@ interface OpenAIMessage {
    * block captured when the original response was translated.
    */
   reasoning_content?: string
+}
+
+type OpenAIContentPart = {
+  type: string
+  text?: string
+  image_url?: { url: string }
 }
 
 interface OpenAITool {
@@ -304,7 +311,7 @@ function convertSystemPrompt(
 function convertToolResultContent(
   content: unknown,
   isError?: boolean,
-): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+): string | OpenAIContentPart[] {
   if (typeof content === 'string') {
     return isError ? `Error: ${content}` : content
   }
@@ -313,11 +320,7 @@ function convertToolResultContent(
     return isError ? `Error: ${text}` : text
   }
 
-  const parts: Array<{
-    type: string
-    text?: string
-    image_url?: { url: string }
-  }> = []
+  const parts: OpenAIContentPart[] = []
   for (const block of content) {
     if (block?.type === 'text' && typeof block.text === 'string') {
       parts.push({ type: 'text', text: block.text })
@@ -367,9 +370,60 @@ function convertToolResultContent(
   return parts
 }
 
+function hasImageContentPart(content: string | OpenAIContentPart[]): boolean {
+  return Array.isArray(content) && content.some(part => part.type === 'image_url')
+}
+
+function splitToolResultImagesForProvider(
+  content: string | OpenAIContentPart[],
+  toolUseId: string,
+  handling: OpenAIShimToolResultImageHandling,
+): {
+  toolContent: string | OpenAIContentPart[]
+  assistantContent?: string
+  userImageContent?: OpenAIContentPart[]
+} {
+  if (!Array.isArray(content) || !hasImageContentPart(content)) {
+    return { toolContent: content }
+  }
+
+  const textParts = content.filter(part => part.type === 'text')
+  const imageParts = content.filter(part => part.type === 'image_url')
+  const text = textParts
+    .map(part => part.text?.trim())
+    .filter((part): part is string => !!part)
+    .join('\n\n')
+
+  if (handling === 'text-only') {
+    const omitted =
+      '[Image content omitted: this provider does not accept image_url parts in tool results.]'
+    return {
+      toolContent: text ? `${text}\n\n${omitted}` : omitted,
+    }
+  }
+
+  if (handling === 'split-user-message') {
+    return {
+      toolContent:
+        text ||
+        'Tool returned image content; the image is attached in the next user message.',
+      assistantContent: 'Tool returned image content; attaching it for analysis.',
+      userImageContent: [
+        {
+          type: 'text',
+          text: `Image returned by tool result ${toolUseId}.`,
+        },
+        ...imageParts,
+      ],
+    }
+  }
+
+  return { toolContent: content }
+}
+
 function convertContentBlocks(
   content: unknown,
-): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+): string | OpenAIContentPart[] {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
 
@@ -489,11 +543,14 @@ function convertMessages(
     preserveReasoningContent?: boolean
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
+    toolResultImageHandling?: OpenAIShimToolResultImageHandling
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
   const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
+  const toolResultImageHandling =
+    options?.toolResultImageHandling ?? 'tool-message'
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -546,11 +603,32 @@ function convertMessages(
         for (const tr of toolResults) {
           const id = tr.tool_use_id ?? 'unknown'
           if (knownToolCallIds.has(id)) {
+            const convertedToolContent = convertToolResultContent(
+              tr.content,
+              tr.is_error,
+            )
+            const converted = splitToolResultImagesForProvider(
+              convertedToolContent,
+              String(id),
+              toolResultImageHandling,
+            )
             result.push({
               role: 'tool',
               tool_call_id: id,
-              content: convertToolResultContent(tr.content, tr.is_error),
+              content: converted.toolContent,
             })
+            if (converted.assistantContent) {
+              result.push({
+                role: 'assistant',
+                content: converted.assistantContent,
+              })
+            }
+            if (converted.userImageContent) {
+              result.push({
+                role: 'user',
+                content: converted.userImageContent,
+              })
+            }
           } else {
             logForDebugging(
               `Dropping orphan tool_result for ID: ${id} to prevent API error`,
@@ -1787,6 +1865,7 @@ class OpenAIShimMessages {
         request.resolvedModel,
         request.baseUrl,
       ),
+      toolResultImageHandling: shimConfig.toolResultImageHandling,
     })
 
     const body: Record<string, unknown> = {
