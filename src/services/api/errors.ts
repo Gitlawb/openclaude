@@ -96,6 +96,12 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
         error: 'invalid_request',
       })
 
+    case 'vision_not_supported':
+      return createAssistantAPIErrorMessage({
+        content: `The provider at ${options.host} returned 404 for a request containing images. The model (${options.model}) may not support image/vision inputs. Try removing images from your message, or ${switchCmd} to a vision-capable model.`,
+        error: 'invalid_request',
+      })
+
     case 'model_not_found':
       return createAssistantAPIErrorMessage({
         content: `The selected model (${options.model}) is not available on this provider. Run ${switchCmd} to choose another model, or verify installed local models (for Ollama: ollama list).`,
