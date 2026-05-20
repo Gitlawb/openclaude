@@ -134,6 +134,53 @@ describe('normalizeToolInputForValidation', () => {
       options: [],
     }
 
-    expect(normalizeToolInputForValidation({ name: 'Read' } as never, input)).toBe(input)
+    // Tool name not AskUserQuestion → only null-stripping applies; no nulls → identity
+    const result = normalizeToolInputForValidation({ name: 'Read' } as never, input)
+    expect(result).toEqual(input)
+  })
+
+  // Regression for #1264 — Codex strict schema mode widens optional fields to
+  // `type: [<orig>, 'null']`. The model emits `null` to indicate "not set",
+  // but tool Zod schemas type optional fields as `T | undefined`, not
+  // `T | null`. Strip top-level nulls so the field reaches the tool as
+  // missing (matches what the model intended).
+  test('strips top-level null values from tool input (#1264)', () => {
+    const input = {
+      file_path: '/tmp/foo.txt',
+      limit: 20,
+      offset: 1,
+      pages: null,
+    }
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, input),
+    ).toEqual({
+      file_path: '/tmp/foo.txt',
+      limit: 20,
+      offset: 1,
+    })
+  })
+
+  test('keeps non-null falsy values (0, empty string, false)', () => {
+    const input = {
+      offset: 0,
+      label: '',
+      enabled: false,
+    }
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, input),
+    ).toEqual(input)
+  })
+
+  test('does not recurse into nested objects (top-level only)', () => {
+    const input = {
+      file_path: '/tmp/foo.txt',
+      meta: { nested: null },
+    }
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, input),
+    ).toEqual({
+      file_path: '/tmp/foo.txt',
+      meta: { nested: null },
+    })
   })
 })

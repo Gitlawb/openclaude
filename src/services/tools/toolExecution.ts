@@ -615,40 +615,83 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Drop top-level keys whose value is exactly `null`. OpenAI's strict schema
+ * mode for tool inputs requires every property to appear in `required`; the
+ * documented escape hatch for originally-optional fields is `type: [<orig>,
+ * 'null']`, which makes the model emit `null` to indicate "not set". Zod
+ * schemas on the tool side type those fields as `T | undefined`, not `T |
+ * null`, so the null arrives and fails `safeParse` with a confusing
+ * "Invalid …" message before the tool even runs (#1264). Strip nulls so the
+ * field reaches the tool as missing, which is what the model intended.
+ *
+ * Top-level only — we don't crawl arrays or nested objects, because tools
+ * that genuinely structure their inputs do not currently use `null` as a
+ * meaningful sentinel anywhere. If that changes, narrow this to known
+ * optional fields per tool descriptor.
+ */
+function stripNullToolInputProperties(input: unknown): unknown {
+  if (!isRecord(input)) return input
+  let hasNull = false
+  for (const value of Object.values(input)) {
+    if (value === null) {
+      hasNull = true
+      break
+    }
+  }
+  // Preserve identity when there's nothing to strip — call sites
+  // (and tests) rely on `===`/`.toBe(input)` for the no-op path.
+  if (!hasNull) return input
+
+  const cleaned: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (value === null) continue
+    cleaned[key] = value
+  }
+  return cleaned
+}
+
 export function normalizeToolInputForValidation(
   tool: Pick<Tool, 'name'>,
   input: unknown,
 ): unknown {
-  if (!isRecord(input)) {
-    return input
+  // Generic top-level null strip first: Codex strict schemas widen optional
+  // fields to nullable type unions, so the model can emit `null` to indicate
+  // "not set" even though tool Zod schemas type optional as `T | undefined`.
+  // Strip nulls so the field reaches the tool as missing.
+  const denulled = stripNullToolInputProperties(input)
+
+  if (!isRecord(denulled)) {
+    return denulled
   }
 
   if (tool.name === FILE_READ_TOOL_NAME) {
-    // Codex strict tool schemas can emit placeholder pages: "" / null for
-    // non-PDF reads. Treat those the same as omission before zod validation.
-    const pages = input.pages
-    if (pages === null || (typeof pages === 'string' && pages.trim() === '')) {
-      const { pages: _pages, ...rest } = input
+    // Codex strict tool schemas can also emit placeholder pages: "" for
+    // non-PDF reads. The generic null strip above already handled `null`,
+    // so just guard against the empty-string variant here.
+    const pages = denulled.pages
+    if (typeof pages === 'string' && pages.trim() === '') {
+      const { pages: _pages, ...rest } = denulled
       return rest
     }
-    return input
+    return denulled
   }
 
   if (tool.name !== ASK_USER_QUESTION_TOOL_NAME) {
-    return input
+    return denulled
   }
 
-  if (Array.isArray(input.questions)) {
-    return input
+  if (Array.isArray(denulled.questions)) {
+    return denulled
   }
 
-  const { question, header, options, multiSelect, ...rest } = input
+  const { question, header, options, multiSelect, ...rest } = denulled
   if (
     typeof question !== 'string' ||
     typeof header !== 'string' ||
     !Array.isArray(options)
   ) {
-    return input
+    return denulled
   }
 
   return {
