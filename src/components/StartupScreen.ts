@@ -13,7 +13,7 @@ import {
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
-import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
+import { DEFAULT_GEMINI_MODEL, DEFAULT_MISTRAL_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
 import {
@@ -87,7 +87,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useMistral) {
-    const model = modelOverride || process.env.MISTRAL_MODEL || 'devstral-latest'
+    const model = modelOverride || process.env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL
     const baseUrl = process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1'
     return { name: 'Mistral', model, baseUrl, isLocal: false }
   }

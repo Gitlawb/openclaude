@@ -185,7 +185,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'devstral-latest'
+    return process.env.MISTRAL_MODEL || 'mistral-vibe-cli-latest'
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
@@ -371,7 +371,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
   }
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'devstral-latest'
+    return process.env.MISTRAL_MODEL || 'mistral-vibe-cli-latest'
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
