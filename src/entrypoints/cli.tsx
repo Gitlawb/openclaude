@@ -47,6 +47,50 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
 
+const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
+  '--bare',
+  '--debug',
+  '--debug-to-stderr',
+  '--mcp-debug',
+  '--verbose',
+])
+
+const SKILLS_LEADING_VALUE_FLAGS = new Set([
+  '--debug-file',
+  '--model',
+  '--provider',
+])
+
+function getSkillsCliArgs(args: string[]): string[] | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === 'skills') {
+      return args.slice(index)
+    }
+    if (SKILLS_LEADING_BOOLEAN_FLAGS.has(arg)) {
+      continue
+    }
+    if (
+      SKILLS_LEADING_VALUE_FLAGS.has(arg) &&
+      args[index + 1] &&
+      !args[index + 1]!.startsWith('-')
+    ) {
+      index += 1
+      continue
+    }
+    if (
+      Array.from(SKILLS_LEADING_VALUE_FLAGS).some(flag =>
+        arg?.startsWith(`${flag}=`),
+      )
+    ) {
+      continue
+    }
+    return undefined
+  }
+
+  return undefined
+}
+
 // Set max heap size for child processes.
 // Local runs get 8 GB so long agentic tasks (multi-file reads, large prompts,
 // tool-heavy loops) do not hit V8's ~2 GB default ceiling. Only raise the cap
@@ -116,6 +160,16 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
+  // Local skills management must stay available even when provider startup
+  // configuration is broken, so users can inspect/fix skills from scripts.
+  const skillsCliArgs = getSkillsCliArgs(args)
+  if (skillsCliArgs) {
+    const { runSkillsCli } = await import('../cli/handlers/skillsCli.js')
+    process.argv = [process.argv[0]!, process.argv[1]!, ...skillsCliArgs]
+    await runSkillsCli(skillsCliArgs);
+    return
+  }
+
   const hasConfiguredProviderProfile = await (async () => {
     const { getActiveProviderProfile } = await import('../utils/providerProfiles.js')
     return getActiveProviderProfile() !== undefined
@@ -159,9 +213,12 @@ async function main(): Promise<void> {
   const { eagerParseCliFlag } = await import('../utils/cliArgs.js')
   const earlyModelFlag = eagerParseCliFlag('--model')
 
-  // Print the gradient startup screen before the Ink UI loads
-  const { printStartupScreen } = await import('../components/StartupScreen.js')
-  printStartupScreen(earlyModelFlag)
+  // Print the gradient startup screen before the Ink UI loads. Plain CLI
+  // management subcommands should stay script-friendly and avoid the banner.
+  if (args[0] !== 'skills') {
+    const { printStartupScreen } = await import('../components/StartupScreen.js')
+    printStartupScreen(earlyModelFlag)
+  }
 
   // For all other paths, load the startup profiler
   const {

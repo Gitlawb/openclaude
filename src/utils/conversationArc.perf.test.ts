@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { 
-  initializeArc, 
-  updateArcPhase, 
+import {
+  initializeArc,
+  updateArcPhase,
   getArcSummary,
-  resetArc 
+  resetArc,
 } from './conversationArc.js'
 import { getGlobalGraph, clearMemoryOnly, resetGlobalGraph } from './knowledgeGraph.js'
 import {

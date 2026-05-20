@@ -4276,6 +4276,51 @@ async function run(): Promise<CommanderCommand> {
     await agentsHandler();
     process.exit(0);
   });
+
+  const skillsCmd = program.command('skills').description('List, inspect, validate, and manage OpenClaude skills').configureHelp(createSortedHelpConfig());
+  skillsCmd.command('list').description('List configured skills').option('--json', 'Output as JSON').action(async (options: {
+    json?: boolean;
+  }) => {
+    const {
+      skillsListHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsListHandler(options);
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('show <name>').description('Show details for a configured skill').action(async (name: string) => {
+    const {
+      skillsShowHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsShowHandler(name);
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('validate <path>').description('Validate a local skill directory').action(async (path: string) => {
+    const {
+      skillsValidateHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsValidateHandler(path);
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('install <idOrUrlOrPath>').description('Install a skill from the registry, URL, or local path').option('--registry <urlOrPath>', 'Registry JSON URL/path for registry ID installs').option('--global', 'Install to the user-global skills directory').option('--force', 'Overwrite an existing installed skill').action(async (idOrUrlOrPath: string, options: {
+    registry?: string;
+    global?: boolean;
+    force?: boolean;
+  }) => {
+    const {
+      skillsInstallHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsInstallHandler(idOrUrlOrPath, options);
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('remove <name>').description('Remove a local project skill').option('--global', 'Remove from the user-global skills directory').action(async (name: string, options: {
+    global?: boolean;
+  }) => {
+    const {
+      skillsRemoveHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsRemoveHandler(name, options);
+    process.exit(process.exitCode ?? 0);
+  });
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Skip when tengu_auto_mode_config.enabled === 'disabled' (circuit breaker).
     // Reads from disk cache — GrowthBook isn't initialized at registration time.

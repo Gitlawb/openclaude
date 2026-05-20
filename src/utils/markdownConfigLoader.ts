@@ -38,7 +38,7 @@ export const CLAUDE_CONFIG_DIRECTORIES = [
 
 export type ClaudeConfigDirectory = (typeof CLAUDE_CONFIG_DIRECTORIES)[number]
 
-const PROJECT_CONFIG_DIR_NAMES = ['.claude', '.openclaude'] as const
+export const PROJECT_CONFIG_DIR_NAMES = ['.claude', '.openclaude'] as const
 
 export type MarkdownFile = {
   filePath: string

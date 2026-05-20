@@ -131,9 +131,10 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     
     // 5. Verify the corrupted file was moved
     const { readdirSync } = await import('fs')
+    // Search recursively from the actual Orama location. The config home can
+    // be redirected by other tests, but the persisted file path is authoritative.
     const projectDir = dirname(oramaPath)
     expect(existsSync(projectDir)).toBe(true)
-    // Search recursively for the corrupted file
     const findCorrupted = (dir: string): boolean => {
       const entries = readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
