@@ -776,6 +776,42 @@ function rootPathForSource(source: PermissionRuleSource): string {
   }
 }
 
+function exactSessionEditRuleForPath(path: string): PermissionUpdate {
+  const absolutePath = expandPath(path)
+  const originalCwd = expandPath(getOriginalCwd())
+  const relativeToCwd = relativePath(originalCwd, absolutePath)
+  const ruleContent =
+    relativeToCwd &&
+    !relativeToCwd.startsWith(`..${DIR_SEP}`) &&
+    relativeToCwd !== '..'
+      ? prependDirSep(relativeToCwd)
+      : prependDirSep(toPosixPath(absolutePath))
+
+  return {
+    type: 'addRules',
+    rules: [{ toolName: FILE_EDIT_TOOL_NAME, ruleContent }],
+    behavior: 'allow',
+    destination: 'session',
+  }
+}
+
+function isExactSessionEditRuleForPath(
+  rule: PermissionRule | null,
+  path: string,
+): boolean {
+  if (
+    !rule ||
+    rule.source !== 'session' ||
+    rule.ruleBehavior !== 'allow' ||
+    rule.ruleValue.toolName !== FILE_EDIT_TOOL_NAME
+  ) {
+    return false
+  }
+  const expectedRule =
+    exactSessionEditRuleForPath(path).rules[0]?.ruleContent
+  return rule.ruleValue.ruleContent === expectedRule
+}
+
 function prependDirSep(path: string): string {
   return posix.join(DIR_SEP, path)
 }
@@ -1326,14 +1362,41 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   // permission to edit protected files
   const safetyCheck = checkPathSafetyForAutoEdit(path, pathsToCheck)
   if (!safetyCheck.safe) {
+    const exactSessionAllowRule = matchingRuleForInput(
+      path,
+      {
+        ...toolPermissionContext,
+        alwaysAllowRules: {
+          session: toolPermissionContext.alwaysAllowRules.session ?? [],
+        },
+      },
+      'edit',
+      'allow',
+    )
+    if (isExactSessionEditRuleForPath(exactSessionAllowRule, path)) {
+      return {
+        behavior: 'allow',
+        updatedInput: input,
+        decisionReason: {
+          type: 'rule',
+          rule: exactSessionAllowRule,
+        },
+      }
+    }
+
     // SDK suggestion: if under .claude/skills/{name}/, emit the narrowed
     // session-scoped addRules that step 1.6 will honor on the next call.
     // Everything else (.claude/settings.json, .git/, .vscode/, .idea/) falls
     // back to generateSuggestions — its setMode suggestion doesn't bypass
     // this check, but preserving it avoids a surprising empty array.
     const skillScope = getClaudeSkillScope(path)
-    const safetySuggestions: PermissionUpdate[] = skillScope
-      ? [
+    const exactFileSuggestion = safetyCheck.classifierApprovable
+      ? [exactSessionEditRuleForPath(path)]
+      : []
+    const safetySuggestions: PermissionUpdate[] = [
+      ...exactFileSuggestion,
+      ...(skillScope
+        ? [
           {
             type: 'addRules',
             rules: [
@@ -1346,7 +1409,13 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
             destination: 'session',
           },
         ]
-      : generateSuggestions(path, 'write', toolPermissionContext, pathsToCheck)
+        : generateSuggestions(
+            path,
+            'write',
+            toolPermissionContext,
+            pathsToCheck,
+          )),
+    ]
     return {
       behavior: 'ask',
       message: safetyCheck.message,

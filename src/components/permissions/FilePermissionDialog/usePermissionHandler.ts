@@ -128,10 +128,13 @@ function handleAcceptSession(
     return
   }
 
-  // Generate permission updates if path is provided
-  const suggestions = path
-    ? generateSuggestions(path, operationType, toolPermissionContext)
-    : []
+  // Prefer the permission check's own suggestions. Safety-check prompts can
+  // include a narrow exact-file session rule; recomputing generic suggestions
+  // after the user is already in acceptEdits mode can otherwise produce no
+  // effective update and make the same protected file prompt again.
+  const suggestions =
+    toolUseConfirm.permissionResult.suggestions ??
+    (path ? generateSuggestions(path, operationType, toolPermissionContext) : [])
 
   onDone()
   // Pass permission updates directly to onAllow
