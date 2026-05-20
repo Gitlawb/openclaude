@@ -230,7 +230,7 @@ describe('Codex provider config', () => {
 })
 
 describe('Codex request translation', () => {
-  test('normalizes optional parameters into strict Responses schemas', () => {
+  test('normalizes optional parameters into strict Responses schemas (#1264 — optional → nullable)', () => {
     const tools = convertToolsToResponsesTools([
       {
         name: 'Agent',
@@ -248,6 +248,9 @@ describe('Codex request translation', () => {
       },
     ])
 
+    // Strict mode requires every key in `required`; originally-optional
+    // fields must therefore be widened to allow `null` so the model can
+    // emit null instead of fabricating a placeholder value (#1264).
     expect(tools).toEqual([
       {
         type: 'function',
@@ -258,7 +261,7 @@ describe('Codex request translation', () => {
           properties: {
             description: { type: 'string' },
             prompt: { type: 'string' },
-            subagent_type: { type: 'string' },
+            subagent_type: { type: ['string', 'null'] },
           },
           required: ['description', 'prompt', 'subagent_type'],
           additionalProperties: false,
@@ -328,7 +331,7 @@ describe('Codex request translation', () => {
           type: 'object',
           properties: {
             pattern: { type: 'string', description: 'Search pattern' },
-            path: { type: 'string' },
+            path: { type: ['string', 'null'] },
           },
           required: ['pattern', 'path'],
           additionalProperties: false,
@@ -364,7 +367,7 @@ describe('Codex request translation', () => {
           type: 'object',
           properties: {
             pattern: { type: 'string', description: 'Glob pattern' },
-            path: { type: 'string' },
+            path: { type: ['string', 'null'] },
           },
           required: ['pattern', 'path'],
           additionalProperties: false,
@@ -477,7 +480,8 @@ describe('Codex request translation', () => {
           type: 'object',
           properties: {
             priority: {
-              type: 'integer',
+              // Originally-optional (no `required` array) → nullable widening per #1264.
+              type: ['integer', 'null'],
               description: 'Priority: 0=low, 1=medium, 2=high, 3=urgent',
               enum: [0, 1, 2, 3],
             },
@@ -550,7 +554,8 @@ describe('Codex request translation', () => {
     ])
 
     const payload = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties.payload
-    expect(payload.type).toBe('object')
+    // Originally-optional (no top-level `required` array) → widened to nullable per #1264.
+    expect(payload.type).toEqual(['object', 'null'])
   })
 
   test('infers array type for untyped schemas with items', () => {
@@ -567,7 +572,8 @@ describe('Codex request translation', () => {
     ])
 
     const tags = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties.tags
-    expect(tags.type).toBe('array')
+    // Originally-optional → widened to nullable.
+    expect(tags.type).toEqual(['array', 'null'])
   })
 
   test('infers type from enum values when type is missing', () => {
@@ -587,10 +593,11 @@ describe('Codex request translation', () => {
     ])
 
     const props = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties
-    expect(props.mode.type).toBe('string')
-    expect(props.level.type).toBe('integer')
-    expect(props.ratio.type).toBe('number')
-    expect(props.flag.type).toBe('boolean')
+    // All originally-optional (no `required` array) → nullable widening per #1264.
+    expect(props.mode.type).toEqual(['string', 'null'])
+    expect(props.level.type).toEqual(['integer', 'null'])
+    expect(props.ratio.type).toEqual(['number', 'null'])
+    expect(props.flag.type).toEqual(['boolean', 'null'])
   })
 
   test('leaves combinator-only schemas untyped to preserve alternatives', () => {
@@ -1106,6 +1113,46 @@ describe('Codex request translation', () => {
 
     // Delta wins; done branches must NOT re-emit and double the JSON.
     expect(await collectToolArgs(responseText)).toBe(args)
+  })
+
+  // Regression for #1264 — Read tool has `pages?: string` (optional). Codex
+  // strict mode previously made it a required non-null string, so the model
+  // emitted `pages: ""` as a placeholder and Read rejected the call before
+  // reading the file. After the fix `pages` is typed `['string', 'null']`,
+  // the model can emit `null` instead, and `normalizeToolInputForValidation`
+  // strips nulls so the tool sees the field as missing (which is what it
+  // expected for optional fields all along).
+  test('Read.pages: optional → nullable in strict schema (#1264)', () => {
+    const tools = convertToolsToResponsesTools([
+      {
+        name: 'Read',
+        description: 'Read a file',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string' },
+            limit: { type: 'number' },
+            offset: { type: 'number' },
+            pages: {
+              type: 'string',
+              description: 'Page range for PDFs (e.g. "1-5")',
+            },
+          },
+          required: ['file_path'],
+          additionalProperties: false,
+        },
+      },
+    ])
+
+    const params = tools[0].parameters as Record<string, unknown>
+    const props = params.properties as Record<string, Record<string, unknown>>
+    expect(props.file_path.type).toBe('string')
+    // Optional fields widened to allow null
+    expect(props.limit.type).toEqual(['number', 'null'])
+    expect(props.offset.type).toEqual(['number', 'null'])
+    expect(props.pages.type).toEqual(['string', 'null'])
+    // Strict mode still lists every key in required
+    expect(params.required).toEqual(['file_path', 'limit', 'offset', 'pages'])
   })
 })
 

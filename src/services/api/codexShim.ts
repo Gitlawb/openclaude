@@ -367,9 +367,35 @@ function ensureSchemaType(record: Record<string, unknown>): void {
 }
 
 /**
+ * Codex Responses strict mode requires every property to appear in `required`,
+ * so originally-optional fields lose their optionality on the wire. The
+ * documented workaround is to widen the property `type` to allow `null` —
+ * the field is still "required", but the model can satisfy it by emitting
+ * null instead of fabricating a placeholder. Without this, Codex emits
+ * `pages: ""` for the optional Read.pages field and OpenClaude rejects the
+ * tool call before reading the file (#1264).
+ *
+ * Mirrors the openai-shim normalization that landed in #471 for non-strict
+ * Chat Completions; the strict path needs the nullable trick because we
+ * cannot just omit the key from `required`.
+ */
+function widenTypeToNullable(type: unknown): unknown {
+  if (type === undefined) return type
+  if (typeof type === 'string') {
+    return type === 'null' ? type : [type, 'null']
+  }
+  if (Array.isArray(type)) {
+    return type.includes('null') ? type : [...type, 'null']
+  }
+  return type
+}
+
+/**
  * Recursively enforces Codex strict-mode constraints on a JSON schema:
  * - Every `object` type gets `additionalProperties: false`
  * - All property keys are listed in `required`
+ * - Originally-optional properties get `type: [<orig>, 'null']` so the model
+ *   can emit `null` rather than a placeholder value (#1264)
  * - Nested schemas (properties, items, anyOf/oneOf/allOf) are processed too
  */
 function enforceStrictSchema(schema: unknown): Record<string, unknown> {
@@ -395,12 +421,23 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
     ) {
       const props = record.properties as Record<string, unknown>
 
+      // Capture original optionality BEFORE we overwrite required. When the
+      // schema didn't have an explicit `required` array, treat every field
+      // as optional (matches JSON Schema semantics).
+      const originalRequired: Set<string> | null = Array.isArray(record.required)
+        ? new Set(
+            (record.required as unknown[]).filter(
+              (k): k is string => typeof k === 'string',
+            ),
+          )
+        : null
+
       const enforcedProps: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(props)) {
         const strictValue = enforceStrictSchema(value)
         // If the resulting schema is an empty object (no properties), OpenAI structured outputs will likely
         // strip it silently and then complain about a 'required' mismatch if it remains in the required list.
-        // E.g. z.record() objects (like AskUserQuestion.answers) lose their schema due to additionalProperties 
+        // E.g. z.record() objects (like AskUserQuestion.answers) lose their schema due to additionalProperties
         // restrictions. We can safely drop these from the schema sent to the LLM.
         if (
           strictValue &&
@@ -410,6 +447,14 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
           (!strictValue.properties || Object.keys(strictValue.properties).length === 0)
         ) {
           continue
+        }
+        // Originally-optional → widen type to permit `null` so the model can
+        // satisfy the strict-required slot without fabricating a placeholder
+        // value (#1264). Originally-required fields stay typed as authored.
+        const wasOptional =
+          originalRequired === null || !originalRequired.has(key)
+        if (wasOptional && strictValue.type !== undefined) {
+          strictValue.type = widenTypeToNullable(strictValue.type)
         }
         enforcedProps[key] = strictValue
       }
