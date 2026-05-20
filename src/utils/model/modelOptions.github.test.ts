@@ -109,7 +109,7 @@ afterEach(() => {
   }
 })
 
-test('GitHub provider exposes default + all Copilot models in /model options', async () => {
+test('GitHub provider exposes default option in /model options (models loaded via discovery)', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -126,7 +126,5 @@ test('GitHub provider exposes default + all Copilot models in /model options', a
     (option: { value: unknown }) => option.value !== null,
   )
 
-  expect(nonDefault.length).toBeGreaterThan(1)
-  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-4o')).toBe(true)
-  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-5.3-codex')).toBe(true)
+  expect(nonDefault.length).toBe(0)
 })

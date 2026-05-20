@@ -321,7 +321,7 @@ export function buildGithubProfileEnv(options: {
     OPENAI_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model),
-      ) || 'github:copilot',
+      ) || 'gpt-4o',
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -1140,7 +1140,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'github',
       profileEnv: buildGithubProfileEnv({
-        model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
+        model: shellOpenAIModel || persistedOpenAIModel || 'gpt-4o',
         baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
       }),
     })

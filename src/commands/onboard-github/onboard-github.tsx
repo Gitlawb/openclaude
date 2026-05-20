@@ -17,7 +17,7 @@ import {
 } from '../../utils/githubModelsCredentials.js'
 import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
 
-const DEFAULT_MODEL = 'github:copilot'
+const DEFAULT_MODEL = 'gpt-4o'
 const FORCE_RELOGIN_ARGS = new Set([
   'force',
   '--force',
@@ -342,7 +342,7 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     if (!activated.ok) {
       onDone(
         `GitHub token detected, but settings activation failed: ${activated.detail ?? 'unknown error'}. ` +
-          'Set CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=github:copilot in user settings manually.',
+          'Set CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=gpt-4o in user settings manually.',
         { display: 'system' },
       )
       return null

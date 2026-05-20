@@ -319,7 +319,7 @@ describe('detectProvider — modelOverride from --model flag', () => {
   test('modelOverride works for GitHub provider', () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     const result = detectProvider('gpt-4o')
-    expect(result.model).toContain('gpt-4o')
+    expect(result.model).toContain('GPT-4o')
   })
 
   test('undefined modelOverride preserves default behavior', () => {

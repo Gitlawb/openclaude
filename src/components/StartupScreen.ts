@@ -11,8 +11,8 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
-import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
-import { parseUserSpecifiedModel } from '../utils/model/model.js'
+import { getInitialSettings } from '../utils/settings/settings.js'
+import { getPublicModelDisplayName, parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
@@ -93,10 +93,35 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useGithub) {
-    const model = modelOverride || process.env.OPENAI_MODEL || 'github:copilot'
+    const settings = getInitialSettings() || {}
+    const model = modelOverride || settings.model || process.env.OPENAI_MODEL || 'gpt-4o'
+    const githubDisplayNames: Record<string, string> = {
+      'gpt-5.5': 'GPT-5.5',
+      'gpt-5.5-mini': 'GPT-5.5 Mini',
+      'gpt-5.4': 'GPT-5.4',
+      'gpt-5.4-mini': 'GPT-5.4 Mini',
+      'gpt-5.3-codex': 'GPT-5.3 Codex',
+      'gpt-5.2-codex': 'GPT-5.2 Codex',
+      'gpt-5.2': 'GPT-5.2',
+      'gpt-5.1-codex': 'GPT-5.1 Codex',
+      'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
+      'gpt-5.1-codex-mini': 'GPT-5.1 Codex Mini',
+      'gpt-4o': 'GPT-4o',
+      'gpt-4.1': 'GPT-4.1',
+      'claude-opus-4.6': 'Claude Opus 4.6',
+      'claude-opus-4.5': 'Claude Opus 4.5',
+      'claude-sonnet-4.6': 'Claude Sonnet 4.6',
+      'claude-sonnet-4.5': 'Claude Sonnet 4.5',
+      'claude-haiku-4.5': 'Claude Haiku 4.5',
+      'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
+      'gemini-3-flash-preview': 'Gemini 3 Flash',
+      'gemini-2.5-pro': 'Gemini 2.5 Pro',
+      'grok-code-fast-1': 'Grok Code Fast 1',
+    }
+    const displayName = model === 'github:copilot' ? 'GPT-4o' : (githubDisplayNames[model] || model)
     const baseUrl =
       process.env.OPENAI_BASE_URL || 'https://api.githubcopilot.com'
-    return { name: 'GitHub Copilot', model, baseUrl, isLocal: false }
+    return { name: 'GitHub Copilot', model: displayName, baseUrl, isLocal: false }
   }
 
   if (useOpenAI) {
@@ -156,7 +181,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   // Default: Anthropic - check settings.model first, then env vars
-  const settings = getSettings_DEPRECATED() || {}
+  const settings = getInitialSettings() || {}
   const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
