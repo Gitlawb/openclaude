@@ -54,6 +54,7 @@ export const SDK_EXTERNALS: string[] = [...COMMON_EXTERNALS, ...SDK_ONLY_EXTERNA
 // Packages intentionally bundled (not external, not flagged by validation)
 // These are small utilities that are fine to inline into the output bundle.
 export const INTENTIONALLY_BUNDLED: string[] = [
+  // Test utilities (bundled, not external)
   // Anthropic provider variants (bundled, not the main SDK)
   '@anthropic-ai/bedrock-sdk',
   '@anthropic-ai/foundry-sdk',
