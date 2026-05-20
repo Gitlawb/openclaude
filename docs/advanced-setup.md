@@ -86,6 +86,37 @@ export GEMINI_API_KEY=...
 export GEMINI_MODEL=gemini-3-flash-preview
 ```
 
+### Claude on Vertex AI
+
+The Vertex route uses Anthropic's Claude-on-Vertex API. It is not a general
+Vertex AI Model Garden adapter for Gemini or arbitrary partner models; use the
+Gemini provider for Gemini models and OpenAI-compatible routes for compatible
+third-party gateways.
+
+Authentication uses Google Application Default Credentials through
+`google-auth-library`. There is no `OPENAI_API_KEY`-style API key for this
+route. Authenticate with either a service-account file or local ADC:
+
+```bash
+gcloud auth application-default login
+```
+
+Minimal setup:
+
+```bash
+export CLAUDE_CODE_USE_VERTEX=1
+export ANTHROPIC_VERTEX_PROJECT_ID=my-gcp-project
+export GOOGLE_CLOUD_PROJECT=my-gcp-project
+export CLOUD_ML_REGION=us-east5
+export ANTHROPIC_MODEL=claude-sonnet-4-6
+
+openclaude
+```
+
+`CLOUD_ML_REGION` is optional and defaults to `us-east5`. Model-specific
+Vertex region override variables are also supported for Claude models; see
+`src/services/api/client.ts` for the current override names.
+
 ### Gemini via OpenRouter
 
 ```bash
