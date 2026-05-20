@@ -853,7 +853,7 @@ export function buildCompatibilityProcessEnv(options: {
   const nextEnv: NodeJS.ProcessEnv = { ...options.profileEnv }
   const flag = getCompatibilityProfileFlag(options.compatibilityMode)
 
-  if (flag) {
+  if (flag && (env[flag] === undefined || isEnvTruthy(env[flag]))) {
     nextEnv[flag] = '1'
   }
 
