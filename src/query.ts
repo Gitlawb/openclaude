@@ -1388,11 +1388,17 @@ async function* queryLoop(
           const activated = setActiveProviderProfile(fallback.nextProfileId)
           if (activated) {
             const fromLabel = fallback.fromProfileId ?? 'previous provider'
-            yield createAssistantAPIErrorMessage({
-              content:
-                `Provider ${fromLabel} rate-limited — switched to ${activated.name}. Retrying turn.`,
-              error: 'rate_limit',
-            })
+            // System informational, NOT an assistant API error. The original
+            // 429 is still withheld upstream, so SDK hosts that terminate on
+            // `error: 'rate_limit'` assistant messages don't see one for this
+            // retry path — they only get the final tagged message if the
+            // entire fallback chain is exhausted (handled by `yield
+            // lastMessage` below). Mirrors the existing model-fallback notice
+            // at the model_fallback recovery branch.
+            yield createSystemMessage(
+              `Provider ${fromLabel} rate-limited — switched to ${activated.name}. Retrying turn.`,
+              'warning',
+            )
             const next: State = {
               messages: messagesForQuery,
               toolUseContext,
