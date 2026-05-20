@@ -107,6 +107,25 @@ export OPENAI_BASE_URL=http://localhost:11434/v1
 export OPENAI_MODEL=llama3.3:70b
 ```
 
+Ollama may start local models with a small context window. OpenClaude sends the
+system prompt plus the current conversation every turn, so a small Ollama
+context can make the model appear to forget earlier same-session messages. If
+that happens, restart the Ollama server with a larger context length:
+
+```bash
+OLLAMA_CONTEXT_LENGTH=64000 ollama serve
+```
+
+Check the active allocation with `ollama ps`; the `CONTEXT` column should show
+the larger value. Higher context uses more memory and may slow smaller systems.
+
+On Windows PowerShell:
+
+```powershell
+$env:OLLAMA_CONTEXT_LENGTH="64000"
+ollama serve
+```
+
 ### Atomic Chat (local, Apple Silicon)
 
 ```bash
