@@ -189,6 +189,10 @@ type State = {
   // --dangerously-load-development-channels (so ChannelsNotice can name the
   // right flag in policy-blocked messages)
   hasDevChannels: boolean
+  // True only when --channels was explicitly passed on the CLI. Controls TUI
+  // guard behaviour independently of allowedChannels, which may also be
+  // populated by official-plugin auto-registration without explicit opt-in.
+  channelModeEnabled: boolean
   // Dir containing the session's `.jsonl`; null = derive from originalCwd.
   sessionProjectDir: string | null
   // Cached prompt cache 1h TTL allowlist from GrowthBook (session-stable)
@@ -362,6 +366,7 @@ function getInitialState(): State {
     // Channel server allowlist from --channels flag
     allowedChannels: [],
     hasDevChannels: false,
+    channelModeEnabled: false,
     // Session project dir (null = derive from originalCwd)
     sessionProjectDir: null,
     // Prompt cache 1h allowlist (null = not yet fetched from GrowthBook)
@@ -1566,6 +1571,14 @@ export function getAllowedChannels(): ChannelEntry[] {
 
 export function setAllowedChannels(entries: ChannelEntry[]): void {
   STATE.allowedChannels = entries
+}
+
+export function getChannelModeEnabled(): boolean {
+  return STATE.channelModeEnabled
+}
+
+export function setChannelModeEnabled(value: boolean): void {
+  STATE.channelModeEnabled = value
 }
 
 export function getHasDevChannels(): boolean {

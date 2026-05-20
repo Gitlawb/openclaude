@@ -2,7 +2,7 @@ import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import { logForDebugging } from 'src/utils/debug.js'
-import { getAllowedChannels } from '../../../bootstrap/state.js'
+import { getAllowedChannels, getChannelModeEnabled } from '../../../bootstrap/state.js'
 import type { BridgePermissionCallbacks } from '../../../bridge/bridgePermissionCallbacks.js'
 import { getTerminalFocused } from '../../../ink/terminal-focus-state.js'
 import {
@@ -314,15 +314,22 @@ function handleInteractivePermission(
   // the subscription never fires and another racer wins. Graceful degradation
   // — the local dialog is always there as the floor.
   if (
-    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+    getChannelModeEnabled() &&
     channelCallbacks &&
     !ctx.tool.requiresUserInteraction?.()
   ) {
     const channelRequestId = shortRequestId(ctx.toolUseID)
     const allowedChannels = getAllowedChannels()
+    // Exclude the server that owns the tool being approved — relaying a
+    // permission prompt for server X's tool back to server X creates a
+    // circular loop (approve via channel → skill runs → next permission
+    // → relay to same channel → approve → …).
+    const toolOwnerServer = ctx.tool.mcpInfo?.serverName
     const channelClients = filterPermissionRelayClients(
       ctx.toolUseContext.getAppState().mcp.clients,
-      name => findChannelEntry(name, allowedChannels) !== undefined,
+      name =>
+        findChannelEntry(name, allowedChannels) !== undefined &&
+        name !== toolOwnerServer,
     )
 
     if (channelClients.length > 0) {

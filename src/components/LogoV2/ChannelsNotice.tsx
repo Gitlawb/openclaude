@@ -12,9 +12,7 @@ import { Box, Text } from '../../ink.js';
 import { isChannelsEnabled } from '../../services/mcp/channelAllowlist.js';
 import { getEffectiveChannelAllowlist } from '../../services/mcp/channelNotification.js';
 import { getMcpConfigsByScope } from '../../services/mcp/config.js';
-import { getClaudeAIOAuthTokens, getSubscriptionType } from '../../utils/auth.js';
 import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsManager.js';
-import { getSettingsForSource } from '../../utils/settings/settings.js';
 export function ChannelsNotice() {
   const $ = _c(32);
   const [t0] = useState(_temp);
@@ -173,6 +171,9 @@ function _temp2(c) {
 function _temp() {
   const ch = getAllowedChannels();
   if (ch.length === 0) {
+    // OpenClaude: even without --channels, allowlisted channel plugins
+    // (telegram, discord, etc.) auto-register at connect time. No startup
+    // notice needed — gateChannelServer handles it silently.
     return {
       channels: ch,
       disabled: false,
@@ -183,15 +184,12 @@ function _temp() {
     };
   }
   const l = ch.map(formatEntry).join(", ");
-  const sub = getSubscriptionType();
-  const managed = sub === "team" || sub === "enterprise";
-  const policy = getSettingsForSource("policySettings");
-  const allowlist = getEffectiveChannelAllowlist(sub, policy?.allowedChannelPlugins);
+  const allowlist = getEffectiveChannelAllowlist();
   return {
     channels: ch,
     disabled: !isChannelsEnabled(),
-    noAuth: !getClaudeAIOAuthTokens()?.accessToken,
-    policyBlocked: managed && policy?.channelsEnabled !== true,
+    noAuth: false, // OpenClaude: no OAuth requirement
+    policyBlocked: false, // OpenClaude: no org policy requirement
     list: l,
     unmatched: findUnmatched(ch, allowlist)
   };

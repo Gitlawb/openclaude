@@ -169,7 +169,7 @@ import { setCwd } from 'src/utils/Shell.js';
 import { type ProcessedResume, processResumedConversation } from 'src/utils/sessionRestore.js';
 import { parseSettingSourcesFlag } from 'src/utils/settings/constants.js';
 import { plural } from 'src/utils/stringUtils.js';
-import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setAllowedSettingSources, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setFlagSettingsPath, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
+import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setAllowedSettingSources, setChannelModeEnabled, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setFlagSettingsPath, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER') ? require('./utils/permissions/autoModeState.js') as typeof import('./utils/permissions/autoModeState.js') : null;
@@ -1641,14 +1641,13 @@ async function run(): Promise<CommanderCommand> {
     // devChannels is deferred: showSetupScreens shows a confirmation dialog
     // and only appends to allowedChannels on accept.
     let devChannels: ChannelEntry[] | undefined;
-    if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+    if (true /* channels enabled */) {
       // Parse plugin:name@marketplace / server:Y tags into typed entries.
       // Tag decides trust model downstream: plugin-kind hits marketplace
-      // verification + GrowthBook allowlist, server-kind always fails
-      // allowlist (schema is plugin-only) unless dev flag is set.
-      // Untagged or marketplace-less plugin entries are hard errors —
-      // silently not-matching in the gate would look like channels are
-      // "on" but nothing ever fires.
+      // verification + hardcoded allowlist, server-kind requires dev flag
+      // (--dangerously-load-development-channels). Untagged or marketplace-less
+      // plugin entries are hard errors — silently not-matching in the gate
+      // would look like channels are "on" but nothing ever fires.
       const parseChannelEntries = (raw: string[], flag: string): ChannelEntry[] => {
         const entries: ChannelEntry[] = [];
         const bad: string[] = [];
@@ -1695,6 +1694,7 @@ async function run(): Promise<CommanderCommand> {
       if (rawChannels && rawChannels.length > 0) {
         channelEntries = parseChannelEntries(rawChannels, '--channels');
         setAllowedChannels(channelEntries);
+        setChannelModeEnabled(true);
       }
       if (!isNonInteractiveSession) {
         if (rawDev && rawDev.length > 0) {
@@ -3834,9 +3834,9 @@ async function run(): Promise<CommanderCommand> {
   if (feature('KAIROS')) {
     program.addOption(new Option('--assistant', 'Force assistant mode (Agent SDK daemon use)').hideHelp());
   }
-  if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
-    program.addOption(new Option('--channels <servers...>', 'MCP servers whose channel notifications (inbound push) should register this session. Space-separated server names.').hideHelp());
-    program.addOption(new Option('--dangerously-load-development-channels <servers...>', 'Load channel servers not on the approved allowlist. For local channel development only. Shows a confirmation dialog at startup.').hideHelp());
+  if (true /* channels enabled */) {
+    program.addOption(new Option('--channels <channel-spec...>', 'MCP channel specs whose channel notifications (inbound push) should register this session. Each entry must be explicitly tagged, for example server:<name> or plugin:<name>@<marketplace>.').hideHelp());
+    program.addOption(new Option('--dangerously-load-development-channels <channel-spec...>', 'Load channel specs not on the approved allowlist. Each entry must be explicitly tagged, for example server:<name> or plugin:<name>@<marketplace>. For local channel development only. Shows a confirmation dialog at startup.').hideHelp());
   }
 
   // Teammate identity options (set by leader when spawning tmux teammates)

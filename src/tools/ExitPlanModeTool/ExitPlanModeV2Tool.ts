@@ -2,7 +2,7 @@ import { feature } from 'bun:bundle'
 import { writeFile } from 'fs/promises'
 import { z } from 'zod/v4'
 import {
-  getAllowedChannels,
+  getChannelModeEnabled,
   hasExitedPlanModeInSession,
   setHasExitedPlanMode,
   setNeedsAutoModeExitAttachment,
@@ -168,10 +168,7 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
     // When --channels is active the user is likely on Telegram/Discord, not
     // watching the TUI. The plan-approval dialog would hang. Paired with the
     // same gate on EnterPlanMode so plan mode isn't a trap.
-    if (
-      (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
-      getAllowedChannels().length > 0
-    ) {
+    if (getChannelModeEnabled()) {
       return false
     }
     return true

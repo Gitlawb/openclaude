@@ -23,18 +23,17 @@
  * See PR discussion 2956440848.
  */
 
+import { isChannelsEnabled } from './channelAllowlist.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 
 /**
- * GrowthBook runtime gate — separate from the channels gate (tengu_harbor)
- * so channels can ship without permission-relay riding along (Kenneth: "no
- * bake time if it goes out tomorrow"). Default false; flip without a release.
- * Checked once at useManageMCPConnections mount — mid-session flag changes
- * don't apply until restart.
+ * Permission relay gate. Gated behind isChannelsEnabled() so that the
+ * relay can be disabled at runtime if needed. When off, callbacks never
+ * go into AppState → interactiveHandler sees undefined → never sends →
+ * channel permission replies flow to Claude as normal chat.
  */
 export function isChannelPermissionRelayEnabled(): boolean {
-  return getFeatureValue_CACHED_MAY_BE_STALE('tengu_harbor_permissions', false)
+  return isChannelsEnabled()
 }
 
 export type ChannelPermissionResponse = {
