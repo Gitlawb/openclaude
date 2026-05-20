@@ -37,7 +37,11 @@ export {
   sanitizeApiKey,
   sanitizeProviderConfigValue,
 } from './providerSecrets.js'
-import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
+import {
+  getClaudeConfigHomeDir,
+  isEnvDefinedFalsy,
+  isEnvTruthy,
+} from './envUtils.js'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
@@ -975,6 +979,20 @@ export function hasExplicitProviderSelection(
   )
 }
 
+function hasExplicitFalseyProviderFlag(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_OPENAI) ||
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvDefinedFalsy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
 function hasConcreteProviderSelection(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -1503,6 +1521,10 @@ export async function buildStartupEnvFromProfile(options?: {
   // "banner shows gpt-4o / api.openai.com even though my saved profile is
   // Moonshot" bug.
   if (profileManagedEnv) {
+    return processEnv
+  }
+
+  if (hasExplicitFalseyProviderFlag(processEnv)) {
     return processEnv
   }
 
