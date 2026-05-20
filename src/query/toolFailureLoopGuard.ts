@@ -6,6 +6,7 @@ const DEFAULT_TOOL_FAILURE_LOOP_THRESHOLD = 3
 const MAX_FALLBACK_CATEGORY_LENGTH = 120
 
 export type ToolFailureLoopGuardState = {
+  persistentSignatureCounts: Map<string, number>
   signatureCounts: Map<string, number>
   categoryCounts: Map<string, number>
   pathCounts: Map<string, number>
@@ -25,6 +26,7 @@ export type ToolFailureLoopGuardDecision =
 
 export function createToolFailureLoopGuardState(): ToolFailureLoopGuardState {
   return {
+    persistentSignatureCounts: new Map(),
     signatureCounts: new Map(),
     categoryCounts: new Map(),
     pathCounts: new Map(),
@@ -65,12 +67,24 @@ export function updateToolFailureLoopGuard(params: {
   )
   const failures: FailureInfo[] = []
   let hasSuccess = false
+  const successfulToolNames = new Set<string>()
+  const successfulMutationPaths = new Set<string>()
 
   for (const block of getToolResultBlocks(params.toolResults)) {
     const content = toolResultContentToString(block.content)
+    const toolUse = toolUseById.get(String(block.tool_use_id ?? ''))
 
     if (block.is_error !== true) {
       hasSuccess = true
+      if (toolUse?.name) {
+        successfulToolNames.add(toolUse.name)
+      }
+      if (toolUse && isMutatingFileTool(toolUse.name)) {
+        const path = extractNormalizedPath(toolUse.input)
+        if (path) {
+          successfulMutationPaths.add(path)
+        }
+      }
       continue
     }
 
@@ -78,7 +92,6 @@ export function updateToolFailureLoopGuard(params: {
       continue
     }
 
-    const toolUse = toolUseById.get(String(block.tool_use_id ?? ''))
     const toolName = toolUse?.name ?? 'unknown'
     const errorCategory = normalizeErrorCategory(content)
     failures.push({
@@ -88,8 +101,35 @@ export function updateToolFailureLoopGuard(params: {
     })
   }
 
+  for (const toolName of successfulToolNames) {
+    resetPersistentToolSignatures(params.state, toolName)
+  }
+
+  for (const failure of failures) {
+    const persistentSignatureCount = incrementCounter(
+      params.state.persistentSignatureCounts,
+      `${failure.toolName}\0${failure.errorCategory}`,
+    )
+
+    if (persistentSignatureCount >= threshold) {
+      return {
+        tripped: true,
+        kind: 'signature',
+        threshold,
+        toolName: failure.toolName,
+        errorCategory: failure.errorCategory,
+        message: createTripMessage({
+          kind: 'signature',
+          threshold,
+          toolName: failure.toolName,
+          errorCategory: failure.errorCategory,
+        }),
+      }
+    }
+  }
+
   if (hasSuccess) {
-    resetToolFailureLoopGuard(params.state)
+    resetToolFailureLoopGuard(params.state, successfulMutationPaths)
     return { tripped: false }
   }
 
@@ -177,10 +217,36 @@ function normalizeThreshold(threshold: number | undefined): number {
   return threshold
 }
 
-function resetToolFailureLoopGuard(state: ToolFailureLoopGuardState): void {
+function resetToolFailureLoopGuard(
+  state: ToolFailureLoopGuardState,
+  successfulMutationPaths: Set<string>,
+): void {
   state.signatureCounts.clear()
   state.categoryCounts.clear()
-  state.pathCounts.clear()
+  for (const path of successfulMutationPaths) {
+    state.pathCounts.delete(path)
+  }
+}
+
+function resetPersistentToolSignatures(
+  state: ToolFailureLoopGuardState,
+  toolName: string,
+): void {
+  const prefix = `${toolName}\0`
+  for (const key of state.persistentSignatureCounts.keys()) {
+    if (key.startsWith(prefix)) {
+      state.persistentSignatureCounts.delete(key)
+    }
+  }
+}
+
+function isMutatingFileTool(toolName: string): boolean {
+  return (
+    toolName === 'Edit' ||
+    toolName === 'MultiEdit' ||
+    toolName === 'Write' ||
+    toolName === 'NotebookEdit'
+  )
 }
 
 function getToolResultBlocks(
