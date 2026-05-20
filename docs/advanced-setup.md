@@ -115,7 +115,7 @@ openclaude
 
 `CLOUD_ML_REGION` is optional and defaults to `us-east5`. Model-specific
 Vertex region override variables are also supported for Claude models; see
-`src/services/api/client.ts` for the current override names.
+`src/utils/envUtils.ts` for the current override names.
 
 ### Gemini via OpenRouter
 
