@@ -95,14 +95,16 @@ export async function processBashCommand(inputString: string, precedingInputBloc
     }
     const stderr = data.stderr;
     let stdout = escapeXml(data.stdout);
-    if (data.persistedOutputPath) {
-      // Reuse the model-facing formatter only for large persisted output so the
-      // UI can unwrap the trusted <persisted-output> marker.
+    if (data.persistedOutputPath || data.backgroundTaskId) {
+      // Reuse the model-facing formatter when it adds metadata the user needs,
+      // such as persisted-output markers or background task IDs.
       const mapped = await processToolResultBlock(shellTool, {
         ...data,
         stderr: ''
       }, randomUUID());
-      stdout = typeof mapped.content === 'string' ? mapped.content : stdout;
+      if (typeof mapped.content === 'string') {
+        stdout = data.persistedOutputPath ? mapped.content : escapeXml(mapped.content);
+      }
     }
     return {
       messages: [createSyntheticUserCaveatMessage(), userMessage, ...attachmentMessages, createUserMessage({

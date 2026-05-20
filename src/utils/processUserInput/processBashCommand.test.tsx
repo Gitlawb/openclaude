@@ -64,3 +64,34 @@ test('processBashCommand returns successful shell output as visible bash stdout'
   expect(visibleText).toContain('<bash-input>printf visible-1265</bash-input>')
   expect(visibleText).toContain('<bash-stdout>visible-1265')
 })
+
+test('processBashCommand preserves background task metadata', async () => {
+  BashTool.call = (async () => ({
+    data: {
+      stdout: '',
+      stderr: '',
+      interrupted: false,
+      backgroundTaskId: 'bg-review-1',
+      backgroundedByUser: true,
+    },
+  })) as unknown as typeof BashTool.call
+
+  const result = await processBashCommand(
+    'sleep 60',
+    [],
+    [],
+    makeContext(),
+    () => {},
+  )
+
+  expect(result.shouldQuery).toBe(false)
+
+  const visibleText = result.messages
+    .filter(message => message.type === 'user' && !message.isMeta)
+    .map(message => getContentText(message.message.content))
+    .join('\n')
+
+  expect(visibleText).toContain('Command was manually backgrounded by user')
+  expect(visibleText).toContain('bg-review-1')
+  expect(visibleText).toContain('Output is being written to:')
+})
