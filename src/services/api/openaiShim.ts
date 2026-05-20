@@ -487,11 +487,13 @@ function convertMessages(
   system: unknown,
   options?: {
     preserveReasoningContent?: boolean
+    requireReasoningContentOnAssistantMessages?: boolean
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
+  const requireReasoningContent = options?.requireReasoningContentOnAssistantMessages === true
   const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
   const result: OpenAIMessage[] = []
@@ -608,12 +610,14 @@ function convertMessages(
           const thinkingText = (thinkingBlock as { thinking?: string } | undefined)?.thinking
           if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
             assistantMsg.reasoning_content = thinkingText
-          } else if (
-            toolUses.length > 0 &&
-            reasoningContentFallback === ''
-          ) {
+          } else if (reasoningContentFallback === '') {
             assistantMsg.reasoning_content = ''
           }
+        } else if (requireReasoningContent) {
+          // Provider requires reasoning_content on every assistant message but
+          // preserveReasoningContent is not set (no thinking block to echo).
+          // Attach empty string to satisfy API validation.
+          assistantMsg.reasoning_content = ''
         }
 
         if (toolUses.length > 0) {
@@ -699,6 +703,14 @@ function convertMessages(
           })(),
         }
 
+        // For providers that require reasoning_content on every assistant message,
+        // attach an empty string when no thinking block is present.
+        if (preserveReasoningContent && reasoningContentFallback === '') {
+          assistantMsg.reasoning_content = ''
+        } else if (requireReasoningContent) {
+          assistantMsg.reasoning_content = ''
+        }
+
         if (assistantMsg.content) {
           result.push(assistantMsg)
         }
@@ -720,10 +732,18 @@ function convertMessages(
     // assistant response to satisfy the strict role sequence:
     // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
     if (prev && prev.role === 'tool' && msg.role === 'user') {
-      coalesced.push({
+      const syntheticMsg: OpenAIMessage = {
         role: 'assistant',
         content: '[Tool execution interrupted by user]',
-      })
+      }
+      // Providers that require reasoning_content on every assistant message
+      // need it on this synthetic message too, or the API returns 400.
+      if (preserveReasoningContent && reasoningContentFallback === '') {
+        syntheticMsg.reasoning_content = ''
+      } else if (requireReasoningContent) {
+        syntheticMsg.reasoning_content = ''
+      }
+      coalesced.push(syntheticMsg)
     }
 
     const lastAfterPossibleInjection = coalesced[coalesced.length - 1]
@@ -765,6 +785,22 @@ function convertMessages(
           ...(lastAfterPossibleInjection.tool_calls ?? []),
           ...msg.tool_calls,
         ]
+      }
+
+      // Preserve reasoning_content when coalescing assistant messages.
+      // Never overwrite a non-empty reasoning_content with an empty one,
+      // since empty values are fallback placeholders while non-empty ones
+      // carry actual thinking text that providers require.
+      if (
+        msg.role === 'assistant' &&
+        msg.reasoning_content !== undefined &&
+        lastAfterPossibleInjection.role === 'assistant'
+      ) {
+        const existing = lastAfterPossibleInjection.reasoning_content
+        const incoming = msg.reasoning_content
+        if (typeof existing !== 'string' || existing.length === 0 || incoming.length > 0) {
+          lastAfterPossibleInjection.reasoning_content = incoming
+        }
       }
     } else {
       coalesced.push(msg)
@@ -1782,6 +1818,7 @@ class OpenAIShimMessages {
     const shimConfig = runtimeShimContext.openaiShimConfig
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
+      requireReasoningContentOnAssistantMessages: shimConfig.requireReasoningContentOnAssistantMessages,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
       preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
         request.resolvedModel,

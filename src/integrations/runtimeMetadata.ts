@@ -92,10 +92,19 @@ function mergeOpenAIShimConfig(
   entryConfig: Partial<OpenAIShimTransportConfig> | undefined,
   inferredConfig: Partial<OpenAIShimTransportConfig> | undefined,
 ): OpenAIShimTransportConfig {
+  const descriptorMaxTokensField =
+    entryConfig?.maxTokensField ?? baseConfig?.maxTokensField
+
   return {
     ...baseConfig,
     ...entryConfig,
     ...inferredConfig,
+    // Preserve descriptor-level maxTokensField over model-inferred value.
+    // Direct providers (e.g. Xiaomi) declare their own token field in the
+    // descriptor; model-name inference should not override it.
+    ...(descriptorMaxTokensField !== undefined
+      ? { maxTokensField: descriptorMaxTokensField }
+      : {}),
     removeBodyFields: mergeRemoveBodyFields(
       baseConfig?.removeBodyFields,
       entryConfig?.removeBodyFields,
@@ -172,6 +181,28 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
+  if (normalizedModel.includes('mimo')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      reasoningContentFallback: '',
+      thinkingRequestFormat: 'deepseek-compatible',
+      maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store'],
+    }
+  }
+
+  if (normalizedModel.includes('glm')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      reasoningContentFallback: '',
+      thinkingRequestFormat: 'deepseek-compatible',
+      maxTokensField: 'max_tokens',
+      removeBodyFields: ['store'],
+    }
+  }
+
   return undefined
 }
 
@@ -224,12 +255,38 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     descriptor && routeId
       ? getCatalogEntryForModel(routeId, options?.model)
       : null
+  const remoteModelInferredConfig = inferRemoteModelOpenAIShimConfig(options?.model)
   const inferredConfig =
     options?.treatAsLocal === true
       ? {
-          maxTokensField: 'max_tokens' as const,
+          // Don't hardcode maxTokensField here — let the descriptor (via
+          // mergeOpenAIShimConfig) or the model-inferred value take precedence.
+          // Hardcoding 'max_tokens' breaks providers like MiMo that require
+          // 'max_completion_tokens', even when accessed through a local proxy.
+          ...(remoteModelInferredConfig?.maxTokensField !== undefined
+            ? { maxTokensField: remoteModelInferredConfig.maxTokensField }
+            : { maxTokensField: 'max_tokens' as const }),
+          // Local proxies (e.g. key routers like grouter) may forward to remote
+          // reasoning models that require reasoning_content. Preserve the
+          // model-inferred config for reasoning fields so local routing doesn't
+          // strip thinking continuity.
+          ...(remoteModelInferredConfig?.preserveReasoningContent !== undefined
+            ? { preserveReasoningContent: remoteModelInferredConfig.preserveReasoningContent }
+            : {}),
+          ...(remoteModelInferredConfig?.requireReasoningContentOnAssistantMessages !== undefined
+            ? { requireReasoningContentOnAssistantMessages: remoteModelInferredConfig.requireReasoningContentOnAssistantMessages }
+            : {}),
+          ...(remoteModelInferredConfig?.reasoningContentFallback !== undefined
+            ? { reasoningContentFallback: remoteModelInferredConfig.reasoningContentFallback }
+            : {}),
+          ...(remoteModelInferredConfig?.thinkingRequestFormat !== undefined
+            ? { thinkingRequestFormat: remoteModelInferredConfig.thinkingRequestFormat }
+            : {}),
+          ...(remoteModelInferredConfig?.removeBodyFields !== undefined
+            ? { removeBodyFields: remoteModelInferredConfig.removeBodyFields }
+            : {}),
         }
-      : inferRemoteModelOpenAIShimConfig(options?.model)
+      : remoteModelInferredConfig
 
   return {
     routeId,
