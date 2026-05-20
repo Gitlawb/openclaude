@@ -152,7 +152,7 @@ Advanced and source-build guides:
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
-| Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
+| Bedrock / Vertex / Foundry | env vars | Anthropic-family cloud routes; Vertex is for Claude on Vertex AI, not arbitrary Model Garden models |
 
 ## What Works
 
