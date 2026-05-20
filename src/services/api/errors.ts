@@ -123,6 +123,7 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
     case 'context_overflow':
       return createAssistantAPIErrorMessage({
         content: `The conversation exceeded the provider context limit. ${compactHint}`,
+        apiError: 'context_overflow',
         error: 'invalid_request',
       })
 
@@ -180,6 +181,38 @@ export function isPromptTooLongMessage(msg: AssistantMessage): boolean {
     block =>
       block.type === 'text' &&
       block.text.startsWith(PROMPT_TOO_LONG_ERROR_MESSAGE),
+  )
+}
+
+// Content-text fingerprints for assistant error messages that mean
+// "context window / provider context limit exceeded." Kept in sync with the
+// strings produced in this file for each of the three sources we recover
+// from in query.ts (PTL, OpenAI-shim context_overflow, Anthropic 500 with
+// context keywords). New phrasing must be added here too — isContextOverflowMessage
+// is what the query-loop withhold and one-shot autocompact-retry path looks at.
+const CONTEXT_OVERFLOW_CONTENT_PREFIXES = [
+  PROMPT_TOO_LONG_ERROR_MESSAGE,
+  'The conversation exceeded the provider context limit.',
+  'The conversation has grown too large for the API to process.',
+] as const
+
+export function isContextOverflowMessage(msg: AssistantMessage): boolean {
+  if (!msg.isApiErrorMessage) {
+    return false
+  }
+  if (msg.apiError === 'context_overflow') {
+    return true
+  }
+  const content = msg.message.content
+  if (!Array.isArray(content)) {
+    return false
+  }
+  return content.some(
+    block =>
+      block.type === 'text' &&
+      CONTEXT_OVERFLOW_CONTENT_PREFIXES.some(prefix =>
+        block.text.startsWith(prefix),
+      ),
   )
 }
 
@@ -699,6 +732,7 @@ export function getAssistantMessageFromError(
     // parses the gap from there via getPromptTooLongTokenGap.
     return createAssistantAPIErrorMessage({
       content: PROMPT_TOO_LONG_ERROR_MESSAGE,
+      apiError: 'context_overflow',
       error: 'invalid_request',
       errorDetails: error.message,
     })
@@ -1064,6 +1098,7 @@ export function getAssistantMessageFromError(
       : ' Press esc twice to go up a few messages, or run /compact to reduce context.'
     return createAssistantAPIErrorMessage({
       content: `The conversation has grown too large for the API to process.${rewindInstruction} Alternatively, start a new session with /new.`,
+      apiError: 'context_overflow',
       error: 'invalid_request',
       errorDetails: `Context overflow (500): ${error.message}`,
     })

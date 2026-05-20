@@ -10,7 +10,11 @@ import {
   isAutoCompactEnabled,
   type AutoCompactTrackingState,
 } from './services/compact/autoCompact.js'
-import { buildPostCompactMessages } from './services/compact/compact.js'
+import {
+  buildPostCompactMessages,
+  compactConversation,
+  ERROR_MESSAGE_USER_ABORT,
+} from './services/compact/compact.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const reactiveCompact = feature('REACTIVE_COMPACT')
   ? (require('./services/compact/reactiveCompact.js') as typeof import('./services/compact/reactiveCompact.js'))
@@ -40,8 +44,10 @@ import type {
 import { logError } from './utils/log.js'
 import {
   PROMPT_TOO_LONG_ERROR_MESSAGE,
+  isContextOverflowMessage,
   isPromptTooLongMessage,
 } from './services/api/errors.js'
+import { hasExactErrorMessage } from './utils/errors.js'
 import { logAntError, logForDebugging } from './utils/debug.js'
 import {
   createUserMessage,
@@ -212,6 +218,11 @@ type State = {
   autoCompactTracking: AutoCompactTrackingState | undefined
   maxOutputTokensRecoveryCount: number
   hasAttemptedReactiveCompact: boolean
+  // One-shot guard for the OSS context-overflow auto-recovery path
+  // (query.ts handleContextOverflow). Mirrors hasAttemptedReactiveCompact
+  // so a single turn cannot loop compact→error→compact forever; resets
+  // on each fresh tool round at the next_turn continue site.
+  hasAttemptedContextOverflowRecovery: boolean
   maxOutputTokensOverride: number | undefined
   pendingToolUseSummary: Promise<ToolUseSummaryMessage | null> | undefined
   stopHookActive: boolean | undefined
@@ -291,6 +302,7 @@ async function* queryLoop(
     stopHookActive: undefined,
     maxOutputTokensRecoveryCount: 0,
     hasAttemptedReactiveCompact: false,
+    hasAttemptedContextOverflowRecovery: false,
     turnCount: 1,
     continuationNudgeCount: 0,
     pendingToolUseSummary: undefined,
@@ -334,6 +346,7 @@ async function* queryLoop(
       autoCompactTracking,
       maxOutputTokensRecoveryCount,
       hasAttemptedReactiveCompact,
+      hasAttemptedContextOverflowRecovery,
       maxOutputTokensOverride,
       pendingToolUseSummary,
       stopHookActive,
@@ -903,6 +916,28 @@ async function* queryLoop(
             if (isWithheldMaxOutputTokens(message)) {
               withheld = true
             }
+            // OSS-side context-overflow withhold: catches the same prompt-too-long
+            // message that reactiveCompact/contextCollapse handle internally, plus
+            // the OpenAI-shim context_overflow category (Codex / GPT-5.5) and the
+            // Anthropic 500-with-context-keywords path. The recovery branch in
+            // queryLoop runs after the internal paths, so this only fires when
+            // reactiveCompact wasn't compiled in (external builds) or it didn't
+            // match (new category). Skipped once already attempted in this turn —
+            // hasAttemptedContextOverflowRecovery is the matching guard.
+            //
+            // Skip for compact/session_memory fork sources — those are forked
+            // worker queries whose specialized callers need the original error
+            // to drive their own retry. Mirrors the same guard on the recovery
+            // branch in queryLoop (jatmn + techbrewboss review on #1169).
+            if (
+              !hasAttemptedContextOverflowRecovery &&
+              querySource !== 'compact' &&
+              querySource !== 'session_memory' &&
+              message.type === 'assistant' &&
+              isContextOverflowMessage(message)
+            ) {
+              withheld = true
+            }
             if (!withheld) {
               yield yieldMessage
             }
@@ -1182,6 +1217,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount,
               hasAttemptedReactiveCompact,
+              hasAttemptedContextOverflowRecovery,
               maxOutputTokensOverride: undefined,
               pendingToolUseSummary: undefined,
               stopHookActive: undefined,
@@ -1236,6 +1272,7 @@ async function* queryLoop(
             autoCompactTracking: undefined,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact: true,
+            hasAttemptedContextOverflowRecovery: true,
             maxOutputTokensOverride: undefined,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1262,6 +1299,91 @@ async function* queryLoop(
         yield lastMessage
         void executeStopFailureHooks(lastMessage, toolUseContext)
         return { reason: 'prompt_too_long' }
+      }
+
+      // OSS context-overflow recovery (#1105). Catches the cases neither
+      // reactiveCompact nor contextCollapse handle: external builds with
+      // neither compiled in, and OpenAI-shim providers (Codex / GPT-5.5)
+      // that surface the limit through a 500 with context-overflow keywords
+      // rather than the Anthropic PTL path. Runs at most once per turn —
+      // hasAttemptedContextOverflowRecovery gates re-entry, and the
+      // autocompact 3-strike circuit breaker in autoCompact.ts handles
+      // deeper recursion if the post-compact retry overflows again.
+      //
+      // Skip for compact/session_memory fork sources — those are forked
+      // worker queries whose messagesForQuery is the worker prompt, not the
+      // original conversation. Recovering here would re-enter
+      // compactConversation with the worker prompt as forkContextMessages,
+      // bypassing the dedicated compact retry path and producing a
+      // misleading post-compact retry. Mirrors the pre-flight blocking-limit
+      // guard at the top of this loop body (~line 691).
+      const isWithheldContextOverflow =
+        !hasAttemptedContextOverflowRecovery &&
+        querySource !== 'compact' &&
+        querySource !== 'session_memory' &&
+        lastMessage?.type === 'assistant' &&
+        lastMessage.isApiErrorMessage === true &&
+        isContextOverflowMessage(lastMessage)
+      if (isWithheldContextOverflow) {
+        try {
+          const compactionResult = await compactConversation(
+            messagesForQuery,
+            toolUseContext,
+            {
+              systemPrompt,
+              userContext,
+              systemContext,
+              toolUseContext,
+              forkContextMessages: messagesForQuery,
+            },
+            true, // suppressFollowUpQuestions
+            undefined, // customInstructions
+            true, // isAutoCompact — reuses the auto-compact telemetry + circuit breaker
+          )
+
+          if (params.taskBudget) {
+            const preCompactContext =
+              finalContextTokensFromLastResponse(messagesForQuery)
+            taskBudgetRemaining = Math.max(
+              0,
+              (taskBudgetRemaining ?? params.taskBudget.total) -
+                preCompactContext,
+            )
+          }
+
+          const postCompactMessages = buildPostCompactMessages(compactionResult)
+          for (const msg of postCompactMessages) {
+            yield msg
+          }
+          const next: State = {
+            messages: postCompactMessages,
+            toolUseContext,
+            autoCompactTracking: undefined,
+            maxOutputTokensRecoveryCount,
+            hasAttemptedReactiveCompact,
+            hasAttemptedContextOverflowRecovery: true,
+            maxOutputTokensOverride: undefined,
+            pendingToolUseSummary: undefined,
+            stopHookActive: undefined,
+            turnCount,
+            continuationNudgeCount: state.continuationNudgeCount,
+            transition: { reason: 'context_overflow_recovery' },
+          }
+          state = next
+          continue
+        } catch (compactError) {
+          if (!hasExactErrorMessage(compactError, ERROR_MESSAGE_USER_ABORT)) {
+            logError(compactError)
+          }
+          // Compaction failed (aborted, or a deeper API error). Fall through
+          // to surface the original withheld context-overflow error rather
+          // than the compact failure — that's the actionable diagnostic for
+          // the user. Don't run stop hooks for the same death-spiral reason
+          // as the prompt-too-long path above.
+          yield lastMessage
+          void executeStopFailureHooks(lastMessage, toolUseContext)
+          return { reason: 'context_overflow' }
+        }
       }
 
       // Check for max_output_tokens and inject recovery message. The error
@@ -1292,6 +1414,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact,
+            hasAttemptedContextOverflowRecovery,
             maxOutputTokensOverride: ESCALATED_MAX_TOKENS,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1321,6 +1444,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount: maxOutputTokensRecoveryCount + 1,
             hasAttemptedReactiveCompact,
+            hasAttemptedContextOverflowRecovery,
             maxOutputTokensOverride: undefined,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1379,6 +1503,7 @@ async function* queryLoop(
           // here caused an infinite loop: compact → still too long → error →
           // stop hook blocking → compact → … burning thousands of API calls.
           hasAttemptedReactiveCompact,
+          hasAttemptedContextOverflowRecovery,
           maxOutputTokensOverride: undefined,
           pendingToolUseSummary: undefined,
           stopHookActive: true,
@@ -1416,6 +1541,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount: 0,
             hasAttemptedReactiveCompact: false,
+            hasAttemptedContextOverflowRecovery: false,
             maxOutputTokensOverride: undefined,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1498,6 +1624,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount: 0,
               hasAttemptedReactiveCompact: false,
+              hasAttemptedContextOverflowRecovery: false,
               maxOutputTokensOverride: undefined,
               pendingToolUseSummary: undefined,
               stopHookActive: undefined,
@@ -1938,6 +2065,7 @@ async function* queryLoop(
       turnCount: nextTurnCount,
       maxOutputTokensRecoveryCount: 0,
       hasAttemptedReactiveCompact: false,
+      hasAttemptedContextOverflowRecovery: false,
       continuationNudgeCount: 0,
       pendingToolUseSummary: nextPendingToolUseSummary,
       maxOutputTokensOverride: undefined,
