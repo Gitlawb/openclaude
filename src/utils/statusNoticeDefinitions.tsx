@@ -234,8 +234,34 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
       </Box>;
   }
 };
+// `--dangerously-skip-permissions` (a.k.a. bypassPermissions) auto-approves
+// every tool call. On first-party builds an employee-only sandbox check
+// (Docker/Bubblewrap + no internet) gates this flag; external users skip the
+// check entirely (setup.ts), so the flag is effectively "run any command with
+// no review". Warn loudly. Detection reads from process.argv so the notice
+// fires from the first frame, before any AppState mode change propagates.
+// See issue #244 finding 2.
+function hasDangerouslySkipPermissionsArg(): boolean {
+  return process.argv.includes('--dangerously-skip-permissions');
+}
+const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
+  id: 'dangerously-skip-permissions-no-sandbox',
+  type: 'warning',
+  isActive: ctx =>
+    hasDangerouslySkipPermissionsArg() ||
+    ctx.permissionMode === 'bypassPermissions',
+  render: () => <Box flexDirection="row">
+      <Text color="warning">{figures.warning}</Text>
+      <Text color="warning">
+        <Text bold>--dangerously-skip-permissions</Text> bypasses every tool
+        consent check.
+        <Text dimColor> Only use inside a sandbox with no internet access. Restart without the flag to re-enable prompts.</Text>
+      </Text>
+    </Box>
+};
+
 // All notice definitions
-export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice, thirdPartyPermissiveModeNotice];
+export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice, thirdPartyPermissiveModeNotice, dangerouslySkipPermissionsNotice];
 
 // Helper functions for external use
 export function getActiveNotices(context: StatusNoticeContext): StatusNoticeDefinition[] {
