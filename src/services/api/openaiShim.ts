@@ -1039,7 +1039,7 @@ function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | nul
   return toolCalls.length > 0 ? toolCalls : null
 }
 
-function parseRawJsonToolCallsFromContent(text: string): ParsedRawToolCall[] | null {
+function parseRawJsonToolCallsFromContent(text: string, validToolNames?: Set<string>): ParsedRawToolCall[] | null {
   const trimmed = text.trim()
   const firstChar = trimmed[0]
   if (firstChar !== '{' && firstChar !== '[') return null
@@ -1054,6 +1054,10 @@ function parseRawJsonToolCallsFromContent(text: string): ParsedRawToolCall[] | n
         typeof item.name === 'string' &&
         (item.arguments != null || item.input != null)
       ) {
+        // Reject names that don't match any tool on the current request
+        // to prevent ordinary structured JSON (e.g. {"name":"Alice"})
+        // from being treated as an executable tool call.
+        if (validToolNames && !validToolNames.has(item.name)) continue
         const rawArgs = item.arguments ?? item.input
         const argsIsObject = typeof rawArgs === 'object' && rawArgs !== null && !Array.isArray(rawArgs)
         const argsIsString = typeof rawArgs === 'string'
@@ -1507,6 +1511,7 @@ async function* openaiStreamToAnthropic(
   model: string,
   signal?: AbortSignal,
   isOllama = false,
+  validToolNames?: Set<string>,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -1805,7 +1810,7 @@ async function* openaiStreamToAnthropic(
           if (bufferedRawToolCallsText !== null) {
             const parsedBufferedToolCalls = parseRawToolCallsRequestedText(
               bufferedRawToolCallsText,
-            ) ?? parseRawJsonToolCallsFromContent(bufferedRawToolCallsText)
+            ) ?? parseRawJsonToolCallsFromContent(bufferedRawToolCallsText, validToolNames)
             if (
               !parsedBufferedToolCalls &&
               !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)
@@ -2021,7 +2026,7 @@ async function* openaiStreamToAnthropic(
           // Flush bufferedRawToolCallsText for non-Ollama providers
           const parsedBufferedToolCalls = bufferedRawToolCallsText
             ? (parseRawToolCallsRequestedText(bufferedRawToolCallsText) ??
-               parseRawJsonToolCallsFromContent(bufferedRawToolCallsText))
+               parseRawJsonToolCallsFromContent(bufferedRawToolCallsText, validToolNames))
             : null
           if (parsedBufferedToolCalls) {
             yield* emitParsedRawToolCalls(parsedBufferedToolCalls)
@@ -2230,6 +2235,10 @@ class OpenAIShimMessages {
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
+      const toolNames = params.tools?.length
+        ? new Set(params.tools.map((t: any) => t.name).filter(Boolean))
+        : undefined
+
       if (params.stream) {
         const isResponsesStream = response.url?.includes('/responses')
         const isMessagesStream = response.url?.includes('/messages')
@@ -2245,7 +2254,7 @@ class OpenAIShimMessages {
               ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
               : isGeminiStream
                 ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
-                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, isLikelyOllamaEndpoint(request.baseUrl)),
+                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, isLikelyOllamaEndpoint(request.baseUrl), toolNames),
         )
       }
 
@@ -2278,7 +2287,7 @@ class OpenAIShimMessages {
               request.resolvedModel,
             )
           }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+          return self._convertNonStreamingResponse(parsed, request.resolvedModel, toolNames)
         }
       }
 
@@ -2303,7 +2312,7 @@ class OpenAIShimMessages {
       const contentType = response.headers.get('content-type') ?? ''
       if (contentType.includes('application/json')) {
         const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
+        return self._convertNonStreamingResponse(data, request.resolvedModel, toolNames)
       }
 
       const textBody = await response.text().catch(() => '')
@@ -3348,6 +3357,7 @@ class OpenAIShimMessages {
       }
     },
     model: string,
+    validToolNames?: Set<string>,
   ) {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
@@ -3368,7 +3378,7 @@ class OpenAIShimMessages {
       const rawToolCalls = choice?.message?.tool_calls
         ? null
         : (parseRawToolCallsRequestedText(strippedContent) ??
-           parseRawJsonToolCallsFromContent(strippedContent))
+           parseRawJsonToolCallsFromContent(strippedContent, validToolNames))
       if (rawToolCalls) {
         for (const toolCall of rawToolCalls) {
           content.push({
@@ -3402,7 +3412,7 @@ class OpenAIShimMessages {
         const rawToolCalls = choice?.message?.tool_calls
           ? null
           : (parseRawToolCallsRequestedText(strippedContent) ??
-             parseRawJsonToolCallsFromContent(strippedContent))
+             parseRawJsonToolCallsFromContent(strippedContent, validToolNames))
         if (rawToolCalls) {
           for (const toolCall of rawToolCalls) {
             content.push({
