@@ -1,0 +1,254 @@
+import { describe, expect, it } from 'bun:test'
+import {
+  calculateImportanceScores,
+  selectWeightedMessages,
+  getWeightedStats,
+  getTopMessagesByWeight,
+} from './importanceWeightedContext.js'
+
+function createMessage(role: string, content: string, createdAt: number = Date.now()): any {
+  return {
+    message: { role, content, id: 'test', type: 'message', created_at: createdAt },
+    sender: role,
+  }
+}
+
+describe('importanceWeightedContext', () => {
+  describe('calculateImportanceScores', () => {
+    it('calculates importance scores', () => {
+      const messages = [
+        createMessage('user', 'Hello there'),
+        createMessage('assistant', 'Hi back'),
+      ]
+
+      const scores = calculateImportanceScores(messages, { maxTokens: 10000 })
+
+      expect(scores.length).toBe(2)
+      expect(scores[0].score).toBeGreaterThan(0)
+      expect(scores[0].factors).toBeDefined()
+    })
+
+    it('scores recent messages higher', () => {
+      const oldMsg = createMessage('user', 'Hello there', Date.now() - 86400000)
+      const recentMsg = createMessage('user', 'Recent message', Date.now())
+
+      const scores = calculateImportanceScores([oldMsg, recentMsg], { maxTokens: 10000 })
+
+      const oldScore = scores.find(s => s.message.message?.created_at === oldMsg.message.created_at)?.score ?? 0
+      const recentScore = scores.find(s => s.message.message?.created_at === recentMsg.message.created_at)?.score ?? 0
+
+      expect(recentScore).toBeGreaterThanOrEqual(oldScore)
+    })
+
+    it('scores user messages', () => {
+      const assistantMsg = createMessage('assistant', 'Assistant response')
+      const userMsg = createMessage('user', 'User message')
+
+      const scores = calculateImportanceScores([assistantMsg, userMsg], { maxTokens: 10000 })
+
+      const assistantScore = scores.find(s => s.message.message?.role === 'assistant')?.score ?? 0
+      const userScore = scores.find(s => s.message.message?.role === 'user')?.score ?? 0
+
+      expect(userScore).toBeGreaterThanOrEqual(assistantScore)
+    })
+  })
+
+  describe('selectWeightedMessages', () => {
+    it('selects messages within token limit', () => {
+      const messages = [
+        createMessage('user', 'Message 1'),
+        createMessage('assistant', 'Message 2'),
+        createMessage('user', 'Message 3'),
+      ]
+
+      const selected = selectWeightedMessages(messages, { maxTokens: 50 })
+
+      expect(selected.length).toBeLessThanOrEqual(messages.length)
+    })
+  })
+
+  describe('getWeightedStats', () => {
+    it('returns statistics', () => {
+      const messages = [
+        createMessage('user', 'User message'),
+        createMessage('assistant', 'Assistant response'),
+      ]
+
+      const stats = getWeightedStats(messages, { maxTokens: 10000 })
+
+      expect(stats.averageScore).toBeGreaterThan(0)
+      expect(stats.totalTokens).toBeGreaterThan(0)
+    })
+  })
+
+  describe('getTopMessagesByWeight', () => {
+    it('returns top N messages', () => {
+      const messages = [
+        createMessage('user', 'Message about python', 1000),
+        createMessage('assistant', 'Python is great', 2000),
+        createMessage('user', 'Message about javascript', 3000),
+      ]
+
+      const top = getTopMessagesByWeight(messages, { maxTokens: 10000 }, 2)
+
+      expect(top.length).toBeLessThanOrEqual(2)
+    })
+  })
+
+  describe('structured content handling', () => {
+    it('counts tokens for tool_use with input', () => {
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Read', input: { file: 'test.py', lines: '1-100' } },
+            ],
+            created_at: Date.now(),
+          },
+        },
+      ] as any[]
+
+      const selected = selectWeightedMessages(messages, { maxTokens: 10000, preserveRecent: 1 })
+      expect(selected.length).toBe(1)
+    })
+
+    it('detects tool_result is_error flag', () => {
+      const errorMessage = {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu1', content: 'File not found', is_error: true },
+          ],
+          created_at: Date.now(),
+        },
+      } as any
+
+      const scores = calculateImportanceScores([errorMessage], { maxTokens: 10000 })
+      const errorScore = scores.find(s => s.factors.errors > 0)
+      expect(errorScore?.factors.errors).toBeGreaterThan(0)
+    })
+
+    it('keeps newest messages when truncating over-budget recent', () => {
+      const messages = [
+        createMessage('user', 'Old message 1', 1000),
+        createMessage('user', 'Old message 2', 2000),
+        createMessage('user', 'New message 1', 3000),
+        createMessage('user', 'New message 2', 4000),
+      ]
+
+      const selected = selectWeightedMessages(messages, { maxTokens: 50, preserveRecent: 3 })
+      const newestMsg = selected.find(m => m.message?.created_at === 4000)
+      expect(newestMsg).toBeDefined()
+    })
+
+    it('filters orphaned tool_result when matching tool_use is truncated (preserve tool-use invariant)', () => {
+      const messages = [
+        createMessage('user', 'Old context message', 1000),
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Read', input: { file: 'big.txt' } },
+            ],
+            created_at: 2000,
+          },
+        } as any,
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'tu1', content: 'file content here' },
+            ],
+            created_at: 3000,
+          },
+        } as any,
+      ]
+
+      // maxTokens very low: only the tool_result message fits
+      const selected = selectWeightedMessages(messages, { maxTokens: 10, preserveRecent: 2 })
+      // The orphaned tool_result should be filtered out
+      const hasOrphan = selected.some(m =>
+        Array.isArray(m.message?.content) &&
+        m.message.content.some((b: any) => b?.type === 'tool_result')
+      )
+      expect(hasOrphan).toBe(false)
+    })
+
+    it('filters orphaned tool_use when matching tool_result is dropped (bidirectional invariant)', () => {
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Read', input: { file: 'small.txt' } },
+            ],
+            created_at: 1000,
+          },
+        } as any,
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'tu1', content: 'x'.repeat(5000) },
+            ],
+            created_at: 2000,
+          },
+        } as any,
+        createMessage('user', 'Recent message', 3000),
+      ]
+
+      // maxTokens tight: only the small tool_use and recent message fit,
+      // the large tool_result is dropped. The orphaned tool_use should
+      // also be removed since its matching tool_result was dropped.
+      const selected = selectWeightedMessages(messages, { maxTokens: 80, preserveRecent: 1 })
+      const hasOrphanToolUse = selected.some(m =>
+        Array.isArray(m.message?.content) &&
+        m.message.content.some((b: any) => b?.type === 'tool_use')
+      )
+      expect(hasOrphanToolUse).toBe(false)
+    })
+
+    it('filters orphaned tool_result when matching tool_use is dropped but tool_result fits (bidirectional invariant)', () => {
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Read', input: { file: 'x'.repeat(500) } },
+            ],
+            created_at: 1000,
+          },
+        } as any,
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'tu1', content: 'short result' },
+            ],
+            created_at: 2000,
+          },
+        } as any,
+        createMessage('user', 'Final message', 3000),
+      ]
+
+      // maxTokens tight: only the small tool_result and recent message fit,
+      // the large tool_use is dropped. The orphaned tool_result should
+      // also be removed since its matching tool_use was dropped.
+      const selected = selectWeightedMessages(messages, { maxTokens: 30, preserveRecent: 2 })
+      const hasOrphanToolResult = selected.some(m =>
+        Array.isArray(m.message?.content) &&
+        m.message.content.some((b: any) => b?.type === 'tool_result')
+      )
+      expect(hasOrphanToolResult).toBe(false)
+    })
+  })
+})
