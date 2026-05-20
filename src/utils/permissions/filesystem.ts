@@ -777,7 +777,7 @@ function rootPathForSource(source: PermissionRuleSource): string {
 }
 
 function exactSessionEditRuleForPath(path: string): PermissionUpdate {
-  const absolutePath = expandPath(path)
+  const absolutePath = toPosixPath(expandPath(path))
   const originalCwd = expandPath(getOriginalCwd())
   const relativeToCwd = relativePath(originalCwd, absolutePath)
   const ruleContent =
@@ -785,7 +785,7 @@ function exactSessionEditRuleForPath(path: string): PermissionUpdate {
     !relativeToCwd.startsWith(`..${DIR_SEP}`) &&
     relativeToCwd !== '..'
       ? prependDirSep(relativeToCwd)
-      : prependDirSep(toPosixPath(absolutePath))
+      : `${DIR_SEP}${absolutePath}`
 
   return {
     type: 'addRules',
@@ -810,6 +810,19 @@ function isExactSessionEditRuleForPath(
   const expectedRule =
     exactSessionEditRuleForPath(path).rules[0]?.ruleContent
   return rule.ruleValue.ruleContent === expectedRule
+}
+
+function exactSessionEditRuleTargetForUnsafePath(
+  requestedPath: string,
+  pathsToCheck: readonly string[],
+): string {
+  for (const pathToCheck of pathsToCheck) {
+    const check = checkPathSafetyForAutoEdit(pathToCheck, [pathToCheck])
+    if (!check.safe && check.classifierApprovable) {
+      return pathToCheck
+    }
+  }
+  return requestedPath
 }
 
 function prependDirSep(path: string): string {
@@ -1362,25 +1375,27 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   // permission to edit protected files
   const safetyCheck = checkPathSafetyForAutoEdit(path, pathsToCheck)
   if (!safetyCheck.safe) {
-    const exactSessionAllowRule = matchingRuleForInput(
-      path,
-      {
-        ...toolPermissionContext,
-        alwaysAllowRules: {
-          session: toolPermissionContext.alwaysAllowRules.session ?? [],
+    for (const pathToCheck of pathsToCheck) {
+      const exactSessionAllowRule = matchingRuleForInput(
+        pathToCheck,
+        {
+          ...toolPermissionContext,
+          alwaysAllowRules: {
+            session: toolPermissionContext.alwaysAllowRules.session ?? [],
+          },
         },
-      },
-      'edit',
-      'allow',
-    )
-    if (isExactSessionEditRuleForPath(exactSessionAllowRule, path)) {
-      return {
-        behavior: 'allow',
-        updatedInput: input,
-        decisionReason: {
-          type: 'rule',
-          rule: exactSessionAllowRule,
-        },
+        'edit',
+        'allow',
+      )
+      if (isExactSessionEditRuleForPath(exactSessionAllowRule, pathToCheck)) {
+        return {
+          behavior: 'allow',
+          updatedInput: input,
+          decisionReason: {
+            type: 'rule',
+            rule: exactSessionAllowRule,
+          },
+        }
       }
     }
 
@@ -1391,7 +1406,11 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
     // this check, but preserving it avoids a surprising empty array.
     const skillScope = getClaudeSkillScope(path)
     const exactFileSuggestion = safetyCheck.classifierApprovable
-      ? [exactSessionEditRuleForPath(path)]
+      ? [
+        exactSessionEditRuleForPath(
+          exactSessionEditRuleTargetForUnsafePath(path, pathsToCheck),
+        ),
+      ]
       : []
     const safetySuggestions: PermissionUpdate[] = [
       ...exactFileSuggestion,
