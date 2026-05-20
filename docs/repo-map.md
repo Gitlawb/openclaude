@@ -1,0 +1,67 @@
+# Codebase Intelligence — Repo Map
+
+The repo map feature gives the AI model structural awareness of your codebase at the start of each session. Instead of the model needing to explore the repository with `Grep`, `Glob`, and `Read` calls, it starts with a ranked summary of the most important files and their key signatures.
+
+## How it works
+
+1. **File enumeration** — Lists all tracked files via `git ls-files` (falls back to a manual directory walk when not in a git repo)
+2. **Symbol extraction** — Parses each supported source file with tree-sitter to extract function, class, type, and interface definitions, plus cross-file references
+3. **Reference graph** — Builds a directed graph where an edge from file A to file B means A references a symbol defined in B. Edges are weighted by reference count multiplied by the IDF (inverse document frequency) of the symbol name — common names like `get`, `set`, `value` contribute less
+4. **PageRank** — Ranks files by structural importance using PageRank. Files imported by many others rank highest
+5. **Rendering** — Walks ranked files top-down, emitting file paths and definition signatures, stopping when the token budget is reached
+
+Results are cached to disk (`~/.openclaude/repomap-cache/`) keyed by file path, mtime, and size. Only changed files are re-parsed on subsequent runs.
+
+## Supported languages
+
+- TypeScript (`.ts`, `.tsx`)
+- JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`)
+- Python (`.py`)
+
+Additional language grammars will be added in future releases.
+
+## Enabling auto-injection
+
+The repo map is gated behind the `REPO_MAP` feature flag, **off by default**. To enable auto-injection into the session context:
+
+Set the environment variable before launching:
+
+```bash
+REPO_MAP=1 openclaude
+```
+
+Or add it to your shell profile for persistent use.
+
+When enabled, the map is built once per session and prepended to the system context alongside git status and CLAUDE.md content. The default budget is 1024 tokens.
+
+Auto-injection is skipped in:
+- Bare mode (`--bare`)
+- Remote sessions (`CLAUDE_CODE_REMOTE`)
+
+## The /repomap slash command
+
+The `/repomap` command is always available regardless of the feature flag. It lets you inspect and tune the map interactively.
+
+```
+/repomap                          # Show the map with default settings (1024 tokens)
+/repomap --tokens 4096            # Increase the token budget for a larger map
+/repomap --focus src/tools/       # Boost specific paths in the ranking
+/repomap --focus src/context.ts   # Can use multiple --focus flags
+/repomap --stats                  # Show cache statistics
+/repomap --invalidate             # Clear cache and rebuild from scratch
+```
+
+## The RepoMap tool
+
+The model can also call the `RepoMap` tool on demand during a session. This is useful when:
+- The model needs structural context mid-conversation
+- The user asks about specific areas (the model can pass `focus_files` or `focus_symbols`)
+- A larger token budget is needed than the auto-injected default
+
+## Known limitations
+
+- **Signatures only** — The map shows function/class/type declarations, not implementations. The model still needs `Read` to see function bodies.
+- **Cold build time** — First build on large repos (2000+ files) can take 20-30 seconds due to WASM-based parsing. Subsequent builds use the disk cache and complete in under 100ms.
+- **Language coverage** — Only TypeScript, JavaScript, and Python are supported. Files in other languages are skipped.
+- **TypeScript references** — The TypeScript tree-sitter query captures type annotations and `new` expressions as references, but not plain function calls. This means the ranking slightly favors type-heavy hub files.
+- **Git dependency** — File enumeration uses `git ls-files` by default. Non-git repos fall back to a directory walk with hardcoded exclusions.

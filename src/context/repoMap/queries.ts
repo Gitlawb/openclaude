@@ -1,0 +1,182 @@
+/**
+ * Bundled tree-sitter tag queries.
+ *
+ * The .scm files in ./queries/ are the canonical source-of-truth (kept for
+ * readability and Aider attribution), but the runtime reads from these inlined
+ * string constants so the queries are bundled into dist/cli.mjs and ship with
+ * the published npm package — the .scm files themselves are not in the
+ * package.json `files` allowlist and would otherwise be missing post-install.
+ *
+ * If you edit a .scm file, mirror the change here. A unit test guards drift.
+ */
+
+import type { SupportedLanguage } from './types.js'
+
+const TYPESCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/aider/queries/tree-sitter-languages/typescript-tags.scm
+; License: MIT (Apache-2.0 dual) — see https://github.com/Aider-AI/aider/blob/main/LICENSE
+; Copied for use in openclaude's repo-map feature.
+
+(function_signature
+  name: (identifier) @name.definition.function) @definition.function
+
+(method_signature
+  name: (property_identifier) @name.definition.method) @definition.method
+
+(abstract_method_signature
+  name: (property_identifier) @name.definition.method) @definition.method
+
+(abstract_class_declaration
+  name: (type_identifier) @name.definition.class) @definition.class
+
+(module
+  name: (identifier) @name.definition.module) @definition.module
+
+(interface_declaration
+  name: (type_identifier) @name.definition.interface) @definition.interface
+
+(type_annotation
+  (type_identifier) @name.reference.type) @reference.type
+
+(new_expression
+  constructor: (identifier) @name.reference.class) @reference.class
+
+(function_declaration
+  name: (identifier) @name.definition.function) @definition.function
+
+(method_definition
+  name: (property_identifier) @name.definition.method) @definition.method
+
+(class_declaration
+  name: (type_identifier) @name.definition.class) @definition.class
+
+(interface_declaration
+  name: (type_identifier) @name.definition.class) @definition.class
+
+(type_alias_declaration
+  name: (type_identifier) @name.definition.type) @definition.type
+
+(enum_declaration
+  name: (identifier) @name.definition.enum) @definition.enum
+`
+
+const JAVASCRIPT_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/aider/queries/tree-sitter-languages/javascript-tags.scm
+; License: MIT (Apache-2.0 dual) — see https://github.com/Aider-AI/aider/blob/main/LICENSE
+; Copied for use in openclaude's repo-map feature.
+
+(
+  (comment)* @doc
+  .
+  (method_definition
+    name: (property_identifier) @name.definition.method) @definition.method
+  (#not-eq? @name.definition.method "constructor")
+  (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
+  (#select-adjacent! @doc @definition.method)
+)
+
+(
+  (comment)* @doc
+  .
+  [
+    (class
+      name: (_) @name.definition.class)
+    (class_declaration
+      name: (_) @name.definition.class)
+  ] @definition.class
+  (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
+  (#select-adjacent! @doc @definition.class)
+)
+
+(
+  (comment)* @doc
+  .
+  [
+    (function
+      name: (identifier) @name.definition.function)
+    (function_declaration
+      name: (identifier) @name.definition.function)
+    (generator_function
+      name: (identifier) @name.definition.function)
+    (generator_function_declaration
+      name: (identifier) @name.definition.function)
+  ] @definition.function
+  (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
+  (#select-adjacent! @doc @definition.function)
+)
+
+(
+  (comment)* @doc
+  .
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @name.definition.function
+      value: [(arrow_function) (function)]) @definition.function)
+  (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
+  (#select-adjacent! @doc @definition.function)
+)
+
+(
+  (comment)* @doc
+  .
+  (variable_declaration
+    (variable_declarator
+      name: (identifier) @name.definition.function
+      value: [(arrow_function) (function)]) @definition.function)
+  (#strip! @doc "^[\\\\s\\\\*/]+|^[\\\\s\\\\*/]$")
+  (#select-adjacent! @doc @definition.function)
+)
+
+(assignment_expression
+  left: [
+    (identifier) @name.definition.function
+    (member_expression
+      property: (property_identifier) @name.definition.function)
+  ]
+  right: [(arrow_function) (function)]
+) @definition.function
+
+(pair
+  key: (property_identifier) @name.definition.function
+  value: [(arrow_function) (function)]) @definition.function
+
+(
+  (call_expression
+    function: (identifier) @name.reference.call) @reference.call
+  (#not-match? @name.reference.call "^(require)$")
+)
+
+(call_expression
+  function: (member_expression
+    property: (property_identifier) @name.reference.call)
+  arguments: (_) @reference.call)
+
+(new_expression
+  constructor: (_) @name.reference.class) @reference.class
+`
+
+const PYTHON_TAGS = `; Source: https://github.com/Aider-AI/aider/blob/main/aider/queries/tree-sitter-languages/python-tags.scm
+; License: MIT (Apache-2.0 dual) — see https://github.com/Aider-AI/aider/blob/main/LICENSE
+; Copied for use in openclaude's repo-map feature.
+
+(class_definition
+  name: (identifier) @name.definition.class) @definition.class
+
+(function_definition
+  name: (identifier) @name.definition.function) @definition.function
+
+(call
+  function: [
+      (identifier) @name.reference.call
+      (attribute
+        attribute: (identifier) @name.reference.call)
+  ]) @reference.call
+`
+
+const QUERIES: Record<SupportedLanguage, string> = {
+  typescript: TYPESCRIPT_TAGS,
+  javascript: JAVASCRIPT_TAGS,
+  python: PYTHON_TAGS,
+}
+
+export function getBundledQuery(language: SupportedLanguage): string | null {
+  return QUERIES[language] ?? null
+}

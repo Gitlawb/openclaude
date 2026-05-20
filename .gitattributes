@@ -1,0 +1,4 @@
+# Tree-sitter query files are checked byte-for-byte against bundled LF-only
+# string constants in queries.ts. Pin them to LF so Windows checkouts don't
+# silently convert to CRLF and trip the drift guard test.
+*.scm text eol=lf
