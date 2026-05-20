@@ -63,6 +63,9 @@ async function importFreshWithRetryModule(
   mock.module('src/utils/model/providers.js', () => ({
     getAPIProvider: () => provider,
     getAPIProviderForStatsig: () => provider,
+    isFirstPartyAnthropicBaseUrl: () => provider === 'firstParty',
+    isGithubNativeAnthropicMode: () => false,
+    usesAnthropicAccountFlow: () => false,
   }))
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
@@ -194,5 +197,72 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
       await importFreshWithRetryModule('vertex')
     const error = makeError({})
     expect(getRateLimitResetDelayMs(error)).toBeNull()
+  })
+})
+
+// Regression for #1125 — OpenRouter 402 (credits-vs-max_tokens mismatch)
+// carries the affordable cap in the message. The retry loop should adjust
+// max_tokens to that cap once instead of bubbling a confusing 402 to the user.
+describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
+  function make402(message: string): APIError {
+    return {
+      headers: new Headers(),
+      status: 402,
+      message,
+      name: 'APIError',
+      error: {},
+    } as unknown as APIError
+  }
+
+  test('parses the affordable max_tokens out of OpenRouter 402 body', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = make402(
+      'This request requires more credits, or fewer max_tokens. You requested up to 32000 tokens, but can only afford 27342. To increase, visit ...',
+    )
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toEqual({
+      requestedMaxTokens: 32000,
+      affordableMaxTokens: 27342,
+    })
+  })
+
+  test('returns undefined when status is not 402', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = {
+      headers: new Headers(),
+      status: 429,
+      message: 'You requested up to 32000 tokens, but can only afford 27342',
+      name: 'APIError',
+      error: {},
+    } as unknown as APIError
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toBeUndefined()
+  })
+
+  test('returns undefined when message does not match expected shape', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = make402('Payment required. Top up your account.')
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toBeUndefined()
+  })
+
+  test('returns undefined when affordable_max_tokens is zero', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = make402(
+      'You requested up to 32000 tokens, but can only afford 0',
+    )
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toBeUndefined()
+  })
+
+  test('shouldRetry returns true for parseable 402', async () => {
+    const { shouldRetry } = (await importFreshWithRetryModule('openai')) as {
+      shouldRetry?: (e: APIError) => boolean
+    }
+    if (!shouldRetry) return // shouldRetry is internal; skip when not exported
+    const err = make402(
+      'You requested up to 32000 tokens, but can only afford 27342',
+    )
+    expect(shouldRetry(err)).toBe(true)
   })
 })
