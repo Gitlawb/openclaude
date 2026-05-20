@@ -116,6 +116,7 @@ export type ProjectConfig = {
   hasClaudeMdExternalIncludesApproved?: boolean
   hasClaudeMdExternalIncludesApprovedForUser?: boolean
   hasClaudeMdExternalIncludesWarningShown?: boolean
+  hasClaudeMdExternalIncludesWarningShownForUser?: boolean
   // MCP server approval fields - migrated to settings but kept for backward compatibility
   enabledMcpjsonServers?: string[]
   disabledMcpjsonServers?: string[]
@@ -148,6 +149,7 @@ const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   hasClaudeMdExternalIncludesApproved: false,
   hasClaudeMdExternalIncludesApprovedForUser: false,
   hasClaudeMdExternalIncludesWarningShown: false,
+  hasClaudeMdExternalIncludesWarningShownForUser: false,
 }
 
 export type InstallMethod = 'local' | 'native' | 'global' | 'unknown'
