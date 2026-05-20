@@ -52,6 +52,7 @@ const ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -264,6 +265,15 @@ describe('detectProvider — explicit dedicated-provider env flags', () => {
     setupOpenAIMode('https://openrouter.ai/api/v1', 'any-model')
     process.env.MINIMAX_API_KEY = 'test-key'
     expect(detectProvider().name).toBe('MiniMax')
+  })
+
+  test('Anthropic-compatible MiniMax profile is labeled MiniMax', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+    process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+    expect(detectProvider().name).toBe('MiniMax')
+    expect(detectProvider().baseUrl).toBe('https://api.minimax.io/anthropic')
   })
 })
 

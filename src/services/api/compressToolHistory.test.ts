@@ -1,37 +1,77 @@
-import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { compressToolHistory, getTiers } from './compressToolHistory.js'
+import {
+  compressToolHistory,
+  getTiers,
+  setToolHistoryCompressionEnabledOverrideForTest,
+} from './compressToolHistory.js'
 
-// Mock the two dependencies so tests are deterministic and don't read disk config.
+const originalEnv = {
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW:
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+}
+
+const originalConfig = {
+  toolHistoryCompressionEnabled:
+    getGlobalConfig().toolHistoryCompressionEnabled,
+}
+
 const mockState = {
   enabled: true,
   effectiveWindow: 100_000,
 }
 
-await acquireSharedMutationLock('services/api/compressToolHistory.test.ts')
+function restoreEnv(key: keyof typeof originalEnv): void {
+  const value = originalEnv[key]
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
+}
 
-mock.module('../../utils/config.js', () => ({
-  getGlobalConfig: () => ({
+function setEffectiveWindowForTest(effectiveWindow: number): void {
+  mockState.effectiveWindow = effectiveWindow
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '8000'
+  process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(effectiveWindow + 8_000)
+}
+
+function setCompressionEnabledForTest(enabled: boolean): void {
+  mockState.enabled = enabled
+  setToolHistoryCompressionEnabledOverrideForTest(enabled)
+  saveGlobalConfig(current => ({
+    ...current,
     toolHistoryCompressionEnabled: mockState.enabled,
-  }),
-}))
+  }))
+}
 
-mock.module('../compact/autoCompact.js', () => ({
-  getEffectiveContextWindowSize: () => mockState.effectiveWindow,
-}))
-
-beforeEach(() => {
-  mockState.enabled = true
-  mockState.effectiveWindow = 100_000
+beforeEach(async () => {
+  await acquireSharedMutationLock('compressToolHistory.test.ts')
+  setCompressionEnabledForTest(true)
+  setEffectiveWindowForTest(100_000)
 })
 
-afterAll(() => {
+afterEach(() => {
   try {
-    mock.restore()
+    mockState.enabled = true
+    mockState.effectiveWindow = 100_000
+    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+      restoreEnv(key)
+    }
+    saveGlobalConfig(current => ({
+      ...current,
+      toolHistoryCompressionEnabled:
+        originalConfig.toolHistoryCompressionEnabled,
+    }))
   } finally {
+    setToolHistoryCompressionEnabledOverrideForTest(undefined)
     releaseSharedMutationLock()
   }
 })
@@ -100,6 +140,14 @@ function getResultText(msg: Msg): string {
   return ''
 }
 
+function compressToolHistoryForTest<T>(
+  messages: T[],
+  model = 'gpt-4o',
+  effectiveContextWindowSize = 100_000,
+): T[] {
+  return compressToolHistory(messages, model, { effectiveContextWindowSize })
+}
+
 // ---------- getTiers ----------
 
 test('getTiers: < 16k window → recent=2, mid=3', () => {
@@ -133,16 +181,16 @@ test('getTiers: ≥ 500k (gpt-4.1 1M) → recent=25, mid=50', () => {
 // ---------- master switch ----------
 
 test('pass-through when toolHistoryCompressionEnabled is false', () => {
-  mockState.enabled = false
+  setCompressionEnabledForTest(false)
   const messages = buildConversation(20)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   expect(result).toBe(messages) // same reference (no transformation)
 })
 
 test('pass-through when total tool_results <= recent tier', () => {
   // 100k effective → recent=5; only 4 exchanges → no compression
   const messages = buildConversation(4)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   expect(result).toBe(messages)
 })
 
@@ -151,7 +199,7 @@ test('pass-through when total tool_results <= recent tier', () => {
 test('recent tier: tool_result content untouched', () => {
   // 100k effective → recent=5, mid=10. With 6 exchanges, only the oldest is touched.
   const messages = buildConversation(6, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // Last 5 should be untouched (full 5000 chars)
@@ -163,7 +211,7 @@ test('recent tier: tool_result content untouched', () => {
 test('mid tier: long content truncated to MID_MAX_CHARS with marker', () => {
   // 100k → recent=5, mid=10. 10 exchanges: 5 recent + 5 mid (none old).
   const messages = buildConversation(10, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // First 5 are mid tier — should be truncated to ~2000 chars + marker
@@ -179,7 +227,7 @@ test('mid tier: long content truncated to MID_MAX_CHARS with marker', () => {
 
 test('mid tier: short content (< MID_MAX_CHARS) untouched', () => {
   const messages = buildConversation(10, 500) // 500 < MID_MAX_CHARS
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   for (let i = 0; i < 5; i++) {
@@ -190,7 +238,7 @@ test('mid tier: short content (< MID_MAX_CHARS) untouched', () => {
 test('old tier: content replaced with stub [name args={...} → N chars omitted]', () => {
   // 100k → recent=5, mid=10, old=rest. 20 exchanges → 5 old + 10 mid + 5 recent.
   const messages = buildConversation(20, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // First 5 are old tier — should be stubs
@@ -224,7 +272,7 @@ test('old tier: stub args truncated to 200 chars', () => {
     // Pad with enough recent exchanges to push the above into old tier
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
   const text = getResultText(resultMsgs[0])
 
@@ -247,7 +295,7 @@ test('old tier: orphan tool_result (no matching tool_use) falls back to "tool"',
     },
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
   const text = getResultText(resultMsgs[0])
 
@@ -258,7 +306,7 @@ test('old tier: orphan tool_result (no matching tool_use) falls back to "tool"',
 
 test('tool_use blocks always preserved', () => {
   const messages = buildConversation(20, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
 
   const useCount = (msgs: Msg[]) =>
     msgs.reduce((sum, m) => {
@@ -285,7 +333,7 @@ test('text blocks always preserved', () => {
     },
     ...buildConversation(20, 5_000).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const assistantMsg = (result as Msg[])[1]
   const textBlock = (assistantMsg.content as Block[]).find((b: any) => b.type === 'text')
 
@@ -308,7 +356,7 @@ test('thinking blocks always preserved', () => {
     },
     ...buildConversation(20, 5_000).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const assistantMsg = (result as Msg[])[1]
   const thinking = (assistantMsg.content as Block[]).find((b: any) => b.type === 'thinking')
 
@@ -324,7 +372,7 @@ test('non-array content (string) handled gracefully', () => {
     { role: 'user', content: 'plain string content' },
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   expect((result as Msg[])[0].content).toBe('plain string content')
 })
 
@@ -333,7 +381,7 @@ test('empty content array handled gracefully', () => {
     { role: 'user', content: [] },
     ...buildConversation(20, 100).slice(1),
   ]
-  expect(() => compressToolHistory(messages, 'gpt-4o')).not.toThrow()
+  expect(() => compressToolHistoryForTest(messages, 'gpt-4o')).not.toThrow()
 })
 
 // ---------- message shape compatibility ----------
@@ -342,7 +390,7 @@ test('wrapped shape ({ message: { role, content } }) handled', () => {
   type WrappedMsg = { message: { role: string; content: Block[] | string } }
   const wrap = (m: Msg): WrappedMsg => ({ message: { role: m.role, content: m.content } })
   const messages = buildConversation(20, 5_000).map(wrap)
-  const result = compressToolHistory(messages as any, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages as any, 'gpt-4o')
 
   // First wrapped tool-result message should have stub content (old tier)
   const firstResultMsg = (result as WrappedMsg[]).find(
@@ -359,7 +407,7 @@ test('wrapped shape ({ message: { role, content } }) handled', () => {
 
 test('flat shape ({ role, content }) handled', () => {
   const messages = buildConversation(20, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   expect(getResultText(resultMsgs[0])).toMatch(/^\[Read args=.*→ 5000 chars omitted\]$/)
@@ -369,7 +417,7 @@ test('flat shape ({ role, content }) handled', () => {
 
 test('tier boundaries: 6 exchanges → 1 mid + 5 recent (recent=5)', () => {
   const messages = buildConversation(6, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // Oldest: mid (truncated)
@@ -382,7 +430,7 @@ test('tier boundaries: 6 exchanges → 1 mid + 5 recent (recent=5)', () => {
 
 test('tier boundaries: 16 exchanges → 1 old + 10 mid + 5 recent', () => {
   const messages = buildConversation(16, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // Oldest 1: stub (old tier)
@@ -399,9 +447,8 @@ test('tier boundaries: 16 exchanges → 1 old + 10 mid + 5 recent', () => {
 
 test('large window (1M) with 30 exchanges: all untouched (recent=25 ≥ 30 - 5)', () => {
   // ≥500k → recent=25, mid=50. 30 exchanges → 5 mid + 25 recent. None old.
-  mockState.effectiveWindow = 1_000_000
   const messages = buildConversation(30, 5_000)
-  const result = compressToolHistory(messages, 'gpt-4.1')
+  const result = compressToolHistoryForTest(messages, 'gpt-4.1', 1_000_000)
   const resultMsgs = getResultMessages(result)
 
   // Last 25: untouched
@@ -433,7 +480,7 @@ test('is_error flag preserved in mid tier', () => {
     // Pad with enough recent exchanges to push the above into MID tier
     ...buildConversation(10, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
   const block = getResultBlock(resultMsgs[0]) as { is_error?: boolean; content: unknown }
 
@@ -461,7 +508,7 @@ test('is_error flag preserved in old tier (stub)', () => {
     },
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
   const block = getResultBlock(resultMsgs[0]) as { is_error?: boolean; content: unknown }
 
@@ -490,7 +537,7 @@ test('non-compactable tool (e.g. Task/Agent) is NEVER compressed', () => {
     // Pad with 20 compactable exchanges to push Task into old tier
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // First tool_result is for Task (non-compactable) → must remain full
@@ -516,7 +563,7 @@ test('mcp__ prefixed tools ARE compactable (matches microCompact behavior)', () 
     },
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // MCP tool result is compressed (gets stub since it's in old tier)
@@ -544,7 +591,7 @@ test('blocks already cleared by microCompact are NOT re-compressed', () => {
     },
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
   // Already-cleared marker survives untouched (no double processing)
@@ -572,7 +619,7 @@ test('extra block attributes (e.g. cache_control) preserved across rewrites', ()
     },
     ...buildConversation(20, 100).slice(1),
   ]
-  const result = compressToolHistory(messages, 'gpt-4o')
+  const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
   const block = getResultBlock(resultMsgs[0]) as { cache_control?: unknown }
 
