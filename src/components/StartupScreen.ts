@@ -11,10 +11,17 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
-import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
+import { getInitialSettings } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
+import {
+  getDisplayedEffortLevel,
+  getEffortEnvOverride,
+  getInitialEffortSetting,
+  modelSupportsEffort,
+  openAIEffortToStandard,
+} from '../utils/effort.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
 import {
   resolveLogoPalette,
@@ -145,18 +152,27 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/bankr/i.test(baseUrl)) name = 'Bankr'
     else if (/bankr/i.test(rawModel)) name = 'Bankr'
     else if (isLocal) name = getLocalOpenAICompatibleProviderLabel(baseUrl)
-    
-    // Resolve model alias to actual model name + reasoning effort
+
     let displayModel = resolvedRequest.resolvedModel
-    if (resolvedRequest.reasoning?.effort) {
-      displayModel = `${displayModel} (${resolvedRequest.reasoning.effort})`
+    // Display the same effective effort as the in-app header/status UI. The
+    // provider alias may carry a default reasoning effort, but saved /effort
+    // and CLAUDE_CODE_EFFORT_LEVEL must take precedence in the startup banner.
+    if (modelSupportsEffort(displayModel)) {
+      const savedEffort = getInitialEffortSetting()
+      const aliasDefaultEffort =
+        getEffortEnvOverride() === undefined &&
+        savedEffort === undefined &&
+        resolvedRequest.reasoning?.effort
+          ? openAIEffortToStandard(resolvedRequest.reasoning.effort)
+          : undefined
+      displayModel = `${displayModel} (${getDisplayedEffortLevel(displayModel, savedEffort ?? aliasDefaultEffort)})`
     }
-    
+
     return { name, model: displayModel, baseUrl, isLocal }
   }
 
   // Default: Anthropic - check settings.model first, then env vars
-  const settings = getSettings_DEPRECATED() || {}
+  const settings = getInitialSettings() || {}
   const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'

@@ -3,6 +3,7 @@ import { isUltrathinkEnabled } from './thinking.js'
 import { getInitialSettings } from './settings/settings.js'
 import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
+import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
@@ -150,7 +151,7 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
  * (which only accepts string levels) never rejects a write.
  */
 export function toPersistableEffort(
-  value: EffortValue | undefined,
+  value: EffortValue | OpenAIEffortLevel | undefined,
 ): EffortLevel | undefined {
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value
@@ -247,18 +248,15 @@ export function getDisplayedEffortLevel(
 
 /**
  * Build the ` with {level} effort` suffix shown in Logo/Spinner.
- * Returns empty string if the user hasn't explicitly set an effort value.
- * Delegates to resolveAppliedEffort() so the displayed level matches what
- * the API actually receives (including max→high clamp for non-Opus models).
+ * Uses the same effective/displayed level as the bottom-right effort indicator,
+ * so visible UI matches the effort that resolveAppliedEffort() will apply.
  */
 export function getEffortSuffix(
   model: string,
   effortValue: EffortValue | undefined,
 ): string {
-  if (effortValue === undefined) return ''
-  const resolved = resolveAppliedEffort(model, effortValue)
-  if (resolved === undefined) return ''
-  return ` with ${convertEffortValueToLevel(resolved)} effort`
+  if (!modelSupportsEffort(model)) return ''
+  return ` with ${getDisplayedEffortLevel(model, effortValue)} effort`
 }
 
 export function isValidNumericEffort(value: number): boolean {

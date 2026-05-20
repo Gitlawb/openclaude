@@ -220,10 +220,17 @@ export OPENAI_MODEL=gpt-4o
 | `CODEX_HOME` | Codex only | Alternative Codex home directory |
 | `OPENCLAUDE_DISABLE_CO_AUTHORED_BY` | No | Suppress the default `Co-Authored-By` trailer in generated git commits |
 | `OPENCLAUDE_LOG_TOKEN_USAGE` | No | When truthy (e.g. `verbose`), emits one JSON line on stderr per API request with input/output/cache tokens and the resolved provider. **User-facing debug output** — complements the REPL display controlled by `/config showCacheStats`. Distinct from `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, which is **model-facing** (injects context usage info into the prompt itself). Both can run together. |
+| `CLAUDE_CODE_EFFORT_LEVEL` | No | Override model effort for the current process. Accepted values: `low`, `medium`, `high`, `max`, `auto`, or `unset`. This takes precedence over the global `/effort` setting while present. |
 
 Model env vars are provider-scoped: Anthropic-native sessions read
 `ANTHROPIC_MODEL`, OpenAI-compatible sessions read `OPENAI_MODEL`, Gemini reads
 `GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`.
+
+`/effort` saves a global default in user settings for future OpenClaude
+sessions. `CLAUDE_CODE_EFFORT_LEVEL` is a launch/session override: when it is
+set, it wins over the saved `/effort` value without changing that saved value.
+Use `CLAUDE_CODE_EFFORT_LEVEL=auto` or `unset` to ignore saved effort for the
+current process.
 
 ## Runtime Hardening
 

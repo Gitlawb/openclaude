@@ -43,11 +43,12 @@ const ENV_KEYS = [
   'OPENAI_MODEL',
   'GEMINI_MODEL',
   'MISTRAL_MODEL',
-  'ANTHROPIC_MODEL',
   'CLAUDE_MODEL',
+  'CLAUDE_CODE_EFFORT_LEVEL',
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
   'XAI_API_KEY',
+  'ANTHROPIC_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
@@ -264,6 +265,35 @@ describe('detectProvider — explicit dedicated-provider env flags', () => {
     setupOpenAIMode('https://openrouter.ai/api/v1', 'any-model')
     process.env.MINIMAX_API_KEY = 'test-key'
     expect(detectProvider().name).toBe('MiniMax')
+  })
+})
+
+describe('detectProvider — startup effort display', () => {
+  test('OpenAI startup banner uses provider alias default when no saved or env effort is set', () => {
+    setupOpenAIMode('https://api.openai.com/v1', 'gpt-5.4')
+
+    const result = detectProvider()
+
+    expect(result.model).toBe('gpt-5.4 (high)')
+  })
+
+  test('OpenAI startup banner uses saved /effort over provider alias default', () => {
+    setupOpenAIMode('https://api.openai.com/v1', 'gpt-5.4')
+    setSessionSettingsCache({ settings: { effortLevel: 'medium' }, errors: [] })
+
+    const result = detectProvider()
+
+    expect(result.model).toBe('gpt-5.4 (medium)')
+  })
+
+  test('OpenAI startup banner uses CLAUDE_CODE_EFFORT_LEVEL over saved /effort', () => {
+    setupOpenAIMode('https://api.openai.com/v1', 'gpt-5.4')
+    setSessionSettingsCache({ settings: { effortLevel: 'medium' }, errors: [] })
+    process.env.CLAUDE_CODE_EFFORT_LEVEL = 'low'
+
+    const result = detectProvider()
+
+    expect(result.model).toBe('gpt-5.4 (low)')
   })
 })
 

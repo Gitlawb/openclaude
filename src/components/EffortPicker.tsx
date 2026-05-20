@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Box, Text } from '../ink.js'
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js'
-import { useAppState, useSetAppState } from '../state/AppState.js'
+import { useAppState } from '../state/AppState.js'
 import type { EffortLevel } from '../utils/effort.js'
 import {
   getAvailableEffortLevels,
@@ -35,7 +35,6 @@ type Props = {
 export function EffortPicker({ onSelect, onCancel }: Props) {
   const model = useMainLoopModel()
   const appStateEffort = useAppState((s: any) => s.effortValue)
-  const setAppState = useSetAppState()
   const provider = getAPIProvider()
   const usesOpenAIEffort = modelUsesOpenAIEffort(model)
   const availableLevels = getAvailableEffortLevels(model)
@@ -72,10 +71,6 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
 
   function handleSelect(value: string) {
     if (value === 'auto') {
-      setAppState(prev => ({
-        ...prev,
-        effortValue: undefined,
-      }))
       onSelect(undefined)
     } else {
       // Normalize OpenAI-shaped 'xhigh' to the standard EffortLevel ('max')
@@ -84,10 +79,6 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       const effortLevel = isOpenAIEffortLevel(value)
         ? openAIEffortToStandard(value)
         : (value as EffortLevel)
-      setAppState(prev => ({
-        ...prev,
-        effortValue: effortLevel,
-      }))
       onSelect(effortLevel)
     }
   }

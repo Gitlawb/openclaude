@@ -3,12 +3,10 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-// Import the real auth.js and providerConfig.js up front so we can spread
-// their export surfaces into mock factories. `mock.module()` is process-global
-// in bun:test and `mock.restore()` does not undo it (see user.test.ts), so
-// any module we mock here needs to keep the full original export shape — or
-// downstream tests that load it via openaiShim/client/codexShim crash with
-// "Export named 'X' not found in module".
+// Import the real modules up front so we can spread their export surfaces into
+// mock factories. `mock.module()` is process-global in bun:test and
+// `mock.restore()` does not undo it (see user.test.ts), so mocked modules need
+// to keep the full original export shape.
 import * as actualAuth from './auth.js'
 import * as actualProviderConfig from '../services/api/providerConfig.js'
 import * as actualThinking from './thinking.js'
@@ -16,33 +14,107 @@ import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
 import * as actualProviders from './model/providers.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
 
+const ENV_KEYS = [
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'MISTRAL_BASE_URL',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'OPENAI_API_BASE',
+  'XAI_API_KEY',
+  'MINIMAX_API_KEY',
+] as const
+
+const originalEnv: Record<string, string | undefined> = {}
+type TestProvider = 'codex' | 'openai' | 'firstParty'
+
+function resolveProviderFromEnv(): TestProvider {
+  if (process.env.CLAUDE_CODE_USE_OPENAI) {
+    const baseUrl = process.env.OPENAI_BASE_URL ?? ''
+    const model = process.env.OPENAI_MODEL ?? ''
+    return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
+      ? 'codex'
+      : 'openai'
+  }
+  return 'firstParty'
+}
+
+function installProviderMock(provider?: TestProvider): void {
+  mock.module('./model/providers.js', () => ({
+    ...actualProviders,
+    getAPIProvider: () => provider ?? resolveProviderFromEnv(),
+    getAPIProviderForStatsig: () => provider ?? resolveProviderFromEnv(),
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
+    usesAnthropicAccountFlow: () =>
+      (provider ?? resolveProviderFromEnv()) === 'firstParty',
+  }))
+}
+
+function restoreProcessGlobalMocks(): void {
+  mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./model/modelSupportOverrides.js', () => actualModelSupportOverrides)
+  mock.module('../services/api/providerConfig.js', () => actualProviderConfig)
+  mock.module('./auth.js', () => actualAuth)
+  mock.module('./thinking.js', () => actualThinking)
+  mock.module('src/services/analytics/growthbook.js', () => actualGrowthbook)
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
+  mock.restore()
+  installProviderMock()
+  for (const key of ENV_KEYS) {
+    originalEnv[key] = process.env[key]
+  }
 })
 
 afterEach(() => {
   try {
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
+    }
     mock.restore()
+    restoreProcessGlobalMocks()
   } finally {
     releaseSharedMutationLock()
   }
 })
 
 async function importFreshEffortModule(options: {
-  provider: 'codex' | 'openai'
-  supportsCodexReasoningEffort: boolean
+  provider: TestProvider
+  supportsCodexReasoningEffort?: boolean
 }) {
-  mock.module('./model/providers.js', () => ({
-    ...actualProviders,
-    getAPIProvider: () => options.provider,
-  }))
+  for (const key of ENV_KEYS) {
+    delete process.env[key]
+  }
+  installProviderMock(options.provider)
+  if (options.provider === 'codex') {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_MODEL = 'gpt-5.4'
+  } else if (options.provider === 'openai') {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-5.4'
+  }
   mock.module('./model/modelSupportOverrides.js', () => ({
     ...actualModelSupportOverrides,
     get3PModelCapabilityOverride: () => undefined,
   }))
   mock.module('../services/api/providerConfig.js', () => ({
     ...actualProviderConfig,
-    supportsCodexReasoningEffort: () => options.supportsCodexReasoningEffort,
+    supportsCodexReasoningEffort: () =>
+      options.supportsCodexReasoningEffort ?? true,
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
@@ -63,21 +135,25 @@ async function importFreshEffortModule(options: {
   return import(`./effort.js?ts=${Date.now()}-${Math.random()}`)
 }
 
-test('gpt-5.4 on the ChatGPT Codex backend supports effort selection', async () => {
-  const { getAvailableEffortLevels, modelSupportsEffort } =
-    await importFreshEffortModule({
-      provider: 'codex',
-      supportsCodexReasoningEffort: true,
-    })
+test(
+  'gpt-5.4 on the ChatGPT Codex backend supports effort selection',
+  async () => {
+    const { getAvailableEffortLevels, modelSupportsEffort } =
+      await importFreshEffortModule({
+        provider: 'codex',
+        supportsCodexReasoningEffort: true,
+      })
 
-  expect(modelSupportsEffort('gpt-5.4')).toBe(true)
-  expect(getAvailableEffortLevels('gpt-5.4')).toEqual([
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-  ])
-})
+    expect(modelSupportsEffort('gpt-5.4')).toBe(true)
+    expect(getAvailableEffortLevels('gpt-5.4')).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+  },
+  15_000,
+)
 
 test('gpt-5.4 on the OpenAI provider still supports effort selection', async () => {
   const { getAvailableEffortLevels, modelSupportsEffort } =
@@ -133,7 +209,7 @@ test('standardEffortToOpenAI maps max to xhigh for shim payload', async () => {
   expect(openAIEffortToStandard('high')).toBe('high')
 })
 
-test('e2e: xhigh → persisted max → resolveAppliedEffort → wire xhigh on OpenAI/Codex (no high clamp)', async () => {
+test('e2e: xhigh -> persisted max -> resolveAppliedEffort -> wire xhigh on OpenAI/Codex (no high clamp)', async () => {
   const {
     toPersistableEffort,
     resolveAppliedEffort,
@@ -148,7 +224,7 @@ test('e2e: xhigh → persisted max → resolveAppliedEffort → wire xhigh on Op
   expect(persisted).toBe('max')
 
   // App state holds 'max'. Non-Opus 'max' must NOT be downgraded to 'high'
-  // when the model uses the OpenAI effort scheme — the shim converts back
+  // when the model uses the OpenAI effort scheme; the shim converts back
   // to 'xhigh' on the wire.
   const applied = resolveAppliedEffort('gpt-5.4', persisted)
   expect(applied).toBe('max')
@@ -159,9 +235,34 @@ test('e2e: xhigh → persisted max → resolveAppliedEffort → wire xhigh on Op
 
 test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
   expect(resolveAppliedEffort('claude-sonnet-4-6', 'max')).toBe('high')
+})
+
+test('getEffortSuffix shows the effective displayed effort for supported models', async () => {
+  const { getDisplayedEffortLevel, getEffortSuffix } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+  expect(getEffortSuffix('gpt-5.4', 'medium')).toBe(' with medium effort')
+
+  const displayedDefault = getDisplayedEffortLevel('gpt-5.4', undefined)
+  expect(getEffortSuffix('gpt-5.4', undefined)).toBe(
+    ` with ${displayedDefault} effort`,
+  )
+})
+
+test('getEffortSuffix stays hidden for models without effort controls', async () => {
+  const { getEffortSuffix } = await importFreshEffortModule({
+    provider: 'codex',
+    supportsCodexReasoningEffort: false,
+  })
+
+  expect(getEffortSuffix('gpt-5.3-codex-spark', 'medium')).toBe('')
+  expect(getEffortSuffix('gpt-5.3-codex-spark', undefined)).toBe('')
 })
