@@ -109,7 +109,7 @@ describe('Agent loop continuation nudge', () => {
     const content = await file('query.ts').text()
 
     expect(content).toContain(
-      'Continue with the task. Use the appropriate tools to proceed.',
+      'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
     )
   })
 })
