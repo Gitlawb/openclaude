@@ -272,7 +272,8 @@ function _temp6() {
 function _temp5(current) {
   return {
     ...current,
-    hasTrustDialogAccepted: true
+    hasTrustDialogAccepted: true,
+    trustAcceptedAt: Date.now()
   };
 }
 function _temp4(command_0) {
