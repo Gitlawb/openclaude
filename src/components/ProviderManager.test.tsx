@@ -124,6 +124,7 @@ const PRESET_ORDER = [
   'Azure OpenAI',
   'Bankr',
   'ClinePass',
+  'Cloudflare Workers AI',
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',
