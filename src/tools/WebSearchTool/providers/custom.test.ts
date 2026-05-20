@@ -119,6 +119,67 @@ describe('buildAuthHeadersForPreset auth header behavior', () => {
     delete process.env.WEB_PROVIDER
     expect(customProvider.isConfigured()).toBe(false)
   })
+
+  test('custom provider ignores whitespace-only config values', () => {
+    process.env.WEB_URL_TEMPLATE = '   '
+    process.env.WEB_SEARCH_API = '\t'
+    process.env.WEB_PROVIDER = ' '
+    expect(customProvider.isConfigured()).toBe(false)
+  })
+})
+
+describe('custom provider blank env fallbacks', () => {
+  const savedEnv: Record<string, string | undefined> = {}
+  const originalFetch = globalThis.fetch
+
+  beforeEach(() => {
+    for (const k of [
+      'WEB_SEARCH_API',
+      'WEB_URL_TEMPLATE',
+      'WEB_PROVIDER',
+      'WEB_QUERY_PARAM',
+      'WEB_METHOD',
+      'WEB_JSON_PATH',
+      'OPENCLAUDE_AGENT_GATEWAY_CHILD',
+    ]) {
+      savedEnv[k] = process.env[k]
+    }
+  })
+
+  afterEach(() => {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    globalThis.fetch = originalFetch
+  })
+
+  test('treats a blank WEB_METHOD as unset and falls back to GET', async () => {
+    process.env.WEB_SEARCH_API = 'https://example.com/search'
+    process.env.WEB_METHOD = ''
+    process.env.OPENCLAUDE_AGENT_GATEWAY_CHILD = '1'
+
+    let seenMethod: string | undefined
+    let seenUrl: string | undefined
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      seenMethod = init?.method
+      seenUrl = String(input)
+      return new Response(
+        JSON.stringify({ results: [{ title: 'Result', url: 'https://docs.example/result' }] }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+    }) as typeof fetch
+
+    const output = await customProvider.search({ query: 'hello world' })
+
+    expect(seenMethod).toBe('GET')
+    expect(seenUrl).toContain('q=hello+world')
+    expect(output.hits).toHaveLength(1)
+    expect(output.hits[0].url).toBe('https://docs.example/result')
+  })
 })
 
 // ---------------------------------------------------------------------------

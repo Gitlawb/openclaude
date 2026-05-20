@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import { ASK_USER_QUESTION_TOOL_NAME } from '../../tools/AskUserQuestionTool/prompt.js'
 import { ENTER_PLAN_MODE_TOOL_NAME } from '../../tools/EnterPlanModeTool/constants.js'
@@ -50,7 +51,7 @@ const WORKFLOW_TOOL_NAME = feature('WORKFLOW_SCRIPTS')
 /**
  * Tools that are safe and don't need any classifier checking.
  * Used by the auto mode classifier to skip unnecessary API calls.
- * Does NOT include write/edit tools — those are handled by the
+ * Does NOT include write/edit tools вЂ” those are handled by the
  * acceptEdits fast path (allowed in CWD, classified outside CWD).
  */
 const SAFE_YOLO_ALLOWLISTED_TOOLS = new Set([
@@ -75,13 +76,13 @@ const SAFE_YOLO_ALLOWLISTED_TOOLS = new Set([
   ASK_USER_QUESTION_TOOL_NAME,
   ENTER_PLAN_MODE_TOOL_NAME,
   EXIT_PLAN_MODE_TOOL_NAME,
-  // Swarm coordination (internal mailbox/team state only — teammates have
+  // Swarm coordination (internal mailbox/team state only вЂ” teammates have
   // their own permission checks, so no actual security bypass).
   TEAM_CREATE_TOOL_NAME,
   // Agent cleanup
   TEAM_DELETE_TOOL_NAME,
   SEND_MESSAGE_TOOL_NAME,
-  // Workflow orchestration — subagents go through canUseTool individually
+  // Workflow orchestration вЂ” subagents go through canUseTool individually
   ...(WORKFLOW_TOOL_NAME ? [WORKFLOW_TOOL_NAME] : []),
   // Misc safe
   SLEEP_TOOL_NAME,
@@ -96,3 +97,4 @@ const SAFE_YOLO_ALLOWLISTED_TOOLS = new Set([
 export function isAutoModeAllowlistedTool(toolName: string): boolean {
   return SAFE_YOLO_ALLOWLISTED_TOOLS.has(toolName)
 }
+

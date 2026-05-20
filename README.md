@@ -46,7 +46,31 @@ openclaude
 Inside OpenClaude:
 
 - run `/provider` for guided provider setup and saved profiles
+- run `/agent-gateway` for the cross-platform agent control center: Telegram,
+  cron, OpenAI-compatible agent API, Open WebUI, and Ouroboros settings
 - run `/onboard-github` for GitHub Models onboarding
+
+### Release Scripts
+
+For local production-style runs, use the cross-platform wrappers in
+[`scripts/release`](scripts/release):
+
+- macOS / Linux:
+  - `./scripts/release/install-deps.sh`
+  - `./scripts/release/start-ui.sh`
+  - `./scripts/release/start-agent-gateway.sh`
+  - `./scripts/release/install-open-webui.sh`
+  - `./scripts/release/serve-open-webui.sh`
+  - `./scripts/release/docker-up.sh`
+  - `./scripts/release/docker-down.sh`
+- Windows:
+  - `scripts\\release\\install-deps.bat`
+  - `scripts\\release\\start-ui.bat`
+  - `scripts\\release\\start-agent-gateway.bat`
+  - `scripts\\release\\install-open-webui.bat`
+  - `scripts\\release\\serve-open-webui.bat`
+  - `scripts\\release\\docker-up.bat`
+  - `scripts\\release\\docker-down.bat`
 
 ### Fastest OpenAI setup
 

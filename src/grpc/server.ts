@@ -122,7 +122,14 @@ export class GrpcServer {
                   if (reply.toLowerCase() === 'yes' || reply.toLowerCase() === 'y') {
                     resolve({ behavior: 'allow' })
                   } else {
-                    resolve({ behavior: 'deny', reason: 'User denied via gRPC' })
+                    resolve({
+                      behavior: 'deny',
+                      message: 'User denied via gRPC',
+                      decisionReason: {
+                        type: 'mode',
+                        mode: 'default',
+                      },
+                    })
                   }
                 })
               })

@@ -28,6 +28,7 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./config.js', () => ({
+    checkHasTrustDialogAccepted: () => true,
     getGlobalConfig: () => ({}),
     getOrCreateUserID: () => 'device-test',
   }))

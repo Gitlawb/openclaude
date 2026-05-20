@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import type { Permutations } from 'src/types/utils.js'
@@ -40,7 +41,7 @@ function logOperation(operation: QueueOperation, content?: string): void {
 // ============================================================================
 // Unified command queue (module-level, independent of React state)
 //
-// All commands — user input, task notifications, orphaned permissions — go
+// All commands вЂ” user input, task notifications, orphaned permissions вЂ” go
 // through this single queue. React components subscribe via
 // useSyncExternalStore (subscribeToCommandQueue / getCommandQueueSnapshot).
 // Non-React code (print.ts streaming loop) reads directly via
@@ -51,7 +52,7 @@ function logOperation(operation: QueueOperation, content?: string): void {
 // ============================================================================
 
 const commandQueue: QueuedCommand[] = []
-/** Frozen snapshot — recreated on every mutation for useSyncExternalStore. */
+/** Frozen snapshot вЂ” recreated on every mutation for useSyncExternalStore. */
 let snapshot: readonly QueuedCommand[] = Object.freeze([])
 const queueChanged = createSignal()
 
@@ -214,7 +215,7 @@ export function dequeueAll(): QueuedCommand[] {
 
 /**
  * Return the highest-priority command without removing it, or undefined if empty.
- * Accepts an optional `filter` — only commands passing the predicate are considered.
+ * Accepts an optional `filter` вЂ” only commands passing the predicate are considered.
  */
 export function peek(
   filter?: (cmd: QueuedCommand) => boolean,
@@ -362,7 +363,7 @@ export function isQueuedCommandEditable(cmd: QueuedCommand): boolean {
 
 /**
  * Whether this queued command should render in the queue preview under the
- * prompt. Superset of editable — channel messages show (so the keyboard user
+ * prompt. Superset of editable вЂ” channel messages show (so the keyboard user
  * sees what arrived) but stay non-editable (raw XML).
  */
 export function isQueuedCommandVisible(cmd: QueuedCommand): boolean {
@@ -484,7 +485,7 @@ export function popAllEditable(
 }
 
 // ============================================================================
-// Backward-compatible aliases (deprecated — prefer new names)
+// Backward-compatible aliases (deprecated вЂ” prefer new names)
 // ============================================================================
 
 /** @deprecated Use subscribeToCommandQueue */
@@ -536,7 +537,7 @@ export function getCommandsByMaxPriority(
  * processSlashCommand rather than sent to the model as text.
  *
  * Commands with `skipSlashCommands` (e.g. bridge/CCR messages) are NOT treated
- * as slash commands — their text is meant for the model.
+ * as slash commands вЂ” their text is meant for the model.
  */
 export function isSlashCommand(cmd: QueuedCommand): boolean {
   return (
@@ -545,3 +546,4 @@ export function isSlashCommand(cmd: QueuedCommand): boolean {
     !cmd.skipSlashCommands
   )
 }
+

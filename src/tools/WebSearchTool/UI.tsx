@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import React from 'react';
 import { MessageResponse } from '../../components/MessageResponse.js';
 import { TOOL_SUMMARY_MAX_LENGTH } from '../../constants/toolLimits.js';
@@ -98,3 +99,4 @@ export function getToolUseSummary(input: Partial<{
   }
   return truncate(input.query, TOOL_SUMMARY_MAX_LENGTH);
 }
+

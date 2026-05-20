@@ -194,7 +194,7 @@ export function AssistantToolUseMessage(t0) {
   } else {
     t7 = $[37];
   }
-  const t8 = userFacingToolNameBackgroundColor ? "inverseText" : undefined;
+  const t8 = userFacingToolNameBackgroundColor ? ('inverseText' as const) : undefined;
   let t9;
   if ($[38] !== t8 || $[39] !== userFacingToolName || $[40] !== userFacingToolNameBackgroundColor) {
     t9 = <Box flexShrink={0}><Text bold={true} wrap="truncate-end" backgroundColor={userFacingToolNameBackgroundColor} color={t8}>{userFacingToolName}</Text></Box>;
@@ -337,7 +337,9 @@ function renderToolUseProgressMessage(tool: Tool, tools: Tools, lookups: ReturnT
   columns: number;
   rows: number;
 }): React.ReactNode {
-  const toolProgressMessages = progressMessagesForMessage.filter((msg): msg is ProgressMessage<ToolProgressData> => msg.data.type !== 'hook_progress');
+  const toolProgressMessages = progressMessagesForMessage.filter((msg): msg is ProgressMessage<ToolProgressData> => typeof msg.data === 'object' && msg.data !== null && 'type' in msg.data && (msg.data as {
+    type?: unknown;
+  }).type !== 'hook_progress');
   try {
     const toolMessages = tool.renderToolUseProgressMessage?.(toolProgressMessages, {
       tools,

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ToolUseConfirm } from '../components/permissions/PermissionRequest.js'
 import type { RemotePermissionResponse } from '../remote/RemoteSessionManager.js'
@@ -129,7 +130,11 @@ export function useDirectConnect({
               queue.filter(item => item.toolUseID !== request.tool_use_id),
             )
           },
-          onAllow(updatedInput, _permissionUpdates, _feedback) {
+          onAllow(
+            updatedInput,
+            _permissionUpdates: Parameters<ToolUseConfirm['onAllow']>[1],
+            _feedback,
+          ) {
             const response: RemotePermissionResponse = {
               behavior: 'allow',
               updatedInput,

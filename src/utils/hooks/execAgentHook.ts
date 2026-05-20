@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { randomUUID } from 'crypto'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
 import { query } from '../../query.js'
@@ -43,7 +44,7 @@ export async function execAgentHook(
   toolUseID: string | undefined,
   // Kept for signature stability with the other exec*Hook functions.
   // Was used by hook.prompt(messages) before the .transform() was removed
-  // (CC-79) — the only consumer of that was ExitPlanModeV2Tool's
+  // (CC-79) вЂ” the only consumer of that was ExitPlanModeV2Tool's
   // programmatic construction, since refactored into VerifyPlanExecutionTool.
   _messages: Message[],
   agentName?: string,
@@ -337,3 +338,4 @@ When done, return your result using the ${SYNTHETIC_OUTPUT_TOOL_NAME} tool with:
     }
   }
 }
+

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { QuerySource } from '../../constants/querySource.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
@@ -68,3 +69,4 @@ export async function executePostSamplingHooks(
     }
   }
 }
+

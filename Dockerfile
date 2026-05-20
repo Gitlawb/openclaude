@@ -2,7 +2,7 @@
 FROM node:22-slim AS build
 
 # Install Bun
-RUN npm install -g bun@1.3.11
+RUN npm install -g bun@1.3.12
 
 WORKDIR /app
 
@@ -35,12 +35,34 @@ COPY --from=build /app/bin/ bin/
 COPY --from=build /app/node_modules/ node_modules/
 COPY --from=build /app/package.json package.json
 COPY README.md ./
+COPY scripts/docker-entrypoint.sh scripts/docker-entrypoint.sh
+COPY scripts/release/openrag-mcp-bridge.cjs scripts/release/openrag-mcp-bridge.cjs
+COPY scripts/release/camofox-mcp-bridge.cjs scripts/release/camofox-mcp-bridge.cjs
+COPY scripts/release/camofox-control.mjs scripts/release/camofox-control.mjs
+COPY scripts/release/hindsight-mcp-bridge.cjs scripts/release/hindsight-mcp-bridge.cjs
+COPY scripts/release/hindsight-control.mjs scripts/release/hindsight-control.mjs
+COPY scripts/release/test-hindsight-mcp-bridge.cjs scripts/release/test-hindsight-mcp-bridge.cjs
 
-# Install git and ripgrep — many CLI tool operations depend on them
-RUN apt-get update && apt-get install -y --no-install-recommends git ripgrep \
+# Install git and ripgrep - many CLI tool operations depend on them
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      gosu \
+      ripgrep \
+      python3 \
+      python3-pip \
+      python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Run as non-root user
-USER node
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && ln -sf /root/.local/bin/uv /usr/local/bin/uv \
+    && ln -sf /root/.local/bin/uvx /usr/local/bin/uvx
 
-ENTRYPOINT ["node", "/app/dist/cli.mjs"]
+RUN chmod +x scripts/docker-entrypoint.sh \
+    && mkdir -p /home/node/.openclaude \
+    && chown -R node:node /home/node/.openclaude
+
+EXPOSE 8642 8080
+
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]

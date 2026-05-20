@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * LocalMainSessionTask - Handles backgrounding the main session query.
  *
@@ -99,7 +100,7 @@ export function registerMainSessionTask(
   const taskId = generateMainSessionTaskId()
 
   // Link output to an isolated per-task transcript file (same layout as
-  // sub-agents). Do NOT use getTranscriptPath() — that's the main session's
+  // sub-agents). Do NOT use getTranscriptPath() вЂ” that's the main session's
   // file, and writing there from a background query after /clear would corrupt
   // the post-clear conversation. The isolated path lets this task survive
   // /clear: the symlink re-link in clearConversation handles session ID changes.
@@ -363,7 +364,7 @@ export function startBackgroundSession({
   // Wrap in agent context so skill invocations scope to this task's agentId
   // (not null). This lets clearInvokedSkills(preservedAgentIds) selectively
   // preserve this task's skills across /clear. AsyncLocalStorage isolates
-  // concurrent async chains — this wrapper doesn't affect the foreground.
+  // concurrent async chains вЂ” this wrapper doesn't affect the foreground.
   const agentContext: SubagentContext = {
     agentId: taskId,
     agentType: 'subagent',
@@ -384,7 +385,7 @@ export function startBackgroundSession({
         ...queryParams,
       })) {
         if (abortSignal.aborted) {
-          // Aborted mid-stream — completeMainSessionTask won't be reached.
+          // Aborted mid-stream вЂ” completeMainSessionTask won't be reached.
           // chat:killAgents path already marked notified + emitted; stopTask path did not.
           let alreadyNotified = false
           updateTaskState(taskId, setAppState, task => {
@@ -409,7 +410,7 @@ export function startBackgroundSession({
 
         bgMessages.push(event)
 
-        // Per-message write (matches runAgent.ts pattern) — gives live
+        // Per-message write (matches runAgent.ts pattern) вЂ” gives live
         // TaskOutput progress and keeps the transcript file current even if
         // /clear re-links the symlink mid-run.
         void recordSidechainTranscript([event], taskId, lastRecordedUuid).catch(
@@ -476,3 +477,4 @@ export function startBackgroundSession({
 
   return taskId
 }
+

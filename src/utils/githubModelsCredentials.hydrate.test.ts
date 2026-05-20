@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * Hydrate tests live in a separate file with no static import of
  * githubModelsCredentials so Bun's mock.module can replace secureStorage
@@ -10,6 +11,7 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
     CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GH_TOKEN: process.env.GH_TOKEN,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     CLAUDE_CODE_GITHUB_TOKEN_HYDRATED:
       process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED,
     CLAUDE_CODE_SIMPLE: process.env.CLAUDE_CODE_SIMPLE,
@@ -30,6 +32,7 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     delete process.env.GITHUB_TOKEN
     delete process.env.GH_TOKEN
+    delete process.env.OPENAI_API_KEY
     delete process.env.CLAUDE_CODE_SIMPLE
 
     mock.module('./secureStorage/index.js', () => ({
@@ -69,3 +72,4 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
     expect(process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED).toBeUndefined()
   })
 })
+

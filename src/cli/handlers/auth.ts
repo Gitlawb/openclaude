@@ -159,7 +159,11 @@ export async function authLogin({
 
       const orgResult = await validateForceLoginOrg()
       if (!orgResult.valid) {
-        process.stderr.write(orgResult.message + '\n')
+        process.stderr.write(
+          ('message' in orgResult
+            ? orgResult.message
+            : 'Organization validation failed') + '\n',
+        )
         process.exit(1)
       }
 
@@ -209,7 +213,11 @@ export async function authLogin({
 
     const orgResult = await validateForceLoginOrg()
     if (!orgResult.valid) {
-      process.stderr.write(orgResult.message + '\n')
+      process.stderr.write(
+        ('message' in orgResult
+          ? orgResult.message
+          : 'Organization validation failed') + '\n',
+      )
       process.exit(1)
     }
 

@@ -29,7 +29,7 @@ type SpanProps = {
  *
  * Memoized to prevent re-renders when parent changes but children string is the same.
  */
-export const Ansi = React.memo(function Ansi(t0) {
+function AnsiInner(t0: Props): React.ReactNode {
   const $ = _c(12);
   const {
     children,
@@ -106,7 +106,9 @@ export const Ansi = React.memo(function Ansi(t0) {
     t3 = $[11];
   }
   return t3;
-});
+}
+
+export const Ansi = React.memo(AnsiInner) as React.NamedExoticComponent<Props>
 type Span = {
   text: string;
   props: SpanProps;

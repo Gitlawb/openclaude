@@ -7,6 +7,64 @@ import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { logEvent } from '../services/analytics/index.js';
 import type { NormalizedUserMessage, RenderableMessage } from '../types/message.js';
 import { isEmptyMessageText, SYNTHETIC_MESSAGES } from '../utils/messages.js';
+type ContentBlockLike = {
+  type: string;
+  [key: string]: unknown;
+};
+type TextBlockLike = ContentBlockLike & {
+  type: 'text';
+  text: string;
+};
+type ToolUseBlockLike = ContentBlockLike & {
+  type: 'tool_use';
+  name: string;
+  input: Record<string, unknown>;
+  id?: string;
+};
+type ToolResultBlockLike = ContentBlockLike & {
+  type: 'tool_result';
+  content?: unknown;
+  tool_use_id: string;
+  is_error?: boolean;
+};
+function getContentBlocks(content: unknown): ContentBlockLike[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  return content.filter((block): block is ContentBlockLike => typeof block === 'object' && block !== null && 'type' in block);
+}
+function getFirstContentBlock(message: {
+  message?: {
+    content?: unknown;
+  };
+}): ContentBlockLike | undefined {
+  return getContentBlocks(message.message?.content)[0];
+}
+function isTextBlock(block: unknown): block is TextBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'text' && typeof (block as {
+    text?: unknown;
+  }).text === 'string';
+}
+function isToolUseBlock(block: unknown): block is ToolUseBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'tool_use' && typeof (block as {
+    name?: unknown;
+  }).name === 'string' && typeof (block as {
+    input?: unknown;
+  }).input === 'object' && (block as {
+    input?: unknown;
+  }).input !== null;
+}
+function isToolResultBlock(block: unknown): block is ToolResultBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'tool_result' && typeof (block as {
+    tool_use_id?: unknown;
+  }).tool_use_id === 'string';
+}
 const NAVIGABLE_TYPES = ['user', 'assistant', 'grouped_tool_use', 'collapsed_read_search', 'system', 'attachment'] as const;
 export type NavigableType = (typeof NAVIGABLE_TYPES)[number];
 export type NavigableOf<T extends NavigableType> = Extract<RenderableMessage, {
@@ -19,16 +77,16 @@ export function isNavigableMessage(msg: NavigableMessage): boolean {
   switch (msg.type) {
     case 'assistant':
       {
-        const b = msg.message.content[0];
+        const b = getFirstContentBlock(msg);
         // Text responses (minus AssistantTextMessage's return-null cases — tier-1
         // misses unmeasured virtual items), or tool calls with extractable input.
-        return b?.type === 'text' && !isEmptyMessageText(b.text) && !SYNTHETIC_MESSAGES.has(b.text) || b?.type === 'tool_use' && b.name in PRIMARY_INPUT;
+        return isTextBlock(b) && !isEmptyMessageText(b.text) && !SYNTHETIC_MESSAGES.has(b.text) || isToolUseBlock(b) && b.name in PRIMARY_INPUT;
       }
     case 'user':
       {
         if (msg.isMeta || msg.isCompactSummary) return false;
-        const b = msg.message.content[0];
-        if (b?.type !== 'text') return false;
+        const b = getFirstContentBlock(msg);
+        if (!isTextBlock(b)) return false;
         // Interrupt etc. — synthetic, not user-authored.
         if (SYNTHETIC_MESSAGES.has(b.text)) return false;
         // Same filter as VirtualMessageList sticky-prompt: XML-wrapped (command
@@ -124,16 +182,17 @@ export function toolCallOf(msg: NavigableMessage): {
   input: Record<string, unknown>;
 } | undefined {
   if (msg.type === 'assistant') {
-    const b = msg.message.content[0];
-    if (b?.type === 'tool_use') return {
+    const b = getFirstContentBlock(msg);
+    if (isToolUseBlock(b)) return {
       name: b.name,
       input: b.input as Record<string, unknown>
     };
   }
   if (msg.type === 'grouped_tool_use') {
-    const b = msg.messages[0]?.message.content[0];
-    if (b?.type === 'tool_use') return {
-      name: msg.toolName,
+    const assistantMessage = msg.messages.find(m => m.type === 'assistant');
+    const b = assistantMessage ? getFirstContentBlock(assistantMessage) : undefined;
+    if (isToolUseBlock(b)) return {
+      name: String(msg.toolName),
       input: b.input as Record<string, unknown>
     };
   }
@@ -209,7 +268,7 @@ export const MessageActionsSelectedContext = React.createContext(false);
 export const InVirtualListContext = React.createContext(false);
 
 // bg must go on the Box that HAS marginTop (margin stays outside paint) — that's inside each consumer.
-export function useSelectedMessageBg() {
+export function useSelectedMessageBg(): 'messageActionsBackground' | undefined {
   return React.useContext(MessageActionsSelectedContext) ? "messageActionsBackground" : undefined;
 }
 
@@ -410,20 +469,20 @@ export function copyTextOf(msg: NavigableMessage): string {
   switch (msg.type) {
     case 'user':
       {
-        const b = msg.message.content[0];
-        return b?.type === 'text' ? stripSystemReminders(b.text) : '';
+        const b = getFirstContentBlock(msg);
+        return isTextBlock(b) ? stripSystemReminders(b.text) : '';
       }
     case 'assistant':
       {
-        const b = msg.message.content[0];
-        if (b?.type === 'text') return b.text;
+        const b = getFirstContentBlock(msg);
+        if (isTextBlock(b)) return b.text;
         const tc = toolCallOf(msg);
         return tc ? PRIMARY_INPUT[tc.name]?.extract(tc.input) ?? '' : '';
       }
     case 'grouped_tool_use':
       return msg.results.map(toolResultText).filter(Boolean).join('\n\n');
     case 'collapsed_read_search':
-      return msg.messages.flatMap(m => m.type === 'user' ? [toolResultText(m)] : m.type === 'grouped_tool_use' ? m.results.map(toolResultText) : []).filter(Boolean).join('\n\n');
+      return msg.messages.flatMap(m => m.type === 'user' ? [toolResultText(m)] : []).filter(Boolean).join('\n\n');
     case 'system':
       if ('content' in msg) return msg.content;
       if ('error' in msg) return String(msg.error);
@@ -433,17 +492,17 @@ export function copyTextOf(msg: NavigableMessage): string {
         const a = msg.attachment;
         if (a.type === 'queued_command') {
           const p = a.prompt;
-          return typeof p === 'string' ? p : p.flatMap(b => b.type === 'text' ? [b.text] : []).join('\n');
+          return typeof p === 'string' ? p : Array.isArray(p) ? p.flatMap(b => isTextBlock(b) ? [b.text] : []).join('\n') : '';
         }
         return `[${a.type}]`;
       }
   }
 }
 function toolResultText(r: NormalizedUserMessage): string {
-  const b = r.message.content[0];
-  if (b?.type !== 'tool_result') return '';
+  const b = getFirstContentBlock(r);
+  if (!isToolResultBlock(b)) return '';
   const c = b.content;
   if (typeof c === 'string') return c;
-  if (!c) return '';
-  return c.flatMap(x => x.type === 'text' ? [x.text] : []).join('\n');
+  if (!Array.isArray(c)) return '';
+  return c.flatMap(x => isTextBlock(x) ? [x.text] : []).join('\n');
 }

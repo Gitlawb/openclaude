@@ -20,6 +20,9 @@ type Props = {
   showSuccessMessage: boolean;
   verbose: boolean;
 };
+
+const NODE_ENV = String(process.env.NODE_ENV ?? 'production');
+
 export function AutoUpdater({
   isUpdating,
   onChangeIsUpdating,
@@ -49,7 +52,7 @@ export function AutoUpdater({
     if (isUpdatingRef.current) {
       return;
     }
-    if ("production" === 'test' || "production" === 'development') {
+    if (NODE_ENV === 'test' || NODE_ENV === 'development') {
       logForDebugging('AutoUpdater: Skipping update check in test/dev environment');
       return;
     }

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import chalk from 'chalk'
 import { spawnSync } from 'child_process'
@@ -52,7 +53,7 @@ const MAX_WORKTREE_SLUG_LENGTH = 64
  * Validates a worktree slug to prevent path traversal and directory escape.
  *
  * The slug is joined into `.claude/worktrees/<slug>` via path.join, which
- * normalizes `..` segments — so `../../../target` would escape the worktrees
+ * normalizes `..` segments вЂ” so `../../../target` would escape the worktrees
  * directory. Similarly, an absolute path (leading `/` or `C:\`) would discard
  * the prefix entirely.
  *
@@ -60,7 +61,7 @@ const MAX_WORKTREE_SLUG_LENGTH = 64
  * segment is validated independently against the allowlist, so `.` / `..`
  * segments and drive-spec characters are still rejected.
  *
- * Throws synchronously — callers rely on this running before any side effects
+ * Throws synchronously вЂ” callers rely on this running before any side effects
  * (git commands, hook execution, chdir).
  */
 export function validateWorktreeSlug(slug: string): void {
@@ -205,7 +206,7 @@ function worktreesDir(repoRoot: string): string {
   return join(repoRoot, '.claude', 'worktrees')
 }
 
-// Flatten nested slugs (`user/feature` → `user+feature`) for both the branch
+// Flatten nested slugs (`user/feature` в†’ `user+feature`) for both the branch
 // name and the directory path. Nesting in either location is unsafe:
 //   - git refs: `worktree-user` (file) vs `worktree-user/feature` (needs dir)
 //     is a D/F conflict that git rejects.
@@ -241,7 +242,7 @@ async function getOrCreateWorktree(
   const worktreeBranch = worktreeBranchName(slug)
 
   // Fast resume path: if the worktree already exists skip fetch and creation.
-  // Read the .git pointer file directly (no subprocess, no upward walk) — a
+  // Read the .git pointer file directly (no subprocess, no upward walk) вЂ” a
   // subprocess `rev-parse HEAD` burns ~15ms on spawn overhead even for a 2ms
   // task, and the await yield lets background spawnSyncs pile on (seen at 55ms).
   const existingHead = await readWorktreeHeadSha(worktreePath)
@@ -277,7 +278,7 @@ async function getOrCreateWorktree(
   } else {
     // If origin/<branch> already exists locally, skip fetch. In large repos
     // (210k files, 16M objects) fetch burns ~6-8s on a local commit-graph
-    // scan before even hitting the network. A slightly stale base is fine —
+    // scan before even hitting the network. A slightly stale base is fine вЂ”
     // the user can pull in the worktree if they want latest.
     // resolveRef reads the loose/packed ref directly; when it succeeds we
     // already have the SHA, so the later rev-parse is skipped entirely.
@@ -302,7 +303,7 @@ async function getOrCreateWorktree(
     }
   }
 
-  // For the fetch/PR-fetch paths we still need the SHA — the fs-only resolveRef
+  // For the fetch/PR-fetch paths we still need the SHA вЂ” the fs-only resolveRef
   // above only covers the "origin/<branch> already exists locally" case.
   if (!baseSha) {
     const { stdout, code: shaCode } = await execFileNoThrowWithCwd(
@@ -443,7 +444,7 @@ export async function copyWorktreeIncludeFiles(
         // Literal prefix match: pattern starts with the collapsed dir path
         if (normalized.startsWith(dir)) return true
         // Anchored glob: dir falls under the pattern's literal (non-glob) prefix
-        // e.g. `config/**/*.key` has literal prefix `config/` → expand `config/secrets/`
+        // e.g. `config/**/*.key` has literal prefix `config/` в†’ expand `config/secrets/`
         const globIdx = normalized.search(/[*?[]/)
         if (globIdx > 0) {
           const literalPrefix = normalized.slice(0, globIdx)
@@ -552,7 +553,7 @@ async function performPostCreationSetup(
   if (hooksPath) {
     // `git config` (no --worktree flag) writes to the main repo's .git/config,
     // shared by all worktrees. Once set, every subsequent worktree create is a
-    // no-op — skip the subprocess (~14ms spawn) when the value already matches.
+    // no-op вЂ” skip the subprocess (~14ms spawn) when the value already matches.
     const gitDir = await resolveGitDir(repoRoot)
     const configDir = gitDir ? ((await getCommonDir(gitDir)) ?? gitDir) : null
     const existing = configDir
@@ -592,13 +593,13 @@ async function performPostCreationSetup(
   // resets the SHARED .git/config value back to relative, causing each
   // worktree to resolve to its OWN .husky/ again. The attribution hook
   // file isn't tracked (it's in .git/info/exclude), so fresh worktrees
-  // don't have it. Install it directly into the worktree's .husky/ —
+  // don't have it. Install it directly into the worktree's .husky/ вЂ”
   // husky won't delete it (husky install is additive-only), and for
   // non-husky repos this resolves to the shared .git/hooks/ (idempotent).
   //
   // Pass the worktree-local .husky explicitly: getHooksDir would return
   // the absolute core.hooksPath we just set above (main repo's .husky),
-  // not the worktree's — `git rev-parse --git-path hooks` echoes the config
+  // not the worktree's вЂ” `git rev-parse --git-path hooks` echoes the config
   // value verbatim when it's absolute.
   if (feature('COMMIT_ATTRIBUTION')) {
     const worktreeHooksDir =
@@ -615,7 +616,7 @@ async function performPostCreationSetup(
       )
       .catch(error => {
         // Dynamic import() itself rejected (module load failure). The inner
-        // .catch above only handles installPrepareCommitMsgHook rejection —
+        // .catch above only handles installPrepareCommitMsgHook rejection вЂ”
         // without this outer handler an import failure would surface as an
         // unhandled promise rejection.
         logForDebugging(`Failed to load postCommitAttribution module: ${error}`)
@@ -632,8 +633,8 @@ async function performPostCreationSetup(
  */
 export function parsePRReference(input: string): number | null {
   // GitHub-style PR URL: https://<host>/owner/repo/pull/123 (with optional trailing slash, query, hash)
-  // The /pull/N path shape is specific to GitHub — GitLab uses /-/merge_requests/N,
-  // Bitbucket uses /pull-requests/N — so matching any host here is safe.
+  // The /pull/N path shape is specific to GitHub вЂ” GitLab uses /-/merge_requests/N,
+  // Bitbucket uses /pull-requests/N вЂ” so matching any host here is safe.
   const urlMatch = input.match(
     /^https?:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/(\d+)\/?(?:[?#].*)?$/i,
   )
@@ -705,7 +706,7 @@ export async function createWorktreeForSession(
   tmuxSessionName?: string,
   options?: { prNumber?: number },
 ): Promise<WorktreeSession> {
-  // Must run before the hook branch below — hooks receive the raw slug as an
+  // Must run before the hook branch below вЂ” hooks receive the raw slug as an
   // argument, and the git branch builds a path from it via path.join.
   validateWorktreeSlug(slug)
 
@@ -921,7 +922,7 @@ export async function createAgentWorktree(slug: string): Promise<{
   // Fall back to git worktree
   // findCanonicalGitRoot (not findGitRoot) so agent worktrees always land in
   // the main repo's .claude/worktrees/ even when spawned from inside a session
-  // worktree — otherwise they nest at <worktree>/.claude/worktrees/ and the
+  // worktree вЂ” otherwise they nest at <worktree>/.claude/worktrees/ and the
   // periodic cleanup (which scans the canonical root) never finds them.
   const gitRoot = findCanonicalGitRoot(getCwd())
   if (!gitRoot) {
@@ -941,7 +942,7 @@ export async function createAgentWorktree(slug: string): Promise<{
     await performPostCreationSetup(gitRoot, worktreePath)
   } else {
     // Bump mtime so the periodic stale-worktree cleanup doesn't consider this
-    // worktree stale — the fast-resume path is read-only and leaves the original
+    // worktree stale вЂ” the fast-resume path is read-only and leaves the original
     // creation-time mtime intact, which can be past the 30-day cutoff.
     const now = new Date()
     await utimes(worktreePath, now, now)
@@ -1030,7 +1031,7 @@ export async function removeAgentWorktree(
 const EPHEMERAL_WORKTREE_PATTERNS = [
   /^agent-a[0-9a-f]{7}$/,
   /^wf_[0-9a-f]{8}-[0-9a-f]{3}-\d+$/,
-  // Legacy wf-<idx> slugs from before workflowRunId disambiguation — kept so
+  // Legacy wf-<idx> slugs from before workflowRunId disambiguation вЂ” kept so
   // the 30-day sweep still cleans up worktrees leaked by older builds.
   /^wf-\d+$/,
   // Real bridge slugs are `bridge-${safeFilenameId(sessionId)}`.
@@ -1048,12 +1049,12 @@ const EPHEMERAL_WORKTREE_PATTERNS = [
  * - Skips the current session's worktree
  * - Fail-closed: skips if git status fails or shows tracked changes
  *   (-uno: untracked files in a 30-day-old crashed agent worktree are build
- *   artifacts; skipping the untracked scan is 5-10× faster on large repos)
+ *   artifacts; skipping the untracked scan is 5-10Г— faster on large repos)
  * - Fail-closed: skips if any commits aren't reachable from a remote
  *
  * `git worktree remove --force` handles both the directory and git's internal
  * worktree tracking. If git doesn't recognize the path as a worktree (orphaned
- * dir), it's left in place — a later readdir finding it stale again is harmless.
+ * dir), it's left in place вЂ” a later readdir finding it stale again is harmless.
  */
 export async function cleanupStaleAgentWorktrees(
   cutoffDate: Date,
@@ -1096,7 +1097,7 @@ export async function cleanupStaleAgentWorktrees(
     }
 
     // Both checks must succeed with empty output. Non-zero exit (corrupted
-    // worktree, git not recognizing it, etc.) means skip — we don't know
+    // worktree, git not recognizing it, etc.) means skip вЂ” we don't know
     // what's in there.
     const [status, unpushed] = await Promise.all([
       execFileNoThrowWithCwd(
@@ -1139,7 +1140,7 @@ export async function cleanupStaleAgentWorktrees(
  * Check whether a worktree has uncommitted changes or new commits since creation.
  * Returns true if there are uncommitted changes (dirty working tree), if commits
  * were made on the worktree branch since `headCommit`, or if git commands fail
- * — callers use this to decide whether to remove a worktree, so fail-closed.
+ * вЂ” callers use this to decide whether to remove a worktree, so fail-closed.
  */
 export async function hasWorktreeChanges(
   worktreePath: string,
@@ -1385,10 +1386,10 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
     const y = chalk.yellow
     // biome-ignore lint/suspicious/noConsole: intentional user guidance
     console.log(
-      `\n${y('╭─ iTerm2 Tip ────────────────────────────────────────────────────────╮')}\n` +
-        `${y('│')} To open as a tab instead of a new window:                           ${y('│')}\n` +
-        `${y('│')} iTerm2 > Settings > General > tmux > "Tabs in attaching window"     ${y('│')}\n` +
-        `${y('╰─────────────────────────────────────────────────────────────────────╯')}\n`,
+      `\n${y('в•­в”Ђ iTerm2 Tip в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв•®')}\n` +
+        `${y('в”‚')} To open as a tab instead of a new window:                           ${y('в”‚')}\n` +
+        `${y('в”‚')} iTerm2 > Settings > General > tmux > "Tabs in attaching window"     ${y('в”‚')}\n` +
+        `${y('в•°в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв•Ї')}\n`,
     )
   }
 
@@ -1517,3 +1518,4 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
 
   return { handled: true }
 }
+

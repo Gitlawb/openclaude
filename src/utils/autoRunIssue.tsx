@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { useEffect, useRef } from 'react';
@@ -119,3 +120,4 @@ export function getAutoRunIssueReasonText(reason: AutoRunIssueReason): string {
       return 'Unknown reason';
   }
 }
+

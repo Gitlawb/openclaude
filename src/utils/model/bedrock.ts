@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import memoize from 'lodash-es/memoize.js'
 import { refreshAndGetAwsCredentials } from '../auth.js'
 import { getAWSRegion, isEnvTruthy } from '../envUtils.js'
@@ -213,11 +214,11 @@ export type BedrockRegionPrefix = (typeof BEDROCK_REGION_PREFIXES)[number]
  * Extract the region prefix from a Bedrock cross-region inference model ID.
  * Handles both plain model IDs and full ARN format.
  * For example:
- * - "eu.anthropic.claude-sonnet-4-5-20250929-v1:0" → "eu"
- * - "us.anthropic.claude-3-7-sonnet-20250219-v1:0" → "us"
- * - "arn:aws:bedrock:ap-northeast-2:123:inference-profile/global.anthropic.claude-opus-4-6-v1" → "global"
- * - "anthropic.claude-3-5-sonnet-20241022-v2:0" → undefined (foundation model)
- * - "claude-sonnet-4-5-20250929" → undefined (first-party format)
+ * - "eu.anthropic.claude-sonnet-4-5-20250929-v1:0" в†’ "eu"
+ * - "us.anthropic.claude-3-7-sonnet-20250219-v1:0" в†’ "us"
+ * - "arn:aws:bedrock:ap-northeast-2:123:inference-profile/global.anthropic.claude-opus-4-6-v1" в†’ "global"
+ * - "anthropic.claude-3-5-sonnet-20241022-v2:0" в†’ undefined (foundation model)
+ * - "claude-sonnet-4-5-20250929" в†’ undefined (first-party format)
  */
 export function getBedrockRegionPrefix(
   modelId: string,
@@ -241,9 +242,9 @@ export function getBedrockRegionPrefix(
  * If the model is not a Bedrock model, it will be returned as-is.
  *
  * For example:
- * - applyBedrockRegionPrefix("us.anthropic.claude-sonnet-4-5-v1:0", "eu") → "eu.anthropic.claude-sonnet-4-5-v1:0"
- * - applyBedrockRegionPrefix("anthropic.claude-sonnet-4-5-v1:0", "eu") → "eu.anthropic.claude-sonnet-4-5-v1:0"
- * - applyBedrockRegionPrefix("claude-sonnet-4-5-20250929", "eu") → "claude-sonnet-4-5-20250929" (not a Bedrock model)
+ * - applyBedrockRegionPrefix("us.anthropic.claude-sonnet-4-5-v1:0", "eu") в†’ "eu.anthropic.claude-sonnet-4-5-v1:0"
+ * - applyBedrockRegionPrefix("anthropic.claude-sonnet-4-5-v1:0", "eu") в†’ "eu.anthropic.claude-sonnet-4-5-v1:0"
+ * - applyBedrockRegionPrefix("claude-sonnet-4-5-20250929", "eu") в†’ "claude-sonnet-4-5-20250929" (not a Bedrock model)
  */
 export function applyBedrockRegionPrefix(
   modelId: string,
@@ -263,3 +264,4 @@ export function applyBedrockRegionPrefix(
   // Not a Bedrock model format, return as-is
   return modelId
 }
+

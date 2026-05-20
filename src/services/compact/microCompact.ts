@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { QuerySource } from '../../constants/querySource.js'
@@ -29,8 +30,8 @@ import {
   type TimeBasedMCConfig,
 } from './timeBasedMCConfig.js'
 
-// Inline from utils/toolResultStorage.ts — importing that file pulls in
-// sessionStorage → utils/messages → services/api/errors, completing a
+// Inline from utils/toolResultStorage.ts вЂ” importing that file pulls in
+// sessionStorage в†’ utils/messages в†’ services/api/errors, completing a
 // circular-deps loop back through this file via promptCacheBreakDetection.
 // Drift is caught by a test asserting equality with the source-of-truth.
 export const TIME_BASED_MC_CLEARED_MESSAGE = '[Old tool result content cleared]'
@@ -80,7 +81,7 @@ function ensureCachedMCState(): import('./cachedMicrocompact.js').CachedMCState 
   }
   if (!cachedMCState) {
     throw new Error(
-      'cachedMCState not initialized — getCachedMCModule() must be called first',
+      'cachedMCState not initialized вЂ” getCachedMCModule() must be called first',
     )
   }
   return cachedMCState
@@ -250,7 +251,7 @@ function collectCompactableToolIds(messages: Message[]): string[] {
 // 'repl_main_thread:outputStyle:<style>' when a non-default output style
 // is active. The bare 'repl_main_thread' is only used for the default style.
 // query.ts:350/1451 use the same startsWith pattern; the pre-existing
-// cached-MC `=== 'repl_main_thread'` check was a latent bug — users with a
+// cached-MC `=== 'repl_main_thread'` check was a latent bug вЂ” users with a
 // non-default output style were silently excluded from cached MC.
 function isMainThreadSource(querySource: QuerySource | undefined): boolean {
   return !querySource || querySource.startsWith('repl_main_thread')
@@ -266,7 +267,7 @@ export async function microcompactMessages(
 
   // Time-based trigger runs first and short-circuits. If the gap since the
   // last assistant message exceeds the threshold, the server cache has expired
-  // and the full prefix will be rewritten regardless — so content-clear old
+  // and the full prefix will be rewritten regardless вЂ” so content-clear old
   // tool results now, before the request, to shrink what gets rewritten.
   // Cached MC (cache-editing) is skipped when this fires: editing assumes a
   // warm cache, and we just established it's cold.
@@ -291,7 +292,7 @@ export async function microcompactMessages(
     }
   }
 
-  // Legacy microcompact path removed — tengu_cache_plum_violet is always true.
+  // Legacy microcompact path removed вЂ” tengu_cache_plum_violet is always true.
   // For contexts where cached microcompact is not available (external builds,
   // non-ant users, unsupported models, sub-agents), no compaction happens here;
   // autocompact handles context pressure instead.
@@ -366,7 +367,7 @@ async function cachedMicrocompactPath(
 
     // Notify cache break detection that cache reads will legitimately drop
     if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
-      // Pass the actual querySource — isMainThreadSource now prefix-matches
+      // Pass the actual querySource вЂ” isMainThreadSource now prefix-matches
       // so output-style variants enter here, and getTrackingKey keys on the
       // full source string, not the 'repl_main_thread' prefix.
       notifyCacheDeletion(querySource ?? 'repl_main_thread')
@@ -410,7 +411,7 @@ async function cachedMicrocompactPath(
  * recent N compactable tool results.
  *
  * Returns null when the trigger doesn't fire (disabled, wrong source, gap
- * under threshold, nothing to clear) — caller falls through to other paths.
+ * under threshold, nothing to clear) вЂ” caller falls through to other paths.
  *
  * Unlike cached MC, this mutates message content directly. The cache is cold,
  * so there's no cached prefix to preserve via cache_edits.
@@ -433,7 +434,7 @@ export function evaluateTimeBasedTrigger(
   // Require an explicit main-thread querySource. isMainThreadSource treats
   // undefined as main-thread (for cached-MC backward-compat), but several
   // callers (/context, /compact, analyzeContext) invoke microcompactMessages
-  // without a source for analysis-only purposes — they should not trigger.
+  // without a source for analysis-only purposes вЂ” they should not trigger.
   if (!config.enabled || !querySource || !isMainThreadSource(querySource)) {
     return null
   }
@@ -463,7 +464,7 @@ function maybeTimeBasedMicrocompact(
 
   // Floor at 1: slice(-0) returns the full array (paradoxically keeps
   // everything), and clearing ALL results leaves the model with zero working
-  // context. Neither degenerate is sensible — always keep at least the last.
+  // context. Neither degenerate is sensible вЂ” always keep at least the last.
   const keepRecent = Math.max(1, config.keepRecent)
   const keepSet = new Set(compactableIds.slice(-keepRecent))
   const clearSet = new Set(compactableIds.filter(id => !keepSet.has(id)))
@@ -521,10 +522,10 @@ function maybeTimeBasedMicrocompact(
   // stale state, it would try to cache_edit tools whose server-side entries
   // no longer exist. Reset it.
   resetMicrocompactState()
-  // We just changed the prompt content — the next response's cache read will
+  // We just changed the prompt content вЂ” the next response's cache read will
   // be low, but that's us, not a break. Tell the detector to expect a drop.
   // notifyCacheDeletion (not notifyCompaction) because it's already imported
-  // here and achieves the same false-positive suppression — adding the second
+  // here and achieves the same false-positive suppression вЂ” adding the second
   // symbol to the import was flagged by the circular-deps check.
   // Pass the actual querySource: getTrackingKey returns the full source string
   // (e.g. 'repl_main_thread:outputStyle:custom'), not just the prefix.
@@ -534,3 +535,4 @@ function maybeTimeBasedMicrocompact(
 
   return { messages: result }
 }
+

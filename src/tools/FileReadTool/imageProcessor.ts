@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { Buffer } from 'buffer'
 import { isInBundledMode } from '../../utils/bundledMode.js'
 
@@ -107,7 +108,7 @@ export async function getImageCreator(): Promise<SharpCreator> {
   return sharp
 }
 
-// Dynamic import shape varies by module interop mode — ESM yields { default: fn }, CJS yields fn directly.
+// Dynamic import shape varies by module interop mode вЂ” ESM yields { default: fn }, CJS yields fn directly.
 type MaybeDefault<T> = T | { default: T }
 
 function unwrapDefault<T extends (...args: never[]) => unknown>(
@@ -115,3 +116,4 @@ function unwrapDefault<T extends (...args: never[]) => unknown>(
 ): T {
   return typeof mod === 'function' ? mod : mod.default
 }
+

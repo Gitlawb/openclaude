@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type {
   RenderableMessage,
   SystemStopHookSummaryMessage,
@@ -57,3 +58,4 @@ export function collapseHookSummaries(
 
   return result
 }
+

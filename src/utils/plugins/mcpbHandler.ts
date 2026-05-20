@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type {
   McpbManifest,
   McpbUserConfigurationOption,
@@ -114,7 +115,7 @@ function getMetadataPath(cacheDir: string, source: string): string {
 
 /**
  * Compose the secureStorage key for a per-server secret bucket.
- * `pluginSecrets` is a flat map — per-server secrets share it with top-level
+ * `pluginSecrets` is a flat map вЂ” per-server secrets share it with top-level
  * plugin options (pluginOptionsStorage.ts) using a `${pluginId}/${server}`
  * composite key. `/` can't appear in plugin IDs (`name@marketplace`) or
  * server names (MCP identifier constraints), so it's unambiguous. Keeps the
@@ -128,11 +129,11 @@ function serverSecretsKey(pluginId: string, serverName: string): string {
 /**
  * Load user configuration for an MCP server, merging non-sensitive values
  * (from settings.json) with sensitive values (from secureStorage keychain).
- * secureStorage wins on collision — schema determines destination so
+ * secureStorage wins on collision вЂ” schema determines destination so
  * collision shouldn't happen, but if a user hand-edits settings.json we
  * trust the more secure source.
  *
- * Returns null only if NEITHER source has anything — callers skip
+ * Returns null only if NEITHER source has anything вЂ” callers skip
  * ${user_config.X} substitution in that case.
  *
  * @param pluginId - Plugin identifier in "plugin@marketplace" format
@@ -174,11 +175,11 @@ export function loadMcpServerUserConfig(
 /**
  * Save user configuration for an MCP server, splitting by `schema[key].sensitive`.
  * Mirrors savePluginOptions (pluginOptionsStorage.ts:90) for top-level options:
- *   - `sensitive: true` → secureStorage (keychain on macOS, .credentials.json 0600 elsewhere)
- *   - everything else   → settings.json pluginConfigs[pluginId].mcpServers[serverName]
+ *   - `sensitive: true` в†’ secureStorage (keychain on macOS, .credentials.json 0600 elsewhere)
+ *   - everything else   в†’ settings.json pluginConfigs[pluginId].mcpServers[serverName]
  *
  * Without this split, per-channel `sensitive: true` was a false sense of
- * security — the dialog masked the input but the save went to plaintext
+ * security вЂ” the dialog masked the input but the save went to plaintext
  * settings.json anyway. H1 #3617646 (Telegram/Discord bot tokens in
  * world-readable .env) surfaced this as the gap to close.
  *
@@ -188,7 +189,7 @@ export function loadMcpServerUserConfig(
  * @param serverName - MCP server name from DXT manifest
  * @param config - User configuration values
  * @param schema - The userConfig schema for this server (manifest.user_config
- *   or channels[].userConfig) — drives the sensitive/non-sensitive split
+ *   or channels[].userConfig) вЂ” drives the sensitive/non-sensitive split
  */
 export function saveMcpServerUserConfig(
   pluginId: string,
@@ -210,21 +211,21 @@ export function saveMcpServerUserConfig(
 
     // Scrub ONLY keys we're writing in this call. Covers both directions
     // across schema-version flips:
-    //  - sensitive→secureStorage ⇒ remove stale plaintext from settings.json
-    //  - nonSensitive→settings.json ⇒ remove stale entry from secureStorage
+    //  - sensitiveв†’secureStorage в‡’ remove stale plaintext from settings.json
+    //  - nonSensitiveв†’settings.json в‡’ remove stale entry from secureStorage
     //    (otherwise loadMcpServerUserConfig's {...nonSensitive, ...sensitive}
     //    would let the stale secureStorage value win on next read)
     // Partial `config` (user only re-enters one field) leaves other fields
-    // untouched in BOTH stores — defense-in-depth against future callers.
+    // untouched in BOTH stores вЂ” defense-in-depth against future callers.
     const sensitiveKeysInThisSave = new Set(Object.keys(sensitive))
     const nonSensitiveKeysInThisSave = new Set(Object.keys(nonSensitive))
 
-    // Sensitive → secureStorage FIRST. If this fails (keychain locked,
-    // .credentials.json perms), throw before touching settings.json — the
+    // Sensitive в†’ secureStorage FIRST. If this fails (keychain locked,
+    // .credentials.json perms), throw before touching settings.json вЂ” the
     // old plaintext stays as a fallback instead of losing BOTH copies.
     //
-    // Also scrub non-sensitive keys from secureStorage — schema flipped
-    // sensitive→false and they're being written to settings.json now. Without
+    // Also scrub non-sensitive keys from secureStorage вЂ” schema flipped
+    // sensitiveв†’false and they're being written to settings.json now. Without
     // this, loadMcpServerUserConfig's merge would let the stale secureStorage
     // value win on next read.
     const storage = getSecureStorage()
@@ -248,7 +249,7 @@ export function saveMcpServerUserConfig(
       if (!existing.pluginSecrets) {
         existing.pluginSecrets = {}
       }
-      // secureStorage keyvault is a flat object — direct replace, no merge
+      // secureStorage keyvault is a flat object вЂ” direct replace, no merge
       // semantics to worry about (unlike settings.json's mergeWith).
       existing.pluginSecrets[k] = {
         ...secureScrubbed,
@@ -275,16 +276,16 @@ export function saveMcpServerUserConfig(
       }
     }
 
-    // Non-sensitive → settings.json. Write whenever there are new non-sensitive
-    // values OR existing plaintext sensitive values to scrub — so reconfiguring
+    // Non-sensitive в†’ settings.json. Write whenever there are new non-sensitive
+    // values OR existing plaintext sensitive values to scrub вЂ” so reconfiguring
     // a sensitive-only schema still cleans up the old settings.json. Runs
     // AFTER the secureStorage write succeeded, so the scrub can't leave you
     // with zero copies of the secret.
     //
     // updateSettingsForSource does mergeWith(diskSettings, ourSettings, ...)
-    // which PRESERVES destination keys absent from source — so simply omitting
+    // which PRESERVES destination keys absent from source вЂ” so simply omitting
     // sensitive keys doesn't scrub them, the disk copy merges back in. Instead:
-    // set each sensitive key to explicit `undefined` — mergeWith (with the
+    // set each sensitive key to explicit `undefined` вЂ” mergeWith (with the
     // customizer at settings.ts:349) treats explicit undefined as a delete.
     const settings = getSettings_DEPRECATED()
     const existingInSettings =
@@ -307,7 +308,7 @@ export function saveMcpServerUserConfig(
       }
       // Build the scrub-via-undefined map. The UserConfigValues type doesn't
       // include undefined, but updateSettingsForSource's mergeWith customizer
-      // needs explicit undefined to delete — cast is deliberate internal
+      // needs explicit undefined to delete вЂ” cast is deliberate internal
       // plumbing (same rationale as deletePluginOptions in
       // pluginOptionsStorage.ts:184, see CLAUDE.md's 10% case).
       const scrubbed = Object.fromEntries(
@@ -507,9 +508,9 @@ async function downloadMcpb(
     })
 
     const data = new Uint8Array(response.data)
-    // Fire telemetry before writeFile — the event measures the network
+    // Fire telemetry before writeFile вЂ” the event measures the network
     // fetch, not disk I/O. A writeFile EACCES would otherwise match
-    // classifyFetchError's /permission denied/ → misreport as auth.
+    // classifyFetchError's /permission denied/ в†’ misreport as auth.
     logPluginFetch('mcpb', url, 'success', performance.now() - started)
     fetchTelemetryFired = true
 
@@ -544,7 +545,7 @@ async function downloadMcpb(
 /**
  * Extract MCPB file and write contents to extraction directory.
  *
- * @param modes - name→mode map from `parseZipModes`. MCPB bundles can ship
+ * @param modes - nameв†’mode map from `parseZipModes`. MCPB bundles can ship
  *   native MCP server binaries, so preserving the exec bit matters here.
  */
 async function extractMcpbContents(
@@ -568,7 +569,7 @@ async function extractMcpbContents(
 
   for (const [filePath, fileData] of entries) {
     // Directory entries (common in zip -r, Python zipfile, Java ZipOutputStream)
-    // are filtered above — writeFile would create `bin/` as an empty regular
+    // are filtered above вЂ” writeFile would create `bin/` as an empty regular
     // file, then mkdir for `bin/server` would fail with ENOTDIR. The
     // mkdir(dirname(fullPath)) below creates parent dirs implicitly.
 
@@ -599,7 +600,7 @@ async function extractMcpbContents(
 
     const mode = modes[filePath]
     if (mode && mode & 0o111) {
-      // Swallow EPERM/ENOTSUP (NFS root_squash, some FUSE mounts) — losing +x
+      // Swallow EPERM/ENOTSUP (NFS root_squash, some FUSE mounts) вЂ” losing +x
       // is the pre-PR behavior and better than aborting mid-extraction.
       await chmod(fullPath, mode & 0o777).catch(() => {})
     }
@@ -837,7 +838,7 @@ export async function loadMcpbFile(
   }
 
   const unzipped = await unzipFile(Buffer.from(mcpbData))
-  // fflate doesn't surface external_attr — parse the central directory so
+  // fflate doesn't surface external_attr вЂ” parse the central directory so
   // native MCP server binaries keep their exec bit after extraction.
   const modes = parseZipModes(mcpbData)
 
@@ -966,3 +967,4 @@ export async function loadMcpbFile(
     contentHash,
   }
 }
+

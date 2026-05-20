@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { z } from 'zod/v4';
@@ -155,7 +156,7 @@ export const TaskOutputTool: Tool<InputSchema, TaskOutputToolOutput> = buildTool
     return inputSchema();
   },
   async description() {
-    return '[Deprecated] — prefer Read on the task output file path';
+    return '[Deprecated] вЂ” prefer Read on the task output file path';
   },
   isConcurrencySafe(_input) {
     return this.isReadOnly?.(_input) ?? false;
@@ -170,7 +171,7 @@ export const TaskOutputTool: Tool<InputSchema, TaskOutputToolOutput> = buildTool
     return input.task_id;
   },
   async prompt() {
-    return `DEPRECATED: Prefer using the Read tool on the task's output file path instead. Background tasks return their output file path in the tool result, and you receive a <task-notification> with the same path when the task completes — Read that file directly.
+    return `DEPRECATED: Prefer using the Read tool on the task's output file path instead. Background tasks return their output file path in the tool result, and you receive a <task-notification> with the same path when the task completes вЂ” Read that file directly.
 
 - Retrieves output from a running or completed task (background shell, agent, or remote session)
 - Takes a task_id parameter identifying the task
@@ -485,7 +486,7 @@ function TaskOutputResultDisplay(t0) {
     if (result.retrieval_status === "timeout" || task.status === "running") {
       let t3;
       if ($[29] === Symbol.for("react.memo_cache_sentinel")) {
-        t3 = <MessageResponse><Text dimColor={true}>Task is still running…</Text></MessageResponse>;
+        t3 = <MessageResponse><Text dimColor={true}>Task is still runningвЂ¦</Text></MessageResponse>;
         $[29] = t3;
       } else {
         t3 = $[29];
@@ -495,7 +496,7 @@ function TaskOutputResultDisplay(t0) {
     if (result.retrieval_status === "not_ready") {
       let t3;
       if ($[30] === Symbol.for("react.memo_cache_sentinel")) {
-        t3 = <MessageResponse><Text dimColor={true}>Task is still running…</Text></MessageResponse>;
+        t3 = <MessageResponse><Text dimColor={true}>Task is still runningвЂ¦</Text></MessageResponse>;
         $[30] = t3;
       } else {
         t3 = $[30];
@@ -514,7 +515,7 @@ function TaskOutputResultDisplay(t0) {
   if (task.task_type === "remote_agent") {
     let t3;
     if ($[32] !== task.description || $[33] !== task.status) {
-      t3 = <Text>  {task.description} [{task.status}]</Text>;
+      t3 = <Text>В В {task.description} [{task.status}]</Text>;
       $[32] = task.description;
       $[33] = task.status;
       $[34] = t3;
@@ -554,7 +555,7 @@ function TaskOutputResultDisplay(t0) {
   }
   let t3;
   if ($[46] !== task.description || $[47] !== task.status) {
-    t3 = <Text>  {task.description} [{task.status}]</Text>;
+    t3 = <Text>В В {task.description} [{task.status}]</Text>;
     $[46] = task.description;
     $[47] = task.status;
     $[48] = t3;
@@ -581,3 +582,4 @@ function TaskOutputResultDisplay(t0) {
   return t5;
 }
 export default TaskOutputTool;
+

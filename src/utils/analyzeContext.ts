@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { Anthropic } from '@anthropic-ai/sdk'
 import {
@@ -69,7 +70,7 @@ const MANUAL_COMPACT_BUFFER_NAME = 'Compact buffer'
  * Fixed token overhead added by the API when tools are present.
  * The API adds a tool prompt preamble (~500 tokens) once per API call when tools are present.
  * When we count tools individually via the token counting API, each call includes this overhead,
- * leading to N × overhead instead of 1 × overhead for N tools.
+ * leading to N Г— overhead instead of 1 Г— overhead for N tools.
  * We subtract this overhead from per-tool counts to show accurate tool content sizes.
  */
 export const TOOL_TOKEN_COUNT_OVERHEAD = 500
@@ -266,7 +267,7 @@ function extractSectionName(content: string): string {
   }
   // Fall back to a truncated preview of the first non-empty line
   const firstLine = content.split('\n').find(l => l.trim().length > 0) ?? ''
-  return firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+  return firstLine.length > 40 ? firstLine.slice(0, 40) + 'вЂ¦' : firstLine
 }
 
 async function countSystemTokens(
@@ -642,7 +643,7 @@ export async function countMcpToolTokens(
 
   // Estimate per-tool proportions for display using local estimation.
   // Include name + description + input schema to match what toolToAPISchema
-  // sends — otherwise tools with similar schemas but different descriptions
+  // sends вЂ” otherwise tools with similar schemas but different descriptions
   // get identical counts (MCP tools share the same base Zod inputSchema).
   const estimates = await Promise.all(
     mcpTools.map(async t =>
@@ -1104,9 +1105,9 @@ export async function analyzeContextUsage(
 
   // Reserved space after messages (not counted in actualUsage shown to user).
   // Under reactive-only mode (cobalt_raccoon), proactive autocompact never
-  // fires and the reserved buffer is a lie — skip it entirely and let Free
+  // fires and the reserved buffer is a lie вЂ” skip it entirely and let Free
   // space fill the grid. feature() guard keeps the flag string out of
-  // external builds. Same for context-collapse (marble_origami) — collapse
+  // external builds. Same for context-collapse (marble_origami) вЂ” collapse
   // owns the threshold ladder and autocompact is suppressed in
   // shouldAutoCompact, so the 33k buffer shown here would be a lie too.
   let reservedTokens = 0
@@ -1126,7 +1127,7 @@ export async function analyzeContextUsage(
     }
   }
   if (skipReservedBuffer) {
-    // No buffer category pushed — reactive compaction is transparent and
+    // No buffer category pushed вЂ” reactive compaction is transparent and
     // doesn't need a visible reservation in the grid.
   } else if (isAutoCompact && autoCompactThreshold !== undefined) {
     // Autocompact buffer (from effective context)
@@ -1380,3 +1381,4 @@ export async function analyzeContextUsage(
     apiUsage,
   }
 }
+

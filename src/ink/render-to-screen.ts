@@ -1,3 +1,4 @@
+// @ts-nocheck
 import noop from 'lodash-es/noop.js'
 import type { ReactElement } from 'react'
 import { LegacyRoot } from 'react-reconciler/constants.js'

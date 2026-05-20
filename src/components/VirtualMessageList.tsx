@@ -130,6 +130,27 @@ type Props = {
  * check. Shows up on `cc -c` resumes where memory-update reminders are dense.
  */
 const promptTextCache = new WeakMap<RenderableMessage, string | null>();
+type TextContentBlock = {
+  type: 'text';
+  text: string;
+};
+function getFirstTextBlock(content: unknown): TextContentBlock | null {
+  if (!Array.isArray(content)) {
+    return null;
+  }
+  const block = content[0];
+  if (typeof block !== 'object' || block === null) {
+    return null;
+  }
+  if ((block as {
+    type?: unknown;
+  }).type !== 'text') {
+    return null;
+  }
+  return typeof (block as {
+    text?: unknown;
+  }).text === 'string' ? block as TextContentBlock : null;
+}
 function stickyPromptText(msg: RenderableMessage): string | null {
   // Cache keyed on message object — messages are append-only and don't
   // mutate, so a WeakMap hit is always valid. The walk (StickyTracker,
@@ -146,12 +167,18 @@ function computeStickyPromptText(msg: RenderableMessage): string | null {
   let raw: string | null = null;
   if (msg.type === 'user') {
     if (msg.isMeta || msg.isVisibleInTranscriptOnly) return null;
-    const block = msg.message.content[0];
-    if (block?.type !== 'text') return null;
+    const block = getFirstTextBlock(msg.message.content);
+    if (!block) return null;
     raw = block.text;
   } else if (msg.type === 'attachment' && msg.attachment.type === 'queued_command' && msg.attachment.commandMode !== 'task-notification' && !msg.attachment.isMeta) {
     const p = msg.attachment.prompt;
-    raw = typeof p === 'string' ? p : p.flatMap(b => b.type === 'text' ? [b.text] : []).join('\n');
+    raw = typeof p === 'string' ? p : Array.isArray(p) ? p.flatMap(b => typeof b === 'object' && b !== null && 'type' in b && (b as {
+      type?: unknown;
+    }).type === 'text' && typeof (b as {
+      text?: unknown;
+    }).text === 'string' ? [(b as {
+      text: string;
+    }).text] : []).join('\n') : '';
   }
   if (raw === null) return null;
   const t = stripSystemReminders(raw);
@@ -345,7 +372,7 @@ export function VirtualMessageList({
   useImperativeHandle(cursorNavRef, (): MessageActionsNav => {
     const select = (m: NavigableMessage) => setCursor?.({
       uuid: m.uuid,
-      msgType: m.type,
+      msgType: m.type as MessageActionsState['msgType'],
       expanded: false,
       toolName: toolCallOf(m)?.name
     });

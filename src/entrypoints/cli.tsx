@@ -8,6 +8,8 @@ import {
   validateProviderEnvOrExit,
 } from '../utils/providerValidation.js'
 
+declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
+
 // OpenClaude: polyfill globalThis.File for Node < 20.
 // undici v7 references `File` at module evaluation time (webidl type
 // assertions). Node 18 lacks the global, causing a ReferenceError inside
@@ -19,7 +21,6 @@ if (typeof globalThis.File === 'undefined') {
     // Node 18.13+ exposes File in node:buffer but not as a global.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { File: NodeFile } = require('node:buffer')
-    // @ts-expect-error -- polyfilling missing global
     globalThis.File = NodeFile
   } catch {
     // Absolute fallback: stub so `MakeTypeAssertion(File)` doesn't throw.
@@ -108,6 +109,15 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
+  // Keep the persisted startup profile aligned with the active provider profile
+  // selected in the UI so restarts and release scripts see the same provider.
+  {
+    const { syncPersistedStartupProfileFromActiveProvider } = await import(
+      '../utils/providerProfiles.js'
+    )
+    syncPersistedStartupProfileFromActiveProvider()
+  }
+
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
   })
@@ -134,9 +144,47 @@ async function main(): Promise<void> {
 
   await validateProviderEnvOrExit()
 
+  if (
+    process.env.OPENCLAUDE_AGENT_GATEWAY_SERVER === '1' ||
+    args.includes('--agent-gateway-server')
+  ) {
+    const { startAgentGatewayFromConfig, stopAgentGateway } = await import('../services/agentGateway/index.js')
+    const runtime = await startAgentGatewayFromConfig()
+    if (!runtime) {
+      console.error(
+        'Error: agent gateway is not enabled. Set OPENCLAUDE_AGENT_API_ENABLED=1, OPENCLAUDE_TELEGRAM_ENABLED=1, OPENCLAUDE_AGENT_CRON_ENABLED=1, or enable Ouroboros consciousness.',
+      )
+      process.exit(1)
+    }
+    console.error(
+      `[agent-gateway] serving api=${runtime.api?.url ?? 'off'} telegram=${Boolean(runtime.telegram)} cron=${Boolean(runtime.cron)} consciousness=${Boolean(runtime.consciousness)}`,
+    )
+    const shutdown = async () => {
+      await stopAgentGateway()
+      process.exit(0)
+    }
+    process.once('SIGINT', () => { void shutdown() })
+    process.once('SIGTERM', () => { void shutdown() })
+    await new Promise(() => {})
+    return
+  }
+
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
   printStartupScreen()
+
+  if (
+    process.env.OPENCLAUDE_AGENT_GATEWAY_CHILD !== '1' &&
+    !args.includes('-p') &&
+    !args.includes('--print') &&
+    !args.includes('--init-only')
+  ) {
+    const { startAgentGatewayFromConfig } = await import('../services/agentGateway/index.js')
+    await startAgentGatewayFromConfig().catch(error => {
+      // biome-ignore lint/suspicious/noConsole:: startup warning for local gateway config
+      console.error(`Warning: agent gateway failed to start: ${String(error)}`)
+    })
+  }
 
   // For all other paths, load the startup profiler
   const {
@@ -197,7 +245,7 @@ async function main(): Promise<void> {
   if (feature('DAEMON') && args[0] === '--daemon-worker') {
     const {
       runDaemonWorker
-    } = await import('../daemon/workerRegistry.js');
+    } = await import('../daemon/workerRegistry.js' as string);
     await runDaemonWorker(args[1]);
     return;
   }
@@ -271,7 +319,7 @@ async function main(): Promise<void> {
     initSinks();
     const {
       daemonMain
-    } = await import('../daemon/main.js');
+    } = await import('../daemon/main.js' as string);
     await daemonMain(args.slice(1));
     return;
   }
@@ -285,7 +333,7 @@ async function main(): Promise<void> {
       enableConfigs
     } = await import('../utils/config.js');
     enableConfigs();
-    const bg = await import('../cli/bg.js');
+    const bg = await import('../cli/bg.js' as string);
     switch (args[0]) {
       case 'ps':
         await bg.psHandler(args.slice(1));
@@ -310,7 +358,7 @@ async function main(): Promise<void> {
     profileCheckpoint('cli_templates_path');
     const {
       templatesMain
-    } = await import('../cli/handlers/templateJobs.js');
+    } = await import('../cli/handlers/templateJobs.js' as string);
     await templatesMain(args);
     // process.exit (not return) — mountFleetView's Ink TUI can leave event
     // loop handles that prevent natural exit.
@@ -324,7 +372,7 @@ async function main(): Promise<void> {
     profileCheckpoint('cli_environment_runner_path');
     const {
       environmentRunnerMain
-    } = await import('../environment-runner/main.js');
+    } = await import('../environment-runner/main.js' as string);
     await environmentRunnerMain(args.slice(1));
     return;
   }
@@ -336,7 +384,7 @@ async function main(): Promise<void> {
     profileCheckpoint('cli_self_hosted_runner_path');
     const {
       selfHostedRunnerMain
-    } = await import('../self-hosted-runner/main.js');
+    } = await import('../self-hosted-runner/main.js' as string);
     await selfHostedRunnerMain(args.slice(1));
     return;
   }

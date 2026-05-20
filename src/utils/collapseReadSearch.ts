@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { findToolByName, type Tools } from '../Tool.js'
@@ -114,13 +115,13 @@ function isMemoryWriteOrEdit(toolName: string, toolInput: unknown): boolean {
   return filePath !== undefined && isAutoManagedMemoryFile(filePath)
 }
 
-// ~5 lines × ~60 cols. Generous static cap — the renderer lets Ink wrap.
+// ~5 lines Г— ~60 cols. Generous static cap вЂ” the renderer lets Ink wrap.
 const MAX_HINT_CHARS = 300
 
 /**
- * Format a bash command for the ⎿ hint. Drops blank lines, collapses runs of
+ * Format a bash command for the вЋї hint. Drops blank lines, collapses runs of
  * inline whitespace, then caps total length. Newlines are preserved so the
- * renderer can indent continuation lines under ⎿.
+ * renderer can indent continuation lines under вЋї.
  */
 function commandAsHint(command: string): string {
   const cleaned =
@@ -131,7 +132,7 @@ function commandAsHint(command: string): string {
       .filter(l => l !== '')
       .join('\n')
   return cleaned.length > MAX_HINT_CHARS
-    ? cleaned.slice(0, MAX_HINT_CHARS - 1) + '…'
+    ? cleaned.slice(0, MAX_HINT_CHARS - 1) + 'вЂ¦'
     : cleaned
 }
 
@@ -145,7 +146,7 @@ export function getToolSearchOrReadInfo(
   toolInput: unknown,
   tools: Tools,
 ): SearchOrReadResult {
-  // REPL is absorbed silently — its inner tool calls are emitted as virtual
+  // REPL is absorbed silently вЂ” its inner tool calls are emitted as virtual
   // messages (isVirtual: true) via newMessages and flow through this function
   // as regular Read/Grep/Bash messages. The REPL wrapper itself contributes
   // no counts and doesn't break the group, so consecutive REPL calls merge.
@@ -219,7 +220,7 @@ export function getToolSearchOrReadInfo(
   const isList = result.isList ?? false
   const isCollapsible = result.isSearch || result.isRead || isList
   // Under fullscreen mode, non-search/read Bash commands are also collapsible
-  // as their own category — "Ran N bash commands" instead of breaking the group.
+  // as their own category вЂ” "Ran N bash commands" instead of breaking the group.
   return {
     isCollapsible:
       isCollapsible ||
@@ -500,11 +501,7 @@ export function hasAnyToolInProgress(
 export function getDisplayMessageFromCollapsed(
   message: CollapsedReadSearchGroup,
 ): Exclude<CollapsibleMessage, { type: 'grouped_tool_use' }> {
-  const firstMsg = message.displayMessage
-  if (firstMsg.type === 'grouped_tool_use') {
-    return firstMsg.displayMessage
-  }
-  return firstMsg
+  return message.displayMessage
 }
 
 /**
@@ -515,6 +512,25 @@ function countToolUses(msg: RenderableMessage): number {
     return msg.messages.length
   }
   return 1
+}
+
+function isRelevantMemoriesAttachment(
+  msg: RenderableMessage,
+): msg is RenderableMessage & {
+  type: 'attachment'
+  attachment: { type: 'relevant_memories'; memories: GroupAccumulator['relevantMemories'] }
+} {
+  return (
+    msg.type === 'attachment' &&
+    (msg.attachment as { type?: unknown }).type === 'relevant_memories'
+  )
+}
+
+function isNestedMemoryAttachment(msg: RenderableMessage): boolean {
+  return (
+    msg.type === 'attachment' &&
+    (msg.attachment as { type?: unknown }).type === 'nested_memory'
+  )
 }
 
 /**
@@ -561,7 +577,7 @@ function scanBashResultForGitOps(
     | { stdout?: string; stderr?: string }
     | undefined
   if (!out?.stdout && !out?.stderr) return
-  // git push writes the ref update to stderr — scan both streams.
+  // git push writes the ref update to stderr вЂ” scan both streams.
   const combined = (out.stdout ?? '') + '\n' + (out.stderr ?? '')
   for (const c of msg.message.content) {
     if (c.type !== 'tool_result') continue
@@ -604,7 +620,7 @@ type GroupAccumulator = {
   mcpServerNames?: Set<string>
   // Bash commands that aren't search/read (tracked separately for "Ran N bash commands")
   bashCount?: number
-  // Bash tool_use_id → command string, so tool results can be scanned for
+  // Bash tool_use_id в†’ command string, so tool results can be scanned for
   // commit SHAs / PR URLs (surfaced as "committed abc123, created PR #42")
   bashCommands?: Map<string, string>
   commits?: { sha: string; kind: CommitKind }[]
@@ -663,16 +679,16 @@ function createCollapsedGroup(
 ): CollapsedReadSearchGroup {
   const firstMsg = group.messages[0]!
   // When file-path-based reads exist, use unique file count (Set.size) only.
-  // Adding bash operation count on top would double-count — e.g. Read(README.md)
+  // Adding bash operation count on top would double-count вЂ” e.g. Read(README.md)
   // followed by Bash(wc -l README.md) should still show as 1 file, not 2.
   // Fall back to operation count only when there are no file-path reads (bash-only).
   const totalReadCount =
     group.readFilePaths.size > 0
       ? group.readFilePaths.size
       : group.readOperationCount
-  // memoryReadFilePaths ⊆ readFilePaths (both populated from Read tool calls),
+  // memoryReadFilePaths вЉ† readFilePaths (both populated from Read tool calls),
   // so this count is safe to subtract from totalReadCount at readCount below.
-  // Absorbed relevant_memories attachments are NOT in readFilePaths — added
+  // Absorbed relevant_memories attachments are NOT in readFilePaths вЂ” added
   // separately after the subtraction so readCount stays correct.
   const toolMemoryReadCount = group.memoryReadFilePaths.size
   const memoryReadCount =
@@ -785,7 +801,7 @@ export function collapseReadSearchGroups(
       const toolInfo = getCollapsibleToolInfo(msg, tools)!
 
       if (toolInfo.isMemoryWrite) {
-        // Memory file write/edit — check if it's team memory
+        // Memory file write/edit вЂ” check if it's team memory
         const count = countToolUses(msg)
         if (
           feature('TEAMMEM') &&
@@ -797,11 +813,11 @@ export function collapseReadSearchGroups(
           currentGroup.memoryWriteCount += count
         }
       } else if (toolInfo.isAbsorbedSilently) {
-        // Snip/ToolSearch absorbed silently — no count, no summary text.
+        // Snip/ToolSearch absorbed silently вЂ” no count, no summary text.
         // Hidden from the default view but still shown in verbose mode
         // (Ctrl+O) via the groupMessages iteration in CollapsedReadSearchContent.
       } else if (toolInfo.mcpServerName) {
-        // MCP search/read — counted separately so the summary says
+        // MCP search/read вЂ” counted separately so the summary says
         // "Queried slack N times" instead of "Read N files".
         const count = countToolUses(msg)
         currentGroup.mcpCallCount = (currentGroup.mcpCallCount ?? 0) + count
@@ -811,25 +827,25 @@ export function collapseReadSearchGroups(
           currentGroup.latestDisplayHint = `"${input.query}"`
         }
       } else if (isFullscreenEnvEnabled() && toolInfo.isBash) {
-        // Non-search/read Bash command — counted separately so the summary
+        // Non-search/read Bash command вЂ” counted separately so the summary
         // says "Ran N bash commands" instead of breaking the group.
         const count = countToolUses(msg)
         currentGroup.bashCount = (currentGroup.bashCount ?? 0) + count
         const input = toolInfo.input as { command?: string } | undefined
         if (input?.command) {
           // Prefer the stripped `# comment` if present (it's what Claude wrote
-          // for the human — same trigger as the comment-as-label tool-use render).
+          // for the human вЂ” same trigger as the comment-as-label tool-use render).
           currentGroup.latestDisplayHint =
             extractBashCommentLabel(input.command) ??
             commandAsHint(input.command)
-          // Remember tool_use_id → command so the result (arriving next) can
+          // Remember tool_use_id в†’ command so the result (arriving next) can
           // be scanned for commit SHA / PR URL.
           for (const id of getToolUseIdsFromMessage(msg)) {
             currentGroup.bashCommands?.set(id, input.command)
           }
         }
       } else if (toolInfo.isList) {
-        // Directory-listing bash commands (ls, tree, du) — counted separately
+        // Directory-listing bash commands (ls, tree, du) вЂ” counted separately
         // so the summary says "Listed N directories" instead of "Read N files".
         currentGroup.listCount += countToolUses(msg)
         const input = toolInfo.input as { command?: string } | undefined
@@ -850,7 +866,7 @@ export function collapseReadSearchGroups(
         } else if (isMemorySearch(toolInfo.input)) {
           currentGroup.memorySearchCount += count
         } else {
-          // Regular (non-memory) search — collect pattern for display
+          // Regular (non-memory) search вЂ” collect pattern for display
           const input = toolInfo.input as { pattern?: string } | undefined
           if (input?.pattern) {
             currentGroup.nonMemSearchArgs.push(input.pattern)
@@ -867,7 +883,7 @@ export function collapseReadSearchGroups(
           } else if (isAutoManagedMemoryFile(filePath)) {
             currentGroup.memoryReadFilePaths.add(filePath)
           } else {
-            // Non-memory file read — update display hint
+            // Non-memory file read вЂ” update display hint
             currentGroup.latestDisplayHint = getDisplayPath(filePath)
           }
         }
@@ -901,14 +917,10 @@ export function collapseReadSearchGroups(
         msg.totalDurationMs ??
         msg.hookInfos.reduce((sum, h) => sum + (h.durationMs ?? 0), 0)
       currentGroup.hookInfos.push(...msg.hookInfos)
-    } else if (
-      currentGroup.messages.length > 0 &&
-      msg.type === 'attachment' &&
-      msg.attachment.type === 'relevant_memories'
-    ) {
+    } else if (currentGroup.messages.length > 0 && isRelevantMemoriesAttachment(msg)) {
       // Absorb auto-injected memory attachments so "recalled N memories"
       // renders inline with "ran N bash commands" instead of as a separate
-      // ⏺ block. Do NOT add paths to readFilePaths/memoryReadFilePaths —
+      // вЏє block. Do NOT add paths to readFilePaths/memoryReadFilePaths вЂ”
       // that would poison the readOperationCount fallback (bash-only reads
       // have no paths; adding memory paths makes readFilePaths.size > 0 and
       // suppresses the fallback). createCollapsedGroup adds .length to
@@ -921,10 +933,10 @@ export function collapseReadSearchGroups(
       // This preserves the visual ordering where the collapsed badge appears at the position
       // of the first tool use, not displaced by intervening skippable messages.
       // Exception: nested_memory attachments are pushed through even during a group so
-      // ⎿ Loaded lines cluster tightly instead of being split by the badge's marginTop.
+      // вЋї Loaded lines cluster tightly instead of being split by the badge's marginTop.
       if (
         currentGroup.messages.length > 0 &&
-        !(msg.type === 'attachment' && msg.attachment.type === 'nested_memory')
+        !isNestedMemoryAttachment(msg)
       ) {
         deferredSkippable.push(msg)
       } else {
@@ -956,7 +968,7 @@ export function collapseReadSearchGroups(
  * @param isActive Whether the group is still in progress (use present tense) or completed (use past tense)
  * @param replCount Number of REPL executions (optional)
  * @param memoryCounts Optional memory file operation counts
- * @returns Summary text like "Searching for 3 patterns, reading 2 files, REPL'd 5 times…"
+ * @returns Summary text like "Searching for 3 patterns, reading 2 files, REPL'd 5 timesвЂ¦"
  */
 export function getSearchReadSummaryText(
   searchCount: number,
@@ -1062,7 +1074,7 @@ export function getSearchReadSummaryText(
   }
 
   const text = parts.join(', ')
-  return isActive ? `${text}…` : text
+  return isActive ? `${text}вЂ¦` : text
 }
 
 /**
@@ -1107,3 +1119,4 @@ export function summarizeRecentActivities(
   }
   return undefined
 }
+

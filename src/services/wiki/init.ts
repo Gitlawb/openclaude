@@ -3,6 +3,10 @@ import { basename, relative } from 'path'
 import { getWikiPaths } from './paths.js'
 import type { WikiInitResult } from './types.js'
 
+function toPosixPath(path: string): string {
+  return path.replace(/\\/g, '/')
+}
+
 function buildSchemaTemplate(projectName: string): string {
   return `# OpenClaude Wiki Schema
 
@@ -133,8 +137,8 @@ export async function initializeWiki(cwd: string): Promise<WikiInitResult> {
 
   return {
     root: paths.root,
-    createdFiles: createdFiles.map(file => relative(cwd, file)),
-    createdDirectories: createdDirectories.map(dir => relative(cwd, dir)),
+    createdFiles: createdFiles.map(file => toPosixPath(relative(cwd, file))),
+    createdDirectories: createdDirectories.map(dir => toPosixPath(relative(cwd, dir))),
     alreadyExisted: createdFiles.length === 0,
   }
 }

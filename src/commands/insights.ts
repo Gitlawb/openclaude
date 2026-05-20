@@ -2557,6 +2557,11 @@ type LiteSessionInfo = {
   size: number
 }
 
+type StringNamedDirent = {
+  isDirectory(): boolean
+  name: string
+}
+
 /**
  * Scans all project directories using filesystem metadata only (no JSONL parsing).
  * Returns a list of session file info sorted by mtime descending.
@@ -2565,9 +2570,12 @@ type LiteSessionInfo = {
 async function scanAllSessions(): Promise<LiteSessionInfo[]> {
   const projectsDir = getProjectsDir()
 
-  let dirents: Awaited<ReturnType<typeof readdir>>
+  let dirents: StringNamedDirent[]
   try {
-    dirents = await readdir(projectsDir, { withFileTypes: true })
+    dirents = (await readdir(projectsDir, {
+      withFileTypes: true,
+      encoding: 'utf8',
+    })) as unknown as StringNamedDirent[]
   } catch {
     return []
   }

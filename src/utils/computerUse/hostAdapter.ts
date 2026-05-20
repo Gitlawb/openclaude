@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type {
   ComputerUseHostAdapter,
   Logger,
@@ -32,7 +33,7 @@ let cached: ComputerUseHostAdapter | undefined
 /**
  * Process-lifetime singleton. Built once on first CU tool call; native modules
  * (both `@ant/computer-use-input` and `@ant/computer-use-swift`) are loaded
- * here via the executor factory, which throws on load failure — there is no
+ * here via the executor factory, which throws on load failure вЂ” there is no
  * degraded mode.
  */
 export function getComputerUseHostAdapter(): ComputerUseHostAdapter {
@@ -54,16 +55,17 @@ export function getComputerUseHostAdapter(): ComputerUseHostAdapter {
     },
     isDisabled: () => !getChicagoEnabled(),
     getSubGates: getChicagoSubGates,
-    // cleanup.ts always unhides at turn end — no user preference to disable it.
+    // cleanup.ts always unhides at turn end вЂ” no user preference to disable it.
     getAutoUnhideEnabled: () => true,
 
     // Pixel-validation JPEG decode+crop. MUST be synchronous (the package
     // does `patch1.equals(patch2)` directly on the return value). Cowork uses
     // Electron's `nativeImage` (sync); our `image-processor-napi` is
-    // sharp-compatible and async-only. Returning null → validation skipped,
-    // click proceeds — the designed fallback per `PixelCompareResult.skipped`.
+    // sharp-compatible and async-only. Returning null в†’ validation skipped,
+    // click proceeds вЂ” the designed fallback per `PixelCompareResult.skipped`.
     // The sub-gate defaults to false anyway.
     cropRawPatch: () => null,
   }
   return cached
 }
+

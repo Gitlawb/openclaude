@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import * as fs from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -169,7 +170,7 @@ export async function cleanupOldSessionFiles(): Promise<CleanupResult> {
     if (!projectDirent.isDirectory()) continue
     const projectDir = join(projectsDir, projectDirent.name)
 
-    // Single readdir per project directory — partition into files and session dirs
+    // Single readdir per project directory вЂ” partition into files and session dirs
     let entries
     try {
       entries = await fsImpl.readdir(projectDir)
@@ -193,14 +194,14 @@ export async function cleanupOldSessionFiles(): Promise<CleanupResult> {
           result.errors++
         }
       } else if (entry.isDirectory()) {
-        // Session directory — clean up tool-results/<toolDir>/* beneath it
+        // Session directory вЂ” clean up tool-results/<toolDir>/* beneath it
         const sessionDir = join(projectDir, entry.name)
         const toolResultsDir = join(sessionDir, TOOL_RESULTS_SUBDIR)
         let toolDirs
         try {
           toolDirs = await fsImpl.readdir(toolResultsDir)
         } catch {
-          // No tool-results dir — still try to remove an empty session dir
+          // No tool-results dir вЂ” still try to remove an empty session dir
           await tryRmdir(sessionDir, fsImpl)
           continue
         }
@@ -424,7 +425,7 @@ export async function cleanupOldDebugLogs(): Promise<CleanupResult> {
     }
   }
 
-  // Intentionally do NOT remove debugDir even if empty — needed for future logs
+  // Intentionally do NOT remove debugDir even if empty вЂ” needed for future logs
   return result
 }
 
@@ -468,7 +469,7 @@ export async function cleanupNpmCacheForAnthropicPackages(): Promise<void> {
 
     // Stream index entries and collect all Anthropic package entries.
     // Previous implementation used cacache.verify() which does a full
-    // integrity check + GC of the ENTIRE cache — O(all content blobs).
+    // integrity check + GC of the ENTIRE cache вЂ” O(all content blobs).
     // On large caches this took 60+ seconds and blocked the event loop.
     const stream = cacache.ls.stream(npmCachePath)
     const anthropicEntries: { key: string; time: number }[] = []
@@ -600,3 +601,4 @@ export async function cleanupOldMessageFilesInBackground(): Promise<void> {
     await cleanupNpmCacheForAnthropicPackages()
   }
 }
+

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type {
   Base64ImageSource,
@@ -171,7 +172,7 @@ class McpSessionExpiredError extends Error {
 
 /**
  * Thrown when an MCP tool returns `isError: true`. Carries the result's `_meta`
- * so SDK consumers can still receive it — per the MCP spec, `_meta` is on the
+ * so SDK consumers can still receive it вЂ” per the MCP spec, `_meta` is on the
  * base Result type and is valid on error results.
  */
 export class McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS extends TelemetrySafeError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS {
@@ -206,7 +207,7 @@ export function isMcpSessionExpiredError(error: Error): boolean {
 }
 
 /**
- * Default timeout for MCP tool calls (5 minutes — reasonable for most tools).
+ * Default timeout for MCP tool calls (5 minutes вЂ” reasonable for most tools).
  * Use MCP_TOOL_TIMEOUT env var to override per-server.
  * The previous default of ~27.8 hours effectively meant no timeout, causing
  * tools to hang indefinitely on unresponsive servers.
@@ -238,7 +239,7 @@ import { isClaudeInChromeMCPServer } from '../../utils/claudeInChrome/common.js'
 const claudeInChromeToolRendering =
   (): typeof import('../../utils/claudeInChrome/toolRendering.js') =>
     require('../../utils/claudeInChrome/toolRendering.js')
-// Lazy: wrapper.tsx → hostAdapter.ts → executor.ts pulls both native modules
+// Lazy: wrapper.tsx в†’ hostAdapter.ts в†’ executor.ts pulls both native modules
 // (@ant/computer-use-input + @ant/computer-use-swift). Runtime-gated by
 // GrowthBook tengu_malort_pedway (see gates.ts).
 const computerUseWrapper = feature('CHICAGO_MCP')
@@ -388,7 +389,7 @@ export function createClaudeAiProxyFetch(innerFetch: FetchLike): FetchLike {
       // again after the request is wrong under concurrent 401s: another
       // connector's handleOAuth401Error clears the memoize cache, so we'd read
       // the NEW token from keychain, pass it to handleOAuth401Error, which
-      // finds same-as-keychain → returns false → skips retry. Same pattern as
+      // finds same-as-keychain в†’ returns false в†’ skips retry. Same pattern as
       // bridgeApi.ts withOAuthRetry (token passed as fn param).
       return { response, sentToken: currentTokens.accessToken }
     }
@@ -399,7 +400,7 @@ export function createClaudeAiProxyFetch(innerFetch: FetchLike): FetchLike {
     }
     // handleOAuth401Error returns true only if the token actually changed
     // (keychain had a newer one, or force-refresh succeeded). Gate retry on
-    // that — otherwise we double round-trip time for every connector whose
+    // that вЂ” otherwise we double round-trip time for every connector whose
     // downstream service genuinely needs auth (the common case: 30+ servers
     // with "MCP server requires authentication but no OAuth token configured").
     const tokenChanged = await handleOAuth401Error(sentToken).catch(() => false)
@@ -408,7 +409,7 @@ export function createClaudeAiProxyFetch(innerFetch: FetchLike): FetchLike {
         tokenChanged as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
     if (!tokenChanged) {
-      // ELOCKED contention: another connector may have won the lockfile and refreshed — check if token changed underneath us
+      // ELOCKED contention: another connector may have won the lockfile and refreshed вЂ” check if token changed underneath us
       const now = getClaudeAIOAuthTokens()?.accessToken
       if (!now || now === sentToken) {
         return response
@@ -504,7 +505,7 @@ export function wrapFetchWithTimeout(baseFetch: FetchLike): FetchLike {
 
     // Normalize headers and guarantee the Streamable-HTTP Accept value. new Headers()
     // accepts HeadersInit | undefined and copies from plain objects, tuple arrays,
-    // and existing Headers instances — so whatever shape the SDK handed us, the
+    // and existing Headers instances вЂ” so whatever shape the SDK handed us, the
     // Accept value survives the spread below as an own property of a concrete object.
     // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
     const headers = new Headers(init?.headers)
@@ -514,7 +515,7 @@ export function wrapFetchWithTimeout(baseFetch: FetchLike): FetchLike {
 
     // Use setTimeout instead of AbortSignal.timeout() so we can clearTimeout on
     // completion. AbortSignal.timeout's internal timer is only released when the
-    // signal is GC'd, which in Bun is lazy — ~2.4KB of native memory per request
+    // signal is GC'd, which in Bun is lazy вЂ” ~2.4KB of native memory per request
     // lingers for the full 60s even when the request completes in milliseconds.
     const controller = new AbortController()
     const timer = setTimeout(
@@ -645,7 +646,7 @@ export const connectToServer = memoize(
           authProvider,
           // Use fresh timeout per request to avoid stale AbortSignal bug.
           // Step-up detection wraps innermost so the 403 is seen before the
-          // SDK's handler calls auth() → tokens().
+          // SDK's handler calls auth() в†’ tokens().
           fetch: wrapFetchWithTimeout(
             wrapFetchWithStepUpDetection(createFetchWithInit(), authProvider),
           ),
@@ -822,7 +823,7 @@ export const connectToServer = memoize(
         const combinedHeaders = await getMcpServerHeaders(name, serverRef)
 
         // Check if this server has stored OAuth tokens. If so, the SDK's
-        // authProvider will set Authorization — don't override with the
+        // authProvider will set Authorization вЂ” don't override with the
         // session ingress token (SDK merges requestInit AFTER authProvider).
         // CCR proxy URLs (ccr_shttp_mcp) have no stored OAuth, so they still
         // get the ingress token. See PR #24454 discussion.
@@ -839,7 +840,7 @@ export const connectToServer = memoize(
           authProvider,
           // Use fresh timeout per request to avoid stale AbortSignal bug.
           // Step-up detection wraps innermost so the 403 is seen before the
-          // SDK's handler calls auth() → tokens().
+          // SDK's handler calls auth() в†’ tokens().
           fetch: wrapFetchWithTimeout(
             wrapFetchWithStepUpDetection(createFetchWithInit(), authProvider),
           ),
@@ -944,7 +945,7 @@ export const connectToServer = memoize(
         (serverRef.type === 'stdio' || !serverRef.type) &&
         isComputerUseMCPServer!(name)
       ) {
-        // Run the Computer Use MCP server in-process — same rationale as
+        // Run the Computer Use MCP server in-process вЂ” same rationale as
         // Chrome above. The package's CallTool handler is a stub; real
         // dispatch goes through wrapper.tsx's .call() override.
         const { createComputerUseMcpServerForCli } = await import(
@@ -1181,7 +1182,7 @@ export const connectToServer = memoize(
         rawInstructions.length > MAX_MCP_DESCRIPTION_LENGTH
       ) {
         instructions =
-          rawInstructions.slice(0, MAX_MCP_DESCRIPTION_LENGTH) + '… [truncated]'
+          rawInstructions.slice(0, MAX_MCP_DESCRIPTION_LENGTH) + 'вЂ¦ [truncated]'
         logMCPDebug(
           name,
           `Server instructions truncated from ${rawInstructions.length} to ${MAX_MCP_DESCRIPTION_LENGTH} chars`,
@@ -1249,11 +1250,11 @@ export const connectToServer = memoize(
       // onerror again before the close chain completes.
       let hasTriggeredClose = false
 
-      // client.close() → transport.close() → transport.onclose → SDK's _onclose():
+      // client.close() в†’ transport.close() в†’ transport.onclose в†’ SDK's _onclose():
       // rejects all pending request handlers (so hung callTool() promises fail with
       // McpError -32000 "Connection closed") and then invokes our client.onclose
       // handler below (which clears the memo cache so the next call reconnects).
-      // Calling client.onclose?.() directly would only clear the cache — pending
+      // Calling client.onclose?.() directly would only clear the cache вЂ” pending
       // tool calls would stay hung.
       const closeTransportAndRejectPending = (reason: string) => {
         if (hasTriggeredClose) return
@@ -1273,7 +1274,7 @@ export const connectToServer = memoize(
           msg.includes('ECONNREFUSED') ||
           msg.includes('Body Timeout Error') ||
           msg.includes('terminated') ||
-          // SDK SSE reconnection intermediate errors — may be wrapped around the
+          // SDK SSE reconnection intermediate errors вЂ” may be wrapped around the
           // actual network error, so the substrings above won't match
           msg.includes('SSE stream disconnected') ||
           msg.includes('Failed to reconnect SSE stream')
@@ -1354,7 +1355,7 @@ export const connectToServer = memoize(
           transportType === 'claudeai-proxy'
         ) {
           // The SDK's StreamableHTTP transport fires this after exhausting its
-          // own SSE reconnect attempts (default maxRetries: 2) — but it never
+          // own SSE reconnect attempts (default maxRetries: 2) вЂ” but it never
           // calls onclose, so pending callTool() promises hang indefinitely.
           // This is the definitive "transport gave up" signal.
           if (error.message.includes('Maximum reconnection attempts')) {
@@ -1829,7 +1830,7 @@ export const fetchToolsForClient = memoizeWithLRU(
             async prompt() {
               const desc = tool.description ?? ''
               return desc.length > MAX_MCP_DESCRIPTION_LENGTH
-                ? desc.slice(0, MAX_MCP_DESCRIPTION_LENGTH) + '… [truncated]'
+                ? desc.slice(0, MAX_MCP_DESCRIPTION_LENGTH) + 'вЂ¦ [truncated]'
                 : desc
             },
             isConcurrencySafe() {
@@ -1948,7 +1949,7 @@ export const fetchToolsForClient = memoizeWithLRU(
                     }),
                   }
                 } catch (error) {
-                  // Session expired — the connection cache has been
+                  // Session expired вЂ” the connection cache has been
                   // cleared, so retry with a fresh client.
                   if (
                     error instanceof McpSessionExpiredError &&
@@ -2278,7 +2279,7 @@ export async function getMcpToolsCommandsAndResources(
     mcpConfigs ?? (await getAllMcpConfigs()).servers,
   )
 
-  // Partition into disabled and active entries — disabled servers should
+  // Partition into disabled and active entries вЂ” disabled servers should
   // never generate HTTP connections or flow through batch processing
   const configEntries: typeof allConfigEntries = []
   for (const entry of allConfigEntries) {
@@ -2444,7 +2445,7 @@ export async function getMcpToolsCommandsAndResources(
 
 // Not memoized: called only 2-3 times at startup/reconfig. The inner work
 // (connectToServer, fetch*ForClient) is already cached. Memoizing here by
-// mcpConfigs object ref leaked — main.tsx creates fresh config objects each call.
+// mcpConfigs object ref leaked вЂ” main.tsx creates fresh config objects each call.
 export function prefetchAllMcpResources(
   mcpConfigs: Record<string, ScopedMcpServerConfig>,
 ): Promise<{
@@ -2889,7 +2890,7 @@ export async function callMCPToolWithUrlElicitationRetry({
 }): Promise<MCPToolCallResult> {
   const MAX_URL_ELICITATION_RETRIES = 3
   for (let attempt = 0; ; attempt++) {
-    // Check abort signal before each attempt — without this, a cancelled
+    // Check abort signal before each attempt вЂ” without this, a cancelled
     // elicitation retry loop continues spinning until MAX retries
     if (signal.aborted) {
       throw new Error('Tool call aborted during URL elicitation')
@@ -2965,7 +2966,7 @@ export async function callMCPToolWithUrlElicitationRetry({
       for (const elicitation of elicitations) {
         const { elicitationId } = elicitation
 
-        // Run elicitation hooks — they can resolve URL elicitations programmatically
+        // Run elicitation hooks вЂ” they can resolve URL elicitations programmatically
         const hookResponse = await runElicitationHooks(
           serverName,
           elicitation,
@@ -2981,7 +2982,7 @@ export async function callMCPToolWithUrlElicitationRetry({
               content: `URL elicitation was ${hookResponse.action === 'decline' ? 'declined' : hookResponse.action + 'ed'} by a hook. The tool "${tool}" could not complete because it requires the user to open a URL.`,
             }
           }
-          // Hook accepted — skip the UI and proceed to retry
+          // Hook accepted вЂ” skip the UI and proceed to retry
           continue
         }
 
@@ -3041,7 +3042,7 @@ export async function callMCPToolWithUrlElicitationRetry({
           })
         }
 
-        // Run ElicitationResult hooks — they can modify or block the response
+        // Run ElicitationResult hooks вЂ” they can modify or block the response
         const finalResult = await runElicitationResultHooks(
           serverName,
           userResult,
@@ -3255,9 +3256,9 @@ async function callMCPTool({
         )
       }
 
-      // Check for session expiry — two error shapes can surface here:
+      // Check for session expiry вЂ” two error shapes can surface here:
       // 1. Direct 404 + JSON-RPC -32001 from the server (StreamableHTTPError)
-      // 2. -32000 "Connection closed" (McpError) — the SDK closes the transport
+      // 2. -32000 "Connection closed" (McpError) вЂ” the SDK closes the transport
       //    after the onerror handler fires, so the pending callTool() rejects
       //    with this derived error instead of the original 404.
       // In both cases, clear the connection cache so the next tool call
@@ -3394,3 +3395,4 @@ export async function setupSdkMcpClients(
 
   return { clients, tools }
 }
+

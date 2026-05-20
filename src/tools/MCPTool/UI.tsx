@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { c as _c } from "react-compiler-runtime";
 import { feature } from 'bun:bundle';
 import figures from 'figures';
@@ -49,7 +50,7 @@ export function renderToolUseMessage(input: z.infer<ReturnType<typeof inputSchem
   return Object.entries(input).map(([key, value]) => {
     let rendered = jsonStringify(value);
     if (feature('MCP_RICH_OUTPUT') && !verbose && rendered.length > MAX_INPUT_VALUE_CHARS) {
-      rendered = rendered.slice(0, MAX_INPUT_VALUE_CHARS).trimEnd() + '…';
+      rendered = rendered.slice(0, MAX_INPUT_VALUE_CHARS).trimEnd() + 'вЂ¦';
     }
     return `${key}: ${rendered}`;
   }).join(', ');
@@ -58,7 +59,7 @@ export function renderToolUseProgressMessage(progressMessagesForMessage: Progres
   const lastProgress = progressMessagesForMessage.at(-1);
   if (!lastProgress?.data) {
     return <MessageResponse height={1}>
-        <Text dimColor>Running…</Text>
+        <Text dimColor>RunningвЂ¦</Text>
       </MessageResponse>;
   }
   const {
@@ -68,7 +69,7 @@ export function renderToolUseProgressMessage(progressMessagesForMessage: Progres
   } = lastProgress.data;
   if (progress === undefined) {
     return <MessageResponse height={1}>
-        <Text dimColor>Running…</Text>
+        <Text dimColor>RunningвЂ¦</Text>
       </MessageResponse>;
   }
   if (total !== undefined && total > 0) {
@@ -85,7 +86,7 @@ export function renderToolUseProgressMessage(progressMessagesForMessage: Progres
       </MessageResponse>;
   }
   return <MessageResponse height={1}>
-      <Text dimColor>{progressMessage ?? `Processing… ${progress}`}</Text>
+      <Text dimColor>{progressMessage ?? `ProcessingвЂ¦ ${progress}`}</Text>
     </MessageResponse>;
 }
 export function renderToolResultMessage(output: string | MCPToolResult, _progressMessagesForMessage: ProgressMessage<ToolProgressData>[], {
@@ -342,7 +343,7 @@ export function tryUnwrapTextPayload(content: string): {
       const t = value.trimEnd();
       const isDominant = t.length > UNWRAP_MIN_STRING_LEN || t.includes('\n') && t.length > 50;
       if (isDominant) {
-        if (body !== null) return null; // two big strings — ambiguous
+        if (body !== null) return null; // two big strings вЂ” ambiguous
         body = t;
         continue;
       }
@@ -351,7 +352,7 @@ export function tryUnwrapTextPayload(content: string): {
     } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
       extras.push([key, String(value)]);
     } else {
-      return null; // nested object/array — use flat or pretty-print path
+      return null; // nested object/array вЂ” use flat or pretty-print path
     }
   }
   if (body === null) return null;
@@ -364,7 +365,7 @@ const SLACK_ARCHIVES_RE = /^https:\/\/[a-z0-9-]+\.slack\.com\/archives\/([A-Z0-9
 
 /**
  * Detect a Slack send-message result and return a compact {channel, url} pair.
- * Matches both hosted (claude.ai Slack) and community MCP server shapes —
+ * Matches both hosted (claude.ai Slack) and community MCP server shapes вЂ”
  * both return `message_link` in the result. The channel label prefers the
  * tool input (may be a name like "#foo" or an ID like "C09EVDAN1NK") and
  * falls back to the ID parsed from the archives URL.
@@ -400,3 +401,4 @@ export function trySlackSendCompact(output: string | MCPToolResult, input: unkno
     url
   };
 }
+

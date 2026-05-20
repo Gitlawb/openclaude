@@ -35,7 +35,7 @@ const NON_MODAL_OVERLAYS = new Set(['autocomplete']);
  *   // ...
  * }
  */
-export function useRegisterOverlay(id, t0) {
+export function useRegisterOverlay(id: string, t0?: boolean) {
   const $ = _c(8);
   const enabled = t0 === undefined ? true : t0;
   const store = useContext(AppStoreContext);

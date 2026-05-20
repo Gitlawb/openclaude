@@ -4,13 +4,18 @@ const OPENAI_INCOMPATIBLE_SCHEMA_KEYWORDS = new Set([
   'default',
   'else',
   'examples',
+  'exclusiveMaximum',
+  'exclusiveMinimum',
   'format',
+  'allOf',
+  'anyOf',
   'if',
   'maxLength',
   'maximum',
   'minLength',
   'minimum',
   'multipleOf',
+  'oneOf',
   'pattern',
   'patternProperties',
   'propertyNames',
@@ -181,6 +186,49 @@ function sanitizeTypeField(record: Record<string, unknown>): void {
   }
 }
 
+function jsonTypeOf(value: unknown): string | undefined {
+  if (typeof value === 'string') return 'string'
+  if (typeof value === 'boolean') return 'boolean'
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number.isInteger(value) ? 'integer' : 'number'
+  }
+  if (Array.isArray(value)) return 'array'
+  if (isSchemaRecord(value)) return 'object'
+  return undefined
+}
+
+function inferMissingType(record: Record<string, unknown>): void {
+  if ('type' in record) return
+
+  if (isSchemaRecord(record.properties)) {
+    record.type = 'object'
+    return
+  }
+
+  if ('items' in record) {
+    record.type = 'array'
+    return
+  }
+
+  if (Array.isArray(record.enum)) {
+    const enumType = record.enum.map(jsonTypeOf).find(Boolean)
+    if (enumType) {
+      record.type = enumType
+      return
+    }
+  }
+
+  if ('const' in record) {
+    const constType = jsonTypeOf(record.const)
+    if (constType) {
+      record.type = constType
+      return
+    }
+  }
+
+  record.type = 'string'
+}
+
 /**
  * Sanitize JSON Schema into a shape OpenAI-compatible providers and Codex
  * strict-mode tooling are more likely to accept. This strips provider-rejected
@@ -197,6 +245,7 @@ export function sanitizeSchemaForOpenAICompat(
   const record = { ...stripped }
 
   sanitizeTypeField(record)
+  inferMissingType(record)
 
   if (isSchemaRecord(record.properties)) {
     const sanitizedProps: Record<string, unknown> = {}
@@ -206,6 +255,10 @@ export function sanitizeSchemaForOpenAICompat(
     record.properties = sanitizedProps
   }
 
+  if (record.type === 'object' && !isSchemaRecord(record.properties)) {
+    record.properties = {}
+  }
+
   if ('items' in record) {
     if (Array.isArray(record.items)) {
       record.items = record.items.map(item =>
@@ -213,14 +266,6 @@ export function sanitizeSchemaForOpenAICompat(
       )
     } else {
       record.items = sanitizeSchemaForOpenAICompat(record.items)
-    }
-  }
-
-  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
-    if (Array.isArray(record[key])) {
-      record[key] = record[key].map(item =>
-        sanitizeSchemaForOpenAICompat(item),
-      )
     }
   }
 

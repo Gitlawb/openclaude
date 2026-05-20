@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
 import { stringWidth } from '../ink/stringWidth.js';
 import { Box, Text } from '../ink.js';
-import { useAppState } from '../state/AppState.js';
+import { type AppState, useAppState } from '../state/AppState.js';
 import { isInProcessTeammateTask } from '../tasks/InProcessTeammateTask/types.js';
 import { AGENT_COLOR_TO_THEME_COLOR, type AgentColorName } from '../tools/AgentTool/agentColorManager.js';
 import { isAgentSwarmsEnabled } from '../utils/agentSwarmsEnabled.js';
@@ -20,6 +20,8 @@ type Props = {
   isStandalone?: boolean;
 };
 const RECENT_COMPLETED_TTL_MS = 30_000;
+type TeamContextTeammate = NonNullable<AppState['teamContext']>['teammates'][string];
+type AppTaskState = AppState['tasks'][string];
 function byIdAsc(a: Task, b: Task): number {
   const aNum = parseInt(a.id, 10);
   const bNum = parseInt(b.id, 10);
@@ -94,7 +96,7 @@ export function TaskListV2({
   // Build a map of teammate name -> theme color
   const teammateColors: Record<string, keyof Theme> = {};
   if (isAgentSwarmsEnabled() && teamContext?.teammates) {
-    for (const teammate of Object.values(teamContext.teammates)) {
+    for (const teammate of Object.values(teamContext.teammates) as TeamContextTeammate[]) {
       if (teammate.color) {
         const themeColor = AGENT_COLOR_TO_THEME_COLOR[teammate.color as AgentColorName];
         if (themeColor) {
@@ -112,7 +114,7 @@ export function TaskListV2({
   const teammateActivity: Record<string, string> = {};
   const activeTeammates = new Set<string>();
   if (isAgentSwarmsEnabled()) {
-    for (const bgTask of Object.values(appStateTasks)) {
+    for (const bgTask of Object.values(appStateTasks) as AppTaskState[]) {
       if (isInProcessTeammateTask(bgTask) && bgTask.status === 'running') {
         activeTeammates.add(bgTask.identity.agentName);
         activeTeammates.add(bgTask.identity.agentId);

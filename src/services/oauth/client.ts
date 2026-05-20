@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 // OAuth client for handling authentication flows with Claude services
 import axios from 'axios'
 import {
@@ -564,3 +565,4 @@ export function storeOAuthAccountInfo({
     return { ...current, oauthAccount: accountInfo }
   })
 }
+

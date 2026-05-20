@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import {
   checkGate_CACHED_OR_BLOCKING,
   getDynamicConfig_CACHED_MAY_BE_STALE,
@@ -22,14 +21,14 @@ import { lt } from '../utils/semver.js'
  * and Console API logins — none of which have the OAuth token CCR needs.
  * See github.com/deshaw/anthropic-issues/issues/24.
  *
- * The `feature('BRIDGE_MODE')` guard ensures the GrowthBook string literal
+ * The `false` guard ensures the GrowthBook string literal
  * is only referenced when bridge mode is enabled at build time.
  */
 export function isBridgeEnabled(): boolean {
   // Positive ternary pattern — see docs/feature-gating.md.
   // Negative pattern (if (!feature(...)) return) does not eliminate
   // inline string literals from external builds.
-  return feature('BRIDGE_MODE')
+  return false
     ? isClaudeAISubscriber() &&
         getFeatureValue_CACHED_MAY_BE_STALE('tengu_ccr_bridge', false)
     : false
@@ -48,7 +47,7 @@ export function isBridgeEnabled(): boolean {
  * `isBridgeEnabled()` instead.
  */
 export async function isBridgeEnabledBlocking(): Promise<boolean> {
-  return feature('BRIDGE_MODE')
+  return false
     ? isClaudeAISubscriber() &&
         (await checkGate_CACHED_OR_BLOCKING('tengu_ccr_bridge'))
     : false
@@ -68,7 +67,7 @@ export async function isBridgeEnabledBlocking(): Promise<boolean> {
  * that re-login would fix it. See CC-1165 / gh-33105.
  */
 export async function getBridgeDisabledReason(): Promise<string | null> {
-  if (feature('BRIDGE_MODE')) {
+  if (false) {
     if (!isClaudeAISubscriber()) {
       return 'Remote Control requires a claude.ai subscription. Run `claude auth login` to sign in with your claude.ai account.'
     }
@@ -124,7 +123,7 @@ function getOauthAccountInfo(): ReturnType<
  * on the env-based implementation regardless of this gate.
  */
 export function isEnvLessBridgeEnabled(): boolean {
-  return feature('BRIDGE_MODE')
+  return false
     ? getFeatureValue_CACHED_MAY_BE_STALE('tengu_bridge_repl_v2', false)
     : false
 }
@@ -139,7 +138,7 @@ export function isEnvLessBridgeEnabled(): boolean {
  * Defaults to true — the shim stays active until explicitly disabled.
  */
 export function isCseShimEnabled(): boolean {
-  return feature('BRIDGE_MODE')
+  return false
     ? getFeatureValue_CACHED_MAY_BE_STALE(
         'tengu_bridge_repl_v2_cse_shim_enabled',
         true,
@@ -161,7 +160,7 @@ export function checkBridgeMinVersion(): string | null {
   // Positive pattern — see docs/feature-gating.md.
   // Negative pattern (if (!feature(...)) return) does not eliminate
   // inline string literals from external builds.
-  if (feature('BRIDGE_MODE')) {
+  if (false) {
     const config = getDynamicConfig_CACHED_MAY_BE_STALE<{
       minVersion: string
     }>('tengu_bridge_min_version', { minVersion: '0.0.0' })
@@ -183,7 +182,7 @@ export function checkBridgeMinVersion(): string | null {
  * config.ts → growthbook.ts import cycle (growthbook.ts → user.ts → config.ts).
  */
 export function getCcrAutoConnectDefault(): boolean {
-  return feature('CCR_AUTO_CONNECT')
+  return false
     ? getFeatureValue_CACHED_MAY_BE_STALE('tengu_cobalt_harbor', false)
     : false
 }
@@ -195,7 +194,7 @@ export function getCcrAutoConnectDefault(): boolean {
  * local opt-in; GrowthBook controls rollout.
  */
 export function isCcrMirrorEnabled(): boolean {
-  return feature('CCR_MIRROR')
+  return false
     ? isEnvTruthy(process.env.CLAUDE_CODE_CCR_MIRROR) ||
         getFeatureValue_CACHED_MAY_BE_STALE('tengu_ccr_mirror', false)
     : false

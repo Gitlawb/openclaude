@@ -334,7 +334,7 @@ export function BrowseMarketplace({
         failureCount++;
         newFailedPlugins.push({
           name: plugin_1.entry.name,
-          reason: result.error
+          reason: 'error' in result ? result.error : 'Unknown installation failure'
         });
       }
     }
@@ -397,7 +397,7 @@ export function BrowseMarketplace({
       });
     } else {
       setIsInstalling(false);
-      setInstallError(result_0.error);
+      setInstallError('error' in result_0 ? result_0.error : 'Unknown installation failure');
     }
   };
 

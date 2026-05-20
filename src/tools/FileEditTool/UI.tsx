@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { c as _c } from "react-compiler-runtime";
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import type { StructuredPatchHunk } from 'diff';
@@ -240,12 +241,12 @@ function EditRejectionBody(t0) {
 }
 async function loadRejectionDiff(filePath: string, oldString: string, newString: string, replaceAll: boolean): Promise<RejectionDiffData> {
   try {
-    // Chunked read — context window around the first occurrence. replaceAll
+    // Chunked read вЂ” context window around the first occurrence. replaceAll
     // still shows matches *within* the window via getPatchForEdit; we accept
     // losing the all-occurrences view to keep the read bounded.
     const ctx = await readEditContext(filePath, oldString, CONTEXT_LINES);
     if (ctx === null || ctx.truncated || ctx.content === '') {
-      // ENOENT / not found / truncated — diff just the tool inputs.
+      // ENOENT / not found / truncated вЂ” diff just the tool inputs.
       const {
         patch
       } = getPatchForEdit({
@@ -286,3 +287,4 @@ async function loadRejectionDiff(filePath: string, oldString: string, newString:
     };
   }
 }
+

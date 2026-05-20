@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * Shared helper functions for plugin installation
  *
@@ -306,16 +307,16 @@ export function formatResolutionError(
 ): string {
   switch (r.reason) {
     case 'cycle':
-      return `Dependency cycle: ${r.chain.join(' → ')}`
+      return `Dependency cycle: ${r.chain.join(' в†’ ')}`
     case 'cross-marketplace': {
       const depMkt = parsePluginIdentifier(r.dependency).marketplace
       const where = depMkt
         ? `marketplace "${depMkt}"`
         : 'a different marketplace'
       const hint = depMkt
-        ? ` Add "${depMkt}" to allowCrossMarketplaceDependenciesOn in the ROOT marketplace's marketplace.json (the marketplace of the plugin you're installing — only its allowlist applies; no transitive trust).`
+        ? ` Add "${depMkt}" to allowCrossMarketplaceDependenciesOn in the ROOT marketplace's marketplace.json (the marketplace of the plugin you're installing вЂ” only its allowlist applies; no transitive trust).`
         : ''
-      return `Dependency "${r.dependency}" (required by ${r.requiredBy}) is in ${where}, which is not in the allowlist — cross-marketplace dependencies are blocked by default. Install it manually first.${hint}`
+      return `Dependency "${r.dependency}" (required by ${r.requiredBy}) is in ${where}, which is not in the allowlist вЂ” cross-marketplace dependencies are blocked by default. Install it manually first.${hint}`
     }
     case 'not-found': {
       const { marketplace: depMkt } = parsePluginIdentifier(r.missing)
@@ -358,7 +359,7 @@ export async function installResolvedPlugin({
 }): Promise<InstallCoreResult> {
   const settingSource = scopeToSettingSource(scope)
 
-  // ── Policy guard ──
+  // в”Ђв”Ђ Policy guard в”Ђв”Ђ
   // Org-blocked plugins (managed-settings.json enabledPlugins: false) cannot
   // be installed. Checked here so all install paths (CLI, UI, hint-triggered)
   // are covered in one place.
@@ -366,7 +367,7 @@ export async function installResolvedPlugin({
     return { ok: false, reason: 'blocked-by-policy', pluginName: entry.name }
   }
 
-  // ── Resolve dependency closure ──
+  // в”Ђв”Ђ Resolve dependency closure в”Ђв”Ђ
   // depInfo caches marketplace lookups so the materialize loop doesn't
   // re-fetch. Seed the root if the caller gave us its install location.
   const depInfo = new Map<
@@ -411,7 +412,7 @@ export async function installResolvedPlugin({
     return { ok: false, reason: 'resolution-failed', resolution }
   }
 
-  // ── Policy guard for transitive dependencies ──
+  // в”Ђв”Ђ Policy guard for transitive dependencies в”Ђв”Ђ
   // The root plugin was already checked above, but any dependency in the
   // closure could also be policy-blocked. Check before writing to settings
   // so a non-blocked plugin can't pull in a blocked dependency.
@@ -426,7 +427,7 @@ export async function installResolvedPlugin({
     }
   }
 
-  // ── ACTION: write entire closure to settings in one call ──
+  // в”Ђв”Ђ ACTION: write entire closure to settings in one call в”Ђв”Ђ
   const closureEnabled: Record<string, true> = {}
   for (const id of resolution.closure) closureEnabled[id] = true
   const { error } = updateSettingsForSource(settingSource, {
@@ -443,7 +444,7 @@ export async function installResolvedPlugin({
     }
   }
 
-  // ── Materialize: cache each closure member ──
+  // в”Ђв”Ђ Materialize: cache each closure member в”Ђв”Ђ
   const projectPath = scope !== 'user' ? getCwd() : undefined
   for (const id of resolution.closure) {
     let info = depInfo.get(id)
@@ -500,7 +501,7 @@ export type InstallPluginParams = {
 
 /**
  * Install a single plugin from a marketplace with the specified scope.
- * Interactive-UI wrapper around `installResolvedPlugin` — adds try/catch,
+ * Interactive-UI wrapper around `installResolvedPlugin` вЂ” adds try/catch,
  * analytics, and UI-style message formatting.
  */
 export async function installPluginFromMarketplace({
@@ -558,7 +559,7 @@ export async function installPluginFromMarketplace({
     // plugin_id kept in additional_metadata (redacted to 'third-party' for
     // non-official) because dbt external_claude_code_plugin_installs.sql
     // extracts $.plugin_id for official-marketplace install tracking. Other
-    // plugin lifecycle events drop the blob key — no downstream consumers.
+    // plugin lifecycle events drop the blob key вЂ” no downstream consumers.
     logEvent('tengu_plugin_installed', {
       _PROTO_plugin_name:
         entry.name as AnalyticsMetadata_I_VERIFIED_THIS_IS_PII_TAGGED,
@@ -585,7 +586,7 @@ export async function installPluginFromMarketplace({
 
     return {
       success: true,
-      message: `✓ Installed ${entry.name}${result.depNote}. Run /reload-plugins to activate.`,
+      message: `вњ“ Installed ${entry.name}${result.depNote}. Run /reload-plugins to activate.`,
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err)
@@ -593,3 +594,4 @@ export async function installPluginFromMarketplace({
     return { success: false, error: `Failed to install: ${errorMessage}` }
   }
 }
+

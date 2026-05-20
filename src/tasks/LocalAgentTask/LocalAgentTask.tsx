@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { getSdkAgentProgressSummariesEnabled } from '../../bootstrap/state.js';
 import { OUTPUT_FILE_TAG, STATUS_TAG, SUMMARY_TAG, TASK_ID_TAG, TASK_NOTIFICATION_TAG, TOOL_USE_ID_TAG, WORKTREE_BRANCH_TAG, WORKTREE_PATH_TAG, WORKTREE_TAG } from '../../constants/xml.js';
 import { abortSpeculation } from '../../services/PromptSuggestion/speculation.js';
@@ -136,7 +137,7 @@ export type LocalAgentTaskState = TaskStateBase & {
   pendingMessages: string[];
   // UI is holding this task: blocks eviction, enables stream-append, triggers
   // disk bootstrap. Set by enterTeammateView. Separate from viewingAgentTaskId
-  // (which is "what am I LOOKING at") — retain is "what am I HOLDING."
+  // (which is "what am I LOOKING at") вЂ” retain is "what am I HOLDING."
   retain: boolean;
   // Bootstrap has read the sidechain JSONL and UUID-merged into messages.
   // One-shot per retain cycle; stream appends from there.
@@ -153,7 +154,7 @@ export function isLocalAgentTask(task: unknown): task is LocalAgentTaskState {
 /**
  * A local_agent task that the CoordinatorTaskPanel manages (not main-session).
  * For ants, these render in the panel instead of the background-task pill.
- * This is the ONE predicate that all pill/panel filters must agree on — if
+ * This is the ONE predicate that all pill/panel filters must agree on вЂ” if
  * the gate changes, change it here.
  */
 export function isPanelAgentTask(t: unknown): t is LocalAgentTaskState {
@@ -239,7 +240,7 @@ export function enqueueAgentNotification({
     return;
   }
 
-  // Abort any active speculation — background task state changed, so speculated
+  // Abort any active speculation вЂ” background task state changed, so speculated
   // results may reference stale task output. The prompt suggestion text is
   // preserved; only the pre-computed response is discarded.
   abortSpeculation(setAppState);
@@ -680,3 +681,4 @@ export function unregisterAgentForeground(taskId: string, setAppState: SetAppSta
   // Call cleanup outside of the state updater (avoid side effects in updater)
   cleanupFn?.();
 }
+

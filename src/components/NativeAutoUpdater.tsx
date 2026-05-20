@@ -13,6 +13,10 @@ import { installLatest } from '../utils/nativeInstaller/index.js';
 import { gt } from '../utils/semver.js';
 import { getInitialSettings } from '../utils/settings/settings.js';
 
+const IS_DEV_OR_TEST =
+  process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
+const IS_ANT_BUILD = String(process.env.USER_TYPE ?? 'external') === 'ant';
+
 /**
  * Categorize error messages for analytics
  */
@@ -74,7 +78,7 @@ export function NativeAutoUpdater({
     if (isUpdatingRef.current) {
       return;
     }
-    if ("production" === 'test' || "production" === 'development') {
+    if (IS_DEV_OR_TEST) {
       logForDebugging('NativeAutoUpdater: Skipping update check in test/dev environment');
       return;
     }
@@ -184,7 +188,7 @@ export function NativeAutoUpdater({
       {autoUpdaterResult?.status === 'install_failed' && <Text color="error" wrap="truncate">
           ✗ Auto-update failed &middot; Try <Text bold>/status</Text>
         </Text>}
-      {maxVersionIssue && "external" === 'ant' && <Text color="warning">
+      {maxVersionIssue && IS_ANT_BUILD && <Text color="warning">
           ⚠ Known issue: {maxVersionIssue} &middot; Run{' '}
           <Text bold>claude rollback --safe</Text> to downgrade
         </Text>}

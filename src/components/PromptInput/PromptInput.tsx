@@ -59,7 +59,11 @@ import type { AutoUpdaterResult } from '../../utils/autoUpdater.js';
 import { Cursor } from '../../utils/Cursor.js';
 import { getGlobalConfig, type PastedContent, saveGlobalConfig } from '../../utils/config.js';
 import { logForDebugging } from '../../utils/debug.js';
-import { parseDirectMemberMessage, sendDirectMemberMessage } from '../../utils/directMemberMessage.js';
+import {
+  type DirectMessageResult,
+  parseDirectMemberMessage,
+  sendDirectMemberMessage
+} from '../../utils/directMemberMessage.js';
 import type { EffortLevel } from '../../utils/effort.js';
 import { env } from '../../utils/env.js';
 import { errorMessage } from '../../utils/errors.js';
@@ -189,6 +193,9 @@ type Props = {
     end: number;
   } | null;
 };
+const IS_ANT_BUILD = String(process.env.USER_TYPE ?? 'external') === 'ant';
+type PromptTaskState = AppState['tasks'][string];
+type PromptTeamMember = NonNullable<AppState['teamContext']>['teammates'][string];
 
 // Bottom slot has maxHeight="50%"; reserve lines for footer, border, status.
 const PROMPT_FOOTER_LINES = 5;
@@ -298,6 +305,7 @@ function PromptInput({
   const store = useAppStateStore();
   const setAppState = useSetAppState();
   const tasks = useAppState(s => s.tasks);
+  const taskValues = useMemo(() => Object.values(tasks) as PromptTaskState[], [tasks]);
   const replBridgeConnected = useAppState(s => s.replBridgeConnected);
   const replBridgeExplicit = useAppState(s => s.replBridgeExplicit);
   const replBridgeReconnecting = useAppState(s => s.replBridgeReconnecting);
@@ -306,8 +314,8 @@ function PromptInput({
   // otherwise bridge becomes an invisible selection stop.
   const bridgeFooterVisible = replBridgeConnected && (replBridgeExplicit || replBridgeReconnecting);
   // Tmux pill (internal-only) — visible when there's an active tungsten session
-  const hasTungstenSession = useAppState(s => "external" === 'ant' && s.tungstenActiveSession !== undefined);
-  const tmuxFooterVisible = "external" === 'ant' && hasTungstenSession;
+  const hasTungstenSession = useAppState(s => IS_ANT_BUILD && s.tungstenActiveSession !== undefined);
+  const tmuxFooterVisible = IS_ANT_BUILD && hasTungstenSession;
   // WebBrowser pill — visible when a browser is open
   const bagelFooterVisible = useAppState(s => false);
   const teamContext = useAppState(s => s.teamContext);
@@ -403,7 +411,7 @@ function PromptInput({
   // exist. When only local_agent tasks are running (coordinator/fork mode), the
   // pill is absent, so the -1 sentinel would leave nothing visually selected.
   // In that case, skip -1 and treat 0 as the minimum selectable index.
-  const hasBgTaskPill = useMemo(() => Object.values(tasks).some(t => isBackgroundTask(t) && !("external" === 'ant' && isPanelAgentTask(t))), [tasks]);
+  const hasBgTaskPill = useMemo(() => taskValues.some(t => isBackgroundTask(t) && !(IS_ANT_BUILD && isPanelAgentTask(t))), [taskValues]);
   const minCoordinatorIndex = hasBgTaskPill ? -1 : 0;
   // Clamp index when tasks complete and the list shrinks beneath the cursor
   useEffect(() => {
@@ -450,7 +458,8 @@ function PromptInput({
     if (!teamContext) {
       return [];
     }
-    const teammateCount = count(Object.values(teamContext.teammates), t => t.name !== 'team-lead');
+    const teammateValues = Object.values(teamContext.teammates) as PromptTeamMember[];
+    const teammateCount = count(teammateValues, t => t.name !== 'team-lead');
     return [{
       name: teamContext.teamName,
       memberCount: teammateCount,
@@ -463,11 +472,11 @@ function PromptInput({
   // Which pills render below the input box. Order here IS the nav order
   // (down/right = forward, up/left = back). Selection lives in AppState so
   // pills rendered outside PromptInput (CompanionSprite) can read focus.
-  const runningTaskCount = useMemo(() => count(Object.values(tasks), t => t.status === 'running'), [tasks]);
+  const runningTaskCount = useMemo(() => count(taskValues, t => t.status === 'running'), [taskValues]);
   // Panel shows retained-completed agents too (getVisibleAgentTasks), so the
   // pill must stay navigable whenever the panel has rows — not just when
   // something is running.
-  const tasksFooterVisible = (runningTaskCount > 0 || "external" === 'ant' && coordinatorTaskCount > 0) && !shouldHideTasksFooter(tasks, showSpinnerTree);
+  const tasksFooterVisible = (runningTaskCount > 0 || IS_ANT_BUILD && coordinatorTaskCount > 0) && !shouldHideTasksFooter(tasks, showSpinnerTree);
   const teamsFooterVisible = cachedTeams.length > 0;
   const footerItems = useMemo(() => [tasksFooterVisible && 'tasks', tmuxFooterVisible && 'tmux', bagelFooterVisible && 'bagel', teamsFooterVisible && 'teams', bridgeFooterVisible && 'bridge', companionFooterVisible && 'companion'].filter(Boolean) as FooterItem[], [tasksFooterVisible, tmuxFooterVisible, bagelFooterVisible, teamsFooterVisible, bridgeFooterVisible, companionFooterVisible]);
 
@@ -567,7 +576,7 @@ function PromptInput({
 
     // Find all @name patterns in the input
     const regex = /(^|\s)@([\w-]+)/g;
-    const memberValues = Object.values(members);
+    const memberValues = Object.values(members) as PromptTeamMember[];
     let match;
     while ((match = regex.exec(displayedValue)) !== null) {
       const leadingSpace = match[1] ?? '';
@@ -1053,7 +1062,7 @@ function PromptInput({
     if (isAgentSwarmsEnabled()) {
       const directMessage = parseDirectMemberMessage(inputParam);
       if (directMessage) {
-        const result = await sendDirectMemberMessage(directMessage.recipientName, directMessage.message, teamContext, writeToMailbox);
+        const result: DirectMessageResult = await sendDirectMemberMessage(directMessage.recipientName, directMessage.message, teamContext, writeToMailbox);
         if (result.success) {
           addNotification({
             key: 'direct-message-sent',
@@ -1066,11 +1075,16 @@ function PromptInput({
           clearBuffer();
           resetHistory();
           return;
-        } else if (result.error === 'no_team_context') {
-          // No team context - fall through to normal prompt submission
         } else {
-          // Unknown recipient - fall through to normal prompt submission
-          // This allows e.g. "@utils explain this code" to be sent as a prompt
+          const failedResult = result as Exclude<DirectMessageResult, {
+            success: true;
+          }>;
+          if (failedResult.error === 'no_team_context') {
+            // No team context - fall through to normal prompt submission
+          } else {
+            // Unknown recipient - fall through to normal prompt submission
+            // This allows e.g. "@utils explain this code" to be sent as a prompt
+          }
         }
       }
     }
@@ -1781,7 +1795,7 @@ function PromptInput({
   useKeybindings({
     'footer:up': () => {
       // ↑ scrolls within the coordinator task list before leaving the pill
-      if (tasksSelected && "external" === 'ant' && coordinatorTaskCount > 0 && coordinatorTaskIndex > minCoordinatorIndex) {
+      if (tasksSelected && IS_ANT_BUILD && coordinatorTaskCount > 0 && coordinatorTaskIndex > minCoordinatorIndex) {
         setCoordinatorTaskIndex(prev => prev - 1);
         return;
       }
@@ -1789,7 +1803,7 @@ function PromptInput({
     },
     'footer:down': () => {
       // ↓ scrolls within the coordinator task list, never leaves the pill
-      if (tasksSelected && "external" === 'ant' && coordinatorTaskCount > 0) {
+      if (tasksSelected && IS_ANT_BUILD && coordinatorTaskCount > 0) {
         if (coordinatorTaskIndex < coordinatorTaskCount - 1) {
           setCoordinatorTaskIndex(prev => prev + 1);
         }
@@ -1852,7 +1866,7 @@ function PromptInput({
           }
           break;
         case 'tmux':
-          if ("external" === 'ant') {
+          if (IS_ANT_BUILD) {
             setAppState(prev => prev.tungstenPanelAutoHidden ? {
               ...prev,
               tungstenPanelAutoHidden: false
@@ -2345,7 +2359,10 @@ function getInitialPasteId(messages: Message[]): number {
       // Check image paste IDs
       if (message.imagePasteIds) {
         for (const id of message.imagePasteIds) {
-          if (id > maxId) maxId = id;
+          const numericId = typeof id === 'number' ? id : Number.parseInt(String(id), 10);
+          if (Number.isFinite(numericId) && numericId > maxId) {
+            maxId = numericId;
+          }
         }
       }
       // Check text paste references in message content

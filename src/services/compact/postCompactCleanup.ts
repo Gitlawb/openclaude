@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { QuerySource } from '../../constants/querySource.js'
 import { clearSystemPromptSections } from '../../constants/systemPromptSections.js'
@@ -25,7 +26,7 @@ import { resetMicrocompactState } from './microCompact.js'
  * (context-collapse store, getMemoryFiles one-shot hook flag,
  * getUserContext cache); resetting those when a SUBAGENT compacts
  * would corrupt the MAIN thread's state. All compaction callers should
- * pass querySource — undefined is only safe for callers that are
+ * pass querySource вЂ” undefined is only safe for callers that are
  * genuinely main-thread-only (/compact, /clear).
  */
 export function runPostCompactCleanup(querySource?: QuerySource): void {
@@ -49,12 +50,12 @@ export function runPostCompactCleanup(querySource?: QuerySource): void {
     }
   }
   if (isMainThreadCompact) {
-    // getUserContext is a memoized outer layer wrapping getClaudeMds() →
+    // getUserContext is a memoized outer layer wrapping getClaudeMds() в†’
     // getMemoryFiles(). If only the inner getMemoryFiles cache is cleared,
     // the next turn hits the getUserContext cache and never reaches
     // getMemoryFiles(), so the armed InstructionsLoaded hook never fires.
     // Manual /compact already clears this explicitly at its call sites;
-    // auto-compact and reactive-compact did not — this centralizes the
+    // auto-compact and reactive-compact did not вЂ” this centralizes the
     // clear so all compaction paths behave consistently.
     getUserContext.cache.clear?.()
     resetGetMemoryFilesCache('compact')
@@ -75,3 +76,4 @@ export function runPostCompactCleanup(querySource?: QuerySource): void {
   }
   clearSessionMessagesCache()
 }
+

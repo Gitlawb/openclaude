@@ -38,6 +38,70 @@ type Props = {
   isActiveGroup?: boolean;
 };
 
+type ToolUseContentLike = {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: unknown;
+};
+
+type ReplToolCallProgress = {
+  type: 'repl_tool_call';
+  phase: string;
+  toolInput?: {
+    command?: string;
+    pattern?: string;
+    file_path?: string;
+  };
+  toolName?: string;
+};
+
+type ShellProgress = {
+  type: 'bash_progress' | 'powershell_progress';
+  elapsedTimeSeconds: number;
+  totalLines: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getFirstToolUseContent(
+  message: NormalizedAssistantMessage,
+): ToolUseContentLike | null {
+  const first = Array.isArray(message.message.content)
+    ? message.message.content[0]
+    : undefined;
+
+  if (
+    isRecord(first) &&
+    first.type === 'tool_use' &&
+    typeof first.id === 'string' &&
+    typeof first.name === 'string'
+  ) {
+    return first as ToolUseContentLike;
+  }
+
+  return null;
+}
+
+function isReplToolCallProgress(value: unknown): value is ReplToolCallProgress {
+  return (
+    isRecord(value) &&
+    value.type === 'repl_tool_call' &&
+    typeof value.phase === 'string'
+  );
+}
+
+function isShellProgress(value: unknown): value is ShellProgress {
+  return (
+    isRecord(value) &&
+    (value.type === 'bash_progress' || value.type === 'powershell_progress') &&
+    typeof value.elapsedTimeSeconds === 'number' &&
+    typeof value.totalLines === 'number'
+  );
+}
+
 /** Render a single tool use in verbose mode */
 function VerboseToolUse(t0) {
   const $ = _c(24);
@@ -205,12 +269,8 @@ export function CollapsedReadSearchContent({
     for (const id_0 of toolUseIds) {
       if (!inProgressToolUseIDs.has(id_0)) continue;
       const latest = lookups.progressMessagesByToolUseID.get(id_0)?.at(-1)?.data;
-      if (latest?.type === 'repl_tool_call' && latest.phase === 'start') {
-        const input = latest.toolInput as {
-          command?: string;
-          pattern?: string;
-          file_path?: string;
-        };
+      if (isReplToolCallProgress(latest) && latest.phase === 'start') {
+        const input = latest.toolInput ?? {};
         incomingHint = input.file_path ?? (input.pattern ? `"${input.pattern}"` : undefined) ?? input.command ?? latest.toolName;
       }
     }
@@ -223,14 +283,12 @@ export function CollapsedReadSearchContent({
     for (const msg of groupMessages) {
       if (msg.type === 'assistant') {
         toolUses.push(msg);
-      } else if (msg.type === 'grouped_tool_use') {
-        toolUses.push(...msg.messages);
       }
     }
     return <Box flexDirection="column">
         {toolUses.map(msg_0 => {
-        const content = msg_0.message.content[0];
-        if (content?.type !== 'tool_use') return null;
+        const content = getFirstToolUseContent(msg_0);
+        if (!content) return null;
         return <VerboseToolUse key={content.id} content={content} tools={tools} lookups={lookups} inProgressToolUseIDs={inProgressToolUseIDs} shouldAnimate={shouldAnimate} theme={theme} />;
       })}
         {message.hookInfos && message.hookInfos.length > 0 && <>
@@ -277,7 +335,7 @@ export function CollapsedReadSearchContent({
     for (const id_1 of toolUseIds) {
       if (!inProgressToolUseIDs.has(id_1)) continue;
       const data = lookups.progressMessagesByToolUseID.get(id_1)?.at(-1)?.data;
-      if (data?.type !== 'bash_progress' && data?.type !== 'powershell_progress') {
+      if (!isShellProgress(data)) {
         continue;
       }
       if (elapsed === undefined || data.elapsedTimeSeconds > elapsed) {

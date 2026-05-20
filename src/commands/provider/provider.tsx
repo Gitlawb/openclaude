@@ -173,10 +173,16 @@ export function getProviderWizardDefaults(
     sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
     DEFAULT_GEMINI_MODEL
   const safeMistralModel =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, processEnv) ||
+    sanitizeProviderConfigValue(
+      processEnv.MISTRAL_MODEL,
+      processEnv as Partial<Record<string, string>>,
+    ) ||
     DEFAULT_MISTRAL_MODEL
   const safeMistralBaseUrl =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, processEnv) ||
+    sanitizeProviderConfigValue(
+      processEnv.MISTRAL_BASE_URL,
+      processEnv as Partial<Record<string, string>>,
+    ) ||
     DEFAULT_MISTRAL_BASE_URL
 
   return {
@@ -1072,7 +1078,11 @@ function CodexCredentialStep({
     return (
       <Dialog title="Codex setup" onCancel={onCancel} color="warning">
         <Box flexDirection="column" gap={1}>
-          <Text>{credentials.message}</Text>
+          <Text>
+            {'message' in credentials
+              ? credentials.message
+              : 'Codex credentials are unavailable.'}
+          </Text>
           <Select
             options={[
               { label: 'Back', value: 'back' },

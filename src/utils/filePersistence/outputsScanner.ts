@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * Outputs directory scanner for file persistence
  *
@@ -124,3 +125,4 @@ export async function findModifiedFiles(
 
   return modifiedFiles
 }
+

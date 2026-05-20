@@ -41,7 +41,7 @@ export function ConfirmStepWrapper({
           }
         };
       });
-      if (openInEditor) {
+      if (openInEditor && wizardData.location !== 'built-in') {
         const filePath = getNewAgentFilePath({
           source: wizardData.location!,
           agentType: wizardData.finalAgent.agentType

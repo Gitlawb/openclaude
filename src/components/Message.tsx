@@ -55,6 +55,15 @@ export type Props = {
   /** UUID of the latest user bash output message (for auto-expanding) */
   latestBashOutputUUID?: string | null;
 };
+type MessageContentBlockLike = {
+  type: string;
+};
+function getMessageContentBlocks(content: unknown): MessageContentBlockLike[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  return content.filter((block): block is MessageContentBlockLike => typeof block === 'object' && block !== null && 'type' in block);
+}
 function MessageImpl(t0) {
   const $ = _c(94);
   const {
@@ -591,13 +600,11 @@ function AssistantMessageBlock(t0) {
 export function hasThinkingContent(m: {
   type: string;
   message?: {
-    content: Array<{
-      type: string;
-    }>;
+    content?: unknown;
   };
 }): boolean {
   if (m.type !== 'assistant' || !m.message) return false;
-  return m.message.content.some(b => b.type === 'thinking' || b.type === 'redacted_thinking');
+  return getMessageContentBlocks(m.message.content).some(b => b.type === 'thinking' || b.type === 'redacted_thinking');
 }
 
 /** Exported for testing */

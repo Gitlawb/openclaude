@@ -126,6 +126,16 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
   }
 }
 
+function hasOnlySqApiHost(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === 'api.onlysq.ru'
+  } catch {
+    return false
+  }
+}
+
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
@@ -533,6 +543,18 @@ function convertTools(
     .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
     .map(t => {
       const schema = { ...(t.input_schema ?? { type: 'object', properties: {} }) } as Record<string, unknown>
+      if (schema.type === undefined) {
+        schema.type = 'object'
+      }
+      if (
+        schema.type === 'object' &&
+        (schema.properties === undefined ||
+          schema.properties === null ||
+          typeof schema.properties !== 'object' ||
+          Array.isArray(schema.properties))
+      ) {
+        schema.properties = {}
+      }
 
       // For Codex/OpenAI: promote known Agent sub-fields into required[] only if
       // they actually exist in properties (Gemini rejects required keys absent from properties).
@@ -663,6 +685,7 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
+  let pendingFinishUsage: Partial<AnthropicUsage> | undefined
 
   // Emit message_start
   yield {
@@ -684,8 +707,9 @@ async function* openaiStreamToAnthropic(
     },
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) return
+  const streamReader = response.body?.getReader()
+  if (!streamReader) return
+  const reader = streamReader
 
   const decoder = new TextDecoder()
   let buffer = ''
@@ -700,7 +724,7 @@ async function* openaiStreamToAnthropic(
    * Respects the caller's AbortSignal — clears the idle timer on abort
    * so the rejection reason is AbortError, not a spurious idle timeout.
    */
-  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+  async function readWithTimeout(): Promise<Awaited<ReturnType<typeof reader.read>>> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
@@ -875,6 +899,10 @@ async function* openaiStreamToAnthropic(
               const toolBlockIndex = contentBlockIndex
               const initialArguments = tc.function.arguments ?? ''
               const normalizeAtStop = hasToolFieldMapping(tc.function.name)
+              const extraContent = tc.extra_content
+              const googleExtra = extraContent
+                ? (extraContent.google as any)
+                : undefined
               activeToolCalls.set(tc.index, {
                 id: tc.id,
                 name: tc.function.name,
@@ -891,12 +919,11 @@ async function* openaiStreamToAnthropic(
                   id: tc.id,
                   name: tc.function.name,
                   input: {},
-                  ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
+                  ...(extraContent ? { extra_content: extraContent } : {}),
                   // Extract Gemini signature from extra_content
-                  ...((tc.extra_content?.google as any)?.thought_signature
+                  ...(googleExtra?.thought_signature
                     ? {
-                        signature: (tc.extra_content.google as any)
-                          .thought_signature,
+                        signature: googleExtra.thought_signature,
                       }
                     : {}),
                 },
@@ -942,6 +969,18 @@ async function* openaiStreamToAnthropic(
         // Finish — guard ensures we only process finish_reason once even if
         // multiple chunks arrive with finish_reason set (some providers do this)
         if (choice.finish_reason && !hasProcessedFinishReason) {
+          const hasToolCallDelta =
+            Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0
+          if (hasToolCallDelta) {
+            // Some OpenAI-compatible routers (Abacus RouteLLM) repeat
+            // finish_reason="tool_calls" on every streamed tool-argument
+            // chunk. Finalizing on the first chunk closes the Anthropic tool
+            // block with `{}` before the real JSON arrives.
+            if (chunkUsage) pendingFinishUsage = chunkUsage
+            continue
+          }
+
+          const finishUsage = chunkUsage ?? pendingFinishUsage
           hasProcessedFinishReason = true
 
           // Close any open thinking block that wasn't closed by content transition
@@ -1045,9 +1084,9 @@ async function* openaiStreamToAnthropic(
           yield {
             type: 'message_delta',
             delta: { stop_reason: stopReason, stop_sequence: null },
-            ...(chunkUsage ? { usage: chunkUsage } : {}),
+            ...(finishUsage ? { usage: finishUsage } : {}),
           }
-          if (chunkUsage) {
+          if (finishUsage) {
             hasEmittedFinalUsage = true
           }
         }
@@ -1319,7 +1358,7 @@ class OpenAIShimMessages {
 
     // mistral and gemini don't recognize body.store — Gemini returns 400
     // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
-    if (isMistral || isGeminiMode()) {
+    if (isMistral || isGeminiMode() || hasOnlySqApiHost(request.baseUrl)) {
       delete body.store
     }
 
@@ -1350,6 +1389,10 @@ class OpenAIShimMessages {
           } else if (tc.type === 'none') {
             body.tool_choice = 'none'
           }
+        } else if (hasOnlySqApiHost(request.baseUrl)) {
+          // OnlySQ defaults tool_choice to "none" even when tools are present.
+          // Send the OpenAI-compatible auto value so agent tool calls can fire.
+          body.tool_choice = 'auto'
         }
       }
     }
@@ -1613,6 +1656,10 @@ class OpenAIShimMessages {
 
     if (choice?.message?.tool_calls) {
       for (const tc of choice.message.tool_calls) {
+        const extraContent = tc.extra_content
+        const googleExtra = extraContent
+          ? (extraContent.google as any)
+          : undefined
         const input = normalizeToolArguments(
           tc.function.name,
           tc.function.arguments,
@@ -1622,10 +1669,10 @@ class OpenAIShimMessages {
           id: tc.id,
           name: tc.function.name,
           input,
-          ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
+          ...(extraContent ? { extra_content: extraContent } : {}),
           // Extract Gemini signature from extra_content
-          ...((tc.extra_content?.google as any)?.thought_signature
-            ? { signature: (tc.extra_content.google as any).thought_signature }
+          ...(googleExtra?.thought_signature
+            ? { signature: googleExtra.thought_signature }
             : {}),
         })
       }

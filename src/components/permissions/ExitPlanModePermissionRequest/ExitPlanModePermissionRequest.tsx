@@ -143,6 +143,11 @@ export function ExitPlanModePermissionRequest({
   // feature() must sit directly in an if/ternary (bun:bundle DCE constraint).
   const showUltraplan = feature('ULTRAPLAN') ? !ultraplanSessionUrl && !ultraplanLaunching : false;
   const usage = toolUseConfirm.assistantMessage.message.usage;
+  const usageForContext = typeof usage?.input_tokens === 'number' ? usage as {
+    input_tokens: number;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  } : undefined;
   const {
     mode,
     isAutoModeAvailable,
@@ -151,11 +156,11 @@ export function ExitPlanModePermissionRequest({
   const options = useMemo(() => buildPlanApprovalOptions({
     showClearContext,
     showUltraplan,
-    usedPercent: showClearContext ? getContextUsedPercent(usage, mode) : null,
+    usedPercent: showClearContext ? getContextUsedPercent(usageForContext, mode) : null,
     isAutoModeAvailable,
     isBypassPermissionsModeAvailable,
     onFeedbackChange: setPlanFeedback
-  }), [showClearContext, showUltraplan, usage, mode, isAutoModeAvailable, isBypassPermissionsModeAvailable]);
+  }), [showClearContext, showUltraplan, usageForContext, mode, isAutoModeAvailable, isBypassPermissionsModeAvailable]);
   function onImagePaste(base64Image: string, mediaType?: string, filename?: string, dimensions?: ImageDimensions, _sourcePath?: string) {
     const pasteId = nextPasteIdRef.current++;
     const newContent: PastedContent = {

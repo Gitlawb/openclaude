@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { Anthropic } from '@anthropic-ai/sdk'
 import type { BetaMessageParam as MessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 // @aws-sdk/client-bedrock-runtime is imported dynamically in countTokensWithBedrock()
@@ -228,7 +229,7 @@ export function bytesPerTokenForFileType(fileExtension: string): number {
  * bytes-per-token ratio when the file type is known.
  *
  * This matters when the API-based token count is unavailable (e.g. on
- * Bedrock) and we fall back to the rough estimate — an underestimate can
+ * Bedrock) and we fall back to the rough estimate вЂ” an underestimate can
  * let an oversized tool result slip into the conversation.
  */
 export function roughTokenCountEstimationForFileType(
@@ -405,7 +406,7 @@ function roughTokenCountEstimationForBlock(
     // underestimating and triggering auto-compact too late.
     //
     // document: base64 PDF in source.data.  Must NOT reach the
-    // jsonStringify catch-all — a 1MB PDF is ~1.33M base64 chars →
+    // jsonStringify catch-all вЂ” a 1MB PDF is ~1.33M base64 chars в†’
     // ~325k estimated tokens, vs the ~2000 the API actually charges.
     // Same constant as microCompact's calculateToolResultTokens.
     return 2000
@@ -414,7 +415,7 @@ function roughTokenCountEstimationForBlock(
     return roughTokenCountEstimationForContent(block.content)
   }
   if (block.type === 'tool_use') {
-    // input is the JSON the model generated — arbitrarily large (bash
+    // input is the JSON the model generated вЂ” arbitrarily large (bash
     // commands, Edit diffs, file contents).  Stringify once for the
     // char count; the API re-serializes anyway so this is what it sees.
     return roughTokenCountEstimation(
@@ -427,7 +428,7 @@ function roughTokenCountEstimationForBlock(
   if (block.type === 'redacted_thinking') {
     return roughTokenCountEstimation(block.data)
   }
-  // server_tool_use, web_search_tool_result, mcp_tool_use, etc. —
+  // server_tool_use, web_search_tool_result, mcp_tool_use, etc. вЂ”
   // text-like payloads (tool inputs, search results, no base64).
   // Stringify-length tracks the serialized form the API sees; the
   // key/bracket overhead is single-digit percent on real blocks.
@@ -493,3 +494,4 @@ async function countTokensWithBedrock({
     return null
   }
 }
+

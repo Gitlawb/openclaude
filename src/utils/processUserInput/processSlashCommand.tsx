@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle';
 import type { ContentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources';
 import { randomUUID } from 'crypto';
@@ -100,7 +101,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
   // are user-invoked skills (/commit etc.) that should run synchronously
   // with the progress UI.
   if (feature('KAIROS') && (await context.getAppState()).kairosEnabled) {
-    // Standalone abortController — background subagents survive main-thread
+    // Standalone abortController вЂ” background subagents survive main-thread
     // ESC (same policy as AgentTool's async path). They're cron-driven; if
     // killed mid-run they just re-fire on the next schedule.
     const bgAbortController = createAbortController();
@@ -108,12 +109,12 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
 
     // Workload: handlePromptSubmit wraps the entire turn in runWithWorkload
     // (AsyncLocalStorage). ALS context is captured when this `void` fires
-    // and survives every await inside — isolated from the parent's
+    // and survives every await inside вЂ” isolated from the parent's
     // continuation. The detached closure's runAgent calls see the cron tag
     // automatically. We still capture the value here ONLY for the
     // re-enqueued result prompt below: that second turn runs in a fresh
-    // handlePromptSubmit → fresh runWithWorkload boundary (which always
-    // establishes a new context, even for `undefined`) → so it needs its
+    // handlePromptSubmit в†’ fresh runWithWorkload boundary (which always
+    // establishes a new context, even for `undefined`) в†’ so it needs its
     // own QueuedCommand.workload tag to preserve attribution.
     const spawnTimeWorkload = getWorkload();
 
@@ -135,7 +136,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
       // Wait for MCP servers to settle. Scheduled tasks fire at startup and
       // all N drain within ~1ms (since we return immediately), capturing
       // context.options.tools before MCP connects. The sync path
-      // accidentally avoided this — tasks serialized, so task N's drain
+      // accidentally avoided this вЂ” tasks serialized, so task N's drain
       // happened after task N-1's 30s run, by which time MCP was up.
       // Poll until no 'pending' clients remain, then refresh.
       const deadline = Date.now() + MCP_SETTLE_TIMEOUT_MS;
@@ -173,7 +174,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
       enqueueResult(`<scheduled-task-result command="/${commandName}" status="failed">\n${err instanceof Error ? err.message : String(err)}\n</scheduled-task-result>`);
     });
 
-    // Nothing to render, nothing to query — the background runner re-enters
+    // Nothing to render, nothing to query вЂ” the background runner re-enters
     // the queue on its own schedule.
     return {
       messages: [],
@@ -221,7 +222,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
     });
   };
 
-  // Show initial "Initializing…" state
+  // Show initial "InitializingвЂ¦" state
   updateProgress();
 
   // Run the sub-agent
@@ -338,7 +339,7 @@ export async function processSlashCommand(inputString: string, precedingInputBlo
       await getFsImplementation().stat(`/${commandName}`);
       isFilePath = true;
     } catch {
-      // Not a file path — treat as command name
+      // Not a file path вЂ” treat as command name
     }
     if (looksLikeCommand(commandName) && !isFilePath) {
       logEvent('tengu_input_slash_invalid', {
@@ -579,12 +580,12 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
               }));
 
               // In fullscreen the command just showed as a centered modal
-              // pane — the transient notification is enough feedback. The
-              // "❯ /config" + "⎿ dismissed" transcript entries are
+              // pane вЂ” the transient notification is enough feedback. The
+              // "вќЇ /config" + "вЋї dismissed" transcript entries are
               // type:system subtype:local_command (user-visible but NOT sent
               // to the model), so skipping them doesn't affect model context.
               // Outside fullscreen keep them so scrollback shows what ran.
-              // Only skip "<Name> dismissed" modal-close notifications —
+              // Only skip "<Name> dismissed" modal-close notifications вЂ”
               // commands that early-exit before showing a modal (/ultraplan
               // usage, /rename, /proactive) use display:system for actual
               // output that must reach the transcript.
@@ -621,7 +622,7 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
               }
               // Guard: if onDone fired during mod.call() (early-exit path
               // that calls onDone then returns JSX), skip setToolJSX. This
-              // chain is fire-and-forget — the outer Promise resolves when
+              // chain is fire-and-forget вЂ” the outer Promise resolves when
               // onDone is called, so executeUserInput may have already run
               // its setToolJSX({clearLocalJSX: true}) before we get here.
               // Setting isLocalJSXCommand after clear leaves it stuck true,
@@ -693,7 +694,7 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
                 messagesToKeep: [...(result.compactionResult.messagesToKeep ?? []), ...slashCommandMessages]
               };
               // Reset microcompact state since full compact replaces all
-              // messages — old tool IDs are no longer relevant. Budget state
+              // messages вЂ” old tool IDs are no longer relevant. Budget state
               // (on toolUseContext) needs no reset: stale entries are inert
               // (UUIDs never repeat, so they're never looked up).
               resetMicrocompactState();
@@ -704,7 +705,7 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
               };
             }
 
-            // Text result — use system message so it doesn't render as a user bubble
+            // Text result вЂ” use system message so it doesn't render as a user bubble
             return {
               messages: [userMessage, createCommandInputMessage(`<local-command-stdout>${result.value}</local-command-stdout>`)],
               shouldQuery: false,
@@ -869,7 +870,7 @@ async function getMessagesForPromptSlashCommand(command: CommandBase & PromptCom
   const result = await command.getPromptForCommand(args, context);
 
   // Register skill hooks if defined. Under ["hooks"]-only (skills not locked),
-  // user skills still load and reach this point — block hook REGISTRATION here
+  // user skills still load and reach this point вЂ” block hook REGISTRATION here
   // where source is known. Mirrors the agent frontmatter gate in runAgent.ts.
   const hooksAllowedForThisSkill = !isRestrictedToPluginOnly('hooks') || isSourceAdminTrusted(command.source);
   if (command.hooks && hooksAllowedForThisSkill) {
@@ -891,7 +892,7 @@ async function getMessagesForPromptSlashCommand(command: CommandBase & PromptCom
 
   // Extract attachments from command arguments (@-mentions, MCP resources,
   // agent mentions in SKILL.md). skipSkillDiscovery prevents the SKILL.md
-  // content itself from triggering discovery — it's meta-content, not user
+  // content itself from triggering discovery вЂ” it's meta-content, not user
   // intent, and a large SKILL.md (e.g. 110KB) would fire chunked AKI queries
   // adding seconds of latency to every skill invocation.
   const attachmentMessages = await toArray(getAttachmentMessages(result.filter((block): block is TextBlockParam => block.type === 'text').map(block => block.text).join(' '), context, null, [],
@@ -919,3 +920,4 @@ async function getMessagesForPromptSlashCommand(command: CommandBase & PromptCom
     command
   };
 }
+

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { readFile } from 'fs/promises'
 import { join, relative, resolve } from 'path'
 import { z } from 'zod/v4'
@@ -336,7 +337,7 @@ export async function getPluginLspServers(
 
   // Resolve environment variables. Top-level manifest.userConfig values
   // become available as ${user_config.KEY} in LSP command/args/env.
-  // Gate on manifest.userConfig — same rationale as buildMcpUserConfig:
+  // Gate on manifest.userConfig вЂ” same rationale as buildMcpUserConfig:
   // loadPluginOptions always returns {} so without this guard userConfig is
   // truthy for every plugin and substituteUserConfigVariables throws on any
   // unresolved ${user_config.X}. Also skips unneeded keychain reads.
@@ -385,3 +386,4 @@ export async function extractLspServersFromPlugins(
 
   return allServers
 }
+

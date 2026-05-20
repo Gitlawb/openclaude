@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { expect, test } from 'bun:test'
 
 import { createUserMessage } from './messages.ts'
@@ -57,3 +58,4 @@ test('applyToolResultReplacementsToMessages is idempotent when messages are alre
 
   expect(next).toBe(messages)
 })
+

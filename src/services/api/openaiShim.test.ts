@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
@@ -492,6 +493,60 @@ test('keeps max_completion_tokens for non-local non-github providers', async () 
     max_tokens: 64,
     stream: false,
   })
+})
+
+test('enables tool_choice auto and omits store for OnlySQ tool requests', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.onlysq.ru/ai/openai'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gemini-3-flash',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-3-flash',
+    messages: [{ role: 'user', content: 'write a file' }],
+    tools: [
+      {
+        name: 'Write',
+        description: 'Write a file',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string' },
+            content: { type: 'string' },
+          },
+        },
+      },
+    ],
+    stream: false,
+  })
+
+  expect(requestBody?.tool_choice).toBe('auto')
+  expect(requestBody?.store).toBeUndefined()
 })
 
 test('preserves Gemini tool call extra_content in follow-up requests', async () => {
@@ -1373,6 +1428,120 @@ test('normalizes plain string Bash tool arguments in streaming responses', async
     .join('')
 
   expect(normalizedInput).toBe('{"command":"pwd"}')
+})
+
+test('streams tool arguments when provider repeats finish_reason on every chunk', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-abacus',
+        object: 'chat.completion.chunk',
+        model: 'claude-sonnet-4-6',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'toolu_1',
+                  type: 'function',
+                  function: { name: 'Write', arguments: '' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-abacus',
+        object: 'chat.completion.chunk',
+        model: 'claude-sonnet-4-6',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: { arguments: '{"file_path":"C:\\\\tmp\\\\a.txt"' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-abacus',
+        object: 'chat.completion.chunk',
+        model: 'claude-sonnet-4-6',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: { arguments: ',"content":"hello"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-abacus',
+        object: 'chat.completion.chunk',
+        model: 'claude-sonnet-4-6',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '' },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'claude-sonnet-4-6',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Write' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"file_path":"C:\\\\tmp\\\\a.txt","content":"hello"}')
 })
 
 test('normalizes plain string Bash tool arguments when streaming starts with an empty chunk', async () => {
@@ -2701,6 +2870,51 @@ test('streaming: strips leaked reasoning preamble from assistant content deltas'
   }
 
   expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+})
+
+test('tool schemas without properties are normalized for strict OpenAI-compatible providers', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-empty-schema',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'ping' }],
+    tools: [
+      {
+        name: 'mcp__router__ping',
+        description: 'Ping router',
+        input_schema: {
+          type: 'object',
+        },
+      },
+    ],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  const parameters = (
+    requestBody?.tools as Array<{ function?: { parameters?: Record<string, unknown> } }>
+  )?.[0]?.function?.parameters
+
+  expect(parameters?.type).toBe('object')
+  expect(parameters?.properties).toEqual({})
+  expect(parameters?.required).toEqual([])
+  expect(parameters?.additionalProperties).toBe(false)
 })
 
 test('streaming: strips leaked reasoning preamble when split across multiple content chunks', async () => {

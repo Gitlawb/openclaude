@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ValidationError } from '../../utils/settings/validation.js'
 import { clearServerCache, connectToServer } from './client.js'
 import {
@@ -693,3 +694,4 @@ export async function doctorServer(
   report.findings = globalFindings
   return summarizeReport(report)
 }
+

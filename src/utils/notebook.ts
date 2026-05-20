@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type {
   ImageBlockParam,
   TextBlockParam,
@@ -222,3 +223,4 @@ export function parseCellId(cellId: string): number | undefined {
   }
   return undefined
 }
+

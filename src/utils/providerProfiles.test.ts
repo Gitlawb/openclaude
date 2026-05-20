@@ -47,6 +47,14 @@ function createMockConfigState(): MockConfigState {
 }
 
 let mockConfigState: MockConfigState = createMockConfigState()
+let mockPersistedProfile:
+  | {
+      profile: string
+      env: Record<string, unknown>
+      createdAt: string
+    }
+  | null = null
+let mockDeletedProfile = false
 
 function saveMockGlobalConfig(
   updater: (current: MockConfigState) => MockConfigState,
@@ -65,17 +73,43 @@ afterEach(() => {
 
   mock.restore()
   mockConfigState = createMockConfigState()
+  mockPersistedProfile = null
+  mockDeletedProfile = false
 })
 
 async function importFreshProviderProfileModules() {
   mock.restore()
   mock.module('./config.js', () => ({
+    checkHasTrustDialogAccepted: () => true,
     getGlobalConfig: () => mockConfigState,
     saveGlobalConfig: (
       updater: (current: MockConfigState) => MockConfigState,
     ) => {
       mockConfigState = updater(mockConfigState)
     },
+  }))
+  mock.module('./providerProfile.js', () => ({
+    createProfileFile: (profile: string, env: Record<string, unknown>) => ({
+      profile,
+      env,
+      createdAt: '2026-04-16T00:00:00.000Z',
+    }),
+    saveProfileFile: (profileFile: {
+      profile: string
+      env: Record<string, unknown>
+      createdAt: string
+    }) => {
+      mockPersistedProfile = profileFile
+      mockDeletedProfile = false
+      return '.openclaude-profile.json'
+    },
+    deleteProfileFile: () => {
+      mockPersistedProfile = null
+      mockDeletedProfile = true
+      return '.openclaude-profile.json'
+    },
+    loadProfileFile: () => mockPersistedProfile,
+    isCodexBaseUrl: (value: string) => value.includes('chatgpt.com/backend-api/codex'),
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   const providers = await import(`./model/providers.js?ts=${nonce}`)
@@ -349,6 +383,81 @@ describe('persistActiveProviderProfileModel', () => {
   })
 })
 
+describe('startup profile sync', () => {
+  test('saving an active openai-compatible profile persists startup settings', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules()
+
+    const saved = addProviderProfile({
+      provider: 'openai',
+      name: 'OnlySQ',
+      baseUrl: 'https://api.onlysq.ru/ai/openai',
+      model: 'gemini-3-flash',
+      apiKey: 'sq-test',
+    })
+
+    expect(saved?.name).toBe('OnlySQ')
+    expect(mockPersistedProfile?.profile).toBe('openai')
+    expect(mockPersistedProfile?.env).toEqual({
+      OPENAI_BASE_URL: 'https://api.onlysq.ru/ai/openai',
+      OPENAI_MODEL: 'gemini-3-flash',
+      OPENAI_API_KEY: 'sq-test',
+    })
+    expect(mockDeletedProfile).toBe(false)
+  })
+
+  test('activating an anthropic profile persists anthropic startup settings', async () => {
+    const { setActiveProviderProfile } = await importFreshProviderProfileModules()
+    const anthropicProfile = buildProfile({
+      id: 'anthropic_profile',
+      provider: 'anthropic',
+      name: 'Anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-6',
+      apiKey: 'sk-ant-test',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [anthropicProfile],
+      activeProviderProfileId: anthropicProfile.id,
+    }))
+
+    const active = setActiveProviderProfile(anthropicProfile.id)
+
+    expect(active?.id).toBe(anthropicProfile.id)
+    expect(mockPersistedProfile?.profile).toBe('anthropic')
+    expect(mockPersistedProfile?.env).toEqual({
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+    })
+  })
+
+  test('deleting the last active profile clears the persisted startup profile', async () => {
+    const { deleteProviderProfile } = await importFreshProviderProfileModules()
+    mockPersistedProfile = {
+      profile: 'openai',
+      env: {
+        OPENAI_BASE_URL: 'https://api.onlysq.ru/ai/openai',
+        OPENAI_MODEL: 'gemini-3-flash',
+      },
+      createdAt: '2026-04-16T00:00:00.000Z',
+    }
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'only_profile' })],
+      activeProviderProfileId: 'only_profile',
+    }))
+
+    const result = deleteProviderProfile('only_profile')
+
+    expect(result.removed).toBe(true)
+    expect(mockPersistedProfile).toBeNull()
+    expect(mockDeletedProfile).toBe(true)
+  })
+})
+
 describe('getProviderPresetDefaults', () => {
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
@@ -358,6 +467,17 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.baseUrl).toBe('http://localhost:11434/v1')
     expect(defaults.model).toBe('llama3.1:8b')
+  })
+
+  test('onlysq preset uses the provider route without /v1', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('onlysq')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.baseUrl).toBe('https://api.onlysq.ru/ai/openai')
+    expect(defaults.model).toBe('gemini-3-flash')
+    expect(defaults.requiresApiKey).toBe(true)
   })
 })
 

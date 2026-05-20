@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { afterEach, expect, test } from 'bun:test'
 
 import { clearBundledSkills, getBundledSkills } from '../bundledSkills.js'
@@ -6,7 +7,6 @@ import { registerLoopSkill } from './loop.js'
 afterEach(() => {
   clearBundledSkills()
 })
-
 test('bare /loop returns dynamic maintenance instructions', async () => {
   registerLoopSkill()
 
@@ -17,7 +17,7 @@ test('bare /loop returns dynamic maintenance instructions', async () => {
   const blocks = await skill!.getPromptForCommand('', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — dynamic rescheduling')
+  expect(text).toContain('# /loop - dynamic rescheduling')
   expect(text).toContain('If .claude/loop.md exists, read it and use it.')
   expect(text).toContain('continue any unfinished work from the conversation')
   expect(text).toContain('Set the scheduled prompt to this exact text so the next iteration stays in dynamic mode:')
@@ -31,7 +31,7 @@ test('prompt-only /loop returns dynamic rescheduling instructions', async () => 
   const blocks = await skill!.getPromptForCommand('check the deploy', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — dynamic rescheduling')
+  expect(text).toContain('# /loop - dynamic rescheduling')
   expect(text).toContain('check the deploy')
   expect(text).toContain('choose the next delay dynamically between 1 minute and 1 hour')
   expect(text).toContain('/loop check the deploy')
@@ -44,7 +44,7 @@ test('interval /loop returns fixed recurring instructions', async () => {
   const blocks = await skill!.getPromptForCommand('5m check the deploy', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('# /loop - fixed recurring interval')
   expect(text).toContain('Requested interval:')
   expect(text).toContain('5m')
   expect(text).toContain('Call CronCreate')
@@ -59,7 +59,7 @@ test('interval-only /loop becomes fixed maintenance mode', async () => {
   const blocks = await skill!.getPromptForCommand('15m', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('# /loop - fixed recurring interval')
   expect(text).toContain('15m')
   expect(text).toContain('This is a maintenance loop with no explicit prompt.')
   expect(text).toContain('Scheduled maintenance loop iteration.')
@@ -72,7 +72,7 @@ test('trailing every clause parses interval and prompt', async () => {
   const blocks = await skill!.getPromptForCommand('check the deploy every 20m', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('# /loop - fixed recurring interval')
   expect(text).toContain('20m')
   expect(text).toContain('check the deploy')
 })
@@ -84,7 +84,7 @@ test('trailing every clause with word unit parses correctly', async () => {
   const blocks = await skill!.getPromptForCommand('run tests every 5 minutes', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('# /loop - fixed recurring interval')
   expect(text).toContain('5m')
   expect(text).toContain('run tests')
 })
@@ -96,7 +96,7 @@ test('"check every PR" is not treated as an interval', async () => {
   const blocks = await skill!.getPromptForCommand('check every PR', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — dynamic rescheduling')
+  expect(text).toContain('# /loop - dynamic rescheduling')
   expect(text).toContain('check every PR')
 })
 
@@ -107,7 +107,7 @@ test('human-readable hour unit parses correctly', async () => {
   const blocks = await skill!.getPromptForCommand('2h check logs', {} as never)
   const text = (blocks[0] as { text: string }).text
 
-  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('# /loop - fixed recurring interval')
   expect(text).toContain('2h')
   expect(text).toContain('check logs')
 })

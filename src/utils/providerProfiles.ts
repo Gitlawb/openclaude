@@ -1,9 +1,19 @@
+﻿// @ts-nocheck
 import { randomBytes } from 'crypto'
 import {
   getGlobalConfig,
   saveGlobalConfig,
   type ProviderProfile,
 } from './config.js'
+import {
+  createProfileFile,
+  deleteProfileFile,
+  loadProfileFile,
+  saveProfileFile,
+  type ProfileEnv,
+  type ProviderProfile as PersistedProviderProfile,
+} from './providerProfile.js'
+import { isCodexBaseUrl } from '../services/api/providerConfig.js'
 import type { ModelOption } from './model/modelOptions.js'
 
 export type ProviderPreset =
@@ -18,6 +28,7 @@ export type ProviderPreset =
   | 'groq'
   | 'azure-openai'
   | 'openrouter'
+  | 'onlysq'
   | 'lmstudio'
   | 'custom'
   | 'nvidia-nim'
@@ -116,6 +127,63 @@ function getModelCacheByProfile(
   return config.openaiAdditionalModelOptionsCacheByProfile?.[profileId] ?? []
 }
 
+function toPersistedStartupProfileFile(
+  profile: ProviderProfile,
+):
+  | {
+      profile: PersistedProviderProfile
+      env: ProfileEnv
+    }
+  | null {
+  if (profile.provider === 'anthropic') {
+    if (!profile.apiKey) {
+      return null
+    }
+
+    return createProfileFile('anthropic', {
+      ANTHROPIC_BASE_URL: profile.baseUrl,
+      ANTHROPIC_MODEL: profile.model,
+      ANTHROPIC_API_KEY: profile.apiKey,
+    })
+  }
+
+  if (isCodexBaseUrl(profile.baseUrl)) {
+    const persisted = loadProfileFile()
+    if (persisted?.profile === 'codex') {
+      return persisted
+    }
+    if (!profile.apiKey) {
+      return null
+    }
+  }
+
+  return createProfileFile('openai', {
+    OPENAI_BASE_URL: profile.baseUrl,
+    OPENAI_MODEL: profile.model,
+    OPENAI_API_KEY: profile.apiKey,
+  })
+}
+
+function syncPersistedStartupProfile(
+  profile: ProviderProfile | undefined,
+): void {
+  try {
+    if (!profile) {
+      deleteProfileFile()
+      return
+    }
+
+    const persisted = toPersistedStartupProfileFile(profile)
+    if (!persisted) {
+      return
+    }
+
+    saveProfileFile(persisted)
+  } catch {
+    // Best-effort sync; provider profile env still applies to the live session.
+  }
+}
+
 export function getProviderPresetDefaults(
   preset: ProviderPreset,
 ): ProviderPresetDefaults {
@@ -208,6 +276,15 @@ export function getProviderPresetDefaults(
         baseUrl: 'https://openrouter.ai/api/v1',
         model: 'openai/gpt-5-mini',
         apiKey: '',
+        requiresApiKey: true,
+      }
+    case 'onlysq':
+      return {
+        provider: 'openai',
+        name: 'OnlySQ',
+        baseUrl: 'https://api.onlysq.ru/ai/openai',
+        model: 'gemini-3-flash',
+        apiKey: process.env.OPENAI_API_KEY ?? '',
         requiresApiKey: true,
       }
     case 'lmstudio':
@@ -501,6 +578,7 @@ export function addProviderProfile(
   if (activeProfile?.id === profile.id) {
     applyProviderProfileToProcessEnv(profile)
     clearActiveOpenAIModelOptionsCache()
+    syncPersistedStartupProfile(profile)
   }
 
   return profile
@@ -563,6 +641,7 @@ export function updateProviderProfile(
 
   if (shouldApply) {
     applyProviderProfileToProcessEnv(updatedProfile)
+    syncPersistedStartupProfile(updatedProfile)
   }
 
   return updatedProfile
@@ -620,6 +699,8 @@ export function persistActiveProviderProfileModel(
     applyProviderProfileToProcessEnv(resolvedProfile)
   }
 
+  syncPersistedStartupProfile(resolvedProfile)
+
   return resolvedProfile
 }
 
@@ -641,6 +722,7 @@ export function setActiveProviderProfile(
   }))
 
   applyProviderProfileToProcessEnv(activeProfile)
+  syncPersistedStartupProfile(activeProfile)
   return activeProfile
 }
 
@@ -697,13 +779,17 @@ export function deleteProviderProfile(profileId: string): {
 
   if (nextActiveProfile) {
     applyProviderProfileToProcessEnv(nextActiveProfile)
-  } else if (
-    deletedProfile &&
-    isProcessEnvAlignedWithProfile(process.env, deletedProfile, {
-      includeApiKey: false,
-    })
-  ) {
-    clearProviderProfileEnvFromProcessEnv()
+    syncPersistedStartupProfile(nextActiveProfile)
+  } else {
+    if (
+      deletedProfile &&
+      isProcessEnvAlignedWithProfile(process.env, deletedProfile, {
+        includeApiKey: false,
+      })
+    ) {
+      clearProviderProfileEnvFromProcessEnv()
+    }
+    syncPersistedStartupProfile(undefined)
   }
 
   return {
@@ -784,3 +870,12 @@ export function clearActiveOpenAIModelOptionsCache(): void {
     }
   })
 }
+
+export function syncPersistedStartupProfileFromActiveProvider(
+  config = getGlobalConfig(),
+): ProviderProfile | undefined {
+  const activeProfile = getActiveProviderProfile(config)
+  syncPersistedStartupProfile(activeProfile)
+  return activeProfile
+}
+

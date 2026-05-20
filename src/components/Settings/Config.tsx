@@ -82,6 +82,7 @@ type Setting = (SettingBase & {
   type: 'managedEnum';
 });
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
+const IS_ANT_BUILD = String(process.env.USER_TYPE ?? 'external') === 'ant';
 export function Config({
   onClose,
   context,
@@ -392,7 +393,7 @@ export function Config({
     }
   }] : []),
   // Speculation toggle (internal-only)
-  ...("external" === 'ant' ? [{
+  ...(IS_ANT_BUILD ? [{
     id: 'speculationEnabled',
     label: 'Speculative execution',
     value: globalConfig.speculationEnabled ?? true,

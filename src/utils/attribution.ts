@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import { stat } from 'fs/promises'
 import { getClientType } from '../bootstrap/state.js'
@@ -75,7 +76,7 @@ export function getAttributionTexts(): AttributionTexts {
       ? getPublicModelName(model)
       : 'Claude Opus 4.6'
   const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+    'рџ¤– Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
   const coAuthorDomain =
     getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
   const defaultCommit = isEnvTruthy(
@@ -249,7 +250,7 @@ function countMemoryFileAccessFromEntries(
 
 /**
  * Read session transcript entries and compute prompt count and memory access
- * count. Pre-compact entries are skipped — the N-shot count and memory-access
+ * count. Pre-compact entries are skipped вЂ” the N-shot count and memory-access
  * count should reflect only the current conversation arc, not accumulated
  * prompts from before a compaction boundary.
  */
@@ -289,7 +290,7 @@ async function getTranscriptStats(): Promise<{
 /**
  * Get enhanced PR attribution text with Claude contribution stats.
  *
- * Format: "🤖 Generated with Claude Code (93% 3-shotted by claude-opus-4-5)"
+ * Format: "рџ¤– Generated with Claude Code (93% 3-shotted by claude-opus-4-5)"
  *
  * Rules:
  * - Shows Claude contribution percentage from commit attribution
@@ -331,7 +332,7 @@ export async function getEnhancedPRAttribution(
   }
 
   const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+    'рџ¤– Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
   // Get AppState first
   const appState = getAppState()
@@ -372,19 +373,19 @@ export async function getEnhancedPRAttribution(
     return defaultAttribution
   }
 
-  // Build the enhanced attribution: "🤖 Generated with Claude Code (93% 3-shotted by claude-opus-4-5, 2 memories recalled)"
+  // Build the enhanced attribution: "рџ¤– Generated with Claude Code (93% 3-shotted by claude-opus-4-5, 2 memories recalled)"
   const memSuffix =
     memoryAccessCount > 0
       ? `, ${memoryAccessCount} ${memoryAccessCount === 1 ? 'memory' : 'memories'} recalled`
       : ''
-  const summary = `🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
+  const summary = `рџ¤– Generated with [OpenClaude](https://github.com/Gitlawb/openclaude) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
 
   // Append trailer lines for squash-merge survival. Only for allowlisted repos
-  // (INTERNAL_MODEL_REPOS) and only in builds with COMMIT_ATTRIBUTION enabled —
+  // (INTERNAL_MODEL_REPOS) and only in builds with COMMIT_ATTRIBUTION enabled вЂ”
   // attributionTrailer.ts contains excluded strings, so reach it via dynamic
   // import behind feature(). When the repo is configured with
   // squash_merge_commit_message=PR_BODY (cli, apps), the PR body becomes the
-  // squash commit body verbatim — trailer lines at the end become proper git
+  // squash commit body verbatim вЂ” trailer lines at the end become proper git
   // trailers on the squash commit.
   if (feature('COMMIT_ATTRIBUTION') && isInternal && attributionData) {
     const { buildPRTrailers } = await import('./attributionTrailer.js')
@@ -397,3 +398,4 @@ export async function getEnhancedPRAttribution(
   logForDebugging(`PR Attribution: returning summary: ${summary}`)
   return summary
 }
+

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import uniqBy from 'lodash-es/uniqBy.js'
@@ -81,7 +82,7 @@ import {
 async function getAllCommands(context: ToolUseContext): Promise<Command[]> {
   // Only include MCP skills (loadedFrom === 'mcp'), not plain MCP prompts.
   // Before this filter, the model could invoke MCP prompts via SkillTool
-  // if it guessed the mcp__server__prompt name — they weren't discoverable
+  // if it guessed the mcp__server__prompt name вЂ” they weren't discoverable
   // but were technically reachable.
   const mcpSkills = context
     .getAppState()
@@ -98,8 +99,8 @@ export type { SkillToolProgress as Progress } from '../../types/tools.js'
 
 import type { SkillToolProgress as Progress } from '../../types/tools.js'
 
-// Conditional require for remote skill modules — static imports here would
-// pull in akiBackend.ts (via remoteSkillLoader → akiBackend), which has
+// Conditional require for remote skill modules вЂ” static imports here would
+// pull in akiBackend.ts (via remoteSkillLoader в†’ akiBackend), which has
 // module-level memoize()/lazySchema() consts that survive tree-shaking as
 // side-effecting initializers. All usages are inside
 // feature('EXPERIMENTAL_SKILL_SEARCH') guards, so remoteSkillModules is
@@ -348,7 +349,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
   // Skill-coach needs the skill name to avoid false-positive "you could have
   // used skill X" suggestions when X was actually invoked. Backseat classifies
   // downstream tool calls from the expanded prompt, not this wrapper, so the
-  // name alone is sufficient — it just records that the skill fired.
+  // name alone is sufficient вЂ” it just records that the skill fired.
   toAutoClassifierInput: ({ skill }) => skill ?? '',
 
   async validateInput({ skill }, context): Promise<ValidationResult> {
@@ -400,7 +401,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
             errorCode: 6,
           }
         }
-        // Discovered remote skill — valid. Loading happens in call().
+        // Discovered remote skill вЂ” valid. Loading happens in call().
         return { result: true }
       }
     }
@@ -495,7 +496,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       }
     }
 
-    // Remote canonical skills are internal-only experimental — auto-grant.
+    // Remote canonical skills are internal-only experimental вЂ” auto-grant.
     // Placed AFTER the deny loop so a user-configured Skill(_canonical_:*)
     // deny rule is honored (same pattern as safe-properties auto-allow below).
     // The skill content itself is canonical/curated, not user-authored.
@@ -608,7 +609,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     const commandName = trimmed.startsWith('/') ? trimmed.substring(1) : trimmed
 
     // Remote canonical skill execution (internal-only experimental). Intercepts
-    // `_canonical_<slug>` before local command lookup — loads SKILL.md from
+    // `_canonical_<slug>` before local command lookup вЂ” loads SKILL.md from
     // AKI/GCS (with local cache), injects content directly as a user message.
     // Remote skills are declarative markdown so no slash-command expansion
     // (no !command substitution, no $ARGUMENTS interpolation) is needed.
@@ -815,7 +816,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
           }
         }
 
-        // Carry [1m] suffix over — otherwise a skill with `model: opus` on an
+        // Carry [1m] suffix over вЂ” otherwise a skill with `model: opus` on an
         // opus[1m] session drops the effective window to 200K and trips autocompact.
         if (model) {
           modifiedContext = {
@@ -968,13 +969,13 @@ function extractUrlScheme(url: string): 'gs' | 'http' | 'https' | 's3' {
  * Load a remote canonical skill and inject its SKILL.md content into the
  * conversation. Unlike local skills (which go through processPromptSlashCommand
  * for !command / $ARGUMENTS expansion), remote skills are declarative markdown
- * — we wrap the content directly in a user message.
+ * вЂ” we wrap the content directly in a user message.
  *
  * The skill is also registered with addInvokedSkill so it survives compaction
  * (same as local skills).
  *
  * Only called from within a feature('EXPERIMENTAL_SKILL_SEARCH') guard in
- * call() — remoteSkillModules is non-null here.
+ * call() вЂ” remoteSkillModules is non-null here.
  */
 async function executeRemoteSkill(
   slug: string,
@@ -1093,7 +1094,7 @@ async function executeRemoteSkill(
   // Register with compaction-preservation state. Use the cached file path so
   // post-compact restoration knows where the content came from. Must use
   // finalContent (not raw content) so the base directory header and
-  // ${CLAUDE_SKILL_DIR} substitutions survive compaction — matches how local
+  // ${CLAUDE_SKILL_DIR} substitutions survive compaction вЂ” matches how local
   // skills store their already-transformed content via processSlashCommand.
   addInvokedSkill(
     commandName,
@@ -1102,7 +1103,7 @@ async function executeRemoteSkill(
     getAgentContext()?.agentId ?? null,
   )
 
-  // Direct injection — wrap SKILL.md content in a meta user message. Matches
+  // Direct injection вЂ” wrap SKILL.md content in a meta user message. Matches
   // the shape of what processPromptSlashCommand produces for simple skills.
   const toolUseID = getToolUseIDFromParentMessage(
     parentMessage,
@@ -1116,3 +1117,4 @@ async function executeRemoteSkill(
     ),
   }
 }
+

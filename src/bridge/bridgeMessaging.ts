@@ -352,7 +352,10 @@ export function handleServerControlRequest(
           response: {
             subtype: 'error',
             request_id: request.request_id,
-            error: verdict.error,
+            error:
+              'error' in verdict
+                ? verdict.error
+                : 'Permission mode update failed',
           },
         }
       }

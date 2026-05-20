@@ -33,6 +33,9 @@ async function runCommand(
     let timedOut = false
     let stdout = ''
     let stderr = ''
+    let settled = false
+    let timeoutTimer: ReturnType<typeof setTimeout>
+    let forceResolveTimer: ReturnType<typeof setTimeout> | undefined
 
     const isWindows = process.platform === 'win32'
     const proc = spawn(command, [], {
@@ -49,6 +52,12 @@ async function runCommand(
         if (!isWindows && proc.pid) {
           // Kill the entire process group
           process.kill(-proc.pid, 'SIGTERM')
+        } else if (isWindows && proc.pid) {
+          spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], {
+            windowsHide: true,
+            stdio: 'ignore',
+          }).on('error', () => {})
+          proc.kill('SIGTERM')
         } else {
           proc.kill('SIGTERM')
         }
@@ -62,6 +71,20 @@ async function runCommand(
     }
     signal?.addEventListener('abort', onAbort, { once: true })
 
+    const finish = (code: number | null, failedToStart = false) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutTimer)
+      if (forceResolveTimer) clearTimeout(forceResolveTimer)
+      signal?.removeEventListener('abort', onAbort)
+      resolve({
+        stdout: stdout.slice(0, 10000),
+        stderr: (failedToStart ? stderr || 'Command failed to start' : stderr).slice(0, 10000),
+        exitCode: code ?? 1,
+        timedOut,
+      })
+    }
+
     proc.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString()
     })
@@ -69,31 +92,18 @@ async function runCommand(
       stderr += data.toString()
     })
 
-    const timer = setTimeout(() => {
+    timeoutTimer = setTimeout(() => {
       timedOut = true
       killTree()
+      forceResolveTimer = setTimeout(() => finish(1), 1000)
     }, timeout)
 
     proc.on('close', (code) => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve({
-        stdout: stdout.slice(0, 10000),
-        stderr: stderr.slice(0, 10000),
-        exitCode: code ?? 1,
-        timedOut,
-      })
+      finish(code)
     })
 
     proc.on('error', () => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve({
-        stdout,
-        stderr: stderr || 'Command failed to start',
-        exitCode: 1,
-        timedOut: false,
-      })
+      finish(1, true)
     })
   })
 }

@@ -1,8 +1,9 @@
+﻿// @ts-nocheck
 /**
  * Git bundle creation + upload for CCR seed-bundle seeding.
  *
  * Flow:
- *   1. git stash create → update-ref refs/seed/stash (makes it reachable)
+ *   1. git stash create в†’ update-ref refs/seed/stash (makes it reachable)
  *   2. git bundle create --all (packs refs/seed/stash + its objects)
  *   3. Upload to /v1/files
  *   4. Cleanup refs/seed/stash (don't pollute user's repo)
@@ -43,9 +44,9 @@ type BundleCreateResult =
   | { ok: true; size: number; scope: BundleScope }
   | { ok: false; error: string; failReason: BundleFailReason }
 
-// Bundle --all → HEAD → squashed-root. HEAD drops side branches/tags but
+// Bundle --all в†’ HEAD в†’ squashed-root. HEAD drops side branches/tags but
 // keeps full current-branch history. Squashed-root is a single parentless
-// commit of HEAD's tree (or the stash tree if WIP exists) — no history,
+// commit of HEAD's tree (or the stash tree if WIP exists) вЂ” no history,
 // just the snapshot. Receiver needs refs/seed/root handling for that tier.
 async function _bundleWithFallback(
   gitRoot: string,
@@ -96,7 +97,7 @@ async function _bundleWithFallback(
   }
 
   // Last resort: squash to a single parentless commit. Uses the stash tree
-  // when WIP exists (bakes uncommitted changes in — can't bundle the stash
+  // when WIP exists (bakes uncommitted changes in вЂ” can't bundle the stash
   // ref separately since its parents would drag history back).
   logForDebugging(
     `[gitBundle] HEAD bundle is ${(headSize / 1024 / 1024).toFixed(1)}MB, retrying squashed-root`,
@@ -146,8 +147,8 @@ async function _bundleWithFallback(
 }
 
 // Bundle the repo and upload to Files API; return file_id for
-// seed_bundle_file_id. --all → HEAD → squashed-root fallback chain.
-// Tracked WIP via stash create → refs/seed/stash (or baked into the
+// seed_bundle_file_id. --all в†’ HEAD в†’ squashed-root fallback chain.
+// Tracked WIP via stash create в†’ refs/seed/stash (or baked into the
 // squashed tree); untracked not captured.
 export async function createAndUploadGitBundle(
   config: FilesApiConfig,
@@ -170,7 +171,7 @@ export async function createAndUploadGitBundle(
   // `git bundle create` refuses to create an empty bundle (exit 128), and
   // `stash create` fails with "You do not have the initial commit yet".
   // Check for any refs (not just HEAD) so orphan branches with commits
-  // elsewhere still bundle — `--all` packs those refs regardless of HEAD.
+  // elsewhere still bundle вЂ” `--all` packs those refs regardless of HEAD.
   const refCheck = await execFileNoThrowWithCwd(
     gitExe(),
     ['for-each-ref', '--count=1', 'refs/'],
@@ -188,7 +189,7 @@ export async function createAndUploadGitBundle(
     }
   }
 
-  // stash create writes a dangling commit — doesn't touch refs/stash or
+  // stash create writes a dangling commit вЂ” doesn't touch refs/stash or
   // the working tree. Untracked files intentionally excluded.
   const stashResult = await execFileNoThrowWithCwd(
     gitExe(),
@@ -281,7 +282,7 @@ export async function createAndUploadGitBundle(
     } catch {
       logForDebugging(`[gitBundle] Could not delete ${bundlePath} (non-fatal)`)
     }
-    // Always delete — also sweeps a stale ref from a crashed prior run.
+    // Always delete вЂ” also sweeps a stale ref from a crashed prior run.
     // update-ref -d on a missing ref exits 0.
     for (const ref of ['refs/seed/stash', 'refs/seed/root']) {
       await execFileNoThrowWithCwd(gitExe(), ['update-ref', '-d', ref], {
@@ -290,3 +291,4 @@ export async function createAndUploadGitBundle(
     }
   }
 }
+

@@ -109,6 +109,13 @@ const BUILT_IN_PROVIDERS: Record<string, ProviderPreset> = {
   },
 }
 
+function readNonEmptyEnv(name: string): string | undefined {
+  const value = process.env[name]
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
 // ---------------------------------------------------------------------------
 // Security guardrails
 // ---------------------------------------------------------------------------
@@ -330,6 +337,13 @@ let auditLogged = false
 function auditLogCustomSearch(url: string): void {
   if (auditLogged) return
   auditLogged = true
+  if (
+    process.env.OPENCLAUDE_AGENT_GATEWAY_CHILD === '1' ||
+    process.argv.includes('--print') ||
+    process.argv.includes('-p')
+  ) {
+    return
+  }
   console.warn(
     `[web-search] ⚠️  Custom search provider is active. ` +
     `Outbound requests go to: ${safeHostname(url) ?? url}. ` +
@@ -369,17 +383,17 @@ function resolveConfig(): {
   responseAdapter?: (data: any) => SearchHit[]
   preset?: ProviderPreset
 } {
-  const providerName = process.env.WEB_PROVIDER
+  const providerName = readNonEmptyEnv('WEB_PROVIDER')
   const preset = providerName ? BUILT_IN_PROVIDERS[providerName] : undefined
 
   return {
-    urlTemplate: process.env.WEB_URL_TEMPLATE
-      ?? process.env.WEB_SEARCH_API
+    urlTemplate: readNonEmptyEnv('WEB_URL_TEMPLATE')
+      ?? readNonEmptyEnv('WEB_SEARCH_API')
       ?? preset?.urlTemplate
       ?? '',
-    queryParam: process.env.WEB_QUERY_PARAM ?? preset?.queryParam ?? 'q',
-    method: process.env.WEB_METHOD ?? preset?.method ?? 'GET',
-    jsonPath: process.env.WEB_JSON_PATH ?? preset?.jsonPath,
+    queryParam: readNonEmptyEnv('WEB_QUERY_PARAM') ?? preset?.queryParam ?? 'q',
+    method: readNonEmptyEnv('WEB_METHOD') ?? preset?.method ?? 'GET',
+    jsonPath: readNonEmptyEnv('WEB_JSON_PATH') ?? preset?.jsonPath,
     responseAdapter: preset?.responseAdapter,
     preset,
   }
@@ -575,7 +589,11 @@ export const customProvider: SearchProvider = {
   name: 'custom',
 
   isConfigured() {
-    return Boolean(process.env.WEB_SEARCH_API || process.env.WEB_PROVIDER || process.env.WEB_URL_TEMPLATE)
+    return Boolean(
+      readNonEmptyEnv('WEB_SEARCH_API')
+      || readNonEmptyEnv('WEB_PROVIDER')
+      || readNonEmptyEnv('WEB_URL_TEMPLATE'),
+    )
   },
 
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {

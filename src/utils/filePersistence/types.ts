@@ -2,7 +2,7 @@ export const OUTPUTS_SUBDIR = 'outputs'
 
 export type PersistedFile = {
   filename: string
-  file_id?: string
+  file_id: string
 }
 
 export type FailedPersistence = {

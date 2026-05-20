@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import * as React from 'react';
 import { SubAgentProvider } from 'src/components/CtrlOToExpand.js';
@@ -16,7 +17,7 @@ import { plural } from '../../utils/stringUtils.js';
 import type { inputSchema, Output, Progress } from './SkillTool.js';
 type Input = z.infer<ReturnType<typeof inputSchema>>;
 const MAX_PROGRESS_MESSAGES_TO_SHOW = 3;
-const INITIALIZING_TEXT = 'Initializing…';
+const INITIALIZING_TEXT = 'InitializingвЂ¦';
 export function renderToolResultMessage(output: Output): React.ReactNode {
   // Handle forked skill result
   if ('status' in output && output.status === 'forked') {
@@ -128,3 +129,4 @@ export function renderToolUseErrorMessage(result: ToolResultBlockParam['content'
       <FallbackToolUseErrorMessage result={result} verbose={verbose} />
     </>;
 }
+

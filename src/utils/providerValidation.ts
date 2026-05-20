@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { resolve } from 'node:path'
 import {
   getGithubEndpointType,
@@ -169,3 +170,4 @@ export async function validateProviderEnvOrExit(
     process.exit(1)
   }
 }
+

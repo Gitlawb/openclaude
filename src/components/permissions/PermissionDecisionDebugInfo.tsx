@@ -46,12 +46,11 @@ function decisionReasonDisplayString(decisionReason: PermissionDecisionReason & 
       return '';
   }
 }
-function PermissionDecisionInfoItem(t0) {
+function PermissionDecisionInfoItem({
+  title,
+  decisionReason
+}: PermissionDecisionInfoItemProps) {
   const $ = _c(10);
-  const {
-    title,
-    decisionReason
-  } = t0;
   const [theme] = useTheme();
   let t1;
   if ($[0] !== decisionReason || $[1] !== theme) {
@@ -59,7 +58,7 @@ function PermissionDecisionInfoItem(t0) {
       switch (decisionReason.type) {
         case "subcommandResults":
           {
-            return <Box flexDirection="column">{Array.from(decisionReason.reasons.entries()).map(t2 => {
+            return <Box flexDirection="column">{Array.from(decisionReason.reasons.entries()).map((t2: [string, PermissionDecision]) => {
                 const [subcommand, result] = t2;
                 const icon = result.behavior === "allow" ? color("success", theme)(figures.tick) : color("error", theme)(figures.cross);
                 return <Box flexDirection="column" key={subcommand}><Text>{icon} {subcommand}</Text>{result.decisionReason !== undefined && result.decisionReason.type !== "subcommandResults" && <Text><Text dimColor={true}>{"  "}⎿{"  "}</Text><Ansi>{decisionReasonDisplayString(result.decisionReason)}</Ansi></Text>}{result.behavior === "ask" && <SuggestedRules suggestions={result.suggestions} />}</Box>;
@@ -105,11 +104,12 @@ function PermissionDecisionInfoItem(t0) {
   }
   return t4;
 }
-function SuggestedRules(t0) {
+function SuggestedRules({
+  suggestions
+}: {
+  suggestions: PermissionUpdate[] | undefined;
+}) {
   const $ = _c(18);
-  const {
-    suggestions
-  } = t0;
   let T0;
   let T1;
   let t1;

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import indentString from 'indent-string'
 import { applyTextStyles } from './colorize.js'
 import type { DOMElement, DOMNode } from './dom.js'

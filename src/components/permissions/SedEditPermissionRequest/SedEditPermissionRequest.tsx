@@ -67,7 +67,7 @@ export function SedEditPermissionRequest(t0) {
   }
   return t2;
 }
-function _temp(e) {
+function _temp(e: unknown): FileReadResult {
   if (!isENOENT(e)) {
     throw e;
   }
@@ -76,7 +76,9 @@ function _temp(e) {
     fileExists: false
   };
 }
-function SedEditPermissionRequestInner(t0) {
+function SedEditPermissionRequestInner(t0: SedEditPermissionRequestProps & {
+  contentPromise: Promise<FileReadResult>;
+}) {
   const $ = _c(35);
   let contentPromise;
   let props;
@@ -102,7 +104,7 @@ function SedEditPermissionRequestInner(t0) {
   const {
     oldContent,
     fileExists
-  } = use(contentPromise);
+  } = use(contentPromise) as FileReadResult;
   let t1;
   if ($[4] !== oldContent || $[5] !== sedInfo) {
     t1 = applySedSubstitution(oldContent, sedInfo);

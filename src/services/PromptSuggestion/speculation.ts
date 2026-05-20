@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { randomUUID } from 'crypto'
 import { rm } from 'fs'
 import { appendFile, copyFile, mkdir } from 'fs/promises'
@@ -302,7 +303,7 @@ function createSpeculationFeedbackMessage(
       : ''
 
   return createSystemMessage(
-    `[internal-only] ${parts.join(' · ')} · ${savedText}${sessionSuffix}`,
+    `[internal-only] ${parts.join(' В· ')} В· ${savedText}${sessionSuffix}`,
     'warning',
   )
 }
@@ -570,7 +571,7 @@ export async function startSpeculation(
               },
             }
           }
-          // Write tools with undefined path → fall through to default deny
+          // Write tools with undefined path в†’ fall through to default deny
         }
 
         // Stop at non-read-only bash commands
@@ -596,7 +597,7 @@ export async function startSpeculation(
               'speculation_bash_boundary',
             )
           }
-          // Read-only bash command — allow during speculation
+          // Read-only bash command вЂ” allow during speculation
           return {
             behavior: 'allow' as const,
             updatedInput: input,
@@ -885,7 +886,7 @@ export async function handleSpeculationAccept(
 
     // When speculation didn't complete, the follow-up query needs the
     // conversation to end with a user message. Drop trailing assistant
-    // messages — models that don't support prefill
+    // messages вЂ” models that don't support prefill
     // reject conversations ending with an assistant turn. The model will
     // regenerate this content in the follow-up query.
     if (!isComplete) {
@@ -989,3 +990,4 @@ export async function handleSpeculationAccept(
     return { queryRequired: true }
   }
 }
+

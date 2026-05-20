@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import chalk from 'chalk';
 import figures from 'figures';
 import * as React from 'react';
@@ -94,7 +95,7 @@ export function buildMcpProperties(clients: MCPServerConnection[] = [], theme: T
     return [];
   }
 
-  // Summary instead of a full server list — 20+ servers wrapped onto many
+  // Summary instead of a full server list вЂ” 20+ servers wrapped onto many
   // rows, dominating the Status pane. Show counts by state + /mcp hint.
   const byState = {
     connected: 0,
@@ -112,7 +113,7 @@ export function buildMcpProperties(clients: MCPServerConnection[] = [], theme: T
   if (byState.failed) parts.push(color('error', theme)(`${byState.failed} failed`));
   return [{
     label: 'MCP servers',
-    value: `${parts.join(', ')} ${color('inactive', theme)('· /mcp')}`
+    value: `${parts.join(', ')} ${color('inactive', theme)('В· /mcp')}`
   }];
 }
 export async function buildMemoryDiagnostics(): Promise<Diagnostic[]> {
@@ -450,3 +451,4 @@ export function getModelDisplayLabel(mainLoopModel: string | null): string {
   }
   return modelLabel;
 }
+

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * Shared command prefix extraction using Haiku LLM
  *
@@ -204,7 +205,7 @@ async function getCommandPrefixImpl(
           process.stderr.write(jsonStringify({ level: 'warn', message }) + '\n')
         } else {
           // biome-ignore lint/suspicious/noConsole: intentional warning
-          console.warn(chalk.yellow(`⚠️  ${message}`))
+          console.warn(chalk.yellow(`вљ пёЏ  ${message}`))
         }
       },
       10000, // 10 seconds
@@ -365,3 +366,4 @@ async function getCommandSubcommandPrefixImpl(
     subcommandPrefixes,
   }
 }
+

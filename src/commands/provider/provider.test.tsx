@@ -383,10 +383,9 @@ test('buildCodexProfileEnv derives oauth source from secure storage when no expl
     }),
   }))
 
-  // @ts-expect-error cache-busting query string for Bun module mocks
-  const { buildCodexProfileEnv } = await import(
-    '../../utils/providerProfile.js?secure-storage-codex-source'
-  )
+  const providerProfileModulePath =
+    '../../utils/providerProfile.js?secure-storage-codex-source' as string
+  const { buildCodexProfileEnv } = await import(providerProfileModulePath)
 
   const env = buildCodexProfileEnv({
     model: 'codexplan',
@@ -402,9 +401,10 @@ test('buildCodexProfileEnv derives oauth source from secure storage when no expl
 })
 
 test('applySavedProfileToCurrentSession switches the current env to the saved Codex profile', async () => {
-  // @ts-expect-error cache-busting query string for Bun module mocks
+  const applySavedProfileModulePath =
+    '../../utils/providerProfile.js?apply-saved-profile-codex' as string
   const { applySavedProfileToCurrentSession } = await import(
-    '../../utils/providerProfile.js?apply-saved-profile-codex'
+    applySavedProfileModulePath
   )
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_OPENAI: '1',
@@ -442,9 +442,10 @@ test('applySavedProfileToCurrentSession switches the current env to the saved Co
 })
 
 test('applySavedProfileToCurrentSession ignores stale Codex env overrides for OAuth-backed profiles', async () => {
-  // @ts-expect-error cache-busting query string for Bun module mocks
+  const applySavedOauthProfileModulePath =
+    '../../utils/providerProfile.js?apply-saved-profile-codex-oauth' as string
   const { applySavedProfileToCurrentSession } = await import(
-    '../../utils/providerProfile.js?apply-saved-profile-codex-oauth'
+    applySavedOauthProfileModulePath
   )
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_OPENAI: '1',

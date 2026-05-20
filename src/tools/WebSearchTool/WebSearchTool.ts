@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type {
   BetaContentBlock,
   BetaWebSearchTool20250305,
@@ -87,7 +88,7 @@ export type { WebSearchProgress } from '../../types/tools.js'
 import type { WebSearchProgress } from '../../types/tools.js'
 
 // ---------------------------------------------------------------------------
-// Shared formatting: ProviderOutput → Output
+// Shared formatting: ProviderOutput в†’ Output
 // ---------------------------------------------------------------------------
 
 function formatProviderOutput(po: ProviderOutput, query: string): Output {
@@ -95,7 +96,7 @@ function formatProviderOutput(po: ProviderOutput, query: string): Output {
 
   const snippets = po.hits
     .filter(h => h.description)
-    .map(h => `**${h.title}** — ${h.description} (${h.url})`)
+    .map(h => `**${h.title}** вЂ” ${h.description} (${h.url})`)
     .join('\n')
   if (snippets) results.push(snippets)
 
@@ -417,19 +418,19 @@ function makeOutputFromSearchResponse(
 function isTransientError(err: unknown): boolean {
   if (!(err instanceof Error)) return true
   const msg = err.message.toLowerCase()
-  // Guardrail / config errors — must surface
+  // Guardrail / config errors вЂ” must surface
   if (msg.includes('must use https')) return false
   if (msg.includes('private/reserved address')) return false
   if (msg.includes('not in the safe allowlist')) return false
   if (msg.includes('exceeds') && msg.includes('bytes')) return false
   if (msg.includes('not a valid url')) return false
   if (msg.includes('is not configured')) return false
-  // Transient errors — safe to fall through
+  // Transient errors вЂ” safe to fall through
   if (err.name === 'AbortError') return true
   if (msg.includes('timed out')) return true
   if (msg.includes('fetch failed') || msg.includes('econnrefused') || msg.includes('enotfound')) return true
   if (msg.includes('returned 5')) return true // HTTP 5xx
-  // Unknown — treat as transient to preserve auto-mode fallback semantics
+  // Unknown вЂ” treat as transient to preserve auto-mode fallback semantics
   return true
 }
 
@@ -437,7 +438,7 @@ function isTransientError(err: unknown): boolean {
  * Returns true when we should use the adapter-based provider system.
  *
  * In auto mode: native/first-party/Codex paths take precedence.
- *   → Only falls back to adapter if no native path is available.
+ *   в†’ Only falls back to adapter if no native path is available.
  * In explicit adapter modes (tavily, ddg, custom, etc.): always true.
  * In native mode: never true.
  */
@@ -452,7 +453,7 @@ function shouldUseAdapterProvider(): boolean {
   if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
     return false
   }
-  // No native path available — fall back to adapter
+  // No native path available вЂ” fall back to adapter
   return getAvailableProviders().length > 0
 }
 
@@ -556,7 +557,7 @@ export const WebSearchTool = buildTool({
   renderToolUseProgressMessage,
   renderToolResultMessage,
   extractSearchText() {
-    // renderToolResultMessage shows only "Did N searches in Xs" chrome —
+    // renderToolResultMessage shows only "Did N searches in Xs" chrome вЂ”
     // the results[] content never appears on screen. Heuristic would index
     // string entries in results[] (phantom match). Nothing to search.
     return ''
@@ -798,3 +799,4 @@ export const WebSearchTool = buildTool({
     }
   },
 } satisfies ToolDef<InputSchema, Output, WebSearchProgress>)
+

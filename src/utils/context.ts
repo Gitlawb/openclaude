@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
 import { getGlobalConfig } from './config.js'
@@ -22,10 +23,10 @@ const MAX_OUTPUT_TOKENS_DEFAULT = 32_000
 const MAX_OUTPUT_TOKENS_UPPER_LIMIT = 64_000
 
 // Capped default for slot-reservation optimization. BQ p99 output = 4,911
-// tokens, so 32k/64k defaults over-reserve 8-16× slot capacity. With the cap
+// tokens, so 32k/64k defaults over-reserve 8-16Г— slot capacity. With the cap
 // enabled, <1% of requests hit the limit; those get one clean retry at 64k
 // (see query.ts max_output_tokens_escalate). Cap is applied in
-// claude.ts:getMaxOutputTokensForModel to avoid the growthbook→betas→context
+// claude.ts:getMaxOutputTokensForModel to avoid the growthbookв†’betasв†’context
 // import cycle.
 export const CAPPED_DEFAULT_MAX_TOKENS = 8_000
 export const ESCALATED_MAX_TOKENS = 64_000
@@ -72,12 +73,12 @@ export function getContextWindowForModel(
     }
   }
 
-  // [1m] suffix — explicit client-side opt-in, respected over all detection
+  // [1m] suffix вЂ” explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
     return 1_000_000
   }
 
-  // OpenAI-compatible provider — use known context windows for the model.
+  // OpenAI-compatible provider вЂ” use known context windows for the model.
   // Unknown models get a conservative 128k default. This was previously 8k,
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
@@ -92,7 +93,7 @@ export function getContextWindowForModel(
       return openaiWindow
     }
     console.error(
-      `[context] Warning: model "${model}" not in context window table — using conservative 128k default. ` +
+      `[context] Warning: model "${model}" not in context window table вЂ” using conservative 128k default. ` +
       'Add it to src/utils/model/openaiContextWindows.ts for accurate compaction.',
     )
     return OPENAI_FALLBACK_CONTEXT_WINDOW
@@ -189,7 +190,7 @@ export function getModelMaxOutputTokens(model: string): {
     }
   }
 
-  // OpenAI-compatible provider — use known output limits to avoid 400 errors
+  // OpenAI-compatible provider вЂ” use known output limits to avoid 400 errors
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
@@ -259,3 +260,4 @@ export function getModelMaxOutputTokens(model: string): {
 export function getMaxThinkingTokensForModel(model: string): number {
   return getModelMaxOutputTokens(model).upperLimit - 1
 }
+

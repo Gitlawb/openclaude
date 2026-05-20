@@ -35,7 +35,7 @@ const MAX_TOTAL_MATCHES = 500;
  * Global Search dialog (ctrl+shift+f / cmd+shift+f).
  * Debounced ripgrep search across the workspace.
  */
-export function GlobalSearchDialog(t0) {
+export function GlobalSearchDialog(t0: Props): React.ReactNode {
   const $ = _c(40);
   const {
     onDone,

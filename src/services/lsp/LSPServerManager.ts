@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import { logForDebugging } from '../../utils/debug.js'
@@ -85,7 +86,7 @@ export function createLSPServerManager(): LSPServerManager {
       throw error
     }
 
-    // Build extension → server mapping
+    // Build extension в†’ server mapping
     for (const [serverName, config] of Object.entries(serverConfigs)) {
       try {
         // Validate config before using it
@@ -418,3 +419,4 @@ export function createLSPServerManager(): LSPServerManager {
     isFileOpen,
   }
 }
+

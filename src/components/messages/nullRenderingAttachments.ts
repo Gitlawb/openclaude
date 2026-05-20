@@ -39,6 +39,7 @@ const NULL_RENDERING_TYPES = [
   'task_reminder',
   'auto_mode',
   'auto_mode_exit',
+  'bagel_console',
   'output_token_usage',
   'pen_mode_enter',
   'pen_mode_exit',
@@ -63,8 +64,13 @@ const NULL_RENDERING_ATTACHMENT_TYPES: ReadonlySet<Attachment['type']> =
 export function isNullRenderingAttachment(
   msg: Message | NormalizedMessage,
 ): boolean {
+  const attachmentType =
+    msg.type === 'attachment'
+      ? (msg.attachment as { type?: unknown }).type
+      : undefined
+
   return (
-    msg.type === 'attachment' &&
-    NULL_RENDERING_ATTACHMENT_TYPES.has(msg.attachment.type)
+    typeof attachmentType === 'string' &&
+    NULL_RENDERING_ATTACHMENT_TYPES.has(attachmentType as Attachment['type'])
   )
 }

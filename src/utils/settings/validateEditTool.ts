@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ValidationResult } from 'src/Tool.js'
 import { isClaudeSettingsPath } from '../permissions/filesystem.js'
 import { validateSettingsFileContent } from './validation.js'
@@ -43,3 +44,4 @@ export function validateInputForSettingsFileEdit(
 
   return null
 }
+

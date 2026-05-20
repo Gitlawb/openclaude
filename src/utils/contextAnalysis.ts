@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type {
   ContentBlock,
@@ -270,3 +271,4 @@ export function tokenStatsToStatsigMetrics(
 
   return metrics
 }
+

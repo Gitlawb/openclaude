@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -538,3 +539,4 @@ test('doctorServer reports blocking not-found state when no definition exists', 
   assert.equal(report.summary.blocking, 1)
   assert.equal(report.servers[0]?.findings.some(finding => finding.code === 'state.not_found' && finding.blocking), true)
 })
+

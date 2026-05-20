@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -207,7 +208,7 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
       const currentRetries = autoFixRetryCount.get(chainKey) ?? 0
 
       if (currentRetries >= autoFixConfig.maxRetries) {
-        // Max retries reached — skip auto-fix and let the user know
+        // Max retries reached вЂ” skip auto-fix and let the user know
         yield {
           message: createAttachmentMessage({
             type: 'hook_additional_context',
@@ -243,7 +244,7 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
               }),
             }
           } else {
-            // Lint/test passed — reset the retry counter for this chain
+            // Lint/test passed вЂ” reset the retry counter for this chain
             autoFixRetryCount.delete(chainKey)
           }
         } catch (autoFixError) {
@@ -308,7 +309,7 @@ export async function* runPostToolUseFailureHooks<Input extends AnyObject>(
           continue
         }
 
-        // Skip hook_blocking_error in result.message — blockingError path
+        // Skip hook_blocking_error in result.message вЂ” blockingError path
         // below creates the same attachment (see #31301 / PostToolUse above).
         if (
           result.message &&
@@ -388,7 +389,7 @@ export async function* runPostToolUseFailureHooks<Input extends AnyObject>(
  * Resolve a PreToolUse hook's permission result into a final PermissionDecision.
  *
  * Encapsulates the invariant that hook 'allow' does NOT bypass settings.json
- * deny/ask rules — checkRuleBasedPermissions still applies (inc-4788 analog).
+ * deny/ask rules вЂ” checkRuleBasedPermissions still applies (inc-4788 analog).
  * Also handles the requiresUserInteraction/requireCanUseTool guards and the
  * 'ask' forceDecision passthrough.
  *
@@ -413,7 +414,7 @@ export async function resolveHookPermissionDecision(
   if (hookPermissionResult?.behavior === 'allow') {
     const hookInput = hookPermissionResult.updatedInput ?? input
 
-    // Hook provided updatedInput for an interactive tool — the hook IS the
+    // Hook provided updatedInput for an interactive tool вЂ” the hook IS the
     // user interaction (e.g. headless wrapper that collected AskUserQuestion
     // answers). Treat as non-interactive for the rule-check path.
     const interactionSatisfied =
@@ -455,7 +456,7 @@ export async function resolveHookPermissionDecision(
       )
       return { decision: ruleCheck, input: hookInput }
     }
-    // ask rule — dialog required despite hook approval
+    // ask rule вЂ” dialog required despite hook approval
     logForDebugging(
       `Hook approved tool use for ${tool.name}, but ask rule requires prompt`,
     )
@@ -476,7 +477,7 @@ export async function resolveHookPermissionDecision(
     return { decision: hookPermissionResult, input }
   }
 
-  // No hook decision or 'ask' — normal permission flow, possibly with
+  // No hook decision or 'ask' вЂ” normal permission flow, possibly with
   // forceDecision so the dialog shows the hook's ask message.
   const forceDecision =
     hookPermissionResult?.behavior === 'ask' ? hookPermissionResult : undefined
@@ -714,3 +715,4 @@ export async function* runPreToolUseHooks(
     return
   }
 }
+

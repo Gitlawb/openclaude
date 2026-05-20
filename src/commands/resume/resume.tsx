@@ -154,11 +154,20 @@ function ResumeCommand({
       }
 
       // Different project - show command instead of resuming
-      const raw = await setClipboard(crossProjectCheck.command);
+      const resumeCommand =
+        'command' in crossProjectCheck ? crossProjectCheck.command : null;
+      if (!resumeCommand) {
+        onDone(
+          'This conversation is from a different directory, but no resume command is available for this worktree.',
+          { display: 'user' },
+        );
+        return;
+      }
+      const raw = await setClipboard(resumeCommand);
       if (raw) process.stdout.write(raw);
 
       // Format the output message
-      const message = ['', 'This conversation is from a different directory.', '', 'To resume, run:', `  ${crossProjectCheck.command}`, '', '(Command copied to clipboard)', ''].join('\n');
+      const message = ['', 'This conversation is from a different directory.', '', 'To resume, run:', `  ${resumeCommand}`, '', '(Command copied to clipboard)', ''].join('\n');
       onDone(message, {
         display: 'user'
       });

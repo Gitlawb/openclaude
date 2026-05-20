@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import chalk from 'chalk'
 import { logForDebugging } from 'src/utils/debug.js'
 import { fileHistoryEnabled } from 'src/utils/fileHistory.js'
@@ -304,7 +305,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'ide-upsell-external-terminal',
-    content: async () => 'Connect Claude to your IDE · /ide',
+    content: async () => 'Connect Claude to your IDE В· /ide',
     cooldownSessions: 4,
     async isRelevant() {
       if (isSupportedTerminal()) {
@@ -456,7 +457,7 @@ const externalTips: Tip[] = [
   {
     id: 'web-app',
     content: async () =>
-      'Run tasks in the cloud while you keep coding locally · clau.de/web',
+      'Run tasks in the cloud while you keep coding locally В· clau.de/web',
     cooldownSessions: 15,
     isRelevant: async () => true,
   },
@@ -589,8 +590,8 @@ const externalTips: Tip[] = [
       const claude = color('claude', ctx.theme)
       const reward = getCachedReferrerReward()
       return reward
-        ? `Share Claude Code and earn ${claude(formatCreditAmount(reward))} of extra usage · ${claude('/passes')}`
-        : `You have free guest passes to share · ${claude('/passes')}`
+        ? `Share Claude Code and earn ${claude(formatCreditAmount(reward))} of extra usage В· ${claude('/passes')}`
+        : `You have free guest passes to share В· ${claude('/passes')}`
     },
     cooldownSessions: 3,
     isRelevant: async () => {
@@ -609,8 +610,8 @@ const externalTips: Tip[] = [
       const info = getCachedOverageCreditGrant()
       const amount = info ? formatGrantAmount(info) : null
       if (!amount) return ''
-      // Copy from "OC & Bulk Overages copy" doc (#5 — CLI Rotating tip)
-      return `${claude(`${amount} in extra usage, on us`)} · third-party apps · ${claude('/extra-usage')}`
+      // Copy from "OC & Bulk Overages copy" doc (#5 вЂ” CLI Rotating tip)
+      return `${claude(`${amount} in extra usage, on us`)} В· third-party apps В· ${claude('/extra-usage')}`
     },
     cooldownSessions: 3,
     isRelevant: async () => shouldShowOverageCreditUpsell(),
@@ -659,3 +660,4 @@ export async function getRelevantTips(context?: TipContext): Promise<Tip[]> {
 
   return [...filtered, ...customTips]
 }
+

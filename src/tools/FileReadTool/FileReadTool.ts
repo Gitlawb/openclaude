@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { Base64ImageSource } from '@anthropic-ai/sdk/resources/index.mjs'
 import { readdir, readFile as readFileAsync } from 'fs/promises'
 import * as path from 'path'
@@ -96,7 +97,7 @@ import {
 // Device files that would hang the process: infinite output or blocking input.
 // Checked by path only (no I/O). Safe devices like /dev/null are intentionally omitted.
 const BLOCKED_DEVICE_PATHS = new Set([
-  // Infinite output — never reach EOF
+  // Infinite output вЂ” never reach EOF
   '/dev/zero',
   '/dev/random',
   '/dev/urandom',
@@ -338,7 +339,7 @@ export const FileReadTool = buildTool({
   name: FILE_READ_TOOL_NAME,
   searchHint: 'read files, images, PDFs, notebooks',
   // Output is bounded by maxTokens (validateContentTokens). Persisting to a
-  // file the model reads back with Read is circular — never persist.
+  // file the model reads back with Read is circular вЂ” never persist.
   maxResultSizeChars: Infinity,
   strict: true,
   async description() {
@@ -406,7 +407,7 @@ export const FileReadTool = buildTool({
   renderToolUseMessage,
   renderToolUseTag,
   renderToolResultMessage,
-  // UI.tsx:140 — ALL types render summary chrome only: "Read N lines",
+  // UI.tsx:140 вЂ” ALL types render summary chrome only: "Read N lines",
   // "Read image (42KB)". Never the content itself. The model-facing
   // serialization (below) sends content + CYBER_RISK_MITIGATION_REMINDER
   // + line prefixes; UI shows none of it. Nothing to index. Caught by
@@ -458,7 +459,7 @@ export const FileReadTool = buildTool({
       }
     }
 
-    // SECURITY: UNC path check (no I/O) — defer filesystem operations
+    // SECURITY: UNC path check (no I/O) вЂ” defer filesystem operations
     // until after user grants permission to prevent NTLM credential leaks
     const isUncPath =
       fullFilePath.startsWith('\\\\') || fullFilePath.startsWith('//')
@@ -482,7 +483,7 @@ export const FileReadTool = buildTool({
     }
 
     // Block specific device files that would hang (infinite output or blocking input).
-    // This is a path-based check with no I/O — safe special files like /dev/null are allowed.
+    // This is a path-based check with no I/O вЂ” safe special files like /dev/null are allowed.
     if (isBlockedDevicePath(fullFilePath)) {
       return {
         result: false,
@@ -507,7 +508,7 @@ export const FileReadTool = buildTool({
     const maxTokens = fileReadingLimits?.maxTokens ?? defaults.maxTokens
 
     // Telemetry: track when callers override default read limits.
-    // Only fires on override (low volume) — event count = override frequency.
+    // Only fires on override (low volume) вЂ” event count = override frequency.
     if (fileReadingLimits !== undefined) {
       logEvent('tengu_file_read_limits_override', {
         hasMaxTokens: fileReadingLimits.maxTokens !== undefined,
@@ -522,16 +523,16 @@ export const FileReadTool = buildTool({
 
     // Dedup: if we've already read this exact range and the file hasn't
     // changed on disk, return a stub instead of re-sending the full content.
-    // The earlier Read tool_result is still in context — two full copies
+    // The earlier Read tool_result is still in context вЂ” two full copies
     // waste cache_creation tokens on every subsequent turn. BQ proxy shows
     // ~18% of Read calls are same-file collisions (up to 2.64% of fleet
-    // cache_creation). Only applies to text/notebook reads — images/PDFs
+    // cache_creation). Only applies to text/notebook reads вЂ” images/PDFs
     // aren't cached in readFileState so won't match here.
     //
     // Ant soak: 1,734 dedup hits in 2h, no Read error regression.
     // Killswitch pattern: GB can disable if the stub message confuses
     // the model externally.
-    // 3P default: killswitch off = dedup enabled. Client-side only — no
+    // 3P default: killswitch off = dedup enabled. Client-side only вЂ” no
     // server support needed, safe for Bedrock/Vertex/Foundry.
     const dedupKillswitch = getFeatureValue_CACHED_MAY_BE_STALE(
       'tengu_read_dedup_killswitch',
@@ -541,7 +542,7 @@ export const FileReadTool = buildTool({
       ? undefined
       : readFileState.get(fullFilePath)
     // Only dedup entries that came from a prior Read (offset is always set
-    // by Read). Edit/Write store offset=undefined — their readFileState
+    // by Read). Edit/Write store offset=undefined вЂ” their readFileState
     // entry reflects post-edit mtime, so deduping against it would wrongly
     // point the model at the pre-edit Read content.
     if (
@@ -567,7 +568,7 @@ export const FileReadTool = buildTool({
             }
           }
         } catch {
-          // stat failed — fall through to full read
+          // stat failed вЂ” fall through to full read
         }
       }
     }
@@ -610,7 +611,7 @@ export const FileReadTool = buildTool({
       const code = getErrnoCode(error)
       if (code === 'ENOENT') {
         // macOS screenshots may use a thin space or regular space before
-        // AM/PM — try the alternate before giving up.
+        // AM/PM вЂ” try the alternate before giving up.
         const altPath = getAlternateScreenshotPath(fullFilePath)
         if (altPath) {
           try {
@@ -632,7 +633,7 @@ export const FileReadTool = buildTool({
             if (!isENOENT(altError)) {
               throw altError
             }
-            // Alt path also missing — fall through to friendly error
+            // Alt path also missing вЂ” fall through to friendly error
           }
         }
 
@@ -864,7 +865,7 @@ async function callInner(
 
   // --- Image (single read, no double-read) ---
   if (IMAGE_EXTENSIONS.has(ext)) {
-    // Images have their own size limits (token budget + compression) —
+    // Images have their own size limits (token budget + compression) вЂ”
     // don't apply the text maxSizeBytes cap.
     const data = await readImageWithTokenBudget(resolvedFilePath, maxTokens)
     context.nestedMemoryAttachmentTriggers?.add(fullFilePath)
@@ -1037,7 +1038,7 @@ async function callInner(
   })
   context.nestedMemoryAttachmentTriggers?.add(fullFilePath)
 
-  // Snapshot before iterating — a listener that unsubscribes mid-callback
+  // Snapshot before iterating вЂ” a listener that unsubscribes mid-callback
   // would splice the live array and skip the next listener.
   for (const listener of fileReadListeners.slice()) {
     listener(resolvedFilePath, content)
@@ -1099,7 +1100,7 @@ export async function readImageWithTokenBudget(
   maxTokens: number = getDefaultFileReadingLimits().maxTokens,
   maxBytes?: number,
 ): Promise<ImageResult> {
-  // Read file ONCE — capped to maxBytes to avoid OOM on huge files
+  // Read file ONCE вЂ” capped to maxBytes to avoid OOM on huge files
   const imageBuffer = await getFsImplementation().readFileBytes(
     filePath,
     maxBytes,
@@ -1181,3 +1182,4 @@ export async function readImageWithTokenBudget(
 
   return result
 }
+

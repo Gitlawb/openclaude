@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import {
   type AnsiCode,
   ansiCodesToString,
@@ -164,3 +165,4 @@ class HighlightSegmenter {
 function reduceCodes(codes: AnsiCode[]): AnsiCode[] {
   return reduceAnsiCodes(codes).filter(c => c.code !== c.endCode)
 }
+

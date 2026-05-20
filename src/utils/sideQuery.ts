@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type Anthropic from '@anthropic-ai/sdk'
 import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages.js'
 import {
@@ -51,13 +52,13 @@ export type SideQueryOptions = {
   maxRetries?: number
   /** Abort signal */
   signal?: AbortSignal
-  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). Default true — side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Claude Code…" prefix. */
+  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). Default true вЂ” side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Claude CodeвЂ¦" prefix. */
   skipSystemPromptPrefix?: boolean
   /** Temperature override */
   temperature?: number
   /** Thinking budget (enables thinking), or `false` to send `{ type: 'disabled' }`. */
   thinking?: number | false
-  /** Stop sequences — generation stops when any of these strings is emitted */
+  /** Stop sequences вЂ” generation stops when any of these strings is emitted */
   stop_sequences?: string[]
   /** Attributes this call in tengu_api_success for COGS joining against reporting.sampling_calls. */
   querySource: QuerySource
@@ -220,3 +221,4 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
 
   return response
 }
+

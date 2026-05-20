@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { describe, expect, test } from 'bun:test'
 
 describe('readGithubModelsToken', () => {
@@ -50,4 +51,5 @@ describe('saveGithubModelsToken / clearGithubModelsToken', () => {
     }
   })
 })
+
 

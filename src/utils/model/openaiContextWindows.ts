@@ -89,6 +89,14 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'o3-mini':                  200_000,
   'o4-mini':                  200_000,
 
+  // Abacus RouteLLM presets (OpenAI-compatible router)
+  'route-llm':                128_000,
+  'gpt-5.5':                  400_000,
+  'claude-sonnet-4-6':        200_000,
+  'claude-opus-4-6':          200_000,
+  'claude-opus-4-7':          200_000,
+  'claude-opus-4-7-xhigh':    200_000,
+
   // DeepSeek (V3: 128k context per official docs)
   'deepseek-chat':            128_000,
   'deepseek-reasoner':        128_000,
@@ -179,11 +187,13 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
   'google/gemini-2.5-pro':  1_048_576,
+  'google/gemini-3-flash':  1_048_576,
 
   // Google (native via CLAUDE_CODE_USE_GEMINI)
   'gemini-2.0-flash':       1_048_576,
   'gemini-2.5-pro':         1_048_576,
   'gemini-2.5-flash':       1_048_576,
+  'gemini-3-flash':         1_048_576,
 
   // Ollama local models
   // Llama 3.1+ models support 128k context natively (Meta official specs).
@@ -278,6 +288,14 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'o3-mini':                  100_000,
   'o4-mini':                  100_000,
 
+  // Abacus RouteLLM presets
+  'route-llm':                 32_768,
+  'gpt-5.5':                  128_000,
+  'claude-sonnet-4-6':         32_000,
+  'claude-opus-4-6':           32_000,
+  'claude-opus-4-7':           32_000,
+  'claude-opus-4-7-xhigh':     32_000,
+
   // DeepSeek
   'deepseek-chat':              8_192,
   'deepseek-reasoner':         32_768,
@@ -314,11 +332,13 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,
   'google/gemini-2.5-pro':    65_536,
+  'google/gemini-3-flash':    65_536,
 
   // Google (native via CLAUDE_CODE_USE_GEMINI)
   'gemini-2.0-flash':          8_192,
   'gemini-2.5-pro':           65_536,
   'gemini-2.5-flash':         65_536,
+  'gemini-3-flash':           65_536,
 
   // Ollama local models (conservative safe defaults)
   'llama3.3:70b':               4_096,
@@ -358,11 +378,21 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   '01-ai/yi-large': 8_192,
 }
 
+function getProviderNamespaceModel(rawModel: string | undefined): string | undefined {
+  const model = rawModel?.trim().split('?', 1)[0]
+  if (model === 'github:copilot') return model
+  return undefined
+}
+
 function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {
-  // Try provider-qualified key first: "{OPENAI_MODEL}:{model}" so that
+  // Try provider-qualified key first: "{provider}:{model}" so that
   // e.g. "github:copilot:claude-haiku-4.5" can have different limits than
   // a bare "claude-haiku-4.5" served by another provider.
-  const providerModel = process.env.OPENAI_MODEL?.trim()
+  //
+  // OPENAI_MODEL normally stores the selected model, not the provider. Only
+  // treat it as a namespace for known provider aliases; otherwise a saved model
+  // such as "gemini-3-flash" would incorrectly shadow lookups for "gpt-5.4".
+  const providerModel = getProviderNamespaceModel(process.env.OPENAI_MODEL)
   if (providerModel && providerModel !== model) {
     const qualified = `${providerModel}:${model}`
     const qualifiedResult = lookupByKey(table, qualified)

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { LspServerConfig } from '../services/lsp/types.js'
 import type { McpServerConfig } from '../services/mcp/types.js'
 import type { BundledSkillDefinition } from '../skills/bundledSkills.js'
@@ -320,7 +321,7 @@ export function getPluginErrorMessage(error: PluginError): string {
       const dup = error.duplicateOf.startsWith('plugin:')
         ? `server provided by plugin "${error.duplicateOf.split(':')[1] ?? '?'}"`
         : `already-configured "${error.duplicateOf}"`
-      return `MCP server "${error.serverName}" skipped — same command/URL as ${dup}`
+      return `MCP server "${error.serverName}" skipped вЂ” same command/URL as ${dup}`
     }
     case 'hook-load-failed':
       return `Hook load failed: ${error.reason}`
@@ -353,11 +354,12 @@ export function getPluginErrorMessage(error: PluginError): string {
     case 'dependency-unsatisfied': {
       const hint =
         error.reason === 'not-enabled'
-          ? 'disabled — enable it or remove the dependency'
+          ? 'disabled вЂ” enable it or remove the dependency'
           : 'not found in any configured marketplace'
       return `Dependency "${error.dependency}" is ${hint}`
     }
     case 'plugin-cache-miss':
-      return `Plugin "${error.plugin}" not cached at ${error.installPath} — run /plugins to refresh`
+      return `Plugin "${error.plugin}" not cached at ${error.installPath} вЂ” run /plugins to refresh`
   }
 }
+

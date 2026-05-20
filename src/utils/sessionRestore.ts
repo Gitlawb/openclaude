@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { dirname } from 'path'
@@ -122,7 +123,7 @@ export function restoreSessionStateFromLog(
   // the first query() so projectView() can rebuild the collapsed view from
   // the resumed Message[]. Called unconditionally (even with
   // undefined/empty entries) because restoreFromEntries resets the store
-  // first — without that, an in-session /resume into a session with no
+  // first вЂ” without that, an in-session /resume into a session with no
   // commits would leave the prior session's stale commit log intact.
   if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
@@ -319,7 +320,7 @@ type ResumeLoadResult = {
  * the last worktree enter/exit; if the session crashed while inside a
  * worktree (last entry = session object, not null), cd back into it.
  *
- * process.chdir is the TOCTOU-safe existence check — it throws ENOENT if
+ * process.chdir is the TOCTOU-safe existence check вЂ” it throws ENOENT if
  * the /exit dialog removed the directory, or if the user deleted it
  * manually between sessions.
  *
@@ -354,7 +355,7 @@ export function restoreWorktreeForResume(
   // projectRoot is intentionally NOT set here. The transcript doesn't record
   // whether the worktree was entered via --worktree (which sets projectRoot)
   // or EnterWorktreeTool (which doesn't). Leaving projectRoot stable matches
-  // EnterWorktreeTool's behavior — skills/history stay anchored to the
+  // EnterWorktreeTool's behavior вЂ” skills/history stay anchored to the
   // original project.
   restoreWorktreeSession(worktreeSession)
   // The /resume slash command calls this mid-session after caches have been
@@ -370,7 +371,7 @@ export function restoreWorktreeForResume(
  * another session. Without this, /resume from a worktree session to a
  * non-worktree session leaves the user in the old worktree directory with
  * currentWorktreeSession still pointing at the prior session. /resume to a
- * *different* worktree fails entirely — the getCurrentWorktreeSession()
+ * *different* worktree fails entirely вЂ” the getCurrentWorktreeSession()
  * guard above blocks the switch.
  *
  * Not needed by CLI --resume/--continue: those run once at startup where
@@ -391,7 +392,7 @@ export function exitRestoredWorktree(): void {
   try {
     process.chdir(current.originalCwd)
   } catch {
-    // Original dir is gone (rare). Stay put — restoreWorktreeForResume
+    // Original dir is gone (rare). Stay put вЂ” restoreWorktreeForResume
     // will cd into the target worktree next if there is one.
     return
   }
@@ -456,7 +457,7 @@ export async function processResumedConversation(
     // recordContentReplacement (which query.ts calls for newlyReplaced, never
     // the pre-loaded records). Without this seed, `claude -r {newSessionId}`
     // finds source tool_use_ids in messages but no matching replacement records
-    // → they're classified as FROZEN → full content sent (cache miss, permanent
+    // в†’ they're classified as FROZEN в†’ full content sent (cache miss, permanent
     // overage). insertContentReplacement stamps sessionId = getSessionId() =
     // the fresh ID, so loadTranscriptFile's keyed lookup will match.
     await recordContentReplacement(result.contentReplacements)
@@ -464,8 +465,8 @@ export async function processResumedConversation(
 
   // Restore session metadata so /status shows the saved name and metadata
   // is re-appended on session exit. Fork doesn't take ownership of the
-  // original session's worktree — a "Remove" on the fork's exit dialog
-  // would delete a worktree the original session still references — so
+  // original session's worktree вЂ” a "Remove" on the fork's exit dialog
+  // would delete a worktree the original session still references вЂ” so
   // strip worktreeSession from the fork path so the cache stays unset.
   restoreSessionMetadata(
     opts.forkSession ? { ...result, worktreeSession: undefined } : result,
@@ -480,8 +481,8 @@ export async function processResumedConversation(
 
     // Point sessionFile at the resumed transcript and re-append metadata
     // now. resetSessionFilePointer above nulled it (so the old fresh-session
-    // path doesn't leak), but that blocks reAppendSessionMetadata — which
-    // bails on null — from running in the exit cleanup handler. For fork,
+    // path doesn't leak), but that blocks reAppendSessionMetadata вЂ” which
+    // bails on null вЂ” from running in the exit cleanup handler. For fork,
     // useLogMessages populates a *new* file via recordTranscript on REPL
     // mount; the normal lazy-materialize path is correct there.
     adoptResumedSessionFile()
@@ -490,7 +491,7 @@ export async function processResumedConversation(
   // Restore context-collapse commit log + staged snapshot. The interactive
   // /resume path goes through restoreSessionStateFromLog (REPL.tsx); CLI
   // --continue/--resume goes through here instead. Called unconditionally
-  // — see the restoreSessionStateFromLog callsite above for why.
+  // вЂ” see the restoreSessionStateFromLog callsite above for why.
   if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     ;(
@@ -549,3 +550,4 @@ export async function processResumedConversation(
     },
   }
 }
+

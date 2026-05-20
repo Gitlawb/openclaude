@@ -36,7 +36,7 @@ function cachedHighlight(hl: NonNullable<Awaited<ReturnType<typeof getCliHighlig
   hlCache.set(key, out);
   return out;
 }
-export function HighlightedCodeFallback(t0) {
+export function HighlightedCodeFallback(t0: Props): React.ReactNode {
   const $ = _c(20);
   const {
     code,
@@ -121,7 +121,9 @@ export function HighlightedCodeFallback(t0) {
   }
   return t8;
 }
-function Highlighted(t0) {
+function Highlighted(
+  t0: { codeWithSpaces: string; language: string },
+): React.ReactNode {
   const $ = _c(10);
   const {
     codeWithSpaces,
@@ -134,7 +136,7 @@ function Highlighted(t0) {
   } else {
     t1 = $[0];
   }
-  const hl = use(t1);
+  const hl = use(t1) as Awaited<ReturnType<typeof getCliHighlightPromise>>;
   let t2;
   if ($[1] !== codeWithSpaces || $[2] !== hl || $[3] !== language) {
     bb0: {

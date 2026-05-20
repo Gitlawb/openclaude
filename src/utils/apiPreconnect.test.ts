@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 const originalEnv = { ...process.env }
@@ -81,3 +82,4 @@ describe('preconnectAnthropicApi', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
+

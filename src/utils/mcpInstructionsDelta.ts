@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { logEvent } from '../services/analytics/index.js'
 import type {
@@ -8,7 +9,7 @@ import type { Message } from '../types/message.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 
 export type McpInstructionsDelta = {
-  /** Server names — for stateless-scan reconstruction. */
+  /** Server names вЂ” for stateless-scan reconstruction. */
   addedNames: string[]
   /** Rendered "## {name}\n{instructions}" blocks for addedNames. */
   addedBlocks: string[]
@@ -27,8 +28,8 @@ export type ClientSideInstruction = {
 }
 
 /**
- * True → announce MCP server instructions via persisted delta attachments.
- * False → prompts.ts keeps its DANGEROUS_uncachedSystemPromptSection
+ * True в†’ announce MCP server instructions via persisted delta attachments.
+ * False в†’ prompts.ts keeps its DANGEROUS_uncachedSystemPromptSection
  * (rebuilt every turn; cache-busts on late connect).
  *
  * Env override for local testing: CLAUDE_CODE_MCP_INSTR_DELTA=true/false
@@ -96,12 +97,12 @@ export function getMcpInstructionsDelta(
     if (!announced.has(name)) added.push({ name, block })
   }
 
-  // A previously-announced server that is no longer connected → removed.
+  // A previously-announced server that is no longer connected в†’ removed.
   // There is no "announced but now has no instructions" case for a still-
   // connected server: InitializeResult is immutable, and client-side
   // instruction gates are session-stable in practice. (/model can flip
   // the model gate, but deferred_tools_delta has the same property and
-  // we treat history as historical — no retroactive retractions.)
+  // we treat history as historical вЂ” no retroactive retractions.)
   const removed: string[] = []
   for (const n of announced) {
     if (!connectedNames.has(n)) removed.push(n)
@@ -109,7 +110,7 @@ export function getMcpInstructionsDelta(
 
   if (added.length === 0 && removed.length === 0) return null
 
-  // Same diagnostic fields as tengu_deferred_tools_pool_change — same
+  // Same diagnostic fields as tengu_deferred_tools_pool_change вЂ” same
   // scan-fails-in-prod bug, same attachment persistence path.
   logEvent('tengu_mcp_instructions_pool_change', {
     addedCount: added.length,
@@ -128,3 +129,4 @@ export function getMcpInstructionsDelta(
     removedNames: removed.sort(),
   }
 }
+

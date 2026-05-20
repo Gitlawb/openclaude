@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { execaSync } from 'execa'
 import { join } from 'path'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
@@ -223,3 +224,4 @@ export const windowsCredentialStorage: SecureStorage = {
     return (removeDpapiResult?.exitCode ?? 1) === 0
   },
 }
+

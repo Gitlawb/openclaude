@@ -156,13 +156,18 @@ function createInProcessCanUseTool(
     // For bash commands, try classifier auto-approval before showing leader dialog.
     // Agents await the classifier result (rather than racing it against user
     // interaction like the main agent).
+    const pendingClassifierCheck =
+      'pendingClassifierCheck' in result
+        ? result.pendingClassifierCheck
+        : undefined
+
     if (
       feature('BASH_CLASSIFIER') &&
       tool.name === BASH_TOOL_NAME &&
-      result.pendingClassifierCheck
+      pendingClassifierCheck
     ) {
       const classifierDecision = await awaitClassifierAutoApproval(
-        result.pendingClassifierCheck,
+        pendingClassifierCheck,
         abortController.signal,
         toolUseContext.options.isNonInteractiveSession,
       )

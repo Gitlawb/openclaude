@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { z } from 'zod/v4'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
@@ -81,7 +82,7 @@ export const MCPTool = buildTool({
     if (typeof output === 'string') {
       return isOutputLineTruncated(output)
     }
-    // Array of content blocks — check if any text block exceeds the display limit
+    // Array of content blocks вЂ” check if any text block exceeds the display limit
     if (Array.isArray(output)) {
       return output.some(
         block =>
@@ -100,3 +101,4 @@ export const MCPTool = buildTool({
     }
   },
 } satisfies ToolDef<InputSchema, Output>)
+

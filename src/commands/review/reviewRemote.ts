@@ -136,9 +136,9 @@ export async function launchRemoteReview(
   // consume at session creation routes billing: first N zero-rate, then
   // anthropic:cccr org-service-key (overage-only).
   if (!eligibility.eligible) {
-    const blockers = eligibility.errors.filter(
-      e => e.type !== 'no_remote_environment',
-    )
+    const blockers = (
+      'errors' in eligibility ? eligibility.errors : []
+    ).filter(e => e.type !== 'no_remote_environment')
     if (blockers.length > 0) {
       logEvent('tengu_review_remote_precondition_failed', {
         precondition_errors: blockers

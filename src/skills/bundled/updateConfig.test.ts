@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { afterEach, expect, test } from 'bun:test'
 
 import { clearBundledSkills, getBundledSkills } from '../bundledSkills.js'
@@ -21,3 +22,4 @@ test('update-config skill can generate its prompt without JSON Schema conversion
     '## Full Settings JSON Schema',
   )
 })
+

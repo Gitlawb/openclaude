@@ -69,8 +69,12 @@ describe('runAutoFixCheck', () => {
   })
 
   test('handles timeout gracefully', async () => {
+    const command =
+      process.platform === 'win32'
+        ? 'node -e "setTimeout(() => {}, 10000)"'
+        : 'sleep 10'
     const result = await runAutoFixCheck({
-      lint: 'sleep 10',
+      lint: command,
       timeout: 100,
 
       cwd: '/tmp',

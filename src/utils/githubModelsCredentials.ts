@@ -86,6 +86,10 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
+  if (process.env.OPENAI_API_KEY?.trim()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    return
+  }
   if (isBareMode()) {
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return

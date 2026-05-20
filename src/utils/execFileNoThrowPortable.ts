@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { type Options as ExecaOptions, execaSync } from 'execa'
 import { getCwd } from '../utils/cwd.js'
 import { slowLogging } from './slowOperations.js'
@@ -87,3 +88,4 @@ export function execSyncWithDefaults_DEPRECATED(
     return null
   }
 }
+

@@ -300,9 +300,9 @@ export function getRelativeSettingsFilePathForSource(
 ): string {
   switch (source) {
     case 'projectSettings':
-      return join('.openclaude', 'settings.json')
+      return '.openclaude/settings.json'
     case 'localSettings':
-      return join('.openclaude', 'settings.local.json')
+      return '.openclaude/settings.local.json'
   }
 }
 

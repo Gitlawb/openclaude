@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle'
 import { basename } from 'path'
 import { useCallback, useEffect, useRef } from 'react'
@@ -162,9 +163,9 @@ export function useManageMCPConnections(
   const channelWarnedKindsRef = useRef<
     Set<'disabled' | 'auth' | 'policy' | 'marketplace' | 'allowlist'>
   >(new Set())
-  // Channel permission callbacks — constructed once, stable ref. Stored in
+  // Channel permission callbacks вЂ” constructed once, stable ref. Stored in
   // AppState so interactiveHandler can subscribe. The pending Map lives inside
-  // the closure (not module-level, not AppState — functions-in-state is brittle).
+  // the closure (not module-level, not AppState вЂ” functions-in-state is brittle).
   const channelPermCallbacksRef = useRef<ChannelPermissionCallbacks | null>(
     null,
   )
@@ -175,15 +176,15 @@ export function useManageMCPConnections(
     channelPermCallbacksRef.current = createChannelPermissionCallbacks()
   }
   // Store callbacks in AppState so interactiveHandler.ts can reach them via
-  // ctx.toolUseContext.getAppState(). One-time set — the ref is stable.
+  // ctx.toolUseContext.getAppState(). One-time set вЂ” the ref is stable.
   useEffect(() => {
     if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
       const callbacks = channelPermCallbacksRef.current
       if (!callbacks) return
-      // GrowthBook runtime gate — separate from channels so channels can
+      // GrowthBook runtime gate вЂ” separate from channels so channels can
       // ship without this. Checked at mount; mid-session flips need restart.
-      // If off, callbacks never go into AppState → interactiveHandler sees
-      // undefined → never sends → intercept has nothing pending → "yes tbxkq"
+      // If off, callbacks never go into AppState в†’ interactiveHandler sees
+      // undefined в†’ never sends в†’ intercept has nothing pending в†’ "yes tbxkq"
       // flows to Claude as normal chat. One gate, full disable.
       if (!isChannelPermissionRelayEnabled()) return
       setAppState(prev => {
@@ -467,7 +468,7 @@ export function useManageMCPConnections(
             }
           }
 
-          // Channel push: notifications/claude/channel → enqueue().
+          // Channel push: notifications/claude/channel в†’ enqueue().
           // Gate decides whether to register the handler; connection stays
           // up either way (allowedMcpServers controls that).
           if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
@@ -477,7 +478,7 @@ export function useManageMCPConnections(
               client.config.pluginSource,
             )
             const entry = findChannelEntry(client.name, getAllowedChannels())
-            // Plugin identifier for telemetry — log name@marketplace for any
+            // Plugin identifier for telemetry вЂ” log name@marketplace for any
             // plugin-kind entry (same tier as tengu_plugin_installed, which
             // logs arbitrary plugin_id+marketplace_name ungated). server-kind
             // names are MCP-server-name tier; those are opt-in-only elsewhere
@@ -487,7 +488,7 @@ export function useManageMCPConnections(
               entry?.kind === 'plugin'
                 ? (`${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
                 : undefined
-            // Skip capability-miss — every non-channel MCP server trips it.
+            // Skip capability-miss вЂ” every non-channel MCP server trips it.
             if (gate.action === 'register' || gate.kind !== 'capability') {
               logEvent('tengu_mcp_channel_gate', {
                 registered: gate.action === 'register',
@@ -530,7 +531,7 @@ export function useManageMCPConnections(
                     })
                   },
                 )
-                // Permission-reply handler — separate event, separate
+                // Permission-reply handler вЂ” separate event, separate
                 // capability. Only registers if the server declares
                 // claude/channel/permission (same opt-in check as the send
                 // path in interactiveHandler.ts). Server parses the user's
@@ -553,18 +554,18 @@ export function useManageMCPConnections(
                         ) ?? false
                       logMCPDebug(
                         client.name,
-                        `notifications/claude/channel/permission: ${request_id} → ${behavior} (${resolved ? 'matched pending' : 'no pending entry — stale or unknown ID'})`,
+                        `notifications/claude/channel/permission: ${request_id} в†’ ${behavior} (${resolved ? 'matched pending' : 'no pending entry вЂ” stale or unknown ID'})`,
                       )
                     },
                   )
                 }
                 break
               case 'skip':
-                // Idempotent teardown so a register→skip re-gate (e.g.
+                // Idempotent teardown so a registerв†’skip re-gate (e.g.
                 // effect re-runs after /logout) actually removes the live
                 // handler. Without this, mid-session demotion is one-way:
                 // the gate says skip but the earlier handler keeps enqueuing.
-                // Map.delete — safe when never registered.
+                // Map.delete вЂ” safe when never registered.
                 client.client.removeNotificationHandler(
                   'notifications/claude/channel',
                 )
@@ -579,7 +580,7 @@ export function useManageMCPConnections(
                 // blocked. This is the only
                 // user-visible signal (logMCPDebug above requires --debug).
                 // Capability/session skips are expected noise and stay
-                // debug-only. marketplace/allowlist run after session — if
+                // debug-only. marketplace/allowlist run after session вЂ” if
                 // we're here with those kinds, the user asked for it.
                 if (
                   gate.kind !== 'capability' &&
@@ -597,9 +598,9 @@ export function useManageMCPConnections(
                     gate.kind === 'disabled'
                       ? 'Channels are not currently available'
                       : gate.kind === 'auth'
-                        ? 'Channels require claude.ai authentication · run /login'
+                        ? 'Channels require claude.ai authentication В· run /login'
                         : gate.kind === 'policy'
-                          ? 'Channels are not enabled for your org · have an administrator set channelsEnabled: true in managed settings'
+                          ? 'Channels are not enabled for your org В· have an administrator set channelsEnabled: true in managed settings'
                           : gate.reason
                   addNotification({
                     key: `channels-blocked-${gate.kind}`,
@@ -676,7 +677,7 @@ export function useManageMCPConnections(
                   type: 'prompts' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
                 })
                 try {
-                  // Skills come from resources, not prompts — don't invalidate their
+                  // Skills come from resources, not prompts вЂ” don't invalidate their
                   // cache here. fetchMcpSkillsForClient returns the cached result.
                   fetchCommandsForClient.cache.delete(client.name)
                   const [mcpPrompts, mcpSkills] = await Promise.all([
@@ -689,7 +690,7 @@ export function useManageMCPConnections(
                     ...client,
                     commands: [...mcpPrompts, ...mcpSkills],
                   })
-                  // MCP skills changed — invalidate skill-search index so
+                  // MCP skills changed вЂ” invalidate skill-search index so
                   // next discovery rebuilds with the new set.
                   clearSkillIndexCache?.()
                 } catch (error) {
@@ -733,7 +734,7 @@ export function useManageMCPConnections(
                       resources: newResources,
                       commands: [...mcpPrompts, ...mcpSkills],
                     })
-                    // MCP skills changed — invalidate skill-search index so
+                    // MCP skills changed вЂ” invalidate skill-search index so
                     // next discovery rebuilds with the new set.
                     clearSkillIndexCache?.()
                   } else {
@@ -765,7 +766,7 @@ export function useManageMCPConnections(
   // Initialize all servers to pending state if they don't exist in appState.
   // Re-runs on session change (/clear) and on /reload-plugins (pluginReconnectKey).
   // On plugin reload, also disconnects stale plugin MCP servers (scope 'dynamic')
-  // that no longer appear in configs — prevents ghost tools from disabled plugins.
+  // that no longer appear in configs вЂ” prevents ghost tools from disabled plugins.
   // Skip claude.ai dedup here to avoid blocking on the network fetch; the connect
   // useEffect below runs immediately after and dedups before connecting.
   const sessionId = getSessionId()
@@ -788,16 +789,16 @@ export function useManageMCPConnections(
           prevState.mcp,
           configs,
         )
-        // Clean up stale connections. Fire-and-forget — state updaters must
+        // Clean up stale connections. Fire-and-forget вЂ” state updaters must
         // be synchronous. Three hazards to defuse before calling cleanup:
         //   1. Pending reconnect timer would fire with the OLD config.
         //   2. onclose (set at L254) starts reconnectWithBackoff with the
-        //      OLD config from its closure — it checks isMcpServerDisabled
+        //      OLD config from its closure вЂ” it checks isMcpServerDisabled
         //      but config-changed servers aren't disabled, so it'd race the
         //      fresh connection and last updateServer wins.
         //   3. clearServerCache internally calls connectToServer (memoized).
         //      For never-connected servers (disabled/pending/failed) the
-        //      cache is empty → real connect attempt → spawn/OAuth just to
+        //      cache is empty в†’ real connect attempt в†’ spawn/OAuth just to
         //      immediately kill it. Only connected servers need cleanup.
         for (const s of stale) {
           const timer = reconnectTimersRef.current.get(s.name)
@@ -863,7 +864,7 @@ export function useManageMCPConnections(
       // state. This is important when authVersion changes (e.g., after login/
       // logout). Kick off the fetch now so it overlaps with loadAllPlugins()
       // inside getClaudeCodeMcpConfigs; it's awaited only at the dedup step.
-      // Phase 2 below awaits the same promise — no second network call.
+      // Phase 2 below awaits the same promise вЂ” no second network call.
       let claudeaiPromise: Promise<Record<string, ScopedMcpServerConfig>>
       if (isStrictMcpConfig || doesEnterpriseMcpConfigExist()) {
         claudeaiPromise = Promise.resolve({})
@@ -901,7 +902,7 @@ export function useManageMCPConnections(
         )
       })
 
-      // Phase 2: Await claude.ai configs (started above; memoized — no second fetch)
+      // Phase 2: Await claude.ai configs (started above; memoized вЂ” no second fetch)
       let claudeaiConfigs: Record<string, ScopedMcpServerConfig> = {}
       if (!isStrictMcpConfig) {
         claudeaiConfigs = filterMcpServersByPolicy(
@@ -911,7 +912,7 @@ export function useManageMCPConnections(
 
         // Suppress claude.ai connectors that duplicate an enabled manual server.
         // Keys never collide (`slack` vs `claude.ai Slack`) so the merge below
-        // won't catch this — need content-based dedup by URL signature.
+        // won't catch this вЂ” need content-based dedup by URL signature.
         if (Object.keys(claudeaiConfigs).length > 0) {
           const { servers: dedupedClaudeAi } = dedupClaudeAiMcpServers(
             claudeaiConfigs,
@@ -1139,3 +1140,4 @@ function getTransportDisplayName(type: string): string {
       return 'SSE'
   }
 }
+

@@ -21,6 +21,7 @@ const MEMORY_SURVEY_EVENT = 'tengu_memory_survey_event';
 const SURVEY_PROBABILITY = 0.2;
 const TRANSCRIPT_SHARE_TRIGGER = 'memory_survey';
 const MEMORY_WORD_RE = /\bmemor(?:y|ies)\b/i;
+const IS_ANT_BUILD = String(process.env.USER_TYPE ?? 'external') === 'ant';
 function hasMemoryFileRead(messages: Message[]): boolean {
   for (const message of messages) {
     if (message.type !== 'assistant') {
@@ -87,7 +88,7 @@ export function useMemorySurvey(messages: Message[], isLoading: boolean, hasActi
     });
   }, []);
   const shouldShowTranscriptPrompt = useCallback((selected_0: FeedbackSurveyResponse) => {
-    if ("external" !== 'ant') {
+    if (!IS_ANT_BUILD) {
       return false;
     }
     if (selected_0 !== 'bad' && selected_0 !== 'good') {

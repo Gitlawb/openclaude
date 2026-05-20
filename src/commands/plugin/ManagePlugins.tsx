@@ -977,7 +977,7 @@ export function ManagePlugins({
             name: failedItem.name,
             marketplace: failedItem.marketplace,
             errors: failedItem.errors,
-            scope: failedItem.scope
+            scope: failedItem.scope as any
           }
         });
         hasAutoNavigated.current = true;
@@ -1167,7 +1167,7 @@ export function ManagePlugins({
       const isEnabled_0 = mergedSettings_0?.enabledPlugins?.[pluginId_4] !== false;
       const pluginScope_0 = item_7.scope;
       const isBuiltin_0 = pluginScope_0 === 'builtin';
-      if (isBuiltin_0 || isInstallableScope(pluginScope_0)) {
+      if (isBuiltin_0 || isInstallableScope(pluginScope_0 as any)) {
         const newPending = new Map(pendingToggles);
         // Omit scope — see handleSingleOperation's enable/disable comment.
         if (currentPending) {
@@ -1240,7 +1240,7 @@ export function ManagePlugins({
           name: item_8.name,
           marketplace: item_8.marketplace,
           errors: item_8.errors,
-          scope: item_8.scope
+          scope: item_8.scope as any
         }
       });
       setDetailsMenuIndex(0);

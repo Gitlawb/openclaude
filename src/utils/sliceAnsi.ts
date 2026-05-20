@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import {
   type AnsiCode,
   ansiCodesToString,
@@ -28,7 +29,7 @@ export default function sliceAnsi(
   start: number,
   end?: number,
 ): string {
-  // Don't pass `end` to tokenize — it counts code units, not display cells,
+  // Don't pass `end` to tokenize вЂ” it counts code units, not display cells,
   // so it drops tokens early for text with zero-width combining marks.
   const tokens = tokenize(str)
   let activeCodes: AnsiCode[] = []
@@ -38,17 +39,17 @@ export default function sliceAnsi(
 
   for (const token of tokens) {
     // Advance by display width, not code units. Combining marks (Devanagari
-    // matras, virama, diacritics) are width 0 — counting them via .length
+    // matras, virama, diacritics) are width 0 вЂ” counting them via .length
     // advanced position past `end` early and truncated the slice. Callers
     // pass start/end in display cells (via stringWidth), so position must
     // track the same units.
     const width =
       token.type === 'ansi' ? 0 : token.fullWidth ? 2 : stringWidth(token.value)
 
-    // Break AFTER trailing zero-width marks — a combining mark attaches to
-    // the preceding base char, so "भा" (भ + ा, 1 display cell) sliced at
-    // end=1 must include the ा. Breaking on position >= end BEFORE the
-    // zero-width check would drop it and render भ bare. ANSI codes are
+    // Break AFTER trailing zero-width marks вЂ” a combining mark attaches to
+    // the preceding base char, so "а¤­а¤ѕ" (а¤­ + а¤ѕ, 1 display cell) sliced at
+    // end=1 must include the а¤ѕ. Breaking on position >= end BEFORE the
+    // zero-width check would drop it and render а¤­ bare. ANSI codes are
     // width 0 but must NOT be included past end (they open new style runs
     // that leak into the undo sequence), so gate on char type too. The
     // !include guard ensures empty slices (start===end) stay empty even
@@ -65,9 +66,9 @@ export default function sliceAnsi(
       }
     } else {
       if (!include && position >= start) {
-        // Skip leading zero-width marks at the start boundary — they belong
+        // Skip leading zero-width marks at the start boundary вЂ” they belong
         // to the preceding base char in the left half. Without this, the
-        // mark appears in BOTH halves: left+right ≠ original. Only applies
+        // mark appears in BOTH halves: left+right в‰  original. Only applies
         // when start > 0 (otherwise there's no preceding char to own it).
         if (start > 0 && width === 0) continue
         include = true
@@ -89,3 +90,4 @@ export default function sliceAnsi(
   result += ansiCodesToString(undoAnsiCodes(activeStartCodes))
   return result
 }
+

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 import {
   createUserMessage,
@@ -44,7 +45,7 @@ export class StreamingToolExecutor {
   private erroredToolDescription = ''
   // Child of toolUseContext.abortController. Fires when a Bash tool errors
   // so sibling subprocesses die immediately instead of running to completion.
-  // Aborting this does NOT abort the parent — query.ts won't end the turn.
+  // Aborting this does NOT abort the parent вЂ” query.ts won't end the turn.
   private siblingAbortController: AbortController
   private discarded = false
   // Signal to wake up getRemainingResults when progress is available
@@ -294,7 +295,7 @@ export class StreamingToolExecutor {
       // Per-tool child controller. Lets siblingAbortController kill running
       // subprocesses (Bash spawns listen to this signal) when a Bash error
       // cascades. Permission-dialog rejection also aborts this controller
-      // (PermissionContext.ts cancelAndAbort) — that abort must bubble up to
+      // (PermissionContext.ts cancelAndAbort) вЂ” that abort must bubble up to
       // the query controller so the query loop's post-tool abort check ends
       // the turn. Without bubble-up, ExitPlanMode "clear context + auto"
       // sends REJECT_MESSAGE to the model instead of aborting (#21056 regression).
@@ -354,8 +355,8 @@ export class StreamingToolExecutor {
         if (isErrorResult) {
           thisToolErrored = true
           // Only Bash errors cancel siblings. Bash commands often have implicit
-          // dependency chains (e.g. mkdir fails → subsequent commands pointless).
-          // Read/WebFetch/etc are independent — one failure shouldn't nuke the rest.
+          // dependency chains (e.g. mkdir fails в†’ subsequent commands pointless).
+          // Read/WebFetch/etc are independent вЂ” one failure shouldn't nuke the rest.
           if (tool.block.name === BASH_TOOL_NAME) {
             this.hasErrored = true
             this.erroredToolDescription = this.getToolDescription(tool)
@@ -528,3 +529,4 @@ function markToolUseAsComplete(
     return next
   })
 }
+

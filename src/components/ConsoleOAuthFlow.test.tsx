@@ -74,6 +74,9 @@ function createTestStreams(): {
 }
 
 async function renderFrame(node: React.ReactNode): Promise<string> {
+  const originalNodeEnv = process.env.NODE_ENV
+  process.env.NODE_ENV = 'test'
+
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
     stdout: stdout as unknown as NodeJS.WriteStream,
@@ -81,19 +84,27 @@ async function renderFrame(node: React.ReactNode): Promise<string> {
     patchConsole: false,
   })
 
-  root.render(
-    <AppStateProvider>
-      <KeybindingSetup>{node}</KeybindingSetup>
-    </AppStateProvider>,
-  )
+  try {
+    root.render(
+      <AppStateProvider>
+        <KeybindingSetup>{node}</KeybindingSetup>
+      </AppStateProvider>,
+    )
 
-  await Bun.sleep(50)
-  root.unmount()
-  stdin.end()
-  stdout.end()
-  await Bun.sleep(25)
+    await Bun.sleep(50)
+    root.unmount()
+    stdin.end()
+    stdout.end()
+    await Bun.sleep(25)
 
-  return stripAnsi(extractLastFrame(getOutput()))
+    return stripAnsi(extractLastFrame(getOutput()))
+  } finally {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
+  }
 }
 
 test('login picker shows the third-party platform option', async () => {

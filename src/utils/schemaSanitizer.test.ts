@@ -65,4 +65,77 @@ describe('sanitizeSchemaForOpenAICompat', () => {
       type: 'string',
     })
   })
+
+  test('strips numeric bounds rejected by strict OpenAI-compatible routers', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        count: {
+          type: 'integer',
+          minimum: 1,
+          exclusiveMinimum: 0,
+          maximum: 10,
+          exclusiveMaximum: 11,
+        },
+      },
+      required: ['count'],
+    }
+
+    const sanitized = sanitizeSchemaForOpenAICompat(schema)
+    const properties = sanitized.properties as Record<string, Record<string, unknown>>
+
+    expect(properties.count).toEqual({ type: 'integer' })
+    expect(sanitized.required).toEqual(['count'])
+  })
+
+  test('strips schema combinators rejected by OpenAI-compatible tool schemas', () => {
+    const sanitized = sanitizeSchemaForOpenAICompat({
+      type: 'object',
+      properties: {
+        tags: {
+          oneOf: [
+            { type: 'array', items: { type: 'string' } },
+            { type: 'string' },
+          ],
+        },
+      },
+    })
+
+    const properties = sanitized.properties as Record<string, Record<string, unknown>>
+    expect(properties.tags).toEqual({ type: 'string' })
+    expect('oneOf' in properties.tags).toBe(false)
+  })
+
+  test('adds empty properties to object schemas without declared properties', () => {
+    const sanitized = sanitizeSchemaForOpenAICompat({ type: 'object' })
+
+    expect(sanitized).toEqual({
+      type: 'object',
+      properties: {},
+    })
+  })
+
+  test('infers missing property types for strict provider compatibility', () => {
+    const sanitized = sanitizeSchemaForOpenAICompat({
+      type: 'object',
+      properties: {
+        start_date: {
+          description: 'Optional ISO date',
+        },
+        labels: {
+          items: { type: 'string' },
+        },
+      },
+    })
+
+    const properties = sanitized.properties as Record<string, Record<string, unknown>>
+    expect(properties.start_date).toEqual({
+      description: 'Optional ISO date',
+      type: 'string',
+    })
+    expect(properties.labels).toEqual({
+      items: { type: 'string' },
+      type: 'array',
+    })
+  })
 })

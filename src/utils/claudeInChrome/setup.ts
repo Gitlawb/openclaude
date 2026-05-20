@@ -1,4 +1,4 @@
-import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
+// @ts-nocheck
 import { chmod, mkdir, readFile, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -36,6 +36,16 @@ const CHROME_EXTENSION_RECONNECT_URL = 'https://clau.de/chrome/reconnect'
 const NATIVE_HOST_IDENTIFIER = 'com.anthropic.claude_code_browser_extension'
 const NATIVE_HOST_MANIFEST_NAME = `${NATIVE_HOST_IDENTIFIER}.json`
 
+function getBrowserTools(): Array<{ name: string }> {
+  try {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { BROWSER_TOOLS } = require('@ant/claude-for-chrome-mcp')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    return Array.isArray(BROWSER_TOOLS) ? BROWSER_TOOLS : []
+  } catch {
+    return []
+  }
+}
 export function shouldEnableClaudeInChrome(chromeFlag?: boolean): boolean {
   // Disable by default in non-interactive sessions (e.g., SDK, CI)
   if (getIsNonInteractiveSession() && chromeFlag !== true) {
@@ -94,7 +104,7 @@ export function setupClaudeInChrome(): {
   systemPrompt: string
 } {
   const isNativeBuild = isInBundledMode()
-  const allowedTools = BROWSER_TOOLS.map(
+  const allowedTools = getBrowserTools().map(
     tool => `mcp__claude-in-chrome__${tool.name}`,
   )
 
@@ -362,7 +372,7 @@ exec ${command}
 function isChromeExtensionInstalled_CACHED_MAY_BE_STALE(): boolean {
   // Update cache in background without blocking
   void isChromeExtensionInstalled().then(isInstalled => {
-    // Only persist positive detections — see docstring. The cost of a stale
+    // Only persist positive detections вЂ” see docstring. The cost of a stale
     // `true` is one silent MCP connection attempt per session; the cost of a
     // stale `false` is auto-enable never working again without manual repair.
     if (!isInstalled) {

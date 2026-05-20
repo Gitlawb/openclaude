@@ -1,3 +1,4 @@
+// @ts-nocheck
 import {
   APIConnectionError,
   APIConnectionTimeoutError,

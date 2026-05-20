@@ -49,6 +49,7 @@ import {
 } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
+import { AgentGatewayManager } from './AgentGatewayManager.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
 
 export type ProviderManagerResult = {
@@ -66,6 +67,7 @@ type Screen =
   | 'menu'
   | 'select-preset'
   | 'select-ollama-model'
+  | 'agent-gateway'
   | 'codex-oauth'
   | 'form'
   | 'select-active'
@@ -254,7 +256,7 @@ function CodexOAuthSetup({
   }, persistCredentials: (options?: { profileId?: string }) => void) => {
     await onConfigured(tokens, persistCredentials)
   }, [onConfigured])
-  useKeybinding('confirm:no', onBack, [onBack])
+  useKeybinding('confirm:no', onBack)
 
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
@@ -422,6 +424,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }, [])
 
   React.useEffect(() => {
+    if (mode === 'first-run') {
+      return
+    }
+
     refreshGithubProviderState()
     refreshCodexOAuthCredentialState()
 
@@ -429,7 +435,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       githubRefreshEpochRef.current += 1
       codexRefreshEpochRef.current += 1
     }
-  }, [refreshCodexOAuthCredentialState, refreshGithubProviderState])
+  }, [mode, refreshCodexOAuthCredentialState, refreshGithubProviderState])
 
   React.useEffect(() => {
     if (screen !== 'select-ollama-model') {
@@ -1019,6 +1025,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         label: 'MiniMax',
         description: 'MiniMax API endpoint',
       },
+      {
+        value: 'agent-gateway',
+        label: 'Agent gateway',
+        description:
+          'Expose this OpenClaude agent through API, cron, and Telegram',
+      },
       ...(mode === 'first-run'
         ? [
             {
@@ -1047,6 +1059,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
             if (value === 'codex-oauth') {
               setScreen('codex-oauth')
+              return
+            }
+            if (value === 'agent-gateway') {
+              setScreen('agent-gateway')
               return
             }
             startCreateFromPreset(value as ProviderPreset)
@@ -1405,6 +1421,26 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
 
             setStatusMessage(message)
+            setErrorMessage(undefined)
+            setScreen('menu')
+          }}
+        />
+      )
+      break
+    case 'agent-gateway':
+      content = (
+        <AgentGatewayManager
+          mode={mode}
+          onDone={message => {
+            if (mode === 'first-run') {
+              onDone({
+                action: 'saved',
+                message: message ?? 'Agent gateway configured',
+              })
+              return
+            }
+
+            setStatusMessage(message ?? 'Agent gateway configured')
             setErrorMessage(undefined)
             setScreen('menu')
           }}

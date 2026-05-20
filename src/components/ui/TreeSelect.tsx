@@ -157,7 +157,7 @@ export function TreeSelect(t0) {
   let result;
   if ($[4] !== isExpanded || $[5] !== nodes) {
     result = [];
-    function traverse(node, depth, parentId) {
+    function traverse(node, depth, parentId = undefined) {
       const hasChildren = !!node.children && node.children.length > 0;
       const nodeIsExpanded = isExpanded(node.id);
       result.push({

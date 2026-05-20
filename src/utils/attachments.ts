@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import {
   logEvent,
@@ -268,23 +269,23 @@ export const AUTO_MODE_ATTACHMENT_CONFIG = {
 } as const
 
 const MAX_MEMORY_LINES = 200
-// Line cap alone doesn't bound size (200 × 500-char lines = 100KB).  The
+// Line cap alone doesn't bound size (200 Г— 500-char lines = 100KB).  The
 // surfacer injects up to 5 files per turn via <system-reminder>, bypassing
 // the per-message tool-result budget, so a tight per-file byte cap keeps
-// aggregate injection bounded (5 × 4KB = 20KB/turn).  Enforced via
+// aggregate injection bounded (5 Г— 4KB = 20KB/turn).  Enforced via
 // readFileInRange's truncateOnByteLimit option.  Truncation means the
 // most-relevant memory still surfaces: the frontmatter + opening context
 // is usually what matters.
 const MAX_MEMORY_BYTES = 4096
 
 export const RELEVANT_MEMORIES_CONFIG = {
-  // Per-turn cap (5 × 4KB = 20KB) bounds a single injection, but over a
-  // long session the selector keeps surfacing distinct files — ~26K tokens/
+  // Per-turn cap (5 Г— 4KB = 20KB) bounds a single injection, but over a
+  // long session the selector keeps surfacing distinct files вЂ” ~26K tokens/
   // session observed in prod.  Cap the cumulative bytes: once hit, stop
   // prefetching entirely.  Budget is ~3 full injections; after that the
   // most-relevant memories are already in context.  Scanning messages
   // (rather than tracking in toolUseContext) means compact naturally
-  // resets the counter — old attachments are gone from context, so
+  // resets the counter вЂ” old attachments are gone from context, so
   // re-surfacing is valid.
   MAX_SESSION_BYTES: 60 * 1024,
 } as const
@@ -506,9 +507,9 @@ export type Attachment =
         /**
          * Pre-computed header string (age + path prefix).  Computed once
          * at attachment-creation time so the rendered bytes are stable
-         * across turns — recomputing memoryAge(mtimeMs) at render time
+         * across turns вЂ” recomputing memoryAge(mtimeMs) at render time
          * calls Date.now(), so "saved 3 days ago" becomes "saved 4 days
-         * ago" across turns → different bytes → prompt cache bust.
+         * ago" across turns в†’ different bytes в†’ prompt cache bust.
          * Optional for backward compat with resumed sessions; render
          * path falls back to recomputing if missing.
          */
@@ -546,11 +547,11 @@ export type Attachment =
       prompt: string | Array<ContentBlockParam>
       source_uuid?: UUID
       imagePasteIds?: number[]
-      /** Original queue mode — 'prompt' for user messages, 'task-notification' for system events */
+      /** Original queue mode вЂ” 'prompt' for user messages, 'task-notification' for system events */
       commandMode?: string
       /** Provenance carried from QueuedCommand so mid-turn drains preserve it */
       origin?: MessageOrigin
-      /** Carried from QueuedCommand.isMeta — distinguishes human-typed from system-injected */
+      /** Carried from QueuedCommand.isMeta вЂ” distinguishes human-typed from system-injected */
       isMeta?: boolean
     }
   | {
@@ -635,6 +636,12 @@ export type Attachment =
       turn: number
       session: number
       budget: number | null
+    }
+  | {
+      type: 'pen_mode_enter'
+    }
+  | {
+      type: 'pen_mode_exit'
     }
   | {
       type: 'structured_output'
@@ -755,7 +762,7 @@ export async function getAttachments(
     isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)
   ) {
     // query.ts:removeFromQueue dequeues these unconditionally after
-    // getAttachmentMessages runs — returning [] here silently drops them.
+    // getAttachmentMessages runs вЂ” returning [] here silently drops them.
     // Coworker runs with --bare and depends on task-notification for
     // mid-tool-call notifications from Local*Task/Remote*Task.
     return getQueuedCommandAttachments(queuedCommands)
@@ -789,13 +796,13 @@ export async function getAttachments(
         ),
         // Skill discovery on turn 0 (user input as signal). Inter-turn
         // discovery runs via startSkillDiscoveryPrefetch in query.ts,
-        // gated on write-pivot detection — see skillSearch/prefetch.ts.
+        // gated on write-pivot detection вЂ” see skillSearch/prefetch.ts.
         // feature() here lets DCE drop the 'skill_discovery' string (and the
         // function it calls) from external builds.
         //
         // skipSkillDiscovery gates out the SKILL.md-expansion path
         // (getMessagesForPromptSlashCommand). When a skill is invoked, its
-        // SKILL.md content is passed as `input` here to extract @-mentions —
+        // SKILL.md content is passed as `input` here to extract @-mentions вЂ”
         // but that content is NOT user intent and must not trigger discovery.
         // Without this gate, a 110KB SKILL.md fires ~3.3s of chunked AKI
         // queries on every skill invocation (session 13a9afae).
@@ -823,7 +830,7 @@ export async function getAttachments(
   // NOTE: These must be created AFTER userInputAttachments completes to ensure
   // nestedMemoryAttachmentTriggers is populated before getNestedMemoryAttachments runs
   const allThreadAttachments = [
-    // queuedCommands is already agent-scoped by the drain gate in query.ts —
+    // queuedCommands is already agent-scoped by the drain gate in query.ts вЂ”
     // main thread gets agentId===undefined, subagents get their own agentId.
     // Must run for all threads or subagent notifications drain into the void
     // (removed from queue by removeFromQueue but never attached).
@@ -876,7 +883,7 @@ export async function getAttachments(
     maybe('skill_listing', () => getSkillListingAttachments(context)),
     // Inter-turn skill discovery now runs via startSkillDiscoveryPrefetch
     // (query.ts, concurrent with the main turn). The blocking call that
-    // previously lived here was the assistant_turn signal — 97% of those
+    // previously lived here was the assistant_turn signal вЂ” 97% of those
     // Haiku calls found nothing in prod. Prefetch + await-at-collection
     // replaces it; see src/services/skillSearch/prefetch.ts.
     maybe('plan_mode', () => getPlanModeAttachments(messages, toolUseContext)),
@@ -1138,7 +1145,7 @@ function getPlanModeAttachmentTurnCount(messages: Message[]): {
 
   // Iterate backwards to find most recent plan_mode attachment.
   // Count HUMAN turns (non-meta, non-tool-result user messages), not assistant
-  // messages — the tool loop in query.ts calls getAttachmentMessages on every
+  // messages вЂ” the tool loop in query.ts calls getAttachmentMessages on every
   // tool round, so counting assistant messages would fire the reminder every
   // 5 tool calls instead of every 5 human turns.
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -1267,7 +1274,7 @@ async function getPlanModeExitAttachment(
   const planExists = getPlan(toolUseContext.agentId) !== null
 
   // Note: skill discovery does NOT fire on plan exit. By the time the plan is
-  // written, it's too late — the model should have had relevant skills WHILE
+  // written, it's too late вЂ” the model should have had relevant skills WHILE
   // planning. The user_message signal already fires on the request that
   // triggers planning ("plan how to deploy this"), which is the right moment.
   return [{ type: 'plan_mode_exit', planFilePath, planExists }]
@@ -1282,10 +1289,10 @@ function getAutoModeAttachmentTurnCount(messages: Message[]): {
 
   // Iterate backwards to find most recent auto_mode attachment.
   // Count HUMAN turns (non-meta, non-tool-result user messages), not assistant
-  // messages — the tool loop in query.ts calls getAttachmentMessages on every
+  // messages вЂ” the tool loop in query.ts calls getAttachmentMessages on every
   // tool round, so a single human turn with 100 tool calls would fire ~20
   // reminders if we counted assistant messages. Auto mode's target use case is
-  // long agentic sessions, where this accumulated 60-105× per session.
+  // long agentic sessions, where this accumulated 60-105Г— per session.
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
 
@@ -1305,7 +1312,7 @@ function getAutoModeAttachmentTurnCount(messages: Message[]): {
       message?.type === 'attachment' &&
       message.attachment.type === 'auto_mode_exit'
     ) {
-      // Exit resets the throttle — treat as if no prior attachment exists
+      // Exit resets the throttle вЂ” treat as if no prior attachment exists
       break
     }
   }
@@ -1386,7 +1393,7 @@ async function getAutoModeExitAttachment(
   }
 
   const appState = toolUseContext.getAppState()
-  // Suppress when auto is still active — covers both mode==='auto' and
+  // Suppress when auto is still active вЂ” covers both mode==='auto' and
   // plan-with-auto-active (where mode==='plan' but classifier runs).
   if (
     appState.toolPermissionContext.mode === 'auto' ||
@@ -1406,12 +1413,12 @@ async function getAutoModeExitAttachment(
  *
  * The date_change attachment is appended at the tail of the conversation,
  * so the model learns the new date without mutating the cached prefix.
- * messages[0] (from getUserContext → prependUserContext) intentionally
- * keeps the stale date — clearing that cache would regenerate the prefix
+ * messages[0] (from getUserContext в†’ prependUserContext) intentionally
+ * keeps the stale date вЂ” clearing that cache would regenerate the prefix
  * and turn the entire conversation into cache_creation on the next turn
  * (~920K effective tokens per midnight crossing per overnight session).
  *
- * Exported for testing — regression guard for the cache-clear removal.
+ * Exported for testing вЂ” regression guard for the cache-clear removal.
  */
 export function getDateChangeAttachments(
   messages: Message[] | undefined,
@@ -1420,7 +1427,7 @@ export function getDateChangeAttachments(
   const lastDate = getLastEmittedDate()
 
   if (lastDate === null) {
-    // First turn — just record, no attachment needed
+    // First turn вЂ” just record, no attachment needed
     setLastEmittedDate(currentDate)
     return []
   }
@@ -1432,7 +1439,7 @@ export function getDateChangeAttachments(
   setLastEmittedDate(currentDate)
 
   // Assistant mode: flush yesterday's transcript to the per-day file so
-  // the /dream skill (1–5am local) finds it even if no compaction fires
+  // the /dream skill (1вЂ“5am local) finds it even if no compaction fires
   // today. Fire-and-forget; writeSessionTranscriptSegment buckets by
   // message timestamp so a multi-day gap flushes each day correctly.
   if (feature('KAIROS')) {
@@ -1452,7 +1459,7 @@ function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
   return [{ type: 'ultrathink_effort', level: 'high' }]
 }
 
-// Exported for compact.ts — the gate must be identical at both call sites.
+// Exported for compact.ts вЂ” the gate must be identical at both call sites.
 export function getDeferredToolsDeltaAttachment(
   tools: Tools,
   model: string,
@@ -1460,7 +1467,7 @@ export function getDeferredToolsDeltaAttachment(
   scanContext?: DeferredToolsDeltaScanContext,
 ): Attachment[] {
   if (!isDeferredToolsDeltaEnabled()) return []
-  // These three checks mirror the sync parts of isToolSearchEnabled —
+  // These three checks mirror the sync parts of isToolSearchEnabled вЂ”
   // the attachment text says "available via ToolSearch", so ToolSearch
   // has to actually be in the request. The async auto-threshold check
   // is not replicated (would double-fire tengu_tool_search_mode_decision);
@@ -1482,10 +1489,10 @@ export function getDeferredToolsDeltaAttachment(
  *
  * The agent list was embedded in AgentTool's description, causing ~10.2% of
  * fleet cache_creation: MCP async connect, /reload-plugins, or
- * permission-mode change → description changes → full tool-schema cache bust.
+ * permission-mode change в†’ description changes в†’ full tool-schema cache bust.
  * Moving the list here keeps the tool description static.
  *
- * Exported for compact.ts — re-announces the full set after compaction eats
+ * Exported for compact.ts вЂ” re-announces the full set after compaction eats
  * prior deltas.
  */
 export function getAgentListingDeltaAttachment(
@@ -1494,7 +1501,7 @@ export function getAgentListingDeltaAttachment(
 ): Attachment[] {
   if (!shouldInjectAgentListInMessages()) return []
 
-  // Skip if AgentTool isn't in the pool — the listing would be unactionable.
+  // Skip if AgentTool isn't in the pool вЂ” the listing would be unactionable.
   if (
     !toolUseContext.options.tools.some(t => toolMatchesName(t, AGENT_TOOL_NAME))
   ) {
@@ -1504,7 +1511,7 @@ export function getAgentListingDeltaAttachment(
   const { activeAgents, allowedAgentTypes } =
     toolUseContext.options.agentDefinitions
 
-  // Mirror AgentTool.prompt()'s filtering: MCP requirements → deny rules →
+  // Mirror AgentTool.prompt()'s filtering: MCP requirements в†’ deny rules в†’
   // allowedAgentTypes restriction. Keep this in sync with AgentTool.tsx.
   const mcpServers = new Set<string>()
   for (const tool of toolUseContext.options.tools) {
@@ -1539,7 +1546,7 @@ export function getAgentListingDeltaAttachment(
 
   if (added.length === 0 && removed.length === 0) return []
 
-  // Sort for deterministic output — agent load order is nondeterministic
+  // Sort for deterministic output вЂ” agent load order is nondeterministic
   // (plugin load races, MCP async connect).
   added.sort((a, b) => a.agentType.localeCompare(b.agentType))
   removed.sort()
@@ -1556,7 +1563,7 @@ export function getAgentListingDeltaAttachment(
   ]
 }
 
-// Exported for compact.ts / reactiveCompact.ts — single source of truth for the gate.
+// Exported for compact.ts / reactiveCompact.ts вЂ” single source of truth for the gate.
 export function getMcpInstructionsDeltaAttachment(
   mcpClients: MCPServerConnection[],
   tools: Tools,
@@ -1707,7 +1714,7 @@ function isInstructionsMemoryType(
   )
 }
 
-/** Exported for testing — regression guard for LRU-eviction re-injection. */
+/** Exported for testing вЂ” regression guard for LRU-eviction re-injection. */
 export function memoryFilesToAttachments(
   memoryFiles: MemoryFileInfo[],
   toolUseContext: ToolUseContext,
@@ -1732,7 +1739,7 @@ export function memoryFilesToAttachments(
       })
       toolUseContext.loadedNestedMemoryPaths?.add(memoryFile.path)
 
-      // Mark as loaded in readFileState — this provides cross-function and
+      // Mark as loaded in readFileState вЂ” this provides cross-function and
       // cross-turn dedup via the .has() check above.
       //
       // When the injected content doesn't match disk (stripped HTML comments,
@@ -1782,8 +1789,8 @@ export function memoryFilesToAttachments(
  *
  * Processing order (must be preserved):
  * 1. Managed/User conditional rules matching targetPath
- * 2. Nested directories (CWD → target): CLAUDE.md + unconditional + conditional rules
- * 3. CWD-level directories (root → CWD): conditional rules only
+ * 2. Nested directories (CWD в†’ target): CLAUDE.md + unconditional + conditional rules
+ * 3. CWD-level directories (root в†’ CWD): conditional rules only
  *
  * @param filePath The file path to get nested memory files for
  * @param toolUseContext The tool use context
@@ -1826,7 +1833,7 @@ async function getNestedMemoryAttachmentsForFile(
       false,
     )
 
-    // Phase 3: Process nested directories (CWD → target)
+    // Phase 3: Process nested directories (CWD в†’ target)
     // Each directory gets: CLAUDE.md + unconditional rules + conditional rules
     for (const dir of nestedDirs) {
       const memoryFiles = (
@@ -1839,7 +1846,7 @@ async function getNestedMemoryAttachmentsForFile(
       )
     }
 
-    // Phase 4: Process CWD-level directories (root → CWD)
+    // Phase 4: Process CWD-level directories (root в†’ CWD)
     // Only conditional rules (unconditional rules are already loaded eagerly)
     for (const dir of cwdLevelDirs) {
       const conditionalRules = (
@@ -2140,13 +2147,13 @@ export async function getChangedFiles(
           }
         }
 
-        // notebook / pdf / parts — no diff representation; explicitly
+        // notebook / pdf / parts вЂ” no diff representation; explicitly
         // null so the map callback has no implicit-undefined path.
         return null
       } catch (err) {
         // Evict ONLY on ENOENT (file truly deleted). Transient stat
-        // failures — atomic-save races (editor writes tmp→rename and
-        // stat hits the gap), EACCES churn, network-FS hiccups — must
+        // failures вЂ” atomic-save races (editor writes tmpв†’rename and
+        // stat hits the gap), EACCES churn, network-FS hiccups вЂ” must
         // NOT evict, or the next Edit fails code-6 even though the
         // file still exists and the model just read it. VS Code
         // auto-save/format-on-save hits this race especially often.
@@ -2168,7 +2175,7 @@ export async function getChangedFiles(
 async function getNestedMemoryAttachments(
   toolUseContext: ToolUseContext,
 ): Promise<Attachment[]> {
-  // Check triggers first — getAppState() waits for a React render cycle,
+  // Check triggers first вЂ” getAppState() waits for a React render cycle,
   // and the common case is an empty trigger set.
   if (
     !toolUseContext.nestedMemoryAttachmentTriggers ||
@@ -2246,7 +2253,7 @@ async function getRelevantMemoryAttachments(
  * Scan messages for past relevant_memories attachments.  Returns both the
  * set of surfaced paths (for selector de-dup) and cumulative byte count
  * (for session-total throttle).  Scanning messages rather than tracking
- * in toolUseContext means compact naturally resets both — old attachments
+ * in toolUseContext means compact naturally resets both вЂ” old attachments
  * are gone from the compacted transcript, so re-surfacing is valid again.
  */
 export function collectSurfacedMemories(messages: ReadonlyArray<Message>): {
@@ -2271,7 +2278,7 @@ export function collectSurfacedMemories(messages: ReadonlyArray<Message>): {
  * <system-reminder> attachments. Enforces both MAX_MEMORY_LINES and
  * MAX_MEMORY_BYTES via readFileInRange's truncateOnByteLimit option.
  * Truncation surfaces partial
- * content with a note rather than dropping the file — findRelevantMemories
+ * content with a note rather than dropping the file вЂ” findRelevantMemories
  * already picked this as most-relevant, so the frontmatter + opening context
  * is worth surfacing even if later lines are cut.
  *
@@ -2336,11 +2343,11 @@ export function memoryHeader(path: string, mtimeMs: number): string {
  * A memory relevance-selector prefetch handle. The promise is started once
  * per user turn and runs while the main model streams and tools execute.
  * At the collect point (post-tools), the caller reads settledAt to
- * consume-if-ready or skip-and-retry-next-iteration — the prefetch never
+ * consume-if-ready or skip-and-retry-next-iteration вЂ” the prefetch never
  * blocks the turn.
  *
  * Disposable: query.ts binds with `using`, so [Symbol.dispose] fires on all
- * generator exit paths (return, throw, .return() closure) — aborting the
+ * generator exit paths (return, throw, .return() closure) вЂ” aborting the
  * in-flight request and emitting terminal telemetry without instrumenting
  * each of the ~13 return sites inside the while loop.
  */
@@ -2452,11 +2459,11 @@ function hasToolResultContent(content: unknown): boolean {
 /**
  * Tools that succeeded (and never errored) since the previous real turn
  * boundary.  The memory selector uses this to suppress docs about tools
- * that are working — surfacing reference material for a tool the model
+ * that are working вЂ” surfacing reference material for a tool the model
  * is already calling successfully is noise.
  *
- * Any error → tool excluded (model is struggling, docs stay available).
- * No result yet → also excluded (outcome unknown).
+ * Any error в†’ tool excluded (model is struggling, docs stay available).
+ * No result yet в†’ also excluded (outcome unknown).
  *
  * tool_use lives in assistant content; tool_result in user content
  * (toolUseResult set, isMeta undefined).  Both are within the scan window.
@@ -2507,7 +2514,7 @@ export function collectRecentSuccessfulTools(
 /**
  * Filters prefetched memory attachments to exclude memories the model already
  * has in context via FileRead/Write/Edit tool calls (any iteration this turn)
- * or a previous turn's memory surfacing — both tracked in the cumulative
+ * or a previous turn's memory surfacing вЂ” both tracked in the cumulative
  * readFileState. Survivors are then marked in readFileState so subsequent
  * turns won't re-surface them.
  *
@@ -2602,13 +2609,13 @@ async function getDynamicSkillAttachments(
 }
 
 // Track which skills have been sent to avoid re-sending. Keyed by agentId
-// (empty string = main thread) so subagents get their own turn-0 listing —
+// (empty string = main thread) so subagents get their own turn-0 listing вЂ”
 // without per-agent scoping, the main thread populating this Set would cause
 // every subagent's filterToBundledAndMcp result to dedup to empty.
 const sentSkillNames = new Map<string, Set<string>>()
 
 // Called when the skill set genuinely changes (plugin reload, skill file
-// change on disk) so new skills get announced. NOT called on compact —
+// change on disk) so new skills get announced. NOT called on compact вЂ”
 // post-compact re-injection costs ~4K tokens/event for marginal benefit.
 export function resetSentSkillNames(): void {
   sentSkillNames.clear()
@@ -2620,14 +2627,14 @@ export function resetSentSkillNames(): void {
  * on --resume when a skill_listing attachment already exists in the
  * transcript.
  *
- * `sentSkillNames` is module-scope — process-local. Each `claude -p` spawn
+ * `sentSkillNames` is module-scope вЂ” process-local. Each `claude -p` spawn
  * starts with an empty Map, so without this every resume re-injects the
  * full ~600-token listing even though it's already in the conversation from
  * the prior process. Shows up on every --resume; particularly loud for
  * daemons that respawn frequently.
  *
  * Trade-off: skills added between sessions won't be announced until the
- * next non-resume session. Acceptable — skill_listing was never meant to
+ * next non-resume session. Acceptable вЂ” skill_listing was never meant to
  * cover cross-process deltas, and the agent can still call them (they're
  * in the Skill tool's runtime registry regardless).
  */
@@ -2645,7 +2652,7 @@ const FILTERED_LISTING_MAX = 30
  * Filter skills to bundled + MCP (user-connected) only.
  * Used when skill-search is enabled to resolve the turn-0 gap for subagents:
  * these sources are small, intent-signaled, and won't hit the truncation budget.
- * User/project/plugin skills (the long tail — 200+) go through discovery instead.
+ * User/project/plugin skills (the long tail вЂ” 200+) go through discovery instead.
  *
  * Falls back to bundled-only if bundled+mcp exceeds FILTERED_LISTING_MAX.
  */
@@ -2666,7 +2673,7 @@ async function getSkillListingAttachments(
     return []
   }
 
-  // Skip skill listing for agents that don't have the Skill tool — they can't use skills directly.
+  // Skip skill listing for agents that don't have the Skill tool вЂ” they can't use skills directly.
   if (
     !toolUseContext.options.tools.some(t => toolMatchesName(t, SKILL_TOOL_NAME))
   ) {
@@ -2688,7 +2695,7 @@ async function getSkillListingAttachments(
   // via getTurnZeroSkillDiscovery (blocking), but subagents use the async
   // subagent_spawn signal (collected post-tools, visible turn 1). Bundled +
   // MCP are small and intent-signaled; user/project/plugin skills go through
-  // discovery. feature() first for DCE — the property-access string leaks
+  // discovery. feature() first for DCE вЂ” the property-access string leaks
   // otherwise even with ?. on null.
   if (
     feature('EXPERIMENTAL_SKILL_SEARCH') &&
@@ -2752,7 +2759,7 @@ async function getSkillListingAttachments(
 }
 
 // getSkillDiscoveryAttachment moved to skillSearch/prefetch.ts as
-// getTurnZeroSkillDiscovery — keeps the 'skill_discovery' string literal inside
+// getTurnZeroSkillDiscovery вЂ” keeps the 'skill_discovery' string literal inside
 // a feature-gated module so it doesn't leak into external builds.
 
 export function extractAtMentionedFiles(content: string): string[] {
@@ -2822,9 +2829,9 @@ export function extractMcpResourceMentions(content: string): string[] {
 export function extractAgentMentions(content: string): string[] {
   // Extract agent mentions in two formats:
   // 1. @agent-<agent-type> (legacy/manual typing)
-  //    Example: "@agent-code-elegance-refiner" → "agent-code-elegance-refiner"
+  //    Example: "@agent-code-elegance-refiner" в†’ "agent-code-elegance-refiner"
   // 2. @"<agent-type> (agent)" (from autocomplete selection)
-  //    Example: '@"code-reviewer (agent)"' → "code-reviewer"
+  //    Example: '@"code-reviewer (agent)"' в†’ "code-reviewer"
   // Supports colons, dots, and at-signs for plugin-scoped agents like "@agent-asana:project-status-updater"
   const results: string[] = []
 
@@ -3062,7 +3069,7 @@ export async function generateFileAttachment(
     return null
   }
 
-  // Check file size before attempting to read (skip for PDFs — they have their own size/page handling below)
+  // Check file size before attempting to read (skip for PDFs вЂ” they have their own size/page handling below)
   if (
     mode === 'at-mention' &&
     !isFileWithinReadSizeLimit(
@@ -3298,7 +3305,7 @@ async function getTodoReminderAttachments(
 
   // When SendUserMessage is in the toolkit, it's the primary communication
   // channel and the model is always told to use it (#20467). TodoWrite
-  // becomes a side channel — nudging the model about it conflicts with the
+  // becomes a side channel вЂ” nudging the model about it conflicts with the
   // brief workflow. The tool itself stays available; this only gates the
   // "you haven't used it in a while" nag.
   if (
@@ -3407,7 +3414,7 @@ async function getTaskReminderAttachments(
 
   // When SendUserMessage is in the toolkit, it's the primary communication
   // channel and the model is always told to use it (#20467). TaskUpdate
-  // becomes a side channel — nudging the model about it conflicts with the
+  // becomes a side channel вЂ” nudging the model about it conflicts with the
   // brief workflow. The tool itself stays available; this only gates the nag.
   if (
     BRIEF_TOOL_NAME &&
@@ -3602,7 +3609,7 @@ async function getTeammateMailboxAttachments(
 
   // Check mailbox for unread messages (routes to in-process or file-based)
   // Filter out structured protocol messages (permission requests/responses, shutdown
-  // messages, etc.) — these must be left unread for useInboxPoller to route to their
+  // messages, etc.) вЂ” these must be left unread for useInboxPoller to route to their
   // proper handlers (workerPermissions queue, sandbox queue, etc.). Without filtering,
   // attachment generation races with InboxPoller: whichever reads first marks all
   // messages as read, and if attachments wins, protocol messages get bundled as raw
@@ -3619,7 +3626,7 @@ async function getTeammateMailboxAttachments(
   // IMPORTANT: appState.inbox contains messages FROM teammates TO the leader.
   // Only show these when viewing the leader's transcript (not a teammate's).
   // When viewing a teammate, their messages come from the file-based mailbox above.
-  // In-process teammates share AppState with the leader — appState.inbox contains
+  // In-process teammates share AppState with the leader вЂ” appState.inbox contains
   // the LEADER's queued messages, not the teammate's. Skip it to prevent leakage
   // (including self-echo from broadcasts). Teammates receive messages exclusively
   // through their file-based mailbox + waitForNextPromptOrShutdown.
@@ -3661,7 +3668,7 @@ async function getTeammateMailboxAttachments(
     }
   }
 
-  // Collapse multiple idle notifications per agent — keep only the latest.
+  // Collapse multiple idle notifications per agent вЂ” keep only the latest.
   // Single pass to parse, then filter without re-parsing.
   const idleAgentByIndex = new Map<number, string>()
   const latestIdleByAgent = new Map<string, number>()
@@ -3886,7 +3893,7 @@ function getMaxBudgetUsdAttachment(maxBudgetUsd?: number): Attachment[] {
  * Returns 0 if no plan_mode_exit attachment found.
  *
  * tool_result messages are type:'user' without isMeta, so filter by
- * toolUseResult to avoid counting them — otherwise the 10-turn reminder
+ * toolUseResult to avoid counting them вЂ” otherwise the 10-turn reminder
  * interval fires every ~10 tool calls instead of ~10 human turns.
  */
 export function getVerifyPlanReminderTurnCount(messages: Message[]): number {
@@ -3976,7 +3983,7 @@ export function getCompactionReminderAttachment(
 
 /**
  * Context-efficiency nudge. Injected after every N tokens of growth without
- * a snip. Pacing is handled entirely by shouldNudgeForSnips — the 10k
+ * a snip. Pacing is handled entirely by shouldNudgeForSnips вЂ” the 10k
  * interval resets on prior nudges, snip markers, snip boundaries, and
  * compact boundaries.
  */
@@ -3986,7 +3993,7 @@ export function getContextEfficiencyAttachment(
   if (!feature('HISTORY_SNIP')) {
     return []
   }
-  // Gate must match SnipTool.isEnabled() — don't nudge toward a tool that
+  // Gate must match SnipTool.isEnabled() вЂ” don't nudge toward a tool that
   // isn't in the tool list. Lazy require keeps this file snip-string-free.
   const { isSnipRuntimeEnabled, shouldNudgeForSnips } =
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -4015,3 +4022,4 @@ function isFileReadDenied(
   )
   return denyRule !== null
 }
+

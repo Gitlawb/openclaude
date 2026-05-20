@@ -7,6 +7,13 @@ import {
   PRIMARY_PROJECT_INSTRUCTION_FILE,
 } from '../../utils/projectInstructions.js'
 
+function joinWithInputSeparator(basePath: string, childPath: string): string {
+  if (basePath.includes('/') && !basePath.includes('\\')) {
+    return `${basePath.replace(/\/+$/, '')}/${childPath}`
+  }
+  return join(basePath, childPath)
+}
+
 function isLoadedProjectInstructionFile(file: MemoryFileInfo): boolean {
   return (
     file.type === 'Project' &&
@@ -29,6 +36,6 @@ export function getProjectMemoryPathForSelector(
     findProjectInstructionFilePathInAncestors(
       cwd,
       path => loadedProjectInstructionPaths.has(path),
-    ) ?? join(cwd, PRIMARY_PROJECT_INSTRUCTION_FILE)
+    ) ?? joinWithInputSeparator(cwd, PRIMARY_PROJECT_INSTRUCTION_FILE)
   )
 }

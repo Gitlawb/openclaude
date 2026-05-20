@@ -43,6 +43,68 @@ import { OffscreenFreeze } from './OffscreenFreeze.js';
 import type { ToolUseConfirm } from './permissions/PermissionRequest.js';
 import { StatusNotices } from './StatusNotices.js';
 import type { JumpHandle } from './VirtualMessageList.js';
+type ContentBlockLike = {
+  type: string;
+  [key: string]: unknown;
+};
+type TextBlockLike = ContentBlockLike & {
+  type: 'text';
+  text: string;
+};
+type ToolUseBlockLike = ContentBlockLike & {
+  type: 'tool_use';
+  id: string;
+  input: Record<string, unknown>;
+  name: string;
+};
+type ToolResultBlockLike = ContentBlockLike & {
+  type: 'tool_result';
+  tool_use_id: string;
+  is_error?: boolean;
+};
+function getContentBlocks(content: unknown): ContentBlockLike[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  return content.filter((block): block is ContentBlockLike => typeof block === 'object' && block !== null && 'type' in block);
+}
+function getFirstContentBlock(message: unknown): ContentBlockLike | undefined {
+  if (typeof message !== 'object' || message === null || !('message' in message)) {
+    return undefined;
+  }
+  return getContentBlocks((message as {
+    message?: {
+      content?: unknown;
+    };
+  }).message?.content)[0];
+}
+function isTextBlock(block: unknown): block is TextBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'text' && typeof (block as {
+    text?: unknown;
+  }).text === 'string';
+}
+function isToolUseBlock(block: unknown): block is ToolUseBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'tool_use' && typeof (block as {
+    id?: unknown;
+  }).id === 'string' && typeof (block as {
+    input?: unknown;
+  }).input === 'object' && (block as {
+    input?: unknown;
+  }).input !== null && typeof (block as {
+    name?: unknown;
+  }).name === 'string';
+}
+function isToolResultBlock(block: unknown): block is ToolResultBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'tool_result' && typeof (block as {
+    tool_use_id?: unknown;
+  }).tool_use_id === 'string';
+}
 
 // Memoed logo header: this box is the FIRST sibling before all MessageRows
 // in main-screen mode. If it becomes dirty on every Messages re-render,
@@ -52,7 +114,10 @@ import type { JumpHandle } from './VirtualMessageList.js';
 // and pegs CPU at 100%. Memo on agentDefinitions so a new messages array
 // doesn't invalidate the logo subtree. LogoV2/StatusNotices internally
 // subscribe to useAppState/useSettings for their own updates.
-const LogoHeader = React.memo(function LogoHeader(t0) {
+type LogoHeaderProps = {
+  agentDefinitions?: AgentDefinitionsResult;
+};
+const LogoHeader = React.memo(function LogoHeader(t0: LogoHeaderProps): React.ReactNode {
   const $ = _c(3);
   const {
     agentDefinitions
@@ -73,7 +138,7 @@ const LogoHeader = React.memo(function LogoHeader(t0) {
     t2 = $[2];
   }
   return t2;
-});
+}) as React.NamedExoticComponent<LogoHeaderProps>;
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -96,18 +161,9 @@ export function filterForBriefTool<T extends {
   isMeta?: boolean;
   isApiErrorMessage?: boolean;
   message?: {
-    content: Array<{
-      type: string;
-      name?: string;
-      tool_use_id?: string;
-    }>;
+    content?: unknown;
   };
-  attachment?: {
-    type: string;
-    isMeta?: boolean;
-    origin?: unknown;
-    commandMode?: string;
-  };
+  attachment?: unknown;
 }>(messages: T[], briefToolNames: string[]): T[] {
   const nameSet = new Set(briefToolNames);
   // tool_use always precedes its tool_result in the array, so we can collect
@@ -120,24 +176,20 @@ export function filterForBriefTool<T extends {
     // hook timing) that defeats the point of brief mode. Still visible in
     // transcript mode (ctrl+o) which bypasses this filter.
     if (msg.type === 'system') return msg.subtype !== 'api_metrics';
-    const block = msg.message?.content[0];
+    const block = getFirstContentBlock(msg);
     if (msg.type === 'assistant') {
       // API error messages (auth failures, rate limits, etc.) must stay visible
       if (msg.isApiErrorMessage) return true;
       // Keep Brief tool_use blocks (renders with standard tool call chrome,
       // and must be in the list so buildMessageLookups can resolve tool results)
-      if (block?.type === 'tool_use' && block.name && nameSet.has(block.name)) {
-        if ('id' in block) {
-          briefToolUseIDs.add((block as {
-            id: string;
-          }).id);
-        }
+      if (isToolUseBlock(block) && nameSet.has(block.name)) {
+        briefToolUseIDs.add(block.id);
         return true;
       }
       return false;
     }
     if (msg.type === 'user') {
-      if (block?.type === 'tool_result') {
+      if (isToolResultBlock(block)) {
         return block.tool_use_id !== undefined && briefToolUseIDs.has(block.tool_use_id);
       }
       // Real user input only — drop meta/tick messages.
@@ -150,7 +202,12 @@ export function filterForBriefTool<T extends {
       // identifies human-typed input; task-notification callers set
       // mode: 'task-notification' but not origin/isMeta, so the positive
       // commandMode check is required to exclude them.
-      const att = msg.attachment;
+      const att = msg.attachment as {
+        type?: string;
+        isMeta?: boolean;
+        origin?: unknown;
+        commandMode?: string;
+      } | undefined;
       return att?.type === 'queued_command' && att.commandMode === 'prompt' && !att.isMeta && att.origin === undefined;
     }
     return false;
@@ -170,10 +227,7 @@ export function dropTextInBriefTurns<T extends {
   type: string;
   isMeta?: boolean;
   message?: {
-    content: Array<{
-      type: string;
-      name?: string;
-    }>;
+    content?: unknown;
   };
 }>(messages: T[], briefToolNames: string[]): T[] {
   const nameSet = new Set(briefToolNames);
@@ -184,15 +238,15 @@ export function dropTextInBriefTurns<T extends {
   let turn = 0;
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]!;
-    const block = msg.message?.content[0];
+    const block = getFirstContentBlock(msg);
     if (msg.type === 'user' && block?.type !== 'tool_result' && !msg.isMeta) {
       turn++;
       continue;
     }
     if (msg.type === 'assistant') {
-      if (block?.type === 'text') {
+      if (isTextBlock(block)) {
         textIndexToTurn[i] = turn;
-      } else if (block?.type === 'tool_use' && block.name && nameSet.has(block.name)) {
+      } else if (isToolUseBlock(block) && nameSet.has(block.name)) {
         turnsWithBrief.add(turn);
       }
     }
@@ -408,7 +462,7 @@ const MessagesImpl = ({
           }
         }
       } else if (msg?.type === 'user') {
-        const hasToolResult = msg.message.content.some(block => block.type === 'tool_result');
+        const hasToolResult = getContentBlocks(msg.message.content).some(block => block.type === 'tool_result');
         if (!hasToolResult) {
           // Reached a previous user turn so don't show stale thinking from before
           return 'no-thinking';
@@ -427,8 +481,8 @@ const MessagesImpl = ({
       if (msg_0?.type === 'user') {
         const content_0 = msg_0.message.content;
         // Check if any text content is bash output
-        for (const block_0 of content_0) {
-          if (block_0.type === 'text') {
+        for (const block_0 of getContentBlocks(content_0)) {
+          if (isTextBlock(block_0)) {
             const text = block_0.text;
             if (text.startsWith('<bash-stdout') || text.startsWith('<bash-stderr')) {
               return msg_0.uuid;
@@ -586,8 +640,8 @@ const MessagesImpl = ({
       return b != null && isAdvisorBlock(b) && b.type === 'advisor_tool_result' && b.content.type === 'advisor_result';
     }
     if (msg_6.type !== 'user') return false;
-    const b_0 = msg_6.message.content[0];
-    if (b_0?.type !== 'tool_result' || b_0.is_error || !msg_6.toolUseResult) return false;
+    const b_0 = getFirstContentBlock(msg_6);
+    if (!isToolResultBlock(b_0) || b_0.is_error || !msg_6.toolUseResult) return false;
     const name = lookupsRef.current.toolUseByToolUseID.get(b_0.tool_use_id)?.name;
     const tool = name ? findToolByName(tools, name) : undefined;
     return tool?.isResultTruncated?.(msg_6.toolUseResult as never) ?? false;
@@ -818,8 +872,8 @@ export function shouldRenderStatically(message: RenderableMessage, streamingTool
     case 'grouped_tool_use':
       {
         const allResolved = message.messages.every(msg => {
-          const content = msg.message.content[0];
-          return content?.type === 'tool_use' && lookups.resolvedToolUseIDs.has(content.id);
+          const content = getFirstContentBlock(msg);
+          return isToolUseBlock(content) && lookups.resolvedToolUseIDs.has(content.id);
         });
         return allResolved;
       }

@@ -28,6 +28,9 @@ export function GroupedToolUseContent({
     output: unknown;
   }>();
   for (const resultMsg of message.results) {
+    if (!Array.isArray(resultMsg.message.content)) {
+      continue;
+    }
     for (const content of resultMsg.message.content) {
       if (content.type === 'tool_result') {
         resultsByToolUseId.set(content.tool_use_id, {
@@ -37,17 +40,23 @@ export function GroupedToolUseContent({
       }
     }
   }
-  const toolUsesData = message.messages.map(msg => {
+  const toolUsesData = message.messages.flatMap(msg => {
+    if (msg.type !== 'assistant') {
+      return [];
+    }
     const content = msg.message.content[0];
+    if (content?.type !== 'tool_use') {
+      return [];
+    }
     const result = resultsByToolUseId.get(content.id);
-    return {
+    return [{
       param: content as ToolUseBlockParam,
       isResolved: lookups.resolvedToolUseIDs.has(content.id),
       isError: lookups.erroredToolUseIDs.has(content.id),
       isInProgress: inProgressToolUseIDs.has(content.id),
       progressMessages: filterToolProgressMessages(lookups.progressMessagesByToolUseID.get(content.id) ?? []),
       result
-    };
+    }];
   });
   const anyInProgress = toolUsesData.some(d => d.isInProgress);
   return tool.renderGroupedToolUse(toolUsesData, {

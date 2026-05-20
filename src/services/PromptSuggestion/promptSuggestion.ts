@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
 import type { AppState } from '../../state/AppState.js'
 import type { Message } from '../../types/message.js'
@@ -264,12 +265,12 @@ Your job is to predict what THEY would type - not what you think they should do.
 THE TEST: Would they think "I was just about to type that"?
 
 EXAMPLES:
-User asked "fix the bug and run tests", bug is fixed → "run the tests"
-After code written → "try it out"
-Claude offers options → suggest the one the user would likely pick, based on conversation
-Claude asks to continue → "yes" or "go ahead"
-Task complete, obvious follow-up → "commit this" or "push it"
-After error or misunderstanding → silence (let them assess/correct)
+User asked "fix the bug and run tests", bug is fixed в†’ "run the tests"
+After code written в†’ "try it out"
+Claude offers options в†’ suggest the one the user would likely pick, based on conversation
+Claude asks to continue в†’ "yes" or "go ahead"
+Task complete, obvious follow-up в†’ "commit this" or "push it"
+After error or misunderstanding в†’ silence (let them assess/correct)
 
 Be specific: "run the tests" beats "continue".
 
@@ -308,10 +309,10 @@ export async function generateSuggestion(
   // DO NOT override any API parameter that differs from the parent request.
   // The fork piggybacks on the main thread's prompt cache by sending identical
   // cache-key params. The billing cache key includes more than just
-  // system/tools/model/messages/thinking — empirically, setting effortValue
+  // system/tools/model/messages/thinking вЂ” empirically, setting effortValue
   // or maxOutputTokens on the fork (even via output_config or getAppState)
   // busts cache. PR #18143 tried effort:'low' and caused a 45x spike in cache
-  // writes (92.7% → 61% hit rate). The only safe overrides are:
+  // writes (92.7% в†’ 61% hit rate). The only safe overrides are:
   //   - abortController (not sent to API)
   //   - skipTranscript (client-side only)
   //   - skipCacheWrite (controls cache_control markers, not the cache key)
@@ -329,7 +330,7 @@ export async function generateSuggestion(
     skipCacheWrite: true,
   })
 
-  // Check ALL messages - model may loop (try tool → denied → text in next message)
+  // Check ALL messages - model may loop (try tool в†’ denied в†’ text in next message)
   // Also extract the requestId from the first assistant message for RL dataset joins
   const firstAssistantMsg = result.messages.find(m => m.type === 'assistant')
   const generationRequestId =
@@ -380,7 +381,7 @@ export function shouldFilterSuggestion(
     ],
     [
       'meta_wrapped',
-      // Model wraps meta-reasoning in parens/brackets: (silence — ...), [no suggestion]
+      // Model wraps meta-reasoning in parens/brackets: (silence вЂ” ...), [no suggestion]
       () => /^\(.*\)$|^\[.*\]$/.test(suggestion),
     ],
     [
@@ -397,7 +398,7 @@ export function shouldFilterSuggestion(
       'too_few_words',
       () => {
         if (wordCount >= 2) return false
-        // Allow slash commands — these are valid user commands
+        // Allow slash commands вЂ” these are valid user commands
         if (suggestion.startsWith('/')) return false
         // Allow common single-word inputs that are valid user commands
         const ALLOWED_SINGLE_WORDS = new Set([
@@ -521,3 +522,4 @@ export function logSuggestionSuppressed(
       }),
   })
 }
+

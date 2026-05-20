@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { randomUUID } from 'crypto'
 import { hostname, tmpdir } from 'os'
 import { basename, join, resolve } from 'path'
@@ -1520,10 +1519,10 @@ export async function runBridgeLoop(
   // Skip when the loop exited fatally (env expired, auth failed, give-up) —
   // resume is impossible in those cases and the message would contradict the
   // error already printed.
-  // feature('KAIROS') gate: --session-id is internal-only; without the gate,
+  // false gate: --session-id is internal-only; without the gate,
   // revert to the pre-PR behavior (archive + deregister on every shutdown).
   if (
-    feature('KAIROS') &&
+    false &&
     config.spawnMode === 'single-session' &&
     initialSessionId &&
     !fatalExit
@@ -1776,7 +1775,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     } else if (arg.startsWith('--name=')) {
       name = arg.slice('--name='.length)
     } else if (
-      feature('KAIROS') &&
+      false &&
       arg === '--session-id' &&
       i + 1 < args.length
     ) {
@@ -1784,12 +1783,12 @@ export function parseArgs(args: string[]): ParsedArgs {
       if (!sessionId) {
         return makeError('--session-id requires a value')
       }
-    } else if (feature('KAIROS') && arg.startsWith('--session-id=')) {
+    } else if (false && arg.startsWith('--session-id=')) {
       sessionId = arg.slice('--session-id='.length)
       if (!sessionId) {
         return makeError('--session-id requires a value')
       }
-    } else if (feature('KAIROS') && (arg === '--continue' || arg === '-c')) {
+    } else if (false && (arg === '--continue' || arg === '-c')) {
       continueSession = true
     } else if (arg === '--spawn' || arg.startsWith('--spawn=')) {
       if (spawnMode !== undefined) {
@@ -1925,7 +1924,7 @@ USAGE
 OPTIONS
   --name <name>                    Name for the session (shown in claude.ai/code)
 ${
-  feature('KAIROS')
+  false
     ? `  -c, --continue                   Resume the last session in this directory
   --session-id <id>                Resume a specific session by ID (cannot be
                                    used with spawn flags or --continue)
@@ -2146,7 +2145,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
   // point at a worktree while the user's shell is at the repo root.
   // KAIROS-gated at parseArgs — continueSession is always false in external
   // builds, so this block tree-shakes.
-  if (feature('KAIROS') && continueSession) {
+  if (false && continueSession) {
     const { readBridgePointerAcrossWorktrees } = await import(
       './bridgePointer.js'
     )
@@ -2352,11 +2351,11 @@ export async function bridgeMain(args: string[]): Promise<void> {
   // environment_id and reuse that for registration (idempotent on the
   // backend). Left undefined otherwise — the backend rejects
   // client-generated UUIDs and will allocate a fresh environment.
-  // feature('KAIROS') gate: --session-id is internal-only; parseArgs already
+  // false gate: --session-id is internal-only; parseArgs already
   // rejects the flag when the gate is off, so resumeSessionId is always
   // undefined here in external builds — this guard is for tree-shaking.
   let reuseEnvironmentId: string | undefined
-  if (feature('KAIROS') && resumeSessionId) {
+  if (false && resumeSessionId) {
     try {
       validateBridgeId(resumeSessionId, 'sessionId')
     } catch {
@@ -2466,7 +2465,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
   // Used below to skip fresh session creation and seed initialSessionId.
   // Cleared on env mismatch so we gracefully fall back to a new session.
   let effectiveResumeSessionId: string | undefined
-  if (feature('KAIROS') && resumeSessionId) {
+  if (false && resumeSessionId) {
     if (reuseEnvironmentId && environmentId !== reuseEnvironmentId) {
       // Backend returned a different environment_id — the original env
       // expired or was reaped. Reconnect won't work against the new env
@@ -2664,10 +2663,10 @@ export async function bridgeMain(args: string[]): Promise<void> {
   // is undefined, so we fall through to fresh session creation (honoring the
   // "Creating a fresh session instead" warning printed above).
   let initialSessionId: string | null =
-    feature('KAIROS') && effectiveResumeSessionId
+    false && effectiveResumeSessionId
       ? effectiveResumeSessionId
       : null
-  if (preCreateSession && !(feature('KAIROS') && effectiveResumeSessionId)) {
+  if (preCreateSession && !(false && effectiveResumeSessionId)) {
     const { createBridgeSession } = await import('./createSession.js')
     try {
       initialSessionId = await createBridgeSession({

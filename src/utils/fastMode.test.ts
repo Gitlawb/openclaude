@@ -57,6 +57,7 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./config.js', () => ({
+    checkHasTrustDialogAccepted: () => true,
     getGlobalConfig: () => ({
       penguinModeOrgEnabled: options?.cachedEnabled === true,
     }),

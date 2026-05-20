@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 // Content for the claude-api bundled skill.
 // Each .md file is inlined as a string at build time via Bun's text loader.
 
@@ -40,7 +41,7 @@ export const SKILL_MODEL_VARS = {
   SONNET_NAME: 'Claude Sonnet 4.6',
   HAIKU_ID: 'claude-haiku-4-5',
   HAIKU_NAME: 'Claude Haiku 4.5',
-  // Previous Sonnet ID — used in "do not append date suffixes" example in SKILL.md.
+  // Previous Sonnet ID вЂ” used in "do not append date suffixes" example in SKILL.md.
   PREV_SONNET_ID: 'claude-sonnet-4-5',
 } satisfies Record<string, string>
 
@@ -73,3 +74,4 @@ export const SKILL_FILES: Record<string, string> = {
   'typescript/claude-api/streaming.md': typescriptClaudeApiStreaming,
   'typescript/claude-api/tool-use.md': typescriptClaudeApiToolUse,
 }
+

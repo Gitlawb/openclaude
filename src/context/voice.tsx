@@ -52,7 +52,7 @@ function useVoiceStore() {
  * Subscribe to a slice of voice state. Only re-renders when the selected
  * value changes (compared via Object.is).
  */
-export function useVoiceState(selector) {
+export function useVoiceState<T>(selector: (state: VoiceState) => T): T {
   const $ = _c(3);
   const store = useVoiceStore();
   let t0;

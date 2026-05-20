@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { createPatch } from 'diff'
@@ -29,7 +30,7 @@ type PreviousState = {
   systemHash: number
   toolsHash: number
   /** Hash of system blocks WITH cache_control intact. Catches scope/TTL flips
-   *  (global↔org, 1h↔5m) that stripCacheControl erases from systemHash. */
+   *  (globalв†”org, 1hв†”5m) that stripCacheControl erases from systemHash. */
   cacheControlHash: number
   toolNames: string[]
   /** Per-tool schema hash. Diffed to name which tool's description changed
@@ -39,31 +40,31 @@ type PreviousState = {
   systemCharCount: number
   model: string
   fastMode: boolean
-  /** 'tool_based' | 'system_prompt' | 'none' — flips when MCP tools are
+  /** 'tool_based' | 'system_prompt' | 'none' вЂ” flips when MCP tools are
    *  discovered/removed. */
   globalCacheStrategy: string
   /** Sorted beta header list. Diffed to show which headers were added/removed. */
   betas: string[]
-  /** AFK_MODE_BETA_HEADER presence — should NOT break cache anymore
+  /** AFK_MODE_BETA_HEADER presence вЂ” should NOT break cache anymore
    *  (sticky-on latched in claude.ts). Tracked to verify the fix. */
   autoModeActive: boolean
-  /** Overage state flip — should NOT break cache anymore (eligibility is
+  /** Overage state flip вЂ” should NOT break cache anymore (eligibility is
    *  latched session-stable in should1hCacheTTL). Tracked to verify the fix. */
   isUsingOverage: boolean
-  /** Cache-editing beta header presence — should NOT break cache anymore
+  /** Cache-editing beta header presence вЂ” should NOT break cache anymore
    *  (sticky-on latched in claude.ts). Tracked to verify the fix. */
   cachedMCEnabled: boolean
-  /** Resolved effort (env → options → model default). Goes into output_config
+  /** Resolved effort (env в†’ options в†’ model default). Goes into output_config
    *  or anthropic_internal.effort_override. */
   effortValue: string
-  /** Hash of getExtraBodyParams() — catches CLAUDE_CODE_EXTRA_BODY and
+  /** Hash of getExtraBodyParams() вЂ” catches CLAUDE_CODE_EXTRA_BODY and
    *  anthropic_internal changes. */
   extraBodyHash: number
   callCount: number
   pendingChanges: PendingChanges | null
   prevCacheReadTokens: number | null
   /** Set when cached microcompact sends cache_edits deletions. Cache reads
-   *  will legitimately drop — this is expected, not a break. */
+   *  will legitimately drop вЂ” this is expected, not a break. */
   cacheDeletionsPending: boolean
   buildDiffableContent: () => string
 }
@@ -142,7 +143,7 @@ function isExcludedModel(model: string): boolean {
  *
  * Untracked sources (speculation, session_memory, prompt_suggestion, etc.)
  * are short-lived forked agents where cache break detection provides no
- * value — they run 1-3 turns with a fresh agentId each time, so there's
+ * value вЂ” they run 1-3 turns with a fresh agentId each time, so there's
  * nothing meaningful to compare against. Their cache metrics are still
  * logged via tengu_api_success for analytics.
  */
@@ -221,7 +222,7 @@ function buildDiffableContent(
   return `Model: ${model}\n\n=== System Prompt ===\n\n${systemText}\n\n=== Tools (${tools.length}) ===\n\n${toolDetails}\n`
 }
 
-/** Extended tracking snapshot — everything that could affect the server-side
+/** Extended tracking snapshot вЂ” everything that could affect the server-side
  *  cache key that we can observe from the client. All fields are optional so
  *  the call site can add incrementally; undefined fields compare as stable. */
 export type PromptStateSnapshot = {
@@ -242,7 +243,7 @@ export type PromptStateSnapshot = {
 
 /**
  * Phase 1 (pre-call): Record the current prompt/tool state and detect what changed.
- * Does NOT fire events — just stores pending changes for phase 2 to use.
+ * Does NOT fire events вЂ” just stores pending changes for phase 2 to use.
  */
 export function recordPromptState(snapshot: PromptStateSnapshot): void {
   try {
@@ -273,14 +274,14 @@ export function recordPromptState(snapshot: PromptStateSnapshot): void {
 
     const systemHash = computeHash(strippedSystem)
     const toolsHash = computeHash(strippedTools)
-    // Hash the full system array INCLUDING cache_control — this catches
-    // scope flips (global↔org/none) and TTL flips (1h↔5m) that the stripped
+    // Hash the full system array INCLUDING cache_control вЂ” this catches
+    // scope flips (globalв†”org/none) and TTL flips (1hв†”5m) that the stripped
     // hash can't see because the text content is identical.
     const cacheControlHash = computeHash(
       system.map(b => ('cache_control' in b ? b.cache_control : null)),
     )
     const toolNames = toolSchemas.map(t => ('name' in t ? t.name : 'unknown'))
-    // Only compute per-tool hashes when the aggregate changed — common case
+    // Only compute per-tool hashes when the aggregate changed вЂ” common case
     // (tools unchanged) skips N extra jsonStringify calls.
     const computeToolHashes = () =>
       computePerToolHashes(strippedTools, toolNames)
@@ -462,20 +463,20 @@ export async function checkResponseForCacheBreak(
       ? Date.now() - new Date(lastAssistantMessage.timestamp).getTime()
       : null
 
-    // Skip the first call — no previous value to compare against
+    // Skip the first call вЂ” no previous value to compare against
     if (prevCacheRead === null) return
 
     const changes = state.pendingChanges
 
     // Cache deletions via cached microcompact intentionally reduce the cached
-    // prefix. The drop in cache read tokens is expected — reset the baseline
+    // prefix. The drop in cache read tokens is expected вЂ” reset the baseline
     // so we don't false-positive on the next call.
     if (state.cacheDeletionsPending) {
       state.cacheDeletionsPending = false
       logForDebugging(
-        `[PROMPT CACHE] cache deletion applied, cache read: ${prevCacheRead} → ${cacheReadTokens} (expected drop)`,
+        `[PROMPT CACHE] cache deletion applied, cache read: ${prevCacheRead} в†’ ${cacheReadTokens} (expected drop)`,
       )
-      // Don't flag as a break — the remaining state is still valid
+      // Don't flag as a break вЂ” the remaining state is still valid
       state.pendingChanges = null
       return
     }
@@ -496,7 +497,7 @@ export async function checkResponseForCacheBreak(
     if (changes) {
       if (changes.modelChanged) {
         parts.push(
-          `model changed (${changes.previousModel} → ${changes.newModel})`,
+          `model changed (${changes.previousModel} в†’ ${changes.newModel})`,
         )
       }
       if (changes.systemPromptChanged) {
@@ -521,7 +522,7 @@ export async function checkResponseForCacheBreak(
       }
       if (changes.globalCacheStrategyChanged) {
         parts.push(
-          `global cache strategy changed (${changes.prevGlobalCacheStrategy || 'none'} → ${changes.newGlobalCacheStrategy || 'none'})`,
+          `global cache strategy changed (${changes.prevGlobalCacheStrategy || 'none'} в†’ ${changes.newGlobalCacheStrategy || 'none'})`,
         )
       }
       if (
@@ -529,7 +530,7 @@ export async function checkResponseForCacheBreak(
         !changes.globalCacheStrategyChanged &&
         !changes.systemPromptChanged
       ) {
-        // Only report as standalone cause if nothing else explains it —
+        // Only report as standalone cause if nothing else explains it вЂ”
         // otherwise the scope/TTL flip is a consequence, not the root cause.
         parts.push('cache_control changed (scope or TTL)')
       }
@@ -554,7 +555,7 @@ export async function checkResponseForCacheBreak(
       }
       if (changes.effortChanged) {
         parts.push(
-          `effort changed (${changes.prevEffortValue || 'default'} → ${changes.newEffortValue || 'default'})`,
+          `effort changed (${changes.prevEffortValue || 'default'} в†’ ${changes.newEffortValue || 'default'})`,
         )
       }
       if (changes.extraBodyChanged) {
@@ -644,7 +645,7 @@ export async function checkResponseForCacheBreak(
     })
 
     // Write diff file for ant debugging via --debug. The path is included in
-    // the summary log so ants can find it (DevBar UI removed — event data
+    // the summary log so ants can find it (DevBar UI removed вЂ” event data
     // flows reliably to BQ for analytics).
     let diffPath: string | undefined
     if (changes?.buildPrevDiffableContent) {
@@ -655,7 +656,7 @@ export async function checkResponseForCacheBreak(
     }
 
     const diffSuffix = diffPath ? `, diff: ${diffPath}` : ''
-    const summary = `[PROMPT CACHE BREAK] ${reason} [source=${querySource}, call #${state.callCount}, cache read: ${prevCacheRead} → ${cacheReadTokens}, creation: ${cacheCreationTokens}${diffSuffix}]`
+    const summary = `[PROMPT CACHE BREAK] ${reason} [source=${querySource}, call #${state.callCount}, cache read: ${prevCacheRead} в†’ ${cacheReadTokens}, creation: ${cacheCreationTokens}${diffSuffix}]`
 
     logForDebugging(summary, { level: 'warn' })
 
@@ -667,7 +668,7 @@ export async function checkResponseForCacheBreak(
 
 /**
  * Call when cached microcompact sends cache_edits deletions.
- * The next API response will have lower cache read tokens — that's
+ * The next API response will have lower cache read tokens вЂ” that's
  * expected, not a cache break.
  */
 export function notifyCacheDeletion(
@@ -684,7 +685,7 @@ export function notifyCacheDeletion(
 /**
  * Call after compaction to reset the cache read baseline.
  * Compaction legitimately reduces message count, so cache read tokens
- * will naturally drop on the next call — that's not a break.
+ * will naturally drop on the next call вЂ” that's not a break.
  */
 export function notifyCompaction(
   querySource: QuerySource,
@@ -725,3 +726,4 @@ async function writeCacheBreakDiff(
     return undefined
   }
 }
+

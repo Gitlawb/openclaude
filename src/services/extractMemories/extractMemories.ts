@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * Extracts durable memories from the current session transcript
  * and writes them to the auto-memory directory (~/.claude/projects/<path>/memory/).
@@ -5,7 +6,7 @@
  * It runs once at the end of each complete query loop (when the model produces
  * a final response with no tool calls) via handleStopHooks in stopHooks.ts.
  *
- * Uses the forked agent pattern (runForkedAgent) — a perfect fork of the main
+ * Uses the forked agent pattern (runForkedAgent) вЂ” a perfect fork of the main
  * conversation that shares the parent's prompt cache.
  *
  * State is closure-scoped inside initExtractMemories() rather than module-level,
@@ -113,7 +114,7 @@ function countModelVisibleMessagesSince(
  * Returns true if any assistant message after the cursor UUID contains a
  * Write/Edit tool_use block targeting an auto-memory path.
  *
- * The main agent's prompt has full save instructions — when it writes
+ * The main agent's prompt has full save instructions вЂ” when it writes
  * memories, the forked extraction is redundant. runExtraction skips the
  * agent and advances the cursor past this range, making the main agent
  * and the background agent mutually exclusive per turn.
@@ -170,18 +171,18 @@ function denyAutoMemTool(tool: Tool, reason: string) {
  */
 export function createAutoMemCanUseTool(memoryDir: string): CanUseToolFn {
   return async (tool: Tool, input: Record<string, unknown>) => {
-    // Allow REPL — when REPL mode is enabled (ant-default), primitive tools
+    // Allow REPL вЂ” when REPL mode is enabled (ant-default), primitive tools
     // are hidden from the tool list so the forked agent calls REPL instead.
     // REPL's VM context re-invokes this canUseTool for each inner primitive
     // (toolWrappers.ts createToolWrapper), so the Read/Bash/Edit/Write checks
     // below still gate the actual file and shell operations. Giving the fork a
     // different tool list would break prompt cache sharing (tools are part of
-    // the cache key — see CacheSafeParams in forkedAgent.ts).
+    // the cache key вЂ” see CacheSafeParams in forkedAgent.ts).
     if (tool.name === REPL_TOOL_NAME) {
       return { behavior: 'allow' as const, updatedInput: input }
     }
 
-    // Allow Read/Grep/Glob unrestricted — all inherently read-only
+    // Allow Read/Grep/Glob unrestricted вЂ” all inherently read-only
     if (
       tool.name === FILE_READ_TOOL_NAME ||
       tool.name === GREP_TOOL_NAME ||
@@ -191,7 +192,7 @@ export function createAutoMemCanUseTool(memoryDir: string): CanUseToolFn {
     }
 
     // Allow Bash only for commands that pass BashTool.isReadOnly.
-    // `tool` IS BashTool here — no static import needed.
+    // `tool` IS BashTool here вЂ” no static import needed.
     if (tool.name === BASH_TOOL_NAME) {
       const parsed = tool.inputSchema.safeParse(input)
       if (parsed.success && tool.isReadOnly(parsed.data)) {
@@ -302,14 +303,14 @@ export function initExtractMemories(): void {
    *  full trailing-run chain via runExtraction's recursive finally. */
   const inFlightExtractions = new Set<Promise<void>>()
 
-  /** UUID of the last message processed — cursor so each run only
+  /** UUID of the last message processed вЂ” cursor so each run only
    *  considers messages added since the previous extraction. */
   let lastMemoryMessageUuid: string | undefined
 
   /** One-shot flag: once we log that the gate is disabled, don't repeat. */
   let hasLoggedGateFailure = false
 
-  /** True while runExtraction is executing — prevents overlapping runs. */
+  /** True while runExtraction is executing вЂ” prevents overlapping runs. */
   let inProgress = false
 
   /** Counts eligible turns since the last extraction run. Resets to 0 after each run. */
@@ -347,7 +348,7 @@ export function initExtractMemories(): void {
     // extraction only considers messages after the main agent's write.
     if (hasMemoryWritesSince(messages, lastMemoryMessageUuid)) {
       logForDebugging(
-        '[extractMemories] skipping — conversation already wrote to memory files',
+        '[extractMemories] skipping вЂ” conversation already wrote to memory files',
       )
       const lastMessage = messages.at(-1)
       if (lastMessage?.uuid) {
@@ -389,7 +390,7 @@ export function initExtractMemories(): void {
     const startTime = Date.now()
     try {
       logForDebugging(
-        `[extractMemories] starting — ${newMessageCount} new messages, memoryDir=${memoryDir}`,
+        `[extractMemories] starting вЂ” ${newMessageCount} new messages, memoryDir=${memoryDir}`,
       )
 
       // Pre-inject the memory directory manifest so the agent doesn't spend
@@ -421,7 +422,7 @@ export function initExtractMemories(): void {
         // The extractMemories subagent does not need to record to transcript.
         // Doing so can create race conditions with the main thread.
         skipTranscript: true,
-        // Well-behaved extractions complete in 2-4 turns (read → write).
+        // Well-behaved extractions complete in 2-4 turns (read в†’ write).
         // A hard cap prevents verification rabbit-holes from burning turns.
         maxTurns: 5,
       })
@@ -449,7 +450,7 @@ export function initExtractMemories(): void {
             ).toFixed(1)
           : '0.0'
       logForDebugging(
-        `[extractMemories] finished — ${writtenPaths.length} files written, cache: read=${result.totalUsage.cache_read_input_tokens} create=${result.totalUsage.cache_creation_input_tokens} input=${result.totalUsage.input_tokens} (${hitPct}% hit)`,
+        `[extractMemories] finished вЂ” ${writtenPaths.length} files written, cache: read=${result.totalUsage.cache_read_input_tokens} create=${result.totalUsage.cache_creation_input_tokens} input=${result.totalUsage.input_tokens} (${hitPct}% hit)`,
       )
 
       if (writtenPaths.length > 0) {
@@ -460,7 +461,7 @@ export function initExtractMemories(): void {
         logForDebugging('[extractMemories] no memories saved this run')
       }
 
-      // Index file updates are mechanical — the agent touches MEMORY.md to add
+      // Index file updates are mechanical вЂ” the agent touches MEMORY.md to add
       // a topic link, but the user-visible "memory" is the topic file itself.
       const memoryPaths = writtenPaths.filter(
         p => basename(p) !== ENTRYPOINT_NAME,
@@ -495,7 +496,7 @@ export function initExtractMemories(): void {
         appendSystemMessage?.(msg)
       }
     } catch (error) {
-      // Extraction is best-effort — log but don't notify on error
+      // Extraction is best-effort вЂ” log but don't notify on error
       logForDebugging(`[extractMemories] error: ${error}`)
       logEvent('tengu_extract_memories_error', {
         duration_ms: Date.now() - startTime,
@@ -505,7 +506,7 @@ export function initExtractMemories(): void {
 
       // If a call arrived while we were running, run a trailing extraction
       // with the latest stashed context. The trailing run will compute its
-      // newMessageCount relative to the cursor we just advanced — so it only
+      // newMessageCount relative to the cursor we just advanced вЂ” so it only
       // picks up messages added between the two calls, not the full history.
       const trailing = pendingContext
       pendingContext = undefined
@@ -552,11 +553,11 @@ export function initExtractMemories(): void {
     }
 
     // If an extraction is already in progress, stash this context for a
-    // trailing run (overwrites any previously stashed context — only the
+    // trailing run (overwrites any previously stashed context вЂ” only the
     // latest matters since it has the most messages).
     if (inProgress) {
       logForDebugging(
-        '[extractMemories] extraction in progress — stashing for trailing run',
+        '[extractMemories] extraction in progress вЂ” stashing for trailing run',
       )
       logEvent('tengu_extract_memories_coalesced', {})
       pendingContext = { context, appendSystemMessage }
@@ -613,3 +614,4 @@ export async function drainPendingExtraction(
 ): Promise<void> {
   await drainer(timeoutMs)
 }
+

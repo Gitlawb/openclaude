@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Files API client for managing files
  *

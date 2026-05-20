@@ -4,7 +4,7 @@ import type { Command } from '../commands.js';
 import { Box } from '../ink.js';
 import type { Screen } from '../screens/REPL.js';
 import type { Tools } from '../Tool.js';
-import type { RenderableMessage } from '../types/message.js';
+import type { NormalizedMessage, RenderableMessage } from '../types/message.js';
 import { getDisplayMessageFromCollapsed, getToolSearchOrReadInfo, getToolUseIdsFromCollapsedGroup, hasAnyToolInProgress } from '../utils/collapseReadSearch.js';
 import { type buildMessageLookups, EMPTY_STRING_SET, getProgressMessagesFromLookup, getSiblingToolUseIDsFromLookup, getToolUseID } from '../utils/messages.js';
 import { hasThinkingContent, Message } from './Message.js';
@@ -12,6 +12,48 @@ import { MessageModel } from './MessageModel.js';
 import { shouldRenderStatically } from './Messages.js';
 import { MessageTimestamp } from './MessageTimestamp.js';
 import { OffscreenFreeze } from './OffscreenFreeze.js';
+type ContentBlockLike = {
+  type: string;
+  [key: string]: unknown;
+};
+type ToolUseBlockLike = ContentBlockLike & {
+  type: 'tool_use';
+  id: string;
+  input: Record<string, unknown>;
+  name: string;
+};
+function getContentBlocks(content: unknown): ContentBlockLike[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  return content.filter((block): block is ContentBlockLike => typeof block === 'object' && block !== null && 'type' in block);
+}
+function getFirstContentBlock(message: unknown): ContentBlockLike | undefined {
+  if (typeof message !== 'object' || message === null || !('message' in message)) {
+    return undefined;
+  }
+  return getContentBlocks((message as {
+    message?: {
+      content?: unknown;
+    };
+  }).message?.content)[0];
+}
+function isToolUseBlock(block: unknown): block is ToolUseBlockLike {
+  return typeof block === 'object' && block !== null && 'type' in block && (block as {
+    type?: unknown;
+  }).type === 'tool_use' && typeof (block as {
+    id?: unknown;
+  }).id === 'string' && typeof (block as {
+    name?: unknown;
+  }).name === 'string' && typeof (block as {
+    input?: unknown;
+  }).input === 'object' && (block as {
+    input?: unknown;
+  }).input !== null;
+}
+function isNormalizedMessage(message: RenderableMessage): message is NormalizedMessage {
+  return message.type === 'assistant' || message.type === 'attachment' || message.type === 'progress' || message.type === 'system' || message.type === 'user';
+}
 export type Props = {
   message: RenderableMessage;
   /** Whether the previous message in renderableMessages is also a user message. */
@@ -73,7 +115,7 @@ export function hasContentAfterIndex(messages: RenderableMessage[], index: numbe
     }
     // Tool results arrive while the collapsed group is still being built
     if (msg?.type === 'user') {
-      const content = msg.message.content[0];
+      const content = getFirstContentBlock(msg);
       if (content?.type === 'tool_result') {
         continue;
       }
@@ -81,8 +123,8 @@ export function hasContentAfterIndex(messages: RenderableMessage[], index: numbe
     // Collapsible grouped_tool_use messages arrive transiently before being
     // merged into the current collapsed group on the next render cycle
     if (msg?.type === 'grouped_tool_use') {
-      const firstInput = msg.messages[0]?.message.content[0]?.input;
-      if (getToolSearchOrReadInfo(msg.toolName, firstInput, tools).isCollapsible) {
+      const firstToolUse = msg.messages.map(message => getFirstContentBlock(message)).find(isToolUseBlock);
+      if (firstToolUse && getToolSearchOrReadInfo(msg.toolName, firstToolUse.input, tools).isCollapsible) {
         continue;
       }
     }
@@ -296,15 +338,15 @@ function _temp(c) {
 export function isMessageStreaming(msg: RenderableMessage, streamingToolUseIDs: Set<string>): boolean {
   if (msg.type === 'grouped_tool_use') {
     return msg.messages.some(m => {
-      const content = m.message.content[0];
-      return content?.type === 'tool_use' && streamingToolUseIDs.has(content.id);
+      const content = getFirstContentBlock(m);
+      return isToolUseBlock(content) && streamingToolUseIDs.has(content.id);
     });
   }
   if (msg.type === 'collapsed_read_search') {
     const toolIds = getToolUseIdsFromCollapsedGroup(msg);
     return toolIds.some(id => streamingToolUseIDs.has(id));
   }
-  const toolUseID = getToolUseID(msg);
+  const toolUseID = isNormalizedMessage(msg) ? getToolUseID(msg) : null;
   return !!toolUseID && streamingToolUseIDs.has(toolUseID);
 }
 
@@ -315,8 +357,8 @@ export function isMessageStreaming(msg: RenderableMessage, streamingToolUseIDs: 
 export function allToolsResolved(msg: RenderableMessage, resolvedToolUseIDs: Set<string>): boolean {
   if (msg.type === 'grouped_tool_use') {
     return msg.messages.every(m => {
-      const content = m.message.content[0];
-      return content?.type === 'tool_use' && resolvedToolUseIDs.has(content.id);
+      const content = getFirstContentBlock(m);
+      return isToolUseBlock(content) && resolvedToolUseIDs.has(content.id);
     });
   }
   if (msg.type === 'collapsed_read_search') {
@@ -329,7 +371,7 @@ export function allToolsResolved(msg: RenderableMessage, resolvedToolUseIDs: Set
       return resolvedToolUseIDs.has(block.id);
     }
   }
-  const toolUseID = getToolUseID(msg);
+  const toolUseID = isNormalizedMessage(msg) ? getToolUseID(msg) : null;
   return !toolUseID || resolvedToolUseIDs.has(toolUseID);
 }
 

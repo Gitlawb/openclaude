@@ -16,6 +16,7 @@ import FullWidthRow from '../design-system/FullWidthRow.js';
 // Skills are always PromptCommands with CommandBase properties
 type SkillCommand = CommandBase & PromptCommand;
 type SkillSource = SettingSource | 'plugin' | 'mcp';
+type SkillsBySource = Record<SkillSource, SkillCommand[]>;
 type Props = {
   onExit: (result?: string, options?: {
     display?: CommandResultDisplay;
@@ -64,7 +65,7 @@ export function SkillsMenu(t0) {
     t1 = $[1];
   }
   const skills = t1;
-  let groups;
+  let groups: SkillsBySource;
   if ($[2] !== skills) {
     groups = {
       policySettings: [],

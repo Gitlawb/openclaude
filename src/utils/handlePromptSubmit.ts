@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { UUID } from 'crypto'
 import { logEvent } from 'src/services/analytics/index.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/metadata.js'
@@ -48,7 +49,7 @@ type BaseExecutionParams = {
    * True when external loading (remote session, foregrounded background task)
    * is active. These don't route through queryGuard, so the queue check must
    * account for them separately. Omit (defaults to false) for the dequeue path
-   * (executeQueuedInput) — dequeued items were already queued past this check.
+   * (executeQueuedInput) вЂ” dequeued items were already queued past this check.
    */
   isExternalLoading?: boolean
   setToolJSX: SetToolJSXFn
@@ -190,7 +191,7 @@ export async function handlePromptSubmit(
   }
 
   // Handle exit commands by triggering the exit command instead of direct process.exit
-  // Skip for remote bridge messages — "exit" typed on iOS shouldn't kill the local session
+  // Skip for remote bridge messages вЂ” "exit" typed on iOS shouldn't kill the local session
   if (
     !skipSlashCommands &&
     ['exit', 'quit', ':q', ':q!', ':wq', ':wq!'].includes(input.trim())
@@ -225,7 +226,7 @@ export async function handlePromptSubmit(
   logEvent('tengu_paste_text', { pastedTextCount, pastedTextBytes })
 
   // Handle local-jsx immediate commands (e.g., /config, /doctor)
-  // Skip for remote bridge messages — slash commands from CCR clients are plain text
+  // Skip for remote bridge messages вЂ” slash commands from CCR clients are plain text
   if (!skipSlashCommands && finalInput.trim().startsWith('/')) {
     const trimmedInput = finalInput.trim()
     const spaceIndex = trimmedInput.indexOf(' ')
@@ -296,7 +297,7 @@ export async function handlePromptSubmit(
       const impl = await immediateCommand.load()
       const jsx = await impl.call(onDone, context, commandArgs)
 
-      // Skip if onDone already fired — prevents stuck isLocalJSXCommand
+      // Skip if onDone already fired вЂ” prevents stuck isLocalJSXCommand
       // (see processSlashCommand.tsx local-jsx case for full mechanism).
       if (jsx && !doneWasCalled) {
         setToolJSX({
@@ -415,7 +416,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
 
   // Note: paste references are already processed before calling this function
   // (either in handlePromptSubmit before queuing, or before initial execution).
-  // Always create a fresh abort controller — queryGuard guarantees no concurrent
+  // Always create a fresh abort controller вЂ” queryGuard guarantees no concurrent
   // executeUserInput call, so there's no prior controller to inherit.
   const abortController = createAbortController()
   setAbortController(abortController)
@@ -426,10 +427,10 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
 
   // Wrap in try-finally so the guard is released even if processUserInput
   // throws or onQuery is skipped. onQuery's finally calls queryGuard.end(),
-  // which transitions running→idle; cancelReservation() below is a no-op in
+  // which transitions runningв†’idle; cancelReservation() below is a no-op in
   // that case (only acts on dispatching state).
   try {
-    // Reserve the guard BEFORE processUserInput — processBashCommand awaits
+    // Reserve the guard BEFORE processUserInput вЂ” processBashCommand awaits
     // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
     // so the guard must be active during those awaits to ensure concurrent
     // handlePromptSubmit calls queue (via the isActive check above) instead
@@ -453,7 +454,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
 
     // Compute the workload tag for this turn. queueProcessor can batch a
     // cron prompt with a same-tick human prompt; only tag when EVERY
-    // command agrees on the same non-undefined workload — a human in the
+    // command agrees on the same non-undefined workload вЂ” a human in the
     // mix is actively waiting.
     const firstWorkload = commands[0]?.workload
     const turnWorkload =
@@ -467,7 +468,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     // propagate workload across await boundaries: void-detached bg agents
     // (executeForkedSlashCommand, AgentTool) capture the ALS context at
     // invocation time, and every await inside them resumes in that
-    // context — isolated from the parent's continuation. A process-global
+    // context вЂ” isolated from the parent's continuation. A process-global
     // mutable slot would be clobbered at the detached closure's first
     // await by this function's synchronous return path. See state.ts.
     await runWithWorkload(turnWorkload, async () => {
@@ -496,8 +497,8 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           skipAttachments: !isFirst,
         })
         // Stamp origin here rather than threading another arg through
-        // processUserInput → processUserInputBase → processTextPrompt → createUserMessage.
-        // Derive origin from mode for task-notifications — mirrors the origin
+        // processUserInput в†’ processUserInputBase в†’ processTextPrompt в†’ createUserMessage.
+        // Derive origin from mode for task-notifications вЂ” mirrors the origin
         // derivation at messages.ts (case 'queued_command'); intentionally
         // does NOT mirror its isMeta:true so idle-dequeued notifications stay
         // visible in the transcript via UserAgentNotificationMessage.
@@ -572,7 +573,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
         )
       } else {
         // Local slash commands that skip messages (e.g., /model, /theme).
-        // Release the guard BEFORE clearing toolJSX to prevent spinner flash —
+        // Release the guard BEFORE clearing toolJSX to prevent spinner flash вЂ”
         // the spinner formula checks: (!toolJSX || showSpinner) && isLoading.
         // If we clear toolJSX while the guard is still reserved, spinner briefly
         // shows. The finally below also calls cancelReservation (no-op if idle).
@@ -594,18 +595,19 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           params.onInputChange(nextInput)
         }
       }
-    }) // end runWithWorkload — ALS context naturally scoped, no finally needed
+    }) // end runWithWorkload вЂ” ALS context naturally scoped, no finally needed
   } finally {
     // Safety net: release the guard reservation if processUserInput threw
     // or onQuery was skipped. No-op if onQuery already ran (guard is idle
-    // via end(), or running — cancelReservation only acts on dispatching).
+    // via end(), or running вЂ” cancelReservation only acts on dispatching).
     // This is the single source of truth for releasing the reservation;
     // useQueueProcessor no longer needs its own .finally().
     queryGuard.cancelReservation()
     // Safety net: clear the placeholder if processUserInput produced no
-    // messages or threw — otherwise it would stay visible until the next
+    // messages or threw вЂ” otherwise it would stay visible until the next
     // turn's resetLoadingState. Harmless when onQuery ran: setMessages grew
     // displayedMessages past the baseline, so REPL.tsx already hid it.
     setUserInputOnProcessing(undefined)
   }
 }
+

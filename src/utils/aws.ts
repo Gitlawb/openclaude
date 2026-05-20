@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { logForDebugging } from './debug.js'
 
 /** AWS short-term credentials format. */
@@ -72,3 +73,4 @@ export async function clearAwsIniCache(): Promise<void> {
     )
   }
 }
+

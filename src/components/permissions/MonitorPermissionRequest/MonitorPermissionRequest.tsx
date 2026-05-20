@@ -2,7 +2,6 @@ import React from 'react'
 import { getOriginalCwd } from '../../../bootstrap/state.js'
 import { Box, Text } from '../../../ink.js'
 import { sanitizeToolNameForAnalytics } from '../../../services/analytics/metadata.js'
-import { env } from '../../../utils/env.js'
 import { shouldShowAlwaysAllowOptions } from '../../../utils/permissions/permissionsLoader.js'
 import { usePermissionRequestLogging } from '../hooks.js'
 import { PermissionDialog } from '../PermissionDialog.js'
@@ -38,29 +37,13 @@ export function MonitorPermissionRequest({
   ) => {
     switch (value) {
       case 'yes': {
-        logUnaryPermissionEvent({
-          completion_type: 'tool_use_single',
-          event: 'accept',
-          metadata: {
-            language_name: 'none',
-            message_id: toolUseConfirm.assistantMessage.message.id,
-            platform: env.platform,
-          },
-        })
+        logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'accept', !!feedback)
         toolUseConfirm.onAllow(toolUseConfirm.input, [], feedback)
         onDone()
         break
       }
       case 'yes-dont-ask-again': {
-        logUnaryPermissionEvent({
-          completion_type: 'tool_use_single',
-          event: 'accept',
-          metadata: {
-            language_name: 'none',
-            message_id: toolUseConfirm.assistantMessage.message.id,
-            platform: env.platform,
-          },
-        })
+        logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'accept')
         // Save the rule under 'Bash' toolName because checkPermissions
         // delegates to bashToolHasPermission which matches rules against
         // BashTool. Using 'Monitor' here would create a rule that's never
@@ -79,15 +62,7 @@ export function MonitorPermissionRequest({
         break
       }
       case 'no': {
-        logUnaryPermissionEvent({
-          completion_type: 'tool_use_single',
-          event: 'reject',
-          metadata: {
-            language_name: 'none',
-            message_id: toolUseConfirm.assistantMessage.message.id,
-            platform: env.platform,
-          },
-        })
+        logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'reject', !!feedback)
         toolUseConfirm.onReject(feedback)
         onReject()
         onDone()
@@ -97,15 +72,7 @@ export function MonitorPermissionRequest({
   }
 
   const handleCancel = () => {
-    logUnaryPermissionEvent({
-      completion_type: 'tool_use_single',
-      event: 'reject',
-      metadata: {
-        language_name: 'none',
-        message_id: toolUseConfirm.assistantMessage.message.id,
-        platform: env.platform,
-      },
-    })
+    logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'reject')
     toolUseConfirm.onReject()
     onReject()
     onDone()

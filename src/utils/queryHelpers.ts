@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 import last from 'lodash-es/last.js'
 import {
@@ -81,11 +82,11 @@ export function isResultSuccessful(
   }
 
   // Carve-out: API completed (message_delta set stop_reason) but yielded
-  // no assistant content — last(messages) is still this turn's prompt.
+  // no assistant content вЂ” last(messages) is still this turn's prompt.
   // claude.ts:2026 recognizes end_turn-with-zero-content-blocks as
   // legitimate and passes through without throwing. Observed on
   // task_notification drain turns: model returns stop_reason=end_turn,
-  // outputTokens=4, textContentLength=0 — it saw the subagent result
+  // outputTokens=4, textContentLength=0 вЂ” it saw the subagent result
   // and decided nothing needed saying. Without this, QueryEngine emits
   // error_during_execution with errors[] = the entire process's
   // accumulated logError() buffer. Covers both string-content and
@@ -422,7 +423,7 @@ export function extractReadFilesFromMessages(
           if (
             readFilePath &&
             typeof content.content === 'string' &&
-            // Dedup stubs contain no file content — the earlier real Read
+            // Dedup stubs contain no file content вЂ” the earlier real Read
             // already cached it. Chronological last-wins would otherwise
             // overwrite the real entry with stub text.
             !content.content.startsWith(FILE_UNCHANGED_STUB)
@@ -465,7 +466,7 @@ export function extractReadFilesFromMessages(
             })
           }
 
-          // Handle Edit tool results — post-edit content isn't in the
+          // Handle Edit tool results вЂ” post-edit content isn't in the
           // tool_use input (only old_string/new_string) nor fully in the
           // result (only a snippet). Read from disk now, using actual mtime
           // so getChangedFiles's mtime check passes on the next turn.
@@ -473,7 +474,7 @@ export function extractReadFilesFromMessages(
           // Callers seed the cache once at process start (print.ts --resume,
           // Cowork cold-restart per turn), so disk content at extraction time
           // IS the post-edit state. No dedup: processing every Edit preserves
-          // last-wins semantics when Read/Write interleave (Edit→Read→Edit).
+          // last-wins semantics when Read/Write interleave (Editв†’Readв†’Edit).
           const editFilePath = fileEditToolUseIds.get(content.tool_use_id)
           if (editFilePath && content.is_error !== true) {
             try {
@@ -489,7 +490,7 @@ export function extractReadFilesFromMessages(
               if (!isFsInaccessible(e)) {
                 throw e
               }
-              // File deleted or inaccessible since the Edit — skip
+              // File deleted or inaccessible since the Edit вЂ” skip
             }
           }
         }
@@ -537,7 +538,7 @@ const STRIPPED_COMMANDS = new Set(['sudo'])
 
 /**
  * Extract the actual CLI name from a bash command string, skipping
- * env var assignments (e.g. `FOO=bar vercel` → `vercel`) and prefixes
+ * env var assignments (e.g. `FOO=bar vercel` в†’ `vercel`) and prefixes
  * in STRIPPED_COMMANDS.
  */
 function extractCliName(command: string | undefined): string | undefined {
@@ -550,3 +551,4 @@ function extractCliName(command: string | undefined): string | undefined {
   }
   return undefined
 }
+

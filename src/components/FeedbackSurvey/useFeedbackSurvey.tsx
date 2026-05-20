@@ -47,7 +47,15 @@ export function useFeedbackSurvey(messages: Message[], isLoading: boolean, submi
   handleTranscriptSelect: (selected: TranscriptShareResponse) => void;
 } {
   const lastAssistantMessageIdRef = useRef('unknown');
-  lastAssistantMessageIdRef.current = getLastAssistantMessage(messages)?.message?.id || 'unknown';
+  const lastAssistantMessage = getLastAssistantMessage(messages);
+  lastAssistantMessageIdRef.current =
+    lastAssistantMessage &&
+    typeof lastAssistantMessage.message === 'object' &&
+    lastAssistantMessage.message !== null &&
+    'id' in lastAssistantMessage.message &&
+    typeof (lastAssistantMessage.message as { id?: unknown }).id === 'string'
+      ? (lastAssistantMessage.message as { id: string }).id
+      : 'unknown';
   const [feedbackSurvey, setFeedbackSurvey] = useState<{
     timeLastShown: number | null;
     submitCountAtLastAppearance: number | null;

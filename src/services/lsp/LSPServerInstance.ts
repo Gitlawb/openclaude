@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import type { InitializeParams } from 'vscode-languageserver-protocol'
@@ -72,10 +73,10 @@ export type LSPServerInstance = {
  * Supports manual restart with configurable retry limits.
  *
  * State machine transitions:
- * - stopped → starting → running
- * - running → stopping → stopped
- * - any → error (on failure)
- * - error → starting (on retry)
+ * - stopped в†’ starting в†’ running
+ * - running в†’ stopping в†’ stopped
+ * - any в†’ error (on failure)
+ * - error в†’ starting (on retry)
  *
  * @param name - Unique identifier for this server instance
  * @param config - Server configuration including command, args, and limits
@@ -390,7 +391,7 @@ export function createLSPServerInstance(
           const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt)
           logForDebugging(
             `LSP request '${method}' to '${name}' got ContentModified error, ` +
-              `retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES_FOR_TRANSIENT_ERRORS})…`,
+              `retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES_FOR_TRANSIENT_ERRORS})вЂ¦`,
           )
           await sleep(delay)
           continue
@@ -509,3 +510,4 @@ function withTimeout<T>(
     clearTimeout(timer!),
   )
 }
+

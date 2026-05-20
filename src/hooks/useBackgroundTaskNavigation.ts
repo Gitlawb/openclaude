@@ -19,7 +19,7 @@ import {
   type InProcessTeammateTaskState,
   isInProcessTeammateTask,
 } from '../tasks/InProcessTeammateTask/types.js'
-import { isBackgroundTask } from '../tasks/types.js'
+import { isBackgroundTask, type TaskState } from '../tasks/types.js'
 
 // Step teammate selection by delta, wrapping across leader(-1)..teammates(0..n-1)..hide(n).
 // First step from a collapsed tree expands it and parks on leader.
@@ -76,9 +76,10 @@ export function useBackgroundTaskNavigation(options?: {
   // Filter to running teammates and sort alphabetically to match TeammateSpinnerTree display
   const teammateTasks = getRunningTeammatesSorted(tasks)
   const teammateCount = teammateTasks.length
+  const taskValues = Object.values(tasks) as TaskState[]
 
   // Check for non-teammate background tasks (local_agent, local_bash, etc.)
-  const hasNonTeammateBackgroundTasks = Object.values(tasks).some(
+  const hasNonTeammateBackgroundTasks = taskValues.some(
     t => isBackgroundTask(t) && t.type !== 'in_process_teammate',
   )
 

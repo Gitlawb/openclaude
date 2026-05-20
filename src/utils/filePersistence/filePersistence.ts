@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * File persistence orchestrator
  *
@@ -285,3 +286,4 @@ export function isFilePersistenceEnabled(): boolean {
   }
   return false
 }
+

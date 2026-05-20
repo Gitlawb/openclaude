@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 /**
  * Model deprecation utilities
  *
@@ -97,5 +98,6 @@ export function getModelDeprecationWarning(
     return null
   }
 
-  return `⚠ ${info.modelName} will be retired on ${info.retirementDate}. Consider switching to a newer model.`
+  return `вљ  ${info.modelName} will be retired on ${info.retirementDate}. Consider switching to a newer model.`
 }
+

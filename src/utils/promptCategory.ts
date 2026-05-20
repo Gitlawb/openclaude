@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { QuerySource } from 'src/constants/querySource.js'
 import {
   DEFAULT_OUTPUT_STYLE_NAME,
@@ -47,3 +48,4 @@ export function getQuerySourceForREPL(): QuerySource {
     ? (`repl_main_thread:outputStyle:${style}` as QuerySource)
     : 'repl_main_thread:outputStyle:custom'
 }
+

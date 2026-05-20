@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type {
   ElicitResult,
   JSONRPCMessage,
@@ -8,7 +7,7 @@ import type { AssistantMessage } from 'src/types/message.js'
 import type {
   HookInput,
   HookJSONOutput,
-  PermissionUpdate,
+  PermissionUpdate as SDKPermissionUpdate,
   SDKMessage,
   SDKUserMessage,
 } from 'src/entrypoints/agentSdkTypes.js'
@@ -45,6 +44,8 @@ import {
   applyPermissionUpdates,
   persistPermissionUpdates,
 } from '../utils/permissions/PermissionUpdate.js'
+import type { PermissionUpdate } from '../utils/permissions/PermissionUpdateSchema.js'
+import { permissionUpdateSchema } from '../utils/permissions/PermissionUpdateSchema.js'
 import {
   notifySessionStateChanged,
   type RequiresActionDetails,
@@ -68,12 +69,6 @@ function serializeDecisionReason(
     return undefined
   }
 
-  if (
-    (feature('BASH_CLASSIFIER') || feature('TRANSCRIPT_CLASSIFIER')) &&
-    reason.type === 'classifier'
-  ) {
-    return reason.reason
-  }
   switch (reason.type) {
     case 'rule':
     case 'mode':
@@ -352,7 +347,7 @@ export class StructuredIO {
         // by the REPL process itself, not just child Bash commands.
         const keys = Object.keys(message.variables)
         for (const [key, value] of Object.entries(message.variables)) {
-          process.env[key] = value
+          process.env[key] = String(value)
         }
         logForDebugging(
           `[structuredIO] applied update_environment_variables: ${keys.join(', ')}`,
@@ -789,7 +784,7 @@ async function executePermissionRequestHooksForSDK(
   toolUseID: string,
   input: Record<string, unknown>,
   toolUseContext: ToolUseContext,
-  suggestions: PermissionUpdate[] | undefined,
+  suggestions: SDKPermissionUpdate[] | undefined,
 ): Promise<PermissionDecision | undefined> {
   const appState = toolUseContext.getAppState()
   const permissionMode = appState.toolPermissionContext.mode
@@ -816,7 +811,9 @@ async function executePermissionRequestHooksForSDK(
         const finalInput = decision.updatedInput || input
 
         // Apply permission updates if provided by hook ("always allow")
-        const permissionUpdates = decision.updatedPermissions ?? []
+        const permissionUpdates = normalizeHookPermissionUpdates(
+          decision.updatedPermissions,
+        )
         if (permissionUpdates.length > 0) {
           persistPermissionUpdates(permissionUpdates)
           const currentAppState = toolUseContext.getAppState()
@@ -856,4 +853,17 @@ async function executePermissionRequestHooksForSDK(
   }
 
   return undefined
+}
+
+function normalizeHookPermissionUpdates(
+  updates: readonly unknown[] | undefined,
+): PermissionUpdate[] {
+  const normalized: PermissionUpdate[] = []
+  for (const update of updates ?? []) {
+    const parsed = permissionUpdateSchema().safeParse(update)
+    if (parsed.success) {
+      normalized.push(parsed.data)
+    }
+  }
+  return normalized
 }

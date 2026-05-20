@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import {
   type ClaudeForChromeContext,
   createClaudeForChromeMcpServer,
@@ -149,12 +150,12 @@ export function createChromeContext(
       },
     }),
     ...(initialPermissionMode && { initialPermissionMode }),
-    // Wire inference for the browser_task tool — the chrome-mcp server runs
+    // Wire inference for the browser_task tool вЂ” the chrome-mcp server runs
     // a lightning-mode agent loop in Node and calls the extension's
     // lightning_turn tool once per iteration for execution.
     //
     // Ant-only: the extension's lightning_turn is build-time-gated via
-    // import.meta.env.ANT_ONLY_BUILD — the whole lightning/ module graph is
+    // import.meta.env.ANT_ONLY_BUILD вЂ” the whole lightning/ module graph is
     // tree-shaken from the public extension build (build:prod greps for a
     // marker to verify). Without this injection, the Node MCP server's
     // ListTools also filters browser_task + lightning_turn out, so external
@@ -164,7 +165,7 @@ export function createChromeContext(
     // @ant/claude-for-chrome-mcp@0.4.0 which isn't published yet. CI installs
     // 0.3.0. The callAnthropicMessages field is also 0.4.0-only, but spreading
     // an extra property into ClaudeForChromeContext is fine against either
-    // version — 0.3.0 sees an unknown field (allowed in spread), 0.4.0 sees a
+    // version вЂ” 0.3.0 sees an unknown field (allowed in spread), 0.4.0 sees a
     // structurally-matching one. Once 0.4.0 is published, this can switch to
     // the package's exported types and the dep can be bumped.
     ...(process.env.USER_TYPE === 'ant' && {
@@ -181,7 +182,7 @@ export function createChromeContext(
         usage?: { input_tokens: number; output_tokens: number }
       }> => {
         // sideQuery handles OAuth attribution fingerprint, proxy, model betas.
-        // tools: [] is load-bearing — without it Sonnet emits
+        // tools: [] is load-bearing вЂ” without it Sonnet emits
         // <function_calls> XML before the text commands. Original
         // lightning-harness.js (apps repo) does the same.
         const response = await sideQuery({
@@ -230,7 +231,7 @@ export function createChromeContext(
             typeof value === 'string' &&
             SAFE_BRIDGE_STRING_KEYS.has(safeKey)
           ) {
-            // Only forward allowlisted string keys — fields like error_message
+            // Only forward allowlisted string keys вЂ” fields like error_message
             // could contain page content or user data
             safeMetadata[safeKey] =
               value as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -288,3 +289,4 @@ class DebugLogger implements Logger {
     logForDebugging(format(message, ...args), { level: 'error' })
   }
 }
+

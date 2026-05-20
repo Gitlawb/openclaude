@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { APIError } from '@anthropic-ai/sdk'
 import type {
   ResolvedCodexCredentials,

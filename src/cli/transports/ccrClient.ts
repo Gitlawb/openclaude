@@ -119,7 +119,7 @@ export function createStreamAccumulator(): StreamAccumulatorState {
 
 function scopeKey(m: {
   session_id: string
-  parent_tool_use_id: string | null
+  parent_tool_use_id?: string | null
 }): string {
   return `${m.session_id}:${m.parent_tool_use_id ?? ''}`
 }
@@ -373,9 +373,11 @@ export class CCRClient {
           'client events',
         )
         if (!result.ok) {
+          const retryAfterMs =
+            'retryAfterMs' in result ? result.retryAfterMs : undefined
           throw new RetryableError(
             'client event POST failed',
-            result.retryAfterMs,
+            retryAfterMs,
           )
         }
       },
@@ -396,9 +398,11 @@ export class CCRClient {
           'internal events',
         )
         if (!result.ok) {
+          const retryAfterMs =
+            'retryAfterMs' in result ? result.retryAfterMs : undefined
           throw new RetryableError(
             'internal event POST failed',
-            result.retryAfterMs,
+            retryAfterMs,
           )
         }
       },
@@ -427,7 +431,9 @@ export class CCRClient {
           'delivery batch',
         )
         if (!result.ok) {
-          throw new RetryableError('delivery POST failed', result.retryAfterMs)
+          const retryAfterMs =
+            'retryAfterMs' in result ? result.retryAfterMs : undefined
+          throw new RetryableError('delivery POST failed', retryAfterMs)
         }
       },
       baseDelayMs: 500,

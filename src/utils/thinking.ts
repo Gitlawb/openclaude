@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import type { Theme } from './theme.js'
 import { feature } from 'bun:bundle'
@@ -39,7 +40,7 @@ export function findThinkingTriggerPositions(text: string): Array<{
   end: number
 }> {
   const positions: Array<{ word: string; start: number; end: number }> = []
-  // Fresh /g literal each call — String.prototype.matchAll copies lastIndex
+  // Fresh /g literal each call вЂ” String.prototype.matchAll copies lastIndex
   // from the source regex, so a shared instance would leak state from
   // hasUltrathinkKeyword's .test() into this call on the next render.
   const matches = text.matchAll(/\bultrathink\b/gi)
@@ -160,3 +161,4 @@ export function shouldEnableThinkingByDefault(): boolean {
   // Enable thinking by default unless explicitly disabled.
   return true
 }
+

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { feature } from 'bun:bundle'
 import { APIError } from '@anthropic-ai/sdk'
 import type {

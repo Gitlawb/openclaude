@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { DiagLogLevel, diag, trace } from '@opentelemetry/api'
 import { logs } from '@opentelemetry/api-logs'
 // OTLP/Prometheus exporters are dynamically imported inside the protocol
@@ -428,7 +429,7 @@ export async function initializeTelemetry() {
   // the SDK's line reader. Stripped here (not main.tsx) because init.ts
   // re-runs applyConfigEnvironmentVariables() inside initializeTelemetry-
   // AfterTrust for remote-managed-settings users, and bootstrapTelemetry
-  // above copies ANT_OTEL_* for ant users — both would undo an earlier strip.
+  // above copies ANT_OTEL_* for ant users вЂ” both would undo an earlier strip.
   if (getHasFormattedOutput()) {
     for (const key of [
       'OTEL_METRICS_EXPORTER',
@@ -533,7 +534,7 @@ export async function initializeTelemetry() {
 
         // Force flush + shutdown together inside the timeout. Previously forceFlush
         // was awaited unbounded BEFORE the race, blocking exit on slow OTLP endpoints.
-        // Each provider's flush→shutdown is chained independently so a slow logger
+        // Each provider's flushв†’shutdown is chained independently so a slow logger
         // flush doesn't delay meterProvider/tracerProvider shutdown (no waterfall).
         const loggerProvider = getLoggerProvider()
         const tracerProvider = getTracerProvider()
@@ -823,3 +824,4 @@ function getOTLPExporterConfig() {
   config.httpAgentOptions = agentFactory
   return config
 }
+

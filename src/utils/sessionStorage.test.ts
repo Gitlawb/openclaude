@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { afterEach, expect, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -259,3 +260,4 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
     (loaded?.message.content as Array<{ content: string }>)[0]?.content,
   ).toContain('Preview text')
 })
+

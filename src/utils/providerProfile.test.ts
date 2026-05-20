@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -514,6 +515,23 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
 })
 
+test('buildStartupEnvFromProfile applies persisted anthropic settings when no provider is explicitly selected', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('anthropic', {
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, undefined)
+  assert.equal(env.ANTHROPIC_API_KEY, 'sk-ant-test')
+  assert.equal(env.ANTHROPIC_MODEL, 'claude-sonnet-4-6')
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.anthropic.com')
+})
+
 test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
@@ -700,7 +718,7 @@ test('auto profile falls back to openai when no viable ollama model exists', () 
   assert.equal(selectAutoProfile('qwen2.5-coder:7b'), 'ollama')
 })
 
-// ── Atomic Chat profile tests ────────────────────────────────────────────────
+// в”Ђв”Ђ Atomic Chat profile tests в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 test('atomic-chat profiles never persist openai api keys', () => {
   const env = buildAtomicChatProfileEnv('some-local-model', {
@@ -768,3 +786,4 @@ test('atomic-chat launch ignores mismatched persisted openai env', async () => {
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
 })
+

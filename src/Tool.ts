@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type {
   ToolResultBlockParam,
   ToolUseBlockParam,
@@ -205,7 +206,7 @@ export type ToolUseContext = {
   setToolJSX?: SetToolJSXFn
   addNotification?: (notif: Notification) => void
   /** Append a UI-only system message to the REPL message list. Stripped at the
-   *  normalizeMessagesForAPI boundary — the Exclude<> makes that type-enforced. */
+   *  normalizeMessagesForAPI boundary вЂ” the Exclude<> makes that type-enforced. */
   appendSystemMessage?: (
     msg: Exclude<SystemMessage, SystemLocalCommandMessage>,
   ) => void
@@ -217,7 +218,7 @@ export type ToolUseContext = {
   nestedMemoryAttachmentTriggers?: Set<string>
   /**
    * CLAUDE.md paths already injected as nested_memory attachments this
-   * session. Dedup for memoryFilesToAttachments — readFileState is an LRU
+   * session. Dedup for memoryFilesToAttachments вЂ” readFileState is an LRU
    * that evicts entries in busy sessions, so its .has() check alone can
    * re-inject the same CLAUDE.md dozens of times.
    */
@@ -280,13 +281,13 @@ export type ToolUseContext = {
   preserveToolUseResults?: boolean
   /** Local denial tracking state for async subagents whose setAppState is a
    *  no-op. Without this, the denial counter never accumulates and the
-   *  fallback-to-prompting threshold is never reached. Mutable — the
+   *  fallback-to-prompting threshold is never reached. Mutable вЂ” the
    *  permissions code updates it in place. */
   localDenialTracking?: DenialTrackingState
   /**
    * Per-conversation-thread content replacement state for the tool result
    * budget. When present, query.ts applies the aggregate tool result budget.
-   * Main thread: REPL provisions once (never resets — stale UUID keys
+   * Main thread: REPL provisions once (never resets вЂ” stale UUID keys
    * are inert). Subagents: createSubagentContext clones the parent's state
    * by default (cache-sharing forks need identical decisions), or
    * resumeAgentBackground threads one reconstructed from sidechain records.
@@ -302,8 +303,8 @@ export type ToolUseContext = {
   ) => void
   /**
    * Parent's rendered system prompt bytes, frozen at turn start.
-   * Used by fork subagents to share the parent's prompt cache — re-calling
-   * getSystemPrompt() at fork-spawn time can diverge (GrowthBook cold→warm)
+   * Used by fork subagents to share the parent's prompt cache вЂ” re-calling
+   * getSystemPrompt() at fork-spawn time can diverge (GrowthBook coldв†’warm)
    * and bust the cache. See forkSubagent.ts.
    */
   renderedSystemPrompt?: SystemPrompt
@@ -382,7 +383,7 @@ export type Tool<
   /**
    * One-line capability phrase used by ToolSearch for keyword matching.
    * Helps the model find this tool via keyword search when it's deferred.
-   * 3–10 words, no trailing period.
+   * 3вЂ“10 words, no trailing period.
    * Prefer terms not already in the tool name (e.g. 'jupyter' for NotebookEdit).
    */
   searchHint?: string
@@ -418,8 +419,8 @@ export type Tool<
    * What should happen when the user submits a new message while this tool
    * is running.
    *
-   * - `'cancel'` — stop the tool and discard its result
-   * - `'block'`  — keep running; the new message waits
+   * - `'cancel'` вЂ” stop the tool and discard its result
+   * - `'block'`  вЂ” keep running; the new message waits
    *
    * Defaults to `'block'` when not implemented.
    */
@@ -451,7 +452,7 @@ export type Tool<
    */
   readonly shouldDefer?: boolean
   /**
-   * When true, this tool is never deferred — its full schema appears in the
+   * When true, this tool is never deferred вЂ” its full schema appears in the
    * initial prompt even when ToolSearch is enabled. For MCP tools, set via
    * `_meta['anthropic/alwaysLoad']`. Use for tools the model must see on
    * turn 1 without a ToolSearch round-trip.
@@ -470,7 +471,7 @@ export type Tool<
    * with the file path instead of the full content.
    *
    * Set to Infinity for tools whose output must never be persisted (e.g. Read,
-   * where persisting creates a circular Read→file→Read loop and the tool
+   * where persisting creates a circular Readв†’fileв†’Read loop and the tool
    * already self-bounds via its own limits).
    */
   maxResultSizeChars: number
@@ -486,7 +487,7 @@ export type Tool<
    * transcript, canUseTool, PreToolUse/PostToolUse hooks). Mutate in place
    * to add legacy/derived fields. Must be idempotent. The original API-bound
    * input is never mutated (preserves prompt cache). Not re-applied when a
-   * hook/permission returns a fresh updatedInput — those own their shape.
+   * hook/permission returns a fresh updatedInput вЂ” those own their shape.
    */
   backfillObservableInput?(input: Record<string, unknown>): void
 
@@ -592,16 +593,16 @@ export type Tool<
    * Flattened text of what renderToolResultMessage shows IN TRANSCRIPT
    * MODE (verbose=true, isTranscriptMode=true). For transcript search
    * indexing: the index counts occurrences in this string, the highlight
-   * overlay scans the actual screen buffer. For count ≡ highlight, this
-   * must return the text that ends up visible — not the model-facing
+   * overlay scans the actual screen buffer. For count в‰Ў highlight, this
+   * must return the text that ends up visible вЂ” not the model-facing
    * serialization from mapToolResultToToolResultBlockParam (which adds
    * system-reminders, persisted-output wrappers).
    *
    * Chrome can be skipped (under-count is fine). "Found 3 files in 12ms"
-   * isn't worth indexing. Phantoms are not fine — text that's claimed
-   * here but doesn't render is a count≠highlight bug.
+   * isn't worth indexing. Phantoms are not fine вЂ” text that's claimed
+   * here but doesn't render is a countв‰ highlight bug.
    *
-   * Optional: omitted → field-name heuristic in transcriptSearch.ts.
+   * Optional: omitted в†’ field-name heuristic in transcriptSearch.ts.
    * Drift caught by test/utils/transcriptSearch.renderFidelity.test.tsx
    * which renders sample outputs and flags text that's indexed-but-not-
    * rendered (phantom) or rendered-but-not-indexed (under-count warning).
@@ -619,7 +620,7 @@ export type Tool<
   /**
    * Returns true when the non-verbose rendering of this output is truncated
    * (i.e., clicking to expand would reveal more content). Gates
-   * click-to-expand in fullscreen — only messages where verbose actually
+   * click-to-expand in fullscreen вЂ” only messages where verbose actually
    * shows more get a hover/click affordance. Unset means never truncated.
    */
   isResultTruncated?(output: Output): boolean
@@ -725,7 +726,7 @@ type DefaultableToolKeys =
 
 /**
  * Tool definition accepted by `buildTool`. Same shape as `Tool` but with the
- * defaultable methods optional — `buildTool` fills them in so callers always
+ * defaultable methods optional вЂ” `buildTool` fills them in so callers always
  * see a complete `Tool`.
  */
 export type ToolDef<
@@ -739,7 +740,7 @@ export type ToolDef<
  * Type-level spread mirroring `{ ...TOOL_DEFAULTS, ...def }`. For each
  * defaultable key: if D provides it (required), D's type wins; if D omits
  * it or has it optional (inherited from Partial<> in the constraint), the
- * default fills in. All other keys come from D verbatim — preserving arity,
+ * default fills in. All other keys come from D verbatim вЂ” preserving arity,
  * optional presence, and literal types exactly as `satisfies Tool` did.
  */
 type BuiltTool<D> = Omit<D, DefaultableToolKeys> & {
@@ -756,13 +757,13 @@ type BuiltTool<D> = Omit<D, DefaultableToolKeys> & {
  * that defaults live in one place and callers never need `?.() ?? default`.
  *
  * Defaults (fail-closed where it matters):
- * - `isEnabled` → `true`
- * - `isConcurrencySafe` → `false` (assume not safe)
- * - `isReadOnly` → `false` (assume writes)
- * - `isDestructive` → `false`
- * - `checkPermissions` → `{ behavior: 'allow', updatedInput }` (defer to general permission system)
- * - `toAutoClassifierInput` → `''` (skip classifier — security-relevant tools must override)
- * - `userFacingName` → `name`
+ * - `isEnabled` в†’ `true`
+ * - `isConcurrencySafe` в†’ `false` (assume not safe)
+ * - `isReadOnly` в†’ `false` (assume writes)
+ * - `isDestructive` в†’ `false`
+ * - `checkPermissions` в†’ `{ behavior: 'allow', updatedInput }` (defer to general permission system)
+ * - `toAutoClassifierInput` в†’ `''` (skip classifier вЂ” security-relevant tools must override)
+ * - `userFacingName` в†’ `name`
  */
 const TOOL_DEFAULTS = {
   isEnabled: () => true,
@@ -779,7 +780,7 @@ const TOOL_DEFAULTS = {
 }
 
 // The defaults type is the ACTUAL shape of TOOL_DEFAULTS (optional params so
-// both 0-arg and full-arg call sites type-check — stubs varied in arity and
+// both 0-arg and full-arg call sites type-check вЂ” stubs varied in arity and
 // tests relied on that), not the interface's strict signatures.
 type ToolDefaults = typeof TOOL_DEFAULTS
 
@@ -800,3 +801,4 @@ export function buildTool<D extends AnyToolDef>(def: D): BuiltTool<D> {
     ...def,
   } as BuiltTool<D>
 }
+

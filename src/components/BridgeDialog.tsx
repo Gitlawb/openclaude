@@ -17,7 +17,7 @@ import { Dialog } from './design-system/Dialog.js';
 type Props = {
   onDone: () => void;
 };
-export function BridgeDialog(t0) {
+export function BridgeDialog(t0: Props): React.ReactNode {
   const $ = _c(87);
   const {
     onDone

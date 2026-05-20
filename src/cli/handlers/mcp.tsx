@@ -11,7 +11,7 @@ import { MCPServerDesktopImportDialog } from '../../components/MCPServerDesktopI
 import { render } from '../../ink.js';
 import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
-import { clearMcpClientConfig, clearServerTokensFromLocalStorage, readClientSecret, saveMcpClientSecret } from '../../services/mcp/auth.js';
+import { clearMcpClientConfig, clearServerTokensFromSecureStorage, readClientSecret, saveMcpClientSecret } from '../../services/mcp/auth.js';
 import { doctorAllServers, doctorServer, type McpDoctorReport, type McpDoctorScopeFilter } from '../../services/mcp/doctor.js';
 import { connectToServer, getMcpServerConnectionBatchSize } from '../../services/mcp/client.js';
 import { addMcpConfig, getAllMcpConfigs, getMcpConfigByName, getMcpConfigsByScope, removeMcpConfig } from '../../services/mcp/config.js';
@@ -275,9 +275,13 @@ export async function mcpListHandler(): Promise<void> {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.log(`${name}: ${server.url} - ${status}`);
       } else if (!server.type || server.type === 'stdio') {
-        const args = Array.isArray(server.args) ? server.args : [];
+        const stdioServer = server as typeof server & {
+          command?: string
+          args?: string[]
+        };
+        const args = Array.isArray(stdioServer.args) ? stdioServer.args : [];
         // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.log(`${name}: ${server.command} ${args.join(' ')} - ${status}`);
+        console.log(`${name}: ${stdioServer.command ?? ''} ${args.join(' ')} - ${status}`);
       }
     }
   }
@@ -352,11 +356,15 @@ export async function mcpGetHandler(name: string): Promise<void> {
       console.log(`  OAuth: ${parts.join(', ')}`);
     }
   } else if (server.type === 'stdio') {
+    const stdioServer = server as typeof server & {
+      command?: string
+      args?: string[]
+    };
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log(`  Type: stdio`);
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`  Command: ${server.command}`);
-    const args = Array.isArray(server.args) ? server.args : [];
+    console.log(`  Command: ${stdioServer.command ?? ''}`);
+    const args = Array.isArray(stdioServer.args) ? stdioServer.args : [];
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log(`  Args: ${args.join(' ')}`);
     if (server.env) {

@@ -701,7 +701,13 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
       const newMessages: Message[] = [];
       for (let i = startIndex; i < messages.length; i++) {
         const msg_1 = messages[i];
-        if (msg_1 && (msg_1.type === 'user' || msg_1.type === 'assistant' || msg_1.type === 'system' && msg_1.subtype === 'local_command')) {
+        if (
+          msg_1 &&
+          (msg_1.type === 'user' ||
+            msg_1.type === 'assistant' ||
+            (msg_1.type === 'system' &&
+              (msg_1 as { subtype?: string }).subtype === 'local_command'))
+        ) {
           newMessages.push(msg_1);
         }
       }

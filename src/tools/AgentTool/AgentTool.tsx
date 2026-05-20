@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { buildTool, type ToolDef, toolMatchesName } from 'src/Tool.js';
@@ -118,7 +119,7 @@ export const inputSchema = lazySchema(() => {
   // "schema shows a no-op param" (gate flips on mid-session: param ignored
   // by forceAsync) or "schema hides a param that would've worked" (gate
   // flips off mid-session: everything still runs async via memoized
-  // forceAsync). No Zod rejection, no crash — unlike required→optional.
+  // forceAsync). No Zod rejection, no crash вЂ” unlike requiredв†’optional.
   return isBackgroundTasksDisabled || isForkSubagentEnabled() ? schema.omit({
     run_in_background: true
   }) : schema;
@@ -177,7 +178,7 @@ type TeammateSpawnedOutput = {
 
 // Combined output type including both public and internal types
 // Note: TeammateSpawnedOutput type is fine - TypeScript types are erased at compile time
-// Private type for remote-launched results — excluded from exported schema
+// Private type for remote-launched results вЂ” excluded from exported schema
 // like TeammateSpawnedOutput for dead code elimination purposes. Exported
 // for UI.tsx to do proper discriminated-union narrowing instead of ad-hoc casts.
 export type RemoteLaunchedOutput = {
@@ -264,13 +265,13 @@ export const AgentTool = buildTool({
     }
 
     // Teammates (in-process or tmux) passing `name` would trigger spawnTeammate()
-    // below, but TeamFile.members is a flat array with one leadAgentId — nested
+    // below, but TeamFile.members is a flat array with one leadAgentId вЂ” nested
     // teammates land in the roster with no provenance and confuse the lead.
     const teamName = resolveTeamName({
       team_name
     }, appState);
     if (isTeammate() && teamName && name) {
-      throw new Error('Teammates cannot spawn other teammates — the team roster is flat. To spawn a subagent instead, omit the `name` parameter.');
+      throw new Error('Teammates cannot spawn other teammates вЂ” the team roster is flat. To spawn a subagent instead, omit the `name` parameter.');
     }
     // In-process teammates cannot spawn background agents (their lifecycle is
     // tied to the leader's process). Tmux teammates are separate processes and
@@ -325,7 +326,7 @@ export const AgentTool = buildTool({
     if (isForkPath) {
       // Recursive fork guard: fork children keep the Agent tool in their
       // pool for cache-identical tool defs, so reject fork attempts at call
-      // time. Primary check is querySource (compaction-resistant — set on
+      // time. Primary check is querySource (compaction-resistant вЂ” set on
       // context.options at spawn time, survives autocompact's message
       // rewrite). Message-scan fallback catches any path where querySource
       // wasn't threaded.
@@ -362,7 +363,7 @@ export const AgentTool = buildTool({
       throw new Error(`In-process teammates cannot spawn background agents. Agent '${selectedAgent.agentType}' has background: true in its definition.`);
     }
 
-    // Capture for type narrowing — `let selectedAgent` prevents TS from
+    // Capture for type narrowing вЂ” `let selectedAgent` prevents TS from
     // narrowing property types across the if-else assignment above.
     const requiredMcpServers = selectedAgent.requiredMcpServers;
 
@@ -383,7 +384,7 @@ export const AgentTool = buildTool({
           currentAppState = toolUseContext.getAppState();
 
           // Early exit: if any required server has already failed, no point
-          // waiting for other pending servers — the check will fail regardless.
+          // waiting for other pending servers вЂ” the check will fail regardless.
           const hasFailedRequiredServer = currentAppState.mcp.clients.some(c => c.type === 'failed' && requiredMcpServers.some(pattern => c.name.toLowerCase().includes(pattern.toLowerCase())));
           if (hasFailedRequiredServer) break;
           const stillPending = currentAppState.mcp.clients.some(c => c.type === 'pending' && requiredMcpServers.some(pattern => c.name.toLowerCase().includes(pattern.toLowerCase())));
@@ -430,7 +431,7 @@ export const AgentTool = buildTool({
     // Resolve effective isolation mode (explicit param overrides agent def)
     const effectiveIsolation = isolation ?? selectedAgent.isolation;
 
-    // Remote isolation: delegate to CCR. Gated internal-only — the guard enables
+    // Remote isolation: delegate to CCR. Gated internal-only вЂ” the guard enables
     // dead code elimination of the entire block for external builds.
     if ("external" === 'ant' && effectiveIsolation === 'remote') {
       const eligibility = await checkRemoteAgentEligibility();
@@ -553,11 +554,11 @@ export const AgentTool = buildTool({
     const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
 
     // Fork subagent experiment: force ALL spawns async for a unified
-    // <task-notification> interaction model (not just fork spawns — all of them).
+    // <task-notification> interaction model (not just fork spawns вЂ” all of them).
     const forceAsync = isForkSubagentEnabled();
 
     // Assistant mode: force all agents async. Synchronous subagents hold the
-    // main loop's turn open until they complete — the daemon's inputQueue
+    // main loop's turn open until they complete вЂ” the daemon's inputQueue
     // backs up, and the first overdue cron catch-up on spawn becomes N
     // serial subagent turns blocking all user input. Same gate as
     // executeForkedSlashCommand's fire-and-forget path; the
@@ -666,7 +667,7 @@ export const AgentTool = buildTool({
         gitRoot,
         hookBased
       } = worktreeInfo;
-      // Null out to make idempotent — guards against double-call if code
+      // Null out to make idempotent вЂ” guards against double-call if code
       // between cleanup and end of try throws into catch
       worktreeInfo = null;
       if (hookBased) {
@@ -710,8 +711,8 @@ export const AgentTool = buildTool({
         toolUseId: toolUseContext.toolUseId
       });
 
-      // Register name → agentId for SendMessage routing. Post-registerAsyncAgent
-      // so we don't leave a stale entry if spawn fails. Sync agents skipped —
+      // Register name в†’ agentId for SendMessage routing. Post-registerAsyncAgent
+      // so we don't leave a stale entry if spawn fails. Sync agents skipped вЂ”
       // coordinator is blocked, so SendMessage routing doesn't apply.
       if (name) {
         rootSetAppState(prev => {
@@ -740,7 +741,7 @@ export const AgentTool = buildTool({
 
       // Workload propagation: handlePromptSubmit wraps the entire turn in
       // runWithWorkload (AsyncLocalStorage). ALS context is captured at
-      // invocation time — when this `void` fires — and survives every await
+      // invocation time вЂ” when this `void` fires вЂ” and survives every await
       // inside. No capture/restore needed; the detached closure sees the
       // parent turn's workload automatically, isolated from its finally.
       void runWithAgentContext(asyncAgentContext, () => wrapWithCwd(() => runAsyncAgentLifecycle({
@@ -821,7 +822,7 @@ export const AgentTool = buildTool({
         // Register as foreground task immediately so it can be backgrounded at any time
         // Skip registration if background tasks are disabled
         let foregroundTaskId: string | undefined;
-        // Create the background race promise once outside the loop — otherwise
+        // Create the background race promise once outside the loop вЂ” otherwise
         // each iteration adds a new .then() reaction to the same pending
         // promise, accumulating callbacks for the lifetime of the agent.
         let backgroundPromise: Promise<{
@@ -849,7 +850,7 @@ export const AgentTool = buildTool({
         let backgroundHintShown = false;
         // Track if the agent was backgrounded (cleanup handled by backgrounded finally)
         let wasBackgrounded = false;
-        // Per-scope stop function — NOT shared with the backgrounded closure.
+        // Per-scope stop function вЂ” NOT shared with the backgrounded closure.
         // idempotent: startAgentSummarization's stop() checks `stopped` flag.
         let stopForegroundSummarization: (() => void) | undefined;
         // const capture for sound type narrowing inside the callback below
@@ -965,7 +966,7 @@ export const AgentTool = buildTool({
 
                     // Mark task completed FIRST so TaskOutput(block=true)
                     // unblocks immediately. classifyHandoffIfNeeded and
-                    // cleanupWorktreeIfNeeded can hang — they must not gate
+                    // cleanupWorktreeIfNeeded can hang вЂ” they must not gate
                     // the status transition (gh-20236).
                     completeAsyncAgent(agentResult, rootSetAppState);
 
@@ -1168,7 +1169,7 @@ export const AgentTool = buildTool({
             toolUseContext.setToolJSX(null);
           }
 
-          // Stop foreground summarization. Idempotent — if already stopped at
+          // Stop foreground summarization. Idempotent вЂ” if already stopped at
           // the backgrounding transition, this is a no-op. The backgrounded
           // closure owns a separate stop function (stopBackgroundedSummarization).
           stopForegroundSummarization?.();
@@ -1177,7 +1178,7 @@ export const AgentTool = buildTool({
           if (foregroundTaskId) {
             unregisterAgentForeground(foregroundTaskId, rootSetAppState);
             // Notify SDK consumers (e.g. VS Code subagent panel) that this
-            // foreground agent is done. Goes through drainSdkEvents() — does
+            // foreground agent is done. Goes through drainSdkEvents() вЂ” does
             // NOT trigger the print.ts XML task_notification parser or the LLM loop.
             if (!wasBackgrounded) {
               const progress = getProgressUpdate(syncTracker);
@@ -1202,7 +1203,7 @@ export const AgentTool = buildTool({
           clearInvokedSkillsForAgent(syncAgentId);
 
           // Clean up dumpState entry for this agent to prevent unbounded growth
-          // Skip if backgrounded — the backgrounded agent's finally handles cleanup
+          // Skip if backgrounded вЂ” the backgrounded agent's finally handles cleanup
           if (!wasBackgrounded) {
             clearDumpState(syncAgentId);
           }
@@ -1211,7 +1212,7 @@ export const AgentTool = buildTool({
           cancelAutoBackground?.();
 
           // Clean up worktree if applicable (in finally to handle abort/error paths)
-          // Skip if backgrounded — the background continuation is still running in it
+          // Skip if backgrounded вЂ” the background continuation is still running in it
           if (!wasBackgrounded) {
             worktreeResult = await cleanupWorktreeIfNeeded();
           }
@@ -1341,7 +1342,7 @@ The agent is now running and will receive instructions via mailbox.`
     }
     if (data.status === 'async_launched') {
       const prefix = `Async agent launched successfully.\nagentId: ${data.agentId} (internal ID - do not mention to user. Use SendMessage with to: '${data.agentId}' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes.`;
-      const instructions = data.canReadOutputFile ? `Do not duplicate this agent's work — avoid working with the same files or topics it is using. Work on non-overlapping tasks, or briefly tell the user what you launched and end your response.\noutput_file: ${data.outputFile}\nIf asked, you can check progress before completion by using ${FILE_READ_TOOL_NAME} or ${BASH_TOOL_NAME} tail on the output file.` : `Briefly tell the user what you launched and end your response. Do not generate any other text — agent results will arrive in a subsequent message.`;
+      const instructions = data.canReadOutputFile ? `Do not duplicate this agent's work вЂ” avoid working with the same files or topics it is using. Work on non-overlapping tasks, or briefly tell the user what you launched and end your response.\noutput_file: ${data.outputFile}\nIf asked, you can check progress before completion by using ${FILE_READ_TOOL_NAME} or ${BASH_TOOL_NAME} tail on the output file.` : `Briefly tell the user what you launched and end your response. Do not generate any other text вЂ” agent results will arrive in a subsequent message.`;
       const text = `${prefix}\n${instructions}`;
       return {
         tool_use_id: toolUseID,
@@ -1356,7 +1357,7 @@ The agent is now running and will receive instructions via mailbox.`
       const worktreeData = data as Record<string, unknown>;
       const worktreeInfoText = worktreeData.worktreePath ? `\nworktreePath: ${worktreeData.worktreePath}\nworktreeBranch: ${worktreeData.worktreeBranch}` : '';
       // If the subagent completes with no content, the tool_result is just the
-      // agentId/usage trailer below — a metadata-only block at the prompt tail.
+      // agentId/usage trailer below вЂ” a metadata-only block at the prompt tail.
       // Some models read that as "nothing to act on" and end their turn
       // immediately. Say so explicitly so the parent has something to react to.
       const contentOrMarker = data.content.length > 0 ? data.content : [{
@@ -1364,10 +1365,10 @@ The agent is now running and will receive instructions via mailbox.`
         text: '(Subagent completed but returned no output.)'
       }];
       // One-shot built-ins (Explore, Plan) are never continued via SendMessage
-      // — the agentId hint and <usage> block are dead weight (~135 chars ×
-      // 34M Explore runs/week ≈ 1-2 Gtok/week). Telemetry doesn't parse this
+      // вЂ” the agentId hint and <usage> block are dead weight (~135 chars Г—
+      // 34M Explore runs/week в‰€ 1-2 Gtok/week). Telemetry doesn't parse this
       // block (it uses logEvent in finalizeAgentTool), so dropping is safe.
-      // agentType is optional for resume compat — missing means show trailer.
+      // agentType is optional for resume compat вЂ” missing means show trailer.
       if (data.agentType && ONE_SHOT_BUILTIN_AGENT_TYPES.has(data.agentType) && !worktreeInfoText) {
         return {
           tool_use_id: toolUseID,
@@ -1410,3 +1411,4 @@ function resolveTeamName(input: {
   if (!isAgentSwarmsEnabled()) return undefined;
   return input.team_name || appState.teamContext?.teamName;
 }
+

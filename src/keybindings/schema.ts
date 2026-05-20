@@ -18,6 +18,7 @@ export const KEYBINDING_CONTEXTS = [
   'Transcript',
   'HistorySearch',
   'Task',
+  'Scroll',
   'ThemePicker',
   'Settings',
   'Tabs',
@@ -29,6 +30,7 @@ export const KEYBINDING_CONTEXTS = [
   'ModelPicker',
   'Select',
   'Plugin',
+  'MessageActions',
 ] as const
 
 /**
@@ -46,6 +48,7 @@ export const KEYBINDING_CONTEXT_DESCRIPTIONS: Record<
   Transcript: 'When viewing the transcript',
   HistorySearch: 'When searching command history (ctrl+r)',
   Task: 'When a task/agent is running in the foreground',
+  Scroll: 'When the transcript scroll container is focused',
   ThemePicker: 'When the theme picker is open',
   Settings: 'When the settings menu is open',
   Tabs: 'When tab navigation is active',
@@ -56,6 +59,7 @@ export const KEYBINDING_CONTEXT_DESCRIPTIONS: Record<
   ModelPicker: 'When the model picker is open',
   Select: 'When a select/list component is focused',
   Plugin: 'When the plugin dialog is open',
+  MessageActions: 'When the per-message action menu is open',
 }
 
 /**
@@ -119,6 +123,18 @@ export const KEYBINDING_ACTIONS = [
   'historySearch:execute',
   // Task/agent actions
   'task:background',
+  // Scroll/transcript navigation actions
+  'scroll:pageUp',
+  'scroll:pageDown',
+  'scroll:lineUp',
+  'scroll:lineDown',
+  'scroll:top',
+  'scroll:bottom',
+  'scroll:halfPageUp',
+  'scroll:halfPageDown',
+  'scroll:fullPageUp',
+  'scroll:fullPageDown',
+  'selection:copy',
   // Theme picker actions
   'theme:toggleSyntaxHighlighting',
   // Help menu actions
@@ -161,6 +177,17 @@ export const KEYBINDING_ACTIONS = [
   // Plugin dialog actions
   'plugin:toggle',
   'plugin:install',
+  'messageActions:prev',
+  'messageActions:next',
+  'messageActions:top',
+  'messageActions:bottom',
+  'messageActions:prevUser',
+  'messageActions:nextUser',
+  'messageActions:escape',
+  'messageActions:ctrlc',
+  'messageActions:enter',
+  'messageActions:c',
+  'messageActions:p',
   // Permission dialog actions
   'permission:toggleDebug',
   // Settings config panel actions

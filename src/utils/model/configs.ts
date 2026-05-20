@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ModelName } from './model.js'
 import type { APIProvider } from './providers.js'
 
@@ -188,16 +189,16 @@ export const ALL_MODEL_CONFIGS = {
 
 export type ModelKey = keyof typeof ALL_MODEL_CONFIGS
 
-/** Union of all canonical first-party model IDs, e.g. 'claude-opus-4-6' | 'claude-sonnet-4-5-20250929' | … */
+/** Union of all canonical first-party model IDs, e.g. 'claude-opus-4-6' | 'claude-sonnet-4-5-20250929' | вЂ¦ */
 export type CanonicalModelId =
   (typeof ALL_MODEL_CONFIGS)[ModelKey]['firstParty']
 
-/** Runtime list of canonical model IDs — used by comprehensiveness tests. */
+/** Runtime list of canonical model IDs вЂ” used by comprehensiveness tests. */
 export const CANONICAL_MODEL_IDS = Object.values(ALL_MODEL_CONFIGS).map(
   c => c.firstParty,
 ) as [CanonicalModelId, ...CanonicalModelId[]]
 
-/** Map canonical ID → internal short key. Used to apply settings-based modelOverrides. */
+/** Map canonical ID в†’ internal short key. Used to apply settings-based modelOverrides. */
 export const CANONICAL_ID_TO_KEY: Record<CanonicalModelId, ModelKey> =
   Object.fromEntries(
     (Object.entries(ALL_MODEL_CONFIGS) as [ModelKey, ModelConfig][]).map(

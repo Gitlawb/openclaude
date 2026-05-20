@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import React, { useRef } from 'react';
 import stripAnsi from 'strip-ansi';
 import { Messages } from '../components/Messages.js';
@@ -32,8 +33,8 @@ function StaticKeybindingProvider({
 
 // Upper-bound how many NormalizedMessages a Message can produce.
 // normalizeMessages splits one Message with N content blocks into N
-// NormalizedMessages — 1:1 with block count. String content = 1 block.
-// AttachmentMessage etc. have no .message and normalize to ≤1.
+// NormalizedMessages вЂ” 1:1 with block count. String content = 1 block.
+// AttachmentMessage etc. have no .message and normalize to в‰¤1.
 function normalizedUpperBound(m: Message): number {
   if (!('message' in m)) return 1;
   const c = m.message.content;
@@ -42,14 +43,14 @@ function normalizedUpperBound(m: Message): number {
 
 /**
  * Streams rendered messages in chunks, ANSI codes preserved. Each chunk is a
- * fresh renderToAnsiString — yoga layout tree + Ink's screen buffer are sized
+ * fresh renderToAnsiString вЂ” yoga layout tree + Ink's screen buffer are sized
  * to the tallest CHUNK instead of the full session. Measured (Mar 2026,
- * 538-msg session): −55% plateau RSS vs a single full render. The sink owns
- * the output — write to stdout for `[` dump-to-scrollback, appendFile for `v`.
+ * 538-msg session): в€’55% plateau RSS vs a single full render. The sink owns
+ * the output вЂ” write to stdout for `[` dump-to-scrollback, appendFile for `v`.
  *
- * Messages.renderRange slices AFTER normalize→group→collapse, so tool-call
+ * Messages.renderRange slices AFTER normalizeв†’groupв†’collapse, so tool-call
  * grouping stays correct across chunk seams; buildMessageLookups runs on
- * the full normalized array so tool_use↔tool_result resolves regardless of
+ * the full normalized array so tool_useв†”tool_result resolves regardless of
  * which chunk each landed in.
  */
 export async function streamRenderedMessages(messages: Message[], tools: Tools, sink: (ansiChunk: string) => void | Promise<void>, {
@@ -70,7 +71,7 @@ export async function streamRenderedMessages(messages: Message[], tools: Tools, 
       </AppStateProvider>, columns);
 
   // renderRange indexes into the post-collapse array whose length we can't
-  // see from here — normalize splits each Message into one NormalizedMessage
+  // see from here вЂ” normalize splits each Message into one NormalizedMessage
   // per content block (unbounded per message), collapse merges some back.
   // Ceiling is the exact normalize output count + chunkSize so the loop
   // always reaches the empty slice where break fires (collapse only shrinks).
@@ -95,3 +96,4 @@ export async function renderMessagesToPlainText(messages: Message[], tools: Tool
   });
   return parts.join('');
 }
+

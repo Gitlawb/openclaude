@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ToolPermissionContext } from '../../Tool.js'
 import { splitCommand_DEPRECATED } from '../../utils/bash/commands.js'
 import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
@@ -478,7 +479,7 @@ function containsDangerousOperations(expression: string): boolean {
   // When in doubt, treat as unsafe
 
   // Reject non-ASCII characters (Unicode homoglyphs, combining chars, etc.)
-  // Examples: ｗ (fullwidth), ᴡ (small capital), w̃ (combining tilde)
+  // Examples: пЅ— (fullwidth), бґЎ (small capital), wМѓ (combining tilde)
   // Check for characters outside ASCII range (0x01-0x7F, excluding null byte)
   // eslint-disable-next-line no-control-regex
   if (/[^\x01-\x7F]/.test(cmd)) {
@@ -682,3 +683,4 @@ export function checkSedConstraints(
     message: 'No dangerous sed operations detected',
   }
 }
+

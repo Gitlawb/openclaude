@@ -92,7 +92,9 @@ function renderColorDiff(patch: StructuredPatchHunk, firstLine: string | null, f
   perHunk.set(key, entry);
   return entry;
 }
-export const StructuredDiff = memo(function StructuredDiff(t0) {
+function StructuredDiffInner(
+  t0: Props,
+): React.ReactNode {
   const $ = _c(26);
   const {
     patch,
@@ -186,4 +188,8 @@ export const StructuredDiff = memo(function StructuredDiff(t0) {
     t3 = $[25];
   }
   return t3;
-});
+}
+
+export const StructuredDiff = memo(
+  StructuredDiffInner,
+) as React.NamedExoticComponent<Props>

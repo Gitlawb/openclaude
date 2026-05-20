@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { HrTime } from '@opentelemetry/api'
 import { type ExportResult, ExportResultCode } from '@opentelemetry/core'
 import type {

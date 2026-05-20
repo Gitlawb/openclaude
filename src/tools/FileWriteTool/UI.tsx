@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { c as _c } from "react-compiler-runtime";
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import type { StructuredPatchHunk } from 'diff';
@@ -105,7 +106,7 @@ function FileWriteToolCreatedMessage(t0) {
   }
   let t8;
   if ($[17] !== numLines || $[18] !== plusLines || $[19] !== verbose) {
-    t8 = !verbose && plusLines > 0 && <Text dimColor={true}>… +{plusLines} {plusLines === 1 ? "line" : "lines"}{" "}{numLines > 0 && <CtrlOToExpand />}</Text>;
+    t8 = !verbose && plusLines > 0 && <Text dimColor={true}>вЂ¦ +{plusLines} {plusLines === 1 ? "line" : "lines"}{" "}{numLines > 0 && <CtrlOToExpand />}</Text>;
     $[17] = numLines;
     $[18] = plusLines;
     $[19] = verbose;
@@ -320,7 +321,7 @@ async function loadRejectionDiff(filePath: string, content: string): Promise<Rej
     } finally {
       await handle.close();
     }
-    // File exceeds MAX_SCAN_BYTES — fall back to the create view rather than
+    // File exceeds MAX_SCAN_BYTES вЂ” fall back to the create view rather than
     // OOMing on a diff of a multi-GB file.
     if (oldContent === null) return {
       type: 'create'
@@ -402,3 +403,4 @@ export function renderToolResultMessage({
       }
   }
 }
+

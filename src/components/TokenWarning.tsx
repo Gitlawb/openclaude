@@ -30,10 +30,22 @@ function CollapseLabel(t0) {
   } else {
     t1 = $[0];
   }
+  const contextCollapseModule = t1 as {
+    getStats: () => {
+      collapsedSpans: number;
+      stagedSpans: number;
+      health: {
+        totalErrors: number;
+        totalEmptySpawns: number;
+        emptySpawnWarningEmitted: boolean;
+      };
+    };
+    subscribe: (listener: () => void) => () => void;
+  };
   const {
     getStats,
     subscribe
-  } = t1 as typeof import('../services/contextCollapse/index.js');
+  } = contextCollapseModule;
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = () => {
@@ -45,7 +57,7 @@ function CollapseLabel(t0) {
   } else {
     t2 = $[1];
   }
-  const snapshot = useSyncExternalStore(subscribe, t2);
+  const snapshot = useSyncExternalStore(subscribe, t2) as string;
   let t3;
   if ($[2] !== snapshot) {
     t3 = snapshot.split("|").map(Number);

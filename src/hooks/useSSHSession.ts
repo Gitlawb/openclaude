@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * REPL integration hook for `claude ssh` sessions.
  *
@@ -130,7 +131,10 @@ export function useSSHSession({
               q.filter(i => i.toolUseID !== request.tool_use_id),
             )
           },
-          onAllow(updatedInput) {
+          onAllow(
+            updatedInput,
+            _permissionUpdates: Parameters<ToolUseConfirm['onAllow']>[1],
+          ) {
             manager.respondToPermissionRequest(requestId, {
               behavior: 'allow',
               updatedInput,

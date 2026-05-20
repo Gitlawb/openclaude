@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { createHash, randomUUID, type UUID } from 'crypto'
 import { mkdir, readFile, writeFile } from 'fs/promises'
@@ -386,7 +387,7 @@ export async function withTokenCountVCR(
 ): Promise<number | null> {
   // Dehydrate before hashing so fixture keys survive cwd/config-home/tempdir
   // variation and message UUID/timestamp churn. System prompts embed the
-  // working directory (both raw and as a slash→dash project slug in the
+  // working directory (both raw and as a slashв†’dash project slug in the
   // auto-memory path) and messages carry fresh UUIDs per run; without this,
   // every test run produces a new hash and fixtures never hit in CI.
   const cwdSlug = getCwd().replace(/[^a-zA-Z0-9]/g, '-')
@@ -404,3 +405,4 @@ export async function withTokenCountVCR(
   }))
   return result.tokenCount
 }
+

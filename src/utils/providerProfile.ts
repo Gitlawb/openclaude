@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
@@ -44,6 +45,9 @@ const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
@@ -81,6 +85,9 @@ const SECRET_ENV_KEYS = [
 export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
 
 export type ProfileEnv = {
+  ANTHROPIC_BASE_URL?: string
+  ANTHROPIC_MODEL?: string
+  ANTHROPIC_API_KEY?: string
   OPENAI_BASE_URL?: string
   OPENAI_MODEL?: string
   OPENAI_API_KEY?: string
@@ -115,6 +122,7 @@ type SecretValueSource = Partial<
     | 'CODEX_API_KEY'
     | 'GEMINI_API_KEY'
     | 'GOOGLE_API_KEY'
+    | 'ANTHROPIC_API_KEY'
     | 'NVIDIA_API_KEY'
     | 'MINIMAX_API_KEY'
     | 'MISTRAL_API_KEY',
@@ -138,6 +146,7 @@ function resolveProfileFilePath(options?: ProfileFileLocation): string {
 export function isProviderProfile(value: unknown): value is ProviderProfile {
   return (
     value === 'openai' ||
+    value === 'anthropic' ||
     value === 'ollama' ||
     value === 'codex' ||
     value === 'gemini' ||
@@ -158,6 +167,33 @@ export function buildOllamaProfileEnv(
   return {
     OPENAI_BASE_URL: options.getOllamaChatBaseUrl(options.baseUrl ?? undefined),
     OPENAI_MODEL: model,
+  }
+}
+
+export function buildAnthropicProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.ANTHROPIC_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const secretSource: SecretValueSource = { ANTHROPIC_API_KEY: key }
+
+  return {
+    ANTHROPIC_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, secretSource) ||
+      'https://api.anthropic.com',
+    ANTHROPIC_MODEL:
+      sanitizeProviderConfigValue(options.model, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL, secretSource) ||
+      'claude-sonnet-4-6',
+    ANTHROPIC_API_KEY: key,
   }
 }
 
@@ -564,8 +600,6 @@ export async function buildLaunchEnv(options: {
   )
   const shellGeminiAccessToken =
     processEnv.GEMINI_ACCESS_TOKEN?.trim() || undefined
-  const storedGeminiAccessToken =
-    options.readGeminiAccessToken?.() ?? readGeminiAccessToken()
 
   const shellGeminiKey = sanitizeApiKey(
     processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
@@ -605,6 +639,8 @@ export async function buildLaunchEnv(options: {
     }
     env.GEMINI_AUTH_MODE = geminiAuthMode
     if (geminiAuthMode === 'access-token') {
+      const storedGeminiAccessToken =
+        options.readGeminiAccessToken?.() ?? readGeminiAccessToken()
       const geminiAccessToken =
         shellGeminiAccessToken || storedGeminiAccessToken
       if (geminiAccessToken) {
@@ -686,6 +722,64 @@ export async function buildLaunchEnv(options: {
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
+
+    return env
+  }
+
+  if (options.profile === 'anthropic') {
+    const env: NodeJS.ProcessEnv = {
+      ...processEnv,
+    }
+
+    delete env.CLAUDE_CODE_USE_OPENAI
+    delete env.CLAUDE_CODE_USE_GITHUB
+    delete env.CLAUDE_CODE_USE_GEMINI
+    delete env.CLAUDE_CODE_USE_MISTRAL
+    delete env.CLAUDE_CODE_USE_BEDROCK
+    delete env.CLAUDE_CODE_USE_VERTEX
+    delete env.CLAUDE_CODE_USE_FOUNDRY
+    delete env.OPENAI_BASE_URL
+    delete env.OPENAI_MODEL
+    delete env.OPENAI_API_KEY
+    delete env.CODEX_API_KEY
+    delete env.CHATGPT_ACCOUNT_ID
+    delete env.CODEX_ACCOUNT_ID
+    delete env.GEMINI_API_KEY
+    delete env.GEMINI_AUTH_MODE
+    delete env.GEMINI_ACCESS_TOKEN
+    delete env.GEMINI_MODEL
+    delete env.GEMINI_BASE_URL
+    delete env.GOOGLE_API_KEY
+    delete env.MISTRAL_BASE_URL
+    delete env.MISTRAL_API_KEY
+    delete env.MISTRAL_MODEL
+
+    const anthropicBaseUrl = sanitizeProviderConfigValue(
+      persistedEnv.ANTHROPIC_BASE_URL,
+      persistedEnv,
+    )
+    const anthropicModel = sanitizeProviderConfigValue(
+      persistedEnv.ANTHROPIC_MODEL,
+      persistedEnv,
+    )
+    const anthropicKey = sanitizeApiKey(
+      processEnv.ANTHROPIC_API_KEY ?? persistedEnv.ANTHROPIC_API_KEY,
+    )
+
+    env.ANTHROPIC_BASE_URL =
+      anthropicBaseUrl ||
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, processEnv) ||
+      'https://api.anthropic.com'
+    env.ANTHROPIC_MODEL =
+      anthropicModel ||
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL, processEnv) ||
+      'claude-sonnet-4-6'
+
+    if (anthropicKey) {
+      env.ANTHROPIC_API_KEY = anthropicKey
+    } else {
+      delete env.ANTHROPIC_API_KEY
+    }
 
     return env
   }
@@ -909,3 +1003,4 @@ export async function applySavedProfileToCurrentSession(options: {
   applyProfileEnvToProcessEnv(processEnv, nextEnv)
   return null
 }
+

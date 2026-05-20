@@ -16,7 +16,11 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
         isMax20x = tokens.subscriptionType === 'max' && tokens.rateLimitTier === 'default_claude_max_20x';
       } else if (tokens?.accessToken) {
         const profile = await getOauthProfileFromOauthToken(tokens.accessToken);
-        isMax20x = profile?.organization?.organization_type === 'claude_max' && profile?.organization?.rate_limit_tier === 'default_claude_max_20x';
+        const organization = profile?.organization as {
+          organization_type?: string;
+          rate_limit_tier?: string;
+        } | undefined;
+        isMax20x = organization?.organization_type === 'claude_max' && organization?.rate_limit_tier === 'default_claude_max_20x';
       }
       if (isMax20x) {
         setTimeout(onDone, 0, 'You are already on the highest Max subscription plan. For additional usage, run /login to switch to an API usage-billed account.');

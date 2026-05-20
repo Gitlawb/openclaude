@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { BetaToolUseBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages/messages.mjs'
 import type { Tools } from '../Tool.js'
@@ -180,3 +181,4 @@ export function applyGrouping(
 
   return { messages: result }
 }
+

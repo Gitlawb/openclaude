@@ -370,7 +370,7 @@ export function createSessionSpawner(deps: SessionSpawnerDeps): SessionSpawner {
         accessToken: opts.accessToken,
         useCcrV2: opts.useCcrV2,
         workerEpoch: opts.workerEpoch,
-        sandbox: deps.sandbox,
+        sandbox: deps.sandbox ?? false,
       })
 
       deps.onDebug(

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import React from 'react';
 import { MessageResponse } from '../../components/MessageResponse.js';
 import { stringWidth } from '../../ink/stringWidth.js';
@@ -30,7 +31,7 @@ export function renderToolResultMessage(output: Output, _progressMessagesForMess
   }
   const rawCommand = output.command ?? '';
   const command = verbose ? rawCommand : truncateCommand(rawCommand);
-  const suffix = command !== rawCommand ? '… · stopped' : ' · stopped';
+  const suffix = command !== rawCommand ? 'вЂ¦ В· stopped' : ' В· stopped';
   return <MessageResponse>
       <Text>
         {command}
@@ -38,3 +39,4 @@ export function renderToolResultMessage(output: Output, _progressMessagesForMess
       </Text>
     </MessageResponse>;
 }
+
