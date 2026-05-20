@@ -35,6 +35,41 @@ describe('getSchemaValidationErrorOverride', () => {
 })
 
 describe('normalizeToolInputForValidation', () => {
+  test('treats blank Read.pages as omitted', () => {
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, {
+        file_path: '/tmp/example.txt',
+        offset: 1,
+        limit: 20,
+        pages: '',
+      }),
+    ).toEqual({
+      file_path: '/tmp/example.txt',
+      offset: 1,
+      limit: 20,
+    })
+
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, {
+        file_path: '/tmp/example.txt',
+        pages: '   ',
+      }),
+    ).toEqual({
+      file_path: '/tmp/example.txt',
+    })
+  })
+
+  test('treats null Read.pages as omitted', () => {
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, {
+        file_path: '/tmp/example.txt',
+        pages: null,
+      }),
+    ).toEqual({
+      file_path: '/tmp/example.txt',
+    })
+  })
+
   test('wraps Gemini-style single AskUserQuestion payloads', () => {
     const normalized = normalizeToolInputForValidation(AskUserQuestionTool, {
       header: 'Location',
