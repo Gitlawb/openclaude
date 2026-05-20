@@ -74,6 +74,7 @@ import { getMCPUserAgent } from '../../utils/http.js'
 import { maybeNotifyIDEConnected } from '../../utils/ide.js'
 import { maybeResizeAndDownsampleImageBuffer } from '../../utils/imageResizer.js'
 import { logMCPDebug, logMCPError } from '../../utils/log.js'
+import { getPublicBuildVersion } from '../../utils/userAgent.js'
 import {
   getBinaryBlobSavedMessage,
   getFormatDescription,
@@ -1006,7 +1007,7 @@ export const connectToServer = memoize(
           // gate features on the upstream client identifier.
           name: 'claude-code',
           title: 'OpenClaude',
-          version: MACRO.VERSION ?? 'unknown',
+          version: getPublicBuildVersion(),
           description: 'OpenClaude — coding-agent CLI for any LLM provider',
           websiteUrl: PRODUCT_URL,
         },
@@ -3343,7 +3344,7 @@ export async function setupSdkMcpClients(
           // gate features on the upstream client identifier.
           name: 'claude-code',
           title: 'OpenClaude',
-          version: MACRO.VERSION ?? 'unknown',
+          version: getPublicBuildVersion(),
           description: 'OpenClaude — coding-agent CLI for any LLM provider',
           websiteUrl: PRODUCT_URL,
         },
