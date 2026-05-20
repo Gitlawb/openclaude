@@ -3348,8 +3348,12 @@ export function buildMcpStdioCommand(
   // sh -c runs only the first word as the command string and treats the
   // remaining entries as shell positional parameters ($0, $1, ...), so the
   // MCP server never receives its configured arguments.
+  //
+  // Each original command/arg is single-quote-escaped to prevent shell
+  // injection via MCP server args (e.g. --path=/tmp; rm -rf / would
+  // otherwise execute the semicolon as a command separator).
   if (prefixParts.includes('-c')) {
-    const cmdStr = [command, ...args].join(' ')
+    const cmdStr = [command, ...args].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
     return {
       command: finalCommand,
       args: [...prefixParts.slice(1), cmdStr],

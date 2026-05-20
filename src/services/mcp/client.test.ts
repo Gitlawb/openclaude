@@ -115,5 +115,28 @@ test('buildMcpStdioCommand — shell -c prefix joins command+args as single stri
     'sh -c',
   )
   assert.equal(command, 'sh')
-  assert.deepEqual(args, ['-c', 'some-server --port=8080 --debug'])
+  assert.deepEqual(args, ['-c', "'some-server' '--port=8080' '--debug'"])
+})
+
+test('buildMcpStdioCommand — shell -c prefix escapes args to prevent injection', () => {
+  const { command, args } = buildMcpStdioCommand(
+    'some-server',
+    ['--path=/tmp; touch /tmp/pwned', 'normal-arg'],
+    'sh -c',
+  )
+  assert.equal(command, 'sh')
+  // The semicolon and spaces inside the arg are inside single quotes,
+  // so the shell treats them as a literal string, not as syntax.
+  assert.deepEqual(args, ['-c', "'some-server' '--path=/tmp; touch /tmp/pwned' 'normal-arg'"])
+})
+
+test('buildMcpStdioCommand — shell -c prefix escapes embedded single quotes', () => {
+  const { command, args } = buildMcpStdioCommand(
+    "some-server",
+    ["it's a test"],
+    'sh -c',
+  )
+  assert.equal(command, 'sh')
+  // Embedded single quote is escaped: 'it'\''s test'
+  assert.deepEqual(args, ['-c', "'some-server' 'it'\\''s a test'"])
 })
