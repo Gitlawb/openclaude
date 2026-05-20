@@ -68,6 +68,16 @@ openclaude
 
 No API key is needed for Ollama local models.
 
+If the model answers as if it cannot remember earlier messages in the same
+chat, restart Ollama with a larger context window:
+
+```bash
+OLLAMA_CONTEXT_LENGTH=64000 ollama serve
+```
+
+Run `ollama ps` after the model loads to confirm the `CONTEXT` value. Larger
+contexts use more memory and can slow the model.
+
 ### Option D: LM Studio
 
 Install LM Studio first from:

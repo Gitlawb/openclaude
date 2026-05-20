@@ -115,6 +115,10 @@ export OPENAI_MODEL=qwen2.5-coder:7b
 openclaude
 ```
 
+If a local Ollama model appears to forget earlier messages in the same chat,
+raise Ollama's context length before starting the Ollama server, for example
+`OLLAMA_CONTEXT_LENGTH=64000 ollama serve`.
+
 Windows PowerShell:
 
 ```powershell
@@ -124,6 +128,9 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 
 openclaude
 ```
+
+On Windows, set `$env:OLLAMA_CONTEXT_LENGTH="64000"` in the terminal that starts
+`ollama serve` if the model truncates chat history.
 
 ## Setup Guides
 
