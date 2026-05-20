@@ -448,6 +448,12 @@ export function run(options: CliOptions): number {
 }
 
 if (import.meta.main) {
-  const options = parseOptions(process.argv.slice(2))
-  process.exitCode = run(options)
+  try {
+    const options = parseOptions(process.argv.slice(2))
+    process.exitCode = run(options)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`PR intent scan failed: ${message}`)
+    process.exitCode = 1
+  }
 }
