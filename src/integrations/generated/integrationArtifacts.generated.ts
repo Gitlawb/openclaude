@@ -4,6 +4,7 @@
 import type { AnthropicProxyDescriptor, BrandDescriptor, GatewayDescriptor, ModelDescriptor, ProviderPresetManifestEntry, VendorDescriptor } from '../descriptors.js'
 import vendorAnthropic from '../vendors/anthropic.js'
 import vendorBankr from '../vendors/bankr.js'
+import vendorCloudflare from '../vendors/cloudflare.js'
 import vendorDeepseek from '../vendors/deepseek.js'
 import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
@@ -60,7 +61,7 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorCloudflare, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
 export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
@@ -147,6 +148,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "BANKR_MODEL",
+      "OPENAI_MODEL"
+    ]
+  },
+  {
+    "preset": "cloudflare",
+    "routeKind": "vendor",
+    "routeId": "cloudflare",
+    "vendorId": "cloudflare",
+    "description": "Cloudflare Workers AI OpenAI-compatible endpoint. Replace <ACCOUNT_ID> in the base URL with your Cloudflare account id.",
+    "label": "Cloudflare Workers AI",
+    "name": "Cloudflare Workers AI",
+    "apiKeyEnvVars": [
+      "CLOUDFLARE_API_TOKEN"
+    ],
+    "modelEnvVars": [
       "OPENAI_MODEL"
     ]
   },
@@ -401,6 +417,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "dashscope-intl",
   "azure-openai",
   "bankr",
+  "cloudflare",
   "deepseek",
   "gemini",
   "groq",

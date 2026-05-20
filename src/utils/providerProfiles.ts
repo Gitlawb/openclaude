@@ -541,6 +541,11 @@ function isProcessEnvAlignedWithProfile(
       profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.MIMO_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('api.cloudflare.com') ||
+      profile.baseUrl?.toLowerCase().includes('gateway.ai.cloudflare.com')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CLOUDFLARE_API_TOKEN, profile.apiKey)
       : true)
   )
 }
@@ -665,6 +670,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'cloudflare' || profile.baseUrl.toLowerCase().includes('api.cloudflare.com') || profile.baseUrl.toLowerCase().includes('gateway.ai.cloudflare.com')) {
+        openAIProfileEnv.CLOUDFLARE_API_TOKEN = profile.apiKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -972,6 +980,12 @@ function buildOpenAICompatibleStartupEnv(
       activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
     ) {
       env.MIMO_API_KEY = activeProfile.apiKey
+    }
+    if (
+      activeProfile.baseUrl?.toLowerCase().includes('api.cloudflare.com') ||
+      activeProfile.baseUrl?.toLowerCase().includes('gateway.ai.cloudflare.com')
+    ) {
+      env.CLOUDFLARE_API_TOKEN = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY

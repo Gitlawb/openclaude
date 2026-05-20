@@ -150,6 +150,7 @@ Advanced and source-build guides:
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
 | Gitlawb Opengateway | `/provider` or zero-config fallback | Free smart gateway at `https://opengateway.gitlawb.com/v1`; routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
+| Cloudflare Workers AI | `/provider` or env vars | OpenAI-compatible API at `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`; uses `CLOUDFLARE_API_TOKEN`. Replace `<ACCOUNT_ID>` with your Cloudflare account id. |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |

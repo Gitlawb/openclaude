@@ -115,6 +115,7 @@ const PRESET_ORDER = [
   'Alibaba Coding Plan',
   'Azure OpenAI',
   'Bankr',
+  'Cloudflare Workers AI',
   'DeepSeek',
   'Codex OAuth',
   'Google Gemini',

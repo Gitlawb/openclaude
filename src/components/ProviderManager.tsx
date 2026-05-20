@@ -1547,7 +1547,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (canUseCodexOAuth) {
       // Insert after DeepSeek so Codex OAuth keeps its established position
       // in the picker even with Gitlawb Opengateway pinned at the top.
-      options.splice(7, 0, {
+      // Use a dynamic lookup so newly-added presets between Bankr and
+      // DeepSeek (e.g. cloudflare) don't shove DeepSeek under Codex OAuth.
+      const deepseekIndex = options.findIndex(opt => opt.value === 'deepseek')
+      const insertAfter = deepseekIndex >= 0 ? deepseekIndex + 1 : 7
+      options.splice(insertAfter, 0, {
         value: 'codex-oauth',
         label: (
           <Text>
