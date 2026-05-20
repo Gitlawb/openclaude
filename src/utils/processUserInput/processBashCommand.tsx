@@ -94,19 +94,16 @@ export async function processBashCommand(inputString: string, precedingInputBloc
       throw new Error('No result received from shell command');
     }
     const stderr = data.stderr;
-    // Reuse the same formatting pipeline as inline !`cmd` bash (promptShellExecution)
-    // and model-initiated Bash. When BashTool.call() persists large output to disk,
-    // data.persistedOutputPath is set and the formatter wraps in <persisted-output>.
-    // Pass stderr:'' to keep it separate for the <bash-stderr> UI tag.
-    const mapped = await processToolResultBlock(shellTool, {
-      ...data,
-      stderr: ''
-    }, randomUUID());
-    // mapped.content may contain our own <persisted-output> wrapper (trusted
-    // XML from buildLargeToolResultMessage). Escaping it would turn structural
-    // tags into &lt;persisted-output&gt;, breaking the model's parse and
-    // UserBashOutputMessage's extractTag. Escape the raw fallback only.
-    const stdout = typeof mapped.content === 'string' ? mapped.content : escapeXml(data.stdout);
+    let stdout = escapeXml(data.stdout);
+    if (data.persistedOutputPath) {
+      // Reuse the model-facing formatter only for large persisted output so the
+      // UI can unwrap the trusted <persisted-output> marker.
+      const mapped = await processToolResultBlock(shellTool, {
+        ...data,
+        stderr: ''
+      }, randomUUID());
+      stdout = typeof mapped.content === 'string' ? mapped.content : stdout;
+    }
     return {
       messages: [createSyntheticUserCaveatMessage(), userMessage, ...attachmentMessages, createUserMessage({
         content: `<bash-stdout>${stdout}</bash-stdout><bash-stderr>${escapeXml(stderr)}</bash-stderr>`
