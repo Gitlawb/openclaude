@@ -6,6 +6,8 @@
 import type { ModelOption } from './modelOptions.js'
 import { getAPIProvider } from './providers.js'
 import { isEnvTruthy } from '../envUtils.js'
+import { getCachedModels } from '../../integrations/discoveryCache.js'
+import { getDiscoveryCacheKey } from '../../integrations/discoveryService.js'
 
 export function isNvidiaNimProvider(): boolean {
   // Check if explicitly set via NVIDIA_NIM or via provider flag
@@ -166,4 +168,24 @@ export function getCachedNvidiaNimModelOptions(): ModelOption[] {
     cachedNvidiaNimOptions = getNvidiaNimModels()
   }
   return cachedNvidiaNimOptions
+}
+
+/**
+ * Returns the persisted discovery cache entries for the NVIDIA NIM route, if
+ * any are present on disk. Used by validateModel so that inline `/model <id>`
+ * accepts models surfaced by dynamic discovery — not only the static list.
+ */
+export async function getDiscoveredNvidiaNimModelIds(): Promise<string[]> {
+  try {
+    const cacheKey = getDiscoveryCacheKey('nvidia-nim', {
+      baseUrl: process.env.OPENAI_BASE_URL,
+      apiKey: process.env.NVIDIA_API_KEY,
+    })
+    const cached = await getCachedModels(cacheKey, Number.MAX_SAFE_INTEGER, {
+      includeStale: true,
+    })
+    return cached?.models.map(entry => entry.apiName) ?? []
+  } catch {
+    return []
+  }
 }
