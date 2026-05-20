@@ -3,6 +3,7 @@ import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
 import { ingestLocalWikiSource } from '../../services/wiki/ingest.js'
 import { initializeWiki } from '../../services/wiki/init.js'
 import { getWikiStatus } from '../../services/wiki/status.js'
+import { forceScanConventions } from '../../services/wiki/conventions.js'
 import type {
   LocalJSXCommandCall,
   LocalJSXCommandOnDone,
@@ -10,18 +11,20 @@ import type {
 import { getCwd } from '../../utils/cwd.js'
 
 function renderHelp(): string {
-  return `Usage: /wiki [init|status|ingest <path>]
+  return `Usage: /wiki [init|status|scan|ingest <path>]
 
 Manage the OpenClaude project wiki stored in .openclaude/wiki.
 
 Commands:
   /wiki init    Initialize the wiki structure in the current project
   /wiki status  Show wiki status and page/source counts
+  /wiki scan    Re-scan project conventions (build system, test framework, linting, etc.)
   /wiki ingest  Ingest a local file into wiki sources
 
 Examples:
   /wiki init
   /wiki status
+  /wiki scan
   /wiki ingest README.md`
 }
 
@@ -48,7 +51,7 @@ function formatStatus(status: Awaited<ReturnType<typeof getWikiStatus>>): string
     return `OpenClaude wiki is not initialized in this project.\n\nRun /wiki init to create ${status.root}.`
   }
 
-  return [
+  const lines = [
     'OpenClaude wiki status',
     '',
     `Root: ${status.root}`,
@@ -57,8 +60,15 @@ function formatStatus(status: Awaited<ReturnType<typeof getWikiStatus>>): string
     `Schema: ${status.hasSchema ? 'present' : 'missing'}`,
     `Index: ${status.hasIndex ? 'present' : 'missing'}`,
     `Log: ${status.hasLog ? 'present' : 'missing'}`,
+    `Conventions: ${status.hasConventions ? 'present' : 'not yet scanned'}`,
     `Last updated: ${status.lastUpdatedAt ?? 'unknown'}`,
-  ].join('\n')
+  ]
+
+  if (status.conventionsScannedAt) {
+    lines.push(`Conventions last scanned: ${status.conventionsScannedAt}`)
+  }
+
+  return lines.join('\n')
 }
 
 function formatIngestResult(
@@ -105,6 +115,21 @@ async function runWikiCommand(
     onDone(formatIngestResult(await ingestLocalWikiSource(cwd, pathArg)), {
       display: 'system',
     })
+    return
+  }
+
+  if (normalized === 'scan') {
+    const result = await forceScanConventions(cwd)
+    onDone(
+      [
+        'Project conventions scanned and saved.',
+        '',
+        result.markdown,
+        '',
+        '_Run `/wiki status` to verify._',
+      ].join('\n'),
+      { display: 'system' },
+    )
     return
   }
 

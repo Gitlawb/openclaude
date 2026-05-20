@@ -5,6 +5,8 @@ export type WikiPaths = {
   schemaFile: string
   indexFile: string
   logFile: string
+  conventionsFile: string
+  conventionsCacheFile: string
 }
 
 export type WikiInitResult = {
@@ -22,6 +24,8 @@ export type WikiStatus = {
   hasSchema: boolean
   hasIndex: boolean
   hasLog: boolean
+  hasConventions: boolean
+  conventionsScannedAt: string | null
   lastUpdatedAt: string | null
 }
 
@@ -30,4 +34,13 @@ export type WikiIngestResult = {
   sourceNote: string
   summary: string
   title: string
+}
+
+export type ConventionResult = {
+  /** Free-text markdown describing project conventions */
+  markdown: string
+  /** Fingerprint hash derived from scanned file contents (for change detection) */
+  fingerprint: string
+  /** ISO timestamp of last scan */
+  scannedAt: string
 }
