@@ -117,8 +117,11 @@ export const CronCreateTool = buildTool({
     // adversarial model cannot write a payload so large it overflows the
     // durable cron file or injects content that would execute at next startup
     // without re-authentication. Session-only (durable: false) jobs are never
-    // persisted and don't need this guard.
-    if (input.durable && input.prompt.length > MAX_CRON_PROMPT_CHARS) {
+    // persisted and don't need this guard. Also respect the durable kill
+    // switch — when isDurableCronEnabled() is false the call() path
+    // downgrades durable: true to session-only, so validation must not
+    // reject prompts that would never be persisted.
+    if (input.durable && isDurableCronEnabled() && input.prompt.length > MAX_CRON_PROMPT_CHARS) {
       return {
         result: false,
         message: `Cron prompt exceeds maximum length of ${MAX_CRON_PROMPT_CHARS} characters (got ${input.prompt.length}). Shorten the prompt or split into multiple jobs.`,
