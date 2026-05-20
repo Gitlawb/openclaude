@@ -617,8 +617,10 @@ test('saveProfileFile defaults to user config instead of the working directory',
     assert.equal(filePath, join(configDir, PROFILE_FILE_NAME))
     assert.equal(getDefaultProfileFilePath(configDir), join(configDir, PROFILE_FILE_NAME))
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
+    const configDirStat = statSync(configDir)
+    assert.equal(configDirStat.isDirectory(), true)
     if (process.platform !== 'win32') {
-      assert.equal(statSync(configDir).mode & 0o777, 0o700)
+      assert.equal(configDirStat.mode & 0o777, 0o700)
     }
     assert.deepEqual(loadProfileFile({ configDir, cwd }), persisted)
   } finally {
@@ -861,6 +863,15 @@ test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profi
   const previousCwd = process.cwd()
 
   try {
+    const providerProfileModule = await importFreshProviderProfileModule()
+    const {
+      PROFILE_FILE_NAME,
+      clearPersistedCodexOAuthProfile,
+      createProfileFile,
+      loadProfileFile,
+      saveProfileFile,
+    } = providerProfileModule
+
     process.env.CLAUDE_CONFIG_DIR = configDir
     process.chdir(cwd)
 
@@ -880,6 +891,7 @@ test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profi
     })
 
     saveProfileFileFresh(oauthProfile, { configDir })
+    assert.deepEqual(loadProfileFileFresh({ configDir, cwd }), oauthProfile)
     writeFileSync(
       join(cwd, freshProfileFileName),
       JSON.stringify(oauthProfile, null, 2),

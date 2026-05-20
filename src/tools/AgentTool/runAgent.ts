@@ -360,7 +360,7 @@ export async function* runAgent({
     setAgentTranscriptSubdir(agentId, transcriptSubdir)
   }
 
-  
+
   // Log API calls path for subagents (internal-only)
   if (process.env.USER_TYPE === 'ant') {
     logForDebugging(

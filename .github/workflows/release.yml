@@ -79,6 +79,28 @@ jobs:
       - name: Publish to npm
         run: npm publish --access public --provenance
 
+      - name: Verify npm release is live
+        env:
+          EXPECTED_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 18); do
+            published_version="$(npm view @gitlawb/openclaude version 2>/dev/null || true)"
+            latest_tag="$(npm view @gitlawb/openclaude dist-tags.latest 2>/dev/null || true)"
+
+            if [ "$published_version" = "$EXPECTED_VERSION" ] && [ "$latest_tag" = "$EXPECTED_VERSION" ]; then
+              echo "Verified npm latest is $EXPECTED_VERSION"
+              exit 0
+            fi
+
+            echo "Attempt $attempt: version='$published_version' latest='$latest_tag' expected='$EXPECTED_VERSION'"
+            sleep 10
+          done
+
+          echo "npm registry did not resolve @gitlawb/openclaude latest to $EXPECTED_VERSION in time" >&2
+          exit 1
+
       - name: Release summary
         run: |
           {
