@@ -316,6 +316,14 @@ describe('detectProvider — modelOverride from --model flag', () => {
     expect(result.model).toBe('mistral-large-latest')
   })
 
+  test('Mistral fallback uses DEFAULT_MISTRAL_MODEL when MISTRAL_MODEL is unset', () => {
+    process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+    delete process.env.MISTRAL_MODEL
+    const result = detectProvider()
+    expect(result.name).toBe('Mistral')
+    expect(result.model).toBe('mistral-vibe-cli-latest')
+  })
+
   test('modelOverride works for GitHub provider', () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     const result = detectProvider('gpt-4o')
