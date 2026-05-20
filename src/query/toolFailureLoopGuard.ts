@@ -128,6 +128,27 @@ export function updateToolFailureLoopGuard(params: {
     }
   }
 
+  for (const failure of failures) {
+    if (!failure.path || successfulMutationPaths.has(failure.path)) {
+      continue
+    }
+
+    const pathCount = incrementCounter(params.state.pathCounts, failure.path)
+    if (pathCount >= threshold) {
+      return {
+        tripped: true,
+        kind: 'path',
+        threshold,
+        path: failure.path,
+        message: createTripMessage({
+          kind: 'path',
+          threshold,
+          path: failure.path,
+        }),
+      }
+    }
+  }
+
   if (hasSuccess) {
     resetToolFailureLoopGuard(params.state, successfulMutationPaths)
     return { tripped: false }
@@ -142,24 +163,6 @@ export function updateToolFailureLoopGuard(params: {
       params.state.categoryCounts,
       failure.errorCategory,
     )
-    const pathCount = failure.path
-      ? incrementCounter(params.state.pathCounts, failure.path)
-      : 0
-
-    if (pathCount >= threshold && failure.path) {
-      return {
-        tripped: true,
-        kind: 'path',
-        threshold,
-        path: failure.path,
-        message: createTripMessage({
-          kind: 'path',
-          threshold,
-          path: failure.path,
-        }),
-      }
-    }
-
     if (signatureCount >= threshold) {
       return {
         tripped: true,

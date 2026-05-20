@@ -338,6 +338,49 @@ test('successful reads do not reset repeated write failures for the same path', 
   expect(decision.message).toContain('The path `E:/project/nui.lua` failed 3 times.')
 })
 
+test('unrelated successes in the same batch do not hide repeated path failures', () => {
+  const state = createToolFailureLoopGuardState()
+
+  update(
+    state,
+    [
+      toolUse('a', 'Edit', { file_path: 'src/a.ts' }),
+      toolUse('read-a', 'Read', { file_path: 'src/other.ts' }),
+    ],
+    [
+      toolResult('a', 'Error writing file: failed to replace text'),
+      toolResult('read-a', 'file contents', false),
+    ],
+  )
+  update(
+    state,
+    [
+      toolUse('b', 'Write', { file_path: 'src/a.ts' }),
+      toolUse('read-b', 'Read', { file_path: 'src/other.ts' }),
+    ],
+    [
+      toolResult('b', 'Invalid tool parameters: malformed fallback script'),
+      toolResult('read-b', 'file contents', false),
+    ],
+  )
+  const decision = update(
+    state,
+    [
+      toolUse('c', 'NotebookEdit', { notebook_path: 'src/a.ts' }),
+      toolUse('read-c', 'Read', { file_path: 'src/other.ts' }),
+    ],
+    [
+      toolResult('c', 'No such tool available: NotebookEdit'),
+      toolResult('read-c', 'file contents', false),
+    ],
+  )
+
+  if (!decision.tripped) {
+    throw new Error('Expected repeated path failures to survive batch successes')
+  }
+  expect(decision.message).toContain('The path `src/a.ts` failed 3 times.')
+})
+
 test('unrelated successful tools do not reset repeated same-tool failure signatures', () => {
   const state = createToolFailureLoopGuardState()
 
