@@ -1797,6 +1797,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isActive: screen === 'preset-api-key',
   })
 
+  // xAI OAuth setup renders a TextInput for the manual-code recovery
+  // path, which registers its own useInput listener. The child-component
+  // useKeybinding inside XaiOAuthSetup ends up racing the input handler
+  // and can lose. Register Esc at the top level — same pattern that
+  // makes Esc work on preset-api-key (which also has a TextInput).
+  function handleBackFromXaiOAuth(): void {
+    setErrorMessage(undefined)
+    setScreen('select-preset')
+  }
+
+  useKeybinding('confirm:no', handleBackFromXaiOAuth, {
+    context: 'Settings',
+    isActive: screen === 'xai-oauth',
+  })
+
   function renderPresetSelection(): React.ReactNode {
     const canUseCodexOAuth = !isBareMode()
     const canUseXaiOAuth = !isBareMode()
