@@ -1462,34 +1462,58 @@ async function* queryLoop(
           // Tightened patterns: require explicit action verbs and exclude
           // common explanatory phrasing to reduce false positives.
           const continuationSignals = [
-            // Only match "so now I/let me/we" followed by an action verb
+            // English: Direct transition and action markers
             /\bso now (i|let me|we) (need to|have to|should|must|will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up)\b/,
-            // "now I'll" + action (not "now I'll explain" etc.)
             /\bnow i('ll| will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|go|proceed)\b/,
-            // "let me" + action (not "let me think/explain/show")
             /\blet me (go ahead and |now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|proceed)\b/,
-            // "I'll/I need to/I have to" + action, only if message is short (<80 chars)
-            ...(lastText.length < 80
-              ? [/\b(i('ll| will| need to| have to| must) (now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up))\b/]
-              : []),
-            // "time to" + action
             /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build|get started|begin)\b/,
-            // "next, I'll/let me" + action, only if message is short
-            ...(lastText.length < 80
-              ? [/\bnext,?\s+(i('ll| will)|let me|i need to) (do|create|write|edit|update|fix|implement|add|run|check|make|build)\b/]
-              : []),
+            /\b(processing|starting|running|testing|checking|updating|fixing|moving on to|next|following)\b/,
+            // French: Support for common continuation phrasing
+            /\b(je passe (à|au)|ensuite|l'étape suivante|je continue|au suivant|passons à)\b/,
+            /\bje vais (maintenant )?(faire|créer|écrire|modifier|ajouter|tester|vérifier|lancer|exécuter|procéder|démarrer|commencer)\b/,
+            /\b(lancement|exécution|vérification|modification|mise à jour) de\b/,
+            // Universal: Sentence ending with a colon indicates intent to list/act
+            /:\s*$/,
           ]
 
-          // Don't nudge if the text contains completion markers
-          const completionMarkers = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if)\b/
-          if (completionMarkers.test(lastText)) {
-            // Model signaled completion — don't nudge
-          } else if (continuationSignals.some(re => re.test(lastText))) {
+          // Completion markers: common phrases signaling the agent has finished.
+          const completionMarkers = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if|no issues|lgtm)\b/
+          const hasCompletionMarker = completionMarkers.test(lastText)
+
+          // Structural checks for unfinished thoughts (independent of language)
+          const hasTerminalPunctuation = /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
+          const isMarkdownList = /^\s*([-*]|\d+\.)\s+.+$/.test(lastText)
+          
+          // Heuristic for truncation: long message, no terminal punctuation, not a list, 
+          // and no completion marker in the final part of the message.
+          const isPossiblyTruncated = !hasTerminalPunctuation && lastText.length > 40 && !isMarkdownList && !completionMarkers.test(lastText.slice(-30))
+
+          // Check if continuation signals match in the last 80 characters (late intent)
+          const lateText = lastText.slice(-80)
+          const hasLateContinuationSignal = continuationSignals.some(re => {
+            const match = lateText.match(re)
+            if (!match) return false
+            // Ensure no completion marker follows the continuation signal in the late window
+            const afterMatch = lateText.slice(match.index! + match[0].length)
+            return !completionMarkers.test(afterMatch)
+          })
+          
+          let shouldNudge = false
+          if (isPossiblyTruncated) {
+            shouldNudge = true
+          } else if (hasLateContinuationSignal) {
+            shouldNudge = true
+          } else if (continuationSignals.some(re => re.test(lastText)) && !hasCompletionMarker) {
+            shouldNudge = true
+          }
+
+          if (shouldNudge) {
+            const nudgeReason = isPossiblyTruncated ? 'possible truncation' : 'continuation signal'
             logForDebugging(
-              `Continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}): model said "${lastText.slice(-120)}" without tool calls`,
+              `Continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}): ${nudgeReason} detected in "${lastText.slice(-120)}" without tool calls`,
             )
             const nudge = createUserMessage({
-              content: 'Continue with the task. Use the appropriate tools to proceed.',
+              content: 'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
               isMeta: true,
             })
             const next: State = {
