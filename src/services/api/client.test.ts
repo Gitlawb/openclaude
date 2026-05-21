@@ -637,6 +637,10 @@ test('routes env-only xAI requests through the OpenAI-compatible shim', async ()
 
   expect(capturedUrl).toBe('https://api.x.ai/v1/chat/completions')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer xai-test-key')
+  // xAI prompt caching: x-grok-conv-id pins the session to one backend so the
+  // cached system prompt and conversation history can be reused. Mirrors the
+  // Hermes implementation (RELEASE_v0.8.0 PR #5604).
+  expect(capturedHeaders?.get('x-grok-conv-id')).toBeTruthy()
   expect(capturedBody?.model).toBe('grok-4')
   expect(response).toMatchObject({
     role: 'assistant',

@@ -91,6 +91,7 @@ const PROFILE_ENV_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
 ] as const
@@ -171,6 +172,7 @@ export type ProfileEnv = {
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
   XAI_API_KEY?: string
+  XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
 }
@@ -913,6 +915,43 @@ export function clearPersistedCodexOAuthProfile(
   for (const filePath of resolveProfileFileCleanupPaths(options)) {
     const persisted = readProfileFile(filePath)
     if (isPersistedCodexOAuthProfile(persisted)) {
+      rmSync(filePath, { force: true })
+      removedPath ??= filePath
+    }
+  }
+
+  return removedPath
+}
+
+const XAI_OAUTH_DEFAULT_BASE_URL = 'https://api.x.ai/v1'
+
+export function buildXaiOAuthProfileEnv(options: {
+  model?: string
+}): ProfileEnv {
+  return {
+    OPENAI_BASE_URL: XAI_OAUTH_DEFAULT_BASE_URL,
+    OPENAI_MODEL: options.model ?? 'grok-4.3',
+    XAI_CREDENTIAL_SOURCE: 'oauth',
+  }
+}
+
+export function isPersistedXaiOAuthProfile(
+  persisted: ProfileFile | null,
+): boolean {
+  return (
+    persisted?.profile === 'xai' &&
+    persisted.env.XAI_CREDENTIAL_SOURCE === 'oauth'
+  )
+}
+
+export function clearPersistedXaiOAuthProfile(
+  options?: ProfileFileLocation,
+): string | null {
+  let removedPath: string | null = null
+
+  for (const filePath of resolveProfileFileCleanupPaths(options)) {
+    const persisted = readProfileFile(filePath)
+    if (isPersistedXaiOAuthProfile(persisted)) {
       rmSync(filePath, { force: true })
       removedPath ??= filePath
     }
