@@ -20,7 +20,13 @@ npm --version
 ```bash
 npm install -g @gitlawb/openclaude
 ```
+On Arch Linux, you can install OpenClaude instead via the community-maintained AUR package:
 
+- `https://aur.archlinux.org/packages/openclaude`
+
+```bash
+paru -S openclaude
+```
 ## 3. Pick One Provider
 
 ### Option A: OpenAI
