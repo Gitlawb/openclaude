@@ -3333,15 +3333,26 @@ export function buildMcpStdioCommand(
   args: string[],
   shellPrefix?: string,
 ): { command: string; args: string[] } {
-  const prefixParts = shellPrefix
-    ? shellPrefix.split(/\s+/).filter(Boolean)
-    : []
-
-  if (prefixParts.length === 0) {
+  if (!shellPrefix) {
     return { command, args }
   }
 
-  const finalCommand = prefixParts[0]
+  let finalCommand: string
+  let prefixArgs: string[]
+
+  // Split on the last " -c" to preserve spaced executable path
+  // (e.g. "C:\Program Files\Git\bin\bash.exe -c"). When no " -c" is
+  // present, fall back to plain whitespace split.
+  const cIndex = shellPrefix.lastIndexOf(' -c')
+  if (cIndex > 0) {
+    finalCommand = shellPrefix.substring(0, cIndex)
+    prefixArgs = ['-c', ...shellPrefix.substring(cIndex + 3).split(/\s+/).filter(Boolean)]
+  } else {
+    const parts = shellPrefix.split(/\s+/).filter(Boolean)
+    if (parts.length === 0) return { command, args }
+    finalCommand = parts[0]
+    prefixArgs = parts.slice(1)
+  }
 
   // Shell -c prefix (e.g. sh -c, bash -c): everything after -c is a single
   // shell command string, not individual argv entries. Without this join,
@@ -3352,19 +3363,17 @@ export function buildMcpStdioCommand(
   // Each original command/arg is single-quote-escaped to prevent shell
   // injection via MCP server args (e.g. --path=/tmp; rm -rf / would
   // otherwise execute the semicolon as a command separator).
-  if (prefixParts.includes('-c')) {
+  if (prefixArgs.includes('-c')) {
     const cmdStr = [command, ...args].map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')
     return {
       command: finalCommand,
-      args: [...prefixParts.slice(1), cmdStr],
+      args: [...prefixArgs, cmdStr],
     }
   }
 
-  // Non-shell prefix (docker run --rm -i, bunx, etc.): each prefix part is
-  // a separate argv entry, followed by the original command and its args
   return {
     command: finalCommand,
-    args: [...prefixParts.slice(1), command, ...args],
+    args: [...prefixArgs, command, ...args],
   }
 }
 

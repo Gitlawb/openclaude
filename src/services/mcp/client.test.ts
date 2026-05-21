@@ -140,3 +140,13 @@ test('buildMcpStdioCommand — shell -c prefix escapes embedded single quotes', 
   // Embedded single quote is escaped: 'it'\''s test'
   assert.deepEqual(args, ['-c', "'some-server' 'it'\\''s a test'"])
 })
+
+test('buildMcpStdioCommand — shell -c prefix with spaced executable path (Windows Git Bash)', () => {
+  const { command, args } = buildMcpStdioCommand(
+    'some-server',
+    ['--port=8080'],
+    'C:\\Program Files\\Git\\bin\\bash.exe -c',
+  )
+  assert.equal(command, 'C:\\Program Files\\Git\\bin\\bash.exe')
+  assert.deepEqual(args, ['-c', "'some-server' '--port=8080'"])
+})
