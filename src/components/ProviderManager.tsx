@@ -1547,7 +1547,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (canUseCodexOAuth) {
       // Insert after DeepSeek so Codex OAuth keeps its established position
       // in the picker even with Gitlawb Opengateway pinned at the top.
-      options.splice(7, 0, {
+      options.splice(8, 0, {
         value: 'codex-oauth',
         label: (
           <Text>

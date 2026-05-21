@@ -113,6 +113,7 @@ const PRESET_ORDER = [
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
+  'AtomCode (GitCode)',
   'Azure OpenAI',
   'Bankr',
   'DeepSeek',

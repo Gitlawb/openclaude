@@ -2043,6 +2043,23 @@ class OpenAIShimMessages {
       }
     }
 
+    // Route descriptor headers (shimConfig.headers) are gateway-specific defaults
+    // that should take priority over the generic client defaultHeaders but yield
+    // to per-request caller headers (options.headers). Filter Anthropic-specific
+    // keys and use exact (case-sensitive) comparison: some servers like
+    // user-agent matching are case-sensitive.
+    if (shimConfig.headers) {
+      const callerHeaderNames = new Set(Object.keys(options?.headers ?? {}))
+      Object.assign(
+        headers,
+        Object.fromEntries(
+          Object.entries(filterAnthropicHeaders(shimConfig.headers)).filter(
+            ([k]) => !callerHeaderNames.has(k),
+          ),
+        ),
+      )
+    }
+
     if (isGithubCopilot) {
       Object.assign(headers, COPILOT_HEADERS)
     } else if (isGithubModels) {

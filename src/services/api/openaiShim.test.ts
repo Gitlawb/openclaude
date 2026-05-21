@@ -705,6 +705,167 @@ test('applies descriptor static headers before client and request headers', asyn
   expect(capturedHeaders?.get('x-override-header')).toBe('from-request')
 })
 
+test('preserves descriptor User-Agent override over client default User-Agent', async () => {
+  let capturedHeaders: Headers | undefined
+
+  registerGateway({
+    id: 'shim-ua-test',
+    label: 'Shim UA Test',
+    category: 'hosted',
+    defaultBaseUrl: 'https://shim-ua-test.example/v1',
+    defaultModel: 'shim-test-model',
+    setup: {
+      requiresAuth: true,
+      authMode: 'api-key',
+      credentialEnvVars: ['OPENAI_API_KEY'],
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        headers: {
+          'User-Agent': 'atomcode-test/1.0',
+        },
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://shim-ua-test.example/v1'
+  process.env.OPENAI_MODEL = 'shim-test-model'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'shim-test-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'User-Agent': 'from-client',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'shim-test-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+  )
+
+  // Descriptor User-Agent should win over client default User-Agent
+  expect(capturedHeaders?.get('User-Agent')).toBe('atomcode-test/1.0')
+})
+
+test('does not clobber per-request User-Agent with descriptor User-Agent', async () => {
+  let capturedHeaders: Headers | undefined
+
+  registerGateway({
+    id: 'shim-ua-request-test',
+    label: 'Shim UA Request Test',
+    category: 'hosted',
+    defaultBaseUrl: 'https://shim-ua-request-test.example/v1',
+    defaultModel: 'shim-test-model',
+    setup: {
+      requiresAuth: true,
+      authMode: 'api-key',
+      credentialEnvVars: ['OPENAI_API_KEY'],
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        headers: {
+          'User-Agent': 'atomcode-test/1.0',
+        },
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://shim-ua-request-test.example/v1'
+  process.env.OPENAI_MODEL = 'shim-test-model'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'shim-test-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'User-Agent': 'from-client',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'shim-test-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {
+      headers: {
+        'User-Agent': 'from-caller',
+      },
+    },
+  )
+
+  // Per-request caller User-Agent should win over descriptor User-Agent
+  expect(capturedHeaders?.get('User-Agent')).toBe('from-caller')
+})
+
 test('strips Anthropic-specific headers on GitHub Codex transport requests', async () => {
   let capturedHeaders: Headers | undefined
 
