@@ -1040,6 +1040,7 @@ function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | nul
 }
 
 function parseRawJsonToolCallsFromContent(text: string, validToolNames?: Set<string>): ParsedRawToolCall[] | null {
+  if (!validToolNames) return null
   const trimmed = text.trim()
   const firstChar = trimmed[0]
   if (firstChar !== '{' && firstChar !== '[') return null
@@ -1057,7 +1058,7 @@ function parseRawJsonToolCallsFromContent(text: string, validToolNames?: Set<str
         // Reject names that don't match any tool on the current request
         // to prevent ordinary structured JSON (e.g. {"name":"Alice"})
         // from being treated as an executable tool call.
-        if (validToolNames && !validToolNames.has(item.name)) continue
+        if (!validToolNames.has(item.name)) continue
         const rawArgs = item.arguments ?? item.input
         const argsIsObject = typeof rawArgs === 'object' && rawArgs !== null && !Array.isArray(rawArgs)
         const argsIsString = typeof rawArgs === 'string'
