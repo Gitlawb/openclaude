@@ -46,7 +46,10 @@ import {
   checkOpus1mAccess,
   checkSonnet1mAccess,
 } from '../../utils/model/check1mAccess.js'
-import type { ModelOption } from '../../utils/model/modelOptions.js'
+import {
+  parseSwitchProfileValue,
+  type ModelOption,
+} from '../../utils/model/modelOptions.js'
 import { buildRouteCatalogModelOptions, mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
@@ -63,6 +66,7 @@ import {
   getActiveOpenAIModelOptionsCache,
   getActiveProviderProfile,
   setActiveOpenAIModelOptionsCache,
+  setActiveProviderProfile,
 } from '../../utils/providerProfiles.js'
 
 type ModelDiscoveryContext =
@@ -134,6 +138,31 @@ function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
     baseUrl: request.baseUrl,
     headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
   }
+}
+
+// Reconciles fast-mode state when /model picks a new target — both the regular
+// switch path and the cross-profile switch path (#1119 / jatmn review) call
+// this so a latched fastMode never carries past a model that can't support it.
+// Pure: returns the result and lets callers apply state mutations.
+export type FastModeReconcileResult = 'on' | 'off' | 'unchanged'
+
+export function reconcileFastModeForSwitch(
+  targetModel: string | null,
+  isFastModeOn: boolean,
+): FastModeReconcileResult {
+  if (!isFastModeEnabled()) return 'unchanged'
+  clearFastModeCooldown()
+  if (!isFastModeSupportedByModel(targetModel) && isFastModeOn) {
+    return 'off'
+  }
+  if (
+    isFastModeSupportedByModel(targetModel) &&
+    isFastModeAvailable() &&
+    isFastModeOn
+  ) {
+    return 'on'
+  }
+  return 'unchanged'
 }
 
 export function shouldAutoRefreshRouteCatalog(options: {
@@ -379,6 +408,52 @@ function ModelPickerWrapper({
   }
 
   const handleSelect = (model: string | null, effort: EffortLevel | undefined) => {
+    // Cross-profile switch from /model picker (issue #1119). The composite
+    // value carries the profile id; activate that profile first so subsequent
+    // requests use the new OPENAI_BASE_URL / OPENAI_API_KEY, then drop down to
+    // the regular model-switch path with the bare model string.
+    const switchTarget = parseSwitchProfileValue(model)
+    if (switchTarget) {
+      const activated = setActiveProviderProfile(switchTarget.profileId)
+      if (!activated) {
+        onDone(`Could not activate provider profile "${switchTarget.profileId}".`, {
+          display: 'system',
+        })
+        return
+      }
+      logEvent('tengu_model_command_menu', {
+        action: 'switch_profile' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        to_model: String(switchTarget.model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      })
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: switchTarget.model,
+        mainLoopModelForSession: null,
+      }))
+
+      // Run the same fast-mode reconciliation as the regular switch path —
+      // otherwise a user with fastMode latched on Anthropic would carry the
+      // latched state into the new profile even when its model can't support
+      // it (jatmn review, #1119).
+      const switchFastMode = reconcileFastModeForSwitch(
+        switchTarget.model,
+        isFastMode,
+      )
+      if (switchFastMode === 'off') {
+        setAppState(prev => ({ ...prev, fastMode: false }))
+      }
+
+      let switchMessage = `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`
+      if (switchFastMode === 'on') {
+        switchMessage += ' · Fast mode ON'
+      } else if (switchFastMode === 'off') {
+        switchMessage += ' · Fast mode OFF'
+      }
+      onDone(switchMessage)
+      return
+    }
+
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -396,23 +471,21 @@ function ModelPickerWrapper({
       message += ` with ${chalk.bold(effort)} effort`
     }
 
-    let wasFastModeToggledOn: boolean | undefined
-    if (isFastModeEnabled()) {
-      clearFastModeCooldown()
-      if (!isFastModeSupportedByModel(model) && isFastMode) {
-        setAppState(prev => ({
-          ...prev,
-          fastMode: false,
-        }))
-        wasFastModeToggledOn = false
-      } else if (
-        isFastModeSupportedByModel(model) &&
-        isFastModeAvailable() &&
-        isFastMode
-      ) {
-        message += ' · Fast mode ON'
-        wasFastModeToggledOn = true
-      }
+    const fastModeResult = reconcileFastModeForSwitch(model, isFastMode)
+    if (fastModeResult === 'off') {
+      setAppState(prev => ({
+        ...prev,
+        fastMode: false,
+      }))
+    }
+    const wasFastModeToggledOn: boolean | undefined =
+      fastModeResult === 'on'
+        ? true
+        : fastModeResult === 'off'
+        ? false
+        : undefined
+    if (fastModeResult === 'on') {
+      message += ' · Fast mode ON'
     }
 
     if (

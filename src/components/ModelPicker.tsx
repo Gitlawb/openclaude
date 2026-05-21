@@ -10,7 +10,7 @@ import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
-import { getModelOptions, type ModelOption } from '../utils/model/modelOptions.js';
+import { getModelOptions, type ModelOption, parseSwitchProfileValue } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
@@ -414,7 +414,14 @@ function _temp(s) {
 }
 function resolveOptionModel(value?: string): string | undefined {
   if (!value) return undefined;
-  return value === NO_PREFERENCE ? getDefaultMainLoopModel() : parseUserSpecifiedModel(value);
+  if (value === NO_PREFERENCE) return getDefaultMainLoopModel();
+  // Cross-profile entries from /model encode the picker value as
+  // `__switch_profile__:<profileId>:<model>`. Effort / display logic needs
+  // the bare target model id (e.g. `gpt-5.4`) — otherwise
+  // `modelSupportsEffort` sees the prefixed string and reports
+  // "Effort not supported" even for reasoning-capable models.
+  const switched = parseSwitchProfileValue(value);
+  return parseUserSpecifiedModel(switched ? switched.model : value);
 }
 function EffortLevelIndicator(t0) {
   const $ = _c(5);
