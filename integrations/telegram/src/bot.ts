@@ -55,6 +55,16 @@ export function createBot(config: BotConfig): Telegraf {
       "  /compact — Compact history",
       "  /undo — Remove last exchange",
       "",
+      "🔌 ADVANCED",
+      "  /mcp — MCP server management",
+      "  /plugin — Plugin management",
+      "  /provider — LLM provider switch",
+      "  /skill — Skills list/run",
+      "  /hook — Hooks management",
+      "  /worktree — Git worktree ops",
+      "  /exec <cmd> — Run shell command",
+      "  /file — File read/write/list",
+      "",
       "💬 Just type a message to chat!",
     ].join("\n");
 
@@ -271,6 +281,310 @@ export function createBot(config: BotConfig): Telegraf {
       `💬 Messages: ${topic.messageCount}`,
       `⏱ Session age: ${Math.round((Date.now() - topic.lastActive.getTime()) / 60_000)}m`,
     ].join("\n"));
+  });
+
+  // /mcp - list/manage MCP servers
+  bot.command("mcp", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "🔌 MCP Servers",
+        "━━━━━━━━━━━━━",
+        "Usage: /mcp <action>",
+        "",
+        "  /mcp list — List all MCP servers",
+        "  /mcp status — Show server status",
+        "  /mcp restart <name> — Restart server",
+      ].join("\n"));
+      return;
+    }
+    // Route to OpenClade via message
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/mcp ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /plugin - list/manage plugins
+  bot.command("plugin", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "🧩 Plugins",
+        "━━━━━━━━━",
+        "Usage: /plugin <action>",
+        "",
+        "  /plugin list — List installed plugins",
+        "  /plugin install <name> — Install plugin",
+        "  /plugin remove <name> — Remove plugin",
+      ].join("\n"));
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/plugin ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /provider - switch LLM provider
+  bot.command("provider", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "🔄 LLM Provider",
+        "━━━━━━━━━━━━━━",
+        "Usage: /provider <action>",
+        "",
+        "  /provider list — List providers",
+        "  /provider switch <name> — Switch provider",
+        "  /provider status — Current provider",
+      ].join("\n"));
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/provider ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /skill - list/run skills
+  bot.command("skill", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "⚡ Skills",
+        "━━━━━━━━",
+        "Usage: /skill <action>",
+        "",
+        "  /skill list — List available skills",
+        "  /skill run <name> — Run a skill",
+        "  /skill info <name> — Skill details",
+      ].join("\n"));
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/skill ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /hook - list/manage hooks
+  bot.command("hook", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "🪝 Hooks",
+        "━━━━━━━━",
+        "Usage: /hook <action>",
+        "",
+        "  /hook list — List configured hooks",
+        "  /hook status — Hook status",
+      ].join("\n"));
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/hook ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /worktree - git worktree operations
+  bot.command("worktree", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "🌳 Git Worktrees",
+        "━━━━━━━━━━━━━━━",
+        "Usage: /worktree <action>",
+        "",
+        "  /worktree list — List worktrees",
+        "  /worktree create <name> — Create worktree",
+        "  /worktree remove <name> — Remove worktree",
+      ].join("\n"));
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/worktree ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /exec - run shell command
+  bot.command("exec", async (ctx) => {
+    const cmd = ctx.message.text.split(/\s+/).slice(1).join(" ");
+    if (!cmd) {
+      await ctx.reply("Usage: /exec <command>\nExample: /exec ls -la");
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `Run this command: ${cmd}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
+  });
+
+  // /file - read/write files
+  bot.command("file", async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    if (args.length === 0) {
+      await ctx.reply([
+        "📁 File Operations",
+        "━━━━━━━━━━━━━━━━",
+        "Usage: /file <action> [path]",
+        "",
+        "  /file read <path> — Read file",
+        "  /file write <path> — Write file (send content next)",
+        "  /file list [dir] — List directory",
+      ].join("\n"));
+      return;
+    }
+    const topicId = String(ctx.message.chat.id);
+    sessionManager.getOrCreateContext(topicId, ctx.from.id);
+    try {
+      const stream = await sessionManager.sendMessage(topicId, `/file ${args.join(" ")}`);
+      let response = "";
+      for await (const msg of stream) {
+        if (msg.type === "assistant") {
+          const content = msg.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (typeof block === "object" && block !== null && "type" in block && (block as any).type === "text") {
+                response += (block as any).text ?? "";
+              }
+            }
+          }
+        }
+        if (msg.type === "result") break;
+      }
+      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+    } catch (err) {
+      await ctx.reply(mapSDKError(err));
+    }
   });
 
   // Text message handler: route to session manager
