@@ -1,11 +1,10 @@
-// Relative import to SDK within monorepo
 import {
   queryAsync,
   type Query,
   type QueryOptions,
   type SDKMessage,
   type SDKUserMessage,
-} from "../../../src/entrypoints/sdk.js";
+} from "@gitlawb/openclaude/sdk";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -238,10 +237,34 @@ export class SessionManager {
       topicId: ctx.topicId,
       userId: ctx.userId,
       workDir: ctx.workDir,
+      model: ctx.model,
       messageCount: ctx.messages.length,
       createdAt: ctx.createdAt,
       lastActive: ctx.lastActive,
     }));
+  }
+
+  /**
+   * Remove last user+assistant exchange from history.
+   */
+  undoLast(topicId: string): boolean {
+    const ctx = this.topics.get(topicId);
+    if (!ctx || ctx.messages.length < 2) return false;
+
+    // Remove last assistant message
+    const last = ctx.messages[ctx.messages.length - 1];
+    if (last.type === "assistant") {
+      ctx.messages.pop();
+    }
+
+    // Remove last user message
+    const secondLast = ctx.messages[ctx.messages.length - 1];
+    if (secondLast?.type === "user") {
+      ctx.messages.pop();
+    }
+
+    this.saveToDb(ctx);
+    return true;
   }
 
   private saveToDb(ctx: TopicContext): void {

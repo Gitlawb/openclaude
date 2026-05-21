@@ -1,5 +1,4 @@
-// Relative import to SDK types within monorepo
-import type { SDKMessage } from "../../../src/entrypoints/sdk.js";
+import type { SDKMessage } from "@gitlawb/openclaude/sdk";
 export type { SDKMessage };
 
 export interface TopicContext {
@@ -16,6 +15,7 @@ export interface TopicInfo {
   topicId: string;
   userId: number;
   workDir: string;
+  model?: string;
   messageCount: number;
   createdAt: Date;
   lastActive: Date;
