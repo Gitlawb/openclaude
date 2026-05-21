@@ -2388,6 +2388,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             const activationWarning = await activateXaiOAuthSession({
               model: saved.model,
             })
+            // Update the running session's model — otherwise the next
+            // request keeps hitting the previous provider's model name
+            // (e.g. kimi-k2.6) and gets a 400 "Model not found" against
+            // api.x.ai. Mirrors the activateSelectedProvider /
+            // saveAndCloseProvider flows.
+            setAppState(prev => ({
+              ...prev,
+              mainLoopModel: getPrimaryModel(saved.model),
+              mainLoopModelForSession: null,
+            }))
             setHasStoredXaiOAuthCredentials(true)
             setStoredXaiOAuthProfileId(saved.id)
             refreshProfiles()
