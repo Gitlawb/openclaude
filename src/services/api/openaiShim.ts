@@ -1309,10 +1309,10 @@ async function* openaiStreamToAnthropic(
 
           const isFirstContent = !hasEmittedContentStart && bufferedRawToolCallsText === null
           const couldBeToolJson = isFirstContent && couldBeRawJsonContent(delta.content)
-          if (
-            isFirstContent &&
-            (couldBeRawToolCallsRequestedPrefix(delta.content) || couldBeToolJson)
-          ) {
+          const isToolContentStart =
+            couldBeRawToolCallsRequestedPrefix(delta.content) ||
+            (couldBeToolJson && !!validToolNames)
+          if (isFirstContent && isToolContentStart) {
             bufferedRawToolCallsText = delta.content
             processStreamChunk(streamState, delta.content)
           } else if (bufferedRawToolCallsText !== null) {
