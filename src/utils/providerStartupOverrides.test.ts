@@ -15,6 +15,7 @@ describe('clearStartupProviderOverrides', () => {
           OPENAI_MODEL: 'minimax-m2.7',
           MINIMAX_API_KEY: 'sk-minimax',
           VENICE_API_KEY: 'sk-venice',
+          NEARAI_API_KEY: 'sk-nearai',
           KEEP_ME: '1',
         },
       }),
@@ -35,6 +36,7 @@ describe('clearStartupProviderOverrides', () => {
           OPENAI_MODEL: undefined,
           MINIMAX_API_KEY: undefined,
           VENICE_API_KEY: undefined,
+          NEARAI_API_KEY: undefined,
         }),
       }),
     )

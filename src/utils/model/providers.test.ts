@@ -22,6 +22,7 @@ const originalEnv = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   XAI_API_KEY: process.env.XAI_API_KEY,
   VENICE_API_KEY: process.env.VENICE_API_KEY,
+  NEARAI_API_KEY: process.env.NEARAI_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 }
@@ -69,6 +70,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_MODEL
   delete process.env.XAI_API_KEY
   delete process.env.VENICE_API_KEY
+  delete process.env.NEARAI_API_KEY
   delete process.env.MIMO_API_KEY
   delete process.env.OPENAI_API_KEY
 }

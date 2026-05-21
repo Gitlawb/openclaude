@@ -35,6 +35,7 @@ const originalEnv = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  NEARAI_API_KEY: process.env.NEARAI_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
@@ -108,6 +109,7 @@ beforeEach(async () => {
   delete process.env.OPENAI_MODEL
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
+  delete process.env.NEARAI_API_KEY
   delete process.env.NVIDIA_NIM
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -144,6 +146,7 @@ afterEach(() => {
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
     restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
+    restoreEnv('NEARAI_API_KEY', originalEnv.NEARAI_API_KEY)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
     restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
@@ -606,6 +609,115 @@ test('routes env-only xAI requests through the OpenAI-compatible shim', async ()
     role: 'assistant',
     model: 'grok-4',
   })
+})
+
+test('routes env-only NEAR AI Cloud requests through the OpenAI-compatible shim', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.NEARAI_API_KEY = 'nearai-test-key'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-nearai',
+        model: 'zai-org/GLM-5.1-FP8',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'nearai ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'zai-org/GLM-5.1-FP8',
+  })) as unknown as ShimClient
+
+  const response = await client.beta.messages.create({
+    model: 'zai-org/GLM-5.1-FP8',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://cloud-api.near.ai/v1/chat/completions')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer nearai-test-key')
+  expect(capturedBody?.model).toBe('zai-org/GLM-5.1-FP8')
+  expect(response).toMatchObject({
+    role: 'assistant',
+    model: 'zai-org/GLM-5.1-FP8',
+  })
+})
+
+test('env-only NEAR AI fallback wires OpenAI base URL, key, and model defaults', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.NEARAI_API_KEY = 'nearai-test-key'
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'zai-org/GLM-5.1-FP8',
+  })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_BASE_URL).toBe('https://cloud-api.near.ai/v1')
+  expect(process.env.OPENAI_MODEL).toBe('zai-org/GLM-5.1-FP8')
+  expect(process.env.OPENAI_API_KEY).toBe('nearai-test-key')
+})
+
+test('env-only NEAR AI fallback falls back to the route default model', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.NEARAI_API_KEY = 'nearai-test-key'
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: undefined,
+  })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_BASE_URL).toBe('https://cloud-api.near.ai/v1')
+  expect(process.env.OPENAI_MODEL).toBe('zai-org/GLM-5.1-FP8')
+  expect(process.env.OPENAI_API_KEY).toBe('nearai-test-key')
 })
 
 test('env-only xAI fallback replaces stale OpenAI credentials and model env', async () => {

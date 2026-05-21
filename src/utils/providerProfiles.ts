@@ -19,6 +19,7 @@ import {
   buildGithubProfileEnv,
   buildMiniMaxProfileEnv,
   buildMistralProfileEnv,
+  buildNearAIProfileEnv,
   buildNvidiaNimProfileEnv,
   buildOpenAIProfileEnv,
   buildVeniceProfileEnv,
@@ -543,6 +544,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.VENICE_API_KEY, profile.apiKey)
       : true) &&
+    (profile.baseUrl?.toLowerCase().includes('cloud-api.near.ai')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
+      : true) &&
     (profile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
       profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
       ? !includeApiKey ||
@@ -678,6 +683,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'nearai' || profile.baseUrl.toLowerCase().includes('cloud-api.near.ai')) {
+        openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
       }
       if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
@@ -983,6 +991,9 @@ function buildOpenAICompatibleStartupEnv(
     if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
       env.VENICE_API_KEY = activeProfile.apiKey
     }
+    if (activeProfile.baseUrl?.toLowerCase().includes('cloud-api.near.ai')) {
+      env.NEARAI_API_KEY = activeProfile.apiKey
+    }
     if (
       activeProfile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
       activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
@@ -1106,6 +1117,19 @@ function buildStartupProfileFromActiveProfile(
       if (route.vendorId === 'venice') {
         const env =
           buildVeniceProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.vendorId === 'nearai') {
+        const env =
+          buildNearAIProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,

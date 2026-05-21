@@ -94,6 +94,7 @@ const PROFILE_ENV_KEYS = [
   'XAI_API_KEY',
   'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
+  'NEARAI_API_KEY',
   'MIMO_API_KEY',
   'OPENCODE_API_KEY',
 ] as const
@@ -119,6 +120,7 @@ const SECRET_ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'NEARAI_API_KEY',
   'MIMO_API_KEY',
   'OPENCODE_API_KEY',
 ] as const
@@ -178,6 +180,7 @@ export type ProfileEnv = {
   XAI_API_KEY?: string
   XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
+  NEARAI_API_KEY?: string
   MIMO_API_KEY?: string
   OPENCODE_API_KEY?: string
 }
@@ -202,6 +205,7 @@ type SecretValueSource = Partial<
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
     | 'VENICE_API_KEY'
+    | 'NEARAI_API_KEY'
     | 'MIMO_API_KEY',
     string | undefined
   >
@@ -521,6 +525,46 @@ export function buildVeniceProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     VENICE_API_KEY: key,
+  }
+}
+
+export function buildNearAIProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.NEARAI_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('nearai')
+  const defaultModel = getRouteDefaultModel('nearai')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('NEAR AI Cloud route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    NEARAI_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    NEARAI_API_KEY: key,
   }
 }
 

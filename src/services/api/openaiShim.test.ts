@@ -34,6 +34,7 @@ const originalEnv = {
   BANKR_MODEL: process.env.BANKR_MODEL,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  NEARAI_API_KEY: process.env.NEARAI_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
 }
 
@@ -116,6 +117,7 @@ beforeEach(async () => {
   delete process.env.BANKR_MODEL
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
+  delete process.env.NEARAI_API_KEY
   delete process.env.MIMO_API_KEY
 })
 
@@ -149,6 +151,7 @@ afterEach(() => {
     restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
+    restoreEnv('NEARAI_API_KEY', originalEnv.NEARAI_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     globalThis.fetch = originalFetch
     _clearRegistryForTesting()
@@ -5734,6 +5737,42 @@ test('Z.AI: uses max_tokens (not max_completion_tokens) and strips store', async
   expect(requestBody?.max_tokens).toBe(256)
   expect(requestBody?.max_completion_tokens).toBeUndefined()
   expect(requestBody?.store).toBeUndefined()
+})
+
+test('NEAR AI Cloud: uses max_tokens and strips unsupported OpenAI-only fields', async () => {
+  process.env.OPENAI_BASE_URL = 'https://cloud-api.near.ai/v1'
+  process.env.OPENAI_API_KEY = 'nearai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'zai-org/GLM-5.1-FP8',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'zai-org/GLM-5.1-FP8?reasoning=high',
+    system: 'you are glm',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('zai-org/GLM-5.1-FP8')
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+  expect(requestBody?.reasoning_effort).toBeUndefined()
 })
 
 test('Z.AI: thinking mode enabled when requested', async () => {

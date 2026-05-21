@@ -39,6 +39,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'nvidia-nim',
   'minimax',
   'venice',
+  'nearai',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -201,9 +202,12 @@ export function applyProviderFlag(
                 process.env.OPENAI_API_KEY === process.env.VENICE_API_KEY
               ? 'venice'
               : process.env.OPENAI_API_KEY !== undefined &&
-                  process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
-                ? 'minimax'
-                : null
+                  process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
+                ? 'nearai'
+                : process.env.OPENAI_API_KEY !== undefined &&
+                    process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
+                  ? 'minimax'
+                  : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -339,6 +343,16 @@ export function applyProviderFlag(
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.VENICE_API_KEY
+      }
+      break
+
+    case 'nearai':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://cloud-api.near.ai/v1'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'zai-org/GLM-5.1-FP8'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.NEARAI_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.NEARAI_API_KEY
       }
       break
   }

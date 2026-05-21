@@ -5,6 +5,7 @@ import {
   getRouteCredentialValue,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  getRouteDescriptor,
   getRouteProviderTypeLabel,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -48,6 +49,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'VENICE_API_KEY',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('nearai')).toEqual([
+    'NEARAI_API_KEY',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('xiaomi-mimo')).toEqual([
     'MIMO_API_KEY',
     'OPENAI_API_KEY',
@@ -72,6 +77,19 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1')).toBe('venice')
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
+})
+
+test('NEAR AI Cloud route metadata uses OpenAI-compatible TEE inference defaults', () => {
+  const descriptor = getRouteDescriptor('nearai')
+
+  expect(getRouteDefaultBaseUrl('nearai')).toBe('https://cloud-api.near.ai/v1')
+  expect(getRouteDefaultModel('nearai')).toBe('zai-org/GLM-5.1-FP8')
+  expect(resolveRouteIdFromBaseUrl('https://cloud-api.near.ai/v1')).toBe('nearai')
+  expect(resolveRouteIdFromBaseUrl('https://cloud-api.near.ai/v1/chat/completions')).toBe('nearai')
+  expect(descriptor?.transportConfig.openaiShim).toMatchObject({
+    maxTokensField: 'max_tokens',
+    removeBodyFields: ['store', 'reasoning_effort'],
+  })
 })
 
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
@@ -114,6 +132,14 @@ test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', 
       VENICE_API_KEY: 'venice-key',
     }),
   ).toBe('venice')
+})
+
+test('resolveActiveRouteIdFromEnv treats NEAR AI credential-only env as NEAR AI Cloud', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+    }),
+  ).toBe('nearai')
 })
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
   expect(
@@ -185,6 +211,7 @@ test.each([
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
+  ['NEAR AI Cloud', 'https://cloud-api.near.ai/v1', 'zai-org/GLM-5.1-FP8', 'nearai'],
 ])(
   'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',
   (_label, baseUrl, model, expectedRouteId) => {

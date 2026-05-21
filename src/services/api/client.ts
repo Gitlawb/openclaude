@@ -236,6 +236,19 @@ function applyXaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+function applyNearAIEnvOnlyDefaults(model: string | undefined): void {
+  const modelOverride = model?.trim() || process.env.OPENAI_MODEL?.trim()
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = getRouteDefaultBaseUrl('nearai')
+  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('nearai')
+  process.env.OPENAI_API_KEY = process.env.NEARAI_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -298,6 +311,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
   const useXaiEnvOnlyProvider =
     envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
+  const useNearAIEnvOnlyProvider =
+    envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -306,6 +321,9 @@ export async function getAnthropicClient({
   }
   if (useXaiEnvOnlyProvider) {
     applyXaiEnvOnlyDefaults()
+  }
+  if (useNearAIEnvOnlyProvider) {
+    applyNearAIEnvOnlyDefaults(model)
   }
 
   const shouldUseFirstPartyAuth =
@@ -383,6 +401,7 @@ export async function getAnthropicClient({
   if (
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
+    useNearAIEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

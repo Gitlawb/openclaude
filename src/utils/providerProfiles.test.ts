@@ -60,6 +60,7 @@ const RESTORED_KEYS = [
   'BANKR_MODEL',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'NEARAI_API_KEY',
   'MIMO_API_KEY',
   'HICAP_API_KEY',
 ] as const
@@ -204,6 +205,17 @@ function buildVeniceProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
     baseUrl: 'https://api.venice.ai/api/v1',
     model: 'venice-uncensored',
     apiKey: 'venice-test-key',
+    ...overrides,
+  })
+}
+
+function buildNearAIProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'nearai',
+    name: 'NEAR AI Cloud',
+    baseUrl: 'https://cloud-api.near.ai/v1',
+    model: 'zai-org/GLM-5.1-FP8',
+    apiKey: 'nearai-test-key',
     ...overrides,
   })
 }
@@ -519,6 +531,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('venice-uncensored')
     expect(process.env.OPENAI_API_KEY).toBe('venice-test-key')
     expect(process.env.VENICE_API_KEY).toBe('venice-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('nearai profile applies OpenAI-compatible env with NEARAI_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildNearAIProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://cloud-api.near.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('zai-org/GLM-5.1-FP8')
+    expect(process.env.OPENAI_API_KEY).toBe('nearai-test-key')
+    expect(process.env.NEARAI_API_KEY).toBe('nearai-test-key')
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
@@ -1186,6 +1216,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('nearai preset defaults to the NEAR AI Cloud endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.NEARAI_API_KEY = 'nearai-live-key'
+
+    const defaults = getProviderPresetDefaults('nearai')
+
+    expect(defaults.provider).toBe('nearai')
+    expect(defaults.name).toBe('NEAR AI Cloud')
+    expect(defaults.baseUrl).toBe('https://cloud-api.near.ai/v1')
+    expect(defaults.model).toBe('zai-org/GLM-5.1-FP8')
+    expect(defaults.apiKey).toBe('nearai-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('xiaomi mimo preset defaults to the official Xiaomi MiMo endpoint', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     process.env.MIMO_API_KEY = 'mimo-live-key'
@@ -1494,6 +1538,48 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'venice-uncensored',
         OPENAI_API_KEY: 'venice-test-key',
         VENICE_API_KEY: 'venice-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists NEAR AI profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const nearaiProfile = buildNearAIProfile({
+        id: 'nearai_prof',
+        model: 'zai-org/GLM-5.1-FP8, Qwen/Qwen3.6-35B-A3B-FP8',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [nearaiProfile],
+      }))
+
+      const result = setActiveProviderProfile('nearai_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('nearai_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://cloud-api.near.ai/v1',
+        OPENAI_MODEL: 'zai-org/GLM-5.1-FP8',
+        OPENAI_API_KEY: 'nearai-test-key',
+        NEARAI_API_KEY: 'nearai-test-key',
       })
     } finally {
       process.chdir(originalCwd)

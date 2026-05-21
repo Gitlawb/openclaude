@@ -272,6 +272,20 @@ export function isVeniceBaseUrl(value: string | undefined): boolean {
     return false
   }
 }
+
+export function isNearAIBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'cloud-api.near.ai'
+  } catch {
+    return false
+  }
+}
+
 export function getMiniMaxBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -395,6 +409,20 @@ export function hasVeniceEnvOnlyProviderIntent(
   )
 }
 
+export function hasNearAIEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearAIBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
 export function hasXiaomiMimoEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -404,6 +432,7 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXiaomiMimoBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -411,7 +440,7 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
 
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | null {
+): 'xai' | 'minimax' | 'venice' | 'nearai' | 'xiaomi-mimo' | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
     hasMiniMaxEnvOnlyProviderIntent(processEnv)
@@ -429,6 +458,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasVeniceEnvOnlyProviderIntent(processEnv)) {
     return 'venice'
+  }
+
+  if (hasNearAIEnvOnlyProviderIntent(processEnv)) {
+    return 'nearai'
   }
 
   if (hasXiaomiMimoEnvOnlyProviderIntent(processEnv)) {

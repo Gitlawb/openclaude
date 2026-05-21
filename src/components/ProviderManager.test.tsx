@@ -128,6 +128,7 @@ const PRESET_ORDER = [
   'Mistral AI',
   'Moonshot AI - API',
   'Moonshot AI - Kimi Code',
+  'NEAR AI Cloud',
   'NVIDIA NIM',
   'OpenAI',
   'OpenCode Go',

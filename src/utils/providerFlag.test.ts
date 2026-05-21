@@ -29,6 +29,7 @@ const ENV_KEYS = [
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
   'VENICE_API_KEY',
+  'NEARAI_API_KEY',
   'MIMO_API_KEY',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
@@ -61,6 +62,7 @@ const RESET_KEYS = [
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
   'VENICE_API_KEY',
+  'NEARAI_API_KEY',
   'MIMO_API_KEY',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
@@ -133,6 +135,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('atomic-chat')
     expect(VALID_PROVIDERS).toContain('zai')
     expect(VALID_PROVIDERS).toContain('venice')
+    expect(VALID_PROVIDERS).toContain('nearai')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
   })
 })
@@ -311,6 +314,21 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 
+  test('clears NEARAI_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.NEARAI_API_KEY = 'nearai-live-key'
+
+    const nearaiResult = applyProviderFlag('nearai', [])
+    expect(nearaiResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('nearai-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
   test('clears MINIMAX_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
     process.env.MINIMAX_API_KEY = 'minimax-live-key'
     process.env.OPENAI_API_KEY = 'minimax-live-key'
@@ -398,6 +416,26 @@ describe('applyProviderFlag - venice', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.venice.ai/api/v1')
     expect(process.env.OPENAI_MODEL).toBe('venice-uncensored')
     expect(process.env.OPENAI_API_KEY).toBe('venice-secret-key')
+  })
+})
+
+describe('applyProviderFlag - nearai', () => {
+  test('sets NEAR AI Cloud OpenAI-compatible defaults and mirrors NEARAI_API_KEY', () => {
+    process.env.NEARAI_API_KEY = 'nearai-secret-key'
+
+    const result = applyProviderFlag('nearai', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://cloud-api.near.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('zai-org/GLM-5.1-FP8')
+    expect(process.env.OPENAI_API_KEY).toBe('nearai-secret-key')
+  })
+
+  test('sets NEAR AI Cloud OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('nearai', ['--model', 'Qwen/Qwen3.6-35B-A3B-FP8'])
+
+    expect(process.env.OPENAI_MODEL).toBe('Qwen/Qwen3.6-35B-A3B-FP8')
   })
 })
 

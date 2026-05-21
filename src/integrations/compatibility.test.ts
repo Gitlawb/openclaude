@@ -36,6 +36,7 @@ const EXPECTED_PRESETS = [
   'minimax',
   'xai',
   'venice',
+  'nearai',
   'xiaomi-mimo',
   'zai',
   'bankr',
