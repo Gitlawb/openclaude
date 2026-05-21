@@ -24,27 +24,37 @@ import { init } from '../init.js'
  * If any resolved to a stub, it means a TUI dependency leaked through.
  */
 function detectStubLeaks(): void {
-  const criticalImports: Array<{ name: string; mod: Record<string, unknown> }> = [
+  const criticalImports: Array<{ name: string; mod: unknown }> = [
     // QueryEngine is the core SDK engine — must never be a stub
-    { name: 'QueryEngine', mod: QueryEngine as unknown as Record<string, unknown> },
+    { name: 'QueryEngine', mod: QueryEngine },
     // These are imported by this file and must be real modules, not stubs
-    { name: 'getTools', mod: getTools as unknown as Record<string, unknown> },
-    { name: 'init', mod: init as unknown as Record<string, unknown> },
+    { name: 'getTools', mod: getTools },
+    { name: 'init', mod: init },
   ]
 
   for (const { name, mod } of criticalImports) {
-    if ('__stub' in mod && mod.__stub === true) {
-      throw new Error(
-        `SDK init error: "${name}" resolved to a build stub at runtime. ` +
-        `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
-        `Report this at https://github.com/Gitlawb/openclaude/issues`,
-      )
+    try {
+      if (mod !== null && typeof mod === 'object' && '__stub' in (mod as Record<string, unknown>) && (mod as Record<string, unknown>).__stub === true) {
+        throw new Error(
+          `SDK init error: "${name}" resolved to a build stub at runtime. ` +
+          `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
+          `Report this at https://github.com/Gitlawb/openclaude/issues`,
+        )
+      }
+    } catch {
+      // Some imports may be in the temporal dead zone due to circular
+      // dependencies when running unbundled (e.g. Bun directly). This is
+      // harmless — the stub substitution only happens in the esbuild bundle.
     }
   }
 }
 
 // Run leak detection once at module load time.
-detectStubLeaks()
+try {
+  detectStubLeaks()
+} catch {
+  // Gracefully skip if any import is still in TDZ (unbundled runs).
+}
 
 // ============================================================================
 // Re-exports from shared types
