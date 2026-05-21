@@ -757,6 +757,15 @@ export const SettingsSchema = lazySchema(() =>
             'Use "default" key as fallback. Model name must exist in agentModels. ' +
             'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
         ),
+      providerFallbackChain: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Ordered list of providerProfile ids. When the active provider returns a rate-limit ' +
+            'or quota error, OpenClaude advances to the next profile in this list (starting after ' +
+            'the currently-active id) and retries the turn. ' +
+            'Example: ["provider_anthropic", "provider_openai", "provider_ollama"]',
+        ),
       fastMode: z
         .boolean()
         .optional()

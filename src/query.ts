@@ -97,6 +97,9 @@ import { StreamingToolExecutor } from './services/tools/StreamingToolExecutor.js
 import { queryCheckpoint } from './utils/queryProfiler.js'
 import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
+import { resolveNextFallbackProviderFromState } from './utils/providerFallback.js'
+import { setActiveProviderProfile } from './utils/providerProfiles.js'
+import { getPrimaryModel } from './utils/providerModels.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
 import {
@@ -215,6 +218,11 @@ type State = {
   maxOutputTokensOverride: number | undefined
   pendingToolUseSummary: Promise<ToolUseSummaryMessage | null> | undefined
   stopHookActive: boolean | undefined
+  // One-shot guard for the provider-fallback recovery branch (issue #768).
+  // Set when we swap active provider in response to a rate-limit assistant
+  // error, cleared at next_turn / continuation_nudge / token_budget_continuation
+  // so a fresh user turn can fall back again.
+  hasAttemptedProviderFallback: boolean
   turnCount: number
   // Count of consecutive continuation nudges within the current turn.
   // Capped at MAX_CONTINUATION_NUDGES to prevent infinite nudge loops
@@ -291,6 +299,7 @@ async function* queryLoop(
     stopHookActive: undefined,
     maxOutputTokensRecoveryCount: 0,
     hasAttemptedReactiveCompact: false,
+    hasAttemptedProviderFallback: false,
     turnCount: 1,
     continuationNudgeCount: 0,
     pendingToolUseSummary: undefined,
@@ -334,6 +343,7 @@ async function* queryLoop(
       autoCompactTracking,
       maxOutputTokensRecoveryCount,
       hasAttemptedReactiveCompact,
+      hasAttemptedProviderFallback,
       maxOutputTokensOverride,
       pendingToolUseSummary,
       stopHookActive,
@@ -903,6 +913,25 @@ async function* queryLoop(
             if (isWithheldMaxOutputTokens(message)) {
               withheld = true
             }
+            // Withhold rate-limit errors when a providerFallbackChain entry is
+            // still available, so SDK consumers that terminate on yielded
+            // errors don't see the original 429 before queryLoop has a chance
+            // to switch providers and retry (jatmn review on #1176). The
+            // recovery branch below mirrors the same querySource / one-shot
+            // guards. If no fallback resolves, the recovery branch falls
+            // through to the standard error-termination path which yields
+            // the original error so the user still sees it.
+            if (
+              !hasAttemptedProviderFallback &&
+              querySource !== 'compact' &&
+              querySource !== 'session_memory' &&
+              message.type === 'assistant' &&
+              message.isApiErrorMessage === true &&
+              message.error === 'rate_limit' &&
+              resolveNextFallbackProviderFromState() !== null
+            ) {
+              withheld = true
+            }
             if (!withheld) {
               yield yieldMessage
             }
@@ -1182,6 +1211,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount,
               hasAttemptedReactiveCompact,
+              hasAttemptedProviderFallback,
               maxOutputTokensOverride: undefined,
               pendingToolUseSummary: undefined,
               stopHookActive: undefined,
@@ -1236,6 +1266,7 @@ async function* queryLoop(
             autoCompactTracking: undefined,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact: true,
+            hasAttemptedProviderFallback,
             maxOutputTokensOverride: undefined,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1292,6 +1323,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount,
             hasAttemptedReactiveCompact,
+            hasAttemptedProviderFallback,
             maxOutputTokensOverride: ESCALATED_MAX_TOKENS,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1321,6 +1353,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount: maxOutputTokensRecoveryCount + 1,
             hasAttemptedReactiveCompact,
+            hasAttemptedProviderFallback,
             maxOutputTokensOverride: undefined,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1336,6 +1369,85 @@ async function* queryLoop(
         }
 
         // Recovery exhausted — surface the withheld error now.
+        yield lastMessage
+      }
+
+      // Provider-fallback recovery (#768). When the active provider returns
+      // a rate-limit error and the user has configured an ordered
+      // `providerFallbackChain`, swap to the next chain entry and retry the
+      // turn once instead of bubbling the error to the UI. Skip for
+      // compact / session_memory fork queries — those are forked workers
+      // operating on the original conversation's tail; switching the active
+      // provider mid-fork would change the credentials the outer turn just
+      // committed to. Mirrors the pre-flight blocking-limit guard at
+      // ~query.ts:691.
+      const isWithheldRateLimit =
+        !hasAttemptedProviderFallback &&
+        querySource !== 'compact' &&
+        querySource !== 'session_memory' &&
+        lastMessage?.type === 'assistant' &&
+        lastMessage.isApiErrorMessage === true &&
+        lastMessage.error === 'rate_limit'
+      if (isWithheldRateLimit) {
+        const fallback = resolveNextFallbackProviderFromState()
+        if (fallback !== null) {
+          const activated = setActiveProviderProfile(fallback.nextProfileId)
+          if (activated) {
+            const fromLabel = fallback.fromProfileId ?? 'previous provider'
+            // Update the in-session model to the activated profile's primary
+            // model so the retry doesn't keep sending the rate-limited
+            // provider's model id against the new endpoint. Without this, the
+            // outer loop re-derives `currentModel` from
+            // `appState.mainLoopModelForSession ?? appState.mainLoopModel`,
+            // which still holds the previous provider's model (e.g. a Claude
+            // id), and `resolveProviderRequest` lets that explicit
+            // `options.model` win over the new profile's OPENAI_MODEL. Mirror
+            // the model_fallback branch above which updates both
+            // `toolUseContext.options.mainLoopModel` and the in-session app
+            // state.
+            const activatedModel = getPrimaryModel(activated.model)
+            if (activatedModel) {
+              toolUseContext.setAppState(prev => ({
+                ...prev,
+                mainLoopModel: activatedModel,
+                mainLoopModelForSession: null,
+              }))
+              toolUseContext.options.mainLoopModel = activatedModel
+            }
+            // System informational, NOT an assistant API error. The original
+            // 429 is still withheld upstream, so SDK hosts that terminate on
+            // `error: 'rate_limit'` assistant messages don't see one for this
+            // retry path — they only get the final tagged message if the
+            // entire fallback chain is exhausted (handled by `yield
+            // lastMessage` below). Mirrors the existing model-fallback notice
+            // at the model_fallback recovery branch.
+            yield createSystemMessage(
+              `Provider ${fromLabel} rate-limited — switched to ${activated.name}. Retrying turn.`,
+              'warning',
+            )
+            const next: State = {
+              messages: messagesForQuery,
+              toolUseContext,
+              autoCompactTracking: tracking,
+              maxOutputTokensRecoveryCount,
+              hasAttemptedReactiveCompact,
+              hasAttemptedProviderFallback: true,
+              maxOutputTokensOverride: undefined,
+              pendingToolUseSummary: undefined,
+              stopHookActive: undefined,
+              turnCount,
+              continuationNudgeCount: state.continuationNudgeCount,
+              transition: { reason: 'provider_fallback_retry' },
+            }
+            state = next
+            continue
+          }
+        }
+        // No fallback configured / chain exhausted / activation failed — yield
+        // the original rate-limit message now (the streaming withhold gate
+        // suppressed it so SDK consumers wouldn't see it before we knew a
+        // fallback was possible) and fall through to the standard API-error
+        // termination below.
         yield lastMessage
       }
 
@@ -1379,6 +1491,10 @@ async function* queryLoop(
           // here caused an infinite loop: compact → still too long → error →
           // stop hook blocking → compact → … burning thousands of API calls.
           hasAttemptedReactiveCompact,
+          // Same logic for the provider-fallback guard — a stop-hook blocking
+          // error after a fallback switch is unrelated to which provider is
+          // active, so preserve rather than re-fall-back.
+          hasAttemptedProviderFallback,
           maxOutputTokensOverride: undefined,
           pendingToolUseSummary: undefined,
           stopHookActive: true,
@@ -1416,6 +1532,7 @@ async function* queryLoop(
             autoCompactTracking: tracking,
             maxOutputTokensRecoveryCount: 0,
             hasAttemptedReactiveCompact: false,
+            hasAttemptedProviderFallback: false,
             maxOutputTokensOverride: undefined,
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
@@ -1498,6 +1615,7 @@ async function* queryLoop(
               autoCompactTracking: tracking,
               maxOutputTokensRecoveryCount: 0,
               hasAttemptedReactiveCompact: false,
+              hasAttemptedProviderFallback: false,
               maxOutputTokensOverride: undefined,
               pendingToolUseSummary: undefined,
               stopHookActive: undefined,
@@ -1938,6 +2056,7 @@ async function* queryLoop(
       turnCount: nextTurnCount,
       maxOutputTokensRecoveryCount: 0,
       hasAttemptedReactiveCompact: false,
+      hasAttemptedProviderFallback: false,
       continuationNudgeCount: 0,
       pendingToolUseSummary: nextPendingToolUseSummary,
       maxOutputTokensOverride: undefined,
