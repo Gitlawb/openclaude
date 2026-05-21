@@ -674,7 +674,9 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
               return {
                 messages: [],
                 shouldQuery: false,
-                command
+                command,
+                nextInput: result.nextInput,
+                submitNextInput: result.submitNextInput,
               };
             }
 
@@ -701,9 +703,13 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
               // (UUIDs never repeat, so they're never looked up).
               resetMicrocompactState();
               return {
-                messages: buildPostCompactMessages(compactionResultWithSlashMessages),
+                messages: buildPostCompactMessages(
+                  compactionResultWithSlashMessages,
+                ),
                 shouldQuery: false,
-                command
+                command,
+                nextInput: result.nextInput,
+                submitNextInput: result.submitNextInput,
               };
             }
 
@@ -713,15 +719,32 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
                 messages: [],
                 shouldQuery: false,
                 command,
-                resultText: result.value
+                resultText: result.value,
+                nextInput: result.nextInput,
+                submitNextInput: result.submitNextInput,
               };
             }
 
+            const metaMessages = (result.metaMessages ?? []).map(
+              (content: string) =>
+                createUserMessage({
+                  content,
+                  isMeta: true,
+                }),
+            );
             return {
-              messages: [userMessage, createCommandInputMessage(`<local-command-stdout>${result.value}</local-command-stdout>`)],
-              shouldQuery: false,
+              messages: [
+                userMessage,
+                createCommandInputMessage(
+                  `<local-command-stdout>${result.value}</local-command-stdout>`,
+                ),
+                ...metaMessages,
+              ],
+              shouldQuery: result.shouldQuery ?? false,
               command,
-              resultText: result.value
+              resultText: result.value,
+              nextInput: result.nextInput,
+              submitNextInput: result.submitNextInput,
             };
           } catch (e) {
             logError(e);
