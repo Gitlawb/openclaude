@@ -5983,3 +5983,322 @@ test('emits reasoning_effort from codex alias default when no override is passed
 
   expect(requestBody?.reasoning_effort).toBe('high')
 })
+
+test('non-streaming: synthesizes id when Ollama returns tool_calls with null id (issue #433)', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ollama-null-id',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '',
+              tool_calls: [
+                { id: null, type: 'function', function: { name: 'WebSearch', arguments: '{"query":"weather"}' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content?.[0]).toMatchObject({
+    type: 'tool_use',
+    name: 'WebSearch',
+  })
+  const toolUse = message.content?.[0] as Record<string, unknown> | undefined
+  expect(typeof toolUse?.id).toBe('string')
+  expect(toolUse?.id).toMatch(/^tc-/)
+})
+
+test('streaming: synthesizes id when Ollama streams tool_calls with null id (issue #433)', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-ollama-null-stream',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-ollama-null-stream',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [{
+          index: 0,
+          delta: {
+            tool_calls: [{ index: 0, id: null, type: 'function', function: { name: 'WebSearch', arguments: '{"query":"weather"}' } }],
+          },
+          finish_reason: null,
+        }],
+      },
+      {
+        id: 'chatcmpl-ollama-null-stream',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      },
+    ])
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'search' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({ type: 'tool_use', name: 'WebSearch' })
+  expect(typeof (toolStart?.content_block as Record<string, unknown> | undefined)?.id).toBe('string')
+  expect((toolStart?.content_block as Record<string, unknown> | undefined)?.id).toMatch(/^tc-/)
+})
+
+test('non-streaming: parses plain-content JSON tool call from Ollama content (issue #433)', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ollama-plain',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    { type: 'text', text: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}' },
+  ])
+})
+
+test('non-streaming: parses plain-content JSON tool call from Ollama content when tools requested', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ollama-plain',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    stream: false,
+    tools: [{ name: 'WebSearch', description: 'Search the web', input_schema: { type: 'object', properties: { query: { type: 'string' } } } }],
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'tc-0-WebSearch',
+      name: 'WebSearch',
+      input: { query: 'Paris weather' },
+    },
+  ])
+})
+
+test('non-streaming: parses plain-content JSON tool call array from Ollama content when tools requested', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ollama-plain-array',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '[{"name": "Bash", "arguments": {"command": "ls"}}, {"name": "Read", "arguments": {"file_path": "src/main.ts"}}]',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [{ role: 'user', content: 'run commands' }],
+    max_tokens: 64,
+    stream: false,
+    tools: [
+      { name: 'Bash', description: 'Run commands', input_schema: { type: 'object', properties: { command: { type: 'string' } } } },
+      { name: 'Read', description: 'Read files', input_schema: { type: 'object', properties: { file_path: { type: 'string' } } } },
+    ],
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    { type: 'tool_use', id: 'tc-0-Bash', name: 'Bash', input: { command: 'ls' } },
+    { type: 'tool_use', id: 'tc-1-Read', name: 'Read', input: { file_path: 'src/main.ts' } },
+  ])
+})
+
+test('non-streaming: does not treat arbitrary JSON with name but no arguments as tool call (PR #433 P1)', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-json-name-only',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "Alice"}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'who are you' }],
+    max_tokens: 64,
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    { type: 'text', text: '{"name": "Alice"}' },
+  ])
+})
+
+test('non-streaming: rejects plain-content JSON tool call when name does not match any requested tool', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-json-bad-name',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "NotATool", "arguments": {"query": "Paris"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    tools: [
+      { name: 'WebSearch', description: 'Search', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ],
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  // NotATool is not in the tools list, so it should be treated as text
+  expect(message.content).toEqual([
+    { type: 'text', text: '{"name": "NotATool", "arguments": {"query": "Paris"}}' },
+  ])
+})
+
+test('non-streaming: accepts plain-content JSON tool call when name matches a requested tool', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-json-matching-name',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    tools: [
+      { name: 'WebSearch', description: 'Search', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ],
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
+    { type: 'tool_use', id: 'tc-0-WebSearch', name: 'WebSearch', input: { query: 'Paris weather' } },
+  ])
+})
