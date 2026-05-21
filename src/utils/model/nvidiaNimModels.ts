@@ -8,6 +8,8 @@ import { getAPIProvider } from './providers.js'
 import { isEnvTruthy } from '../envUtils.js'
 import { getCachedModels } from '../../integrations/discoveryCache.js'
 import { getDiscoveryCacheKey } from '../../integrations/discoveryService.js'
+import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
+import { resolveProviderRequest } from '../../services/api/providerConfig.js'
 
 export function isNvidiaNimProvider(): boolean {
   // Check if explicitly set via NVIDIA_NIM or via provider flag
@@ -174,12 +176,38 @@ export function getCachedNvidiaNimModelOptions(): ModelOption[] {
  * Returns the persisted discovery cache entries for the NVIDIA NIM route, if
  * any are present on disk. Used by validateModel so that inline `/model <id>`
  * accepts models surfaced by dynamic discovery — not only the static list.
+ *
+ * The cache key must be derived from the same `(routeId, baseUrl, apiKey,
+ * headers)` shape that the descriptor picker / startup discovery uses, or the
+ * inline validator looks in a different partition than the one the picker
+ * actually wrote (see #1177 P2 review): the picker calls
+ * `resolveRouteCredentialValue()` for the active route, whose credential list
+ * for `nvidia-nim` includes both `NVIDIA_API_KEY` *and* `OPENAI_API_KEY` for
+ * OpenAI-compatible setups. Hard-coding `process.env.NVIDIA_API_KEY` here
+ * silently mis-partitioned the cache for users authenticating via
+ * `OPENAI_API_KEY`.
  */
 export async function getDiscoveredNvidiaNimModelIds(): Promise<string[]> {
   try {
-    const cacheKey = getDiscoveryCacheKey('nvidia-nim', {
+    // Mirror the picker side (`getOpenAIDiscoveryRequestOptions` in
+    // src/commands/model/model.tsx): pull baseUrl from the resolved provider
+    // request and let `resolveRouteCredentialValue` walk the route's full
+    // credential list. Falling back to undefined keeps the cache key shape
+    // identical to the picker's even when the env var is missing — both
+    // sides will hash the same `apiKeyHash: ''` partition in that case.
+    const request = resolveProviderRequest({
+      model: process.env.OPENAI_MODEL,
       baseUrl: process.env.OPENAI_BASE_URL,
-      apiKey: process.env.NVIDIA_API_KEY,
+    })
+    const apiKey = resolveRouteCredentialValue({
+      routeId: 'nvidia-nim',
+      baseUrl: request.baseUrl,
+      processEnv: process.env,
+    })
+
+    const cacheKey = getDiscoveryCacheKey('nvidia-nim', {
+      baseUrl: request.baseUrl,
+      apiKey,
     })
     const cached = await getCachedModels(cacheKey, Number.MAX_SAFE_INTEGER, {
       includeStale: true,
