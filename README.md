@@ -237,12 +237,24 @@ Free tier at [firecrawl.dev](https://firecrawl.dev) includes 500 credits. The ke
 
 OpenClaude can be run as a headless gRPC service, allowing you to integrate its agentic capabilities (tools, bash, file editing) into other applications, CI/CD pipelines, or custom user interfaces. The server uses bidirectional streaming to send real-time text chunks, tool calls, and request permissions for sensitive commands.
 
+### Prerequisites
+
+- **Bun** (runtime) — install with:
+  ```bash
+  curl -fsSL https://bun.sh/install | bash
+  ```
+  or see [bun.sh/docs/installation](https://bun.sh/docs/installation)
+- Install project dependencies:
+  ```bash
+  bun install
+  ```
+
 ### 1. Start the gRPC Server
 
 Start the core engine as a gRPC service on `localhost:50051`:
 
 ```bash
-npm run dev:grpc
+bun run dev:grpc
 ```
 
 #### Configuration
@@ -259,7 +271,7 @@ We provide a lightweight CLI client that communicates exclusively over gRPC. It 
 In a separate terminal, run:
 
 ```bash
-npm run dev:grpc:cli
+bun run dev:grpc:cli
 ```
 
 *Note: The gRPC definitions are located in `src/proto/openclaude.proto`. You can use this file to generate clients in Python, Go, Rust, or any other language.*
