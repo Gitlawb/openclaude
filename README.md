@@ -176,6 +176,44 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 
 For best results, use models with strong tool/function calling support.
 
+## Configuration
+
+OpenClaude uses a JSON configuration file located at `~/.openclaude.json` to store global preferences and provider profiles. You can also use project-level settings in `.openclaude/settings.json`.
+
+### Global Settings (`~/.openclaude.json`)
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `theme` | `string` | UI theme: `dark`, `light`, `system`, or `classic`. |
+| `logoColor` | `string` | Splash screen color scheme: `sunset`, `forest`, `ocean`, `classic`, etc. |
+| `autoCompactEnabled` | `boolean` | Enable automatic context compaction when the window is full (default: `true`). |
+| `toolHistoryCompressionEnabled` | `boolean` | Compress old tool results for small-context providers (default: `true`). |
+| `showTurnDuration` | `boolean` | Show turn duration message like "Cooked for 1m 6s" (default: `true`). |
+| `showCacheStats` | `string` | Caching stats level: `off`, `compact`, or `full` (default: `compact`). |
+| `verbose` | `boolean` | Enable verbose troubleshooting logs (default: `false`). |
+| `editorMode` | `string` | Keybindings: `normal`, `emacs`, or `vim`. |
+| `todoFeatureEnabled` | `boolean` | Enable the built-in TODO list feature (default: `true`). |
+| `showExpandedTodos` | `boolean` | Keep todos expanded even when empty (default: `false`). |
+| `respectGitignore` | `boolean` | Whether file tools respect `.gitignore` rules (default: `true`). |
+
+### Provider Profiles (`providerProfiles`)
+
+Profiles defined via `/provider` are stored in the `providerProfiles` array.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `name` | `string` | Custom display name for this profile. |
+| `provider` | `string` | Provider type: `openai`, `anthropic`, `ollama`, `gemini`, etc. |
+| `baseUrl` | `string` | API endpoint URL. |
+| `model` | `string` | The model ID to use. |
+| `apiKey` | `string` | API Key (stored in plaintext). |
+| `apiFormat` | `string` | OpenAI-compatible format: `chat_completions` or `responses`. |
+| `customHeaders` | `object` | Map of additional HTTP headers to include in requests. |
+
+> **Advanced Model Parameters:** OpenClaude currently does not support `temperature`, `top_p`, or `num_ctx` overrides directly in the JSON configuration. To override context window or output limits for unknown models, use environment variables:
+> - `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS='{"my-model": 128000}'`
+> - `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS='{"my-model": 4096}'`
+
 ## Agent Routing
 
 OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
