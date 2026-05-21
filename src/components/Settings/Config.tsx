@@ -201,8 +201,10 @@ export function Config({
   const memoryFiles = React.use(getMemoryFiles(true));
   function getPendingExternalIncludesScope(): 'User' | 'Project' | null {
     const cfg = getCurrentProjectConfig();
-    if (!cfg.hasClaudeMdExternalIncludesApprovedForUser && hasExternalClaudeMdIncludes(memoryFiles, ['User'])) return 'User';
-    if (!cfg.hasClaudeMdExternalIncludesApproved && hasExternalClaudeMdIncludes(memoryFiles, ['Project', 'Local'])) return 'Project';
+    // Project/Local first (mirrors startup priority in shouldShowClaudeMdExternalIncludesWarning)
+    if (!cfg.hasClaudeMdExternalIncludesApproved && !cfg.hasClaudeMdExternalIncludesWarningShown && hasExternalClaudeMdIncludes(memoryFiles, ['Project', 'Local'])) return 'Project';
+    // User second
+    if (!cfg.hasClaudeMdExternalIncludesApprovedForUser && !cfg.hasClaudeMdExternalIncludesWarningShownForUser && hasExternalClaudeMdIncludes(memoryFiles, ['User'])) return 'User';
     return null;
   }
   const pendingScope = getPendingExternalIncludesScope();

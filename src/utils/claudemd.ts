@@ -1231,6 +1231,7 @@ export async function getManagedAndUserConditionalRules(
   processedPaths: Set<string>,
 ): Promise<MemoryFileInfo[]> {
   const result: MemoryFileInfo[] = []
+  const config = getCurrentProjectConfig()
 
   // Process Managed conditional .claude/rules/*.md files
   const managedClaudeRulesDir = getManagedClaudeRulesDir()
@@ -1246,14 +1247,18 @@ export async function getManagedAndUserConditionalRules(
 
   if (isSettingSourceEnabled('userSettings')) {
     // Process User conditional .claude/rules/*.md files
+    // Gate external includes through the same User-scope approval flag
+    // as unconditional User rules, so declining approval blocks the
+    // conditional path too.
     const userClaudeRulesDir = getUserClaudeRulesDir()
+    const includeExternalForUser = config.hasClaudeMdExternalIncludesApprovedForUser ?? false
     result.push(
       ...(await processConditionedMdRules(
         targetPath,
         userClaudeRulesDir,
         'User',
         processedPaths,
-        true,
+        includeExternalForUser,
       )),
     )
   }
