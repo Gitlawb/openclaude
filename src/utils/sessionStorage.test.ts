@@ -1,14 +1,18 @@
 import { afterEach, expect, test } from 'bun:test'
 import { type UUID } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
   buildConversationChain,
   loadTranscriptFile,
+  recordGoalState,
+  resetProjectForTesting,
+  setSessionFileForTesting,
   stripPersistedToolUseResultsFromJSONLBuffer,
 } from './sessionStorage.ts'
+import { getSessionId, switchSession } from '../bootstrap/state.js'
 
 const tempDirs: string[] = []
 const sessionId = '00000000-0000-4000-8000-000000000999'
@@ -317,4 +321,112 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
   expect(
     (loaded?.message.content as Array<{ content: string }>)[0]?.content,
   ).toContain('Preview text')
+})
+
+test('loadTranscriptFile restores last goal-state metadata entry', async () => {
+  const activeGoal = {
+    id: 'goal-1',
+    condition: 'finish implementation',
+    status: 'active',
+    createdAt: ts,
+    updatedAt: ts,
+    startedAt: ts,
+    turnCount: 2,
+    maxTurns: 50,
+    lastDecision: 'incomplete',
+    lastReason: 'tests not run',
+    evaluatorFailures: 0,
+  }
+  const filePath = await writeJsonl([
+    {
+      type: 'goal-state',
+      sessionId,
+      goal: activeGoal,
+    },
+    {
+      type: 'goal-state',
+      sessionId,
+      goal: {
+        ...activeGoal,
+        condition: 'finish build validation',
+      },
+    },
+  ])
+
+  const { goalStates } = await loadTranscriptFile(filePath)
+
+  expect(goalStates.get(sessionId as never)?.condition).toBe(
+    'finish build validation',
+  )
+})
+
+test('loadTranscriptFile treats null goal-state as cleared', async () => {
+  const activeGoal = {
+    id: 'goal-1',
+    condition: 'finish implementation',
+    status: 'active',
+    createdAt: ts,
+    updatedAt: ts,
+    startedAt: ts,
+    turnCount: 0,
+    maxTurns: 50,
+    evaluatorFailures: 0,
+  }
+  const filePath = await writeJsonl([
+    {
+      type: 'goal-state',
+      sessionId,
+      goal: activeGoal,
+    },
+    {
+      type: 'goal-state',
+      sessionId,
+      goal: null,
+    },
+  ])
+
+  const { goalStates } = await loadTranscriptFile(filePath)
+
+  expect(goalStates.get(sessionId as never)).toBeNull()
+})
+
+test('recordGoalState writes goal metadata durably before resolving', async () => {
+  const originalPersistence = process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  const originalSessionId = getSessionId()
+  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+  try {
+    resetProjectForTesting()
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
+    tempDirs.push(dir)
+    const filePath = join(dir, `${sessionId}.jsonl`)
+    switchSession(sessionId as never)
+    setSessionFileForTesting(filePath)
+
+    await recordGoalState(
+      {
+        id: 'goal-durable',
+        condition: 'durable goal',
+        status: 'active',
+        createdAt: ts,
+        updatedAt: ts,
+        startedAt: ts,
+        turnCount: 0,
+        maxTurns: 50,
+        evaluatorFailures: 0,
+      },
+      sessionId as never,
+    )
+
+    const text = await readFile(filePath, 'utf8')
+    expect(text).toContain('"type":"goal-state"')
+    expect(text).toContain('durable goal')
+  } finally {
+    if (originalPersistence === undefined) {
+      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalPersistence
+    }
+    switchSession(originalSessionId)
+    resetProjectForTesting()
+  }
 })
