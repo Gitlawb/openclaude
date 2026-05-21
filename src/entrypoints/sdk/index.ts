@@ -41,10 +41,23 @@ function detectStubLeaks(): void {
           `Report this at https://github.com/Gitlawb/openclaude/issues`,
         )
       }
-    } catch {
+      // Imports that resolve to classes/functions (not module namespace objects)
+      // also need stub-checking. esbuild stubs are plain objects, so checking
+      // typeof === 'function' is inherently safe — a real module will pass.
+      if (typeof mod === 'function' && '__stub' in (mod as unknown as Record<string, unknown>)) {
+        throw new Error(
+          `SDK init error: "${name}" resolved to a build stub at runtime. ` +
+          `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
+          `Report this at https://github.com/Gitlawb/openclaude/issues`,
+        )
+      }
+    } catch (e: unknown) {
       // Some imports may be in the temporal dead zone due to circular
       // dependencies when running unbundled (e.g. Bun directly). This is
       // harmless — the stub substitution only happens in the esbuild bundle.
+      if (!(e instanceof ReferenceError)) {
+        throw e
+      }
     }
   }
 }
@@ -52,8 +65,11 @@ function detectStubLeaks(): void {
 // Run leak detection once at module load time.
 try {
   detectStubLeaks()
-} catch {
+} catch (e: unknown) {
   // Gracefully skip if any import is still in TDZ (unbundled runs).
+  if (!(e instanceof ReferenceError)) {
+    throw e
+  }
 }
 
 // ============================================================================
