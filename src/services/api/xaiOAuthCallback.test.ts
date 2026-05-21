@@ -75,6 +75,29 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     expect(settled).toBe(false)
   })
 
+  // Without this header, Chrome/Edge block xAI's HTTPS-origin fetch to
+  // the loopback callback. The preflight succeeds, the actual GET never
+  // fires, the CLI never auto-detects success, and the user has to fall
+  // back to manual code paste. Regression-locked because this is silent
+  // — the only symptom is "auto-detect doesn't work".
+  test('OPTIONS preflight includes Access-Control-Allow-Private-Network', async () => {
+    const { handle, port } = await startTestServer()
+    cleanup = () => handle.close()
+
+    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://auth.x.ai',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Private-Network': 'true',
+      },
+    })
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-private-network')).toBe(
+      'true',
+    )
+  })
+
   test('OPTIONS from accounts.x.ai is also allowed', async () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()

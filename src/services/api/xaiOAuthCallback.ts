@@ -68,16 +68,21 @@ function applyCors(
     'Vary',
     'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
   )
-  const requestedMethod = req.headers['access-control-request-method']
-  if (typeof requestedMethod === 'string') {
-    res.setHeader('Access-Control-Allow-Methods', `${requestedMethod}, OPTIONS`)
-  } else {
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
   const requestedHeaders = req.headers['access-control-request-headers']
-  if (typeof requestedHeaders === 'string' && requestedHeaders.trim()) {
-    res.setHeader('Access-Control-Allow-Headers', requestedHeaders)
-  }
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    typeof requestedHeaders === 'string' && requestedHeaders.trim().length > 0
+      ? requestedHeaders
+      : 'content-type',
+  )
+  // Chrome / Edge require this header when an HTTPS origin (auth.x.ai)
+  // fetches a private-network address (127.0.0.1). Without it the
+  // preflight succeeds but the actual GET is blocked, our server never
+  // receives the callback, and xAI's auth page falls back to manual code
+  // paste even though sign-in succeeded. See:
+  // https://wicg.github.io/private-network-access/
+  res.setHeader('Access-Control-Allow-Private-Network', 'true')
   res.setHeader('Access-Control-Max-Age', '600')
 }
 
