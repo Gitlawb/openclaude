@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/
+.env
+*.session
+*.session-journal
+.omc/
+test_telethon.py
