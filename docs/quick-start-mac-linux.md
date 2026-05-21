@@ -20,7 +20,10 @@ npm --version
 ```bash
 npm install -g @gitlawb/openclaude
 ```
-If you're on Arch Linux, you can install OpenClaude from the community maintained AUR package:
+On Arch Linux, you can install OpenClaude instead via the community-maintained AUR package:
+
+- `https://aur.archlinux.org/packages/openclaude`
+
 ```bash
 paru -S openclaude
 ```
