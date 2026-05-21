@@ -1630,6 +1630,7 @@ async function* queryLoop(
         toolUseContext,
         querySource,
         stopHookActive,
+        deps.goalEvaluationDeps,
       )
 
       if (stopHookResult.preventContinuation) {

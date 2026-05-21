@@ -35,6 +35,7 @@ import { hasAutoMemPathOverride } from './memdir/paths.js'
 import { query } from './query.js'
 import { categorizeRetryableAPIError } from './services/api/errors.js'
 import type { AutoCompactTrackingState } from './services/compact/autoCompact.js'
+import { isGoalStatusSystemMessage } from './services/goal/status.js'
 import type { MCPServerConnection } from './services/mcp/types.js'
 import type { AppState } from './state/AppState.js'
 import { type Tools, type ToolUseContext, toolMatchesName } from './Tool.js'
@@ -990,6 +991,12 @@ export class QueryEngine {
               session_id: getSessionId(),
               uuid: message.uuid,
             }
+          }
+          if (isGoalStatusSystemMessage(message)) {
+            yield localCommandOutputToSDKAssistantMessage(
+              message.content,
+              message.uuid,
+            )
           }
           // Don't yield other system messages in headless mode
           break
