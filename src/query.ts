@@ -53,6 +53,7 @@ import {
   createToolUseSummaryMessage,
   createMicrocompactBoundaryMessage,
 } from './utils/messages.js'
+import { analyzeContinuationIntent } from './utils/continuation.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
@@ -1459,51 +1460,17 @@ async function* queryLoop(
             .join(' ')
             .toLowerCase()
 
-          // Tightened patterns: require explicit action verbs and exclude
-          // common explanatory phrasing to reduce false positives.
-          const continuationSignals = [
-            // English: Only match "so now I/let me/we" followed by an action verb
-            /\bso now (i|let me|we) (need to|have to|should|must|will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up)\b/,
-            /\bnow i('ll| will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|go|proceed)\b/,
-            /\blet me (go ahead and |now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|proceed)\b/,
-            /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build|get started|begin)\b/,
-            // French: Support for common continuation phrasing
-            /\b(je passe (à|au)|ensuite|l'étape suivante|je continue|au suivant)\b/,
-            /\bje vais (maintenant )?(faire|créer|écrire|modifier|ajouter|tester|vérifier|lancer|exécuter|procéder)\b/,
-            // Universal: Sentence ending with a colon indicates intent to list/act
-            /:$/,
-          ]
-
-          // Universal: Truncation detection. If the message ends without terminal punctuation
-          // and has no tool calls, it's likely a token limit truncation.
-          const hasTerminalPunctuation = /[.!??"'`]\s*$/.test(lastText)
-          const isPossiblyTruncated = !hasTerminalPunctuation && lastText.length > 20
-
-          // Don't nudge if the text contains completion markers,
-          // UNLESS a strong continuation signal or truncation is detected at the very end.
-          const completionMarkers = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if)\b/
-          const hasCompletionMarker = completionMarkers.test(lastText)
-          
-          // Check if continuation signals match in the last 80 characters (late intent)
-          const lateText = lastText.slice(-80)
-          const hasLateContinuationSignal = continuationSignals.some(re => re.test(lateText))
-          
-          let shouldNudge = false
-          if (isPossiblyTruncated) {
-            shouldNudge = true
-          } else if (hasLateContinuationSignal) {
-            shouldNudge = true
-          } else if (continuationSignals.some(re => re.test(lastText)) && !hasCompletionMarker) {
-            shouldNudge = true
-          }
+          const { shouldNudge, reason: nudgeReason } = analyzeContinuationIntent(
+            lastText,
+          )
 
           if (shouldNudge) {
-            const nudgeReason = isPossiblyTruncated ? 'possible truncation' : 'continuation signal'
             logForDebugging(
               `Continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}): ${nudgeReason} detected in "${lastText.slice(-120)}" without tool calls`,
             )
             const nudge = createUserMessage({
-              content: 'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
+              content:
+                'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
               isMeta: true,
             })
             const next: State = {
