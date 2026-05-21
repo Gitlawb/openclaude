@@ -1357,6 +1357,15 @@ export async function buildLaunchEnv(options: {
     if (customHeaders) {
       env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
     }
+    // Preserve the OAuth credential-source marker so startup validation
+    // accepts an xAI OAuth profile (no XAI_API_KEY needed; openaiShim
+    // resolves the stored access token at request time).
+    if (
+      !env.XAI_API_KEY &&
+      persistedEnv.XAI_CREDENTIAL_SOURCE === 'oauth'
+    ) {
+      env.XAI_CREDENTIAL_SOURCE = 'oauth'
+    }
 
     return buildCompatibilityProcessEnv({
       processEnv,

@@ -1228,6 +1228,64 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  // xAI OAuth profile (provider='xai', no API key) must persist the
+  // startup file as profile='xai' with XAI_CREDENTIAL_SOURCE='oauth' so
+  // (a) startup validation accepts it without XAI_API_KEY, and (b)
+  // clearPersistedXaiOAuthProfile() can find and remove it on logout.
+  // Regression: previously written as profile='openai' with no marker,
+  // leaving a stale startup file that hit the missing-cred warning on
+  // every non-interactive launch after logout.
+  test('persists xAI OAuth profile with marker so logout cleanup can clear it', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const { clearPersistedXaiOAuthProfile, isPersistedXaiOAuthProfile } =
+        await import('./providerProfile.js')
+
+      const xaiOAuthProfile = buildProfile({
+        id: 'xai_oauth_prof',
+        name: 'xAI OAuth',
+        provider: 'xai',
+        baseUrl: 'https://api.x.ai/v1',
+        model: 'grok-4.3',
+        apiKey: '',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [xaiOAuthProfile],
+      }))
+
+      const result = setActiveProviderProfile('xai_oauth_prof', { configDir })
+      const profilePath = join(configDir, '.openclaude-profile.json')
+      const persisted = JSON.parse(readFileSync(profilePath, 'utf8'))
+
+      expect(result?.id).toBe('xai_oauth_prof')
+      expect(persisted.profile).toBe('xai')
+      expect(persisted.env.XAI_CREDENTIAL_SOURCE).toBe('oauth')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+      expect(persisted.env.OPENAI_MODEL).toBe('grok-4.3')
+      // No leaked API key fields.
+      expect(persisted.env.OPENAI_API_KEY).toBeUndefined()
+      expect(persisted.env.XAI_API_KEY).toBeUndefined()
+
+      // Logout cleanup recognises and removes the marker-tagged file.
+      expect(isPersistedXaiOAuthProfile(persisted)).toBe(true)
+      const removed = clearPersistedXaiOAuthProfile({ configDir })
+      expect(removed).toBe(profilePath)
+      expect(existsSync(profilePath)).toBe(false)
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('persists no-key openai-compatible profiles for restart fallback', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
