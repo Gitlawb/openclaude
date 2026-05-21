@@ -10,6 +10,8 @@
  * Bearer to `https://api.x.ai/v1`, so no proxy is involved.
  */
 
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
+
 export const XAI_OAUTH_ISSUER = 'https://auth.x.ai'
 export const XAI_OAUTH_DISCOVERY_URL = `${XAI_OAUTH_ISSUER}/.well-known/openid-configuration`
 export const DEFAULT_XAI_OAUTH_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828'
@@ -151,12 +153,21 @@ export async function fetchXaiOAuthDiscovery(options?: {
   timeoutMs?: number
 }): Promise<XaiOAuthDiscovery> {
   const fetchImpl = options?.fetchImpl ?? fetch
-  const signal =
-    options?.signal ?? AbortSignal.timeout(options?.timeoutMs ?? 15_000)
-  const response = await fetchImpl(XAI_OAUTH_DISCOVERY_URL, {
-    headers: { Accept: 'application/json' },
-    signal,
+  // Use the cleanup-safe helper instead of `AbortSignal.timeout(...)` so the
+  // underlying timer is cleared on success — raw timeout signals leak
+  // timers in Bun and are forbidden by the repo guard.
+  const { signal, cleanup } = createCombinedAbortSignal(options?.signal, {
+    timeoutMs: options?.timeoutMs ?? 15_000,
   })
+  let response: Response
+  try {
+    response = await fetchImpl(XAI_OAUTH_DISCOVERY_URL, {
+      headers: { Accept: 'application/json' },
+      signal,
+    })
+  } finally {
+    cleanup()
+  }
   if (!response.ok) {
     throw new Error(
       `xAI OAuth discovery failed with status ${response.status}`,

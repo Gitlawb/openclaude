@@ -31,6 +31,12 @@ import {
   type GeminiResolvedCredential,
   resolveGeminiCredential,
 } from './geminiAuth.js'
+import { readXaiCredentialsAsync } from './xaiCredentials.js'
+
+async function defaultHasStoredXaiOAuthCredentials(): Promise<boolean> {
+  const stored = await readXaiCredentialsAsync()
+  return Boolean(stored?.accessToken && stored?.refreshToken)
+}
 import { PROFILE_FILE_NAME } from './providerProfile.js'
 import {
   redactSecretValueForDisplay,
@@ -278,6 +284,7 @@ async function getDescriptorValidationError(
     resolveGeminiCredential?: (
       env: NodeJS.ProcessEnv,
     ) => Promise<GeminiResolvedCredential>
+    hasStoredXaiOAuthCredentials?: () => Promise<boolean>
   },
 ): Promise<string | null> {
   const validation = target.descriptor.validation
@@ -314,6 +321,40 @@ async function getDescriptorValidationError(
       }
 
       return null
+    }
+
+    case 'xai-credential': {
+      // 1. API key in env (legacy / explicit override path)
+      if (
+        validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+      ) {
+        return null
+      }
+      // 2. OAuth profile marker, e.g. XAI_CREDENTIAL_SOURCE=oauth set by
+      // the saved profile's env. Cheap synchronous check before we touch
+      // secure storage.
+      const markers = validation.credentialSourceEnvMarkers
+      if (markers) {
+        for (const [markerEnv, allowedValues] of Object.entries(markers)) {
+          const value = env[markerEnv]?.trim()
+          if (value && allowedValues.includes(value)) {
+            return null
+          }
+        }
+      }
+      // 3. Stored OAuth credentials — covers the gap where a user has
+      // signed in (secure storage populated) but the profile env hasn't
+      // been applied yet (e.g. fresh process before applySavedProfile).
+      // Bare mode short-circuits inside readXaiCredentialsAsync, so this
+      // is safe to call unconditionally. Injectable so tests don't
+      // depend on the developer's actual login state.
+      const hasStored = options.hasStoredXaiOAuthCredentials
+        ? await options.hasStoredXaiOAuthCredentials()
+        : await defaultHasStoredXaiOAuthCredentials()
+      if (hasStored) {
+        return null
+      }
+      return validation.missingCredentialMessage
     }
   }
 }
@@ -374,6 +415,7 @@ export async function getProviderValidationError(
     resolveGeminiCredential?: (
       env: NodeJS.ProcessEnv,
     ) => Promise<GeminiResolvedCredential>
+    hasStoredXaiOAuthCredentials?: () => Promise<boolean>
   },
 ): Promise<string | null> {
   const secretSource: SecretValueSource = {
@@ -445,6 +487,7 @@ export async function getProviderValidationError(
         {
           request,
           resolveGeminiCredential: options?.resolveGeminiCredential,
+          hasStoredXaiOAuthCredentials: options?.hasStoredXaiOAuthCredentials,
         },
       )
 
