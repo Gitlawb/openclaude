@@ -9,6 +9,7 @@ import type {
 import type { UUID } from 'crypto'
 import type { z } from 'zod/v4'
 import type { Command } from './commands.js'
+import type { ProviderOverride } from './services/api/authRouting.js'
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import type { ThinkingConfig } from './utils/thinking.js'
 
@@ -177,7 +178,7 @@ export type ToolUseContext = {
     /** Optional callback to get the latest tools (e.g., after MCP servers connect mid-query) */
     refreshTools?: () => Tools
     /** Per-agent provider override from agentRouting config */
-    providerOverride?: { model: string; baseURL: string; apiKey: string }
+    providerOverride?: ProviderOverride
   }
   abortController: AbortController
   readFileState: FileStateCache

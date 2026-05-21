@@ -166,6 +166,8 @@ export function logAPIQuery({
   model,
   messagesLength,
   temperature,
+  topP,
+  numCtx,
   betas,
   permissionMode,
   querySource,
@@ -178,6 +180,8 @@ export function logAPIQuery({
   model: string
   messagesLength: number
   temperature: number
+  topP?: number
+  numCtx?: number
   betas?: string[]
   permissionMode?: PermissionMode
   querySource: string
@@ -191,6 +195,8 @@ export function logAPIQuery({
     model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     messagesLength,
     temperature: temperature,
+    top_p: topP,
+    num_ctx: numCtx,
     provider: getAPIProviderForStatsig(),
     buildAgeMins: getBuildAgeMinutes(),
     ...(betas?.length
@@ -229,6 +235,9 @@ export function logAPIQuery({
 export function logAPIError({
   error,
   model,
+  temperature,
+  topP,
+  numCtx,
   messageCount,
   messageTokens,
   durationMs,
@@ -246,6 +255,9 @@ export function logAPIError({
 }: {
   error: unknown
   model: string
+  temperature?: number
+  topP?: number
+  numCtx?: number
   messageCount: number
   messageTokens?: number
   durationMs: number
@@ -291,9 +303,11 @@ export function logAPIError({
     )
   }
 
-  logError(error as Error)
   logEvent('tengu_api_error', {
     model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+    temperature,
+    top_p: topP,
+    num_ctx: numCtx,
     error: errStr as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     status:
       status as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -372,6 +386,9 @@ export function logAPIError({
 function logAPISuccess({
   model,
   preNormalizedModel,
+  temperature,
+  topP,
+  numCtx,
   messageCount,
   messageTokens,
   usage,
@@ -398,6 +415,9 @@ function logAPISuccess({
 }: {
   model: string
   preNormalizedModel: string
+  temperature?: number
+  topP?: number
+  numCtx?: number
   messageCount: number
   messageTokens: number
   usage: Usage
@@ -436,6 +456,9 @@ function logAPISuccess({
 
   logEvent('tengu_api_success', {
     model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+    temperature,
+    top_p: topP,
+    num_ctx: numCtx,
     ...(preNormalizedModel !== model
       ? {
           preNormalizedModel:
@@ -555,6 +578,9 @@ function logAPISuccess({
 export function logAPISuccessAndDuration({
   model,
   preNormalizedModel,
+  temperature,
+  topP,
+  numCtx,
   start,
   startIncludingRetries,
   ttftMs,
@@ -580,6 +606,9 @@ export function logAPISuccessAndDuration({
 }: {
   model: string
   preNormalizedModel: string
+  temperature?: number
+  topP?: number
+  numCtx?: number
   start: number
   startIncludingRetries: number
   ttftMs: number | null
@@ -660,6 +689,9 @@ export function logAPISuccessAndDuration({
   logAPISuccess({
     model,
     preNormalizedModel,
+    temperature,
+    topP,
+    numCtx,
     messageCount,
     messageTokens,
     usage,

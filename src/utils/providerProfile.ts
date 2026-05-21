@@ -93,6 +93,9 @@ const PROFILE_ENV_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'CLAUDE_CODE_TEMPERATURE',
+  'CLAUDE_CODE_TOP_P',
+  'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
 ] as const
 
 export type CompatibilityProfileMode =
@@ -149,6 +152,9 @@ export type ProfileEnv = {
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
   OPENAI_API_KEY?: string
+  CLAUDE_CODE_TEMPERATURE?: string
+  CLAUDE_CODE_TOP_P?: string
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS?: string
   CODEX_API_KEY?: string
   CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
   CHATGPT_ACCOUNT_ID?: string

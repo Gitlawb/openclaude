@@ -24,7 +24,15 @@ export type QueryDeps = {
 
   // -- compaction
   microcompact: typeof microcompactMessages
-  autocompact: typeof autoCompactIfNeeded
+  autocompact: (
+    messages: Message[],
+    toolUseContext: ToolUseContext,
+    cacheSafeParams: CacheSafeParams,
+    querySource?: QuerySource,
+    tracking?: AutoCompactTrackingState,
+    snipTokensFreed?: number,
+    overrideNumCtx?: number,
+  ) => ReturnType<typeof autoCompactIfNeeded>
 
   // -- platform
   uuid: () => string

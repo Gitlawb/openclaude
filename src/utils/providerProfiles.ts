@@ -60,6 +60,9 @@ export type ProviderProfileInput = {
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
+  temperature?: number
+  top_p?: number
+  num_ctx?: number
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -186,6 +189,15 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   if (customHeaders) {
     sanitized.customHeaders = customHeaders
   }
+  if (profile.temperature !== undefined) {
+    sanitized.temperature = profile.temperature
+  }
+  if (profile.top_p !== undefined) {
+    sanitized.top_p = profile.top_p
+  }
+  if (profile.num_ctx !== undefined) {
+    sanitized.num_ctx = profile.num_ctx
+  }
   return sanitized
 }
 
@@ -225,6 +237,9 @@ function toProfile(
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
     customHeaders: input.customHeaders,
+    temperature: input.temperature,
+    top_p: input.top_p,
+    num_ctx: input.num_ctx,
   })
 }
 
@@ -672,6 +687,16 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
 
     profileEnv = openAIProfileEnv
+  }
+
+  if (profile.temperature !== undefined) {
+    profileEnv.CLAUDE_CODE_TEMPERATURE = String(profile.temperature)
+  }
+  if (profile.top_p !== undefined) {
+    profileEnv.CLAUDE_CODE_TOP_P = String(profile.top_p)
+  }
+  if (profile.num_ctx !== undefined) {
+    profileEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(profile.num_ctx)
   }
 
   profileEnv = applySupportedProfileCustomHeaders(profile, profileEnv)

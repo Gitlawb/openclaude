@@ -78,6 +78,7 @@ import {
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
+import type { ProviderOverride } from './authRouting.js'
 import {
   createStreamState,
   processStreamChunk,
@@ -1578,9 +1579,9 @@ class OpenAIShimStream {
 class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
-  private providerOverride?: { model: string; baseURL: string; apiKey: string }
+  private providerOverride?: ProviderOverride
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: ProviderOverride) {
     this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
@@ -1802,6 +1803,27 @@ class OpenAIShimMessages {
     if (request.reasoning) {
       body.reasoning_effort = request.reasoning.effort
     }
+
+    const envTemperatureStr = process.env.CLAUDE_CODE_TEMPERATURE
+    const parsedEnvTemperature = envTemperatureStr ? parseFloat(envTemperatureStr) : NaN
+    const temperatureValue =
+      params.temperature ??
+      this.providerOverride?.temperature ??
+      (!isNaN(parsedEnvTemperature) ? parsedEnvTemperature : undefined)
+    if (temperatureValue !== undefined) {
+      body.temperature = temperatureValue
+    }
+
+    const envTopPStr = process.env.CLAUDE_CODE_TOP_P
+    const parsedEnvTopP = envTopPStr ? parseFloat(envTopPStr) : NaN
+    const topPValue =
+      params.top_p ??
+      this.providerOverride?.top_p ??
+      (!isNaN(parsedEnvTopP) ? parsedEnvTopP : undefined)
+    if (topPValue !== undefined) {
+      body.top_p = topPValue
+    }
+
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
     // Ensure max_tokens is a valid positive number before using it.
@@ -2558,7 +2580,7 @@ class OpenAIShimBeta {
   messages: OpenAIShimMessages
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: ProviderOverride) {
     this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
     this.reasoningEffort = reasoningEffort
   }
@@ -2569,7 +2591,7 @@ export function createOpenAIShimClient(options: {
   maxRetries?: number
   timeout?: number
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
-  providerOverride?: { model: string; baseURL: string; apiKey: string }
+  providerOverride?: ProviderOverride
 }): unknown {
   hydrateGeminiAccessTokenFromSecureStorage()
   hydrateGithubModelsTokenFromSecureStorage()

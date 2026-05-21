@@ -4,7 +4,14 @@ import {
   isFirstPartyAnthropicBaseUrl,
 } from 'src/utils/model/providers.js'
 
-export type ProviderOverride = { model: string; baseURL: string; apiKey: string }
+export type ProviderOverride = {
+  model: string
+  baseURL: string
+  apiKey: string
+  temperature?: number
+  top_p?: number
+  num_ctx?: number
+}
 
 export function shouldUseFirstPartyAnthropicAuthForProvider({
   providerOverride,

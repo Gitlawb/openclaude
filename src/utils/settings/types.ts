@@ -742,6 +742,9 @@ export const SettingsSchema = lazySchema(() =>
           z.object({
             base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
             api_key: z.string().describe('API key for this provider'),
+            temperature: z.number().min(0).max(1).optional().describe('Optional temperature override (0.0 to 1.0)'),
+            top_p: z.number().min(0).max(1).optional().describe('Optional top_p override (0.0 to 1.0)'),
+            num_ctx: z.number().int().positive().optional().describe('Optional context window override'),
           }),
         )
         .optional()

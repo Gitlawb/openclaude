@@ -879,6 +879,61 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent?.usage?.output_tokens).toBe(45)
 })
 
+test('respects temperature and top_p overrides from providerOverride and environment', async () => {
+  let requestBody: any
+  globalThis.fetch = (async (input: RequestInfo, init?: RequestInit) => {
+    requestBody = JSON.parse(init?.body as string)
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'test' } }] }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'test-model',
+      baseURL: 'http://example.test/v1',
+      apiKey: 'test-key',
+      temperature: 0.3,
+      top_p: 0.7,
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'test-model',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'hello' }],
+    stream: false,
+  })
+
+  expect(requestBody.temperature).toBe(0.3)
+  expect(requestBody.top_p).toBe(0.7)
+
+  // Test environment variable overrides with NaN protection
+  process.env.CLAUDE_CODE_TEMPERATURE = '0.4'
+  process.env.CLAUDE_CODE_TOP_P = '' // Empty string -> should be ignored (NaN)
+
+  const client2 = createOpenAIShimClient({
+    providerOverride: {
+      model: 'test-model',
+      baseURL: 'http://example.test/v1',
+      apiKey: 'test-key',
+    },
+  }) as OpenAIShimClient
+
+  await client2.beta.messages.create({
+    model: 'test-model',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'hello' }],
+    stream: false,
+  })
+
+  expect(requestBody.temperature).toBe(0.4)
+  expect(requestBody.top_p).toBeUndefined()
+  
+  delete process.env.CLAUDE_CODE_TEMPERATURE
+  delete process.env.CLAUDE_CODE_TOP_P
+})
+
 test('uses max_tokens instead of max_completion_tokens for local providers', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 

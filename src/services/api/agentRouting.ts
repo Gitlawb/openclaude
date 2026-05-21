@@ -1,20 +1,8 @@
 import type { SettingsJson } from '../../utils/settings/types.js'
+import type { ProviderOverride } from './authRouting.js'
 
 /**
- * Provider override resolved from agent routing config.
- * When present, the API client should use these instead of global env vars.
- */
-export interface ProviderOverride {
-  /** Model name to send to the API (e.g. "deepseek-chat", "gpt-4o") */
-  model: string
-  /** OpenAI-compatible base URL */
-  baseURL: string
-  /** API key for this provider */
-  apiKey: string
-}
-
-/**
- * Normalize an agent identifier for case-insensitive, hyphen/underscore-agnostic matching.
+ * Look up agent.routing by name or subagent_type, then resolve via agent.models.
  */
 function normalize(key: string): string {
   return key.toLowerCase().replace(/[-_]/g, '')
@@ -71,5 +59,8 @@ export function resolveAgentProvider(
     model: modelName,
     baseURL: modelConfig.base_url,
     apiKey: modelConfig.api_key,
+    temperature: modelConfig.temperature,
+    top_p: modelConfig.top_p,
+    num_ctx: modelConfig.num_ctx,
   }
 }

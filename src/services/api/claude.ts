@@ -225,6 +225,7 @@ import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
+import type { ProviderOverride } from './authRouting.js'
 import {
   API_ERROR_MESSAGE_PREFIX,
   CUSTOM_OFF_SWITCH_MESSAGE,
@@ -699,6 +700,8 @@ export type Options = {
   enablePromptCaching?: boolean
   skipCacheWrite?: boolean
   temperatureOverride?: number
+  topPOverride?: number
+  numCtxOverride?: number
   effortValue?: EffortValue
   mcpTools: Tools
   hasPendingMcpServers?: boolean
@@ -713,7 +716,7 @@ export type Options = {
   // so the model can pace itself. `remaining` is computed by the caller
   // (query.ts decrements across the agentic loop).
   taskBudget?: { total: number; remaining?: number }
-  providerOverride?: { model: string; baseURL: string; apiKey: string }
+  providerOverride?: ProviderOverride
 }
 
 export async function queryModelWithoutStreaming({
@@ -1068,6 +1071,32 @@ async function* queryModel(
   // Also naturally handles rollback/undo since removed messages won't be in the array.
   const previousRequestId = getPreviousRequestIdFromMessages(messages)
 
+  // Resolve model parameters once for the entire query (including retries)
+  const envTemperatureStr = process.env.CLAUDE_CODE_TEMPERATURE
+  const parsedEnvTemperature =
+    envTemperatureStr ? parseFloat(envTemperatureStr) : NaN
+  const envTemperature = !isNaN(parsedEnvTemperature)
+    ? parsedEnvTemperature
+    : undefined
+  const resolvedTemperature =
+    options.temperatureOverride ??
+    options.providerOverride?.temperature ??
+    envTemperature ??
+    1
+
+  const envTopPStr = process.env.CLAUDE_CODE_TOP_P
+  const parsedEnvTopP = envTopPStr ? parseFloat(envTopPStr) : NaN
+  const resolvedTopP =
+    options.topPOverride ??
+    options.providerOverride?.top_p ??
+    (!isNaN(parsedEnvTopP) ? parsedEnvTopP : undefined)
+  const envNumCtxStr = process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  const parsedEnvNumCtx = envNumCtxStr ? parseInt(envNumCtxStr, 10) : NaN
+  const resolvedNumCtx =
+    options.numCtxOverride ??
+    options.providerOverride?.num_ctx ??
+    (!isNaN(parsedEnvNumCtx) ? parsedEnvNumCtx : undefined)
+
   const resolvedModel =
     getAPIProvider() === 'bedrock' &&
     options.model.includes('application-inference-profile')
@@ -1288,8 +1317,9 @@ async function* queryModel(
       cacheWeight: 0.4,
       freshWeight: 0.6,
       maxTotalTokens: Math.min(
-        getContextWindowForModel(model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
-        200000
+        getContextWindowForModel(model, getSdkBetas(), resolvedNumCtx) -
+          COMPACT_MAX_OUTPUT_TOKENS,
+        200000,
       ),
     })
     messagesForAPI = strategyResult.selectedMessages
@@ -1701,9 +1731,8 @@ async function* queryModel(
 
     // Only send temperature when thinking is disabled — the API requires
     // temperature: 1 when thinking is enabled, which is already the default.
-    const temperature = !hasThinking
-      ? (options.temperatureOverride ?? 1)
-      : undefined
+    const temperature = !hasThinking ? resolvedTemperature : undefined
+    const top_p = resolvedTopP
 
     lastRequestBetas = betasParams
 
@@ -1732,6 +1761,7 @@ async function* queryModel(
       max_tokens: maxOutputTokens,
       thinking,
       ...(temperature !== undefined && { temperature }),
+      ...(top_p !== undefined && { top_p }),
       ...(contextManagement &&
         useBetas &&
         betasParams.includes(CONTEXT_MANAGEMENT_BETA_HEADER) && {
@@ -1762,7 +1792,9 @@ async function* queryModel(
       logAPIQuery({
         model: options.model,
         messagesLength: logMessagesLength,
-        temperature: options.temperatureOverride ?? 1,
+        temperature: resolvedTemperature,
+        topP: resolvedTopP,
+        numCtx: resolvedNumCtx,
         betas: logBetas,
         permissionMode: permissionContext.mode,
         querySource: options.querySource,
@@ -2739,6 +2771,9 @@ async function* queryModel(
         logAPIError({
           error,
           model: errorModel,
+          temperature: resolvedTemperature,
+          topP: resolvedTopP,
+          numCtx: resolvedNumCtx,
           messageCount: messagesForAPI.length,
           messageTokens: tokenCountFromLastAPIResponse(messagesForAPI),
           durationMs: Date.now() - start,
@@ -2794,6 +2829,9 @@ async function* queryModel(
       logAPIError({
         error,
         model: errorModel,
+        temperature: resolvedTemperature,
+        topP: resolvedTopP,
+        numCtx: resolvedNumCtx,
         messageCount: messagesForAPI.length,
         messageTokens: tokenCountFromLastAPIResponse(messagesForAPI),
         durationMs: Date.now() - start,
@@ -2876,6 +2914,9 @@ async function* queryModel(
       model:
         newMessages[0]?.message.model ?? partialMessage?.model ?? options.model,
       preNormalizedModel: options.model,
+      temperature: resolvedTemperature,
+      topP: resolvedTopP,
+      numCtx: resolvedNumCtx,
       usage,
       start,
       startIncludingRetries,

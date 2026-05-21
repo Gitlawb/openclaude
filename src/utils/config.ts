@@ -200,6 +200,9 @@ export type ProviderProfile = {
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
   customHeaders?: Record<string, string>
+  temperature?: number
+  top_p?: number
+  num_ctx?: number
 }
 
 export type GlobalConfig = {
