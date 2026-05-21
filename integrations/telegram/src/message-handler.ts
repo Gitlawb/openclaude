@@ -119,15 +119,28 @@ export async function sendMessage(
 
 /**
  * Send a potentially long message, splitting if necessary.
+ * Defaults to plain text (no parse mode) for AI responses.
  */
 export async function sendLongMessage(
   bot: Telegraf,
   chatId: string,
   text: string,
-  parseMode: "MarkdownV2" | "HTML" = "MarkdownV2"
+  parseMode?: "MarkdownV2" | "HTML"
 ): Promise<void> {
   const chunks = splitMarkdown(text);
+  const queue = getTopicQueue(chatId);
   for (const chunk of chunks) {
-    await sendMessage(bot, chatId, chunk, parseMode);
+    await queue.add(async () => {
+      const typingInterval = setInterval(() => {
+        bot.telegram.sendChatAction(chatId, "typing").catch(() => {});
+      }, TYPING_INTERVAL_MS);
+      try {
+        const opts: any = {};
+        if (parseMode) opts.parse_mode = parseMode;
+        await bot.telegram.sendMessage(chatId, chunk, opts);
+      } finally {
+        clearInterval(typingInterval);
+      }
+    });
   }
 }

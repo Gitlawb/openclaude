@@ -9,7 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@gitlawb/openclaude": "file:../../",
+    "@gitlawb/openclaude": "^0.13.0",
     "better-sqlite3": "^11.0.0",
     "p-queue": "^8.0.1",
     "telegraf": "^4.16.3"
