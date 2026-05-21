@@ -52,6 +52,8 @@ import {
   saveMode,
   saveWorktreeState,
 } from './sessionStorage.js'
+import { prepareGoalForSessionResume } from '../services/goal/state.js'
+import type { GoalState } from '../services/goal/types.js'
 import { isTodoV2Enabled } from './tasks.js'
 import type { TodoList } from './todo/types.js'
 import { TodoListSchema } from './todo/types.js'
@@ -67,6 +69,7 @@ type ResumeResult = {
   attributionSnapshots?: AttributionSnapshotMessage[]
   contextCollapseCommits?: ContextCollapseCommitEntry[]
   contextCollapseSnapshot?: ContextCollapseSnapshotEntry
+  goal?: GoalState | null
 }
 
 /**
@@ -146,6 +149,11 @@ export function restoreSessionStateFromLog(
         todos: { ...prev.todos, [agentId]: todos },
       }))
     }
+  }
+
+  if (result.goal !== undefined) {
+    const goal = prepareGoalForSessionResume(result.goal)
+    setAppState(prev => ({ ...prev, goal }))
   }
 }
 
@@ -312,6 +320,7 @@ type ResumeLoadResult = {
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goal?: GoalState | null
 }
 
 /**
@@ -545,6 +554,9 @@ export async function processResumedConversation(
       ...(resumedAgentType && { agent: resumedAgentType }),
       ...(restoredAttribution && { attribution: restoredAttribution }),
       ...(standaloneAgentContext && { standaloneAgentContext }),
+      ...(result.goal !== undefined && {
+        goal: prepareGoalForSessionResume(result.goal),
+      }),
       agentDefinitions: refreshedAgentDefs,
     },
   }

@@ -519,8 +519,13 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
 export async function loadMessagesFromJsonlPath(path: string): Promise<{
   messages: SerializedMessage[]
   sessionId: UUID | undefined
+  goal: LogOption['goal'] | undefined
 }> {
-  const { messages: byUuid, leafUuids } = await loadTranscriptFile(path)
+  const {
+    messages: byUuid,
+    goalStates,
+    leafUuids,
+  } = await loadTranscriptFile(path)
   let tip: (typeof byUuid extends Map<UUID, infer T> ? T : never) | null = null
   let tipTs = 0
   for (const m of byUuid.values()) {
@@ -531,14 +536,16 @@ export async function loadMessagesFromJsonlPath(path: string): Promise<{
       tip = m
     }
   }
-  if (!tip) return { messages: [], sessionId: undefined }
+  if (!tip) return { messages: [], sessionId: undefined, goal: undefined }
   const chain = buildConversationChain(byUuid, tip)
+  const sessionId = tip.sessionId as UUID | undefined
   return {
     messages: removeExtraFields(chain),
     // Leaf's sessionId — forked sessions copy chain[0] from the source
     // transcript, so the root retains the source session's ID. Matches
     // loadFullLog's mostRecentLeaf.sessionId.
-    sessionId: tip.sessionId as UUID | undefined,
+    sessionId,
+    goal: sessionId ? goalStates.get(sessionId) : undefined,
   }
 }
 
@@ -579,6 +586,7 @@ export async function loadConversationForResume(
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goal?: LogOption['goal']
   // Full path to the session file (for cross-directory resume)
   fullPath?: string
 } | null> {
@@ -586,6 +594,7 @@ export async function loadConversationForResume(
     let log: LogOption | null = null
     let messages: Message[] | null = null
     let sessionId: UUID | undefined
+    let goal: LogOption['goal'] | undefined
 
     if (source === undefined) {
       // --continue: most recent session, skipping live --bg/daemon sessions
@@ -620,6 +629,7 @@ export async function loadConversationForResume(
       const loaded = await loadMessagesFromJsonlPath(sourceJsonlFile)
       messages = loaded.messages
       sessionId = loaded.sessionId
+      goal = loaded.goal
     } else if (typeof source === 'string') {
       // Load specific session by ID
       log = await getLastSessionLog(source as UUID)
@@ -643,6 +653,7 @@ export async function loadConversationForResume(
       if (!sessionId) {
         sessionId = getSessionIdFromLog(log) as UUID
       }
+      goal = log.goal
       // Pass the original session ID to ensure the plan slug is associated with
       // the session we're resuming, not the temporary session ID before resume
       if (sessionId) {
@@ -695,6 +706,7 @@ export async function loadConversationForResume(
       prNumber: log?.prNumber,
       prUrl: log?.prUrl,
       prRepository: log?.prRepository,
+      goal,
       // Include full path for cross-directory resume
       fullPath: log?.fullPath,
     }
