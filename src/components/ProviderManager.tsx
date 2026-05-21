@@ -585,6 +585,11 @@ function XaiManualCodeInput({
           if (trimmed) onSubmit(trimmed)
         }}
         mask="*"
+        // The parent `XaiOAuthSetup` owns Esc via `useKeybinding('confirm:no')`.
+        // Without this flag, BaseTextInput's child-effect Esc handler runs
+        // before the parent keybinding, triggering the "press Esc again to
+        // clear" double-press flow and swallowing the cancel.
+        disableEscapeDoublePress
       />
     </Box>
   )
