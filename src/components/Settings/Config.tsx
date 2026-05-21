@@ -198,7 +198,16 @@ export function Config({
   const isConnectedToIde = hasAccessToIDEExtensionDiffFeature(context.options.mcpClients);
   const isFileCheckpointingAvailable = !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING);
   const memoryFiles = React.use(getMemoryFiles(true));
-  const shouldShowExternalIncludesToggle = hasExternalClaudeMdIncludes(memoryFiles);
+  function getPendingExternalIncludesScope(): 'User' | 'Project' | null {
+    const cfg = getCurrentProjectConfig();
+    // Project/Local first (mirrors startup priority in shouldShowClaudeMdExternalIncludesWarning)
+    if (!cfg.hasClaudeMdExternalIncludesApproved && !cfg.hasClaudeMdExternalIncludesWarningShown && hasExternalClaudeMdIncludes(memoryFiles, ['Project', 'Local'])) return 'Project';
+    // User second
+    if (!cfg.hasClaudeMdExternalIncludesApprovedForUser && !cfg.hasClaudeMdExternalIncludesWarningShownForUser && hasExternalClaudeMdIncludes(memoryFiles, ['User'])) return 'User';
+    return null;
+  }
+  const pendingScope = getPendingExternalIncludesScope();
+  const shouldShowExternalIncludesToggle = pendingScope !== null;
   const autoUpdaterDisabledReason = getAutoUpdaterDisabledReason();
   function onChangeMainModelConfig(value: string | null): void {
     const previousModel = mainLoopModel;
@@ -1030,20 +1039,16 @@ export function Config({
         };
       });
     }
-  }] : []), ...(shouldShowExternalIncludesToggle ? [{
+  }] : []),   ...(shouldShowExternalIncludesToggle ? [{
     id: 'showExternalIncludesDialog',
-    label: 'External CLAUDE.md includes',
+    label: pendingScope === 'User' ? 'User CLAUDE.md external includes' : 'External CLAUDE.md includes',
     value: (() => {
-      const projectConfig = getCurrentProjectConfig();
-      if (projectConfig.hasClaudeMdExternalIncludesApproved) {
-        return 'true';
-      } else {
-        return 'false';
-      }
+      const cfg = getCurrentProjectConfig();
+      return cfg[pendingScope === 'User' ? 'hasClaudeMdExternalIncludesApprovedForUser' : 'hasClaudeMdExternalIncludesApproved'] ? 'true' : 'false';
     })(),
     type: 'managedEnum' as const,
     onChange() {
-      // Will be handled by toggleSetting function
+      // Handled by toggleSetting -> setShowSubmenu('ExternalIncludes')
     }
   }] : []), ...(process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace() ? [{
     id: 'apiKey',
@@ -1578,11 +1583,11 @@ export function Config({
               <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
             </Byline>
           </Text>
-        </> : showSubmenu === 'ExternalIncludes' ? <>
+        </> : showSubmenu === 'ExternalIncludes' && pendingScope ? <>
           <ClaudeMdExternalIncludesDialog onDone={() => {
         setShowSubmenu(null);
         setTabsHidden(false);
-      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles)} />
+      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles, pendingScope === 'User' ? ['User'] : ['Project', 'Local'])} scope={pendingScope} />
           <Text dimColor>
             <Byline>
               <KeyboardShortcutHint shortcut="Enter" action="confirm" />

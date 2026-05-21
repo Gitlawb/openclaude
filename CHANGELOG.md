@@ -62,6 +62,7 @@
 * replace raw abort signal timeouts ([#1123](https://github.com/Gitlawb/openclaude/issues/1123)) ([877b4dc](https://github.com/Gitlawb/openclaude/commit/877b4dc88600062d8bbfaf764bfbd828c55699e8))
 * surface actionable error when fetch fails in _doOpenAIRequest ([#447](https://github.com/Gitlawb/openclaude/issues/447)) ([3af0924](https://github.com/Gitlawb/openclaude/commit/3af092441d36d77cc5b23c69225be568ef8d355c))
 * update vulnerable dependencies ([#1149](https://github.com/Gitlawb/openclaude/issues/1149)) ([5328f57](https://github.com/Gitlawb/openclaude/commit/5328f57a724b15fcf688cdfd0c1d52c3de926059))
+* **memory:** gate User-scope external @include behind approval prompt ([#131](https://github.com/Gitlawb/openclaude/issues/131))
 
 ## [0.10.0](https://github.com/Gitlawb/openclaude/compare/v0.9.2...v0.10.0) (2026-05-11)
 
