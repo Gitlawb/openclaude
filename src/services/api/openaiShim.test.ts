@@ -5815,6 +5815,41 @@ test('non-streaming: parses plain-content JSON tool call from Ollama content (is
   }) as { content?: Array<Record<string, unknown>> }
 
   expect(message.content).toEqual([
+    { type: 'text', text: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}' },
+  ])
+})
+
+test('non-streaming: parses plain-content JSON tool call from Ollama content when tools requested', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ollama-plain',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '{"name": "WebSearch", "arguments": {"query": "Paris weather"}}',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'qwen2.5-coder:7b',
+    messages: [{ role: 'user', content: 'search' }],
+    max_tokens: 64,
+    stream: false,
+    tools: [{ name: 'WebSearch', description: 'Search the web', input_schema: { type: 'object', properties: { query: { type: 'string' } } } }],
+  }) as { content?: Array<Record<string, unknown>> }
+
+  expect(message.content).toEqual([
     {
       type: 'tool_use',
       id: 'tc-0-WebSearch',
@@ -5824,7 +5859,7 @@ test('non-streaming: parses plain-content JSON tool call from Ollama content (is
   ])
 })
 
-test('non-streaming: parses plain-content JSON tool call array from Ollama content', async () => {
+test('non-streaming: parses plain-content JSON tool call array from Ollama content when tools requested', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
       JSON.stringify({
@@ -5851,6 +5886,10 @@ test('non-streaming: parses plain-content JSON tool call array from Ollama conte
     messages: [{ role: 'user', content: 'run commands' }],
     max_tokens: 64,
     stream: false,
+    tools: [
+      { name: 'Bash', description: 'Run commands', input_schema: { type: 'object', properties: { command: { type: 'string' } } } },
+      { name: 'Read', description: 'Read files', input_schema: { type: 'object', properties: { file_path: { type: 'string' } } } },
+    ],
   }) as { content?: Array<Record<string, unknown>> }
 
   expect(message.content).toEqual([
