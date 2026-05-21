@@ -1787,7 +1787,8 @@ async function* openaiStreamToAnthropic(
           } else if (
             !hasEmittedContentStart &&
             bufferedRawToolCallsText === null &&
-            (couldBeRawToolCallsRequestedPrefix(delta.content) || couldBeRawJsonContent(delta.content))
+            (couldBeRawToolCallsRequestedPrefix(delta.content) ||
+              (couldBeRawJsonContent(delta.content) && !!validToolNames))
           ) {
             bufferedRawToolCallsText = delta.content
             processStreamChunk(streamState, delta.content)
