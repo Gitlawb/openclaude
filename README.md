@@ -248,6 +248,10 @@ OpenClaude can be run as a headless gRPC service, allowing you to integrate its 
   ```bash
   bun install
   ```
+- **Python 3.10+** with `grpcio` (for the Python client):
+  ```bash
+  pip install grpcio
+  ```
 
 ### 1. Start the gRPC Server
 
@@ -274,7 +278,22 @@ In a separate terminal, run:
 bun run dev:grpc:cli
 ```
 
-*Note: The gRPC definitions are located in `src/proto/openclaude.proto`. You can use this file to generate clients in Python, Go, Rust, or any other language.*
+### 3. Run the Python Client
+
+A Python client is also available — it supports the same interactive streaming, tool calls, and permission prompts:
+
+```bash
+# Interactive mode
+python python/grpc_client/client.py
+
+# One-shot message
+python python/grpc_client/client.py --message "list files"
+
+# Custom host/port
+python python/grpc_client/client.py --host 0.0.0.0 --port 50051
+```
+
+*Note: The gRPC definitions are located in `src/proto/openclaude.proto`. You can use this file to generate clients in Go, Rust, or any other language.*
 
 ---
 
