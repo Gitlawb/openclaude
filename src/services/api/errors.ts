@@ -946,6 +946,14 @@ export function getAssistantMessageFromError(
     error.message.toLowerCase().includes('x-api-key') &&
     getAPIProvider() === 'firstParty'
   ) {
+    // 1claw Shroud auth: surface actionable error instead of generic "Not logged in"
+    if (process.env.ONECLAW_AUTH_ACTIVE === '1') {
+      return createAssistantAPIErrorMessage({
+        error: 'authentication_failed',
+        content: 'Shroud auth error · Check 1claw agent credentials and ensure LLM Token Billing is enabled at https://1claw.xyz → Billing',
+      })
+    }
+
     // In CCR mode, auth is via JWTs - this is likely a transient network issue
     if (isCCRMode()) {
       return createAssistantAPIErrorMessage({

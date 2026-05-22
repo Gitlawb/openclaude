@@ -13,6 +13,8 @@ export interface ShroudRoutingResult {
   baseUrl: string
   headers: Record<string, string>
   providerHint: string
+  useOpenAICompat?: boolean
+  stripeModelName?: string
 }
 
 const PROVIDER_ENV_TO_SHROUD_PROVIDER: Record<string, string> = {
@@ -65,7 +67,11 @@ export function buildShroudHeaders(options?: {
   }
 
   const config = loadOneclawConfig()
-  if (config?.vaultId) {
+  const authMode = config?.authMode
+
+  if (authMode === 'token-billing') {
+    headers['X-Shroud-Billing'] = 'token'
+  } else if (config?.vaultId) {
     const envKey = Object.entries(PROVIDER_ENV_TO_SHROUD_PROVIDER).find(
       ([_, p]) => p === provider,
     )?.[0]
@@ -76,10 +82,23 @@ export function buildShroudHeaders(options?: {
   }
 
   if (options?.model) {
-    headers['X-Shroud-Model'] = options.model
+    headers['X-Shroud-Model'] = authMode === 'token-billing'
+      ? toStripeModelName(options.model)
+      : options.model
   }
 
   return headers
+}
+
+/**
+ * Convert Anthropic API model names to Stripe AI Gateway format.
+ * Anthropic: claude-sonnet-4-5-20250929 → Stripe: claude-sonnet-4.5
+ * Anthropic: claude-opus-4-6            → Stripe: claude-opus-4.6
+ */
+function toStripeModelName(model: string): string {
+  let name = model.replace(/-\d{8}$/, '')
+  name = name.replace(/(\d+)-(\d+)$/, '$1.$2')
+  return name
 }
 
 export function applyShroudRouting(options?: {
@@ -89,18 +108,22 @@ export function applyShroudRouting(options?: {
   if (!isShroudEnabled()) return null
   if (!isOneclawConfigured()) return null
 
+  const config = loadOneclawConfig()
   const provider = options?.provider ?? getShroudProvider() ?? 'openai'
   const headers = buildShroudHeaders({ ...options, provider })
 
   if (!headers['X-Shroud-Agent-Key']) return null
 
   const baseUrl = getShroudBaseUrl()
+  const isTokenBilling = config?.authMode === 'token-billing'
 
-  logForDebugging(`[Shroud] routing to ${baseUrl} via provider=${provider}`)
+  logForDebugging(`[Shroud] routing to ${baseUrl} via provider=${provider} billing=${isTokenBilling}`)
 
   return {
     baseUrl: `${baseUrl}/v1`,
     headers,
     providerHint: provider,
+    useOpenAICompat: isTokenBilling,
+    stripeModelName: isTokenBilling && options?.model ? toStripeModelName(options.model) : undefined,
   }
 }

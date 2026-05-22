@@ -16,6 +16,8 @@ import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
+import { isShroudEnabled as isShroudEnabledForDisplay } from '../utils/oneclawShroud.js'
+import { getShroudBaseUrl as getShroudBaseUrlForDisplay, isOneclawConfigured as isOneclawConfiguredForDisplay } from '../utils/oneclaw.js'
 import {
   resolveLogoPalette,
   type RGB,
@@ -159,7 +161,12 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const settings = getSettings_DEPRECATED() || {}
   const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
-  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
+  let baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
+  try {
+    if (isShroudEnabledForDisplay() && isOneclawConfiguredForDisplay()) {
+      baseUrl = getShroudBaseUrlForDisplay() + '/v1'
+    }
+  } catch { /* ignore */ }
   const isLocal = isLocalProviderUrl(baseUrl)
   return { name: 'Anthropic', model: resolvedModel, baseUrl, isLocal }
 }

@@ -1843,6 +1843,12 @@ class OpenAIShimMessages {
       delete body.max_completion_tokens
     }
 
+    // Shroud→Anthropic via Stripe: Anthropic backend requires max_tokens
+    if (this.providerOverride && request.baseUrl.includes('shroud') && body.max_completion_tokens !== undefined) {
+      body.max_tokens = body.max_completion_tokens
+      delete body.max_completion_tokens
+    }
+
     for (const field of shimConfig.removeBodyFields ?? []) {
       delete body[field]
     }
@@ -2086,16 +2092,19 @@ class OpenAIShimMessages {
     // 1claw Shroud: route through TEE proxy when enabled.
     // Shroud handles provider auth via vault reference, so we replace the
     // base URL and merge Shroud-specific headers. Local providers are excluded.
-    const shroudRouting = isLocal ? null : await (async () => {
-      try {
-        const { applyShroudRouting } = await import('../../utils/oneclawShroud.js')
-        return applyShroudRouting({ model: request.resolvedModel })
-      } catch { return null }
-    })()
-    if (shroudRouting) {
-      request = { ...request, baseUrl: shroudRouting.baseUrl }
-      Object.assign(headers, shroudRouting.headers)
-      delete headers['Authorization']
+    // Skip when providerOverride is set — client-level routing already applied.
+    if (!this.providerOverride) {
+      const shroudRouting = isLocal ? null : await (async () => {
+        try {
+          const { applyShroudRouting } = await import('../../utils/oneclawShroud.js')
+          return applyShroudRouting({ model: request.resolvedModel })
+        } catch { return null }
+      })()
+      if (shroudRouting) {
+        request = { ...request, baseUrl: shroudRouting.baseUrl }
+        Object.assign(headers, shroudRouting.headers)
+        delete headers['Authorization']
+      }
     }
 
     let activeBaseUrl = request.baseUrl

@@ -506,6 +506,31 @@ export async function getAnthropicClient({
   })()
 
   if (shroudAnthropicRouting) {
+    if (shroudAnthropicRouting.useOpenAICompat) {
+      // Token-billing: Stripe AI Gateway requires OpenAI-shaped /v1/chat/completions
+      // with Stripe-format model names (dots not hyphens, e.g. claude-sonnet-4.6).
+      const stripeModel = shroudAnthropicRouting.stripeModelName
+        ?? model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4.5'
+      const shroudHeaders = { ...defaultHeaders, ...shroudAnthropicRouting.headers }
+      const safeHeaders: Record<string, string> = {}
+      for (const [k, v] of Object.entries(shroudHeaders)) {
+        const lower = k.toLowerCase()
+        if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') continue
+        safeHeaders[k] = v
+      }
+      const { createOpenAIShimClient } = await import('./openaiShim.js')
+      return createOpenAIShimClient({
+        defaultHeaders: safeHeaders,
+        maxRetries,
+        timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+        reasoningEffort: shimReasoningEffort,
+        providerOverride: {
+          model: stripeModel,
+          baseURL: shroudAnthropicRouting.baseUrl,
+          apiKey: 'shroud-managed',
+        },
+      }) as unknown as Anthropic
+    }
     const shroudHeaders = { ...defaultHeaders, ...shroudAnthropicRouting.headers }
     return new Anthropic({
       baseURL: shroudAnthropicRouting.baseUrl.replace(/\/v1$/, ''),
