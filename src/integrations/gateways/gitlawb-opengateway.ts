@@ -11,28 +11,22 @@ export default defineGateway({
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
-    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'GITLAWB_API_KEY', 'OPENAI_API_KEY'],
   },
   validation: {
     kind: 'credential-env',
-    // OPENGATEWAY_API_KEY first so users who set both don't get their generic
-    // OpenAI key sent to opengateway by accident. OPENAI_API_KEY kept as a
-    // fallback because that's where existing openclaude configs already hold it.
-    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEY'],
-    missingCredentialMessage:
-      'OPENGATEWAY_API_KEY is required to use Gitlawb Opengateway.\n' +
-      'Mint a free API key at https://gitlawb.com/opengateway/keys and set it as OPENGATEWAY_API_KEY (or OPENAI_API_KEY when OPENAI_BASE_URL points at opengateway).',
+    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'GITLAWB_API_KEY', 'OPENAI_API_KEY'],
     routing: {
       matchBaseUrlHosts: ['opengateway.gitlawb.com', 'opengateway.fly.dev'],
     },
+    missingCredentialMessage:
+      'OPENGATEWAY_API_KEY (or GITLAWB_API_KEY) is required to use Gitlawb Opengateway.',
   },
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      // Opengateway expects `Authorization: Bearer ogw_live_...`. Previous
-      // `api-key` raw header was a leftover from the direct-Xiaomi era.
       defaultAuthHeader: {
-        name: 'authorization',
+        name: 'Authorization',
         scheme: 'bearer',
       },
       maxTokensField: 'max_completion_tokens',
@@ -43,10 +37,11 @@ export default defineGateway({
   },
   preset: {
     id: 'gitlawb-opengateway',
-    description: 'Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models (API key required, mint at https://gitlawb.com/opengateway/keys)',
+    description: 'Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models (API key required)',
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
     vendorId: 'openai',
+    apiKeyEnvVars: ['OPENGATEWAY_API_KEY', 'GITLAWB_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
@@ -85,10 +80,6 @@ export default defineGateway({
         label: 'MiMo V2 Flash (via Opengateway)',
         modelDescriptorId: 'mimo-v2-flash',
       },
-      // Non-Xiaomi models reachable through the same gateway endpoint. The
-      // gateway routes by model name (see opengateway/src/providers.ts), so
-      // the gateway URL stays unchanged; only the apiName the client sends
-      // determines the upstream.
       {
         id: 'opengateway-gemini-3.1-flash-lite-preview',
         apiName: 'google/gemini-3.1-flash-lite-preview',

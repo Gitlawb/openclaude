@@ -2070,6 +2070,59 @@ test('xiaomi mimo route uses api-key auth header and max_completion_tokens', asy
   expect(capturedBody).not.toHaveProperty('max_tokens')
 })
 
+test('gitlawb opengateway route uses bearer auth and max_completion_tokens', async () => {
+  let capturedHeaders: Record<string, string> | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.GITLAWB_API_KEY = 'gitlawb-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = init?.headers as Record<string, string>
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-opengateway',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedHeaders).toMatchObject({
+    Authorization: 'Bearer gitlawb-live-key',
+  })
+  expect(capturedHeaders).not.toHaveProperty('api-key')
+  expect(capturedBody).toMatchObject({ max_completion_tokens: 32 })
+  expect(capturedBody).not.toHaveProperty('max_tokens')
+})
+
 test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async () => {
   let capturedAuthorization: string | null = null
 

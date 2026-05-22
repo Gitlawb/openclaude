@@ -94,6 +94,7 @@ const PROFILE_ENV_KEYS = [
   'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'GITLAWB_API_KEY',
 ] as const
 
 export type CompatibilityProfileMode =
@@ -118,6 +119,7 @@ const SECRET_ENV_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'GITLAWB_API_KEY',
 ] as const
 
 export type ProviderProfile =
@@ -175,6 +177,7 @@ export type ProfileEnv = {
   XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
+  GITLAWB_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -196,7 +199,8 @@ type SecretValueSource = Partial<
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
     | 'VENICE_API_KEY'
-    | 'MIMO_API_KEY',
+    | 'MIMO_API_KEY'
+    | 'GITLAWB_API_KEY',
     string | undefined
   >
 >
