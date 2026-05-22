@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Node.js dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Suppress inherited Ruby/bundler alerts (project does not use Ruby)
+  - package-ecosystem: "bundler"
+    directory: "/"
+    ignore:
+      - dependency-name: "*"
