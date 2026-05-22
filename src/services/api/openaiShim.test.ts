@@ -1487,6 +1487,107 @@ test('strips unsupported stream_options for Xiaomi MiMo streams', async () => {
   expect(requestBody).not.toHaveProperty('store')
 })
 
+test('streams Gemini thought signatures that arrive after tool call start', async () => {
+  process.env.OPENAI_MODEL = 'google/gemini-3.1-pro-preview'
+
+  globalThis.fetch = (async () => {
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-gemini-stream-sig',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_1',
+                  type: 'function',
+                  function: {
+                    name: 'mcp__ruflo__session_restore',
+                    arguments: '',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-gemini-stream-sig',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  extra_content: {
+                    google: {
+                      thought_signature: 'sig-stream-late',
+                    },
+                  },
+                  function: {
+                    arguments: '{"sessionId":"abc"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-gemini-stream-sig',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ]))
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      messages: [{ role: 'user', content: 'restore session' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call_1',
+    name: 'mcp__ruflo__session_restore',
+    signature: 'sig-stream-late',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-stream-late',
+      },
+    },
+  })
+})
+
 test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
   let requestBody: Record<string, unknown> | undefined
 

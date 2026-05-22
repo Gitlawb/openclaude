@@ -31,7 +31,13 @@ import {
   refreshCodexAccessTokenIfNeeded,
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
+import {
+  isBareMode,
+  isEnvTruthy,
+  isGeminiEnvironment,
+  hasGeminiApiHost,
+  isGeminiModelName,
+} from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
@@ -98,7 +104,6 @@ type SecretValueSource = Partial<{
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
-const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
   'Editor-Version': 'vscode/1.99.3',
@@ -136,24 +141,6 @@ function filterAnthropicHeaders(
   return filtered
 }
 
-function hasGeminiApiHost(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-
-  try {
-    return new URL(baseUrl).hostname.toLowerCase() === GEMINI_API_HOST
-  } catch {
-    return false
-  }
-}
-
-function isGeminiModelName(model: string | undefined): boolean {
-  const normalized = model?.trim().toLowerCase()
-  return (
-    normalized?.startsWith('google/gemini-') === true ||
-    normalized?.startsWith('gemini-') === true
-  )
-}
-
 function shouldPreserveGeminiThoughtSignature(
   model: string | undefined,
   baseUrl?: string,
@@ -186,6 +173,42 @@ function mergeGeminiThoughtSignature(
       ...existingGoogle,
       thought_signature: signature,
     },
+  }
+}
+
+type PendingToolCallStart = {
+  id: string
+  name: string
+  index: number
+  input: Record<string, unknown>
+  extraContent?: Record<string, unknown>
+  signature?: string
+}
+
+function mergePendingToolCallSignature(
+  pending: PendingToolCallStart,
+  extraContent: Record<string, unknown> | undefined,
+): void {
+  const signature = geminiThoughtSignatureFromExtraContent(extraContent)
+  pending.extraContent = mergeGeminiThoughtSignature(
+    extraContent ?? pending.extraContent,
+    signature ?? pending.signature,
+  )
+  if (signature) {
+    pending.signature = signature
+  }
+}
+
+function makeToolUseContentBlock(
+  toolCall: PendingToolCallStart,
+): Record<string, unknown> {
+  return {
+    type: 'tool_use',
+    id: toolCall.id,
+    name: toolCall.name,
+    input: toolCall.input,
+    ...(toolCall.extraContent ? { extra_content: toolCall.extraContent } : {}),
+    ...(toolCall.signature ? { signature: toolCall.signature } : {}),
   }
 }
 
@@ -428,10 +451,7 @@ function convertContentBlocks(
 }
 
 function isGeminiMode(): boolean {
-  return (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    hasGeminiApiHost(process.env.OPENAI_BASE_URL)
-  )
+  return isGeminiEnvironment()
 }
 
 function hydrateOpenAIShimCompatibilityEnv(
@@ -1020,6 +1040,8 @@ async function* openaiStreamToAnthropic(
       index: number
       jsonBuffer: string
       normalizeAtStop: boolean
+      startEmitted: boolean
+      pendingStart: PendingToolCallStart
     }
   >()
   let hasEmittedContentStart = false
@@ -1031,6 +1053,22 @@ async function* openaiStreamToAnthropic(
   let hasProcessedFinishReason = false
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
+
+  const flushToolCallStart = function* (
+    active: {
+      index: number
+      startEmitted: boolean
+      pendingStart: PendingToolCallStart
+    },
+  ): Generator<AnthropicStreamEvent> {
+    if (active.startEmitted) return
+    yield {
+      type: 'content_block_start',
+      index: active.index,
+      content_block: makeToolUseContentBlock(active.pendingStart),
+    }
+    active.startEmitted = true
+  }
 
   // Emit message_start
   yield {
@@ -1327,24 +1365,24 @@ async function* openaiStreamToAnthropic(
                 index: toolBlockIndex,
                 jsonBuffer: initialArguments,
                 normalizeAtStop,
-              })
-
-              yield {
-                type: 'content_block_start',
-                index: toolBlockIndex,
-                content_block: {
-                  type: 'tool_use',
+                startEmitted: false,
+                pendingStart: {
                   id: tc.id,
                   name: tc.function.name,
+                  index: toolBlockIndex,
                   input: {},
-                  ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
-                  ...(toolSignature ? { signature: toolSignature } : {}),
+                  extraContent: mergedToolExtraContent,
+                  signature: toolSignature,
                 },
-              }
+              })
               contentBlockIndex++
 
               // Emit any initial arguments
               if (tc.function.arguments && !normalizeAtStop) {
+                const active = activeToolCalls.get(tc.index)
+                if (active) {
+                  yield* flushToolCallStart(active)
+                }
                 yield {
                   type: 'content_block_delta',
                   index: toolBlockIndex,
@@ -1354,11 +1392,15 @@ async function* openaiStreamToAnthropic(
                   },
                 }
               }
-            } else if (tc.function?.arguments) {
+            } else if (tc.function?.arguments || tc.extra_content || delta.extra_content) {
               // Continuation of existing tool call
               const active = activeToolCalls.get(tc.index)
               if (active) {
-                if (tc.function.arguments) {
+                mergePendingToolCallSignature(
+                  active.pendingStart,
+                  tc.extra_content ?? delta.extra_content,
+                )
+                if (tc.function?.arguments) {
                   active.jsonBuffer += tc.function.arguments
                 }
 
@@ -1366,13 +1408,16 @@ async function* openaiStreamToAnthropic(
                   continue
                 }
 
-                yield {
-                  type: 'content_block_delta',
-                  index: active.index,
-                  delta: {
-                    type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
-                  },
+                if (tc.function?.arguments) {
+                  yield* flushToolCallStart(active)
+                  yield {
+                    type: 'content_block_delta',
+                    index: active.index,
+                    delta: {
+                      type: 'input_json_delta',
+                      partial_json: tc.function.arguments,
+                    },
+                  }
                 }
               }
             }
@@ -1406,6 +1451,7 @@ async function* openaiStreamToAnthropic(
           }
           // Close active tool calls
           for (const [, tc] of activeToolCalls) {
+            yield* flushToolCallStart(tc)
             if (tc.normalizeAtStop) {
               let partialJson: string
               if (choice.finish_reason === 'length') {

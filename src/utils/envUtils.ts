@@ -225,6 +225,37 @@ export function isEnvTruthy(envVar: string | boolean | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(normalizedValue)
 }
 
+const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
+
+export function hasGeminiApiHost(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === GEMINI_API_HOST
+  } catch {
+    return false
+  }
+}
+
+export function isGeminiModelName(model: string | undefined): boolean {
+  const normalized = model?.trim().toLowerCase()
+  return (
+    normalized?.startsWith('google/gemini-') === true ||
+    normalized?.startsWith('gemini-') === true ||
+    normalized?.includes('/gemini-') === true
+  )
+}
+
+export function isGeminiEnvironment(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) ||
+    hasGeminiApiHost(processEnv.OPENAI_BASE_URL) ||
+    isGeminiModelName(processEnv.GEMINI_MODEL ?? processEnv.OPENAI_MODEL)
+  )
+}
+
 export function isEnvDefinedFalsy(
   envVar: string | boolean | undefined,
 ): boolean {

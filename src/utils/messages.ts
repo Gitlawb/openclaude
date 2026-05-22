@@ -75,7 +75,7 @@ import type {
 import { isAdvisorBlock } from './advisor.js'
 import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
 import { count } from './array.js'
-import { isEnvTruthy } from './envUtils.js'
+import { isEnvTruthy, isGeminiEnvironment } from './envUtils.js'
 import {
   type Attachment,
   type HookAttachment,
@@ -1731,6 +1731,10 @@ export function stripToolReferenceBlocksFromUserMessage(
   }
 }
 
+function isGeminiMode(): boolean {
+  return getAPIProvider() === 'gemini' || isGeminiEnvironment()
+}
+
 /**
  * Strips the 'caller' field from tool_use blocks in an assistant message.
  * The 'caller' field is only valid when the tool search beta is enabled.
@@ -1767,7 +1771,8 @@ export function stripCallerFieldFromAssistantMessage(
           id: block.id,
           name: block.name,
           input: block.input,
-          ...(getAPIProvider() === 'gemini' && (block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
+          ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {}),
+          ...((block as any).signature ? { signature: (block as any).signature } : {})
         }
       }),
     },
@@ -2229,19 +2234,20 @@ export function normalizeMessagesForAPI(
                       ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
-                      ...(getAPIProvider() === 'gemini' && extra_content ? { extra_content } : {})
+                      ...(extra_content ? { extra_content } : {})
                     }
                   }
 
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
                   // 'caller' that may be stored in sessions from tool search runs
-                    return {
+                  return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
-                    ...(getAPIProvider() === 'gemini' && (block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
+                    ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {}),
+                    ...((block as any).signature ? { signature: (block as any).signature } : {})
                   }
                 }
                 return block
