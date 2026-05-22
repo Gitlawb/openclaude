@@ -292,18 +292,25 @@ function normalizeOpengatewayBaseUrl(baseUrl: string): string {
 }
 
 /**
- * Zero-config fallback: the Gitlawb Opengateway exposes free partner inference
- * through a smart OpenAI-compatible route without requiring any API key. This
- * is the default any fresh install lands on when no credentials or local
- * services exist.
+ * Fallback: the Gitlawb Opengateway exposes free partner inference through a
+ * smart OpenAI-compatible route. As of 2026-05-22 it requires a per-user API
+ * key (mint at https://gitlawb.com/opengateway/keys); without a key we return
+ * null so the caller surfaces the missing-credential prompt instead of
+ * silently routing to an endpoint that will 401.
  */
-function defaultOpengatewayProvider(env: EnvLike): DetectedProvider {
+function defaultOpengatewayProvider(env: EnvLike): DetectedProvider | null {
+  const hasKey =
+    (typeof env.OPENGATEWAY_API_KEY === 'string' && env.OPENGATEWAY_API_KEY.trim().length > 0) ||
+    (typeof env.OPENAI_API_KEY === 'string' && env.OPENAI_API_KEY.trim().length > 0)
+  if (!hasKey) return null
+
   const baseUrl =
     (typeof env.OPENGATEWAY_BASE_URL === 'string' && env.OPENGATEWAY_BASE_URL.trim()) ||
     OPENGATEWAY_DEFAULT_BASE_URL
   return {
     kind: 'gitlawb-opengateway',
-    source: 'Gitlawb Opengateway (free partner models — no key required)',
+    source:
+      'Gitlawb Opengateway (free partner models — API key required, mint at https://gitlawb.com/opengateway/keys)',
     baseUrl: normalizeOpengatewayBaseUrl(baseUrl),
     model: OPENGATEWAY_DEFAULT_MODEL,
   }

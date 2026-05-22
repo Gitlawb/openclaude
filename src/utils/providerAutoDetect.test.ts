@@ -273,7 +273,7 @@ describe('detectBestProvider — orchestrator', () => {
     expect(result?.kind).toBe('ollama')
   })
 
-  test('skipLocal prevents network probes and falls back to opengateway', async () => {
+  test('skipLocal + OPENGATEWAY_API_KEY falls back to opengateway without probing', async () => {
     let probeCalled = false
     const fetchImpl = (async () => {
       probeCalled = true
@@ -281,7 +281,7 @@ describe('detectBestProvider — orchestrator', () => {
     }) as typeof fetch
 
     const result = await detectBestProvider({
-      env: {},
+      env: { OPENGATEWAY_API_KEY: 'ogw_live_test_0000000000000000' },
       fetchImpl,
       skipLocal: true,
       hasCodexAuth: () => false,
@@ -291,7 +291,7 @@ describe('detectBestProvider — orchestrator', () => {
     expect(probeCalled).toBe(false)
   })
 
-  test('completely empty environment falls back to Gitlawb Opengateway', async () => {
+  test('completely empty environment returns null (opengateway needs an API key)', async () => {
     const fetchImpl = (async () => {
       throw new Error('nothing reachable')
     }) as typeof fetch
@@ -302,9 +302,9 @@ describe('detectBestProvider — orchestrator', () => {
       timeoutMs: 100,
       hasCodexAuth: () => false,
     })
-    expect(result?.kind).toBe('gitlawb-opengateway')
-    expect(result?.baseUrl).toBe('https://opengateway.gitlawb.com/v1')
-    expect(result?.model).toBe('mimo-v2.5-pro')
+    // As of 2026-05-22 opengateway requires a key; with no credentials in env
+    // we no longer auto-select it — the caller surfaces a setup prompt instead.
+    expect(result).toBeNull()
   })
 
   test('OPENGATEWAY_BASE_URL env overrides the opengateway fallback base URL', async () => {
@@ -313,7 +313,10 @@ describe('detectBestProvider — orchestrator', () => {
     }) as typeof fetch
 
     const result = await detectBestProvider({
-      env: { OPENGATEWAY_BASE_URL: 'http://localhost:8181/v1/xiaomi-mimo' },
+      env: {
+        OPENGATEWAY_API_KEY: 'ogw_live_test_0000000000000000',
+        OPENGATEWAY_BASE_URL: 'http://localhost:8181/v1/xiaomi-mimo',
+      },
       fetchImpl,
       timeoutMs: 100,
       hasCodexAuth: () => false,
@@ -328,7 +331,10 @@ describe('detectBestProvider — orchestrator', () => {
     }) as typeof fetch
 
     const result = await detectBestProvider({
-      env: { OPENGATEWAY_BASE_URL: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo' },
+      env: {
+        OPENGATEWAY_API_KEY: 'ogw_live_test_0000000000000000',
+        OPENGATEWAY_BASE_URL: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo',
+      },
       fetchImpl,
       timeoutMs: 100,
       hasCodexAuth: () => false,
