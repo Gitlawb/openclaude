@@ -75,7 +75,7 @@ import type {
 import { isAdvisorBlock } from './advisor.js'
 import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
 import { count } from './array.js'
-import { isEnvTruthy, isGeminiEnvironment } from './envUtils.js'
+import { isGeminiEnvironment } from './envUtils.js'
 import {
   type Attachment,
   type HookAttachment,
@@ -1771,8 +1771,12 @@ export function stripCallerFieldFromAssistantMessage(
           id: block.id,
           name: block.name,
           input: block.input,
-          ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {}),
-          ...((block as any).signature ? { signature: (block as any).signature } : {})
+          ...(isGeminiMode() && (block as any).extra_content
+            ? { extra_content: (block as any).extra_content }
+            : {}),
+          ...(isGeminiMode() && (block as any).signature
+            ? { signature: (block as any).signature }
+            : {}),
         }
       }),
     },
@@ -2229,12 +2233,13 @@ export function normalizeMessagesForAPI(
 
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (toolSearchEnabled) {
-                    const { extra_content, ...restBlock } = block as any
+                    const { extra_content, signature, ...restBlock } = block as any
                     return {
                       ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
-                      ...(extra_content ? { extra_content } : {})
+                      ...(isGeminiMode() && extra_content ? { extra_content } : {}),
+                      ...(isGeminiMode() && signature ? { signature } : {}),
                     }
                   }
 
@@ -2246,8 +2251,12 @@ export function normalizeMessagesForAPI(
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
-                    ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {}),
-                    ...((block as any).signature ? { signature: (block as any).signature } : {})
+                    ...(isGeminiMode() && (block as any).extra_content
+                      ? { extra_content: (block as any).extra_content }
+                      : {}),
+                    ...(isGeminiMode() && (block as any).signature
+                      ? { signature: (block as any).signature }
+                      : {}),
                   }
                 }
                 return block

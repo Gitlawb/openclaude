@@ -1110,6 +1110,72 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
   })
 })
 
+test('drops prior Gemini tool calls that have no thought signature', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [
+      { role: 'user', content: 'Use Glob' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_glob_unsigned',
+            name: 'Glob',
+            input: { pattern: 'src/**/*.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_glob_unsigned',
+            content: 'src/index.ts',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.some(message => Array.isArray(message.tool_calls))).toBe(false)
+  expect(messages.some(message => message.role === 'tool')).toBe(false)
+})
+
 test('replays Gemini tool signatures for OpenGateway Gemini models', async () => {
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
   let requestBody: Record<string, unknown> | undefined
@@ -1485,6 +1551,116 @@ test('strips unsupported stream_options for Xiaomi MiMo streams', async () => {
   })
   expect(requestBody).not.toHaveProperty('stream_options')
   expect(requestBody).not.toHaveProperty('store')
+})
+
+test('streams Gemini thought signatures that arrive after initial tool arguments', async () => {
+  process.env.OPENAI_MODEL = 'google/gemini-3.1-pro-preview'
+
+  globalThis.fetch = (async () => {
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-gemini-stream-sig-after-args',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_glob',
+                  type: 'function',
+                  function: {
+                    name: 'Glob',
+                    arguments: '{"pattern":"src/**/*.ts"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-gemini-stream-sig-after-args',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  extra_content: {
+                    google: {
+                      thought_signature: 'sig-after-initial-args',
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-gemini-stream-sig-after-args',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ]))
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      messages: [{ role: 'user', content: 'glob files' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStartIndex = events.findIndex(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type === 'tool_use',
+  )
+  const deltaIndex = events.findIndex(
+    event =>
+      event.type === 'content_block_delta' &&
+      (event.delta as Record<string, unknown> | undefined)?.type === 'input_json_delta',
+  )
+  const toolStart = events[toolStartIndex] as
+    | { content_block?: Record<string, unknown> }
+    | undefined
+
+  expect(toolStartIndex).toBeGreaterThan(-1)
+  expect(deltaIndex).toBeGreaterThan(-1)
+  expect(toolStartIndex).toBeLessThan(deltaIndex)
+
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call_glob',
+    name: 'Glob',
+    signature: 'sig-after-initial-args',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-after-initial-args',
+      },
+    },
+  })
 })
 
 test('streams Gemini thought signatures that arrive after tool call start', async () => {

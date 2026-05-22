@@ -655,7 +655,6 @@ function convertMessages(
                   return null
                 }
 
-                knownToolCallIds.add(id)
                 const toolCall: NonNullable<
                   OpenAIMessage['tool_calls']
                 >[number] = {
@@ -670,20 +669,23 @@ function convertMessages(
                   },
                 }
 
-                // Preserve existing extra_content if present
                 if (tu.extra_content) {
                   toolCall.extra_content = { ...tu.extra_content }
                 }
 
-                // Gemini OpenAI-compatible endpoints require Google's
-                // thought_signature to be replayed with prior function-call
-                // parts. Preserve only real signatures received from the
-                // provider; synthetic placeholders are rejected by GMI.
+                // Gemini rejects replayed function-call parts that do not carry
+                // their original thought_signature. If a historical tool_use was
+                // recorded before the signature arrived, drop the call/result pair
+                // instead of sending an invalid functionCall back to Gemini.
                 if (preserveGeminiThoughtSignature) {
                   const signature =
                     tu.signature ??
                     geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
                     (thinkingBlock as { signature?: string } | undefined)?.signature
+
+                  if (!signature && !isLastInHistory) {
+                    return null
+                  }
 
                   toolCall.extra_content = mergeGeminiThoughtSignature(
                     toolCall.extra_content,
@@ -691,6 +693,7 @@ function convertMessages(
                   )
                 }
 
+                knownToolCallIds.add(id)
                 return toolCall
               },
             )
