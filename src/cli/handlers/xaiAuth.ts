@@ -19,6 +19,12 @@ import {
   readXaiCredentialsAsync,
 } from '../../utils/xaiCredentials.js'
 import { isBareMode } from '../../utils/envUtils.js'
+import { clearPersistedXaiOAuthProfile } from '../../utils/providerProfile.js'
+import {
+  deleteProviderProfile,
+  getProviderProfiles,
+} from '../../utils/providerProfiles.js'
+import { clearStartupProviderOverrides } from '../../utils/providerStartupOverrides.js'
 
 export type XaiLoginFlow = 'browser' | 'device-code'
 
@@ -99,6 +105,14 @@ function listenForManualCode(onLine: (line: string) => void): () => void {
   const stdin = process.stdin
   let buffer = ''
   let active = true
+  // Record the paused state BEFORE we touch it. We only need to resume
+  // stdin if it was paused, and we must only re-pause it on cleanup if
+  // we were the ones who resumed it — otherwise a one-shot CLI process
+  // (`openclaude auth xai login`) stays alive after a successful
+  // browser flow because the resumed stdin keeps the event loop busy,
+  // and the user sees the command "hang" until they hit Ctrl+D.
+  const wasPaused =
+    typeof stdin.isPaused === 'function' ? stdin.isPaused() : false
 
   const onData = (chunk: Buffer | string): void => {
     if (!active) return
@@ -113,13 +127,17 @@ function listenForManualCode(onLine: (line: string) => void): () => void {
   }
 
   stdin.on('data', onData)
-  // resume() in case some other code paused stdin; idempotent.
-  if (typeof stdin.resume === 'function') stdin.resume()
+  if (wasPaused && typeof stdin.resume === 'function') {
+    stdin.resume()
+  }
 
   return () => {
     if (!active) return
     active = false
     stdin.removeListener('data', onData)
+    if (wasPaused && typeof stdin.pause === 'function') {
+      stdin.pause()
+    }
   }
 }
 
@@ -161,13 +179,68 @@ async function runDeviceCodeFlow(): Promise<void> {
   }
 }
 
+// The provider-name constant used by the /provider UI when it creates an
+// xAI OAuth profile. Kept in sync so the CLI logout can find and remove
+// the matching profile without needing UI state.
+const XAI_OAUTH_PROVIDER_NAME = 'xAI OAuth'
+
 export async function xaiLogout(): Promise<void> {
-  const result = clearXaiCredentials()
-  if (!result.success) {
+  // Mirror the /provider UI logout sequence so a user who configured
+  // xAI OAuth interactively and then ran `openclaude auth xai logout`
+  // ends up in a clean state. Without all four steps, the
+  // marker-tagged .openclaude-profile.json survives, startup
+  // validation still accepts XAI_CREDENTIAL_SOURCE=oauth, but
+  // openaiShim can't resolve a token — the next non-interactive xAI
+  // launch hits api.x.ai without credentials instead of being logged
+  // out cleanly.
+  //
+  // 1. Clear stored OAuth tokens from secure storage.
+  const cleared = clearXaiCredentials()
+  if (!cleared.success) {
     process.stderr.write(
-      `Could not clear xAI credentials: ${result.warning ?? 'unknown error'}\n`,
+      `Could not clear xAI credentials: ${cleared.warning ?? 'unknown error'}\n`,
     )
     process.exitCode = 1
+    return
+  }
+
+  // 2. Remove the xAI OAuth provider profile from global config (if any).
+  // The CLI has no React state telling it which profile id corresponds
+  // to the OAuth profile, so match on the canonical name + xai provider
+  // — the /provider UI always uses this exact name.
+  const xaiOAuthProfile = getProviderProfiles().find(
+    profile =>
+      profile.provider === 'xai' &&
+      profile.name === XAI_OAUTH_PROVIDER_NAME,
+  )
+  let activeProfileWasCleared = false
+  if (xaiOAuthProfile) {
+    const result = deleteProviderProfile(xaiOAuthProfile.id)
+    if (!result.removed) {
+      process.stderr.write(
+        'xAI credentials were cleared, but the xAI OAuth provider profile could not be removed.\n',
+      )
+      process.exitCode = 1
+      return
+    }
+    activeProfileWasCleared = Boolean(result.activeProfileId)
+  }
+
+  // 3. Remove the marker-tagged startup profile file so validation
+  // doesn't keep accepting XAI_CREDENTIAL_SOURCE=oauth at next launch.
+  clearPersistedXaiOAuthProfile()
+
+  // 4. Clear the global-settings startup-provider override if the
+  // active profile changed — otherwise a stale settings.json override
+  // can re-pin the (now-deleted) xAI profile on next launch.
+  const settingsOverrideError = activeProfileWasCleared
+    ? clearStartupProviderOverrides()
+    : null
+
+  if (settingsOverrideError) {
+    process.stderr.write(
+      `xAI OAuth logged out. Warning: could not clear startup provider override (${settingsOverrideError}).\n`,
+    )
     return
   }
   process.stderr.write('xAI OAuth credentials cleared.\n')
