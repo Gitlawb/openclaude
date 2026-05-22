@@ -1176,6 +1176,102 @@ test('drops prior Gemini tool calls that have no thought signature', async () =>
   expect(messages.some(message => message.role === 'tool')).toBe(false)
 })
 
+test('keeps semantic continuation after dropping unsigned Gemini tool history', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'restored session summary',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [
+      { role: 'user', content: 'Restore session' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_restore_unsigned',
+            name: 'mcp__ruflo__session_restore',
+            input: { sessionId: 'session-1779413576935-lel1vw' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_restore_unsigned',
+            content: '{"sessionId":"session-1779413576935-lel1vw"}',
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_task_list_unsigned',
+            name: 'mcp__ruflo__task_list',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_task_list_unsigned',
+            content: '{"tasks":[],"total":0}',
+          },
+        ],
+      },
+      { role: 'user', content: 'tu as bug ?' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.some(message => Array.isArray(message.tool_calls))).toBe(false)
+  expect(messages.some(message => message.role === 'tool')).toBe(false)
+  expect(messages).toContainEqual({
+    role: 'user',
+    content: expect.stringContaining('tu as bug ?'),
+  })
+  expect(messages).toContainEqual({
+    role: 'assistant',
+    content: '[Previous unsigned Gemini tool results were omitted]',
+  })
+})
+
 test('replays Gemini tool signatures for OpenGateway Gemini models', async () => {
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
   let requestBody: Record<string, unknown> | undefined

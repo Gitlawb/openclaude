@@ -516,6 +516,7 @@ function convertMessages(
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
+  let omittedUnsignedGeminiToolHistory = false
 
   // Pre-scan for all tool results in the history to identify valid tool calls
   const toolResultIds = new Set<string>()
@@ -684,6 +685,7 @@ function convertMessages(
                     (thinkingBlock as { signature?: string } | undefined)?.signature
 
                   if (!signature && !isLastInHistory) {
+                    omittedUnsignedGeminiToolHistory = true
                     return null
                   }
 
@@ -727,6 +729,13 @@ function convertMessages(
         }
       }
     }
+  }
+
+  if (omittedUnsignedGeminiToolHistory) {
+    result.push({
+      role: 'assistant',
+      content: '[Previous unsigned Gemini tool results were omitted]',
+    })
   }
 
   // Coalescing pass: merge consecutive messages of the same role.
