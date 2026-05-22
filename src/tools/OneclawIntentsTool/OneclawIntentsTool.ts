@@ -3,7 +3,7 @@ import { z } from 'zod/v4'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { isOneclawConfigured, loadOneclawConfig } from '../../utils/oneclaw.js'
-import { getOneclawAgentClient } from '../../utils/oneclawClient.js'
+import { getAuthenticatedAgentClient } from '../../utils/oneclawClient.js'
 import {
   SUBMIT_TX_TOOL_NAME,
   SIGN_TX_TOOL_NAME,
@@ -140,7 +140,7 @@ export const OneclawSubmitTransactionTool = buildTool({
   mapToolResultToToolResultBlockParam: txResultToBlock,
 
   async call(input) {
-    const client = getOneclawAgentClient()
+    const client = await getAuthenticatedAgentClient()
     if (!client) {
       return { data: { status: 'error', error: '1claw not configured. Run /1claw to set up.' } }
     }
@@ -213,7 +213,7 @@ export const OneclawSignTransactionTool = buildTool({
   mapToolResultToToolResultBlockParam: txResultToBlock,
 
   async call(input) {
-    const client = getOneclawAgentClient()
+    const client = await getAuthenticatedAgentClient()
     if (!client) {
       return { data: { status: 'error', error: '1claw not configured. Run /1claw to set up.' } }
     }
@@ -282,7 +282,7 @@ export const OneclawSimulateTransactionTool = buildTool({
   mapToolResultToToolResultBlockParam: simResultToBlock,
 
   async call(input) {
-    const client = getOneclawAgentClient()
+    const client = await getAuthenticatedAgentClient()
     if (!client) {
       return { data: { status: 'error', error: '1claw not configured. Run /1claw to set up.' } }
     }
