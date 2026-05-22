@@ -9,22 +9,25 @@ export default defineGateway({
   supportsModelRouting: true,
   vendorId: 'openai',
   setup: {
-    requiresAuth: false,
-    authMode: 'none',
+    requiresAuth: true,
+    authMode: 'api-key',
+    credentialEnvVars: ['GITLAWB_API_KEY'],
   },
   validation: {
     kind: 'credential-env',
-    credentialEnvVars: [],
+    credentialEnvVars: ['GITLAWB_API_KEY', 'OPENAI_API_KEY'],
     routing: {
       matchBaseUrlHosts: ['opengateway.gitlawb.com', 'opengateway.fly.dev'],
     },
+    missingCredentialMessage:
+      'Set GITLAWB_API_KEY or OPENAI_API_KEY for the Gitlawb Opengateway provider.',
   },
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
       defaultAuthHeader: {
-        name: 'api-key',
-        scheme: 'raw',
+        name: 'Authorization',
+        scheme: 'bearer',
       },
       maxTokensField: 'max_completion_tokens',
       removeBodyFields: ['store', 'stream_options'],
@@ -38,6 +41,7 @@ export default defineGateway({
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
     vendorId: 'openai',
+    apiKeyEnvVars: ['GITLAWB_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',

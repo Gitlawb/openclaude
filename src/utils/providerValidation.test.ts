@@ -244,17 +244,21 @@ test('xiaomi mimo validation accepts MIMO_API_KEY without OPENAI_API_KEY', async
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
-test('opengateway validation allows no-auth access without OPENAI_API_KEY', async () => {
+test('opengateway validation reports missing auth without a gateway key', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  delete process.env.GITLAWB_API_KEY
   delete process.env.OPENAI_API_KEY
 
-  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Set GITLAWB_API_KEY or OPENAI_API_KEY for the Gitlawb Opengateway provider.',
+  )
 })
 
-test('opengateway validation allows no-auth access with model-specific path', async () => {
+test('opengateway validation accepts GITLAWB_API_KEY with model-specific path', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+  process.env.GITLAWB_API_KEY = 'gitlawb-live-key'
   delete process.env.OPENAI_API_KEY
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()

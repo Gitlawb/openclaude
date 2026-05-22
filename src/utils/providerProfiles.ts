@@ -666,6 +666,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
+      if (route.routeId === 'gitlawb-opengateway' || profile.baseUrl.toLowerCase().includes('opengateway.gitlawb.com') || profile.baseUrl.toLowerCase().includes('opengateway.fly.dev')) {
+        openAIProfileEnv.GITLAWB_API_KEY = profile.apiKey
+      }
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
