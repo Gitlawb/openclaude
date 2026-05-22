@@ -6,6 +6,8 @@ const ONECLAW_CONFIG_FILE = 'oneclaw.json'
 const ONECLAW_BASE_URL = 'https://api.1claw.xyz'
 const SHROUD_BASE_URL = 'https://shroud.1claw.xyz'
 
+export type OneclawAuthMode = 'byo-key' | 'token-billing' | 'oidc-federation'
+
 export interface OneclawConfig {
   agentId: string
   agentApiKey: string
@@ -15,6 +17,9 @@ export interface OneclawConfig {
   intentsEnabled: boolean
   oidcFederationEnabled: boolean
   providerSecretPaths: Record<string, string>
+  authMode?: OneclawAuthMode
+  selectedProvider?: string
+  selectedModel?: string
 }
 
 function getConfigDir(): string {
@@ -90,9 +95,33 @@ const PROVIDER_TO_SECRET_PATH: Record<string, string> = {
   CODEX_API_KEY: 'providers/codex/api-key',
 }
 
+export const DEFAULT_AGENT_SCOPES = ['**']
+export const DEFAULT_POLICY_PATH_PATTERN = 'providers/**'
+
 export function getSecretPathForProvider(envKey: string): string {
   const config = loadOneclawConfig()
   return config?.providerSecretPaths[envKey] ?? PROVIDER_TO_SECRET_PATH[envKey] ?? `providers/${envKey.toLowerCase().replace(/_api_key$/, '')}/api-key`
+}
+
+export function getOneclawAuthMode(): OneclawAuthMode | undefined {
+  const config = loadOneclawConfig()
+  return config?.authMode
+}
+
+export function shouldSkipVaultForProvider(envKey: string): boolean {
+  const config = loadOneclawConfig()
+  if (!config?.authMode || config.authMode === 'byo-key') return false
+
+  const providerEnvKeys: Record<string, string[]> = {
+    anthropic: ['ANTHROPIC_API_KEY'],
+    openai: ['OPENAI_API_KEY'],
+    gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+    mistral: ['MISTRAL_API_KEY'],
+    xai: ['XAI_API_KEY'],
+  }
+
+  const selectedKeys = providerEnvKeys[config.selectedProvider ?? ''] ?? []
+  return selectedKeys.includes(envKey)
 }
 
 export { ONECLAW_BASE_URL, SHROUD_BASE_URL, PROVIDER_TO_SECRET_PATH }

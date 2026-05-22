@@ -7,6 +7,7 @@ import {
 } from './oneclaw.js'
 
 let cachedAgentClient: OneclawClient | null = null
+let agentAuthenticated = false
 
 export function getOneclawAgentClient(): OneclawClient | null {
   if (cachedAgentClient) return cachedAgentClient
@@ -26,6 +27,27 @@ export function getOneclawAgentClient(): OneclawClient | null {
   return cachedAgentClient
 }
 
+export async function getAuthenticatedAgentClient(): Promise<OneclawClient | null> {
+  const client = getOneclawAgentClient()
+  if (!client) return null
+
+  if (agentAuthenticated) return client
+
+  const agentId = getOneclawAgentId()
+  const apiKey = getOneclawAgentApiKey()
+  if (!agentId || !apiKey) return client
+
+  try {
+    await client.auth.agentToken({ agent_id: agentId, api_key: apiKey })
+    agentAuthenticated = true
+  } catch {
+    // Auth may fail if the agent uses a different auth method;
+    // the client still works for endpoints that accept the raw API key
+  }
+
+  return client
+}
+
 export function createOneclawHumanClient(apiKey: string): OneclawClient {
   return createClient({
     baseUrl: getOneclawBaseUrl(),
@@ -35,12 +57,13 @@ export function createOneclawHumanClient(apiKey: string): OneclawClient {
 
 export function resetOneclawClientCache(): void {
   cachedAgentClient = null
+  agentAuthenticated = false
 }
 
 export async function resolveSecretFromVault(
   secretPath: string,
 ): Promise<string | null> {
-  const client = getOneclawAgentClient()
+  const client = await getAuthenticatedAgentClient()
   if (!client) return null
 
   const config = loadOneclawConfig()

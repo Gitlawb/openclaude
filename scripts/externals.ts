@@ -129,4 +129,6 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   'vscode-languageserver-protocol',
   // File watching
   'chokidar',
+  // 1claw SDK (bundled — ESM extensionless imports break Node strict resolution)
+  '@1claw/sdk',
 ]
