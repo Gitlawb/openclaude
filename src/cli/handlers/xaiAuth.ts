@@ -184,7 +184,32 @@ async function runDeviceCodeFlow(): Promise<void> {
 // the matching profile without needing UI state.
 const XAI_OAUTH_PROVIDER_NAME = 'xAI OAuth'
 
-export async function xaiLogout(): Promise<void> {
+/**
+ * Dependencies for `xaiLogout`. Tests inject real implementations to
+ * bypass `mock.module(...)` stubs that other test files install for
+ * providerProfile / providerProfiles — Bun's module mocks leak across
+ * files in the same process and `mock.restore()` doesn't undo them.
+ * Production callers omit this argument and get the static imports.
+ */
+export type XaiLogoutDeps = {
+  clearXaiCredentials?: typeof clearXaiCredentials
+  clearPersistedXaiOAuthProfile?: typeof clearPersistedXaiOAuthProfile
+  getProviderProfiles?: typeof getProviderProfiles
+  deleteProviderProfile?: typeof deleteProviderProfile
+  clearStartupProviderOverrides?: typeof clearStartupProviderOverrides
+}
+
+export async function xaiLogout(deps?: XaiLogoutDeps): Promise<void> {
+  const _clearXaiCredentials = deps?.clearXaiCredentials ?? clearXaiCredentials
+  const _clearPersistedXaiOAuthProfile =
+    deps?.clearPersistedXaiOAuthProfile ?? clearPersistedXaiOAuthProfile
+  const _getProviderProfiles =
+    deps?.getProviderProfiles ?? getProviderProfiles
+  const _deleteProviderProfile =
+    deps?.deleteProviderProfile ?? deleteProviderProfile
+  const _clearStartupProviderOverrides =
+    deps?.clearStartupProviderOverrides ?? clearStartupProviderOverrides
+
   // Mirror the /provider UI logout sequence so a user who configured
   // xAI OAuth interactively and then ran `openclaude auth xai logout`
   // ends up in a clean state. Without all four steps, the
@@ -195,7 +220,7 @@ export async function xaiLogout(): Promise<void> {
   // out cleanly.
   //
   // 1. Clear stored OAuth tokens from secure storage.
-  const cleared = clearXaiCredentials()
+  const cleared = _clearXaiCredentials()
   if (!cleared.success) {
     process.stderr.write(
       `Could not clear xAI credentials: ${cleared.warning ?? 'unknown error'}\n`,
@@ -208,14 +233,14 @@ export async function xaiLogout(): Promise<void> {
   // The CLI has no React state telling it which profile id corresponds
   // to the OAuth profile, so match on the canonical name + xai provider
   // — the /provider UI always uses this exact name.
-  const xaiOAuthProfile = getProviderProfiles().find(
+  const xaiOAuthProfile = _getProviderProfiles().find(
     profile =>
       profile.provider === 'xai' &&
       profile.name === XAI_OAUTH_PROVIDER_NAME,
   )
   let activeProfileWasCleared = false
   if (xaiOAuthProfile) {
-    const result = deleteProviderProfile(xaiOAuthProfile.id)
+    const result = _deleteProviderProfile(xaiOAuthProfile.id)
     if (!result.removed) {
       process.stderr.write(
         'xAI credentials were cleared, but the xAI OAuth provider profile could not be removed.\n',
@@ -228,13 +253,13 @@ export async function xaiLogout(): Promise<void> {
 
   // 3. Remove the marker-tagged startup profile file so validation
   // doesn't keep accepting XAI_CREDENTIAL_SOURCE=oauth at next launch.
-  clearPersistedXaiOAuthProfile()
+  _clearPersistedXaiOAuthProfile()
 
   // 4. Clear the global-settings startup-provider override if the
   // active profile changed — otherwise a stale settings.json override
   // can re-pin the (now-deleted) xAI profile on next launch.
   const settingsOverrideError = activeProfileWasCleared
-    ? clearStartupProviderOverrides()
+    ? _clearStartupProviderOverrides()
     : null
 
   if (settingsOverrideError) {
