@@ -8,6 +8,16 @@ import {
   validateProviderEnvForStartupOrExit,
 } from '../utils/providerValidation.js'
 
+// OpenClaude: polyfill MACRO for local development.
+// @ts-ignore
+globalThis.MACRO ??= {
+  VERSION: '0.13.0-dev',
+  DISPLAY_VERSION: '0.13.0-dev',
+  BUILD_TIME: new Date().toISOString(),
+  ISSUES_EXPLAINER: 'report bugs on GitHub',
+  PACKAGE_URL: '@gitlawb/openclaude',
+}
+
 // OpenClaude: polyfill globalThis.File for Node < 20.
 // undici v7 references `File` at module evaluation time (webidl type
 // assertions). Node 18 lacks the global, causing a ReferenceError inside
