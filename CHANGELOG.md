@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.14.0](https://github.com/Gitlawb/openclaude/compare/v0.13.0...v0.14.0) (2026-05-23)
+
+
+### Features
+
+* **diagnostics:** show request payload size breakdown ([#1237](https://github.com/Gitlawb/openclaude/issues/1237)) ([0aff8de](https://github.com/Gitlawb/openclaude/commit/0aff8de24f00c6cf6f1218c88b841c219c8f5a7d))
+* **opengateway:** require API key on /v1/* and switch to bearer auth ([#1322](https://github.com/Gitlawb/openclaude/issues/1322)) ([0fbfc12](https://github.com/Gitlawb/openclaude/commit/0fbfc12a992883843c597ed2cf14f548dafc3975))
+* **xai:** add xAI/Grok OAuth provider (browser + device-code) ([#1284](https://github.com/Gitlawb/openclaude/issues/1284)) ([326f082](https://github.com/Gitlawb/openclaude/commit/326f0826821d8e968eef4872910d3b1ffbda174a))
+
+
+### Bug Fixes
+
+* add 5-minute timeout to QueryGuard to prevent infinite spinner ([#1255](https://github.com/Gitlawb/openclaude/issues/1255)) ([23254c2](https://github.com/Gitlawb/openclaude/commit/23254c21fbb6eb6e443a575c7a662121bdb9aa13))
+* allow non-OpenAI providers to skip OPENAI_API_KEY check ([#1207](https://github.com/Gitlawb/openclaude/issues/1207)) ([4897d59](https://github.com/Gitlawb/openclaude/commit/4897d597b6aadd99633a854d15e62a95a8c9907b))
+* **bash:** preserve captured stdout in error message on non-zero exit ([#1236](https://github.com/Gitlawb/openclaude/issues/1236)) ([a44a83f](https://github.com/Gitlawb/openclaude/commit/a44a83f38c7156ab47c2d533abf48d18999b9239))
+* **compact:** clear native tool results after time compaction ([#1278](https://github.com/Gitlawb/openclaude/issues/1278)) ([9b3c904](https://github.com/Gitlawb/openclaude/commit/9b3c90418bded3dd9cca561ecd4683fa059d19e9))
+* **grpc:** register built-in agents so Agent tool isn't always empty ([#1296](https://github.com/Gitlawb/openclaude/issues/1296)) ([c366f70](https://github.com/Gitlawb/openclaude/commit/c366f7062b8f8c45c462a48a27e847413f66d9da))
+* harden XAA OAuth callback state handling ([#1299](https://github.com/Gitlawb/openclaude/issues/1299)) ([bafc2a1](https://github.com/Gitlawb/openclaude/commit/bafc2a1bc53f23d2a38318d91f2a3ffdb78fb091))
+* **input:** preserve split utf8 keypresses ([#1241](https://github.com/Gitlawb/openclaude/issues/1241)) ([a9f8642](https://github.com/Gitlawb/openclaude/commit/a9f8642aa8e30163f4818e08a27cdd11866eaf2f))
+* MiMo remove unsupported body fields and preserve reasoning content ([#1253](https://github.com/Gitlawb/openclaude/issues/1253)) ([aab2fbc](https://github.com/Gitlawb/openclaude/commit/aab2fbcd7bcb8be3b6e288822917a577bc89b8fc))
+* **monitor:** close permission dialog after selection ([#1225](https://github.com/Gitlawb/openclaude/issues/1225)) ([1aa8aab](https://github.com/Gitlawb/openclaude/commit/1aa8aab84c044347c4c2ae5b4333079165105006))
+* **query:** stop repeated tool-failure loops ([#1219](https://github.com/Gitlawb/openclaude/issues/1219)) ([f71e769](https://github.com/Gitlawb/openclaude/commit/f71e7692373a61d28c82fc3fadff3feaa4071ede))
+* **recovery:** keep thinking blocks on resume for reasoning-echo providers ([#1248](https://github.com/Gitlawb/openclaude/issues/1248)) ([0d3c157](https://github.com/Gitlawb/openclaude/commit/0d3c1571491b7dfeb07d5311167c2509978feb30))
+* **retry:** adjust max_tokens on OpenRouter 402 credit shortfall ([#1263](https://github.com/Gitlawb/openclaude/issues/1263)) ([892c054](https://github.com/Gitlawb/openclaude/commit/892c0545ed23ee685dd5a0a0104398fa3a221181)), closes [#1125](https://github.com/Gitlawb/openclaude/issues/1125)
+* **stdin,mcp:** guard rawModeEnabledCount and defer MCP connections to prevent input freeze ([#603](https://github.com/Gitlawb/openclaude/issues/603)) ([#1268](https://github.com/Gitlawb/openclaude/issues/1268)) ([90360d3](https://github.com/Gitlawb/openclaude/commit/90360d3e383314304dc19b29bd786b59e966be15))
+* **TaskListV2:** revert overflowX hidden that hides task text labels ([#1215](https://github.com/Gitlawb/openclaude/issues/1215)) ([0fba154](https://github.com/Gitlawb/openclaude/commit/0fba1541a8647a805339811f6f2bac4b8d13b699))
+* treat blank Read.pages as omitted ([#1269](https://github.com/Gitlawb/openclaude/issues/1269)) ([eca9dba](https://github.com/Gitlawb/openclaude/commit/eca9dba3999bb538fcd732a3cf9a50503a214312))
+* **xml:** guard escapeXml/escapeXmlAttr against null and undefined ([#1250](https://github.com/Gitlawb/openclaude/issues/1250)) ([03f8791](https://github.com/Gitlawb/openclaude/commit/03f879158c6c64321b9d0703d84c0b1c47d64a52))
+
 ## [0.13.0](https://github.com/Gitlawb/openclaude/compare/v0.12.1...v0.13.0) (2026-05-17)
 
 
