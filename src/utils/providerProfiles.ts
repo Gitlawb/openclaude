@@ -22,6 +22,7 @@ import {
   buildNvidiaNimProfileEnv,
   buildOpenAIProfileEnv,
   buildVeniceProfileEnv,
+  buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
@@ -1099,6 +1100,24 @@ function buildStartupProfileFromActiveProfile(
         return env
           ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
+      }
+
+      // xAI OAuth profile (provider=xai with no API key). Tag the startup
+      // file with profile='xai' + XAI_CREDENTIAL_SOURCE=oauth so:
+      //   1. validation accepts it at startup (no spurious
+      //      "XAI_API_KEY is required" before openaiShim resolves the
+      //      stored OAuth token)
+      //   2. `clearPersistedXaiOAuthProfile()` can identify and remove it
+      //      on logout, instead of leaving a stale openai-shaped file
+      //      pointing at api.x.ai with no credential.
+      if (route.vendorId === 'xai' && !activeProfile.apiKey) {
+        const env = applySupportedProfileCustomHeaders(activeProfile, {
+          ...buildXaiOAuthProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+          }),
+          OPENAI_BASE_URL: activeProfile.baseUrl,
+        })
+        return { profile: 'xai', env }
       }
 
       const env = buildOpenAICompatibleStartupEnv(activeProfile)
