@@ -9,6 +9,10 @@ describe('builtInCommandNames', () => {
   test('includes the LSP command', () => {
     expect(builtInCommandNames()).toContain('lsp')
   })
+
+  test('includes the request-size diagnostic command', () => {
+    expect(builtInCommandNames()).toContain('request-size')
+  })
 })
 
 describe('isCommand', () => {
