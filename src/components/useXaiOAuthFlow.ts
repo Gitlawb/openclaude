@@ -69,13 +69,24 @@ export function useXaiOAuthFlow(options: {
     }
 
     let cancelled = false
+    // Tracked so the cleanup function can close a callback server that
+    // beginOAuthFlow() may have started while cleanup was running.
+    // Without this, pressing Esc during discovery / port binding leaves
+    // the loopback server bound on the fixed port (56121), and the next
+    // OAuth attempt fails with EADDRINUSE.
+    let activeHandle: XaiOAuthFlowHandle | null = null
     const oauthService = createOAuthService()
 
     void (async () => {
-      let handle: XaiOAuthFlowHandle | null = null
       try {
-        handle = await oauthService.beginOAuthFlow()
-        if (cancelled) return
+        const handle = await oauthService.beginOAuthFlow()
+        activeHandle = handle
+        if (cancelled) {
+          // Cleanup already ran; the service hadn't tracked the handle
+          // yet, so service.cleanup() was a no-op. Close it now.
+          handle.cancel()
+          return
+        }
 
         setStatus({
           state: 'waiting',
@@ -117,6 +128,11 @@ export function useXaiOAuthFlow(options: {
 
     return () => {
       cancelled = true
+      // Close the handle if beginOAuthFlow() finished AFTER cleanup ran
+      // — the IIFE's `if (cancelled) handle.cancel()` covers this too,
+      // but calling here as well is idempotent and gives us the close
+      // path for the common "handle exists by unmount" case.
+      activeHandle?.cancel()
       oauthService.cleanup()
     }
   }, [

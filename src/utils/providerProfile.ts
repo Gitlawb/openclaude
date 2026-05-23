@@ -1341,17 +1341,35 @@ export async function buildLaunchEnv(options: {
   }
 
   if (options.profile === 'xai') {
-    const xaiKey =
-      sanitizeApiKey(processEnv.XAI_API_KEY) ||
-      sanitizeApiKey(persistedEnv.XAI_API_KEY) ||
-      sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
-      sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
+    // For OAuth-tagged profiles, do not fall back to OPENAI_API_KEY /
+    // persisted OPENAI_API_KEY. The user's shell OpenAI key is for
+    // api.openai.com — sending it as a bearer to api.x.ai/v1 just
+    // returns 401 (or worse, leaks the OpenAI key to xAI). When the
+    // saved profile is OAuth, only an explicit XAI_API_KEY can
+    // override; otherwise leave the env keyless and let openaiShim
+    // resolve the stored OAuth access token at request time.
+    const isOAuthProfile = persistedEnv.XAI_CREDENTIAL_SOURCE === 'oauth'
+    const xaiKey = isOAuthProfile
+      ? sanitizeApiKey(processEnv.XAI_API_KEY) ||
+        sanitizeApiKey(persistedEnv.XAI_API_KEY)
+      : sanitizeApiKey(processEnv.XAI_API_KEY) ||
+        sanitizeApiKey(persistedEnv.XAI_API_KEY) ||
+        sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
+        sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
 
     const env = buildXaiProfileEnv({
       model: shellOpenAIModel || persistedOpenAIModel,
       baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
       apiKey: xaiKey,
-      processEnv,
+      // Scrub OPENAI_API_KEY before buildXaiProfileEnv reads processEnv
+      // so it can't be re-introduced via the internal fallback inside
+      // that helper. The shell key still survives in the wider
+      // processEnv copy returned by buildCompatibilityProcessEnv, but
+      // it won't be promoted into XAI_API_KEY / OPENAI_API_KEY for
+      // this profile's env.
+      processEnv: isOAuthProfile
+        ? { ...processEnv, OPENAI_API_KEY: undefined, XAI_API_KEY: undefined }
+        : processEnv,
     })
     const customHeaders = shellCustomHeaders || persistedCustomHeaders
     if (customHeaders) {
@@ -1360,18 +1378,24 @@ export async function buildLaunchEnv(options: {
     // Preserve the OAuth credential-source marker so startup validation
     // accepts an xAI OAuth profile (no XAI_API_KEY needed; openaiShim
     // resolves the stored access token at request time).
-    if (
-      !env.XAI_API_KEY &&
-      persistedEnv.XAI_CREDENTIAL_SOURCE === 'oauth'
-    ) {
+    if (!env.XAI_API_KEY && isOAuthProfile) {
       env.XAI_CREDENTIAL_SOURCE = 'oauth'
     }
 
-    return buildCompatibilityProcessEnv({
+    // For OAuth profiles, also clear any ambient OPENAI_API_KEY from
+    // the returned compatibility env. openaiShim's resolver checks
+    // process.env.OPENAI_API_KEY before falling back to the stored
+    // OAuth token; leaving the shell key there would short-circuit
+    // OAuth and send the wrong bearer to api.x.ai/v1.
+    const result = buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: env,
     })
+    if (isOAuthProfile && !env.XAI_API_KEY) {
+      delete result.OPENAI_API_KEY
+    }
+    return result
   }
 
   if (options.profile === 'ollama') {
