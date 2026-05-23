@@ -91,6 +91,7 @@ describe('goal continuation stop-hook precedence', () => {
 
     expect(goalCalls).toBe(0)
     expect(returned.preventContinuation).toBe(false)
+    expect(returned.stopHookActive).toBe(true)
     expect(returned.blockingErrors).toHaveLength(1)
     expect(returned.blockingErrors[0].message.content).toBe(
       'stop hook blocked',
@@ -140,6 +141,48 @@ describe('goal continuation stop-hook precedence', () => {
     expect(returned).toEqual({
       blockingErrors: [],
       preventContinuation: true,
+      stopHookActive: false,
     })
+  })
+
+  test('goal continuation is not marked as active Stop-hook recursion', async () => {
+    const appStateRef = {
+      current: {
+        ...getDefaultAppState(),
+        goal: createGoalState('finish implementation'),
+      },
+    }
+    const goalEvaluationDeps: GoalEvaluationDeps = {
+      evaluateGoal: async () => ({
+        complete: false,
+        confidence: 0.7,
+        decision: 'incomplete',
+        reason: 'Tests have not been run.',
+        nextInstruction: 'Run tests.',
+      }),
+      saveGoalState: async () => {},
+    }
+
+    const { returned } = await drain(
+      handleStopHooks(
+        [],
+        [assistant('assistant-1', 'Done.') as any],
+        asSystemPrompt([]),
+        {},
+        {},
+        makeToolUseContext(appStateRef),
+        'sdk',
+        false,
+        goalEvaluationDeps,
+        {
+          executeStopHooks: async function* () {},
+          isTeammate: () => false,
+        },
+      ),
+    )
+
+    expect(returned.preventContinuation).toBe(false)
+    expect(returned.blockingErrors).toHaveLength(1)
+    expect(returned.stopHookActive).toBe(false)
   })
 })

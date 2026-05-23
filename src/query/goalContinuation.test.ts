@@ -73,6 +73,7 @@ describe('goal query continuation', () => {
     ]
     const { query } = await import('../query.js')
     let modelCalls = 0
+    const observedStopHookActive: boolean[] = []
     const appStateRef = {
       current: {
         ...getDefaultAppState(),
@@ -98,6 +99,17 @@ describe('goal query continuation', () => {
             evaluateGoal: async () => decisions.shift()!,
             saveGoalState: async () => {},
           },
+          stopHookExecutionDeps: {
+            executeStopHooks: async function* (
+              _permissionMode: string | undefined,
+              _signal: AbortSignal | undefined,
+              _timeoutMs: number | undefined,
+              stopHookActive: boolean,
+            ) {
+              observedStopHookActive.push(stopHookActive)
+            },
+            isTeammate: () => false,
+          },
           callModel: async function* () {
             modelCalls++
             yield assistant(
@@ -115,6 +127,7 @@ describe('goal query continuation', () => {
     })()
 
     expect(modelCalls).toBe(2)
+    expect(observedStopHookActive).toEqual([false, false])
     expect(terminal.reason).toBe('completed')
     expect(appStateRef.current.goal?.status).toBe('achieved')
     expect(

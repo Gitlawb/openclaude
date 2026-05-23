@@ -100,7 +100,7 @@ describe('goal evaluator', () => {
     expect(decision.decision).toBe('complete')
   })
 
-  test('malformed JSON after retry becomes safe incomplete decision', async () => {
+  test('malformed JSON after retry returns fail-closed decision', async () => {
     let calls = 0
     const caller: GoalModelCaller = async () => {
       calls++
@@ -119,6 +119,26 @@ describe('goal evaluator', () => {
     expect(decision.complete).toBe(false)
     expect(decision.decision).toBe('malformed')
     expect(decision.reason).toContain('malformed JSON')
+    expect(decision.nextInstruction).toBeNull()
+  })
+
+  test('model caller errors return fail-closed decision', async () => {
+    const caller: GoalModelCaller = async () => {
+      throw new Error('provider auth failed')
+    }
+
+    const decision = await evaluateGoal({
+      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      messages: [assistant('a1', 'Done.')],
+      signal: new AbortController().signal,
+      isNonInteractiveSession: false,
+      modelCaller: caller,
+    })
+
+    expect(decision.complete).toBe(false)
+    expect(decision.decision).toBe('error')
+    expect(decision.reason).toContain('failed')
+    expect(decision.nextInstruction).toBeNull()
   })
 
   test('bounded context size', () => {

@@ -263,16 +263,17 @@ export async function evaluateGoal({
       complete: false,
       confidence: 0,
       decision: 'malformed',
-      reason: 'Goal evaluator returned malformed JSON; continuing conservatively.',
-      nextInstruction: 'Continue directly toward the goal and verify the remaining work.',
+      reason:
+        'Goal evaluator returned malformed JSON; pausing automatic goal continuation.',
+      nextInstruction: null,
     }
   } catch {
     return {
       complete: false,
       confidence: 0,
       decision: 'error',
-      reason: 'Goal evaluator failed; continuing conservatively.',
-      nextInstruction: 'Continue directly toward the goal and verify the remaining work.',
+      reason: 'Goal evaluator failed; pausing automatic goal continuation.',
+      nextInstruction: null,
     }
   }
 }

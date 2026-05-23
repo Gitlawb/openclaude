@@ -9,6 +9,7 @@ import {
   achieveGoal,
   markGoalEvaluated,
   nowIso,
+  pauseGoal,
   pauseGoalAtMaxTurns,
   shouldEvaluateGoal,
 } from './state.js'
@@ -122,6 +123,24 @@ export async function* evaluateGoalAfterTurn({
     toolUseContext.setAppState(prev => ({ ...prev, goal: achieved }))
     await persistGoal(saveGoalState, achieved)
     yield createSystemMessage(`Goal achieved: ${decision.reason}`, 'info')
+    return []
+  }
+
+  if (decision.decision === 'malformed' || decision.decision === 'error') {
+    const now = nowIso()
+    const paused = pauseGoal(
+      markGoalEvaluated(goal, {
+        evaluatedMessageUuid: terminalUuid,
+        decision: decision.decision,
+        reason: decision.reason,
+        nextInstruction: null,
+        now,
+      }),
+      now,
+    )
+    toolUseContext.setAppState(prev => ({ ...prev, goal: paused }))
+    await persistGoal(saveGoalState, paused)
+    yield createSystemMessage(`Goal paused: ${decision.reason}`, 'warning')
     return []
   }
 

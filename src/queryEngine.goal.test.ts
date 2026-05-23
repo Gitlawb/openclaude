@@ -24,6 +24,14 @@ describe('QueryEngine goal status visibility', () => {
       isGoalStatusSystemMessage({
         type: 'system',
         subtype: 'informational',
+        content: 'Goal paused: evaluator failed',
+      } as any),
+    ).toBe(true)
+
+    expect(
+      isGoalStatusSystemMessage({
+        type: 'system',
+        subtype: 'informational',
         content: 'Stop hook failed: bad hook',
       } as any),
     ).toBe(false)

@@ -61,6 +61,7 @@ import {
 type StopHookResult = {
   blockingErrors: Message[]
   preventContinuation: boolean
+  stopHookActive: boolean
 }
 
 export type StopHookExecutionDeps = {
@@ -313,7 +314,11 @@ export async function* handleStopHooks(
         yield createUserInterruptionMessage({
           toolUse: false,
         })
-        return { blockingErrors: [], preventContinuation: true }
+        return {
+          blockingErrors: [],
+          preventContinuation: true,
+          stopHookActive: false,
+        }
       }
     }
 
@@ -346,12 +351,20 @@ export async function* handleStopHooks(
     }
 
     if (preventedContinuation) {
-      return { blockingErrors: [], preventContinuation: true }
+      return {
+        blockingErrors: [],
+        preventContinuation: true,
+        stopHookActive: false,
+      }
     }
 
     // Collect blocking errors from stop hooks
     if (blockingErrors.length > 0) {
-      return { blockingErrors, preventContinuation: false }
+      return {
+        blockingErrors,
+        preventContinuation: false,
+        stopHookActive: true,
+      }
     }
 
     // After Stop hooks pass, run TeammateIdle and TaskCompleted hooks if this is a teammate
@@ -419,7 +432,11 @@ export async function* handleStopHooks(
             })
           }
           if (toolUseContext.abortController.signal.aborted) {
-            return { blockingErrors: [], preventContinuation: true }
+            return {
+              blockingErrors: [],
+              preventContinuation: true,
+              stopHookActive: false,
+            }
           }
         }
       }
@@ -461,18 +478,27 @@ export async function* handleStopHooks(
           })
         }
         if (toolUseContext.abortController.signal.aborted) {
-          return { blockingErrors: [], preventContinuation: true }
+          return {
+            blockingErrors: [],
+            preventContinuation: true,
+            stopHookActive: false,
+          }
         }
       }
 
       if (teammatePreventedContinuation) {
-        return { blockingErrors: [], preventContinuation: true }
+        return {
+          blockingErrors: [],
+          preventContinuation: true,
+          stopHookActive: false,
+        }
       }
 
       if (teammateBlockingErrors.length > 0) {
         return {
           blockingErrors: teammateBlockingErrors,
           preventContinuation: false,
+          stopHookActive: false,
         }
       }
     }
@@ -503,11 +529,16 @@ export async function* handleStopHooks(
         return {
           blockingErrors: goalBlockingErrors,
           preventContinuation: false,
+          stopHookActive: false,
         }
       }
     }
 
-    return { blockingErrors: [], preventContinuation: false }
+    return {
+      blockingErrors: [],
+      preventContinuation: false,
+      stopHookActive: false,
+    }
   } catch (error) {
     const durationMs = Date.now() - hookStartTime
     logEvent('tengu_stop_hook_error', {
@@ -523,6 +554,10 @@ export async function* handleStopHooks(
       `Stop hook failed: ${errorMessage(error)}`,
       'warning',
     )
-    return { blockingErrors: [], preventContinuation: false }
+    return {
+      blockingErrors: [],
+      preventContinuation: false,
+      stopHookActive: false,
+    }
   }
 }

@@ -113,6 +113,42 @@ describe('goal continuation controller', () => {
     expect(returned[0].message.content).toContain('Run the focused tests.')
   })
 
+  for (const decisionType of ['malformed', 'error'] as const) {
+    test(`evaluator ${decisionType} pauses the goal without continuation`, async () => {
+      const { context, getState } = makeContext()
+      const deps: GoalEvaluationDeps = {
+        evaluateGoal: async () => ({
+          complete: false,
+          confidence: 0,
+          decision: decisionType,
+          reason:
+            decisionType === 'malformed'
+              ? 'Goal evaluator returned malformed JSON.'
+              : 'Goal evaluator failed.',
+          nextInstruction: 'Continue directly toward the goal.',
+        }),
+        saveGoalState: async () => {},
+      }
+
+      const { yielded, returned } = await drain(
+        evaluateGoalAfterTurn({
+          messagesForQuery: [],
+          assistantMessages: [assistant('assistant-1', 'Done.')],
+          toolUseContext: context,
+          querySource: 'sdk',
+          deps,
+        }),
+      )
+
+      expect(returned).toEqual([])
+      expect(getState().goal?.status).toBe('paused')
+      expect(getState().goal?.lastDecision).toBe(decisionType)
+      expect(getState().goal?.evaluatorFailures).toBe(1)
+      expect(yielded[0]?.level).toBe('warning')
+      expect(yielded[0]?.content).toContain('Goal paused:')
+    })
+  }
+
   test('passes only a bounded recent message slice to evaluator', async () => {
     const { context } = makeContext()
     let observedMessages: unknown[] = []

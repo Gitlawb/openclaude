@@ -1,7 +1,8 @@
 export function isGoalStatusContent(content: string): boolean {
   return (
     content.startsWith('Goal achieved:') ||
-    content.startsWith('Goal not complete:')
+    content.startsWith('Goal not complete:') ||
+    content.startsWith('Goal paused:')
   )
 }
 
