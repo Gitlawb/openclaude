@@ -9,6 +9,12 @@ import {
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS:
     process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
@@ -24,6 +30,12 @@ const originalEnv = {
 beforeEach(async () => {
   await acquireSharedMutationLock('context.test.ts')
   delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
   delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
@@ -40,6 +52,36 @@ afterEach(() => {
       delete process.env.CLAUDE_CODE_USE_OPENAI
     } else {
       process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
+    }
+    if (originalEnv.CLAUDE_CODE_USE_GEMINI === undefined) {
+      delete process.env.CLAUDE_CODE_USE_GEMINI
+    } else {
+      process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
+    }
+    if (originalEnv.CLAUDE_CODE_USE_MISTRAL === undefined) {
+      delete process.env.CLAUDE_CODE_USE_MISTRAL
+    } else {
+      process.env.CLAUDE_CODE_USE_MISTRAL = originalEnv.CLAUDE_CODE_USE_MISTRAL
+    }
+    if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) {
+      delete process.env.CLAUDE_CODE_USE_GITHUB
+    } else {
+      process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+    }
+    if (originalEnv.CLAUDE_CODE_USE_BEDROCK === undefined) {
+      delete process.env.CLAUDE_CODE_USE_BEDROCK
+    } else {
+      process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
+    }
+    if (originalEnv.CLAUDE_CODE_USE_VERTEX === undefined) {
+      delete process.env.CLAUDE_CODE_USE_VERTEX
+    } else {
+      process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
+    }
+    if (originalEnv.CLAUDE_CODE_USE_FOUNDRY === undefined) {
+      delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    } else {
+      process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
     }
     if (originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS === undefined) {
       delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS

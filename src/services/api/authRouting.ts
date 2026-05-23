@@ -10,7 +10,6 @@ export type ProviderOverride = {
   apiKey: string
   temperature?: number
   top_p?: number
-  num_ctx?: number
 }
 
 export function shouldUseFirstPartyAnthropicAuthForProvider({

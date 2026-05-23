@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { getAnthropicClient } from './client.js'
 
@@ -112,6 +112,7 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
     globalThis.fetch = originalFetch
+    mock.restore()
   } finally {
     releaseSharedMutationLock()
   }
@@ -1040,4 +1041,132 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
   expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-test-key')
+})
+
+test('guards top_p on first-party Anthropic requests when thinking is enabled', async () => {
+  const oldEnv = {
+    BYPASS_VCR: process.env.BYPASS_VCR,
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+    CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+    CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+    CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+    CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+    CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    XAI_API_KEY: process.env.XAI_API_KEY,
+    MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+    VENICE_API_KEY: process.env.VENICE_API_KEY,
+    MIMO_API_KEY: process.env.MIMO_API_KEY,
+    NVIDIA_NIM: process.env.NVIDIA_NIM,
+  }
+
+  process.env.BYPASS_VCR = '1'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.XAI_API_KEY
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.NVIDIA_NIM
+
+  const actualProviders = await import('../../utils/model/providers.js')
+  mock.module('../../utils/model/providers.js', () => ({
+    ...actualProviders,
+    getAPIProvider: () => 'firstParty',
+  }))
+
+  const actualThinking = await import('../../utils/thinking.js')
+  mock.module('../../utils/thinking.js', () => ({
+    ...actualThinking,
+    modelSupportsThinking: () => true,
+  }))
+
+  try {
+    let capturedBody: any = null
+
+    globalThis.fetch = (async (input, init) => {
+      capturedBody = JSON.parse(init?.body as string)
+      return new Response(
+        JSON.stringify({
+          id: 'msg_123',
+          content: [{ type: 'text', text: 'hello' }],
+          usage: { input_tokens: 10, output_tokens: 10 },
+        }),
+        {
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+    }) as FetchType
+
+    const { queryModelWithoutStreaming } = await import(`./claude.js?ts=${Date.now()}-${Math.random()}`)
+
+    // Run with top_p < 0.95 (should omit top_p)
+    await queryModelWithoutStreaming({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      systemPrompt: [],
+      thinkingConfig: { type: 'enabled', budgetTokens: 1024 },
+      tools: [],
+      signal: new AbortController().signal,
+      options: {
+        getToolPermissionContext: async () => ({ mode: 'auto' } as any),
+        model: 'claude-4-sonnet', // supports thinking
+        isNonInteractiveSession: true,
+        querySource: 'sdk',
+        topPOverride: 0.7,
+        mcpTools: [],
+        agents: [],
+      },
+    })
+
+    expect(capturedBody).not.toBeNull()
+    if (capturedBody && capturedBody.thinking === undefined) {
+      console.error('DEBUG: capturedBody keys:', Object.keys(capturedBody))
+      console.error('DEBUG: capturedBody:', JSON.stringify(capturedBody))
+    }
+    expect(capturedBody.thinking).toBeDefined()
+    expect(capturedBody.top_p).toBeUndefined()
+
+    // Run with top_p >= 0.95 (should preserve top_p)
+    await queryModelWithoutStreaming({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      systemPrompt: [],
+      thinkingConfig: { type: 'enabled', budgetTokens: 1024 },
+      tools: [],
+      signal: new AbortController().signal,
+      options: {
+        getToolPermissionContext: async () => ({ mode: 'auto' } as any),
+        model: 'claude-4-sonnet', // supports thinking
+        isNonInteractiveSession: true,
+        querySource: 'sdk',
+        topPOverride: 0.98,
+        mcpTools: [],
+        agents: [],
+      },
+    })
+
+    expect(capturedBody.thinking).toBeDefined()
+    expect(capturedBody.top_p).toBe(0.98)
+  } finally {
+    // Restore environment
+    for (const [k, v] of Object.entries(oldEnv)) {
+      if (v === undefined) {
+        delete process.env[k]
+      } else {
+        process.env[k] = v
+      }
+    }
+  }
 })

@@ -181,7 +181,6 @@ export function logAPIQuery({
   messagesLength: number
   temperature: number
   topP?: number
-  numCtx?: number
   betas?: string[]
   permissionMode?: PermissionMode
   querySource: string
@@ -196,7 +195,6 @@ export function logAPIQuery({
     messagesLength,
     temperature: temperature,
     top_p: topP,
-    num_ctx: numCtx,
     provider: getAPIProviderForStatsig(),
     buildAgeMins: getBuildAgeMinutes(),
     ...(betas?.length
@@ -257,7 +255,6 @@ export function logAPIError({
   model: string
   temperature?: number
   topP?: number
-  numCtx?: number
   messageCount: number
   messageTokens?: number
   durationMs: number
@@ -307,7 +304,6 @@ export function logAPIError({
     model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     temperature,
     top_p: topP,
-    num_ctx: numCtx,
     error: errStr as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     status:
       status as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -417,7 +413,6 @@ function logAPISuccess({
   preNormalizedModel: string
   temperature?: number
   topP?: number
-  numCtx?: number
   messageCount: number
   messageTokens: number
   usage: Usage
@@ -458,7 +453,6 @@ function logAPISuccess({
     model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     temperature,
     top_p: topP,
-    num_ctx: numCtx,
     ...(preNormalizedModel !== model
       ? {
           preNormalizedModel:
@@ -608,7 +602,6 @@ export function logAPISuccessAndDuration({
   preNormalizedModel: string
   temperature?: number
   topP?: number
-  numCtx?: number
   start: number
   startIncludingRetries: number
   ttftMs: number | null
@@ -691,7 +684,6 @@ export function logAPISuccessAndDuration({
     preNormalizedModel,
     temperature,
     topP,
-    numCtx,
     messageCount,
     messageTokens,
     usage,

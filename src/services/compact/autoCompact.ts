@@ -34,7 +34,6 @@ const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000
 // Returns the context window size minus the max output tokens for the model
 export function getEffectiveContextWindowSize(
   model: string,
-  overrideNumCtx?: number,
 ): number {
   const reservedTokensForSummary = Math.min(
     getMaxOutputTokensForModel(model),
@@ -43,7 +42,6 @@ export function getEffectiveContextWindowSize(
   let contextWindow = getContextWindowForModel(
     model,
     getSdkBetas(),
-    overrideNumCtx,
   )
 
   const autoCompactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
@@ -85,11 +83,9 @@ const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
 
 export function getAutoCompactThreshold(
   model: string,
-  overrideNumCtx?: number,
 ): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(
     model,
-    overrideNumCtx,
   )
 
   const autocompactThreshold =
@@ -113,7 +109,6 @@ export function getAutoCompactThreshold(
 export function calculateTokenWarningState(
   tokenUsage: number,
   model: string,
-  overrideNumCtx?: number,
 ): {
   percentLeft: number
   isAboveWarningThreshold: boolean
@@ -121,10 +116,10 @@ export function calculateTokenWarningState(
   isAboveAutoCompactThreshold: boolean
   isAtBlockingLimit: boolean
 } {
-  const autoCompactThreshold = getAutoCompactThreshold(model, overrideNumCtx)
+  const autoCompactThreshold = getAutoCompactThreshold(model)
   const threshold = isAutoCompactEnabled()
     ? autoCompactThreshold
-    : getEffectiveContextWindowSize(model, overrideNumCtx)
+    : getEffectiveContextWindowSize(model)
 
   // Use the raw context window (without output reservation) for the percentage
   // display, so users see remaining context relative to the model's full capacity.
@@ -133,7 +128,6 @@ export function calculateTokenWarningState(
   const rawContextWindow = getContextWindowForModel(
     model,
     getSdkBetas(),
-    overrideNumCtx,
   )
   const percentLeft = Math.max(
     0,
@@ -151,7 +145,6 @@ export function calculateTokenWarningState(
 
   const actualContextWindow = getEffectiveContextWindowSize(
     model,
-    overrideNumCtx,
   )
   const defaultBlockingLimit =
     actualContextWindow - MANUAL_COMPACT_BUFFER_TOKENS
@@ -198,7 +191,6 @@ export async function shouldAutoCompact(
   // pre-snip context, so tokenCountWithEstimation can't see the savings.
   // Subtract the rough-delta that snip already computed.
   snipTokensFreed = 0,
-  overrideNumCtx?: number,
 ): Promise<boolean> {
   // Recursion guards. session_memory and compact are forked agents that
   // would deadlock.
@@ -256,9 +248,8 @@ export async function shouldAutoCompact(
     }
   }
 
-  const tokenCount = tokenCountWithEstimation(messages) - snipTokensFreed
-  const threshold = getAutoCompactThreshold(model, overrideNumCtx)
-  const effectiveWindow = getEffectiveContextWindowSize(model, overrideNumCtx)
+  const threshold = getAutoCompactThreshold(model)
+  const effectiveWindow = getEffectiveContextWindowSize(model)
 
   logForDebugging(
     `autocompact: tokens=${tokenCount} threshold=${threshold} effectiveWindow=${effectiveWindow}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
@@ -267,7 +258,6 @@ export async function shouldAutoCompact(
   const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
     tokenCount,
     model,
-    overrideNumCtx,
   )
 
   return isAboveAutoCompactThreshold
@@ -280,7 +270,6 @@ export async function autoCompactIfNeeded(
   querySource?: QuerySource,
   tracking?: AutoCompactTrackingState,
   snipTokensFreed?: number,
-  overrideNumCtx?: number,
 ): Promise<{
   wasCompacted: boolean
   compactionResult?: CompactionResult
@@ -306,7 +295,6 @@ export async function autoCompactIfNeeded(
     model,
     querySource,
     snipTokensFreed,
-    overrideNumCtx,
   )
 
   if (!shouldCompact) {
@@ -316,7 +304,6 @@ export async function autoCompactIfNeeded(
   const contextWindow = getContextWindowForModel(
     model,
     getSdkBetas(),
-    overrideNumCtx,
   )
 
   const partitioned = partitionContext(messages, {
@@ -354,7 +341,7 @@ export async function autoCompactIfNeeded(
     isRecompactionInChain: tracking?.compacted === true,
     turnsSincePreviousCompact: tracking?.turnCounter ?? -1,
     previousCompactTurnId: tracking?.turnId,
-    autoCompactThreshold: getAutoCompactThreshold(model, overrideNumCtx),
+    autoCompactThreshold: getAutoCompactThreshold(model),
     querySource,
   }
 

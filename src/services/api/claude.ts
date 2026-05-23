@@ -701,7 +701,6 @@ export type Options = {
   skipCacheWrite?: boolean
   temperatureOverride?: number
   topPOverride?: number
-  numCtxOverride?: number
   effortValue?: EffortValue
   mcpTools: Tools
   hasPendingMcpServers?: boolean
@@ -1090,12 +1089,6 @@ async function* queryModel(
     options.topPOverride ??
     options.providerOverride?.top_p ??
     (!isNaN(parsedEnvTopP) ? parsedEnvTopP : undefined)
-  const envNumCtxStr = process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
-  const parsedEnvNumCtx = envNumCtxStr ? parseInt(envNumCtxStr, 10) : NaN
-  const resolvedNumCtx =
-    options.numCtxOverride ??
-    options.providerOverride?.num_ctx ??
-    (!isNaN(parsedEnvNumCtx) ? parsedEnvNumCtx : undefined)
 
   const resolvedModel =
     getAPIProvider() === 'bedrock' &&
@@ -1317,7 +1310,7 @@ async function* queryModel(
       cacheWeight: 0.4,
       freshWeight: 0.6,
       maxTotalTokens: Math.min(
-        getContextWindowForModel(model, getSdkBetas(), resolvedNumCtx) -
+        getContextWindowForModel(model, getSdkBetas()) -
           COMPACT_MAX_OUTPUT_TOKENS,
         200000,
       ),
@@ -1731,8 +1724,10 @@ async function* queryModel(
 
     // Only send temperature when thinking is disabled — the API requires
     // temperature: 1 when thinking is enabled, which is already the default.
-    const temperature = !hasThinking ? resolvedTemperature : undefined
-    const top_p = resolvedTopP
+    const temperature = thinking !== undefined ? undefined : resolvedTemperature
+    // Anthropic thinking mode requires top_p to be in [0.95, 1.0] range.
+    // If thinking is enabled, we omit the user-configured top_p to avoid 400 errors.
+    const top_p = thinking !== undefined ? (resolvedTopP !== undefined && resolvedTopP >= 0.95 ? resolvedTopP : undefined) : resolvedTopP
 
     lastRequestBetas = betasParams
 
@@ -1794,7 +1789,6 @@ async function* queryModel(
         messagesLength: logMessagesLength,
         temperature: resolvedTemperature,
         topP: resolvedTopP,
-        numCtx: resolvedNumCtx,
         betas: logBetas,
         permissionMode: permissionContext.mode,
         querySource: options.querySource,
@@ -2773,7 +2767,6 @@ async function* queryModel(
           model: errorModel,
           temperature: resolvedTemperature,
           topP: resolvedTopP,
-          numCtx: resolvedNumCtx,
           messageCount: messagesForAPI.length,
           messageTokens: tokenCountFromLastAPIResponse(messagesForAPI),
           durationMs: Date.now() - start,
@@ -2831,7 +2824,6 @@ async function* queryModel(
         model: errorModel,
         temperature: resolvedTemperature,
         topP: resolvedTopP,
-        numCtx: resolvedNumCtx,
         messageCount: messagesForAPI.length,
         messageTokens: tokenCountFromLastAPIResponse(messagesForAPI),
         durationMs: Date.now() - start,
@@ -2916,7 +2908,6 @@ async function* queryModel(
       preNormalizedModel: options.model,
       temperature: resolvedTemperature,
       topP: resolvedTopP,
-      numCtx: resolvedNumCtx,
       usage,
       start,
       startIncludingRetries,

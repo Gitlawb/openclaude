@@ -202,7 +202,6 @@ export type ProviderProfile = {
   customHeaders?: Record<string, string>
   temperature?: number
   top_p?: number
-  num_ctx?: number
 }
 
 export type GlobalConfig = {

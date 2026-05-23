@@ -31,7 +31,6 @@ export type QueryDeps = {
     querySource?: QuerySource,
     tracking?: AutoCompactTrackingState,
     snipTokensFreed?: number,
-    overrideNumCtx?: number,
   ) => ReturnType<typeof autoCompactIfNeeded>
 
   // -- platform

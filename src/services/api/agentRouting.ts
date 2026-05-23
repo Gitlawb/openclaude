@@ -61,6 +61,5 @@ export function resolveAgentProvider(
     apiKey: modelConfig.api_key,
     temperature: modelConfig.temperature,
     top_p: modelConfig.top_p,
-    num_ctx: modelConfig.num_ctx,
   }
 }

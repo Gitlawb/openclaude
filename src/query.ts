@@ -197,7 +197,6 @@ export type QueryParams = {
   skipCacheWrite?: boolean
   temperatureOverride?: number
   topPOverride?: number
-  numCtxOverride?: number
   // API task_budget (output_config.task_budget, beta task-budgets-2026-03-13).
   // Distinct from the tokenBudget +500k auto-continue feature. `total` is the
   // budget for the whole agentic turn; `remaining` is computed per iteration
@@ -282,7 +281,6 @@ async function* queryLoop(
     skipCacheWrite,
     temperatureOverride,
     topPOverride,
-    numCtxOverride,
   } = params
   const deps = params.deps ?? productionDeps()
 
@@ -383,13 +381,7 @@ async function* queryLoop(
     const queryChainIdForAnalytics =
       queryTracking.chainId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
 
-    // Resolve context window once for this iteration (honoring overrides and env vars)
-    const envNumCtxStr = process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
-    const parsedEnvNumCtx = envNumCtxStr ? parseInt(envNumCtxStr, 10) : NaN
-    const resolvedNumCtx =
-      numCtxOverride ??
-      toolUseContext.options.providerOverride?.num_ctx ??
-      (!isNaN(parsedEnvNumCtx) ? parsedEnvNumCtx : undefined)
+
 
     toolUseContext = {
       ...toolUseContext,
@@ -533,7 +525,6 @@ async function* queryLoop(
       querySource,
       tracking,
       snipTokensFreed,
-      resolvedNumCtx,
     )
     queryCheckpoint('query_autocompact_end')
 
@@ -705,7 +696,6 @@ async function* queryLoop(
       const { isAtBlockingLimit } = calculateTokenWarningState(
         tokenCountWithEstimation(messagesForQuery) - snipTokensFreed,
         toolUseContext.options.mainLoopModel,
-        resolvedNumCtx,
       )
       if (isAtBlockingLimit) {
         yield createAssistantAPIErrorMessage({
@@ -733,7 +723,6 @@ async function* queryLoop(
       const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
         tokenUsage,
         model,
-        resolvedNumCtx,
       )
       if (isAboveAutoCompactThreshold) {
         yield createAssistantAPIErrorMessage({
@@ -795,7 +784,6 @@ async function* queryLoop(
               skipCacheWrite,
               temperatureOverride,
               topPOverride,
-              numCtxOverride,
               agentId: toolUseContext.agentId,
               addNotification: toolUseContext.addNotification,
               providerOverride: toolUseContext.options.providerOverride,

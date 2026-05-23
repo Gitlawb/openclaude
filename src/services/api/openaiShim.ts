@@ -1873,8 +1873,7 @@ class OpenAIShimMessages {
       delete body.store
     }
 
-    if (params.temperature !== undefined) body.temperature = params.temperature
-    if (params.top_p !== undefined) body.top_p = params.top_p
+
 
     if (shimConfig.thinkingRequestFormat === 'deepseek-compatible') {
       const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
@@ -1966,8 +1965,8 @@ class OpenAIShimMessages {
         responsesBody.max_output_tokens = body.max_completion_tokens
       }
 
-      if (params.temperature !== undefined) responsesBody.temperature = params.temperature
-      if (params.top_p !== undefined) responsesBody.top_p = params.top_p
+      if (temperatureValue !== undefined) responsesBody.temperature = temperatureValue
+      if (topPValue !== undefined) responsesBody.top_p = topPValue
 
       if (!omitResponsesTools && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
