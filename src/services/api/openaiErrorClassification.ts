@@ -250,6 +250,25 @@ export function classifyOpenAINetworkFailure(
     }
   }
 
+  // Broken gzip: the provider sent content-encoding: gzip but the response
+  // body is actually plain text. Node.js undici/fetch tries to decompress and
+  // crashes with Z_DATA_ERROR. This is a server-side bug; surface a clear hint
+  // so users know to contact the provider or check for a client-side workaround.
+  if (
+    lowerMessage.includes('z_data_error') ||
+    lowerMessage.includes('incorrect header check') ||
+    (lowerMessage.includes('decompression') && lowerMessage.includes('failed'))
+  ) {
+    return {
+      source: 'network',
+      category: 'malformed_provider_response',
+      retryable: false,
+      message,
+      code,
+      hint: 'Provider sent a broken compressed response (gzip header on uncompressed body). This is a server-side bug. OpenClaude sends Accept-Encoding: identity for known affected endpoints. If this persists, contact the provider.',
+    }
+  }
+
   return {
     source: 'network',
     category: 'network_error',
@@ -279,6 +298,16 @@ export function classifyOpenAIHttpFailure(options: {
       lowerBody.includes('token expired') ||
       lowerBody.includes('token has expired') ||
       lowerBody.includes('token revoked')
+    // Gitlawb Opengateway (and Fly.io-hosted backends) reject IPv6 connections
+    // before the auth middleware runs, surfacing as api_key_required even when
+    // the key is valid. OpenClaude forces IPv4 automatically, but point users
+    // at key verification in case the key itself is also the problem.
+    const isApiKeyRequired =
+      lowerBody.includes('api_key_required') ||
+      lowerBody.includes('api key required')
+    const isOpengateway =
+      hostname === 'opengateway.gitlawb.com' ||
+      hostname === 'opengateway.fly.dev'
     return {
       source: 'http',
       category: 'auth_invalid',
@@ -287,7 +316,11 @@ export function classifyOpenAIHttpFailure(options: {
       message: body,
       hint: isExpiredOAuthToken
         ? 'OAuth token expired. Re-authenticate with /onboard-github (GitHub Models) or /login (Codex / Claude) and try again.'
-        : 'Authentication failed. Verify API key, token source, and endpoint-specific auth headers.',
+        : isApiKeyRequired && isOpengateway
+          ? 'API key required. If you are on a Chromebook or IPv6-only network this may be a routing issue (OpenClaude forces IPv4 automatically). Verify your key at https://gitlawb.com/opengateway/keys and ensure OPENGATEWAY_API_KEY is set correctly.'
+          : isApiKeyRequired
+            ? 'API key required. Verify API key, token source, and endpoint-specific auth headers.'
+            : 'Authentication failed. Verify API key, token source, and endpoint-specific auth headers.',
     }
   }
 

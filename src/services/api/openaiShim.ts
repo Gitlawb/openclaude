@@ -248,6 +248,53 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Scoped DNS dispatcher — per-request IPv4/IPv6 preference without mutating
+// global dns.setDefaultResultOrder. Uses a cached undici Agent whose
+// connect.lookup forces the declared address family.
+// ---------------------------------------------------------------------------
+
+import type * as undici from 'undici'
+
+const dnsDispatcherCache = new Map<string, undici.Dispatcher>()
+
+/**
+ * Returns a cached undici dispatcher that forces the declared DNS result
+ * order for its connections. Returns `undefined` when no custom DNS
+ * behaviour is needed so callers can pass it through to fetchWithProxyRetry
+ * (which ignores `undefined` dispatchers).
+ */
+function getDnsDispatcher(
+  dnsResultOrder: 'ipv4first' | 'verbatim' | undefined,
+): undici.Dispatcher | undefined {
+  if (!dnsResultOrder) return undefined
+
+  const cached = dnsDispatcherCache.get(dnsResultOrder)
+  if (cached) return cached
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const undiciMod = require('undici') as typeof undici
+    const dns = require('dns') as typeof import('dns')
+
+    const family = dnsResultOrder === 'ipv4first' ? 4 : 0
+
+    const agent = new undiciMod.Agent({
+      connect: {
+        lookup: (hostname, options, callback) => {
+          dns.lookup(hostname, { ...options, family }, callback)
+        },
+      },
+    })
+
+    dnsDispatcherCache.set(dnsResultOrder, agent)
+    return agent
+  } catch {
+    // undici or dns not available (e.g. Bun) — fall back to default behaviour
+    return undefined
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types — minimal subset of Anthropic SDK types we need to produce
 // ---------------------------------------------------------------------------
 
@@ -2398,6 +2445,11 @@ class OpenAIShimMessages {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
+      // forceRequestHeaders: provider-declared static headers applied before
+      // auth injection. Providers use this for transport-layer workarounds
+      // (e.g. Accept-Encoding: identity for gateways with broken compression)
+      // without requiring host-matching logic in the shared shim.
+      ...shimConfig.forceRequestHeaders,
       ...this.defaultHeaders,
       ...filterAnthropicHeaders(options?.headers),
     }
@@ -2685,12 +2737,21 @@ class OpenAIShimMessages {
       : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
       : request.baseUrl.includes('anthropic') ? 'anthropic'
       : 'openai'
+
+    // Scoped DNS dispatcher: when shimConfig.dnsResultOrder is 'ipv4first',
+    // create a per-gateway undici Agent whose connect.lookup forces { family: 4 }.
+    // This avoids mutating the global dns.setDefaultResultOrder, keeping DNS
+    // behaviour scoped to requests routed through this specific gateway.
+    // Cached per dnsResultOrder value so the Agent is reused across requests.
+    const scopedDnsDispatcher = getDnsDispatcher(shimConfig.dnsResultOrder)
+
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         response = await fetchWithProxyRetry(
           requestUrl,
           buildFetchInit(),
+          { dispatcher: scopedDnsDispatcher },
         )
       } catch (error) {
         const isAbortError =
@@ -2773,7 +2834,7 @@ class OpenAIShimMessages {
               headers,
               body: stableStringifyJson(responsesBody),
               signal: options?.signal,
-            })
+            }, { dispatcher: scopedDnsDispatcher })
           } catch (error) {
             throwClassifiedTransportError(error, responsesUrl)
           }

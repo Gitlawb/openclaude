@@ -93,6 +93,30 @@ test('401 without expired-token signal keeps the generic API-key hint', () => {
   expect(failure.hint).not.toContain('/onboard-github')
 })
 
+test('401 with api_key_required from Opengateway surfaces the routing-aware hint', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 401,
+    body: 'api_key_required',
+    url: 'https://opengateway.gitlawb.com/v1/chat/completions',
+  })
+
+  expect(failure.category).toBe('auth_invalid')
+  expect(failure.hint).toContain('Chromebook or IPv6-only network')
+  expect(failure.hint).toContain('https://gitlawb.com/opengateway/keys')
+})
+
+test('401 with api_key_required from non-Opengateway surfaces the generic API key hint', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 401,
+    body: 'api_key_required',
+    url: 'https://api.openai.com/v1/chat/completions',
+  })
+
+  expect(failure.category).toBe('auth_invalid')
+  expect(failure.hint).toBe('API key required. Verify API key, token source, and endpoint-specific auth headers.')
+  expect(failure.hint).not.toContain('Chromebook')
+})
+
 test('classifies tool compatibility failures', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 400,

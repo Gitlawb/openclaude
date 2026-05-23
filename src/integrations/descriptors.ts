@@ -29,6 +29,22 @@ export interface OpenAIShimUiConfig {
 
 export interface OpenAIShimTransportConfig {
   headers?: Record<string, string>
+  /**
+   * Static headers merged into every request for this provider/gateway,
+   * applied before auth injection. Intended for transport-layer workarounds
+   * that are specific to a provider (e.g. `Accept-Encoding: identity` for
+   * gateways that send broken gzip headers). Keeps provider quirks out of
+   * the shared shim request path.
+   */
+  forceRequestHeaders?: Record<string, string>
+  /**
+   * DNS result order preference for requests to this provider. When set to
+   * 'ipv4first', a scoped undici Agent with a custom `connect.lookup` forces
+   * IPv4 resolution for connections to this provider only. No global
+   * `dns.setDefaultResultOrder` mutation occurs — other providers and local
+   * gateways in the same process are unaffected.
+   */
+  dnsResultOrder?: 'ipv4first' | 'verbatim'
   supportsApiFormatSelection?: boolean
   supportsAuthHeaders?: boolean
   ui?: OpenAIShimUiConfig

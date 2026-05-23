@@ -1,3 +1,4 @@
+import type * as undici from 'undici'
 import { disableKeepAlive, getProxyFetchOptions } from '../../utils/proxy.js'
 
 const RETRYABLE_FETCH_ERROR_PATTERN =
@@ -16,18 +17,41 @@ export function isRetryableFetchError(error: unknown): boolean {
 export async function fetchWithProxyRetry(
   input: string | URL | Request,
   init?: RequestInit,
-  options?: { forAnthropicAPI?: boolean; maxAttempts?: number },
+  options?: {
+    forAnthropicAPI?: boolean
+    maxAttempts?: number
+    /**
+     * Optional scoped undici dispatcher for per-request transport behaviour
+     * (e.g. IPv4-only DNS lookup). Only applied when no proxy dispatcher is
+     * active — proxy environments let the proxy resolve hostnames.
+     */
+    dispatcher?: undici.Dispatcher
+  },
 ): Promise<Response> {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? 2)
   let lastError: unknown
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      // Fetch proxy options inside the loop so that changes from
+      // disableKeepAlive() (called between retries) are picked up.
+      const proxyOpts = getProxyFetchOptions({
+        forAnthropicAPI: options?.forAnthropicAPI,
+      })
+
+      // Use the caller's scoped dispatcher only when the proxy layer did not
+      // provide one. Proxy dispatchers handle DNS resolution through the
+      // tunnel, so a custom lookup dispatcher is both unnecessary and would
+      // conflict.
+      const scopedDispatcher =
+        !proxyOpts.dispatcher && options?.dispatcher
+          ? { dispatcher: options.dispatcher }
+          : {}
+
       const response = await fetch(input, {
         ...init,
-        ...getProxyFetchOptions({
-          forAnthropicAPI: options?.forAnthropicAPI,
-        }),
+        ...scopedDispatcher,
+        ...proxyOpts,
       })
 
       // If an upstream proxy or local NAT silently dropped the keep-alive socket,

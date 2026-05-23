@@ -6188,3 +6188,67 @@ test('emits reasoning_effort from codex alias default when no override is passed
 
   expect(requestBody?.reasoning_effort).toBe('high')
 })
+
+test('dnsResultOrder: ipv4first does not mutate global dns.getDefaultResultOrder', async () => {
+  // Regression test: the maintainer flagged that calling
+  // dns.setDefaultResultOrder('ipv4first') during an Opengateway request
+  // permanently changed DNS behaviour for all subsequent providers.
+  // The fix uses a scoped undici Agent with connect.lookup instead.
+  // This test proves the global DNS setting is never mutated.
+  const dns = await import('dns')
+  const originalOrder = dns.getDefaultResultOrder()
+
+  registerGateway({
+    id: 'dns-scope-test',
+    label: 'DNS Scope Test',
+    category: 'hosted',
+    defaultBaseUrl: 'https://dns-scope-test.example/v1',
+    defaultModel: 'test-model',
+    setup: {
+      requiresAuth: true,
+      authMode: 'api-key',
+      credentialEnvVars: ['OPENAI_API_KEY'],
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        dnsResultOrder: 'ipv4first',
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://dns-scope-test.example/v1'
+  process.env.OPENAI_MODEL = 'test-model'
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-dns',
+        model: 'test-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'test-model',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  // The global DNS result order must be identical to what it was before the
+  // request. If getDnsDispatcher had used dns.setDefaultResultOrder instead
+  // of a scoped undici Agent, this assertion would fail.
+  expect(dns.getDefaultResultOrder()).toBe(originalOrder)
+})

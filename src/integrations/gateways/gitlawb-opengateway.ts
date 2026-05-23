@@ -2,6 +2,24 @@ import { defineGateway } from '../define.js'
 
 export default defineGateway({
   id: 'gitlawb-opengateway',
+  // ─── Transport workarounds ────────────────────────────────────────────────
+  // These are declared here in the descriptor (not hard-coded in the shared
+  // shim) so they are scoped to this gateway and easy to remove when the
+  // server-side bugs are fixed.
+  //
+  // 1. dnsResultOrder: 'ipv4first' — Fly.io infrastructure can fail to
+  //    authenticate connections arriving over IPv6 before the auth middleware
+  //    runs, returning 401 "api_key_required" even with a valid key. The
+  //    Cloudflare-fronted IPv4 path works correctly. Confirmed on Windows
+  //    (WSL2) and Chromebook Crostini. Remove when Fly.io fixes IPv6 routing.
+  //
+  // 2. forceRequestHeaders: { Accept-Encoding: identity } — A Z_DATA_ERROR
+  //    decompression crash was observed on authenticated streaming requests
+  //    from a Chromebook Crostini container. The reviewer could not reproduce
+  //    on unauthenticated routes (curl showed valid gzip). The fix is harmless
+  //    (standard HTTP) and kept here with reduced confidence until confirmed
+  //    server-side. Remove if the gateway confirms its gzip behavior is correct.
+  // ────────────────────────────────────────────────────────────────────────────
   label: 'Gitlawb Opengateway',
   category: 'aggregating',
   defaultBaseUrl: 'https://opengateway.gitlawb.com/v1',
@@ -39,6 +57,15 @@ export default defineGateway({
       removeBodyFields: ['store', 'stream_options'],
       supportsApiFormatSelection: false,
       supportsAuthHeaders: false,
+      // Fly.io IPv6 paths can fail auth before the middleware runs; IPv4 via
+      // Cloudflare works correctly. Uses a scoped undici Agent with a custom
+      // connect.lookup — no global dns.setDefaultResultOrder mutation.
+      dnsResultOrder: 'ipv4first',
+      // Precautionary: a Z_DATA_ERROR was observed on authenticated streaming
+      // requests from a Crostini container. Unauthenticated routes showed valid
+      // gzip, so confidence is limited. Harmless to keep; remove if confirmed
+      // unnecessary.
+      forceRequestHeaders: { 'Accept-Encoding': 'identity' },
     },
   },
   preset: {
