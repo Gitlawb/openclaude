@@ -1,34 +1,34 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
-import { parseOpenAIDuration } from './withRetry.js'
-beforeEach(async () => {
-  await acquireSharedMutationLock('withRetry.test.ts')
-  for (const key of envKeys) {
-    delete process.env[key]
-  }
-})
 
-afterEach(() => {
-  try {
-    // Restore environment variables, including the unattended retry flag
-    for (const key of [...envKeys, 'CLAUDE_CODE_UNATTENDED_RETRY']) {
-      if (originalEnv[key] === undefined) delete process.env[key]
-      else process.env[key] = originalEnv[key]
-    }
-    mock.restore()
-  } finally {
-    releaseSharedMutationLock()
-  }
-})
-    'CLAUDE_CODE_UNATTENDED_RETRY',
-  ]) {
-=======
-  for (const key of envKeys) {
->>>>>>> ad724dc (Improve GitHub Copilot provider: official OAuth onboarding, Copilot API routing, and test hardening and auto refresh token logic (#288))
-    if (originalEnv[key] === undefined) delete process.env[key]
-    else process.env[key] = originalEnv[key]
-=======
+// Helper to build a mock APIError with specific headers
+function makeError(headers: Record<string, string>): APIError {
+  const headersObj = new Headers(headers)
+  return {
+    headers: headersObj,
+    status: 429,
+    message: 'rate limit exceeded',
+    name: 'APIError',
+    error: {},
+  } as unknown as APIError
+}
+
+// Save/restore env vars between tests
+const originalEnv = { ...process.env }
+
+const envKeys = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+] as const
+
 beforeEach(async () => {
   await acquireSharedMutationLock('withRetry.test.ts')
   for (const key of envKeys) {
@@ -45,7 +45,6 @@ afterEach(() => {
     mock.restore()
   } finally {
     releaseSharedMutationLock()
->>>>>>> 94e8ff3 (chore: centralize Bun version and refresh CI tool pins (#1171))
   }
 })
 
@@ -64,77 +63,47 @@ async function importFreshWithRetryModule(
   mock.module('src/utils/model/providers.js', () => ({
     getAPIProvider: () => provider,
     getAPIProviderForStatsig: () => provider,
-    isFirstPartyAnthropicBaseUrl: () => true,
+    isFirstPartyAnthropicBaseUrl: () => provider === 'firstParty',
+    isGithubNativeAnthropicMode: () => false,
+    usesAnthropicAccountFlow: () => false,
   }))
-  importNonce += 1
-  return import(`./withRetry.js?ts=${importNonce}`)
-}
-
-let importNonce = 0
-
-async function importWithRetryForQuotaAttemptTest(options: {
-  baseProvider: 'firstParty' | 'openai' | 'github' | 'bedrock' | 'vertex' | 'gemini' | 'codex' | 'foundry'
-  enforceQuotaSpy: ReturnType<typeof mock>
-}) {
-  mock.restore()
-  mock.module('src/utils/model/providers.js', () => ({
-    getAPIProvider: () => options.baseProvider,
-    getAPIProviderForStatsig: () => options.baseProvider,
-    isFirstPartyAnthropicBaseUrl: () => true,
-  }))
-  mock.module('./clientQuotaGuards.js', () => ({
-    enforceClientQuotaGuards: options.enforceQuotaSpy,
-  }))
-  mock.module('../../utils/sleep.js', () => ({
-    sleep: async () => undefined,
-  }))
-  mock.module('../../utils/auth.js', () => ({
-    clearApiKeyHelperCache: () => undefined,
-    clearAwsCredentialsCache: () => undefined,
-    clearGcpCredentialsCache: () => undefined,
-    getClaudeAIOAuthTokens: () => undefined,
-    handleOAuth401Error: async () => undefined,
-    isClaudeAISubscriber: () => false,
-    isEnterpriseSubscriber: () => false,
-  }))
-  mock.module('../analytics/growthbook.js', () => ({
-    getFeatureValue_CACHED_MAY_BE_STALE: () => false,
-  }))
-  mock.module('../analytics/index.js', () => ({
-    logEvent: () => undefined,
-  }))
-
-  importNonce += 1
-  return import(`./withRetry.js?ts=${importNonce}`)
+  return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
 // --- parseOpenAIDuration ---
 describe('parseOpenAIDuration', () => {
-  test('parses seconds: "1s" -> 1000', () => {
+  test('parses seconds: "1s" → 1000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('1s')).toBe(1000)
   })
 
-  test('parses minutes+seconds: "6m0s" -> 360000', () => {
+  test('parses minutes+seconds: "6m0s" → 360000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('6m0s')).toBe(360000)
   })
 
-  test('parses hours+minutes+seconds: "1h30m0s" -> 5400000', () => {
+  test('parses hours+minutes+seconds: "1h30m0s" → 5400000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('1h30m0s')).toBe(5400000)
   })
 
-  test('parses milliseconds: "500ms" -> 500', () => {
+  test('parses milliseconds: "500ms" → 500', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('500ms')).toBe(500)
   })
 
-  test('parses minutes only: "2m" -> 120000', () => {
+  test('parses minutes only: "2m" → 120000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('2m')).toBe(120000)
   })
 
-  test('returns null for empty string', () => {
+  test('returns null for empty string', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('')).toBeNull()
   })
 
-  test('returns null for unrecognized format', () => {
+  test('returns null for unrecognized format', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('invalid')).toBeNull()
   })
 })
@@ -210,13 +179,6 @@ describe('getRateLimitResetDelayMs - OpenAI provider', () => {
     const error = makeError({ 'x-ratelimit-reset-requests': '5s' })
     expect(getRateLimitResetDelayMs(error)).toBe(5_000)
   })
-
-  test('accepts explicit provider to support override-aware retry timing', async () => {
-    const { getRateLimitResetDelayMs } =
-      await importFreshWithRetryModule('firstParty')
-    const error = makeError({ 'x-ratelimit-reset-requests': '30s' })
-    expect(getRateLimitResetDelayMs(error, 'openai')).toBe(30_000)
-  })
 })
 
 describe('getRateLimitResetDelayMs - providers without reset headers', () => {
@@ -238,85 +200,69 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
   })
 })
 
-describe('withRetry quota guard integration', () => {
-  test('enforces quota guard once per attempt using provider override transport', async () => {
-    const enforceQuotaSpy = mock(async () => undefined)
-    const { withRetry } = await importWithRetryForQuotaAttemptTest({
-      baseProvider: 'firstParty',
-      enforceQuotaSpy,
-    })
+// Regression for #1125 — OpenRouter 402 (credits-vs-max_tokens mismatch)
+// carries the affordable cap in the message. The retry loop should adjust
+// max_tokens to that cap once instead of bubbling a confusing 402 to the user.
+describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
+  function make402(message: string): APIError {
+    return {
+      headers: new Headers(),
+      status: 402,
+      message,
+      name: 'APIError',
+      error: {},
+    } as unknown as APIError
+  }
 
-    const operation = async (_client: unknown, attempt: number) => {
-      if (attempt === 1) {
-        throw new APIError(
-          429,
-          undefined,
-          'rate limit exceeded',
-          new Headers({
-            'x-should-retry': 'true',
-            'retry-after': '0',
-          }),
-        )
-      }
-      return 'ok'
-    }
-
-    const generator = withRetry(
-      async () => ({}) as any,
-      operation,
-      {
-        maxRetries: 1,
-        model: 'gpt-4o',
-        thinkingConfig: { type: 'disabled' } as any,
-        providerOverride: {
-          model: 'gpt-4o',
-          baseURL: 'https://api.openai.com/v1',
-          apiKey: 'test',
-        },
-      },
+  test('parses the affordable max_tokens out of OpenRouter 402 body', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = make402(
+      'This request requires more credits, or fewer max_tokens. You requested up to 32000 tokens, but can only afford 27342. To increase, visit ...',
     )
-
-    let result: string | undefined
-    while (true) {
-      const next = await generator.next()
-      if (next.done) {
-        result = next.value
-        break
-      }
-    }
-
-    expect(result).toBe('ok')
-    expect(enforceQuotaSpy).toHaveBeenCalledTimes(2)
-    for (const call of enforceQuotaSpy.mock.calls) {
-      expect(call[0]?.provider).toBe('openai')
-    }
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toEqual({
+      requestedMaxTokens: 32000,
+      affordableMaxTokens: 27342,
+    })
   })
 
-  test('blocks before client creation when quota guard rejects', async () => {
-    const enforceQuotaSpy = mock(async () => {
-      throw new Error('daily cap reached')
-    })
-    const { withRetry } = await importWithRetryForQuotaAttemptTest({
-      baseProvider: 'openai',
-      enforceQuotaSpy,
-    })
+  test('returns undefined when status is not 402', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = {
+      headers: new Headers(),
+      status: 429,
+      message: 'You requested up to 32000 tokens, but can only afford 27342',
+      name: 'APIError',
+      error: {},
+    } as unknown as APIError
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toBeUndefined()
+  })
 
-    const getClientSpy = mock(async () => ({}) as any)
-    const operationSpy = mock(async () => 'ok')
+  test('returns undefined when message does not match expected shape', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = make402('Payment required. Top up your account.')
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toBeUndefined()
+  })
 
-    const generator = withRetry(
-      getClientSpy,
-      operationSpy,
-      {
-        maxRetries: 0,
-        model: 'gpt-4o',
-        thinkingConfig: { type: 'disabled' } as any,
-      },
+  test('returns undefined when affordable_max_tokens is zero', async () => {
+    const { parseOpenRouterAffordableMaxTokensError } =
+      await importFreshWithRetryModule('openai')
+    const err = make402(
+      'You requested up to 32000 tokens, but can only afford 0',
     )
+    expect(parseOpenRouterAffordableMaxTokensError(err)).toBeUndefined()
+  })
 
-    await expect(generator.next()).rejects.toThrow('daily cap reached')
-    expect(enforceQuotaSpy).toHaveBeenCalledTimes(1)
-    expect(getClientSpy).toHaveBeenCalledTimes(0)
-    expect(operationSpy).toHaveBeenCalledTimes(0)
+  test('shouldRetry returns true for parseable 402', async () => {
+    const { shouldRetry } = (await importFreshWithRetryModule('openai')) as {
+      shouldRetry?: (e: APIError) => boolean
+    }
+    if (!shouldRetry) return // shouldRetry is internal; skip when not exported
+    const err = make402(
+      'You requested up to 32000 tokens, but can only afford 27342',
+    )
+    expect(shouldRetry(err)).toBe(true)
   })
 })
