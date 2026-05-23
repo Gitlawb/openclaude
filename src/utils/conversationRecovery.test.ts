@@ -171,3 +171,64 @@ test('deserializeMessages preserves thinking blocks for GitHub native Claude tra
   }>
   expect(content.some(block => block.type === 'thinking')).toBe(true)
 })
+
+test('deserializeMessages preserves thinking blocks for DeepSeek 3P provider (#957)', async () => {
+  // Regression: DeepSeek requires `reasoning_content` echoed back on assistant
+  // messages in thinking mode. The shim reads the thinking block to populate
+  // that field — stripping it on resume left the shim with no source and the
+  // provider 400'd ("reasoning_content in the thinking mode must be passed
+  // back"). preserveReasoningContent: true (from runtimeMetadata's DeepSeek
+  // shim config inference) must opt the provider out of the 3P thinking strip.
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek-v4-flash'
+  const { deserializeMessages } = await importFreshConversationRecovery()
+
+  const deserialized = deserializeMessages([
+    {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'chain of thought' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    } as any,
+  ])
+
+  const content = (deserialized[0] as any)?.message?.content as Array<{
+    type: string
+  }>
+  expect(content.some(block => block.type === 'thinking')).toBe(true)
+})
+
+test('deserializeMessages still strips thinking blocks for generic OpenAI 3P (no preserveReasoningContent)', async () => {
+  // Counter-test: providers that don't set preserveReasoningContent keep the
+  // original strip behaviour from #248 — thinking blocks were causing 400s
+  // there, and the fix for #957 must not regress that path.
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5-mini'
+  const { deserializeMessages } = await importFreshConversationRecovery()
+
+  const deserialized = deserializeMessages([
+    {
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'noise' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    } as any,
+  ])
+
+  const content = (deserialized[0] as any)?.message?.content as Array<{
+    type: string
+  }>
+  expect(content.some(block => block.type === 'thinking')).toBe(false)
+})
