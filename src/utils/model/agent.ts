@@ -1,6 +1,6 @@
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { capitalize } from '../stringUtils.js'
-import { MODEL_ALIASES, type ModelAlias } from './aliases.js'
+import { MODEL_ALIASES } from './aliases.js'
 import { applyBedrockRegionPrefix, getBedrockRegionPrefix } from './bedrock.js'
 import {
   getCanonicalName,
@@ -37,7 +37,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -67,12 +67,20 @@ export function getAgentModel(
   }
 
   // Prioritize tool-specified model if provided
-  if (toolSpecifiedModel) {
-    if (aliasMatchesParentTier(toolSpecifiedModel, parentModel)) {
+  const trimmedToolSpecifiedModel = toolSpecifiedModel?.trim()
+  if (trimmedToolSpecifiedModel) {
+    if (trimmedToolSpecifiedModel.toLowerCase() === 'inherit') {
+      return getRuntimeMainLoopModel({
+        permissionMode: permissionMode ?? 'default',
+        mainLoopModel: parentModel,
+        exceeds200kTokens: false,
+      })
+    }
+    if (aliasMatchesParentTier(trimmedToolSpecifiedModel, parentModel)) {
       return parentModel
     }
-    const model = parseUserSpecifiedModel(toolSpecifiedModel)
-    return applyParentRegionPrefix(model, toolSpecifiedModel)
+    const model = parseUserSpecifiedModel(trimmedToolSpecifiedModel)
+    return applyParentRegionPrefix(model, trimmedToolSpecifiedModel)
   }
 
   const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
