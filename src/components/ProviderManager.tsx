@@ -248,6 +248,24 @@ function getPresetLabel(preset: ProviderPreset, label: string): React.ReactNode 
     )
   }
 
+  if (preset === 'opencode') {
+    return (
+      <Text>
+        <Text>{label} </Text>
+        <Text color="cyan" bold>[Zen]</Text>
+      </Text>
+    )
+  }
+
+  if (preset === 'opencode-go') {
+    return (
+      <Text>
+        <Text>{label} </Text>
+        <Text color="green" bold>[Go]</Text>
+      </Text>
+    )
+  }
+
   return label
 }
 
