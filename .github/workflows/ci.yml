@@ -24,10 +24,18 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          # Install Node deps and Bun for running tests (repo uses Bun for test runner)
+          npm ci
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "::add-path::${HOME}/.bun/bin"
 
       - name: Run TypeScript typecheck
         run: npm run typecheck
 
       - name: Run tests
+        env:
+          PATH: ${{ env.PATH }}:${{ runner.home }}/.bun/bin
         run: npm test
