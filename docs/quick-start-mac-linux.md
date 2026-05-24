@@ -1,4 +1,4 @@
-q# OpenClaude Quick Start for macOS and Linux
+# OpenClaude Quick Start for macOS and Linux
 
 This guide uses a standard shell such as Terminal, iTerm, bash, or zsh.
 
@@ -20,9 +20,7 @@ npm --version
 ```bash
 npm install -g @gitlawb/openclaude
 ```
-On Arch Linux, you can install OpenClaude instead via the community-maintained AUR package:
-
-- `https://aur.archlinux.org/packages/openclaude`
+On Arch Linux, you can install OpenClaude instead via the community-maintained [AUR package](https://aur.archlinux.org/packages/openclaude):
 
 ```bash
 paru -S openclaude
@@ -139,11 +137,11 @@ Check the basics:
 npm install -g @gitlawb/openclaude@latest
 ```
 
-**Via AUR (This is discouraged, instead run paru -Syu for full system upgrade):**
+**Via AUR:**
 ```bash
-paru -Sy
-paru -S openclaude
+paru
 ```
+*(Or use your preferred AUR helper like `yay -Syu`)*
 
 ## 7. Uninstalling OpenClaude
 
