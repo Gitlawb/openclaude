@@ -20,6 +20,7 @@ import {
 } from '../../Tool.js'
 import { getTools } from '../../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js'
+import { hasPermissionsToUseTool } from '../../utils/permissions/permissions.js'
 import { init } from '../init.js'
 import {
   resolveSessionFilePath,
@@ -1114,6 +1115,8 @@ export function query(params: {
     (msg) => { queryImpl.pushTimeout(msg) },
     options._permissionTimeoutMs ?? 30000,
     () => queryImpl.sessionId,
+    undefined,
+    hasPermissionsToUseTool,
   )
 
   // Create QueryEngine config

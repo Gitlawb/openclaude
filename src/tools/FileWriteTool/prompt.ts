@@ -1,6 +1,6 @@
 import { FILE_READ_TOOL_NAME } from '../FileReadTool/prompt.js'
 
-export const FILE_WRITE_TOOL_NAME = 'Write'
+export { FILE_WRITE_TOOL_NAME } from './constants.js'
 export const DESCRIPTION = 'Write a file to the local filesystem.'
 
 function getPreReadInstruction(): string {

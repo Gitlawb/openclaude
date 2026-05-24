@@ -95,6 +95,27 @@ export function normalizeCaseForComparison(path: string): string {
   return path.toLowerCase()
 }
 
+function isWindowsReservedDeviceSegment(segment: string): boolean {
+  return /^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9\u00b9\u00b2\u00b3]|LPT[1-9\u00b9\u00b2\u00b3])(?:\..*)?$/i.test(segment)
+}
+
+function stripWindowsTrailingDotsAndSpaces(path: string): string {
+  return path
+    .split(/([\\/]+)/)
+    .map(segment => {
+      if (
+        segment === '' ||
+        segment === '.' ||
+        segment === '..' ||
+        /^[\\/]+$/.test(segment)
+      ) {
+        return segment
+      }
+      return segment.replace(/[.\s]+$/g, '') || segment
+    })
+    .join('')
+}
+
 /**
  * If filePath is inside a .claude/skills/{name}/ directory (project) or
  * .openclaude/skills/{name}/ directory (global), plus the legacy global
@@ -511,8 +532,8 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
  * - NTFS Alternate Data Streams (e.g., file.txt::$DATA or file.txt:stream)
  * - 8.3 short names (e.g., GIT~1, CLAUDE~1, SETTIN~1.JSON)
  * - Long path prefixes (e.g., \\?\C:\..., \\.\C:\..., //?/C:/..., //./C:/...)
- * - Trailing dots and spaces (e.g., .git., .claude , .bashrc...)
- * - DOS device names (e.g., .git.CON, settings.json.PRN, .bashrc.AUX)
+ * - Trailing dots and spaces (e.g., .git., blocked.ts., .bashrc...)
+ * - DOS device names (e.g., NUL, NUL.txt, COM1.log, CONOUT$)
  * - Three or more consecutive dots (e.g., .../file.txt, path/.../file, file...txt)
  *
  * When detected, these paths should always require manual approval to prevent
@@ -552,7 +573,10 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
  * @param path The path to check for suspicious patterns
  * @returns true if suspicious Windows path patterns are detected
  */
-function hasSuspiciousWindowsPathPattern(path: string): boolean {
+function hasSuspiciousWindowsPathPattern(
+  path: string,
+  options: { checkSegmentCanonicalAliases?: boolean } = {},
+): boolean {
   // Check for NTFS Alternate Data Streams
   // Look for ':' after position 2 to skip drive letters (e.g., C:\)
   // Examples: file.txt::$DATA, .bashrc:hidden, settings.json:stream
@@ -586,18 +610,44 @@ function hasSuspiciousWindowsPathPattern(path: string): boolean {
     return true
   }
 
-  // Check for trailing dots and spaces that Windows strips during path resolution
-  // Examples: .git., .claude , .bashrc..., settings.json.
-  // This can bypass string matching if ".git" is blocked but ".git." is used
-  if (/[.\s]+$/.test(path)) {
-    return true
-  }
+  if (options.checkSegmentCanonicalAliases) {
+    const pathSegments = path.split(/[\\/]+/)
 
-  // Check for DOS device names that Windows treats as special devices
-  // Examples: .git.CON, settings.json.PRN, .bashrc.AUX
-  // Device names: CON, PRN, AUX, NUL, COM1-9, LPT1-9
-  if (/\.(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(path)) {
-    return true
+    // Check for trailing dots and spaces that Windows strips from each path
+    // segment during resolution. Examples: .git./config, .claude /settings.json,
+    // blocked.ts., settings.json.
+    // This can bypass rule matching if "blocked.ts" is denied but "blocked.ts." is used.
+    if (
+      pathSegments.some(
+        segment =>
+          segment !== '' &&
+          segment !== '.' &&
+          segment !== '..' &&
+          /[.\s]+$/.test(segment),
+        )
+    ) {
+      return true
+    }
+
+    // Check for DOS device names that Windows treats as special devices, including
+    // reserved basenames with extensions. Examples: NUL, NUL.txt, COM1.log.
+    if (
+      pathSegments.some(segment =>
+        isWindowsReservedDeviceSegment(segment.replace(/[.\s]+$/g, '')),
+      )
+    ) {
+      return true
+    }
+  } else {
+    // Preserve read-permission behavior: reads still use the historical whole-path
+    // checks, while auto-edit safety gets the stricter per-segment checks above.
+    if (/[.\s]+$/.test(path)) {
+      return true
+    }
+
+    if (/\.(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(path)) {
+      return true
+    }
   }
 
   // Check for three or more consecutive dots (...) when used as a path component
@@ -647,7 +697,11 @@ export function checkPathSafetyForAutoEdit(
 
   // Check for suspicious Windows path patterns on all paths
   for (const pathToCheck of pathsToCheck) {
-    if (hasSuspiciousWindowsPathPattern(pathToCheck)) {
+    if (
+      hasSuspiciousWindowsPathPattern(pathToCheck, {
+        checkSegmentCanonicalAliases: true,
+      })
+    ) {
       return {
         safe: false,
         message: `${PRODUCT_DISPLAY_NAME} requested permissions to write to ${path}, which contains a suspicious Windows path pattern that requires manual approval.`,
@@ -685,9 +739,14 @@ export function checkPathSafetyForAutoEdit(
 export function allWorkingDirectories(
   context: ToolPermissionContext,
 ): Set<string> {
+  const additionalWorkingDirectories =
+    context.additionalWorkingDirectories as unknown as ReadonlyMap<
+      string,
+      unknown
+    >
   return new Set([
     getOriginalCwd(),
-    ...context.additionalWorkingDirectories.keys(),
+    ...additionalWorkingDirectories.keys(),
   ])
 }
 
@@ -975,6 +1034,7 @@ export function matchingRuleForInput(
   toolPermissionContext: ToolPermissionContext,
   toolType: 'edit' | 'read',
   behavior: 'allow' | 'deny' | 'ask',
+  options: { caseInsensitive?: boolean } = {},
 ): PermissionRule | null {
   let fileAbsolutePath = expandPath(path)
 
@@ -992,6 +1052,7 @@ export function matchingRuleForInput(
   // Check each root for a matching pattern
   for (const [root, patternMap] of patternsByRoot.entries()) {
     // Transform patterns for the ignore library
+    const patternLookup = new Map<string, string>()
     const patterns = Array.from(patternMap.keys()).map(pattern => {
       let adjustedPattern = pattern
 
@@ -1001,15 +1062,24 @@ export function matchingRuleForInput(
         adjustedPattern = adjustedPattern.slice(0, -3)
       }
 
-      return adjustedPattern
+      const patternForIgnore = options.caseInsensitive
+        ? normalizeCaseForComparison(adjustedPattern)
+        : adjustedPattern
+      patternLookup.set(patternForIgnore, pattern)
+
+      return patternForIgnore
     })
 
     const ig = ignore().add(patterns)
 
     // Use cross-platform relative path helper for POSIX-style patterns
     const relativePathStr = relativePath(
-      root ?? getCwd(),
-      fileAbsolutePath ?? getCwd(),
+      options.caseInsensitive
+        ? normalizeCaseForComparison(root ?? getCwd())
+        : root ?? getCwd(),
+      options.caseInsensitive
+        ? normalizeCaseForComparison(fileAbsolutePath ?? getCwd())
+        : fileAbsolutePath ?? getCwd(),
     )
 
     if (relativePathStr.startsWith(`..${DIR_SEP}`)) {
@@ -1026,19 +1096,143 @@ export function matchingRuleForInput(
 
     if (igResult.ignored && igResult.rule) {
       // Map the matched pattern back to the original rule
-      const originalPattern = igResult.rule.pattern
+      const originalPattern = patternLookup.get(igResult.rule.pattern)
 
-      // Check if this was a /** pattern we simplified
-      const withWildcard = originalPattern + '/**'
-      if (patternMap.has(withWildcard)) {
-        return patternMap.get(withWildcard) ?? null
-      }
-
-      return patternMap.get(originalPattern) ?? null
+      return originalPattern ? patternMap.get(originalPattern) ?? null : null
     }
   }
 
   // No matching rule found
+  return null
+}
+
+function pathsForFilesystemRuleMatching(paths: readonly string[]): string[] {
+  const result = new Set<string>()
+  for (const path of paths) {
+    result.add(path)
+    result.add(stripWindowsTrailingDotsAndSpaces(path))
+  }
+  return Array.from(result)
+}
+
+function windowsShortNameComparable(segment: string): string {
+  return normalizeCaseForComparison(segment).replace(/[^a-z0-9]/g, '')
+}
+
+function splitNameAndExtension(segment: string): {
+  basename: string
+  extension: string
+} {
+  const dotIndex = segment.lastIndexOf('.')
+  if (dotIndex <= 0) {
+    return { basename: segment, extension: '' }
+  }
+  return {
+    basename: segment.slice(0, dotIndex),
+    extension: segment.slice(dotIndex + 1),
+  }
+}
+
+function couldBeWindowsShortNameForSegment(
+  candidateSegment: string,
+  patternSegment: string,
+): boolean {
+  const shortNameMatch = candidateSegment.match(/^(.{1,6})~\d+(?:\.(.+))?$/i)
+  if (!shortNameMatch) {
+    return false
+  }
+
+  const candidateBasename = windowsShortNameComparable(shortNameMatch[1] ?? '')
+  const candidateExtension = windowsShortNameComparable(
+    (shortNameMatch[2] ?? '').slice(0, 3),
+  )
+  if (!candidateBasename) {
+    return false
+  }
+  const { basename, extension } = splitNameAndExtension(patternSegment)
+
+  return (
+    windowsShortNameComparable(basename).startsWith(candidateBasename) &&
+    (candidateExtension === '' ||
+      windowsShortNameComparable(extension).startsWith(candidateExtension))
+  )
+}
+
+function pathSegmentsCouldMatchWindowsShortName(
+  pattern: string,
+  relativePathStr: string,
+): boolean {
+  const matchesDescendants = pattern.endsWith('/**')
+  const adjustedPattern = matchesDescendants ? pattern.slice(0, -3) : pattern
+  if (/[*?[\]]/.test(adjustedPattern)) {
+    return false
+  }
+
+  const patternSegments = adjustedPattern
+    .replace(/^\/+/, '')
+    .split(DIR_SEP)
+    .filter(Boolean)
+  const pathSegments = relativePathStr
+    .replace(/^\/+/, '')
+    .split(DIR_SEP)
+    .filter(Boolean)
+
+  if (
+    matchesDescendants
+      ? pathSegments.length < patternSegments.length
+      : pathSegments.length !== patternSegments.length
+  ) {
+    return false
+  }
+
+  return patternSegments.every((patternSegment, index) => {
+    const pathSegment = pathSegments[index]
+    if (!pathSegment) {
+      return false
+    }
+    return (
+      normalizeCaseForComparison(pathSegment) ===
+        normalizeCaseForComparison(patternSegment) ||
+      couldBeWindowsShortNameForSegment(pathSegment, patternSegment)
+    )
+  })
+}
+
+function matchingRuleForPotentialWindowsShortName(
+  path: string,
+  toolPermissionContext: ToolPermissionContext,
+): PermissionRule | null {
+  if (!/~\d/.test(path)) {
+    return null
+  }
+
+  let fileAbsolutePath = expandPath(path)
+  if (getPlatform() === 'windows' && fileAbsolutePath.includes('\\')) {
+    fileAbsolutePath = windowsPathToPosixPath(fileAbsolutePath)
+  }
+
+  const patternsByRoot = getPatternsByRoot(
+    toolPermissionContext,
+    'edit',
+    'deny',
+  )
+
+  for (const [root, patternMap] of patternsByRoot.entries()) {
+    const relativePathStr = relativePath(
+      normalizeCaseForComparison(root ?? getCwd()),
+      normalizeCaseForComparison(fileAbsolutePath),
+    )
+    if (relativePathStr.startsWith(`..${DIR_SEP}`) || !relativePathStr) {
+      continue
+    }
+
+    for (const [pattern, rule] of patternMap.entries()) {
+      if (pathSegmentsCouldMatchWindowsShortName(pattern, relativePathStr)) {
+        return rule
+      }
+    }
+  }
+
   return null
 }
 
@@ -1237,12 +1431,14 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   // 1. Check for deny rules - check both the original path and resolved symlink path
   const pathsToCheck =
     precomputedPathsToCheck ?? getPathsForPermissionCheck(path)
-  for (const pathToCheck of pathsToCheck) {
+  const rulePathsToCheck = pathsForFilesystemRuleMatching(pathsToCheck)
+  for (const pathToCheck of rulePathsToCheck) {
     const denyRule = matchingRuleForInput(
       pathToCheck,
       toolPermissionContext,
       'edit',
       'deny',
+      { caseInsensitive: true },
     )
     if (denyRule) {
       return {
@@ -1251,6 +1447,21 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
         decisionReason: {
           type: 'rule',
           rule: denyRule,
+        },
+      }
+    }
+
+    const windowsShortNameDenyRule = matchingRuleForPotentialWindowsShortName(
+      pathToCheck,
+      toolPermissionContext,
+    )
+    if (windowsShortNameDenyRule) {
+      return {
+        behavior: 'deny',
+        message: `Permission to edit ${path} has been denied.`,
+        decisionReason: {
+          type: 'rule',
+          rule: windowsShortNameDenyRule,
         },
       }
     }
@@ -1360,12 +1571,13 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   }
 
   // 2. Check for ask rules - check both the original path and resolved symlink path
-  for (const pathToCheck of pathsToCheck) {
+  for (const pathToCheck of rulePathsToCheck) {
     const askRule = matchingRuleForInput(
       pathToCheck,
       toolPermissionContext,
       'edit',
       'ask',
+      { caseInsensitive: true },
     )
     if (askRule) {
       return {
@@ -1377,6 +1589,7 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
         },
       }
     }
+
   }
 
   // 3. If in acceptEdits or sandboxBashMode mode, allow all writes in original cwd

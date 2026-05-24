@@ -15,7 +15,10 @@ import {
   type ToolPermissionContext,
   type Tool,
 } from '../../Tool.js'
+import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
+import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
 import { MCPTool } from '../../tools/MCPTool/MCPTool.js'
+import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
 import type { MCPServerConnection, ScopedMcpServerConfig } from '../../services/mcp/types.js'
 import { connectToServer, fetchToolsForClient } from '../../services/mcp/client.js'
 import type {
@@ -215,6 +218,12 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
   }
 }
 
+const INTERNAL_FILE_WRITE_PERMISSION_TOOLS = new Set([
+  FILE_EDIT_TOOL_NAME,
+  FILE_WRITE_TOOL_NAME,
+  NOTEBOOK_EDIT_TOOL_NAME,
+])
+
 // ============================================================================
 // createExternalCanUseTool
 // ============================================================================
@@ -224,14 +233,15 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
  * via respondToPermission().
  *
  * When a user-provided canUseTool callback exists, it takes priority.
- * Otherwise, a permission_request message is emitted to the SDK stream,
- * and the host can resolve it via respondToPermission() before the timeout.
+ * Otherwise, internal file-write permission rules may allow or deny edit/write
+ * tools before a permission_request message is emitted to the SDK stream.
  *
  * The flow:
  * 1. QueryEngine calls canUseTool(tool, input, ..., toolUseID, forceDecision)
  * 2. If forceDecision is set, honor it immediately
  * 3. If user canUseTool callback exists, delegate to it
- * 4. Otherwise, emit permission_request message and await external resolution
+ * 4. If internal file-write rules allow or deny edit/write tools, return that decision
+ * 5. Otherwise, emit permission_request message and await external resolution
  *
  * For async external resolution, hosts should listen for permission_request
  * SDKMessages and call respondToPermission(). The pending prompt is registered
@@ -248,6 +258,7 @@ export function createExternalCanUseTool(
   /** Session ID or getter for dynamic resolution (e.g. () => queryImpl.sessionId for fork/continue) */
   sessionId?: string | (() => string | undefined),
   logger?: SDKLogger,
+  internalCanUseTool?: CanUseToolFn,
 ): CanUseToolFn {
   const log = logger ?? defaultLogger
   /** Resolve sessionId - call getter if provided, otherwise return static value */
@@ -286,6 +297,22 @@ export function createExternalCanUseTool(
     // No user callback — if host registered an onPermissionRequest callback,
     // call it directly and await external resolution with timeout.
     if (toolUseID && onPermissionRequest) {
+      if (
+        internalCanUseTool &&
+        INTERNAL_FILE_WRITE_PERMISSION_TOOLS.has(tool.name)
+      ) {
+        const internalDecision = await internalCanUseTool(
+          tool,
+          input,
+          toolUseContext,
+          assistantMessage,
+          toolUseID,
+        )
+        if (internalDecision.behavior !== 'ask') {
+          return internalDecision
+        }
+      }
+
       const requestId = randomUUID()
       const messageUuid = randomUUID()
 

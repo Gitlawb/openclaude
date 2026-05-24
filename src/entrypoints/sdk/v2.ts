@@ -19,6 +19,7 @@ import {
 } from '../../Tool.js'
 import { getTools } from '../../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js'
+import { hasPermissionsToUseTool } from '../../utils/permissions/permissions.js'
 import { init } from '../init.js'
 import {
   resolveSessionFilePath,
@@ -514,6 +515,8 @@ function createEngineFromOptions(
     (msg) => { permissionTarget.pushTimeout?.(msg) },
     30000, // Default timeout
     sessionId,
+    undefined,
+    hasPermissionsToUseTool,
   )
 
   // Abort controller
