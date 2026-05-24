@@ -65,7 +65,15 @@ function lookupPrefixByKey(
 
   const prefixKey = Object.keys(entries)
     .sort((left, right) => right.length - left.length)
-    .find(entryKey => normalizedKey.startsWith(entryKey))
+    .find(entryKey => {
+      if (!normalizedKey.startsWith(entryKey)) {
+        return false
+      }
+
+      const suffix = normalizedKey.slice(entryKey.length)
+      // Colon suffixes identify gateway variants with potentially different limits.
+      return !suffix.startsWith(':')
+    })
 
   return prefixKey ? entries[prefixKey] : undefined
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
+import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata.ts'
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
@@ -134,6 +135,68 @@ test('deepseek-v4-pro uses the gateway-safe output cap by default', () => {
     upperLimit: 65_536,
   })
   expect(getMaxOutputTokensForModel('deepseek-v4-pro')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant uses DeepSeek V4 Pro runtime limits', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-pro:cloud')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-pro:cloud')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant clamps oversized output token overrides', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '262144'
+  delete process.env.OPENAI_MODEL
+
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-pro:cloud')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant ignores unsafe base-model OpenAI override prefixes', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    'deepseek-v4-pro': 262_144,
+  })
+  process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS = JSON.stringify({
+    'deepseek-v4-pro': 262_144,
+  })
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-pro:cloud')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-pro:cloud')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant keeps the local max_tokens transport field', () => {
+  const runtimeContext = resolveOpenAIShimRuntimeContext({
+    processEnv: {
+      ...process.env,
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+    },
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'deepseek-v4-pro:cloud',
+  })
+
+  expect(runtimeContext.routeId).toBe('ollama')
+  expect(runtimeContext.openaiShimConfig.maxTokensField).toBe('max_tokens')
 })
 
 test('deepseek-v4-pro uses DeepSeek direct API max output cap on api.deepseek.com', () => {
