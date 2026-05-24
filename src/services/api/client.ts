@@ -39,6 +39,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
+  getXiaomiMimoBaseUrlOverride,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
 import {
@@ -123,6 +124,14 @@ function isXaiModelName(value: string | undefined): boolean {
   )
 }
 
+function isXiaomiMimoModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      (normalized.startsWith('mimo-') || normalized.startsWith('mimo/')),
+  )
+}
+
 function applyMiniMaxEnvOnlyDefaults(): void {
   const baseUrlOverride = getMiniMaxBaseUrlOverride()
   const hasMiniMaxBaseOverride = baseUrlOverride !== undefined
@@ -137,6 +146,26 @@ function applyMiniMaxEnvOnlyDefaults(): void {
       : undefined) ??
     getRouteDefaultModel('minimax')
   process.env.OPENAI_API_KEY = process.env.MINIMAX_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function applyXiaomiMimoEnvOnlyDefaults(): void {
+  const baseUrlOverride = getXiaomiMimoBaseUrlOverride()
+  const hasBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('xiaomi-mimo')
+  process.env.OPENAI_MODEL =
+    (hasBaseOverride || isXiaomiMimoModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('xiaomi-mimo')
+  process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
@@ -285,10 +314,14 @@ export async function getAnthropicClient({
     return new Anthropic(nativeArgs)
   }
   const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
+  const useXiaomiMimoEnvOnlyProvider = envOnlyProviderRouteId === 'xiaomi-mimo'
   const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
   const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults()
+  }
+  if (useXiaomiMimoEnvOnlyProvider) {
+    applyXiaomiMimoEnvOnlyDefaults()
   }
   if (useXaiEnvOnlyProvider) {
     applyXaiEnvOnlyDefaults()
@@ -296,6 +329,7 @@ export async function getAnthropicClient({
 
   if (
     useMiniMaxEnvOnlyProvider ||
+    useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||

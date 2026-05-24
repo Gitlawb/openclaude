@@ -12,7 +12,7 @@ npm install -g @gitlawb/openclaude
 
 ### Option B: From source with Bun
 
-Use Bun `1.3.11` or newer for source builds on Windows. Older Bun versions can fail during `bun run build`.
+Use Bun `1.3.13` or newer for source builds on Windows. Older Bun versions can fail during `bun run build`.
 
 ```bash
 git clone https://github.com/Gitlawb/openclaude.git
@@ -99,16 +99,6 @@ OpenRouter model availability changes over time. If a model stops working, try a
 
 ### Ollama
 
-Using `ollama launch` (recommended if you have Ollama installed):
-
-```bash
-ollama launch openclaude --model llama3.3:70b
-```
-
-This handles all environment setup automatically — no env vars needed. Works with any local or cloud model available in your Ollama instance.
-
-Using environment variables manually:
-
 ```bash
 ollama pull llama3.3:70b
 
@@ -163,6 +153,32 @@ export OPENAI_MODEL=llama-3.3-70b-versatile
 
 `GROQ_API_KEY` matches the built-in Groq gateway preset. `OPENAI_API_KEY` also works as a fallback on the generic OpenAI-compatible path, but `GROQ_API_KEY` is the preferred variable for Groq-specific setup.
 
+### Gitlawb Opengateway
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=https://opengateway.gitlawb.com/v1
+export OPENAI_API_KEY=anything
+export OPENAI_MODEL=mimo-v2.5-pro
+```
+
+The Opengateway route is a smart gateway. Keep the base URL at `/v1` and switch
+models with `/model` or `OPENAI_MODEL`. Current partner models include:
+
+- `mimo-v2.5-pro`
+- `google/gemini-3.1-flash-lite-preview`
+
+### Xiaomi MiMo
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export MIMO_API_KEY=...
+export OPENAI_BASE_URL=https://api.xiaomimimo.com/v1
+export OPENAI_MODEL=mimo-v2.5-pro
+```
+
+The `/provider` Xiaomi MiMo preset uses the same endpoint and stores the key as `MIMO_API_KEY`. `OPENAI_API_KEY` also works as a compatibility fallback, but `MIMO_API_KEY` keeps the profile tied to the MiMo route.
+
 ### Mistral
 
 ```bash
@@ -189,6 +205,7 @@ export OPENAI_MODEL=gpt-4o
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
 | `CLAUDE_CODE_USE_GEMINI` | Gemini only | Set to `1` to enable the direct Gemini provider path |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini API-key auth | Gemini API key for direct Gemini setup |
 | `GEMINI_MODEL` | Gemini only | Model name such as `gemini-3-flash-preview` or `gemini-2.5-pro` |

@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import type { ProviderOutput } from './providers/types.js'
 import { __test } from './WebSearchTool.js'
 
-const { buildEmptyAdapterResultHint, formatProviderOutputWithEmptyHint } = __test
+const {
+  buildEmptyAdapterResultHint,
+  formatProviderOutputWithEmptyHint,
+  buildAdapterUnavailableError,
+} = __test
 
 describe('buildEmptyAdapterResultHint', () => {
   test('names the active provider and the failing backend', () => {
@@ -68,5 +72,35 @@ describe('formatProviderOutputWithEmptyHint', () => {
     expect(typeof out.results[0]).toBe('string')
     expect(out.results[0]).toContain('Cats')
     expect(out.results[0]).toContain('https://example.com/cats')
+  })
+})
+
+// Regression for #994: when the adapter path fails in auto mode on an
+// openai-shim provider with NO native web-search fallback (moonshot, minimax,
+// nvidia-nim, github copilot, etc.), the user must see the underlying adapter
+// failure embedded in the thrown error instead of getting "Did 0 searches"
+// from a silent fall-through to the native path. This is the only reachable
+// surfacing path under the current `shouldUseAdapterProvider()` /
+// `hasNativeSearchFallback()` semantics — auto mode prefers native whenever
+// it exists, so the "adapter tried then native ran" config is not actually
+// invoked today.
+describe('buildAdapterUnavailableError', () => {
+  test('names the active provider', () => {
+    const msg = buildAdapterUnavailableError('minimax', 'rate limited')
+    expect(msg).toContain('minimax')
+  })
+
+  test('embeds the underlying adapter error message verbatim', () => {
+    const msg = buildAdapterUnavailableError(
+      'moonshot',
+      'duckduckgo: 429 Too Many Requests',
+    )
+    expect(msg).toContain('duckduckgo: 429 Too Many Requests')
+  })
+
+  test('points the user at a working native-search provider', () => {
+    const msg = buildAdapterUnavailableError('nvidia-nim', 'timeout')
+    expect(msg).toMatch(/Anthropic/)
+    expect(msg).toMatch(/Codex/)
   })
 })

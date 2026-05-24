@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
-import { saveGlobalConfig } from '../config.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import { getGlobalConfig, saveGlobalConfig } from '../config.js'
 
 async function importFreshModelModule() {
   mock.restore()
@@ -15,6 +19,7 @@ async function importFreshModelModule() {
     getAPIProvider: () => {
       if (process.env.NVIDIA_NIM) return 'nvidia-nim'
       if (process.env.MINIMAX_API_KEY) return 'minimax'
+      if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
       if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
       if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
       if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
@@ -45,11 +50,13 @@ const SAVED_ENV = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
 }
+const savedModel = getGlobalConfig().model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {
@@ -59,7 +66,8 @@ function restoreEnv(key: keyof typeof SAVED_ENV): void {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/model.openai-shim-providers.test.ts')
   // Other test files (notably modelOptions.github.test.ts) install a
   // persistent mock.module for './providers.js' that overrides getAPIProvider
   // globally. Without mock.restore() here, those overrides bleed into this
@@ -74,6 +82,7 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.MIMO_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.CODEX_API_KEY
@@ -85,14 +94,18 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  mock.restore()
-  for (const key of Object.keys(SAVED_ENV) as Array<keyof typeof SAVED_ENV>) {
-    restoreEnv(key)
+  try {
+    mock.restore()
+    for (const key of Object.keys(SAVED_ENV) as Array<keyof typeof SAVED_ENV>) {
+      restoreEnv(key)
+    }
+    saveGlobalConfig(current => ({
+      ...current,
+      model: savedModel,
+    }))
+  } finally {
+    releaseSharedMutationLock()
   }
-  saveGlobalConfig(current => ({
-    ...current,
-    model: undefined,
-  }))
 })
 
 test('codex provider reads OPENAI_MODEL, not stale settings.model', async () => {
@@ -134,6 +147,18 @@ test('minimax provider reads OPENAI_MODEL, not stale settings.model', async () =
   const { getUserSpecifiedModelSetting } = await importFreshModelModule()
   const model = getUserSpecifiedModelSetting()
   expect(model).toBe('MiniMax-M2.5')
+})
+
+test('xiaomi mimo provider reads OPENAI_MODEL, not stale settings.model', async () => {
+  saveGlobalConfig(current => ({ ...current, model: 'opus' }))
+  process.env.MIMO_API_KEY = 'mimo-test'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+
+  const { getUserSpecifiedModelSetting } = await importFreshModelModule()
+  const model = getUserSpecifiedModelSetting()
+  expect(model).toBe('mimo-v2.5-pro')
 })
 
 test('openai provider still reads OPENAI_MODEL (regression guard)', async () => {
@@ -191,6 +216,16 @@ test('getSmallFastModel returns OPENAI_MODEL for NVIDIA NIM (regression)', async
   expect(getSmallFastModel()).toBe('nvidia/llama-3.1-nemotron-70b-instruct')
 })
 
+test('getSmallFastModel returns OPENAI_MODEL for Xiaomi MiMo', async () => {
+  process.env.MIMO_API_KEY = 'mimo-test'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2-flash'
+
+  const { getSmallFastModel } = await importFreshModelModule()
+  expect(getSmallFastModel()).toBe('mimo-v2-flash')
+})
+
 test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
   process.env.MINIMAX_API_KEY = 'minimax-test'
   process.env.OPENAI_MODEL = 'MiniMax-M2.7'
@@ -208,6 +243,33 @@ test('getDefaultMainLoopModelSetting defaults MiniMax to M2.7', async () => {
   } = await importFreshModelModule()
   expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M2.7')
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M2.7')
+})
+
+test('getDefaultMainLoopModelSetting defaults Xiaomi MiMo to mimo-v2.5-pro', async () => {
+  process.env.MIMO_API_KEY = 'mimo-test'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+
+  const {
+    getDefaultMainLoopModel,
+    getDefaultMainLoopModelSetting,
+  } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('mimo-v2.5-pro')
+  expect(getDefaultMainLoopModel()).toBe('mimo-v2.5-pro')
+})
+
+test('modelDisplayString does not show Claude subscription default for Xiaomi MiMo', async () => {
+  process.env.MIMO_API_KEY = 'mimo-test'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+
+  const {
+    modelDisplayString,
+    renderDefaultModelSetting,
+  } = await importFreshModelModule()
+  expect(modelDisplayString(null)).toBe('Default (mimo-v2.5-pro)')
+  expect(renderDefaultModelSetting('mimo-v2.5-pro')).toBe('mimo-v2.5-pro')
 })
 
 test('modelDisplayString does not show Claude subscription default for MiniMax', async () => {
@@ -261,6 +323,30 @@ test('default helpers do not leak claude-* names to shim providers', async () =>
   ]) {
     const model = fn()
     expect(model.toLowerCase()).not.toContain('claude')
+  }
+})
+
+test('default helpers do not leak claude-* names to Xiaomi MiMo', async () => {
+  process.env.MIMO_API_KEY = 'mimo-test'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+
+  const {
+    getSmallFastModel,
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getDefaultHaikuModel,
+  } = await importFreshModelModule()
+  for (const fn of [
+    getSmallFastModel,
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getDefaultHaikuModel,
+  ]) {
+    const model = fn()
+    expect(model.toLowerCase()).not.toContain('claude')
+    expect(model.toLowerCase()).not.toContain('opus')
   }
 })
 

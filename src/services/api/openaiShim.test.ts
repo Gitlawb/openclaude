@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { registerGateway } from '../../integrations/index.ts'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
@@ -33,6 +34,7 @@ const originalEnv = {
   BANKR_MODEL: process.env.BANKR_MODEL,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
 }
 
 const originalFetch = globalThis.fetch
@@ -84,7 +86,8 @@ function makeStreamChunks(chunks: unknown[]): string[] {
   ]
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('openaiShim.test.ts')
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
@@ -113,38 +116,46 @@ beforeEach(() => {
   delete process.env.BANKR_MODEL
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
+  delete process.env.MIMO_API_KEY
 })
 
 afterEach(() => {
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
-  restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
-  restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
-  restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
-  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
-  restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
-  restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
-  restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
-  restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
-  restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
-  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
-  restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
-  restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
-  restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
-  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
-  restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
-  restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
-  restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
-  restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
-  restoreEnv('BANKR_BASE_URL', originalEnv.BANKR_BASE_URL)
-  restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
-  restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
-  restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
-  globalThis.fetch = originalFetch
+  try {
+    restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+    restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+    restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
+    restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
+    restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+    restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
+    restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
+    restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+    restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+    restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
+    restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
+    restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
+    restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
+    restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
+    restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
+    restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
+    restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
+    restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
+    restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
+    restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
+    restoreEnv('BANKR_BASE_URL', originalEnv.BANKR_BASE_URL)
+    restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
+    restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
+    restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
+    restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
+    globalThis.fetch = originalFetch
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('strips canonical Anthropic headers from direct shim defaultHeaders', async () => {
@@ -1099,6 +1110,383 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
   })
 })
 
+test('replays Gemini tool signatures for OpenGateway Gemini models', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [
+      { role: 'user', content: 'Use Write' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Write',
+            input: { file_path: 'todo.md', content: 'todo' },
+            signature: 'sig-opengateway',
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: 'created',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  ) as { tool_calls?: Array<Record<string, unknown>> } | undefined
+
+  expect(assistantWithToolCall?.tool_calls?.[0]).toMatchObject({
+    id: 'call_1',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-opengateway',
+      },
+    },
+  })
+})
+
+test('OpenGateway MiMo replays real reasoning_content without adding empty fallback', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-opengateway-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect code with an agent.',
+          },
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect code with an agent.',
+  )
+  expect(requestBody).not.toHaveProperty('store')
+})
+
+test('Xiaomi MiMo replays real reasoning_content without adding empty fallback', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.MIMO_API_KEY = 'mimo-test-key'
+  delete process.env.OPENAI_API_KEY
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect code with an agent.',
+          },
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect code with an agent.',
+  )
+  expect(requestBody).not.toHaveProperty('store')
+})
+
+test('OpenGateway MiMo does not synthesize empty reasoning_content when missing', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-opengateway-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall).not.toHaveProperty('reasoning_content')
+  expect(requestBody).not.toHaveProperty('store')
+})
+
+test('strips unsupported stream_options for Xiaomi MiMo streams', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.MIMO_API_KEY = 'mimo-test-key'
+  delete process.env.OPENAI_API_KEY
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return makeSseResponse(
+      makeStreamChunks([
+        {
+          id: 'chatcmpl-mimo',
+          object: 'chat.completion.chunk',
+          model: 'mimo-v2.5-pro',
+          choices: [
+            {
+              index: 0,
+              delta: { role: 'assistant', content: 'done' },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: 'chatcmpl-mimo',
+          object: 'chat.completion.chunk',
+          model: 'mimo-v2.5-pro',
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: 'stop',
+            },
+          ],
+        },
+      ]),
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  expect(requestBody).toMatchObject({
+    stream: true,
+    max_completion_tokens: 64,
+  })
+  expect(requestBody).not.toHaveProperty('stream_options')
+  expect(requestBody).not.toHaveProperty('store')
+})
+
 test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -1631,6 +2019,57 @@ test('does not use MINIMAX_API_KEY for non-MiniMax OpenAI-compatible routes', as
   expect(capturedAuthorization).toBeNull()
 })
 
+test('xiaomi mimo route uses api-key auth header and max_completion_tokens', async () => {
+  let capturedHeaders: Record<string, string> | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.MIMO_API_KEY = 'mimo-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = init?.headers as Record<string, string>
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedHeaders).toMatchObject({ 'api-key': 'mimo-live-key' })
+  expect(capturedHeaders).not.toHaveProperty('Authorization')
+  expect(capturedBody).toMatchObject({ max_completion_tokens: 32 })
+  expect(capturedBody).not.toHaveProperty('max_tokens')
+})
+
 test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async () => {
   let capturedAuthorization: string | null = null
 
@@ -1765,6 +2204,324 @@ test('preserves Gemini tool call extra_content from streaming chunks', async () 
       },
     },
   })
+})
+
+test('preserves Gemini thought signature from streaming delta extra_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              extra_content: {
+                google: {
+                  thought_signature: 'sig-delta',
+                },
+              },
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Write',
+                    arguments: '{"file_path":"todo.md","content":"todo"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-flash-lite-preview',
+      messages: [{ role: 'user', content: 'Use Write' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'function-call-1',
+    name: 'Write',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-delta',
+      },
+    },
+    signature: 'sig-delta',
+  })
+})
+
+test('preserves Gemini thought signature from non-streaming message extra_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              extra_content: {
+                google: {
+                  thought_signature: 'sig-message',
+                },
+              },
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Write',
+                    arguments: '{"file_path":"todo.md","content":"todo"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [{ role: 'user', content: 'Use Write' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content?.[0]).toMatchObject({
+    type: 'tool_use',
+    id: 'function-call-1',
+    name: 'Write',
+    extra_content: {
+      google: {
+        thought_signature: 'sig-message',
+      },
+    },
+    signature: 'sig-message',
+  })
+})
+
+test('converts Gemini raw tool-call text into streaming tool_use blocks', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-raw-tool',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: 'Tool calls',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-raw-tool',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content:
+                ' requested:\n- Write({"file_path":"style.css","content":"ul { padding: 0; }"}) [id: call79435b5a26564619b0151197]',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-raw-tool',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-flash-lite-preview',
+      messages: [{ role: 'user', content: 'Write CSS' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  expect(
+    events.some(
+      event =>
+        event.type === 'content_block_start' &&
+        (event.content_block as Record<string, unknown> | undefined)?.type ===
+          'text',
+    ),
+  ).toBe(false)
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type ===
+        'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call79435b5a26564619b0151197',
+    name: 'Write',
+  })
+
+  const toolInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        (event.delta as Record<string, unknown> | undefined)?.type ===
+          'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+  expect(JSON.parse(toolInput)).toEqual({
+    file_path: 'style.css',
+    content: 'ul { padding: 0; }',
+  })
+
+  const stop = events.find(event => event.type === 'message_delta') as
+    | { delta?: Record<string, unknown> }
+    | undefined
+  expect(stop?.delta?.stop_reason).toBe('tool_use')
+})
+
+test('converts Gemini raw tool-call text into non-streaming tool_use blocks', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-raw-tool',
+        model: 'google/gemini-3.1-flash-lite-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Tool calls requested:\n- Agent({"description":"Verify the todo list application functionality.","prompt":"Check files.","subagent_type":"verification"}) [id: call9a8b7c6d5e4f3a2b1c0d9e8f]',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-flash-lite-preview',
+    messages: [{ role: 'user', content: 'Verify' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    stop_reason?: string
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.stop_reason).toBe('tool_use')
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'call9a8b7c6d5e4f3a2b1c0d9e8f',
+      name: 'Agent',
+      input: {
+        description: 'Verify the todo list application functionality.',
+        prompt: 'Check files.',
+        subagent_type: 'verification',
+      },
+    },
+  ])
 })
 
 test('normalizes plain string Bash tool arguments from OpenAI-compatible responses', async () => {
@@ -3566,6 +4323,39 @@ test('streaming: preserves prose without tags (no phrase-based false positive)',
   expect(textDeltas.join('')).toBe(
     'I should note that the user role requires a briefly concise friendly response format.',
   )
+})
+
+test('strips credentials and query params from URL in fetch network error message', async () => {
+  process.env.OPENAI_BASE_URL =
+    'https://user:password@internal.example.test/v1?token=abc123'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  globalThis.fetch = (async () => {
+    throw new TypeError(
+      'fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions',
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  }
+
+  const message = (caught as Error).message
+  expect(message).toContain('internal.example.test')
+  expect(message).toContain('fetch failed')
+  expect(message).not.toContain('password')
+  expect(message).not.toContain('user:')
+  expect(message).not.toContain('token=abc123')
 })
 
 test('classifies localhost transport failures with actionable category marker', async () => {

@@ -47,13 +47,21 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
 
-// Set max heap size for child processes in CCR environments (containers have 16GB)
+// Set max heap size for child processes.
+// Local runs get 8 GB so long agentic tasks (multi-file reads, large prompts,
+// tool-heavy loops) do not hit V8's ~2 GB default ceiling. Only raise the cap
+// when the user has not already set NODE_OPTIONS --max-old-space-size so we
+// do not override an intentionally lower or higher personal setting.
+// CCR (Claude Code Remote / container) environments are covered by the same
+// unconditional assignment — the previous CLAUDE_CODE_REMOTE guard was too
+// restrictive, preventing local users from benefiting from the raised limit.
+// Closes: Gitlawb/openclaude#402 — JavaScript heap OOM during large tasks.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level, custom-rules/safe-env-boolean-check
-if (process.env.CLAUDE_CODE_REMOTE === 'true') {
+if (!process.env.NODE_OPTIONS?.includes('--max-old-space-size')) {
   // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-  const existing = process.env.NODE_OPTIONS || '';
+  const existing = process.env.NODE_OPTIONS || ''
   // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-  process.env.NODE_OPTIONS = existing ? `${existing} --max-old-space-size=8192` : '--max-old-space-size=8192';
+  process.env.NODE_OPTIONS = existing ? `${existing} --max-old-space-size=8192` : '--max-old-space-size=8192'
 }
 
 // Harness-science L0 ablation baseline. Inlined here (not init.ts) because
@@ -108,8 +116,14 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
+  const hasConfiguredProviderProfile = await (async () => {
+    const { getActiveProviderProfile } = await import('../utils/providerProfiles.js')
+    return getActiveProviderProfile() !== undefined
+  })()
+
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
+    hasConfiguredProviderProfile,
   })
   if (startupEnv !== process.env) {
     const startupProfileError = await getProviderValidationError(startupEnv)

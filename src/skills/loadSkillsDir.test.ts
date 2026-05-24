@@ -5,6 +5,10 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { getSkillDirCommands, clearSkillCaches } from './loadSkillsDir.ts'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 function writeSkill(rootDir: string, skillPath: string): void {
   const skillDir = join(rootDir, '.claude', 'skills', ...skillPath.split('/'))
@@ -17,6 +21,7 @@ function writeSkill(rootDir: string, skillPath: string): void {
 }
 
 test('loads flat and nested skills with colon namespaces', async () => {
+  await acquireSharedMutationLock('loadSkillsDir.test.ts')
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-skills-'))
   const cwd = join(configDir, 'workspace')
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -53,12 +58,16 @@ test('loads flat and nested skills with colon namespaces', async () => {
       join(configDir, '.claude', 'skills', 'frontend', 'react', 'form'),
     )
   } finally {
-    if (originalConfigDir === undefined) {
-      delete process.env.CLAUDE_CONFIG_DIR
-    } else {
-      process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+    try {
+      if (originalConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+      }
+      clearSkillCaches()
+      rmSync(configDir, { recursive: true, force: true })
+    } finally {
+      releaseSharedMutationLock()
     }
-    clearSkillCaches()
-    rmSync(configDir, { recursive: true, force: true })
   }
 })

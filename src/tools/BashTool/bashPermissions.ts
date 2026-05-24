@@ -733,8 +733,14 @@ export function stripAllLeadingEnvVars(
   // dangerous forms like $(cmd), ${var}, and $((expr)). This means
   // FOO=$VAR is not stripped — adding $VAR matching creates ReDoS risk
   // (CodeQL #671) and $VAR bypasses are low-priority.
+  //
+  // SECURITY: Array subscript uses [^\]$`{(]* (not [^\]]*) to block command
+  // substitution in subscript position. Bash executes FOO[$(cmd)]=val as a
+  // side effect during assignment parsing; if the pattern matched $(cmd) in
+  // the subscript, the env-var prefix would be stripped while the substitution
+  // silently executed — bypassing deny rules that block the substituted command.
   const ENV_VAR_PATTERN =
-    /^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)\+?=(?:'[^'\n\r]*'|"(?:\\.|[^"$`\\\n\r])*"|\\.|[^ \t\n\r$`;|&()<>\\\\'"])*[ \t]+/
+    /^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]$`{(]*\])?)\+?=(?:'[^'\n\r]*'|"(?:\\.|[^"$`\\\n\r])*"|\\.|[^ \t\n\r$`;|&()<>\\\\'"])*[ \t]+/
 
   let stripped = command
   let previousStripped = ''
@@ -1244,9 +1250,10 @@ export async function checkCommandAndSuggestRules(
  *   - allow if no explicit rules (sandbox auto-allow applies)
  *   - passthrough should not occur since we're in auto-allow mode
  */
-function checkSandboxAutoAllow(
+export function checkSandboxAutoAllow(
   input: z.infer<typeof BashTool.inputSchema>,
   toolPermissionContext: ToolPermissionContext,
+  astSubcommands: string[] | null = null,
 ): PermissionResult {
   const command = input.command.trim()
 
@@ -1278,6 +1285,32 @@ function checkSandboxAutoAllow(
   // would return 'ask' before a prefix deny rule on a subcommand (e.g., Bash(rm:*))
   // gets checked, downgrading a deny to an ask.
   const subcommands = splitCommand(command)
+
+  // CC-643: Mirror the legacy-only cap applied in `bashToolHasPermission` (see
+  // the `astSubcommands === null && subcommands.length > MAX...` branch). The
+  // fanout/ReDoS risk is specific to the legacy `splitCommand` path; when
+  // tree-sitter parsed the command cleanly (`astSubcommands !== null`), the
+  // subcommand count is already bounded by structural parse and a long
+  // AST-validated chain (e.g. many `echo`s) is intended to flow through.
+  if (
+    astSubcommands === null &&
+    subcommands.length > MAX_SUBCOMMANDS_FOR_SECURITY_CHECK
+  ) {
+    logForDebugging(
+      `bashPermissions(sandboxAutoAllow): ${subcommands.length} subcommands exceeds cap (${MAX_SUBCOMMANDS_FOR_SECURITY_CHECK}) — returning ask`,
+      { level: 'debug' },
+    )
+    const decisionReason = {
+      type: 'other' as const,
+      reason: `Command splits into ${subcommands.length} subcommands, too many to safety-check individually`,
+    }
+    return {
+      behavior: 'ask',
+      message: createPermissionRequestMessage(BashTool.name, decisionReason),
+      decisionReason,
+    }
+  }
+
   if (subcommands.length > 1) {
     let firstAskRule: PermissionRule | undefined
     for (const sub of subcommands) {
@@ -1813,6 +1846,7 @@ export async function bashToolHasPermission(
     const sandboxAutoAllowResult = checkSandboxAutoAllow(
       input,
       appState.toolPermissionContext,
+      astSubcommands,
     )
     if (
       sandboxAutoAllowResult.behavior === 'deny' ||

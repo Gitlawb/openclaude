@@ -142,6 +142,15 @@ function inferRemoteModelOpenAIShimConfig(
     return undefined
   }
 
+  if (normalizedModel.startsWith('mimo-v2')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store', 'stream_options'],
+    }
+  }
+
   if (normalizedModel.includes('deepseek')) {
     return {
       preserveReasoningContent: true,

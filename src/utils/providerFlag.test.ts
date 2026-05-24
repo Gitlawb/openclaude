@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+import {
   parseProviderFlag,
   parseModelFlag,
   applyProviderFlag,
@@ -24,13 +28,16 @@ const ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
+  'VENICE_API_KEY',
+  'MIMO_API_KEY',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/providerFlag.test.ts')
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
@@ -53,6 +60,8 @@ const RESET_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
+  'VENICE_API_KEY',
+  'MIMO_API_KEY',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ] as const
@@ -64,12 +73,16 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
@@ -119,6 +132,8 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('openrouter')
     expect(VALID_PROVIDERS).toContain('atomic-chat')
     expect(VALID_PROVIDERS).toContain('zai')
+    expect(VALID_PROVIDERS).toContain('venice')
+    expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
   })
 })
 
@@ -266,6 +281,21 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 
+  test('clears MIMO_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.MIMO_API_KEY = 'mimo-live-key'
+
+    const mimoResult = applyProviderFlag('xiaomi-mimo', [])
+    expect(mimoResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('mimo-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
   test('clears XAI_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
     process.env.XAI_API_KEY = 'xai-live-key'
 
@@ -330,6 +360,40 @@ describe('applyProviderFlag - zai', () => {
   })
 })
 
+describe('applyProviderFlag - xiaomi-mimo', () => {
+  test('sets Xiaomi MiMo OpenAI-compatible defaults and mirrors MIMO_API_KEY', () => {
+    process.env.MIMO_API_KEY = 'mimo-secret-key'
+
+    const result = applyProviderFlag('xiaomi-mimo', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('mimo-secret-key')
+  })
+
+  test('sets Xiaomi MiMo OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('xiaomi-mimo', ['--model', 'mimo-v2-flash'])
+
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2-flash')
+  })
+})
+
+describe('applyProviderFlag - venice', () => {
+  test('sets Venice OpenAI-compatible defaults and mirrors VENICE_API_KEY', () => {
+    process.env.VENICE_API_KEY = 'venice-secret-key'
+
+    const result = applyProviderFlag('venice', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.venice.ai/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('venice-uncensored')
+    expect(process.env.OPENAI_API_KEY).toBe('venice-secret-key')
+  })
+})
+
 describe('applyProviderFlag - xai', () => {
   test('sets CLAUDE_CODE_USE_OPENAI=1 with xAI defaults when unset', () => {
     delete process.env.OPENAI_BASE_URL
@@ -338,8 +402,8 @@ describe('applyProviderFlag - xai', () => {
     const result = applyProviderFlag('xai', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
-    expect(process.env.OPENAI_MODEL).toBe('grok-4')
+    expect(process.env.OPENAI_BASE_URL as string | undefined).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('grok-4.3')
   })
 
   test('sets OPENAI_MODEL when --model is provided', () => {
@@ -353,7 +417,7 @@ describe('applyProviderFlag - xai', () => {
 
     applyProviderFlag('xai', [])
 
-    expect(process.env.OPENAI_API_KEY).toBe('xai-secret-key')
+    expect(process.env.OPENAI_API_KEY as string | undefined).toBe('xai-secret-key')
   })
 
   test('does not override existing OPENAI_API_KEY when both keys are set', () => {

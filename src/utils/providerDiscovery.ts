@@ -211,6 +211,15 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('minimax') || haystack.includes('minimax')) {
       return 'MiniMax'
     }
+    // Check for Xiaomi MiMo
+    if (
+      host.includes('xiaomimimo') ||
+      haystack.includes('xiaomimimo') ||
+      host.includes('mimo-v2') ||
+      haystack.includes('mimo-v2')
+    ) {
+      return 'Xiaomi MiMo'
+    }
     // Kimi Code subscription API
     if (hostname === 'api.kimi.com' && path.includes('/coding')) {
       return 'Moonshot AI - Kimi Code'
@@ -290,6 +299,44 @@ export async function listOpenAICompatibleModels(options?: {
           .map(model => model.id!),
       ),
     )
+  } catch {
+    return null
+  } finally {
+    clear()
+  }
+}
+
+export async function fetchOpenAICompatibleModelsRaw(options?: {
+  baseUrl?: string
+  apiKey?: string
+  headers?: Record<string, string>
+}): Promise<Record<string, unknown>[] | null> {
+  const { signal, clear } = withTimeoutSignal(5000)
+  try {
+    const baseUrl = getOpenAICompatibleModelsBaseUrl(options?.baseUrl)
+    const isBankr = baseUrl.toLowerCase().includes('bankr')
+    const headers = {
+      ...(options?.headers ?? {}),
+      ...(options?.apiKey
+        ? isBankr
+          ? { 'X-API-Key': options.apiKey }
+          : { Authorization: `Bearer ${options.apiKey}` }
+        : {}),
+    }
+    const response = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      signal,
+    })
+    if (!response.ok) {
+      return null
+    }
+
+    const data = (await response.json()) as {
+      data?: Array<Record<string, unknown>>
+    }
+
+    return data.data ?? null
   } catch {
     return null
   } finally {
