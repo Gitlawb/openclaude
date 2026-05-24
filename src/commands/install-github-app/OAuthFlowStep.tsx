@@ -45,9 +45,9 @@ export function OAuthFlowStep({
   const [cursorOffset, setCursorOffset] = useState(0);
   const [showPastePrompt, setShowPastePrompt] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
-  const timersRef = useRef<Set<NodeJS.Timeout>>(new Set());
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   // Separate ref so startOAuth's timer clear doesn't cancel the urlCopied reset
-  const urlCopiedTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const urlCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const terminalSize = useTerminalSize();
   const textInputColumns = Math.max(50, terminalSize.columns - PASTE_HERE_MSG.length - 4);
   function handleKeyDown(e: KeyboardEvent): void {

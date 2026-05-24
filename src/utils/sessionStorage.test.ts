@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { UUID } from 'crypto'
 
 import {
   buildConversationChain,
@@ -10,14 +11,23 @@ import {
 } from './sessionStorage.ts'
 
 const tempDirs: string[] = []
-const sessionId = '00000000-0000-4000-8000-000000000999'
+const sessionId = '00000000-0000-4000-8000-000000000999' as UUID
 const ts = '2026-04-02T00:00:00.000Z'
 
-function id(n: number): string {
-  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+type ToolResultBlock = {
+  type: 'tool_result'
+  tool_use_id: string
+  is_error: boolean
+  content: string
 }
 
-function base(uuid: string, parentUuid: string | null) {
+type UserContent = string | ToolResultBlock[]
+
+function id(n: number): UUID {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}` as UUID
+}
+
+function base(uuid: UUID, parentUuid: UUID | null) {
   return {
     uuid,
     parentUuid,
@@ -30,7 +40,7 @@ function base(uuid: string, parentUuid: string | null) {
   }
 }
 
-function user(uuid: string, parentUuid: string | null, content: string) {
+function user(uuid: UUID, parentUuid: UUID | null, content: UserContent) {
   return {
     ...base(uuid, parentUuid),
     type: 'user',
@@ -42,7 +52,7 @@ function user(uuid: string, parentUuid: string | null, content: string) {
   }
 }
 
-function assistant(uuid: string, parentUuid: string | null, text: string) {
+function assistant(uuid: UUID, parentUuid: UUID | null, text: string) {
   return {
     ...base(uuid, parentUuid),
     type: 'assistant',
@@ -64,8 +74,8 @@ function assistant(uuid: string, parentUuid: string | null, text: string) {
 }
 
 function compactBoundary(
-  uuid: string,
-  parentUuid: string | null,
+  uuid: UUID,
+  parentUuid: UUID | null,
   preservedSegment: {
     headUuid: string
     anchorUuid: string

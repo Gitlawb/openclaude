@@ -7,6 +7,13 @@ import {
 } from '@alcalzone/ansi-tokenize'
 import { stringWidth } from '../ink/stringWidth.js'
 
+type Token = ReturnType<typeof tokenize>[number]
+type TextToken = Token & { value: string; fullWidth?: boolean }
+
+function isTextToken(token: Token): token is TextToken {
+  return token.type !== 'ansi' && typeof (token as TextToken).value === 'string'
+}
+
 // A code is an "end code" if its code equals its endCode (e.g., hyperlink close)
 function isEndCode(code: AnsiCode): boolean {
   return code.code === code.endCode
@@ -37,13 +44,17 @@ export default function sliceAnsi(
   let include = false
 
   for (const token of tokens) {
+    const textToken = isTextToken(token) ? token : null
     // Advance by display width, not code units. Combining marks (Devanagari
     // matras, virama, diacritics) are width 0 — counting them via .length
     // advanced position past `end` early and truncated the slice. Callers
     // pass start/end in display cells (via stringWidth), so position must
     // track the same units.
-    const width =
-      token.type === 'ansi' ? 0 : token.fullWidth ? 2 : stringWidth(token.value)
+    const width = textToken
+      ? textToken.fullWidth
+        ? 2
+        : stringWidth(textToken.value)
+      : 0
 
     // Break AFTER trailing zero-width marks — a combining mark attaches to
     // the preceding base char, so "भा" (भ + ा, 1 display cell) sliced at
@@ -63,7 +74,7 @@ export default function sliceAnsi(
         // Emit all ANSI codes during the slice
         result += token.code
       }
-    } else {
+    } else if (textToken) {
       if (!include && position >= start) {
         // Skip leading zero-width marks at the start boundary — they belong
         // to the preceding base char in the left half. Without this, the
@@ -77,7 +88,7 @@ export default function sliceAnsi(
       }
 
       if (include) {
-        result += token.value
+        result += textToken.value
       }
 
       position += width

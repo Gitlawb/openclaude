@@ -101,20 +101,20 @@ export class ExitPlanModeScanner {
   ingest(newEvents: SDKMessage[]): ScanResult {
     for (const m of newEvents) {
       if (m.type === 'assistant') {
-        for (const block of m.message.content) {
-          if (block.type !== 'tool_use') continue
-          const tu = block as ToolUseBlock
-          if (tu.name === EXIT_PLAN_MODE_V2_TOOL_NAME) {
-            this.exitPlanCalls.push(tu.id)
+        const content = m.message.content
+        if (!Array.isArray(content)) continue
+        for (const block of content) {
+          if (!isToolUseBlock(block)) continue
+          if (block.name === EXIT_PLAN_MODE_V2_TOOL_NAME) {
+            this.exitPlanCalls.push(block.id)
           }
         }
       } else if (m.type === 'user') {
         const content = m.message.content
         if (!Array.isArray(content)) continue
         for (const block of content) {
-          if (block.type === 'tool_result') {
-            this.results.set(block.tool_use_id, block)
-          }
+          if (!isToolResultBlock(block)) continue
+          this.results.set(block.tool_use_id, block)
         }
       } else if (m.type === 'result' && m.subtype !== 'success') {
         // result(success) fires after EVERY CCR turn
@@ -178,6 +178,24 @@ export class ExitPlanModeScanner {
     }
     return { kind: 'unchanged' }
   }
+}
+
+function isToolUseBlock(block: unknown): block is ToolUseBlock {
+  return (
+    typeof block === 'object' &&
+    block !== null &&
+    (block as { type?: string }).type === 'tool_use' &&
+    typeof (block as { id?: string }).id === 'string'
+  )
+}
+
+function isToolResultBlock(block: unknown): block is ToolResultBlockParam {
+  return (
+    typeof block === 'object' &&
+    block !== null &&
+    (block as { type?: string }).type === 'tool_result' &&
+    typeof (block as { tool_use_id?: string }).tool_use_id === 'string'
+  )
 }
 
 export type PollResult = {

@@ -5,3 +5,16 @@ export function isContextCollapseEnabled(): boolean {
 export function getContextCollapseState() {
   return null
 }
+export function getStats() {
+  return {
+    collapsedSpans: 0,
+    collapsedMessages: 0,
+    stagedSpans: 0,
+    health: {
+      totalSpawns: 0,
+      totalErrors: 0,
+      emptySpawnWarningEmitted: false,
+      lastError: undefined as string | undefined,
+    },
+  }
+}

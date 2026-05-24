@@ -5,3 +5,4 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type ShellProgress = any
+export type SdkWorkflowProgress = any

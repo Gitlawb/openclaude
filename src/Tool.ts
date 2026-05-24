@@ -180,6 +180,8 @@ export type ToolUseContext = {
     providerOverride?: { model: string; baseURL: string; apiKey: string }
   }
   abortController: AbortController
+  args?: Record<string, unknown>
+  stdout?: NodeJS.WriteStream
   readFileState: FileStateCache
   getAppState(): AppState
   setAppState(f: (prev: AppState) => AppState): void

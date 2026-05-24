@@ -6,13 +6,16 @@ import { parseOpenAIDuration } from './withRetry.js'
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
   const headersObj = new Headers(headers)
-  return {
+  const err = {
     headers: headersObj,
     status: 429,
     message: 'rate limit exceeded',
     name: 'APIError',
     error: {},
   } as unknown as APIError
+  // `withRetry` uses `error instanceof APIError`; a plain object cast won't pass.
+  Object.setPrototypeOf(err, APIError.prototype)
+  return err
 }
 
 // Save/restore env vars between tests

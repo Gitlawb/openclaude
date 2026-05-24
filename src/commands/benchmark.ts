@@ -45,12 +45,15 @@ async function runBenchmark(
 }
 
 export const benchmark: Command = {
+  type: 'local',
   name: 'benchmark',
-
-  async onExecute(context: ToolUseContext): Promise<void> {
-    const args = context.args ?? {}
-    const model = args.model as string | undefined
-
-    await runBenchmark(model, context)
-  },
+  description: 'Benchmark model throughput for supported providers',
+  supportsNonInteractive: true,
+  load: async () => ({
+    call: async (args, context) => {
+      const model = args.trim() || undefined
+      await runBenchmark(model, context)
+      return { type: 'skip' }
+    },
+  }),
 }

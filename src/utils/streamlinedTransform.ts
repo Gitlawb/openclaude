@@ -32,6 +32,20 @@ type ToolCounts = {
   other: number
 }
 
+type ToolUseBlock = {
+  type: 'tool_use'
+  name: string
+}
+
+function isToolUseBlock(block: unknown): block is ToolUseBlock {
+  return (
+    typeof block === 'object' &&
+    block !== null &&
+    (block as { type?: string }).type === 'tool_use' &&
+    typeof (block as { name?: string }).name === 'string'
+  )
+}
+
 /**
  * Tool categories for summarization.
  */
@@ -116,8 +130,8 @@ function accumulateToolUses(
   }
 
   for (const block of content) {
-    if (block.type === 'tool_use' && 'name' in block) {
-      const category = categorizeToolName(block.name as string)
+    if (isToolUseBlock(block)) {
+      const category = categorizeToolName(block.name)
       counts[category]++
     }
   }

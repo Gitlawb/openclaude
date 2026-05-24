@@ -102,3 +102,7 @@ export function prefetchOllamaModels(): void {
 export function getCachedOllamaModelOptions(): ModelOption[] {
   return cachedOllamaOptions ?? []
 }
+
+export function getOllamaModelOptions(): ModelOption[] {
+  return getCachedOllamaModelOptions()
+}

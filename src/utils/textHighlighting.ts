@@ -24,6 +24,12 @@ export type TextSegment = {
   highlight?: TextHighlight
 }
 
+type TextToken = Token & { value: string }
+
+function isTextToken(token: Token): token is TextToken {
+  return token.type !== 'ansi' && typeof (token as TextToken).value === 'string'
+}
+
 export function segmentTextByHighlights(
   text: string,
   highlights: TextHighlight[],
@@ -126,7 +132,7 @@ class HighlightSegmenter {
         this.codes.push(token)
         this.stringPos += token.code.length
         this.tokenIdx++
-      } else {
+      } else if (isTextToken(token)) {
         const charsNeeded = targetVisiblePos - this.visiblePos
         const charsAvailable = token.value.length - this.charIdx
         const charsToTake = Math.min(charsNeeded, charsAvailable)
@@ -139,6 +145,8 @@ class HighlightSegmenter {
           this.tokenIdx++
           this.charIdx = 0
         }
+      } else {
+        this.tokenIdx++
       }
     }
 

@@ -219,7 +219,7 @@ export async function setupGitHubActions(
 
       updateProgress()
       // Create selected workflow files
-      const workflows = []
+      const workflows: Array<{ path: string; content: string; message: string }> = []
 
       if (selectedWorkflows.includes('claude')) {
         workflows.push({

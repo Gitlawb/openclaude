@@ -1,3 +1,4 @@
+import { describe, expect, test } from 'bun:test'
 import { truncate, truncateToWidth, truncatePathMiddle } from './truncate.js'
 
 describe('truncate utilities', () => {
