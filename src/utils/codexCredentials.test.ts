@@ -62,37 +62,81 @@ describe('codexCredentials', () => {
     expect(result.warning).toContain('Bare mode')
   })
 
-  test('saveCodexCredentials refuses plaintext fallback when native secure storage is unavailable', async () => {
+  test('saveCodexCredentials allows plaintext fallback when native secure storage is unavailable', async () => {
     delete process.env.CLAUDE_CODE_SIMPLE
 
-    mock.module('./secureStorage/index.js', () => ({
-      getSecureStorage: (options?: { allowPlainTextFallback?: boolean }) => {
-        expect(options?.allowPlainTextFallback).toBe(false)
+    let storageState: Record<string, unknown> | null = null
+    const getSecureStorage = mock(
+      (options?: { allowPlainTextFallback?: boolean }) => {
+        expect(options?.allowPlainTextFallback).not.toBe(false)
         return {
-          read: () => null,
-          readAsync: async () => null,
-          update: () => ({
-            success: false,
-            warning:
-              'Secure storage is unavailable on this platform without plaintext fallback.',
-          }),
+          read: () => storageState,
+          readAsync: async () => storageState,
+          update: (next: Record<string, unknown>) => {
+            storageState = next
+            return {
+              success: true,
+              warning: 'Warning: Storing credentials in plaintext.',
+            }
+          },
           delete: () => true,
         }
       },
+    )
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage,
+    }))
+
+    // @ts-expect-error cache-busting query string for Bun module mocks
+    const { readCodexCredentials, saveCodexCredentials } = await import(
+      './codexCredentials.js?save-plaintext-fallback'
+    )
+
+    const result = saveCodexCredentials({
+      accessToken: 'fallback-access-token',
+      refreshToken: 'fallback-refresh-token',
+      accountId: 'acct_123',
+    })
+
+    expect(getSecureStorage).toHaveBeenCalled()
+    expect(result.success).toBe(true)
+    expect(result.warning).toBe('Warning: Storing credentials in plaintext.')
+    expect(readCodexCredentials()).toMatchObject({
+      accessToken: 'fallback-access-token',
+      refreshToken: 'fallback-refresh-token',
+      accountId: 'acct_123',
+    })
+  })
+
+  test('saveCodexCredentials rejects incomplete credential blobs', async () => {
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const getSecureStorage = mock(() => ({
+      read: () => null,
+      readAsync: async () => null,
+      update: () => ({ success: true }),
+      delete: () => true,
+    }))
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage,
     }))
 
     // @ts-expect-error cache-busting query string for Bun module mocks
     const { saveCodexCredentials } = await import(
-      './codexCredentials.js?save-no-plaintext-fallback'
+      './codexCredentials.js?save-incomplete'
     )
 
     const result = saveCodexCredentials({
-      accessToken: 'token',
+      accessToken: '',
+      refreshToken: 'fallback-refresh-token',
       accountId: 'acct_123',
     })
 
     expect(result.success).toBe(false)
-    expect(result.warning).toContain('without plaintext fallback')
+    expect(result.warning).toBe('Codex credentials are incomplete.')
+    expect(getSecureStorage).not.toHaveBeenCalled()
   })
 
   test('refreshCodexAccessTokenIfNeeded refreshes expired stored credentials', async () => {
