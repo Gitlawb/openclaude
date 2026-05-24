@@ -151,10 +151,8 @@ export function restoreSessionStateFromLog(
     }
   }
 
-  if (result.goal !== undefined) {
-    const goal = prepareGoalForSessionResume(result.goal)
-    setAppState(prev => ({ ...prev, goal }))
-  }
+  const goal = prepareGoalForSessionResume(result.goal ?? null)
+  setAppState(prev => ({ ...prev, goal }))
 }
 
 /**
@@ -554,9 +552,7 @@ export async function processResumedConversation(
       ...(resumedAgentType && { agent: resumedAgentType }),
       ...(restoredAttribution && { attribution: restoredAttribution }),
       ...(standaloneAgentContext && { standaloneAgentContext }),
-      ...(result.goal !== undefined && {
-        goal: prepareGoalForSessionResume(result.goal),
-      }),
+      goal: prepareGoalForSessionResume(result.goal ?? null),
       agentDefinitions: refreshedAgentDefs,
     },
   }
