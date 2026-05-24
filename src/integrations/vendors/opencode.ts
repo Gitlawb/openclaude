@@ -34,7 +34,11 @@ export default defineVendor({
       'OPENCODE_API_KEY is required. Get your API key from https://opencode.ai',
   },
   catalog: {
-    source: 'static',
+    source: 'hybrid',
+    discovery: { kind: 'openai-compatible' },
+    discoveryCacheTtl: '1h',
+    discoveryRefreshMode: 'startup',
+    allowManualRefresh: true,
     models: [
       // GPT family — /zen/v1/responses
       { id: 'gpt-5.5', apiName: 'gpt-5.5', label: 'GPT 5.5', modelDescriptorId: 'opencode-gpt-5.5' },

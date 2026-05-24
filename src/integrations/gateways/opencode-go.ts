@@ -26,7 +26,11 @@ export default defineGateway({
     modelEnvVars: ['OPENAI_MODEL'],
   },
   catalog: {
-    source: 'static',
+    source: 'hybrid',
+    discovery: { kind: 'openai-compatible' },
+    discoveryCacheTtl: '1h',
+    discoveryRefreshMode: 'startup',
+    allowManualRefresh: true,
     models: [
       // OpenAI-compatible — /zen/go/v1/chat/completions
       { id: 'opencode-go-glm-5.1', apiName: 'glm-5.1', label: 'GLM 5.1', modelDescriptorId: 'opencode-go-glm-5.1' },
