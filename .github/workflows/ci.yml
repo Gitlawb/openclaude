@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          # Install Node deps and Bun for running tests (repo uses Bun for test runner)
+          npm ci
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "::add-path::${HOME}/.bun/bin"
+
+      - name: Run TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        env:
+          PATH: ${{ env.PATH }}:${{ runner.home }}/.bun/bin
+        run: npm test
