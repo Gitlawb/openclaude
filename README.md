@@ -130,7 +130,12 @@ openclaude
 ```
 
 On Windows, set `$env:OLLAMA_CONTEXT_LENGTH="64000"` in the terminal that starts
-`ollama serve` if the model truncates chat history.
+`ollama serve` if the model truncates chat history. If Ollama is already running
+from the desktop app or a background process, quit that server first or apply the
+same setting in Ollama's UI/settings path where available before restarting.
+Then run
+`ollama ps` after the model loads and confirm the active `CONTEXT` value is
+larger.
 
 ## Setup Guides
 

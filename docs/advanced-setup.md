@@ -126,6 +126,12 @@ $env:OLLAMA_CONTEXT_LENGTH="64000"
 ollama serve
 ```
 
+If Ollama is already running from the desktop app or a background server, stop
+that existing server first or apply the setting through Ollama's UI/settings
+path where available before restarting it. Otherwise OpenClaude can keep using
+the old server process with the smaller context even after you set the
+environment variable.
+
 ### Atomic Chat (local, Apple Silicon)
 
 ```bash

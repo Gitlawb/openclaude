@@ -69,12 +69,18 @@ openclaude
 No API key is needed for Ollama local models.
 
 If the model answers as if it cannot remember earlier messages in the same
-chat, start Ollama from PowerShell with a larger context window:
+chat, restart Ollama from PowerShell with a larger context window:
 
 ```powershell
 $env:OLLAMA_CONTEXT_LENGTH="64000"
 ollama serve
 ```
+
+If Ollama is already running from the desktop app or a background server, quit
+that server first or use Ollama's UI/settings path where available to apply the
+same context setting before restarting it. Starting a second `ollama serve` can
+fail because port `11434` is already in use, and OpenClaude may keep talking to
+the old server with the smaller context.
 
 Run `ollama ps` after the model loads to confirm the `CONTEXT` value. Larger
 contexts use more memory and can slow the model.
