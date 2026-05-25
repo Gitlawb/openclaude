@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { useState } from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../constants/product.js';
 import { useExitOnCtrlCDWithKeybindings } from 'src/hooks/useExitOnCtrlCDWithKeybindings.js';
 import { Box, Text } from '../ink.js';
 import { useKeybinding } from '../keybindings/useKeybinding.js';
@@ -30,11 +31,11 @@ export function ThinkingToggle(t0) {
     t1 = [{
       value: "true",
       label: "Enabled",
-      description: "Claude will think before responding"
+      description: `${PRODUCT_DISPLAY_NAME} will think before responding`
     }, {
       value: "false",
       label: "Disabled",
-      description: "Claude will respond without extended thinking"
+      description: `${PRODUCT_DISPLAY_NAME} will respond without extended thinking`
     }];
     $[0] = t1;
   } else {

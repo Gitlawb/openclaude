@@ -1,9 +1,14 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { renderToString } from '../../utils/staticRender.js'
 
 describe('PromptInputQueuedCommands', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('components/PromptInput/PromptInputQueuedCommands.test.tsx')
     mock.module('../../hooks/useCommandQueue.js', () => ({
       useCommandQueue: () => [
         {
@@ -21,7 +26,11 @@ describe('PromptInputQueuedCommands', () => {
   })
 
   afterEach(() => {
-    mock.restore()
+    try {
+      mock.restore()
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   it('shows a next-turn guidance banner for queued prompt messages', async () => {

@@ -1,6 +1,10 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -36,25 +40,47 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+async function expectModelCommandDoesNotWaitForRefresh(
+  commandPromise: Promise<unknown>,
+): Promise<unknown> {
+  const result = await Promise.race([
+    commandPromise,
+    new Promise(resolve =>
+      setTimeout(() => resolve(Symbol.for('openclaude.test.timeout')), 1_000),
+    ),
+  ])
+
+  expect(result).not.toBe(Symbol.for('openclaude.test.timeout'))
+  return result
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('commands/model/model.test.tsx')
+})
+
 afterEach(() => {
-  mock.restore()
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
-  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
-  restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
-  restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
-  restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
-  restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
-  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
-  restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
-  restoreEnv(
-    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
-    originalEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
-  )
+  try {
+    mock.restore()
+    restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+    restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+    restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+    restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
+    restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
+    restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
+    restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
+    restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
+    restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
+    restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv(
+      'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+      originalEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+    )
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('opens the model picker without awaiting local model discovery refresh', async () => {
@@ -88,12 +114,7 @@ test('opens the model picker without awaiting local model discovery refresh', as
 
   // Use a fresh module instance so per-test mocks stay local to this test.
   const { call } = await importFreshModelModule('local-discovery')
-  const result = await Promise.race([
-    call(() => {}, {} as never, ''),
-    new Promise(resolve => setTimeout(() => resolve('timeout'), 50)),
-  ])
-
-  expect(result).not.toBe('timeout')
+  await expectModelCommandDoesNotWaitForRefresh(call(() => {}, {} as never, ''))
 })
 
 test('opens the model picker without awaiting descriptor-backed route refresh', async () => {
@@ -142,12 +163,7 @@ test('opens the model picker without awaiting descriptor-backed route refresh', 
   }))
 
   const { call } = await importFreshModelModule('descriptor-refresh-open')
-  const result = await Promise.race([
-    call(() => {}, {} as never, ''),
-    new Promise(resolve => setTimeout(() => resolve('timeout'), 50)),
-  ])
-
-  expect(result).not.toBe('timeout')
+  await expectModelCommandDoesNotWaitForRefresh(call(() => {}, {} as never, ''))
 })
 
 test('shouldAutoRefreshRouteCatalog respects discovery refresh modes', async () => {

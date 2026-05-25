@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import { feature } from 'bun:bundle';
 import * as React from 'react';
+import { PRODUCT_DISPLAY_NAME } from 'src/constants/product.js';
 import { EnterPlanModeTool } from 'src/tools/EnterPlanModeTool/EnterPlanModeTool.js';
 import { ExitPlanModeV2Tool } from 'src/tools/ExitPlanModeTool/ExitPlanModeV2Tool.js';
 import { useNotifyAfterTimeout } from '../../hooks/useNotifyAfterTimeout.js';
@@ -128,18 +129,18 @@ export type ToolUseConfirm<Input extends AnyObject = AnyObject> = {
 function getNotificationMessage(toolUseConfirm: ToolUseConfirm): string {
   const toolName = toolUseConfirm.tool.userFacingName(toolUseConfirm.input as never);
   if (toolUseConfirm.tool === ExitPlanModeV2Tool) {
-    return 'OpenClaude needs your approval for the plan';
+    return `${PRODUCT_DISPLAY_NAME} needs your approval for the plan`;
   }
   if (toolUseConfirm.tool === EnterPlanModeTool) {
-    return 'OpenClaude wants to enter plan mode';
+    return `${PRODUCT_DISPLAY_NAME} wants to enter plan mode`;
   }
   if (feature('REVIEW_ARTIFACT') && toolUseConfirm.tool === ReviewArtifactTool) {
-    return 'OpenClaude needs your approval for a review artifact';
+    return `${PRODUCT_DISPLAY_NAME} needs your approval for a review artifact`;
   }
   if (!toolName || toolName.trim() === '') {
-    return 'OpenClaude needs your attention';
+    return `${PRODUCT_DISPLAY_NAME} needs your attention`;
   }
-  return `OpenClaude needs your permission to use ${toolName}`;
+  return `${PRODUCT_DISPLAY_NAME} needs your permission to use ${toolName}`;
 }
 
 // TODO: Move this to Tool.renderPermissionRequest

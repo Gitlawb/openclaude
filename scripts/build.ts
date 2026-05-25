@@ -8,8 +8,7 @@
  * - src/ path aliases
  */
 
-import { readFileSync, readdirSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { readFileSync } from 'fs'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 import { CLI_EXTERNALS, SDK_EXTERNALS } from './externals.js'
 
@@ -69,53 +68,42 @@ const featureFlags: Record<string, boolean> = {
 // so the previous onResolve/onLoad shim was silently ineffective — ALL
 // feature() calls evaluated to false regardless of the featureFlags map.
 //
-// Fix: pre-process source files to strip the bun:bundle import and
-// replace feature('FLAG') calls with their boolean literal. Files are
-// modified in-place before Bun.build() and restored in a finally block.
+// Fix: transform source as Bun loads each module, stripping the bun:bundle
+// import and replacing feature('FLAG') calls with their boolean literal.
+// The working tree stays immutable while smoke/build runs.
 
 // Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
 const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
 const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
-const modifiedFiles = new Map<string, string>() // path → original content
+const featureFlagTransformedFiles = new Set<string>()
 
-function preProcessFeatureFlags(dir: string) {
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, ent.name)
-    if (ent.isDirectory()) { preProcessFeatureFlags(full); continue }
-    if (!/\.(ts|tsx)$/.test(ent.name)) continue
+const featureFlagPreprocessPlugin = {
+  name: 'feature-flag-preprocess',
+  setup(build) {
+    build.onLoad({ filter: /\.[cm]?tsx?$/ }, args => {
+      const normalizedPath = args.path.replace(/\\/g, '/')
+      if (!normalizedPath.includes('/src/')) return null
 
-    const raw = readFileSync(full, 'utf-8')
-    if (!raw.includes('feature(')) continue
+      const raw = readFileSync(args.path, 'utf-8')
+      if (!raw.includes('feature(')) return null
 
-    let contents = raw
-    contents = contents.replace(featureImportRe, '')
-    contents = contents.replace(featureCallRe, (_match, name) =>
-      String((featureFlags as Record<string, boolean>)[name] ?? false),
-    )
+      let contents = raw
+      contents = contents.replace(featureImportRe, '')
+      contents = contents.replace(featureCallRe, (_match, name) =>
+        String((featureFlags as Record<string, boolean>)[name] ?? false),
+      )
 
-    if (contents !== raw) {
-      modifiedFiles.set(full, raw)
-      writeFileSync(full, contents)
-    }
-  }
-}
+      if (contents === raw) return null
 
-function restoreModifiedFiles() {
-  for (const [path, original] of modifiedFiles) {
-    writeFileSync(path, original)
-  }
-  modifiedFiles.clear()
-}
-
-preProcessFeatureFlags(join(import.meta.dir, '..', 'src'))
-const numModified = modifiedFiles.size
-
-// Restore source files on abrupt termination (Ctrl+C, kill, etc.)
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    restoreModifiedFiles()
-    process.exit(signal === 'SIGINT' ? 130 : 143)
-  })
+      featureFlagTransformedFiles.add(args.path)
+      return {
+        contents,
+        loader: args.path.endsWith('.tsx') || args.path.endsWith('.jsx')
+          ? 'tsx'
+          : 'ts',
+      }
+    })
+  },
 }
 
 let result: Awaited<ReturnType<typeof Bun.build>> | undefined
@@ -149,6 +137,7 @@ result = await Bun.build({
   },
   plugins: [
     noTelemetryPlugin,
+    featureFlagPreprocessPlugin,
     {
       name: 'bun-bundle-shim',
       setup(build) {
@@ -185,8 +174,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           ],
         ] as const)
 
-        // bun:bundle feature() replacement is handled by the source
-        // pre-processing step above (see preProcessFeatureFlags).
+        // bun:bundle feature() replacement is handled by featureFlagPreprocessPlugin.
         // The previous onResolve/onLoad shim was ineffective in Bun
         // v1.3.9+ because the bun: namespace is resolved natively
         // before the JS plugin phase runs.
@@ -224,8 +212,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           }),
         )
 
-        // NOTE: @opentelemetry/* kept as external deps (too many named exports to stub)
-
         // Resolve native addon and missing snapshot imports to stubs
         for (const mod of [
           'audio-capture-napi',
@@ -260,8 +246,6 @@ const handler = {
   get(_, prop) {
     if (prop === '__esModule') return true;
     if (prop === 'default') return new Proxy({}, handler);
-    if (prop === 'ExportResultCode') return { SUCCESS: 0, FAILED: 1 };
-    if (prop === 'resourceFromAttributes') return () => ({});
     if (prop === 'SandboxRuntimeConfigSchema') return { parse: () => ({}) };
     return noop;
   }
@@ -280,35 +264,6 @@ export const ColorFile = null;
 export const getSyntaxTheme = noop;
 export const plot = noop;
 export const createClaudeForChromeMcpServer = noop;
-// OpenTelemetry exports
-export const ExportResultCode = { SUCCESS: 0, FAILED: 1 };
-export const resourceFromAttributes = noop;
-export const Resource = noopClass;
-export const SimpleSpanProcessor = noopClass;
-export const BatchSpanProcessor = noopClass;
-export const NodeTracerProvider = noopClass;
-export const BasicTracerProvider = noopClass;
-export const OTLPTraceExporter = noopClass;
-export const OTLPLogExporter = noopClass;
-export const OTLPMetricExporter = noopClass;
-export const PrometheusExporter = noopClass;
-export const LoggerProvider = noopClass;
-export const SimpleLogRecordProcessor = noopClass;
-export const BatchLogRecordProcessor = noopClass;
-export const MeterProvider = noopClass;
-export const PeriodicExportingMetricReader = noopClass;
-export const trace = { getTracer: () => ({ startSpan: () => ({ end: noop, setAttribute: noop, setStatus: noop, recordException: noop }) }) };
-export const context = { active: noop, with: (_, fn) => fn() };
-export const SpanStatusCode = { OK: 0, ERROR: 1, UNSET: 2 };
-export const ATTR_SERVICE_NAME = 'service.name';
-export const ATTR_SERVICE_VERSION = 'service.version';
-export const SEMRESATTRS_SERVICE_NAME = 'service.name';
-export const SEMRESATTRS_SERVICE_VERSION = 'service.version';
-export const AggregationTemporality = { CUMULATIVE: 0, DELTA: 1 };
-export const DataPointType = { HISTOGRAM: 0, SUM: 1, GAUGE: 2 };
-export const InstrumentType = { COUNTER: 0, HISTOGRAM: 1, UP_DOWN_COUNTER: 2 };
-export const PushMetricExporter = noopClass;
-export const SeverityNumber = {};
 `,
             loader: 'js',
           }),
@@ -489,6 +444,7 @@ sdkResult = await Bun.build({
   external: SDK_EXTERNALS,
   plugins: [
     noTelemetryPlugin,
+    featureFlagPreprocessPlugin,
     // Stub missing internal/optional modules (same pattern as CLI build)
     {
       name: 'sdk-missing-stub',
@@ -893,9 +849,7 @@ if (!sdkResult.success) {
 }
 
 } finally {
-  // Always restore source files, even if Bun.build() throws
-  restoreModifiedFiles()
-  console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+  console.log(`  🔄 feature-flags: transformed ${featureFlagTransformedFiles.size} files during bundling`)
 }
 
 // ── Validate SDK bundle for React/Ink leakage ──────────────────────────────

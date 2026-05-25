@@ -28,6 +28,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'bankr',
   'zai',
   'xai',
+  'xiaomi-mimo',
   'openai',
   'gemini',
   'mistral',
@@ -37,6 +38,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'ollama',
   'nvidia-nim',
   'minimax',
+  'venice',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -193,9 +195,15 @@ export function applyProviderFlag(
             process.env.OPENAI_API_KEY === process.env.XAI_API_KEY
           ? 'xai'
           : process.env.OPENAI_API_KEY !== undefined &&
-              process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
-            ? 'minimax'
-            : null
+              process.env.OPENAI_API_KEY === process.env.MIMO_API_KEY
+            ? 'xiaomi-mimo'
+            : process.env.OPENAI_API_KEY !== undefined &&
+                process.env.OPENAI_API_KEY === process.env.VENICE_API_KEY
+              ? 'venice'
+              : process.env.OPENAI_API_KEY !== undefined &&
+                  process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
+                ? 'minimax'
+                : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -274,6 +282,25 @@ export function applyProviderFlag(
       }
       break
 
+    case 'minimax':
+      delete process.env.OPENAI_BASE_URL
+      delete process.env.OPENAI_API_BASE
+      delete process.env.OPENAI_MODEL
+      delete process.env.OPENAI_API_FORMAT
+      delete process.env.OPENAI_AUTH_HEADER
+      delete process.env.OPENAI_AUTH_SCHEME
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
+      process.env.ANTHROPIC_BASE_URL = defaultBaseUrl ?? 'https://api.minimax.io/anthropic'
+      process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M2.7'
+      if (model) process.env.ANTHROPIC_MODEL = model
+      if (process.env.MINIMAX_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+        process.env.ANTHROPIC_API_KEY = process.env.MINIMAX_API_KEY
+      }
+      if (copiedOpenAIKeyProvider === 'minimax') {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
     default:
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       if (defaultBaseUrl) {
@@ -288,10 +315,30 @@ export function applyProviderFlag(
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
-      process.env.OPENAI_MODEL ??= 'grok-4'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.3'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+      }
+      break
+
+    case 'xiaomi-mimo':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
+      }
+      break
+
+    case 'venice':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.venice.ai/api/v1'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'venice-uncensored'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.VENICE_API_KEY
       }
       break
   }

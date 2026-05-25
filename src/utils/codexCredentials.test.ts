@@ -2,7 +2,11 @@
  * These tests avoid static imports so Bun can mock secureStorage before
  * codexCredentials is first loaded.
  */
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 function makeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
@@ -16,20 +20,28 @@ describe('codexCredentials', () => {
   const originalCodeKey = process.env.CODEX_API_KEY
   const originalFetch = globalThis.fetch
 
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/codexCredentials.test.ts')
+  })
+
   afterEach(() => {
-    mock.restore()
-    globalThis.fetch = originalFetch
+    try {
+      mock.restore()
+      globalThis.fetch = originalFetch
 
-    if (originalSimple === undefined) {
-      delete process.env.CLAUDE_CODE_SIMPLE
-    } else {
-      process.env.CLAUDE_CODE_SIMPLE = originalSimple
-    }
+      if (originalSimple === undefined) {
+        delete process.env.CLAUDE_CODE_SIMPLE
+      } else {
+        process.env.CLAUDE_CODE_SIMPLE = originalSimple
+      }
 
-    if (originalCodeKey === undefined) {
-      delete process.env.CODEX_API_KEY
-    } else {
-      process.env.CODEX_API_KEY = originalCodeKey
+      if (originalCodeKey === undefined) {
+        delete process.env.CODEX_API_KEY
+      } else {
+        process.env.CODEX_API_KEY = originalCodeKey
+      }
+    } finally {
+      releaseSharedMutationLock()
     }
   })
 

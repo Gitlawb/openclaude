@@ -53,6 +53,7 @@ import {
   createToolUseSummaryMessage,
   createMicrocompactBoundaryMessage,
 } from './utils/messages.js'
+import { analyzeContinuationIntent } from './utils/continuation.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
@@ -99,6 +100,10 @@ import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
+import {
+  createToolFailureLoopGuardState,
+  updateToolFailureLoopGuard,
+} from './query/toolFailureLoopGuard.js'
 import { buildQueryConfig } from './query/config.js'
 import { getGlobalConfig } from './utils/config.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
@@ -304,6 +309,7 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  const toolFailureGuardState = createToolFailureLoopGuardState()
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
   // for what's included and why feature() gates are intentionally excluded.
@@ -386,7 +392,7 @@ async function* queryLoop(
       messagesForQuery.length > 0
     ) {
       const { updateArcPhase } = await import('./utils/conversationArc.js')
-      updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
+      await updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
     }
 
     let tracking = autoCompactTracking
@@ -489,7 +495,7 @@ async function* queryLoop(
             ? lastMessage.message.content
             : ''
         const { getArcSummary } = await import('./utils/conversationArc.js')
-        const arcSummary = getArcSummary(userQueryText)
+        const arcSummary = await getArcSummary(userQueryText)
         if (arcSummary) {
           promptWithArc = [...systemPrompt, arcSummary]
         }
@@ -1454,37 +1460,17 @@ async function* queryLoop(
             .join(' ')
             .toLowerCase()
 
-          // Tightened patterns: require explicit action verbs and exclude
-          // common explanatory phrasing to reduce false positives.
-          const continuationSignals = [
-            // Only match "so now I/let me/we" followed by an action verb
-            /\bso now (i|let me|we) (need to|have to|should|must|will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up)\b/,
-            // "now I'll" + action (not "now I'll explain" etc.)
-            /\bnow i('ll| will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|go|proceed)\b/,
-            // "let me" + action (not "let me think/explain/show")
-            /\blet me (go ahead and |now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|proceed)\b/,
-            // "I'll/I need to/I have to" + action, only if message is short (<80 chars)
-            ...(lastText.length < 80
-              ? [/\b(i('ll| will| need to| have to| must) (now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up))\b/]
-              : []),
-            // "time to" + action
-            /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build|get started|begin)\b/,
-            // "next, I'll/let me" + action, only if message is short
-            ...(lastText.length < 80
-              ? [/\bnext,?\s+(i('ll| will)|let me|i need to) (do|create|write|edit|update|fix|implement|add|run|check|make|build)\b/]
-              : []),
-          ]
+          const { shouldNudge, reason: nudgeReason } = analyzeContinuationIntent(
+            lastText,
+          )
 
-          // Don't nudge if the text contains completion markers
-          const completionMarkers = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if)\b/
-          if (completionMarkers.test(lastText)) {
-            // Model signaled completion — don't nudge
-          } else if (continuationSignals.some(re => re.test(lastText))) {
+          if (shouldNudge) {
             logForDebugging(
-              `Continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}): model said "${lastText.slice(-120)}" without tool calls`,
+              `Continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}): ${nudgeReason} detected in "${lastText.slice(-120)}" without tool calls`,
             )
             const nudge = createUserMessage({
-              content: 'Continue with the task. Use the appropriate tools to proceed.',
+              content:
+                'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
               isMeta: true,
             })
             const next: State = {
@@ -1584,8 +1570,80 @@ async function* queryLoop(
       feature('CONVERSATION_ARC') &&
       getGlobalConfig().knowledgeGraphEnabled
     ) {
-      const { updateArcPhase } = await import('./utils/conversationArc.js')
-      updateArcPhase([assistantMessage])
+      const { updateArcPhase, finalizeArcTurn } = await import(
+        './utils/conversationArc.js'
+      )
+      await updateArcPhase([assistantMessage])
+      await finalizeArcTurn()
+    }
+
+    // We were aborted during tool calls
+    if (toolUseContext.abortController.signal.aborted) {
+      // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
+      // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
+      // Main thread only — see stopHooks.ts for the subagent rationale.
+      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
+        try {
+          const { cleanupComputerUseAfterTurn } = await import(
+            './utils/computerUse/cleanup.js'
+          )
+          await cleanupComputerUseAfterTurn(toolUseContext)
+        } catch {
+          // Failures are silent — this is dogfooding cleanup, not critical path
+        }
+      }
+      // Skip the interruption message for submit-interrupts — the queued
+      // user message that follows provides sufficient context.
+      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+        yield createUserInterruptionMessage({
+          toolUse: true,
+        })
+      }
+      // Check maxTurns before returning when aborted
+      const nextTurnCountOnAbort = turnCount + 1
+      if (maxTurns && nextTurnCountOnAbort > maxTurns) {
+        yield createAttachmentMessage({
+          type: 'max_turns_reached',
+          maxTurns,
+          turnCount: nextTurnCountOnAbort,
+        })
+      }
+      return { reason: 'aborted_tools' }
+    }
+
+    // If a hook indicated to prevent continuation, stop here
+    if (shouldPreventContinuation) {
+      return { reason: 'hook_stopped' }
+    }
+
+    const toolFailureLoopDecision = updateToolFailureLoopGuard({
+      state: toolFailureGuardState,
+      toolUseBlocks,
+      toolResults,
+    })
+    if (toolFailureLoopDecision.tripped) {
+      logForDebugging(
+        `Tool failure loop guard tripped: kind=${toolFailureLoopDecision.kind} ` +
+          `threshold=${toolFailureLoopDecision.threshold} ` +
+          `hasToolName=${toolFailureLoopDecision.toolName !== undefined} ` +
+          `hasErrorCategory=${toolFailureLoopDecision.errorCategory !== undefined} ` +
+          `hasPath=${toolFailureLoopDecision.path !== undefined}`,
+      )
+      logEvent('tengu_tool_failure_loop_guard_tripped', {
+        threshold: toolFailureLoopDecision.threshold,
+        isPathTrip: toolFailureLoopDecision.kind === 'path',
+        isSignatureTrip: toolFailureLoopDecision.kind === 'signature',
+        isCategoryTrip: toolFailureLoopDecision.kind === 'category',
+        hasToolName: toolFailureLoopDecision.toolName !== undefined,
+        hasErrorCategory:
+          toolFailureLoopDecision.errorCategory !== undefined,
+        hasPath: toolFailureLoopDecision.path !== undefined,
+        queryDepth: queryTracking.depth,
+      })
+      yield createAssistantAPIErrorMessage({
+        content: toolFailureLoopDecision.message,
+      })
+      return { reason: 'tool_failure_loop' }
     }
 
     // Generate tool use summary after tool batch completes — passed to next recursive call
@@ -1659,45 +1717,6 @@ async function* queryLoop(
           return null
         })
         .catch(() => null)
-    }
-
-    // We were aborted during tool calls
-    if (toolUseContext.abortController.signal.aborted) {
-      // chicago MCP: auto-unhide + lock release when aborted mid-tool-call.
-      // This is the most likely Ctrl+C path for CU (e.g. slow screenshot).
-      // Main thread only — see stopHooks.ts for the subagent rationale.
-      if (feature('CHICAGO_MCP') && !toolUseContext.agentId) {
-        try {
-          const { cleanupComputerUseAfterTurn } = await import(
-            './utils/computerUse/cleanup.js'
-          )
-          await cleanupComputerUseAfterTurn(toolUseContext)
-        } catch {
-          // Failures are silent — this is dogfooding cleanup, not critical path
-        }
-      }
-      // Skip the interruption message for submit-interrupts — the queued
-      // user message that follows provides sufficient context.
-      if (toolUseContext.abortController.signal.reason !== 'interrupt') {
-        yield createUserInterruptionMessage({
-          toolUse: true,
-        })
-      }
-      // Check maxTurns before returning when aborted
-      const nextTurnCountOnAbort = turnCount + 1
-      if (maxTurns && nextTurnCountOnAbort > maxTurns) {
-        yield createAttachmentMessage({
-          type: 'max_turns_reached',
-          maxTurns,
-          turnCount: nextTurnCountOnAbort,
-        })
-      }
-      return { reason: 'aborted_tools' }
-    }
-
-    // If a hook indicated to prevent continuation, stop here
-    if (shouldPreventContinuation) {
-      return { reason: 'hook_stopped' }
     }
 
     if (tracking?.compacted) {
@@ -1892,14 +1911,6 @@ async function* queryLoop(
     }
 
     queryCheckpoint('query_recursive_call')
-
-    if (
-      feature('CONVERSATION_ARC') &&
-      getGlobalConfig().knowledgeGraphEnabled
-    ) {
-      const { finalizeArcTurn } = await import('./utils/conversationArc.js')
-      finalizeArcTurn()
-    }
 
     const next: State = {
       messages: [...messagesForQuery, ...assistantMessages, ...toolResults],

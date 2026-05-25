@@ -47,7 +47,8 @@ export const CLAUDE_3_7_SONNET_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_3_5_V2_SONNET_CONFIG = {
@@ -62,7 +63,8 @@ export const CLAUDE_3_5_V2_SONNET_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_3_5_HAIKU_CONFIG = {
@@ -77,7 +79,8 @@ export const CLAUDE_3_5_HAIKU_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_HAIKU_4_5_CONFIG = {
@@ -92,7 +95,8 @@ export const CLAUDE_HAIKU_4_5_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_CONFIG = {
@@ -107,7 +111,8 @@ export const CLAUDE_SONNET_4_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_5_CONFIG = {
@@ -122,7 +127,8 @@ export const CLAUDE_SONNET_4_5_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_CONFIG = {
@@ -137,7 +143,8 @@ export const CLAUDE_OPUS_4_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_1_CONFIG = {
@@ -152,7 +159,8 @@ export const CLAUDE_OPUS_4_1_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_5_CONFIG = {
@@ -167,7 +175,8 @@ export const CLAUDE_OPUS_4_5_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_6_CONFIG = {
@@ -182,7 +191,8 @@ export const CLAUDE_OPUS_4_6_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_7_CONFIG = {
@@ -197,7 +207,8 @@ export const CLAUDE_OPUS_4_7_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_6_CONFIG = {
@@ -212,7 +223,8 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.3',
 } as const satisfies LegacyProviderModelConfig
 
 // @[MODEL LAUNCH]: Register the new config here.

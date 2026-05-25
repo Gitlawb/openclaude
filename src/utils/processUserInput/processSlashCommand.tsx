@@ -443,7 +443,10 @@ export async function processSlashCommand(inputString: string, precedingInputBlo
     return {
       messages: [],
       shouldQuery: false,
+      allowedTools,
       model,
+      effort,
+      resultText,
       nextInput,
       submitNextInput
     };
@@ -580,7 +583,7 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
 
               // In fullscreen the command just showed as a centered modal
               // pane — the transient notification is enough feedback. The
-              // "❯ /config" + "⎿ dismissed" transcript entries are
+              // "❯ /config" + "└ dismissed" transcript entries are
               // type:system subtype:local_command (user-visible but NOT sent
               // to the model), so skipping them doesn't affect model context.
               // Outside fullscreen keep them so scrollback shows what ran.
@@ -705,6 +708,15 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
             }
 
             // Text result — use system message so it doesn't render as a user bubble
+            if (result.display === 'skip') {
+              return {
+                messages: [],
+                shouldQuery: false,
+                command,
+                resultText: result.value
+              };
+            }
+
             return {
               messages: [userMessage, createCommandInputMessage(`<local-command-stdout>${result.value}</local-command-stdout>`)],
               shouldQuery: false,

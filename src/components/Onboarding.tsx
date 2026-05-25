@@ -2,8 +2,9 @@ import { c as _c } from "react-compiler-runtime";
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
 import { setupTerminal, shouldOfferTerminalSetup } from '../commands/terminalSetup/terminalSetup.js';
+import { PRODUCT_DISPLAY_NAME } from '../constants/product.js';
 import { useExitOnCtrlCDWithKeybindings } from '../hooks/useExitOnCtrlCDWithKeybindings.js';
-import { Box, Link, Newline, Text, useTheme } from '../ink.js';
+import { Box, Newline, Text, useTheme } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { isAnthropicAuthEnabled } from '../utils/auth.js';
 import { normalizeApiKeyForConfig } from '../utils/authPortable.js';
@@ -71,9 +72,10 @@ export function Onboarding({
          */}
         <OrderedList>
           <OrderedList.Item>
-            <Text>Claude can make mistakes</Text>
+            <Text>{PRODUCT_DISPLAY_NAME} can make mistakes</Text>
             <Text dimColor wrap="wrap">
-              You should always review Claude&apos;s responses, especially when
+              You should always review {PRODUCT_DISPLAY_NAME}&apos;s responses,
+              especially when
               <Newline />
               running code.
               <Newline />
@@ -84,9 +86,8 @@ export function Onboarding({
               Due to prompt injection risks, only use it with code you trust
             </Text>
             <Text dimColor wrap="wrap">
-              For more details see:
-              <Newline />
-              <Link url="https://code.claude.com/docs/en/security" />
+              Repository files and tool output can contain instructions that try
+              to steer {PRODUCT_DISPLAY_NAME} toward unsafe tool use.
             </Text>
           </OrderedList.Item>
         </OrderedList>
@@ -146,7 +147,7 @@ export function Onboarding({
     steps.push({
       id: 'terminal-setup',
       component: <Box flexDirection="column" gap={1} paddingLeft={1}>
-          <Text bold>Use OpenClaude&apos;s terminal setup?</Text>
+          <Text bold>Use {PRODUCT_DISPLAY_NAME}&apos;s terminal setup?</Text>
           <Box flexDirection="column" width={70} gap={1}>
             <Text>
               For the optimal coding experience, enable the recommended settings

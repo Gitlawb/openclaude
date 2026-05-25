@@ -2,7 +2,7 @@ import { APIError } from '@anthropic-ai/sdk'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
-import { stableStringify } from '../../utils/stableStringify.js'
+import { stableStringifyJson } from '../../utils/stableStringify.js'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
@@ -310,6 +310,63 @@ export function convertAnthropicMessagesToResponsesInput(
 }
 
 /**
+ * Codex Responses strict mode requires every schema node to declare a `type`.
+ * MCP tools sometimes register properties with no `type` (e.g. a generic
+ * `value` parameter intended to accept any JSON), which triggers a 400 from
+ * the Responses API: `schema must have a 'type' key`. Infer one from sibling
+ * keys, fall back to `string` for fully empty nodes, and leave combinator-only
+ * schemas alone (their branches carry the real type info).
+ */
+function ensureSchemaType(record: Record<string, unknown>): void {
+  const raw = record.type
+  if (typeof raw === 'string') return
+  if (Array.isArray(raw) && raw.length > 0) return
+
+  if (record.properties && typeof record.properties === 'object') {
+    record.type = 'object'
+    return
+  }
+  if ('items' in record) {
+    record.type = 'array'
+    return
+  }
+  if (Array.isArray((record as Record<string, unknown>).anyOf) ||
+      Array.isArray((record as Record<string, unknown>).oneOf) ||
+      Array.isArray((record as Record<string, unknown>).allOf)) {
+    // Combinator-only schemas keep their semantics; forcing a `type` here
+    // would silently narrow the alternatives.
+    return
+  }
+  if (Array.isArray(record.enum) && record.enum.length > 0) {
+    const sample = typeof record.enum[0]
+    if (sample === 'string' || sample === 'boolean') {
+      record.type = sample
+      return
+    }
+    if (sample === 'number') {
+      record.type = record.enum.every(v => Number.isInteger(v)) ? 'integer' : 'number'
+      return
+    }
+  }
+  if ('const' in record) {
+    const sample = typeof record.const
+    if (sample === 'string' || sample === 'boolean') {
+      record.type = sample
+      return
+    }
+    if (sample === 'number') {
+      record.type = Number.isInteger(record.const) ? 'integer' : 'number'
+      return
+    }
+  }
+
+  // Permissive default: strict mode demands a concrete type, and `string`
+  // round-trips through JSON.stringify for callers that need to forward raw
+  // values to the underlying tool.
+  record.type = 'string'
+}
+
+/**
  * Recursively enforces Codex strict-mode constraints on a JSON schema:
  * - Every `object` type gets `additionalProperties: false`
  * - All property keys are listed in `required`
@@ -317,6 +374,8 @@ export function convertAnthropicMessagesToResponsesInput(
  */
 function enforceStrictSchema(schema: unknown): Record<string, unknown> {
   const record = sanitizeSchemaForOpenAICompat(schema)
+
+  ensureSchemaType(record)
 
   // Codex Responses rejects JSON Schema's standard `uri` string format.
   // Keep URL validation in the tool layer and send a plain string here.
@@ -335,7 +394,6 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
       !Array.isArray(record.properties)
     ) {
       const props = record.properties as Record<string, unknown>
-      const allKeys = Object.keys(props)
 
       const enforcedProps: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(props)) {
@@ -358,7 +416,8 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
       record.properties = enforcedProps
       record.required = Object.keys(enforcedProps)
     } else {
-      // No properties — empty required array
+      // No properties — empty object schema with empty required array
+      record.properties = {}
       record.required = []
     }
   }
@@ -566,7 +625,7 @@ export async function performCodexRequest(options: {
       headers,
       // WHY: byte-identity required for implicit prefix caching on
       // OpenAI Responses API. See src/utils/stableStringify.ts.
-      body: stableStringify(body),
+      body: stableStringifyJson(body),
       signal: options.signal,
     },
   )
@@ -732,7 +791,7 @@ export async function* codexStreamToAnthropic(
   const messageId = makeMessageId()
   const toolBlocksByItemId = new Map<
     string,
-    { index: number; toolUseId: string }
+    { index: number; toolUseId: string; emittedArgs: string }
   >()
   let activeTextBlockIndex: number | null = null
   const thinkFilter = createThinkTagFilter()
@@ -793,9 +852,12 @@ export async function* codexStreamToAnthropic(
         yield* closeActiveTextBlock()
         const blockIndex = nextContentBlockIndex++
         const toolUseId = item.call_id ?? item.id ?? `call_${blockIndex}`
+        const initialArgs =
+          typeof item.arguments === 'string' ? item.arguments : ''
         toolBlocksByItemId.set(String(item.id ?? toolUseId), {
           index: blockIndex,
           toolUseId,
+          emittedArgs: initialArgs,
         })
         sawToolUse = true
 
@@ -810,13 +872,13 @@ export async function* codexStreamToAnthropic(
           },
         }
 
-        if (item.arguments) {
+        if (initialArgs) {
           yield {
             type: 'content_block_delta',
             index: blockIndex,
             delta: {
               type: 'input_json_delta',
-              partial_json: item.arguments,
+              partial_json: initialArgs,
             },
           }
         }
@@ -852,13 +914,43 @@ export async function* codexStreamToAnthropic(
     if (event.event === 'response.function_call_arguments.delta') {
       const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
       if (toolBlock) {
-        yield {
-          type: 'content_block_delta',
-          index: toolBlock.index,
-          delta: {
-            type: 'input_json_delta',
-            partial_json: payload.delta ?? '',
-          },
+        const delta = typeof payload.delta === 'string' ? payload.delta : ''
+        if (delta) {
+          toolBlock.emittedArgs += delta
+          yield {
+            type: 'content_block_delta',
+            index: toolBlock.index,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: delta,
+            },
+          }
+        }
+      }
+      continue
+    }
+
+    // Some Codex Responses backends (codexspark / gpt-5.3-codex-spark) deliver
+    // the *complete* function-call arguments only via the terminal
+    // `response.function_call_arguments.done` event, with zero
+    // `response.function_call_arguments.delta` events in between. Without
+    // handling `done`, the tool block closed with `input: {}` and downstream
+    // tool validation failed with "required parameter X is missing" (#1259).
+    if (event.event === 'response.function_call_arguments.done') {
+      const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
+      if (toolBlock) {
+        const fullArgs =
+          typeof payload.arguments === 'string' ? payload.arguments : ''
+        if (fullArgs && !toolBlock.emittedArgs) {
+          toolBlock.emittedArgs = fullArgs
+          yield {
+            type: 'content_block_delta',
+            index: toolBlock.index,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: fullArgs,
+            },
+          }
         }
       }
       continue
@@ -869,6 +961,22 @@ export async function* codexStreamToAnthropic(
       if (item?.type === 'function_call') {
         const toolBlock = toolBlocksByItemId.get(String(item.id ?? ''))
         if (toolBlock) {
+          // Backstop for backends that skip the dedicated `function_call_arguments.done`
+          // event entirely and only put the full arguments on `output_item.done`.
+          // Same #1259 failure mode; trust whichever channel actually carried the data.
+          const finalArgs =
+            typeof item.arguments === 'string' ? item.arguments : ''
+          if (finalArgs && !toolBlock.emittedArgs) {
+            toolBlock.emittedArgs = finalArgs
+            yield {
+              type: 'content_block_delta',
+              index: toolBlock.index,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: finalArgs,
+              },
+            }
+          }
           yield {
             type: 'content_block_stop',
             index: toolBlock.index,

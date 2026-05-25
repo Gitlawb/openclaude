@@ -19,29 +19,42 @@ export function createCombinedAbortSignal(
   const { signalB, timeoutMs } = opts ?? {}
   const combined = createAbortController()
 
-  if (signal?.aborted || signalB?.aborted) {
-    combined.abort()
+  if (signal?.aborted) {
+    combined.abort(signal.reason)
+    return { signal: combined.signal, cleanup: () => {} }
+  }
+  if (signalB?.aborted) {
+    combined.abort(signalB.reason)
     return { signal: combined.signal, cleanup: () => {} }
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined
-  const abortCombined = () => {
-    if (timer !== undefined) clearTimeout(timer)
-    combined.abort()
+  let cleaned = false
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    signal?.removeEventListener('abort', abortFromSignal)
+    signalB?.removeEventListener('abort', abortFromSignalB)
   }
+  const abortCombined = (reason?: unknown) => {
+    cleanup()
+    combined.abort(reason)
+  }
+  const abortFromSignal = () => abortCombined(signal?.reason)
+  const abortFromSignalB = () => abortCombined(signalB?.reason)
+  const abortFromTimeout = () =>
+    abortCombined(new DOMException('The operation timed out.', 'TimeoutError'))
 
   if (timeoutMs !== undefined) {
-    timer = setTimeout(abortCombined, timeoutMs)
+    timer = setTimeout(abortFromTimeout, timeoutMs)
     timer.unref?.()
   }
-  signal?.addEventListener('abort', abortCombined)
-  signalB?.addEventListener('abort', abortCombined)
-
-  const cleanup = () => {
-    if (timer !== undefined) clearTimeout(timer)
-    signal?.removeEventListener('abort', abortCombined)
-    signalB?.removeEventListener('abort', abortCombined)
-  }
+  signal?.addEventListener('abort', abortFromSignal)
+  signalB?.addEventListener('abort', abortFromSignalB)
 
   return { signal: combined.signal, cleanup }
 }

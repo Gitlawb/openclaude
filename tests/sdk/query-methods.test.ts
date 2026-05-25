@@ -1,19 +1,28 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { query } from '../../src/entrypoints/sdk/index.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 
 // These tests don't iterate — they test QueryImpl methods that manipulate
 // internal state. Auth stub needed because query() triggers init() path.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
-beforeAll(() => {
+beforeAll(async () => {
+  await acquireSharedMutationLock('tests/sdk/query-methods.test.ts')
   savedApiKey = process.env[AUTH_KEY]
   if (!savedApiKey) process.env[AUTH_KEY] = 'sk-test-query-methods-stub'
 })
 
 afterAll(() => {
-  if (savedApiKey === undefined) delete process.env[AUTH_KEY]
-  else process.env[AUTH_KEY] = savedApiKey
+  try {
+    if (savedApiKey === undefined) delete process.env[AUTH_KEY]
+    else process.env[AUTH_KEY] = savedApiKey
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('QueryImpl.setModel', () => {

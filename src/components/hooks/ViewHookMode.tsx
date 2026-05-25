@@ -6,6 +6,7 @@ import { c as _c } from "react-compiler-runtime";
  * confirmation screen and directs users to settings.json or Claude for edits.
  */
 import * as React from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import { Box, Text } from '../../ink.js';
 import { hookSourceDescriptionDisplayString, type IndividualHookConfig } from '../../utils/hooks/hooksSettings.js';
 import { Dialog } from '../design-system/Dialog.js';
@@ -133,7 +134,7 @@ export function ViewHookMode(t0) {
   }
   let t14;
   if ($[32] === Symbol.for("react.memo_cache_sentinel")) {
-    t14 = <Text dimColor={true}>To modify or remove this hook, edit settings.json directly or ask Claude to help.</Text>;
+    t14 = <Text dimColor={true}>To modify or remove this hook, edit settings.json directly or ask {PRODUCT_DISPLAY_NAME} to help.</Text>;
     $[32] = t14;
   } else {
     t14 = $[32];

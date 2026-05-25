@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
 
 import { exaProvider } from './exa.ts'
 
@@ -8,12 +12,20 @@ const originalEnv = {
 
 const originalFetch = globalThis.fetch
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('WebSearchTool/providers/exa.test.ts')
+})
+
 afterEach(() => {
-  for (const [k, v] of Object.entries(originalEnv)) {
-    if (v === undefined) delete process.env[k]
-    else process.env[k] = v
+  try {
+    for (const [k, v] of Object.entries(originalEnv)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    globalThis.fetch = originalFetch
+  } finally {
+    releaseSharedMutationLock()
   }
-  globalThis.fetch = originalFetch
 })
 
 describe('exaProvider isConfigured', () => {

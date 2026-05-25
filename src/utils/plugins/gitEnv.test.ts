@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import {
   __resetGitEnvWarningForTesting,
   buildGitChildEnv,
   sanitizeEnvForGit,
@@ -62,16 +66,21 @@ describe('buildGitChildEnv', () => {
   const ORIGINAL_BAD_KEY = 'OPENCLAUDE_TEST_BAD_ENV_FOR_GIT'
   let originalValue: string | undefined
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/plugins/gitEnv.test.ts')
     __resetGitEnvWarningForTesting()
     originalValue = process.env[ORIGINAL_BAD_KEY]
   })
 
   afterEach(() => {
-    if (originalValue === undefined) {
-      delete process.env[ORIGINAL_BAD_KEY]
-    } else {
-      process.env[ORIGINAL_BAD_KEY] = originalValue
+    try {
+      if (originalValue === undefined) {
+        delete process.env[ORIGINAL_BAD_KEY]
+      } else {
+        process.env[ORIGINAL_BAD_KEY] = originalValue
+      }
+    } finally {
+      releaseSharedMutationLock()
     }
   })
 

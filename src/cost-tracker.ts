@@ -12,11 +12,9 @@ import { getAPIProvider, isGithubNativeAnthropicMode } from './utils/model/provi
 import {
   addToTotalCostState,
   addToTotalLinesChanged,
-  getCostCounter,
   getModelUsage,
   getSdkBetas,
   getSessionId,
-  getTokenCounter,
   getTotalAPIDuration,
   getTotalAPIDurationWithoutRetries,
   getTotalCacheCreationInputTokens,
@@ -357,18 +355,6 @@ export function addToTotalSessionCost(
     isFastModeEnabled() && usage.speed === 'fast'
       ? { model, speed: 'fast' }
       : { model }
-
-  getCostCounter()?.add(cost, attrs)
-  getTokenCounter()?.add(usage.input_tokens, { ...attrs, type: 'input' })
-  getTokenCounter()?.add(usage.output_tokens, { ...attrs, type: 'output' })
-  getTokenCounter()?.add(usage.cache_read_input_tokens ?? 0, {
-    ...attrs,
-    type: 'cacheRead',
-  })
-  getTokenCounter()?.add(usage.cache_creation_input_tokens ?? 0, {
-    ...attrs,
-    type: 'cacheCreation',
-  })
 
   let totalCost = cost
   for (const advisorUsage of getAdvisorUsage(usage)) {

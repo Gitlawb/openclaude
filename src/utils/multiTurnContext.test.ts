@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
+import { afterEach, describe, expect, it, beforeEach } from 'bun:test'
 import {
   startNewTurn,
   getCurrentTurn,
@@ -12,6 +12,10 @@ import {
   resetMultiTurnState,
   createMultiTurnTracker,
 } from './multiTurnContext.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 function createMessage(role: string, content: string): any {
   return {
@@ -21,8 +25,19 @@ function createMessage(role: string, content: string): any {
 }
 
 describe('multiTurnContext', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/multiTurnContext.test.ts')
+    createMultiTurnTracker()
     resetMultiTurnState()
+  })
+
+  afterEach(() => {
+    try {
+      createMultiTurnTracker()
+      resetMultiTurnState()
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   describe('startNewTurn', () => {
