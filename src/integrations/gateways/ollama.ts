@@ -34,6 +34,16 @@ export default defineGateway({
     discoveryCacheTtl: '1d',
     discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
+    models: [
+      {
+        id: 'deepseek-v4-pro-cloud',
+        apiName: 'deepseek-v4-pro:cloud',
+        label: 'DeepSeek V4 Pro (Cloud)',
+        modelDescriptorId: 'deepseek-v4-pro',
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
+      },
+    ],
   },
   usage: { supported: false },
 })
