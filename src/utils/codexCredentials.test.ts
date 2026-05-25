@@ -19,9 +19,46 @@ describe('codexCredentials', () => {
   const originalSimple = process.env.CLAUDE_CODE_SIMPLE
   const originalCodeKey = process.env.CODEX_API_KEY
   const originalFetch = globalThis.fetch
+  let mockedPlainTextStorageState: Record<string, unknown> | null = null
+  let mockedPlainTextStorageUpdateResult: {
+    success: boolean
+    warning?: string
+  } = {
+    success: true,
+    warning: 'Warning: Storing credentials in plaintext.',
+  }
+  let mockedPlainTextStorageDeleteResult = true
+  let mockedPlainTextStorageUpdates: Record<string, unknown>[] = []
 
   beforeEach(async () => {
     await acquireSharedMutationLock('utils/codexCredentials.test.ts')
+    mockedPlainTextStorageState = null
+    mockedPlainTextStorageUpdateResult = {
+      success: true,
+      warning: 'Warning: Storing credentials in plaintext.',
+    }
+    mockedPlainTextStorageDeleteResult = true
+    mockedPlainTextStorageUpdates = []
+
+    mock.module('./secureStorage/plainTextStorage.js', () => ({
+      plainTextStorage: {
+        read: () => mockedPlainTextStorageState,
+        readAsync: async () => mockedPlainTextStorageState,
+        update: (next: Record<string, unknown>) => {
+          mockedPlainTextStorageUpdates.push(next)
+          if (mockedPlainTextStorageUpdateResult.success) {
+            mockedPlainTextStorageState = next
+          }
+          return mockedPlainTextStorageUpdateResult
+        },
+        delete: () => {
+          if (mockedPlainTextStorageDeleteResult) {
+            mockedPlainTextStorageState = null
+          }
+          return mockedPlainTextStorageDeleteResult
+        },
+      },
+    }))
   })
 
   afterEach(() => {
@@ -65,20 +102,18 @@ describe('codexCredentials', () => {
   test('saveCodexCredentials allows plaintext fallback when native secure storage is unavailable', async () => {
     delete process.env.CLAUDE_CODE_SIMPLE
 
-    let storageState: Record<string, unknown> | null = null
+    let nativeStorageState: Record<string, unknown> | null = null
     const getSecureStorage = mock(
       (options?: { allowPlainTextFallback?: boolean }) => {
-        expect(options?.allowPlainTextFallback).not.toBe(false)
+        expect(options?.allowPlainTextFallback).toBe(false)
         return {
-          read: () => storageState,
-          readAsync: async () => storageState,
-          update: (next: Record<string, unknown>) => {
-            storageState = next
-            return {
-              success: true,
-              warning: 'Warning: Storing credentials in plaintext.',
-            }
-          },
+          read: () => nativeStorageState,
+          readAsync: async () => nativeStorageState,
+          update: () => ({
+            success: false,
+            warning:
+              'Secure storage is unavailable on this platform without plaintext fallback.',
+          }),
           delete: () => true,
         }
       },
@@ -106,6 +141,232 @@ describe('codexCredentials', () => {
       accessToken: 'fallback-access-token',
       refreshToken: 'fallback-refresh-token',
       accountId: 'acct_123',
+    })
+  })
+
+  test('saveCodexCredentials keeps plaintext fallback scoped to Codex credentials', async () => {
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const nativeStorageState: Record<string, unknown> = {
+      mcpOAuth: {
+        server: {
+          serverName: 'Server',
+          serverUrl: 'https://example.test',
+          accessToken: 'native-mcp-access-token',
+          refreshToken: 'native-mcp-refresh-token',
+          expiresAt: Date.now() + 60_000,
+          clientSecret: 'native-mcp-client-secret',
+        },
+      },
+      trustedDeviceToken: 'native-trusted-device-token',
+      pluginSecrets: {
+        plugin: {
+          secret: 'native-plugin-secret',
+        },
+      },
+    }
+    mockedPlainTextStorageState = {
+      pluginSecrets: {
+        alreadyPlaintext: {
+          secret: 'existing-plaintext-secret',
+        },
+      },
+    }
+    let attemptedNativeWrite: Record<string, unknown> | undefined
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: (options?: { allowPlainTextFallback?: boolean }) => {
+        expect(options?.allowPlainTextFallback).toBe(false)
+        return {
+          read: () => nativeStorageState,
+          readAsync: async () => nativeStorageState,
+          update: (next: Record<string, unknown>) => {
+            attemptedNativeWrite = next
+            return { success: false, warning: 'native write failed' }
+          },
+          delete: () => true,
+        }
+      },
+    }))
+
+    // @ts-expect-error cache-busting query string for Bun module mocks
+    const { saveCodexCredentials } = await import(
+      './codexCredentials.js?save-scoped-plaintext-fallback'
+    )
+
+    const result = saveCodexCredentials({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      accountId: 'acct_123',
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.warning).toBe('Warning: Storing credentials in plaintext.')
+    expect(attemptedNativeWrite?.mcpOAuth).toBe(nativeStorageState.mcpOAuth)
+    expect(mockedPlainTextStorageState?.codex).toMatchObject({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      accountId: 'acct_123',
+    })
+    expect(mockedPlainTextStorageState?.pluginSecrets).toEqual({
+      alreadyPlaintext: {
+        secret: 'existing-plaintext-secret',
+      },
+    })
+    expect(mockedPlainTextStorageState).not.toHaveProperty('mcpOAuth')
+    expect(mockedPlainTextStorageState).not.toHaveProperty('trustedDeviceToken')
+  })
+
+  test('saveCodexCredentials fails closed when native Codex would shadow scoped fallback', async () => {
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const nativeStorageState: Record<string, unknown> = {
+      codex: {
+        accessToken: 'native-codex-access-token',
+        refreshToken: 'native-codex-refresh-token',
+        accountId: 'acct_old',
+      },
+      mcpOAuth: {
+        server: {
+          serverName: 'Server',
+          serverUrl: 'https://example.test',
+          accessToken: 'native-mcp-access-token',
+          expiresAt: Date.now() + 60_000,
+          clientSecret: 'native-mcp-client-secret',
+        },
+      },
+    }
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: (options?: { allowPlainTextFallback?: boolean }) => {
+        expect(options?.allowPlainTextFallback).toBe(false)
+        return {
+          read: () => nativeStorageState,
+          readAsync: async () => nativeStorageState,
+          update: () => ({ success: false, warning: 'native write failed' }),
+          delete: () => true,
+        }
+      },
+    }))
+
+    // @ts-expect-error cache-busting query string for Bun module mocks
+    const { saveCodexCredentials } = await import(
+      './codexCredentials.js?save-fail-closed-shadowed-fallback'
+    )
+
+    const result = saveCodexCredentials({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      accountId: 'acct_123',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.warning).toBe('native write failed')
+    expect(mockedPlainTextStorageUpdates).toHaveLength(0)
+    expect(mockedPlainTextStorageState).toBeNull()
+  })
+
+  test('saveCodexCredentials fails when stale native Codex cannot be removed after fallback write', async () => {
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const nativeStorageState: Record<string, unknown> = {
+      codex: {
+        accessToken: 'native-codex-access-token',
+        refreshToken: 'native-codex-refresh-token',
+        accountId: 'acct_old',
+      },
+    }
+    let nativeDeleteAttempts = 0
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: (options?: { allowPlainTextFallback?: boolean }) => {
+        expect(options?.allowPlainTextFallback).toBe(false)
+        return {
+          read: () => nativeStorageState,
+          readAsync: async () => nativeStorageState,
+          update: () => ({ success: false, warning: 'native write failed' }),
+          delete: () => {
+            nativeDeleteAttempts += 1
+            return false
+          },
+        }
+      },
+    }))
+
+    // @ts-expect-error cache-busting query string for Bun module mocks
+    const { readCodexCredentials, saveCodexCredentials } = await import(
+      './codexCredentials.js?save-fail-closed-stale-native-delete'
+    )
+
+    const result = saveCodexCredentials({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      accountId: 'acct_123',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.warning).toBe(
+      'Codex credentials were written to plaintext fallback, but stale native secure storage could not be removed.',
+    )
+    expect(nativeDeleteAttempts).toBe(1)
+    expect(mockedPlainTextStorageState?.codex).toMatchObject({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      accountId: 'acct_123',
+    })
+    expect(readCodexCredentials()?.accessToken).toBe(
+      'native-codex-access-token',
+    )
+  })
+
+  test('saveCodexCredentials warns when native save succeeds but plaintext fallback cleanup fails', async () => {
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    let nativeStorageState: Record<string, unknown> | null = null
+    mockedPlainTextStorageState = {
+      codex: {
+        accessToken: 'plaintext-codex-access-token',
+        refreshToken: 'plaintext-codex-refresh-token',
+        accountId: 'acct_plaintext',
+      },
+    }
+    mockedPlainTextStorageDeleteResult = false
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: (options?: { allowPlainTextFallback?: boolean }) => {
+        expect(options?.allowPlainTextFallback).toBe(false)
+        return {
+          read: () => nativeStorageState,
+          readAsync: async () => nativeStorageState,
+          update: (next: Record<string, unknown>) => {
+            nativeStorageState = next
+            return { success: true }
+          },
+          delete: () => true,
+        }
+      },
+    }))
+
+    // @ts-expect-error cache-busting query string for Bun module mocks
+    const { readCodexCredentials, saveCodexCredentials } = await import(
+      './codexCredentials.js?save-native-success-plaintext-cleanup-fails'
+    )
+
+    const result = saveCodexCredentials({
+      accessToken: 'native-codex-access-token',
+      refreshToken: 'native-codex-refresh-token',
+      accountId: 'acct_native',
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.warning).toBe(
+      'Codex credentials were saved, but stale plaintext fallback credentials could not be removed.',
+    )
+    expect(readCodexCredentials()?.accessToken).toBe(
+      'native-codex-access-token',
+    )
+    expect(mockedPlainTextStorageState?.codex).toMatchObject({
+      accessToken: 'plaintext-codex-access-token',
     })
   })
 
@@ -557,6 +818,53 @@ describe('codexCredentials', () => {
     expect(readCodexCredentials()?.profileId).toBe('profile_codex_oauth')
   })
 
+  test('clearCodexCredentials does not copy unrelated native secrets to plaintext when native update fails', async () => {
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const nativeStorageState: Record<string, unknown> = {
+      codex: {
+        accessToken: 'access-old',
+        refreshToken: 'refresh-old',
+        accountId: 'acct_old',
+      },
+      mcpOAuth: {
+        server: {
+          serverName: 'Server',
+          serverUrl: 'https://example.test',
+          accessToken: 'native-mcp-access-token',
+          expiresAt: Date.now() + 60_000,
+          clientSecret: 'native-mcp-client-secret',
+        },
+      },
+      trustedDeviceToken: 'native-trusted-device-token',
+    }
+    mockedPlainTextStorageState = null
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: (options?: { allowPlainTextFallback?: boolean }) => {
+        expect(options?.allowPlainTextFallback).toBe(false)
+        return {
+          read: () => nativeStorageState,
+          readAsync: async () => nativeStorageState,
+          update: () => ({ success: false, warning: 'native write failed' }),
+          delete: () => true,
+        }
+      },
+    }))
+
+    // @ts-expect-error cache-busting query string for Bun module mocks
+    const { clearCodexCredentials } = await import(
+      './codexCredentials.js?clear-scoped-plaintext-fallback'
+    )
+
+    const result = clearCodexCredentials()
+
+    expect(result.success).toBe(false)
+    expect(result.warning).toBe('native write failed')
+    expect(mockedPlainTextStorageUpdates).toHaveLength(0)
+    expect(mockedPlainTextStorageState).toBeNull()
+  })
+
   test('refreshCodexAccessTokenIfNeeded uses async secure-storage reads in its request path', async () => {
     delete process.env.CLAUDE_CODE_SIMPLE
     delete process.env.CODEX_API_KEY
@@ -602,6 +910,7 @@ describe('codexCredentials', () => {
   test('refreshCodexAccessTokenIfNeeded keeps a cooldown in memory when secure storage cannot persist it', async () => {
     delete process.env.CLAUDE_CODE_SIMPLE
     delete process.env.CODEX_API_KEY
+    mockedPlainTextStorageUpdateResult = { success: false }
 
     const expiredToken = makeJwt({
       exp: Math.floor((Date.now() - 60_000) / 1000),
