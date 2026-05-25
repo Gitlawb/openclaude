@@ -211,8 +211,13 @@ async function saveRpdState(path: string, state: RpdState): Promise<void> {
   try {
     await rename(tempPath, path)
   } catch (error) {
-    await unlink(tempPath).catch(() => undefined)
-    throw error
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST' || (error as NodeJS.ErrnoException).code === 'EPERM') {
+      await unlink(path).catch(() => undefined)
+      await rename(tempPath, path)
+    } else {
+      await unlink(tempPath).catch(() => undefined)
+      throw error
+    }
   }
 }
 

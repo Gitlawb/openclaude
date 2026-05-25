@@ -28,9 +28,9 @@ jobs:
           # Install Node deps and Bun for running tests (repo uses Bun for test runner)
           npm ci
       - name: Install Bun
-        run: |
-          curl -fsSL https://bun.sh/install | bash
-          echo "${HOME}/.bun/bin" >> "$GITHUB_PATH"
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Run TypeScript typecheck
         run: npm run typecheck
