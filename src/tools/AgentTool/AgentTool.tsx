@@ -287,6 +287,16 @@ export const AgentTool = buildTool({
       if (agentDef?.color) {
         setAgentColor(subagent_type!, agentDef.color);
       }
+      const rawTeammateModel = model ?? agentDef?.model;
+      const resolvedTeammateModel =
+        rawTeammateModel === undefined
+          ? undefined
+          : getAgentModel(
+              agentDef?.model,
+              toolUseContext.options.mainLoopModel,
+              model,
+              permissionMode
+            );
       const result = await spawnTeammate({
         name,
         prompt,
@@ -294,7 +304,7 @@ export const AgentTool = buildTool({
         team_name: teamName,
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
-        model: model ?? agentDef?.model,
+        model: resolvedTeammateModel,
         agent_type: subagent_type,
         invokingRequestId: assistantMessage?.requestId
       }, toolUseContext);
