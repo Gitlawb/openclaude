@@ -315,7 +315,7 @@ async function renderMonitorPermission(
   })
 
   root.render(
-    <AppStateProvider>
+    <AppStateProvider initialState={getDefaultAppState()}>
       <TestKeybindingProvider>
         <MonitorPermissionRequest
           toolUseConfirm={toolUseConfirm}
