@@ -29,7 +29,7 @@ export default defineGateway({
     vendorId: 'openai',
   },
   catalog: {
-    source: 'dynamic',
+    source: 'hybrid',
     discovery: { kind: 'ollama' },
     discoveryCacheTtl: '1d',
     discoveryRefreshMode: 'background-if-stale',
