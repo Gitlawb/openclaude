@@ -10,6 +10,7 @@ import { getCachedModels } from '../../integrations/discoveryCache.js'
 import { getDiscoveryCacheKey } from '../../integrations/discoveryService.js'
 import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
 import { resolveProviderRequest } from '../../services/api/providerConfig.js'
+import { parseCustomHeadersEnv } from '../providerCustomHeaders.js'
 
 export function isNvidiaNimProvider(): boolean {
   // Check if explicitly set via NVIDIA_NIM or via provider flag
@@ -205,9 +206,19 @@ export async function getDiscoveredNvidiaNimModelIds(): Promise<string[]> {
       processEnv: process.env,
     })
 
+    // Include custom headers in the cache key so this read lands in the
+    // same partition the picker (`getOpenAIDiscoveryRequestOptions` in
+    // src/commands/model/model.tsx) writes to. The picker passes
+    // `headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS)`
+    // into `getDiscoveryCacheKey`; without it, two users sharing a
+    // baseUrl/apiKey but differing in `ANTHROPIC_CUSTOM_HEADERS` end up
+    // on different cache partitions and the inline `/model <id>`
+    // validator misses the discovered ids the picker just persisted
+    // (jatmn re-review on #1177).
     const cacheKey = getDiscoveryCacheKey('nvidia-nim', {
       baseUrl: request.baseUrl,
       apiKey,
+      headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
     })
     const cached = await getCachedModels(cacheKey, Number.MAX_SAFE_INTEGER, {
       includeStale: true,
