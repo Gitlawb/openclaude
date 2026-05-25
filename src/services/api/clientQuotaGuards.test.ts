@@ -40,6 +40,7 @@ const originalEnv = {
 }
 
 let tempConfigDir: string
+let savedClaudeConfigDir: string | undefined
 
 function buildChildEnv(overrides: Record<string, string>): Record<string, string> {
   const base: Record<string, string> = {}
@@ -95,6 +96,7 @@ function restoreEnv(key: string, value: string | undefined): void {
 }
 
 beforeEach(async () => {
+  savedClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
   tempConfigDir = await mkdtemp(join(tmpdir(), 'openclaude-quota-'))
 
   process.env.CLAUDE_CONFIG_DIR = tempConfigDir
@@ -112,7 +114,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  restoreEnv('CLAUDE_CONFIG_DIR', originalEnv.CLAUDE_CONFIG_DIR)
+  restoreEnv('CLAUDE_CONFIG_DIR', savedClaudeConfigDir)
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
