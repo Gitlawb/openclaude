@@ -96,16 +96,10 @@ describe('OpenCode vendor descriptor', () => {
     expect(vendor!.validation!.kind).toBe('credential-env')
   })
 
-  test('has catalog with static + hybrid source', () => {
+  test('has catalog with static source', () => {
     const vendor = getVendor('opencode')
     expect(vendor!.catalog).toBeDefined()
-    expect(vendor!.catalog!.source).toBe('hybrid')
-  })
-
-  test('has discovery config', () => {
-    const vendor = getVendor('opencode')
-    expect(vendor!.catalog!.discovery).toBeDefined()
-    expect(vendor!.catalog!.discovery!.kind).toBe('openai-compatible')
+    expect(vendor!.catalog!.source).toBe('static')
   })
 
   test('has static models in catalog', () => {
@@ -185,16 +179,10 @@ describe('OpenCode Go gateway descriptor', () => {
     expect(gateway!.preset!.apiKeyEnvVars).toContain('OPENCODE_API_KEY')
   })
 
-  test('has catalog with hybrid source', () => {
+  test('has catalog with static source', () => {
     const gateway = getGateway('opencode-go')
     expect(gateway!.catalog).toBeDefined()
-    expect(gateway!.catalog!.source).toBe('hybrid')
-  })
-
-  test('has discovery config', () => {
-    const gateway = getGateway('opencode-go')
-    expect(gateway!.catalog!.discovery).toBeDefined()
-    expect(gateway!.catalog!.discovery!.kind).toBe('openai-compatible')
+    expect(gateway!.catalog!.source).toBe('static')
   })
 
   test('has static models in catalog', () => {
@@ -539,20 +527,5 @@ describe('OpenCode edge cases', () => {
   test('vendor validation message mentions opencode.ai', () => {
     const vendor = getVendor('opencode')
     expect(vendor!.validation!.missingCredentialMessage).toContain('opencode.ai')
-  })
-
-  test('discovery cache ttl is set', () => {
-    const vendor = getVendor('opencode')
-    expect(vendor!.catalog!.discoveryCacheTtl).toBeDefined()
-  })
-
-  test('discovery refresh mode is set', () => {
-    const vendor = getVendor('opencode')
-    expect(vendor!.catalog!.discoveryRefreshMode).toBeDefined()
-  })
-
-  test('manual refresh is allowed', () => {
-    const vendor = getVendor('opencode')
-    expect(vendor!.catalog!.allowManualRefresh).toBe(true)
   })
 })

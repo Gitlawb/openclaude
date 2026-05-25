@@ -2104,10 +2104,14 @@ class OpenAIShimMessages {
       ? getLocalProviderRetryBaseUrls(request.baseUrl)
       : []
 
-    const buildRequestUrl = (baseUrl: string): string =>
-      request.transport === 'responses'
+    const buildRequestUrl = (baseUrl: string): string => {
+      if (shimConfig.endpointPath) {
+        return `${baseUrl}${shimConfig.endpointPath}`
+      }
+      return request.transport === 'responses'
         ? `${baseUrl}/responses`
         : buildChatCompletionsUrl(baseUrl)
+    }
 
     let activeBaseUrl = request.baseUrl
     let requestUrl = buildRequestUrl(activeBaseUrl)

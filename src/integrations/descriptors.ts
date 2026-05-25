@@ -40,6 +40,8 @@ export interface OpenAIShimTransportConfig {
   thinkingRequestFormat?: 'none' | 'deepseek-compatible'
   maxTokensField?: OpenAIShimTokenField
   removeBodyFields?: string[]
+  /** Override the endpoint path for this model (e.g., '/responses', '/messages'). */
+  endpointPath?: string
 }
 
 export interface CapabilityFlags {

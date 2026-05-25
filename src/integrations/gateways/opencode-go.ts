@@ -26,11 +26,7 @@ export default defineGateway({
     modelEnvVars: ['OPENAI_MODEL'],
   },
   catalog: {
-    source: 'hybrid',
-    discovery: { kind: 'openai-compatible' },
-    discoveryCacheTtl: '1h',
-    discoveryRefreshMode: 'startup',
-    allowManualRefresh: true,
+    source: 'static',
     models: [
       // OpenAI-compatible — /zen/go/v1/chat/completions
       { id: 'opencode-go-glm-5.1', apiName: 'glm-5.1', label: 'GLM 5.1', modelDescriptorId: 'opencode-go-glm-5.1' },
@@ -42,10 +38,10 @@ export default defineGateway({
       { id: 'opencode-go-mimo-v2.5', apiName: 'mimo-v2.5', label: 'MiMo V2.5', modelDescriptorId: 'opencode-go-mimo-v2.5' },
       { id: 'opencode-go-mimo-v2.5-pro', apiName: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro', modelDescriptorId: 'opencode-go-mimo-v2.5-pro' },
       // Anthropic messages — /zen/go/v1/messages
-      { id: 'opencode-go-minimax-m2.7', apiName: 'minimax-m2.7', label: 'MiniMax M2.7', modelDescriptorId: 'opencode-go-minimax-m2.7' },
-      { id: 'opencode-go-minimax-m2.5', apiName: 'minimax-m2.5', label: 'MiniMax M2.5', modelDescriptorId: 'opencode-go-minimax-m2.5' },
-      { id: 'opencode-go-qwen3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen3.6 Plus', modelDescriptorId: 'opencode-go-qwen3.6-plus' },
-      { id: 'opencode-go-qwen3.5-plus', apiName: 'qwen3.5-plus', label: 'Qwen3.5 Plus', modelDescriptorId: 'opencode-go-qwen3.5-plus' },
+      { id: 'opencode-go-minimax-m2.7', apiName: 'minimax-m2.7', label: 'MiniMax M2.7', modelDescriptorId: 'opencode-go-minimax-m2.7', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'opencode-go-minimax-m2.5', apiName: 'minimax-m2.5', label: 'MiniMax M2.5', modelDescriptorId: 'opencode-go-minimax-m2.5', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'opencode-go-qwen3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen3.6 Plus', modelDescriptorId: 'opencode-go-qwen3.6-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'opencode-go-qwen3.5-plus', apiName: 'qwen3.5-plus', label: 'Qwen3.5 Plus', modelDescriptorId: 'opencode-go-qwen3.5-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
     ],
   },
   usage: { supported: false },
