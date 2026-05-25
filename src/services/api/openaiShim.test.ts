@@ -6981,3 +6981,206 @@ test('non-streaming: accepts plain-content JSON tool call when name matches a re
     { type: 'tool_use', id: 'tc-0-WebSearch', name: 'WebSearch', input: { query: 'Paris weather' } },
   ])
 })
+
+test('streaming: parses plain-content JSON tool call from Ollama content when tools requested', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-ollama-stream-1',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: '{"name": "WebSearch",',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ollama-stream-1',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: '"arguments": {"query": "Paris weather"}}',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ollama-stream-1',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'search' }],
+      max_tokens: 64,
+      stream: true,
+      tools: [{ name: 'WebSearch', description: 'Search the web', input_schema: { type: 'object', properties: { query: { type: 'string' } } } }],
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  expect(
+    events.some(
+      event =>
+        event.type === 'content_block_start' &&
+        (event.content_block as Record<string, unknown> | undefined)?.type ===
+          'text',
+    ),
+  ).toBe(false)
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type ===
+        'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    name: 'WebSearch',
+    id: 'tc-0-WebSearch',
+  })
+
+  const toolInputEvents = events.filter(
+    event =>
+      event.type === 'content_block_delta' &&
+      (event.delta as Record<string, unknown> | undefined)?.type ===
+        'input_json_delta',
+  )
+  const toolInput = toolInputEvents
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+  expect(JSON.parse(toolInput)).toEqual({ query: 'Paris weather' })
+
+  const stop = events.find(event => event.type === 'message_delta') as
+    | { delta?: Record<string, unknown> }
+    | undefined
+  expect(stop?.delta?.stop_reason).toBe('tool_use')
+})
+
+test('streaming: flushes unmatched JSON object as text instead of buffering', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-ollama-stream-2',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: '{"name": "NotATool",',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ollama-stream-2',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: '"arguments": {"query": "Paris"}}',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ollama-stream-2',
+        object: 'chat.completion.chunk',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'search' }],
+      max_tokens: 64,
+      stream: true,
+      tools: [{ name: 'WebSearch', description: 'Search the web', input_schema: { type: 'object', properties: { query: { type: 'string' } } } }],
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const textBlockStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type ===
+        'text',
+  )
+  expect(textBlockStart).toBeDefined()
+
+  const textDeltaEvents = events.filter(
+    event =>
+      event.type === 'content_block_delta' &&
+      (event.delta as Record<string, unknown> | undefined)?.type ===
+        'text_delta',
+  )
+  const textContent = textDeltaEvents
+    .map(event => (event.delta as Record<string, unknown>).text)
+    .join('')
+  expect(textContent).toBe('{"name": "NotATool","arguments": {"query": "Paris"}}')
+
+  const toolBlockStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, unknown> | undefined)?.type ===
+        'tool_use',
+  )
+  expect(toolBlockStart).toBeUndefined()
+
+  const stop = events.find(event => event.type === 'message_delta') as
+    | { delta?: Record<string, unknown> }
+    | undefined
+  expect(stop?.delta?.stop_reason).toBe('end_turn')
+})
