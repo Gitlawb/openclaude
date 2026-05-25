@@ -1039,6 +1039,34 @@ function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | nul
   return toolCalls.length > 0 ? toolCalls : null
 }
 
+/**
+ * Returns true when `text` is valid complete JSON where none of the items
+ * could be a requested raw tool call (name absent, not in validToolNames,
+ * or missing arguments/input). Used during streaming to flush buffered JSON
+ * as ordinary text rather than delaying it until finish_reason.
+ */
+function isCompleteNonToolJson(text: string, validToolNames: Set<string>): boolean {
+  const trimmed = text.trim()
+  try {
+    const parsed = JSON.parse(trimmed)
+    const items = Array.isArray(parsed) ? parsed : [parsed]
+    for (const item of items) {
+      if (
+        item &&
+        typeof item === 'object' &&
+        typeof item.name === 'string' &&
+        (item.arguments != null || item.input != null) &&
+        validToolNames.has(item.name)
+      ) {
+        return false
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 function parseRawJsonToolCallsFromContent(text: string, validToolNames?: Set<string>): ParsedRawToolCall[] | null {
   if (!validToolNames) return null
   const trimmed = text.trim()
@@ -1798,6 +1826,13 @@ async function* openaiStreamToAnthropic(
             if (
               !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText) &&
               !couldBeRawJsonContent(bufferedRawToolCallsText)
+            ) {
+              yield* emitTextDelta(bufferedRawToolCallsText)
+              bufferedRawToolCallsText = null
+            } else if (
+              couldBeRawJsonContent(bufferedRawToolCallsText) &&
+              validToolNames &&
+              isCompleteNonToolJson(bufferedRawToolCallsText, validToolNames)
             ) {
               yield* emitTextDelta(bufferedRawToolCallsText)
               bufferedRawToolCallsText = null
