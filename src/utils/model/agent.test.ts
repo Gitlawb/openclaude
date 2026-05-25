@@ -3,6 +3,10 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../settings/settingsCache.js'
 
 const originalSubagentModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL
 const originalOpenAIModel = process.env.OPENAI_MODEL
@@ -33,16 +37,25 @@ function mockProvider(
   }))
 }
 
+function setAvailableModelsForTest(availableModels?: string[]): void {
+  setSessionSettingsCache({
+    settings: availableModels === undefined ? {} : { availableModels },
+    errors: [],
+  })
+}
+
 describe('getAgentModel provider-aware fallback', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('utils/model/agent.test.ts')
     delete process.env.CLAUDE_CODE_SUBAGENT_MODEL
+    setAvailableModelsForTest()
   })
 
   // Restore all mocks after each test
   afterEach(() => {
     try {
       mock.restore()
+      resetSettingsCache()
       if (originalSubagentModel === undefined) {
         delete process.env.CLAUDE_CODE_SUBAGENT_MODEL
       } else {
@@ -307,8 +320,100 @@ describe('getAgentModel provider-aware fallback', () => {
       expect(result).toBe('deepseek/deepseek-v4-flash:nitro')
     })
 
+    test('rejects tool-specified custom model IDs outside availableModels', async () => {
+      mockProvider('openai')
+      setAvailableModelsForTest(['gpt-4o'])
+
+      const { getAgentModel } = await import('./agent.js')
+
+      expect(() =>
+        getAgentModel(undefined, 'gpt-4o', 'gpt-5.5', 'default'),
+      ).toThrow(
+        "Model 'gpt-5.5' is not available. Your organization restricts model selection.",
+      )
+    })
+
+    test('allows tool-specified custom model IDs inside availableModels', async () => {
+      mockProvider('openai')
+      setAvailableModelsForTest(['gpt-5.5'])
+
+      const { getAgentModel } = await import('./agent.js')
+      const result = getAgentModel(undefined, 'gpt-4o', 'gpt-5.5', 'default')
+
+      expect(result).toBe('gpt-5.5')
+    })
+
+    test('allows tool-specified aliases when the alias is in availableModels', async () => {
+      mockProvider('openai')
+      delete process.env.OPENAI_MODEL
+      setAvailableModelsForTest(['haiku'])
+
+      const { getAgentModel } = await import('./agent.js')
+      const result = getAgentModel(undefined, 'gpt-4o', 'haiku', 'default')
+
+      expect(result).toBe('gpt-4o-mini')
+    })
+
+    test('does not let tier-matching aliases bypass availableModels', async () => {
+      mockProvider('firstParty', true)
+      setAvailableModelsForTest(['claude-3-5-haiku-20241022'])
+
+      const { getAgentModel } = await import('./agent.js')
+
+      expect(() =>
+        getAgentModel(
+          undefined,
+          'claude-sonnet-4-6',
+          'sonnet',
+          'default',
+        ),
+      ).toThrow(
+        "Model 'sonnet' is not available. Your organization restricts model selection.",
+      )
+    })
+
+    test('keeps tier-matching aliases when the effective parent model is allowed', async () => {
+      mockProvider('firstParty', true)
+      setAvailableModelsForTest(['claude-sonnet-4-6'])
+
+      const { getAgentModel } = await import('./agent.js')
+      const result = getAgentModel(
+        undefined,
+        'claude-sonnet-4-6',
+        'sonnet',
+        'default',
+      )
+
+      expect(result).toBe('claude-sonnet-4-6')
+    })
+
+    test('keeps tool-specified inherit independent of availableModels', async () => {
+      mockProvider('openai')
+      setAvailableModelsForTest([])
+
+      const { getAgentModel } = await import('./agent.js')
+      const result = getAgentModel(undefined, 'gpt-4o', 'inherit', 'default')
+
+      expect(result).toBe('gpt-4o')
+    })
+
     test('inherits Bedrock parent region prefix for non-prefixed Bedrock model IDs', async () => {
       mockProvider('bedrock')
+
+      const { getAgentModel } = await import('./agent.js')
+      const result = getAgentModel(
+        undefined,
+        'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+        'anthropic.claude-3-5-sonnet-20241022-v2:0',
+        'default',
+      )
+
+      expect(result).toBe('eu.anthropic.claude-3-5-sonnet-20241022-v2:0')
+    })
+
+    test('allows inherited Bedrock region prefixes when the requested model ID is allowed', async () => {
+      mockProvider('bedrock')
+      setAvailableModelsForTest(['anthropic.claude-3-5-sonnet-20241022-v2:0'])
 
       const { getAgentModel } = await import('./agent.js')
       const result = getAgentModel(

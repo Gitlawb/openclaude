@@ -2,6 +2,7 @@ import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { capitalize } from '../stringUtils.js'
 import { MODEL_ALIASES } from './aliases.js'
 import { applyBedrockRegionPrefix, getBedrockRegionPrefix } from './bedrock.js'
+import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
   getRuntimeMainLoopModel,
@@ -77,10 +78,16 @@ export function getAgentModel(
       })
     }
     if (aliasMatchesParentTier(trimmedToolSpecifiedModel, parentModel)) {
+      assertToolSpecifiedModelAllowed(trimmedToolSpecifiedModel, parentModel)
       return parentModel
     }
     const model = parseUserSpecifiedModel(trimmedToolSpecifiedModel)
-    return applyParentRegionPrefix(model, trimmedToolSpecifiedModel)
+    const effectiveModel = applyParentRegionPrefix(
+      model,
+      trimmedToolSpecifiedModel,
+    )
+    assertToolSpecifiedModelAllowed(trimmedToolSpecifiedModel, effectiveModel)
+    return effectiveModel
   }
 
   const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
@@ -147,6 +154,21 @@ function aliasMatchesParentTier(alias: string, parentModel: string): boolean {
     default:
       return false
   }
+}
+
+function assertToolSpecifiedModelAllowed(
+  requestedModel: string,
+  effectiveModel: string,
+): void {
+  if (
+    isModelAllowed(requestedModel) ||
+    (effectiveModel !== requestedModel && isModelAllowed(effectiveModel))
+  ) {
+    return
+  }
+  throw new Error(
+    `Model '${requestedModel}' is not available. Your organization restricts model selection.`,
+  )
 }
 
 /**
