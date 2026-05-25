@@ -3,13 +3,10 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import {
-  resetSettingsCache,
-  setSessionSettingsCache,
-} from '../settings/settingsCache.js'
 
 const originalSubagentModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL
 const originalOpenAIModel = process.env.OPENAI_MODEL
+const allowedModelsRef: { value?: string[] } = { value: undefined }
 
 type MockProvider =
   | 'firstParty'
@@ -38,10 +35,30 @@ function mockProvider(
 }
 
 function setAvailableModelsForTest(availableModels?: string[]): void {
-  setSessionSettingsCache({
-    settings: availableModels === undefined ? {} : { availableModels },
-    errors: [],
-  })
+  allowedModelsRef.value = availableModels
+}
+
+// Keep resolver tests independent from process-global settings mocks in other
+// test files; modelAllowlist itself owns the detailed allowlist semantics.
+function mockModelAllowlist(): void {
+  mock.module('./modelAllowlist.js', () => ({
+    isModelAllowed: (model: string) => {
+      const availableModels = allowedModelsRef.value
+      if (availableModels === undefined) return true
+      if (availableModels.length === 0) return false
+
+      const normalizedModel = model.trim().toLowerCase()
+      return availableModels.some(
+        availableModel =>
+          availableModel.trim().toLowerCase() === normalizedModel,
+      )
+    },
+  }))
+}
+
+async function importAgentModule(): Promise<typeof import('./agent.js')> {
+  const stamp = `${Date.now()}-${Math.random()}`
+  return import(`./agent.ts?agent-test=${stamp}`)
 }
 
 describe('getAgentModel provider-aware fallback', () => {
@@ -49,13 +66,14 @@ describe('getAgentModel provider-aware fallback', () => {
     await acquireSharedMutationLock('utils/model/agent.test.ts')
     delete process.env.CLAUDE_CODE_SUBAGENT_MODEL
     setAvailableModelsForTest()
+    mockModelAllowlist()
   })
 
   // Restore all mocks after each test
   afterEach(() => {
     try {
       mock.restore()
-      resetSettingsCache()
+      setAvailableModelsForTest()
       if (originalSubagentModel === undefined) {
         delete process.env.CLAUDE_CODE_SUBAGENT_MODEL
       } else {
@@ -77,7 +95,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('firstParty', true)
 
       // Import after mock is set up
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
 
       // Should resolve haiku alias, not inherit parent
@@ -88,7 +106,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias resolves for Bedrock provider', async () => {
       mockProvider('bedrock')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
 
       // Should resolve haiku alias for Bedrock
@@ -98,7 +116,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias resolves for Vertex provider', async () => {
       mockProvider('vertex')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
 
       // Should resolve haiku alias for Vertex
@@ -108,7 +126,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias resolves for Foundry provider', async () => {
       mockProvider('foundry')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
 
       // Should resolve haiku alias for Foundry
@@ -120,7 +138,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for OpenAI provider', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'gpt-4o-mini', undefined, 'default')
 
       // Should inherit parent model for OpenAI (no haiku concept)
@@ -130,7 +148,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for Gemini provider', async () => {
       mockProvider('gemini')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'gemini-2.5-pro', undefined, 'default')
 
       // Should inherit parent model for Gemini
@@ -141,7 +159,7 @@ describe('getAgentModel provider-aware fallback', () => {
       // firstParty provider but with custom URL (not official Anthropic)
       mockProvider('firstParty')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
 
       // Should inherit parent for custom Anthropic-compatible URL
@@ -151,7 +169,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('sonnet alias inherits parent model for OpenAI provider', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('sonnet', 'gpt-4o-mini', undefined, 'default')
 
       // Should inherit parent model for OpenAI
@@ -161,7 +179,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for Mistral provider', async () => {
       mockProvider('mistral')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'mistral-small-latest', undefined, 'default')
 
       // Should inherit parent model for Mistral (no haiku concept)
@@ -171,7 +189,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for GitHub Copilot provider', async () => {
       mockProvider('github')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'gpt-4o-mini', undefined, 'default')
 
       // Should inherit parent model for GitHub Copilot
@@ -181,7 +199,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for NVIDIA NIM provider', async () => {
       mockProvider('nvidia-nim')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'meta/llama-3.1-8b-instruct', undefined, 'default')
 
       // Should inherit parent model for NVIDIA NIM (no haiku concept)
@@ -191,7 +209,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for MiniMax provider', async () => {
       mockProvider('minimax')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'MiniMax-M2.5-highspeed', undefined, 'default')
 
       // Should inherit parent model for MiniMax (no haiku concept)
@@ -201,7 +219,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('haiku alias inherits parent model for Codex provider', async () => {
       mockProvider('codex')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('haiku', 'gpt-5.5-mini', undefined, 'default')
 
       // Should inherit parent model for Codex provider (no haiku concept)
@@ -213,7 +231,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('inherit always returns parent model regardless of provider', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel('inherit', 'gpt-4o', undefined, 'default')
 
       expect(result).toBe('gpt-4o')
@@ -222,7 +240,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('tool-specified inherit returns the runtime parent model', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(undefined, 'gpt-4o', 'inherit', 'default')
 
       expect(result).toBe('gpt-4o')
@@ -231,7 +249,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('tool-specified inherit is case-insensitive and trimmed', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(undefined, 'gpt-4o', ' InHerit ', 'default')
 
       expect(result).toBe('gpt-4o')
@@ -242,7 +260,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('preserves custom provider model IDs unchanged', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const customModels = [
         'gpt-5.5',
         'mimo-v2.5-pro',
@@ -262,7 +280,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('trims custom provider model IDs before resolving', async () => {
       mockProvider('openai')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         undefined,
         'claude-sonnet-4-6',
@@ -276,7 +294,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('preserves alias tier matching for tool-specified aliases', async () => {
       mockProvider('firstParty', true)
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
 
       expect(
         getAgentModel(undefined, 'claude-sonnet-4-6', 'sonnet', 'default'),
@@ -298,7 +316,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('openai')
       delete process.env.OPENAI_MODEL
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(undefined, 'gpt-4o', 'haiku', 'default')
 
       expect(result).toBe('gpt-4o-mini')
@@ -309,7 +327,7 @@ describe('getAgentModel provider-aware fallback', () => {
       process.env.CLAUDE_CODE_SUBAGENT_MODEL =
         'deepseek/deepseek-v4-flash:nitro'
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         'haiku',
         'claude-sonnet-4-6',
@@ -324,7 +342,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('openai')
       setAvailableModelsForTest(['gpt-4o'])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
 
       expect(() =>
         getAgentModel(undefined, 'gpt-4o', 'gpt-5.5', 'default'),
@@ -337,7 +355,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('openai')
       setAvailableModelsForTest(['gpt-5.5'])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(undefined, 'gpt-4o', 'gpt-5.5', 'default')
 
       expect(result).toBe('gpt-5.5')
@@ -348,7 +366,7 @@ describe('getAgentModel provider-aware fallback', () => {
       delete process.env.OPENAI_MODEL
       setAvailableModelsForTest(['haiku'])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(undefined, 'gpt-4o', 'haiku', 'default')
 
       expect(result).toBe('gpt-4o-mini')
@@ -358,7 +376,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('firstParty', true)
       setAvailableModelsForTest(['claude-3-5-haiku-20241022'])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
 
       expect(() =>
         getAgentModel(
@@ -376,7 +394,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('firstParty', true)
       setAvailableModelsForTest(['claude-sonnet-4-6'])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         undefined,
         'claude-sonnet-4-6',
@@ -391,7 +409,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('openai')
       setAvailableModelsForTest([])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(undefined, 'gpt-4o', 'inherit', 'default')
 
       expect(result).toBe('gpt-4o')
@@ -400,7 +418,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('inherits Bedrock parent region prefix for non-prefixed Bedrock model IDs', async () => {
       mockProvider('bedrock')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         undefined,
         'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
@@ -415,7 +433,7 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('bedrock')
       setAvailableModelsForTest(['anthropic.claude-3-5-sonnet-20241022-v2:0'])
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         undefined,
         'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
@@ -429,7 +447,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('preserves explicit Bedrock region prefix on tool-specified model IDs', async () => {
       mockProvider('bedrock')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         undefined,
         'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
@@ -443,7 +461,7 @@ describe('getAgentModel provider-aware fallback', () => {
     test('does not apply Bedrock region prefixes to non-Bedrock custom IDs', async () => {
       mockProvider('bedrock')
 
-      const { getAgentModel } = await import('./agent.js')
+      const { getAgentModel } = await importAgentModule()
       const result = getAgentModel(
         undefined,
         'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
@@ -459,42 +477,42 @@ describe('getAgentModel provider-aware fallback', () => {
     test('returns true for official Anthropic API', async () => {
       mockProvider('firstParty', true)
 
-      const { checkIsClaudeNativeProvider } = await import('./agent.js')
+      const { checkIsClaudeNativeProvider } = await importAgentModule()
       expect(checkIsClaudeNativeProvider()).toBe(true)
     })
 
     test('returns true for Bedrock provider', async () => {
       mockProvider('bedrock')
 
-      const { checkIsClaudeNativeProvider } = await import('./agent.js')
+      const { checkIsClaudeNativeProvider } = await importAgentModule()
       expect(checkIsClaudeNativeProvider()).toBe(true)
     })
 
     test('returns true for Vertex provider', async () => {
       mockProvider('vertex')
 
-      const { checkIsClaudeNativeProvider } = await import('./agent.js')
+      const { checkIsClaudeNativeProvider } = await importAgentModule()
       expect(checkIsClaudeNativeProvider()).toBe(true)
     })
 
     test('returns true for Foundry provider', async () => {
       mockProvider('foundry')
 
-      const { checkIsClaudeNativeProvider } = await import('./agent.js')
+      const { checkIsClaudeNativeProvider } = await importAgentModule()
       expect(checkIsClaudeNativeProvider()).toBe(true)
     })
 
     test('returns false for OpenAI provider', async () => {
       mockProvider('openai')
 
-      const { checkIsClaudeNativeProvider } = await import('./agent.js')
+      const { checkIsClaudeNativeProvider } = await importAgentModule()
       expect(checkIsClaudeNativeProvider()).toBe(false)
     })
 
     test('returns false for custom Anthropic URL', async () => {
       mockProvider('firstParty')
 
-      const { checkIsClaudeNativeProvider } = await import('./agent.js')
+      const { checkIsClaudeNativeProvider } = await importAgentModule()
       expect(checkIsClaudeNativeProvider()).toBe(false)
     })
   })
