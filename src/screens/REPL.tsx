@@ -29,7 +29,7 @@ import { startPreventSleep, stopPreventSleep } from '../services/preventSleep.js
 import { useTerminalNotification } from '../ink/useTerminalNotification.js';
 import { hasCursorUpViewportYankBug } from '../ink/terminal.js';
 import { createFileStateCacheWithSizeLimit, mergeFileStateCaches, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js';
-import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getProjectRoot, getSessionId, switchSession, setCostStateForRestore, getTurnHookDurationMs, getTurnHookCount, resetTurnHookDuration, getTurnToolDurationMs, getTurnToolCount, resetTurnToolDuration, getTurnClassifierDurationMs, getTurnClassifierCount, resetTurnClassifierDuration, setMainThreadAgentType } from '../bootstrap/state.js';
+import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getProjectRoot, getSessionId, switchSession, setCostStateForRestore, getTurnHookDurationMs, getTurnHookCount, resetTurnHookDuration, getTurnToolDurationMs, getTurnToolCount, resetTurnToolDuration, getTurnClassifierDurationMs, getTurnClassifierCount, resetTurnClassifierDuration, setMainLoopModelOverride, setMainThreadAgentType } from '../bootstrap/state.js';
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
@@ -188,10 +188,13 @@ import { fileHistoryMakeSnapshot, type FileHistoryState, fileHistoryRewind, type
 import { type AttributionState, incrementPromptCount } from '../utils/commitAttribution.js';
 import { recordAttributionSnapshot } from '../utils/sessionStorage.js';
 import { computeStandaloneAgentContext, restoreAgentFromSession, restoreSessionStateFromLog, restoreWorktreeForResume, exitRestoredWorktree } from '../utils/sessionRestore.js';
+import { notifySessionMetadataChanged } from '../utils/sessionState.js';
 import { isBgSession, updateSessionName, updateSessionActivity } from '../utils/concurrentSessions.js';
 import { isInProcessTeammateTask, type InProcessTeammateTaskState } from '../tasks/InProcessTeammateTask/types.js';
 import { restoreRemoteAgentTasks } from '../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { useInboxPoller } from '../hooks/useInboxPoller.js';
+import { getActiveSessionAgentModelSelection } from './replActiveAgentModel.js';
+import type { ModelSetting } from '../utils/model/model.js';
 // Dead code elimination: conditional import for loop mode
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactiveModule = feature('PROACTIVE') || feature('KAIROS') ? require('../proactive/index.js') : null;
@@ -563,6 +566,10 @@ export type Props = {
   disabled?: boolean;
   // Optional agent definition to use for the main thread
   mainThreadAgentDefinition?: AgentDefinition;
+  // The effective non-agent model to restore when switching to an agent that inherits
+  baseMainLoopModel?: ModelSetting;
+  // True when startup had an explicit model override that agent switching must preserve
+  hasExplicitModelOverride?: boolean;
   // When true, disables all slash commands
   disableSlashCommands?: boolean;
   // Task list id: when set, enables tasks mode that watches a task list and auto-processes tasks.
@@ -597,6 +604,8 @@ export function REPL({
   onTurnComplete,
   disabled = false,
   mainThreadAgentDefinition: initialMainThreadAgentDefinition,
+  baseMainLoopModel = null,
+  hasExplicitModelOverride = false,
   disableSlashCommands = false,
   taskListId,
   remoteSessionConfig,
@@ -673,6 +682,36 @@ export function REPL({
   const store = useAppStateStore();
   const terminal = useTerminalNotification();
   const mainLoopModel = useMainLoopModel();
+  const appMainLoopModel = useAppState(s => s.mainLoopModel);
+  const appMainLoopModelForSession = useAppState(s => s.mainLoopModelForSession);
+  const initialAgentModelSelection = !hasExplicitModelOverride && initialMainThreadAgentDefinition?.model && initialMainThreadAgentDefinition.model !== 'inherit' ? getActiveSessionAgentModelSelection({
+    agent: initialMainThreadAgentDefinition,
+    baseMainLoopModel,
+    hasExplicitModelOverride,
+    hasAgentManagedModel: false
+  }) : undefined;
+  const explicitModelOverrideRef = useRef(hasExplicitModelOverride);
+  const baseMainLoopModelRef = useRef<ModelSetting | undefined>(baseMainLoopModel);
+  const agentManagedModelRef = useRef<ModelSetting | undefined>(initialAgentModelSelection?.shouldUpdateModel ? initialAgentModelSelection.mainLoopModelForSession : undefined);
+  const previousMainLoopModelForSessionRef = useRef(appMainLoopModelForSession);
+  const didTrackInitialModelStateRef = useRef(false);
+  useEffect(() => {
+    const previousMainLoopModelForSession = previousMainLoopModelForSessionRef.current;
+    previousMainLoopModelForSessionRef.current = appMainLoopModelForSession;
+
+    if (!didTrackInitialModelStateRef.current) {
+      didTrackInitialModelStateRef.current = true;
+      return;
+    }
+
+    const currentEffectiveModelSetting = appMainLoopModelForSession ?? appMainLoopModel;
+    const clearedAgentManagedSessionModel = previousMainLoopModelForSession !== null && appMainLoopModelForSession === null;
+    if (!clearedAgentManagedSessionModel && currentEffectiveModelSetting === agentManagedModelRef.current) return;
+
+    explicitModelOverrideRef.current = true;
+    baseMainLoopModelRef.current = currentEffectiveModelSetting;
+    agentManagedModelRef.current = undefined;
+  }, [appMainLoopModel, appMainLoopModelForSession]);
 
   // Note: standaloneAgentContext is initialized in main.tsx (via initialState) or
   // ResumeConversation.tsx (via setAppState before rendering REPL) to avoid
@@ -2559,12 +2598,28 @@ export function REPL({
       resume,
       setConversationId,
       setActiveSessionAgent: agent => {
+        const modelSelection = getActiveSessionAgentModelSelection({
+          agent,
+          baseMainLoopModel: baseMainLoopModelRef.current,
+          hasExplicitModelOverride: explicitModelOverrideRef.current,
+          hasAgentManagedModel: agentManagedModelRef.current !== undefined
+        });
         setMainThreadAgentDefinition(agent);
         setMainThreadAgentType(agent.agentType);
         saveAgentSetting(agent.agentType);
+        if (modelSelection.shouldUpdateModel) {
+          agentManagedModelRef.current = modelSelection.mainLoopModelForSession;
+          setMainLoopModelOverride(modelSelection.mainLoopModelForSession);
+          notifySessionMetadataChanged({
+            model: modelSelection.mainLoopModelForSession
+          });
+        }
         setAppState(prev => ({
           ...prev,
-          agent: agent.agentType
+          agent: agent.agentType,
+          ...(modelSelection.shouldUpdateModel ? {
+            mainLoopModelForSession: modelSelection.mainLoopModelForSession
+          } : {})
         }));
       },
       requestPrompt: feature('HOOK_PROMPTS') ? requestPrompt : undefined,
