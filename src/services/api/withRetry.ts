@@ -592,7 +592,7 @@ function resolveEffectiveProvider(options: RetryOptions): APIProvider {
   const request = resolveProviderRequest({
     model: options.providerOverride.model,
     baseUrl: options.providerOverride.baseURL,
-    fallbackModel: options.model,
+    fallbackModel: options.fallbackModel ?? options.model,
   })
 
   return request.transport === 'codex_responses' ? 'codex' : 'openai'

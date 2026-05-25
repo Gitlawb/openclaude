@@ -30,12 +30,10 @@ jobs:
       - name: Install Bun
         run: |
           curl -fsSL https://bun.sh/install | bash
-          echo "::add-path::${HOME}/.bun/bin"
+          echo "${HOME}/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Run TypeScript typecheck
         run: npm run typecheck
 
       - name: Run tests
-        env:
-          PATH: ${{ env.PATH }}:${{ runner.home }}/.bun/bin
         run: npm test
