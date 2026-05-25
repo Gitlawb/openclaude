@@ -9,8 +9,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.5',
     label: 'GPT 5.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'gpt-5.5',
     capabilities: {
@@ -27,8 +27,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.5-pro',
     label: 'GPT 5.5 Pro',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'gpt-5.5-pro',
     capabilities: {
@@ -45,8 +45,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.4',
     label: 'GPT 5.4',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'gpt-5.4',
     capabilities: {
@@ -63,8 +63,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.4-pro',
     label: 'GPT 5.4 Pro',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'gpt-5.4-pro',
     capabilities: {
@@ -81,8 +81,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.4-mini',
     label: 'GPT 5.4 Mini',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gpt-5.4-mini',
     capabilities: {
@@ -99,8 +99,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.4-nano',
     label: 'GPT 5.4 Nano',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gpt-5.4-nano',
     capabilities: {
@@ -117,8 +117,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.3-codex',
     label: 'GPT 5.3 Codex',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5.3-codex',
     capabilities: {
@@ -135,8 +135,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.3-codex-spark',
     label: 'GPT 5.3 Codex Spark',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5.3-codex-spark',
     capabilities: {
@@ -153,8 +153,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.2',
     label: 'GPT 5.2',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gpt-5.2',
     capabilities: {
@@ -171,8 +171,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.2-codex',
     label: 'GPT 5.2 Codex',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5.2-codex',
     capabilities: {
@@ -189,8 +189,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.1',
     label: 'GPT 5.1',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gpt-5.1',
     capabilities: {
@@ -207,8 +207,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.1-codex',
     label: 'GPT 5.1 Codex',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5.1-codex',
     capabilities: {
@@ -225,8 +225,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.1-codex-max',
     label: 'GPT 5.1 Codex Max',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5.1-codex-max',
     capabilities: {
@@ -243,8 +243,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5.1-codex-mini',
     label: 'GPT 5.1 Codex Mini',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5.1-codex-mini',
     capabilities: {
@@ -261,8 +261,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5',
     label: 'GPT 5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gpt-5',
     capabilities: {
@@ -279,8 +279,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5-codex',
     label: 'GPT 5 Codex',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'gpt-5-codex',
     capabilities: {
@@ -297,8 +297,8 @@ export default [
   defineModel({
     id: 'opencode-gpt-5-nano',
     label: 'GPT 5 Nano',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gpt-5-nano',
     capabilities: {
@@ -317,8 +317,8 @@ export default [
   defineModel({
     id: 'opencode-claude-opus-4-7',
     label: 'Claude Opus 4.7',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-opus-4-7',
     capabilities: {
@@ -335,8 +335,8 @@ export default [
   defineModel({
     id: 'opencode-claude-opus-4-6',
     label: 'Claude Opus 4.6',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-opus-4-6',
     capabilities: {
@@ -353,8 +353,8 @@ export default [
   defineModel({
     id: 'opencode-claude-opus-4-5',
     label: 'Claude Opus 4.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-opus-4-5',
     capabilities: {
@@ -371,8 +371,8 @@ export default [
   defineModel({
     id: 'opencode-claude-opus-4-1',
     label: 'Claude Opus 4.1',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-opus-4-1',
     capabilities: {
@@ -389,8 +389,8 @@ export default [
   defineModel({
     id: 'opencode-claude-sonnet-4-6',
     label: 'Claude Sonnet 4.6',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-sonnet-4-6',
     capabilities: {
@@ -407,8 +407,8 @@ export default [
   defineModel({
     id: 'opencode-claude-sonnet-4-5',
     label: 'Claude Sonnet 4.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-sonnet-4-5',
     capabilities: {
@@ -425,8 +425,8 @@ export default [
   defineModel({
     id: 'opencode-claude-sonnet-4',
     label: 'Claude Sonnet 4',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'claude-sonnet-4',
     capabilities: {
@@ -443,8 +443,8 @@ export default [
   defineModel({
     id: 'opencode-claude-haiku-4-5',
     label: 'Claude Haiku 4.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'claude-haiku-4-5',
     capabilities: {
@@ -461,8 +461,8 @@ export default [
   defineModel({
     id: 'opencode-claude-3-5-haiku',
     label: 'Claude Haiku 3.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'claude-3-5-haiku',
     capabilities: {
@@ -481,8 +481,8 @@ export default [
   defineModel({
     id: 'opencode-gemini-3.5-flash',
     label: 'Gemini 3.5 Flash',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gemini-3.5-flash',
     capabilities: {
@@ -499,8 +499,8 @@ export default [
   defineModel({
     id: 'opencode-gemini-3.1-pro',
     label: 'Gemini 3.1 Pro',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'gemini-3.1-pro',
     capabilities: {
@@ -517,8 +517,8 @@ export default [
   defineModel({
     id: 'opencode-gemini-3-flash',
     label: 'Gemini 3 Flash',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'gemini-3-flash',
     capabilities: {
@@ -537,8 +537,8 @@ export default [
   defineModel({
     id: 'opencode-qwen3.6-plus',
     label: 'Qwen3.6 Plus',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'qwen3.6-plus',
     capabilities: {
@@ -555,8 +555,8 @@ export default [
   defineModel({
     id: 'opencode-qwen3.5-plus',
     label: 'Qwen3.5 Plus',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'qwen3.5-plus',
     capabilities: {
@@ -575,8 +575,8 @@ export default [
   defineModel({
     id: 'opencode-minimax-m2.7',
     label: 'MiniMax M2.7',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'minimax-m2.7',
     capabilities: {
@@ -593,8 +593,8 @@ export default [
   defineModel({
     id: 'opencode-minimax-m2.5',
     label: 'MiniMax M2.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'minimax-m2.5',
     capabilities: {
@@ -611,8 +611,8 @@ export default [
   defineModel({
     id: 'opencode-glm-5.1',
     label: 'GLM 5.1',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'glm-5.1',
     capabilities: {
@@ -629,8 +629,8 @@ export default [
   defineModel({
     id: 'opencode-glm-5',
     label: 'GLM 5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'glm-5',
     capabilities: {
@@ -647,8 +647,8 @@ export default [
   defineModel({
     id: 'opencode-kimi-k2.5',
     label: 'Kimi K2.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'kimi-k2.5',
     capabilities: {
@@ -665,8 +665,8 @@ export default [
   defineModel({
     id: 'opencode-kimi-k2.6',
     label: 'Kimi K2.6',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'kimi-k2.6',
     capabilities: {
@@ -683,8 +683,8 @@ export default [
   defineModel({
     id: 'opencode-grok-build-0.1',
     label: 'Grok Build 0.1',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'grok-build-0.1',
     capabilities: {
@@ -701,8 +701,8 @@ export default [
   defineModel({
     id: 'opencode-big-pickle',
     label: 'Big Pickle',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'big-pickle',
     capabilities: {
@@ -719,8 +719,8 @@ export default [
   defineModel({
     id: 'opencode-deepseek-v4-flash-free',
     label: 'DeepSeek V4 Flash Free',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'deepseek-v4-flash-free',
     capabilities: {
@@ -737,8 +737,8 @@ export default [
   defineModel({
     id: 'opencode-nemotron-3-super-free',
     label: 'Nemotron 3 Super Free',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'nemotron-3-super-free',
     capabilities: {
@@ -761,8 +761,8 @@ export default [
   defineModel({
     id: 'opencode-go-glm-5.1',
     label: 'GLM 5.1',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'glm-5.1',
     capabilities: {
@@ -779,8 +779,8 @@ export default [
   defineModel({
     id: 'opencode-go-glm-5',
     label: 'GLM 5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'glm-5',
     capabilities: {
@@ -797,8 +797,8 @@ export default [
   defineModel({
     id: 'opencode-go-kimi-k2.5',
     label: 'Kimi K2.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'kimi-k2.5',
     capabilities: {
@@ -815,8 +815,8 @@ export default [
   defineModel({
     id: 'opencode-go-kimi-k2.6',
     label: 'Kimi K2.6',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'kimi-k2.6',
     capabilities: {
@@ -833,8 +833,8 @@ export default [
   defineModel({
     id: 'opencode-go-deepseek-v4-pro',
     label: 'DeepSeek V4 Pro',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'deepseek-v4-pro',
     capabilities: {
@@ -851,8 +851,8 @@ export default [
   defineModel({
     id: 'opencode-go-deepseek-v4-flash',
     label: 'DeepSeek V4 Flash',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'deepseek-v4-flash',
     capabilities: {
@@ -869,8 +869,8 @@ export default [
   defineModel({
     id: 'opencode-go-mimo-v2.5',
     label: 'MiMo V2.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'mimo-v2.5',
     capabilities: {
@@ -887,8 +887,8 @@ export default [
   defineModel({
     id: 'opencode-go-mimo-v2.5-pro',
     label: 'MiMo V2.5 Pro',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'coding'],
     defaultModel: 'mimo-v2.5-pro',
     capabilities: {
@@ -907,8 +907,8 @@ export default [
   defineModel({
     id: 'opencode-go-minimax-m2.7',
     label: 'MiniMax M2.7',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'minimax-m2.7',
     capabilities: {
@@ -925,8 +925,8 @@ export default [
   defineModel({
     id: 'opencode-go-minimax-m2.5',
     label: 'MiniMax M2.5',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat'],
     defaultModel: 'minimax-m2.5',
     capabilities: {
@@ -943,8 +943,8 @@ export default [
   defineModel({
     id: 'opencode-go-qwen3.6-plus',
     label: 'Qwen3.6 Plus',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'qwen3.6-plus',
     capabilities: {
@@ -961,8 +961,8 @@ export default [
   defineModel({
     id: 'opencode-go-qwen3.5-plus',
     label: 'Qwen3.5 Plus',
-    brandId: 'opencode',
-    vendorId: 'opencode',
+
+    vendorId: 'openai',
     classification: ['chat', 'reasoning'],
     defaultModel: 'qwen3.5-plus',
     capabilities: {

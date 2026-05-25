@@ -9,7 +9,6 @@ import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
 import vendorOpenai from '../vendors/openai.js'
-import vendorOpencode from '../vendors/opencode.js'
 import vendorVenice from '../vendors/venice.js'
 import vendorXai from '../vendors/xai.js'
 import vendorXiaomiMimo from '../vendors/xiaomi-mimo.js'
@@ -30,6 +29,7 @@ import gatewayMistral from '../gateways/mistral.js'
 import gatewayNvidiaNim from '../gateways/nvidia-nim.js'
 import gatewayOllama from '../gateways/ollama.js'
 import gatewayOpencodeGo from '../gateways/opencode-go.js'
+import gatewayOpencode from '../gateways/opencode.js'
 import gatewayOpenrouter from '../gateways/openrouter.js'
 import gatewayTogether from '../gateways/together.js'
 import gatewayVertex from '../gateways/vertex.js'
@@ -44,7 +44,6 @@ import brandMinimax from '../brands/minimax.js'
 import brandMistral from '../brands/mistral.js'
 import brandNemotron from '../brands/nemotron.js'
 import brandOpenaiCompatibleAlias from '../brands/openai-compatible-alias.js'
-import brandOpencode from '../brands/opencode.js'
 import brandQwen from '../brands/qwen.js'
 import brandXai from '../brands/xai.js'
 import brandXiaomiMimo from '../brands/xiaomi-mimo.js'
@@ -64,10 +63,10 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorOpencode, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
-export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpencodeGo, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpencodeGo, gatewayOpencode, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
-export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandOpencode, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
+export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
 export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
 export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]
 
@@ -301,7 +300,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "preset": "opencode-go",
     "routeKind": "gateway",
     "routeId": "opencode-go",
-    "vendorId": "opencode",
+    "vendorId": "openai",
     "gatewayId": "opencode-go",
     "description": "OpenCode Go — $10/mo subscription for open models (12 models)",
     "apiKeyEnvVars": [
@@ -313,9 +312,10 @@ export const PROVIDER_PRESET_MANIFEST = [
   },
   {
     "preset": "opencode",
-    "routeKind": "vendor",
+    "routeKind": "gateway",
     "routeId": "opencode",
-    "vendorId": "opencode",
+    "vendorId": "openai",
+    "gatewayId": "opencode",
     "description": "OpenCode Zen — pay-as-you-go AI gateway (41 models)",
     "apiKeyEnvVars": [
       "OPENCODE_API_KEY"

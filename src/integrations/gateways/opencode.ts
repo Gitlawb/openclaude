@@ -1,12 +1,11 @@
-import { defineVendor } from '../define.js'
+import { defineGateway } from '../define.js'
 
-export default defineVendor({
+export default defineGateway({
   id: 'opencode',
-  label: 'OpenCode',
-  classification: 'openai-compatible',
+  label: 'OpenCode Zen',
+  category: 'aggregating',
   defaultBaseUrl: 'https://opencode.ai/zen/v1',
   defaultModel: 'gpt-5.4',
-  requiredEnvVars: ['OPENCODE_API_KEY'],
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
@@ -20,6 +19,7 @@ export default defineVendor({
   },
   preset: {
     id: 'opencode',
+    vendorId: 'openai',
     description: 'OpenCode Zen — pay-as-you-go AI gateway (41 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],

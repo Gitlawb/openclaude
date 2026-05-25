@@ -3,7 +3,6 @@ import { defineGateway } from '../define.js'
 export default defineGateway({
   id: 'opencode-go',
   label: 'OpenCode Go',
-  vendorId: 'opencode',
   category: 'hosted',
   defaultBaseUrl: 'https://opencode.ai/zen/go/v1',
   defaultModel: 'glm-5.1',
@@ -20,7 +19,7 @@ export default defineGateway({
   },
   preset: {
     id: 'opencode-go',
-    vendorId: 'opencode',
+    vendorId: 'openai',
     description: 'OpenCode Go — $10/mo subscription for open models (12 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
