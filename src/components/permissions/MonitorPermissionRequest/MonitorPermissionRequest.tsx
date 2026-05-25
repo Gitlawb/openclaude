@@ -19,7 +19,7 @@ export function MonitorPermissionRequest({
   workerBadge,
 }: PermissionRequestProps) {
   const isDangerousModeAvailable = useAppState(
-    s => s.toolPermissionContext.isBypassPermissionsModeAvailable,
+    s => s?.toolPermissionContext?.isBypassPermissionsModeAvailable ?? false,
   )
   const { command, description } = toolUseConfirm.input as {
     command?: string
