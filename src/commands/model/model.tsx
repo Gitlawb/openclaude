@@ -131,18 +131,22 @@ export function mergeActiveProfileModelOptions(
     return routeOptions
   }
 
-  const merged = [...routeOptions]
-  const seen = new Set(
-    routeOptions
-      .map(option =>
-        typeof option.value === 'string'
-          ? option.value.trim().toLowerCase()
-          : '',
-      )
-      .filter(Boolean),
-  )
+  const profileOptions = getProfileModelOptions(activeProfile)
+  if (profileOptions.length === 0) {
+    return routeOptions
+  }
 
-  for (const option of getProfileModelOptions(activeProfile)) {
+  const routeOptionsByValue = new Map(
+    routeOptions.flatMap(option => {
+      const value =
+        typeof option.value === 'string' ? option.value.trim().toLowerCase() : ''
+      return value ? [[value, option] as const] : []
+    }),
+  )
+  const merged: ModelOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of profileOptions) {
     const value = typeof option.value === 'string' ? option.value.trim() : ''
     const key = value.toLowerCase()
     if (!value || seen.has(key)) {
@@ -150,7 +154,7 @@ export function mergeActiveProfileModelOptions(
     }
 
     seen.add(key)
-    merged.push(option)
+    merged.push(routeOptionsByValue.get(key) ?? option)
   }
 
   return merged

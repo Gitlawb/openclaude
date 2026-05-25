@@ -281,6 +281,69 @@ test('descriptor model options include active profile configured models', async 
   ])
 })
 
+test('descriptor model options omit route defaults outside active profile models', async () => {
+  const activeProfile = {
+    id: 'mistral-profile',
+    name: 'Mistral AI',
+    provider: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'mistral-medium-latest, mistral-small-latest',
+    apiKey: 'sk-mistral',
+  }
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+    getProfileModelOptions: () => [
+      {
+        value: 'mistral-medium-latest',
+        label: 'mistral-medium-latest',
+        description: 'Provider: Mistral AI',
+      },
+      {
+        value: 'mistral-small-latest',
+        label: 'mistral-small-latest',
+        description: 'Provider: Mistral AI',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  }))
+
+  const { mergeActiveProfileModelOptions } =
+    await importFreshModelModule('descriptor-profile-model-filter')
+
+  expect(
+    mergeActiveProfileModelOptions(
+      'mistral',
+      [
+        {
+          value: 'devstral-latest',
+          label: 'Devstral Latest',
+          description: 'Recommended · Provider: Mistral AI',
+        },
+        {
+          value: 'mistral-small-latest',
+          label: 'Mistral Small Latest',
+          description: 'Provider: Mistral AI',
+        },
+      ],
+    ),
+  ).toEqual([
+    {
+      value: 'mistral-medium-latest',
+      label: 'mistral-medium-latest',
+      description: 'Provider: Mistral AI',
+    },
+    {
+      value: 'mistral-small-latest',
+      label: 'Mistral Small Latest',
+      description: 'Provider: Mistral AI',
+    },
+  ])
+})
+
 test('descriptor model options skip saved profile models for env-selected routes', async () => {
   const savedProfile = {
     id: 'mistral-profile',
