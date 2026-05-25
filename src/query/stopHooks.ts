@@ -526,6 +526,9 @@ export async function* handleStopHooks(
         deps: goalEvaluationDeps,
       })
       if (goalBlockingErrors.length > 0) {
+        for (const userMessage of goalBlockingErrors) {
+          yield userMessage
+        }
         return {
           blockingErrors: goalBlockingErrors,
           preventContinuation: false,

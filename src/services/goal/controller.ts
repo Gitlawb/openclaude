@@ -1,4 +1,5 @@
 import type { QuerySource } from '../../constants/querySource.js'
+import { getTotalCost as getTotalCostDefault } from '../../cost-tracker.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { createSystemMessage, createUserMessage } from '../../utils/messages.js'
@@ -19,6 +20,7 @@ const GOAL_EVALUATION_MESSAGE_LIMIT = 24
 
 export type GoalEvaluationDeps = {
   evaluateGoal?: typeof evaluateGoalDefault
+  getTotalCost?: typeof getTotalCostDefault
   saveGoalState?: typeof saveGoalStateDefault
 }
 
@@ -80,6 +82,7 @@ export async function* evaluateGoalAfterTurn({
   deps?: GoalEvaluationDeps
 }): AsyncGenerator<Message, Message[]> {
   const evaluateGoal = deps.evaluateGoal ?? evaluateGoalDefault
+  const getTotalCost = deps.getTotalCost ?? getTotalCostDefault
   const saveGoalState = deps.saveGoalState ?? saveGoalStateDefault
   const terminalUuid = terminalAssistantUuid(assistantMessages)
   const appState = toolUseContext.getAppState()
@@ -100,6 +103,12 @@ export async function* evaluateGoalAfterTurn({
     return []
   }
   if (!shouldEvaluateGoal(goal, terminalUuid)) return []
+  if (
+    toolUseContext.options.maxBudgetUsd !== undefined &&
+    getTotalCost() >= toolUseContext.options.maxBudgetUsd
+  ) {
+    return []
+  }
 
   const decision = await evaluateGoal({
     goal,

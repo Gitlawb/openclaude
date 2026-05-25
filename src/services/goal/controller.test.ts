@@ -272,6 +272,113 @@ describe('goal continuation controller', () => {
     expect(returned).toEqual([])
   })
 
+  test('maxBudgetUsd exhaustion skips evaluator before spending on goal evaluation', async () => {
+    const { context, getState } = makeContext()
+    context.options.maxBudgetUsd = 0.25
+    let calls = 0
+    const deps: GoalEvaluationDeps = {
+      evaluateGoal: async () => {
+        calls++
+        return {
+          complete: false,
+          confidence: 0.7,
+          decision: 'incomplete',
+          reason: 'This would require another paid evaluator call.',
+          nextInstruction: 'Continue.',
+        }
+      },
+      saveGoalState: async () => {},
+      getTotalCost: () => 0.25,
+    }
+
+    const { yielded, returned } = await drain(
+      evaluateGoalAfterTurn({
+        messagesForQuery: [],
+        assistantMessages: [assistant('assistant-1', 'Done.')],
+        toolUseContext: context,
+        querySource: 'sdk',
+        deps,
+      }),
+    )
+
+    expect(calls).toBe(0)
+    expect(yielded).toEqual([])
+    expect(returned).toEqual([])
+    expect(getState().goal?.status).toBe('active')
+    expect(getState().goal?.turnCount).toBe(0)
+  })
+
+  test('maxBudgetUsd below cap still permits goal evaluation', async () => {
+    const { context, getState } = makeContext()
+    context.options.maxBudgetUsd = 0.25
+    let calls = 0
+    const deps: GoalEvaluationDeps = {
+      evaluateGoal: async () => {
+        calls++
+        return {
+          complete: false,
+          confidence: 0.7,
+          decision: 'incomplete',
+          reason: 'Validation is still missing.',
+          nextInstruction: 'Run validation.',
+        }
+      },
+      saveGoalState: async () => {},
+      getTotalCost: () => 0.24,
+    }
+
+    const { yielded, returned } = await drain(
+      evaluateGoalAfterTurn({
+        messagesForQuery: [],
+        assistantMessages: [assistant('assistant-1', 'Done.')],
+        toolUseContext: context,
+        querySource: 'sdk',
+        deps,
+      }),
+    )
+
+    expect(calls).toBe(1)
+    expect(getState().goal?.turnCount).toBe(1)
+    expect(yielded[0]?.content).toContain('Goal not complete:')
+    expect(returned).toHaveLength(1)
+    expect(returned[0].message.content).toContain('Run validation.')
+  })
+
+  test('maxBudgetUsd exhaustion still allows maxTurns pause without evaluator spend', async () => {
+    const goal = {
+      ...createGoalState('finish implementation'),
+      turnCount: 1,
+      maxTurns: 1,
+    }
+    const { context, getState } = makeContext(goal)
+    context.options.maxBudgetUsd = 0.25
+    let calls = 0
+    const deps: GoalEvaluationDeps = {
+      evaluateGoal: async () => {
+        calls++
+        throw new Error('should not evaluate')
+      },
+      saveGoalState: async () => {},
+      getTotalCost: () => 0.25,
+    }
+
+    const { yielded, returned } = await drain(
+      evaluateGoalAfterTurn({
+        messagesForQuery: [],
+        assistantMessages: [assistant('assistant-1', 'Done.')],
+        toolUseContext: context,
+        querySource: 'sdk',
+        deps,
+      }),
+    )
+
+    expect(calls).toBe(0)
+    expect(getState().goal?.status).toBe('paused')
+    expect(getState().goal?.lastReason).toContain('maximum of 1 turns')
+    expect(yielded[0]?.content).toContain('maximum of 1 turns')
+    expect(returned).toEqual([])
+  })
+
   test('pending interactive dialog prevents continuation', async () => {
     const { context } = makeContext()
     const blockedContext = {

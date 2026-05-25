@@ -185,4 +185,49 @@ describe('goal continuation stop-hook precedence', () => {
     expect(returned.blockingErrors).toHaveLength(1)
     expect(returned.stopHookActive).toBe(false)
   })
+
+  test('goal continuation user message is yielded for transcript persistence', async () => {
+    const appStateRef = {
+      current: {
+        ...getDefaultAppState(),
+        goal: createGoalState('finish implementation'),
+      },
+    }
+    const goalEvaluationDeps: GoalEvaluationDeps = {
+      evaluateGoal: async () => ({
+        complete: false,
+        confidence: 0.7,
+        decision: 'incomplete',
+        reason: 'Tests have not been run.',
+        nextInstruction: 'Run tests.',
+      }),
+      saveGoalState: async () => {},
+    }
+
+    const { yielded, returned } = await drain(
+      handleStopHooks(
+        [],
+        [assistant('assistant-1', 'Done.') as any],
+        asSystemPrompt([]),
+        {},
+        {},
+        makeToolUseContext(appStateRef),
+        'sdk',
+        false,
+        goalEvaluationDeps,
+        {
+          executeStopHooks: async function* () {},
+          isTeammate: () => false,
+        },
+      ),
+    )
+
+    const yieldedUserMessages = yielded.filter(
+      message => message.type === 'user',
+    )
+    expect(returned.blockingErrors).toHaveLength(1)
+    expect(yieldedUserMessages).toHaveLength(1)
+    expect(yieldedUserMessages[0]).toBe(returned.blockingErrors[0])
+    expect(yieldedUserMessages[0].message.content).toContain('Run tests.')
+  })
 })

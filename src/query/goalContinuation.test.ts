@@ -73,6 +73,7 @@ describe('goal query continuation', () => {
     ]
     const { query } = await import('../query.js')
     let modelCalls = 0
+    const modelRequestMessages: any[][] = []
     const observedStopHookActive: boolean[] = []
     const appStateRef = {
       current: {
@@ -110,8 +111,9 @@ describe('goal query continuation', () => {
             },
             isTeammate: () => false,
           },
-          callModel: async function* () {
+          callModel: async function* ({ messages }: any) {
             modelCalls++
+            modelRequestMessages.push(messages)
             yield assistant(
               `assistant-${modelCalls}`,
               modelCalls === 1 ? 'Changed files.' : 'Tests pass.',
@@ -127,9 +129,26 @@ describe('goal query continuation', () => {
     })()
 
     expect(modelCalls).toBe(2)
+    expect(modelRequestMessages).toHaveLength(2)
     expect(observedStopHookActive).toEqual([false, false])
     expect(terminal.reason).toBe('completed')
     expect(appStateRef.current.goal?.status).toBe('achieved')
+    const yieldedGoalUsers = yielded.filter(
+      item =>
+        item.type === 'user' &&
+        item.isMeta &&
+        typeof item.message.content === 'string' &&
+        item.message.content.includes('Run tests.'),
+    )
+    expect(yieldedGoalUsers).toHaveLength(1)
+    const followUpGoalUsers = modelRequestMessages[1].filter(
+      item =>
+        item.type === 'user' &&
+        item.isMeta &&
+        typeof item.message.content === 'string' &&
+        item.message.content.includes('Run tests.'),
+    )
+    expect(followUpGoalUsers).toHaveLength(1)
     expect(
       yielded.some(
         item =>
@@ -146,5 +165,81 @@ describe('goal query continuation', () => {
           item.content.includes('Goal achieved:'),
       ),
     ).toBe(true)
+  })
+
+  test('shared query path skips goal evaluator when maxBudgetUsd is exhausted', async () => {
+    const { query } = await import('../query.js')
+    let modelCalls = 0
+    let evaluatorCalls = 0
+    const appStateRef = {
+      current: {
+        ...getDefaultAppState(),
+        goal: createGoalState('finish implementation'),
+      },
+    }
+    const toolUseContext = makeToolUseContext(appStateRef)
+    toolUseContext.options.maxBudgetUsd = 0.25
+
+    const yielded: any[] = []
+    const terminal = await (async () => {
+      const generator = query({
+        messages: [],
+        systemPrompt: asSystemPrompt([]),
+        userContext: {},
+        systemContext: {},
+        canUseTool: async () => ({ behavior: 'allow' }),
+        toolUseContext,
+        querySource: 'sdk',
+        deps: {
+          uuid: () => `uuid-${modelCalls}`,
+          microcompact: async messages => ({ messages }),
+          autocompact: async () => ({ wasCompacted: false }),
+          goalEvaluationDeps: {
+            evaluateGoal: async () => {
+              evaluatorCalls++
+              throw new Error('goal evaluator should not run')
+            },
+            getTotalCost: () => 0.25,
+            saveGoalState: async () => {},
+          },
+          stopHookExecutionDeps: {
+            executeStopHooks: async function* () {},
+            isTeammate: () => false,
+          },
+          callModel: async function* () {
+            modelCalls++
+            yield assistant('assistant-1', 'Done.')
+          },
+        } as any,
+      })
+      while (true) {
+        const next = await generator.next()
+        if (next.done) return next.value
+        yielded.push(next.value)
+      }
+    })()
+
+    expect(modelCalls).toBe(1)
+    expect(evaluatorCalls).toBe(0)
+    expect(terminal.reason).toBe('completed')
+    expect(appStateRef.current.goal?.status).toBe('active')
+    expect(appStateRef.current.goal?.turnCount).toBe(0)
+    expect(
+      yielded.some(
+        item =>
+          item.type === 'system' &&
+          typeof item.content === 'string' &&
+          item.content.includes('Goal not complete:'),
+      ),
+    ).toBe(false)
+    expect(
+      yielded.some(
+        item =>
+          item.type === 'user' &&
+          item.isMeta &&
+          typeof item.message.content === 'string' &&
+          item.message.content.includes('finish implementation'),
+      ),
+    ).toBe(false)
   })
 })
