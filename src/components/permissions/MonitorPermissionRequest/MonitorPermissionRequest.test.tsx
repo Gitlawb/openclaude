@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { getOriginalCwd, setOriginalCwd } from '../../../bootstrap/state.js'
 import { handleInteractivePermission } from '../../../hooks/toolPermission/handlers/interactiveHandler.js'

@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { createRoot, render, useApp } from '../../ink.js'
 import { AppStateProvider } from '../../state/AppState.js'

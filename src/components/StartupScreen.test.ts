@@ -22,7 +22,7 @@ afterAll(() => {
   }
 })
 
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { detectProvider, printStartupScreen } from './StartupScreen.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import {
