@@ -194,6 +194,62 @@ describe("Secure Storage Platform Implementations", () => {
 
       expect(result).toEqual(testData);
     });
+
+    test("update surfaces secret-tool stderr in the failure warning", () => {
+      mockExecaSync.mockReturnValueOnce({
+        exitCode: 1,
+        stdout: "",
+        stderr: "Cannot autolaunch D-Bus without X11 $DISPLAY",
+      });
+
+      const result = linuxSecretStorage.update(testData);
+
+      expect(result.success).toBe(false);
+      expect(result.warning).toContain("secret-tool");
+      expect(result.warning).toContain("Cannot autolaunch D-Bus without X11");
+    });
+
+    test("update returns a missing-binary hint when secret-tool is not installed (ENOENT)", () => {
+      mockExecaSync.mockImplementationOnce(() => {
+        const err = new Error("spawnSync secret-tool ENOENT") as Error & {
+          code?: string
+        };
+        err.code = "ENOENT";
+        throw err;
+      });
+
+      const result = linuxSecretStorage.update(testData);
+
+      expect(result.success).toBe(false);
+      expect(result.warning).toContain("secret-tool is not installed");
+      expect(result.warning).toContain("libsecret-tools");
+    });
+
+    test("update falls back to the keyring-runtime hint when stderr is empty but the call fails", () => {
+      mockExecaSync.mockReturnValueOnce({
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+      });
+
+      const result = linuxSecretStorage.update(testData);
+
+      expect(result.success).toBe(false);
+      expect(result.warning).toContain("Secret Service");
+      expect(result.warning).toContain("exit code 1");
+    });
+
+    test("update returns success=true with no warning on exit code 0", () => {
+      mockExecaSync.mockReturnValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      });
+
+      const result = linuxSecretStorage.update(testData);
+
+      expect(result).toEqual({ success: true });
+    });
   });
 
   describe("Platform Selection", () => {
