@@ -34,6 +34,7 @@ import { loadMemoryPrompt } from './memdir/memdir.js'
 import { hasAutoMemPathOverride } from './memdir/paths.js'
 import { query } from './query.js'
 import { categorizeRetryableAPIError } from './services/api/errors.js'
+import type { AutoCompactTrackingState } from './services/compact/autoCompact.js'
 import type { MCPServerConnection } from './services/mcp/types.js'
 import type { AppState } from './state/AppState.js'
 import { type Tools, type ToolUseContext, toolMatchesName } from './Tool.js'
@@ -187,6 +188,7 @@ export class QueryEngine {
   private totalUsage: NonNullableUsage
   private hasHandledOrphanedPermission = false
   private readFileState: FileStateCache
+  private autoCompactTracking: AutoCompactTrackingState | undefined
   // Turn-scoped skill discovery tracking (feeds was_discovered on
   // tengu_skill_tool_invocation). Must persist across the two
   // processUserInputContext rebuilds inside submitMessage, but is cleared
@@ -681,6 +683,10 @@ export class QueryEngine {
       querySource: 'sdk',
       maxTurns,
       taskBudget,
+      autoCompactTracking: this.autoCompactTracking,
+      onAutoCompactTrackingChange: tracking => {
+        this.autoCompactTracking = tracking
+      },
     })) {
       // Record assistant, user, and compact boundary messages
       if (
