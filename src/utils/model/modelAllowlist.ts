@@ -97,7 +97,16 @@ function familyHasSpecificEntries(
  * 2. Version prefixes ("opus-4-5", "claude-opus-4-5") — any build of that version
  * 3. Full model IDs ("claude-opus-4-5-20251101") — exact match only
  */
+let isModelAllowedHook: ((model: string) => boolean) | null = null
+
+export function setIsModelAllowedHook(hook: ((model: string) => boolean) | null): void {
+  isModelAllowedHook = hook
+}
+
 export function isModelAllowed(model: string): boolean {
+  if (isModelAllowedHook) {
+    return isModelAllowedHook(model)
+  }
   const settings = getSettings_DEPRECATED() || {}
   const { availableModels } = settings
   if (!availableModels) {

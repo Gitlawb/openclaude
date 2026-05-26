@@ -1155,9 +1155,30 @@ async function handleSpawn(
  * Spawns a new teammate with the given configuration.
  * This is the main entry point for teammate spawning, used by both TeammateTool and AgentTool.
  */
+let spawnTeammateHook:
+  | ((
+      config: SpawnTeammateConfig,
+      context: ToolUseContext,
+    ) => Promise<{ data: SpawnOutput }>)
+  | null = null
+
+export function setSpawnTeammateHook(
+  hook:
+    | ((
+        config: SpawnTeammateConfig,
+        context: ToolUseContext,
+      ) => Promise<{ data: SpawnOutput }>)
+    | null,
+): void {
+  spawnTeammateHook = hook
+}
+
 export async function spawnTeammate(
   config: SpawnTeammateConfig,
   context: ToolUseContext,
 ): Promise<{ data: SpawnOutput }> {
+  if (spawnTeammateHook) {
+    return spawnTeammateHook(config, context)
+  }
   return handleSpawn(config, context)
 }

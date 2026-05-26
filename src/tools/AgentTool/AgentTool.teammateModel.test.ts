@@ -1,3 +1,5 @@
+import { setIsModelAllowedHook } from '../../utils/model/modelAllowlist.js'
+import { setSpawnTeammateHook } from '../shared/spawnMultiAgent.js'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import type { ToolUseContext } from '../../Tool.js'
 import {
@@ -40,6 +42,8 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    setIsModelAllowedHook(null)
+    setSpawnTeammateHook(null)
     if (originalModelAllowlistModule) {
       mock.module(
         '../../utils/model/modelAllowlist.js',
@@ -137,6 +141,11 @@ async function importAgentToolWithSpawnMock(): Promise<{
     ...originalAgentSwarmsEnabledModule!,
     isAgentSwarmsEnabled: () => true,
   }))
+
+  setIsModelAllowedHook(
+    (model: string) => model.trim().toLowerCase() === 'allowed-model',
+  )
+  setSpawnTeammateHook(spawnTeammate)
 
   const { AgentTool } = await import(
     `./AgentTool.js?teammateModel=${Date.now()}-${Math.random()}`
