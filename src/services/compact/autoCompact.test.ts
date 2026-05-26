@@ -372,6 +372,60 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
     })
   })
 
+  test.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])(
+    'derives active cooldown from failure time when retry time is %s',
+    async (_label, nextRetryAtMs) => {
+      const {
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        resolveAutoCompactCircuitBreakerState,
+      } = await importAutoCompact()
+
+      expect(
+        resolveAutoCompactCircuitBreakerState({
+          tracking: {
+            consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+            nextRetryAtMs,
+            lastFailureAtMs: 5_000,
+          },
+          nowMs: 11_000,
+          cooldownMs: 7_000,
+        }),
+      ).toEqual({
+        action: 'skip',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: 12_000,
+        circuitBreakerActive: true,
+      })
+    },
+  )
+
+  test('uses explicit retry time before deriving cooldown from failure time', async () => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
+
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          nextRetryAtMs: 10_000,
+          lastFailureAtMs: 50_000,
+        },
+        nowMs: 10_001,
+        cooldownMs: 7_000,
+      }),
+    ).toEqual({
+      action: 'allow',
+      effectiveConsecutiveFailures:
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      wasHalfOpen: true,
+    })
+  })
+
   test('allows half-open retry after derived cooldown expires', async () => {
     const {
       MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,

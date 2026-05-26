@@ -1,5 +1,8 @@
 import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   isSessionPersistenceDisabled,
@@ -32,6 +35,9 @@ async function drain(generator: AsyncGenerator<unknown>): Promise<void> {
 }
 
 const savedSessionPersistenceDisabled = isSessionPersistenceDisabled()
+const fixtureCwd = mkdtempSync(
+  join(tmpdir(), 'openclaude-query-engine-cooldown-'),
+)
 
 try {
   const trippedTracking: AutoCompactTrackingState = {
@@ -78,7 +84,7 @@ try {
       model: 'claude-sonnet-4',
       permissionMode: 'default',
       apiKeySource: 'none',
-      cwd: '/tmp',
+      cwd: fixtureCwd,
     })),
     sdkCompatToolName: (name: string) => name,
   }))
@@ -113,7 +119,7 @@ try {
     attribution: {},
   } as unknown as AppState
   const engine = new QueryEngine({
-    cwd: '/tmp',
+    cwd: fixtureCwd,
     tools: [],
     commands: [],
     mcpClients: [],
@@ -146,4 +152,5 @@ try {
 } finally {
   mock.restore()
   setSessionPersistenceDisabled(savedSessionPersistenceDisabled)
+  rmSync(fixtureCwd, { recursive: true, force: true })
 }
