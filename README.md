@@ -124,15 +124,6 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 
 openclaude
 ```
-### Using Ollama's launch command
-
-If you have [Ollama](https://ollama.com) installed, you can skip the env var setup entirely:
-
-```bash
-ollama launch openclaude --model qwen2.5-coder:7b
-```
-
-This automatically sets `ANTHROPIC_BASE_URL`, model routing, and auth so all API traffic goes through your local Ollama instance. Works with any model you have pulled — local or cloud.
 
 ### Optional client-side quota guards (OpenAI-compatible/Gemini/GitHub/Codex)
 
