@@ -46,4 +46,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ripgrep \
 # Run as non-root user
 USER node
 
-ENTRYPOINT ["node", "/app/dist/cli.mjs"]
+ENTRYPOINT ["node", "/app/bin/openclaude"]
