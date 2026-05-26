@@ -2229,6 +2229,11 @@ class OpenAIShimMessages {
 
       if (params.temperature !== undefined) responsesBody.temperature = params.temperature
       if (params.top_p !== undefined) responsesBody.top_p = params.top_p
+      if (request.reasoning?.effort) {
+        responsesBody.reasoning_effort = request.reasoning.effort
+        responsesBody.reasoning_summary = 'auto'
+        responsesBody.include = ['reasoning.encrypted_content']
+      }
 
       if (!omitResponsesTools && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
@@ -2277,6 +2282,29 @@ class OpenAIShimMessages {
       }
       if (params.tool_choice) {
         anthropicBody.tool_choice = params.tool_choice
+      }
+
+      if (request.reasoning?.effort) {
+        // Shim receives OpenAI effort levels (xhigh) from client.ts, but
+        // Anthropic API expects 'max' not 'xhigh'. Convert for the effort field.
+        const effort = request.reasoning.effort === 'xhigh' ? 'max' : request.reasoning.effort
+        const modelLower = request.resolvedModel.toLowerCase()
+        const isAdaptive = modelLower.includes('opus-4-7') || modelLower.includes('opus-4-6') ||
+          modelLower.includes('opus-4.6') || modelLower.includes('opus-4.7') ||
+          modelLower.includes('sonnet-4-6') || modelLower.includes('sonnet-4.6')
+        const isOpus45 = modelLower.includes('opus-4-5') || modelLower.includes('opus-4.5')
+
+        if (isAdaptive) {
+          anthropicBody.thinking = { type: 'adaptive' }
+          anthropicBody.effort = effort
+        } else if (isOpus45) {
+          anthropicBody.effort = effort
+        } else if (effort === 'high' || effort === 'max') {
+          anthropicBody.thinking = {
+            type: 'enabled',
+            budgetTokens: effort === 'max' ? 31_999 : 16_000,
+          }
+        }
       }
 
       return anthropicBody
@@ -2372,6 +2400,10 @@ class OpenAIShimMessages {
       }
       if (params.temperature !== undefined) genConfig.temperature = params.temperature
       if (params.top_p !== undefined) genConfig.topP = params.top_p
+      if (request.reasoning?.effort) {
+        const level = request.reasoning.effort === 'xhigh' ? 'high' : request.reasoning.effort
+        genConfig.thinkingConfig = { includeThoughts: true, thinkingLevel: level }
+      }
       if (Object.keys(genConfig).length > 0) {
         geminiBody.generationConfig = genConfig
       }

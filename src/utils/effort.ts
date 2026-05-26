@@ -45,6 +45,15 @@ export function modelSupportsEffort(model: string): boolean {
   if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
     return true
   }
+  // OpenCode Claude models that support thinking via /messages endpoint
+  if (m.includes('claude-opus-4') || m.includes('claude-sonnet-4') ||
+      m.includes('opus-4') || m.includes('sonnet-4')) {
+    return true
+  }
+  // OpenCode Gemini models that support thinking via /models/gemini-* endpoint
+  if (m.includes('gemini-3')) {
+    return true
+  }
   // Exclude any other known legacy models (haiku, older opus/sonnet variants)
   if (m.includes('haiku') || m.includes('sonnet') || m.includes('opus')) {
     return false
@@ -67,7 +76,7 @@ export function modelSupportsMaxEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (model.toLowerCase().includes('opus-4-6')) {
+  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7')) {
     return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
@@ -93,7 +102,16 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIE
   if (!modelSupportsEffort(model)) {
     return []
   }
-  if (modelUsesOpenAIEffort(model)) {
+  // OpenCode Claude and Gemini models use /messages or /models/gemini-*
+  // (Anthropic/Google format) even though getAPIProvider() returns 'openai'.
+  // Show standard levels (max) not OpenAI levels (xhigh).
+  const m = model.toLowerCase()
+  const isOpenCodeNativeFormat = (
+    m.includes('claude-opus-4') || m.includes('claude-sonnet-4') ||
+    m.includes('opus-4') || m.includes('sonnet-4') ||
+    m.includes('gemini-3')
+  ) && getAPIProvider() === 'openai'
+  if (modelUsesOpenAIEffort(model) && !isOpenCodeNativeFormat) {
     return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
