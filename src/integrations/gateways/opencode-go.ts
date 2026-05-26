@@ -23,6 +23,7 @@ export default defineGateway({
     description: 'OpenCode Go — $10/mo subscription for open models (12 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
+    badge: { text: 'Go', color: 'green' },
   },
   catalog: {
     source: 'static',

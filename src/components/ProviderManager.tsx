@@ -229,43 +229,15 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
   }
 }
 
-function getPresetLabel(preset: ProviderPreset, label: string): React.ReactNode {
-  if (preset === 'gitlawb-opengateway') {
+function getPresetLabel(preset: ProviderPreset, label: string, metadata?: { badge?: { text: string; color?: string } }): React.ReactNode {
+  if (metadata?.badge) {
     return (
       <Text>
         <Text>{label} </Text>
-        <Text color="success" bold>[FREE]</Text>
+        <Text color={metadata.badge.color ?? 'green'} bold>[{metadata.badge.text}]</Text>
       </Text>
     )
   }
-
-  if (preset === 'xiaomi-mimo') {
-    return (
-      <Text>
-        <Text>{label} </Text>
-        <Text color="success" bold>[Sponsor]</Text>
-      </Text>
-    )
-  }
-
-  if (preset === 'opencode') {
-    return (
-      <Text>
-        <Text>{label} </Text>
-        <Text color="cyan" bold>[Zen]</Text>
-      </Text>
-    )
-  }
-
-  if (preset === 'opencode-go') {
-    return (
-      <Text>
-        <Text>{label} </Text>
-        <Text color="green" bold>[Go]</Text>
-      </Text>
-    )
-  }
-
   return label
 }
 
@@ -1837,7 +1809,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       const metadata = getProviderPresetUiMetadata(preset)
       return {
         value: preset,
-        label: getPresetLabel(preset, metadata.label),
+        label: getPresetLabel(preset, metadata.label, { badge: metadata.badge }),
         description: metadata.description,
       }
     })

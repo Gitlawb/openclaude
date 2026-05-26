@@ -88,7 +88,11 @@ export const PROVIDER_PRESET_MANIFEST = [
       "OPENAI_MODEL"
     ],
     "fallbackBaseUrl": "https://opengateway.gitlawb.com/v1",
-    "fallbackModel": "mimo-v2.5-pro"
+    "fallbackModel": "mimo-v2.5-pro",
+    "badge": {
+      "text": "FREE",
+      "color": "success"
+    }
   },
   {
     "preset": "anthropic",
@@ -308,7 +312,11 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ]
+    ],
+    "badge": {
+      "text": "Go",
+      "color": "green"
+    }
   },
   {
     "preset": "opencode",
@@ -322,7 +330,11 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ]
+    ],
+    "badge": {
+      "text": "Zen",
+      "color": "cyan"
+    }
   },
   {
     "preset": "openrouter",
@@ -385,7 +397,11 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ]
+    ],
+    "badge": {
+      "text": "Sponsor",
+      "color": "success"
+    }
   },
   {
     "preset": "zai",

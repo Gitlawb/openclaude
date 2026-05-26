@@ -153,6 +153,35 @@ export OPENAI_MODEL=llama-3.3-70b-versatile
 
 `GROQ_API_KEY` matches the built-in Groq gateway preset. `OPENAI_API_KEY` also works as a fallback on the generic OpenAI-compatible path, but `GROQ_API_KEY` is the preferred variable for Groq-specific setup.
 
+### OpenCode Zen (pay-as-you-go)
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENCODE_API_KEY=...
+export OPENAI_BASE_URL=https://opencode.ai/zen/v1
+export OPENAI_MODEL=gpt-5.4
+
+openclaude
+```
+
+OpenCode Zen is a pay-as-you-go AI gateway with 41 models (GPT, Claude, Gemini,
+Qwen, MiniMax, GLM, Kimi, Grok, Big Pickle, DeepSeek, Nemotron). Uses the same
+`OPENCODE_API_KEY` as OpenCode Go. Get your key from https://opencode.ai.
+
+### OpenCode Go (subscription)
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENCODE_API_KEY=...
+export OPENAI_BASE_URL=https://opencode.ai/zen/go/v1
+export OPENAI_MODEL=glm-5.1
+
+openclaude
+```
+
+OpenCode Go is a $10/mo subscription for 12 open models (GLM, Kimi, DeepSeek,
+MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
+
 ### Gitlawb Opengateway
 
 ```bash
@@ -205,6 +234,7 @@ export OPENAI_MODEL=gpt-4o
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |
 | `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
 | `CLAUDE_CODE_USE_GEMINI` | Gemini only | Set to `1` to enable the direct Gemini provider path |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini API-key auth | Gemini API key for direct Gemini setup |
