@@ -529,7 +529,7 @@ To fix this issue:
     // Use specific version if provided, otherwise use latest
     const packageSpec = specificVersion
       ? `${MACRO.PACKAGE_URL}@${specificVersion}`
-      : MACRO.PACKAGE_URL
+      : `${MACRO.PACKAGE_URL}@latest`
 
     // Run from home directory to avoid reading project-level .npmrc/.bunfig.toml
     // which could be maliciously crafted to redirect to an attacker's registry
