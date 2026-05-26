@@ -79,6 +79,40 @@ jobs:
       - name: Publish to npm
         run: npm publish --access public --provenance
 
+      - name: Verify npm latest dist-tag
+        env:
+          EXPECTED_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EXPECTED_VERSION}" ]; then
+            echo "release-please did not provide an expected version" >&2
+            exit 1
+          fi
+
+          for attempt in $(seq 1 30); do
+            published_version="$(npm view @gitlawb/openclaude version 2>/dev/null || true)"
+            latest_tag="$(npm view @gitlawb/openclaude dist-tags.latest 2>/dev/null || true)"
+            latest_version="$(npm view @gitlawb/openclaude@latest version 2>/dev/null || true)"
+
+            echo "Attempt ${attempt}: version=${published_version:-<empty>} latest=${latest_tag:-<empty>} @latest=${latest_version:-<empty>} expected=${EXPECTED_VERSION}"
+
+            if [ "$published_version" = "$EXPECTED_VERSION" ] && \
+               [ "$latest_tag" = "$EXPECTED_VERSION" ] && \
+               [ "$latest_version" = "$EXPECTED_VERSION" ]; then
+              echo "npm latest verified for @gitlawb/openclaude@${EXPECTED_VERSION}"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "npm latest dist-tag did not resolve to ${EXPECTED_VERSION}" >&2
+          echo "Observed package version: ${published_version:-<empty>}" >&2
+          echo "Observed dist-tags.latest: ${latest_tag:-<empty>}" >&2
+          echo "Observed @latest version: ${latest_version:-<empty>}" >&2
+          exit 1
+
       - name: Release summary
         run: |
           {
