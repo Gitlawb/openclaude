@@ -228,7 +228,7 @@ function SpinnerWithVerbInner({
   // useStalledAnimation detects no new tokens after 3s and turns the spinner red.
   if (leaderIsIdle && hasRunningTeammates && !foregroundedTeammate) {
     return <Box flexDirection="column" width="100%" alignItems="flex-start">
-        <Box flexDirection="row" flexWrap="wrap" marginTop={1} width="100%">
+        <Box flexDirection="row" flexWrap="nowrap" marginTop={1} width="100%">
           <Text dimColor>
             {TEARDROP_ASTERISK} Idle
             {!allIdle && ' · teammates running'}
@@ -242,7 +242,7 @@ function SpinnerWithVerbInner({
   if (foregroundedTeammate?.isIdle) {
     const idleText = allIdle ? `${TEARDROP_ASTERISK} Worked for ${formatDuration(Date.now() - foregroundedTeammate.startTime)}` : `${TEARDROP_ASTERISK} Idle`;
     return <Box flexDirection="column" width="100%" alignItems="flex-start">
-        <Box flexDirection="row" flexWrap="wrap" marginTop={1} width="100%">
+        <Box flexDirection="row" flexWrap="nowrap" marginTop={1} width="100%">
           <Text dimColor>{idleText}</Text>
         </Box>
         {showSpinnerTree && hasRunningTeammates && <TeammateSpinnerTree selectedIndex={selectedIPAgentIndex} isInSelectionMode={viewSelectionMode === 'selecting-agent'} allIdle={allIdle} leaderVerb={leaderIsIdle ? undefined : leaderVerb} leaderIdleText={leaderIsIdle ? 'Idle' : undefined} leaderTokenCount={leaderTokenCount} />}

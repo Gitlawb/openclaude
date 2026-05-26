@@ -17,27 +17,36 @@ OpenClaude is also mirrored to GitLawb:
 
 ## Sponsors
 
-<p align="center">
-  <a href="https://gitlawb.com">
-    <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="96">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://bankr.bot">
-    <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://atomic.chat/">
-    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
-</p>
+<table align="center">
+  <tr>
+    <td align="center" width="150" height="80">
+      <a href="https://gitlawb.com">
+        <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="72">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://bankr.bot">
+        <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="72">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://atomic.chat/">
+        <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="72">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://api.xiaomimimo.com/v1">
+        <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="136">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://gitlawb.com"><strong>GitLawb</strong></a></td>
+    <td align="center"><a href="https://bankr.bot"><strong>Bankr.bot</strong></a></td>
+    <td align="center"><a href="https://atomic.chat/"><strong>Atomic Chat</strong></a></td>
+    <td align="center"><a href="https://api.xiaomimimo.com/v1"><strong>Xiaomi MiMo</strong></a></td>
+  </tr>
+</table>
 
 ## Star History
 
@@ -139,6 +148,7 @@ Advanced and source-build guides:
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
+| Gitlawb Opengateway | `/provider` or zero-config fallback | Free smart gateway at `https://opengateway.gitlawb.com/v1`; routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
@@ -161,7 +171,8 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Tool quality depends heavily on the selected model
 - Smaller local models can struggle with long multi-step tool flows
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
-- Xiaomi MiMo uses `api-key` header auth on the OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
+- Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
+- Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
 
 For best results, use models with strong tool/function calling support.
 

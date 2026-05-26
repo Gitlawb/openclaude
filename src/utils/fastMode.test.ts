@@ -1,4 +1,8 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalEnv = { ...process.env }
 
@@ -188,13 +192,21 @@ function forceFirstPartyProviderEnv(): void {
   delete process.env.OPENAI_MODEL
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/fastMode.test.ts')
+})
+
 afterEach(async () => {
-  mock.restore()
-  process.env = { ...originalEnv }
-  const { resetStateForTests } = await import('../bootstrap/state.js')
-  resetStateForTests()
-  const { _setGlobalConfigCacheForTesting } = await import('./config.js')
-  _setGlobalConfigCacheForTesting(null)
+  try {
+    mock.restore()
+    process.env = { ...originalEnv }
+    const { resetStateForTests } = await import('../bootstrap/state.js')
+    resetStateForTests()
+    const { _setGlobalConfigCacheForTesting } = await import('./config.js')
+    _setGlobalConfigCacheForTesting(null)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('fastMode ant-only fallback cleanup', () => {

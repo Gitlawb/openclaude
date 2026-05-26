@@ -1,4 +1,9 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -9,25 +14,38 @@ const originalEnv = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  VENICE_API_KEY: process.env.VENICE_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 }
 
+function restoreEnv(key: keyof typeof originalEnv): void {
+  if (originalEnv[key] === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = originalEnv[key]
+  }
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/providers.test.ts')
+})
+
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
-  process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
-  process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
-  process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
-  process.env.NVIDIA_NIM = originalEnv.NVIDIA_NIM
-  process.env.MINIMAX_API_KEY = originalEnv.MINIMAX_API_KEY
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
-  process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
-  process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+  try {
+    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+      restoreEnv(key)
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function importFreshProvidersModule() {
@@ -43,6 +61,9 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
@@ -202,6 +223,18 @@ test('env-only MiniMax API key resolves to the minimax provider', async () => {
 
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('minimax')
+})
+
+test('Anthropic-compatible MiniMax profile resolves to the minimax provider', async () => {
+  clearProviderEnv()
+  process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  process.env.ANTHROPIC_API_KEY = 'minimax-key'
+  process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+  expect(usesAnthropicAccountFlow()).toBe(false)
 })
 
 test('conflicting OpenAI base prevents env-only MiniMax provider label', async () => {

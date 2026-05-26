@@ -10,11 +10,76 @@
 import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
+import { spawnSync } from 'child_process'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
 
+const HEAP_RELAUNCHED_ENV = 'OPENCLAUDE_HEAP_RELAUNCHED'
+const DISABLE_HEAP_RELAUNCH_ENV = 'OPENCLAUDE_DISABLE_HEAP_RELAUNCH'
+const HEAP_SIZE_ENV = 'OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB'
+const DEFAULT_HEAP_SIZE_MB = 8192
+
+function hasNodeFlag(args, flag) {
+  return args.some(arg => arg === flag || arg.startsWith(`${flag}=`))
+}
+
+function hasNodeOptionFlag(flag) {
+  return hasNodeFlag([
+    ...process.execArgv,
+    ...(process.env.NODE_OPTIONS || '').split(/\s+/).filter(Boolean),
+  ], flag)
+}
+
+function getHeapSizeMb() {
+  const raw = process.env[HEAP_SIZE_ENV]
+  if (!raw) return DEFAULT_HEAP_SIZE_MB
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_HEAP_SIZE_MB
+}
+
+function relaunchWithLongSessionHeapIfNeeded() {
+  if (process.env[DISABLE_HEAP_RELAUNCH_ENV] === '1') return
+  if (process.env[HEAP_RELAUNCHED_ENV] === '1') return
+  const hasHeapLimit = hasNodeOptionFlag('--max-old-space-size')
+  const hasExplicitGc = hasNodeOptionFlag('--expose-gc')
+  if (hasHeapLimit && hasExplicitGc) return
+
+  const execArgv = [...process.execArgv]
+  if (!hasHeapLimit) {
+    execArgv.push(`--max-old-space-size=${getHeapSizeMb()}`)
+  }
+
+  // Expose explicit GC for long interactive sessions. NODE_OPTIONS cannot
+  // carry --expose-gc, so the executable wrapper must add it before startup.
+  if (!hasExplicitGc) {
+    execArgv.push('--expose-gc')
+  }
+
+  const result = spawnSync(process.execPath, [
+    ...execArgv,
+    fileURLToPath(import.meta.url),
+    ...process.argv.slice(2),
+  ], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      [HEAP_RELAUNCHED_ENV]: '1',
+    },
+  })
+
+  if (result.error) {
+    console.error(`openclaude: failed to restart with long-session heap: ${result.error.message}`)
+    process.exit(1)
+  }
+
+  process.exit(result.status ?? 1)
+}
+
 if (existsSync(distPath)) {
+  relaunchWithLongSessionHeapIfNeeded()
   await import(pathToFileURL(distPath).href)
 } else {
   console.error(`

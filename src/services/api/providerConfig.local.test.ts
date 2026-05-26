@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import {
   getAdditionalModelOptionsCacheScope,
@@ -28,16 +29,24 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('providerConfig.local.test.ts')
+})
+
 afterEach(() => {
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
-  restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
-  restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
-  restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
-  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+  try {
+    restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+    restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+    restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
+    restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
+    restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('treats localhost endpoints as local', () => {
@@ -96,6 +105,19 @@ test('keeps codex alias models on chat completions for local openai-compatible p
   expect(getAdditionalModelOptionsCacheScope()?.startsWith(
     'openai:http://127.0.0.1:8080/v1:',
   )).toBe(true)
+})
+
+test('normalizes legacy Gitlawb Opengateway provider-prefixed base URLs to the smart route', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+  process.env.OPENAI_MODEL = 'zai-org/GLM-5.1-FP8'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    requestedModel: 'zai-org/GLM-5.1-FP8',
+    resolvedModel: 'zai-org/GLM-5.1-FP8',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+  })
 })
 
 test('partitions local openai-compatible model cache scope by credentials and headers', () => {

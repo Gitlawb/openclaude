@@ -1,15 +1,37 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import * as fsPromises from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+import * as realEnv from './env.js'
+import * as realEnvUtils from './envUtils.js'
+import * as realExecFileNoThrow from './execFileNoThrow.js'
 
 const originalEnv = { ...process.env }
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/openclaudeInstallSurfaces.test.ts')
+})
+
 afterEach(() => {
-  process.env = { ...originalEnv }
-  ;(globalThis as Record<string, unknown>).MACRO = originalMacro
-  mock.restore()
+  try {
+    process.env = { ...originalEnv }
+    if (originalMacro === undefined) {
+      delete (globalThis as Record<string, unknown>).MACRO
+    } else {
+      ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    }
+    mock.restore()
+    mock.module('../utils/env.js', () => realEnv)
+    mock.module('./envUtils.js', () => realEnvUtils)
+    mock.module('./execFileNoThrow.js', () => realExecFileNoThrow)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function importFreshInstallCommand() {
@@ -22,6 +44,7 @@ async function importFreshInstaller() {
 
 test('install command displays ~/.local/bin/openclaude on non-Windows', async () => {
   mock.module('../utils/env.js', () => ({
+    ...realEnv,
     env: { platform: 'darwin' },
   }))
 
@@ -32,6 +55,7 @@ test('install command displays ~/.local/bin/openclaude on non-Windows', async ()
 
 test('install command displays openclaude.exe path on Windows', async () => {
   mock.module('../utils/env.js', () => ({
+    ...realEnv,
     env: { platform: 'win32' },
   }))
 
@@ -56,6 +80,7 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   }))
 
   mock.module('./execFileNoThrow.js', () => ({
+    ...realExecFileNoThrow,
     execFileNoThrowWithCwd: async () => ({
       code: 1,
       stderr: 'npm ERR! code E404',
@@ -63,6 +88,7 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   }))
 
   mock.module('./envUtils.js', () => ({
+    ...realEnvUtils,
     getClaudeConfigHomeDir: () => join(homedir(), '.openclaude'),
     isEnvTruthy: (value: string | undefined) => value === '1',
   }))

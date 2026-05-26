@@ -75,6 +75,14 @@ export function getTiers(effectiveWindow: number): Tiers {
   return { recent: 25, mid: 50 }
 }
 
+let toolHistoryCompressionEnabledOverrideForTest: boolean | undefined
+
+export function setToolHistoryCompressionEnabledOverrideForTest(
+  enabled: boolean | undefined,
+): void {
+  toolHistoryCompressionEnabledOverrideForTest = enabled
+}
+
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -209,12 +217,18 @@ function shouldCompressBlock(
 export function compressToolHistory<T extends AnyMessage>(
   messages: T[],
   model: string,
+  options: { effectiveContextWindowSize?: number } = {},
 ): T[] {
   // Master kill-switch. Returns the original reference so callers skip a
   // defensive copy when the feature is disabled.
-  if (!getGlobalConfig().toolHistoryCompressionEnabled) return messages
+  const compressionEnabled =
+    toolHistoryCompressionEnabledOverrideForTest ??
+    getGlobalConfig().toolHistoryCompressionEnabled
+  if (!compressionEnabled) return messages
 
-  const tiers = getTiers(getEffectiveContextWindowSize(model))
+  const tiers = getTiers(
+    options.effectiveContextWindowSize ?? getEffectiveContextWindowSize(model),
+  )
 
   const toolResultIndices = indexToolResultMessages(messages)
   const total = toolResultIndices.length

@@ -1,4 +1,8 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 // Import the real auth.js and providerConfig.js up front so we can spread
 // their export surfaces into mock factories. `mock.module()` is process-global
 // in bun:test and `mock.restore()` does not undo it (see user.test.ts), so
@@ -12,8 +16,16 @@ import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
 import * as actualProviders from './model/providers.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/effort.codex.test.ts')
+})
+
 afterEach(() => {
-  mock.restore()
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function importFreshEffortModule(options: {

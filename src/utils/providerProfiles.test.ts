@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
+import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import type { ProviderProfile } from './config.js'
 
 async function importFreshProvidersModule() {
@@ -92,7 +93,8 @@ function saveMockGlobalConfig(
   mockConfigState = updater(mockConfigState)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireEnvMutex()
   for (const key of RESTORED_KEYS) {
     delete process.env[key]
   }
@@ -101,20 +103,24 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const key of RESTORED_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    for (const key of RESTORED_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
-  }
 
-  mock.restore()
-  mockConfigState = createMockConfigState()
-  process.chdir(originalCwd)
-  if (testConfigDir) {
-    rmSync(testConfigDir, { recursive: true, force: true })
-    testConfigDir = null
+    mock.restore()
+    mockConfigState = createMockConfigState()
+    process.chdir(originalCwd)
+    if (testConfigDir) {
+      rmSync(testConfigDir, { recursive: true, force: true })
+      testConfigDir = null
+    }
+  } finally {
+    releaseEnvMutex()
   }
 })
 
@@ -464,7 +470,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     applyProviderProfileToProcessEnv(
       buildProfile({
         provider: 'minimax',
-        baseUrl: 'https://api.minimax.io/v1',
+        baseUrl: 'https://api.minimax.io/anthropic',
         model: 'MiniMax-M2.7',
         apiKey: 'minimax-live-key',
         apiFormat: 'responses',
@@ -477,10 +483,11 @@ describe('applyProviderProfileToProcessEnv', () => {
       }),
     )
 
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
-    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
-    expect(process.env.OPENAI_API_KEY).toBe('minimax-live-key')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+    expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-live-key')
     expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
     expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
@@ -824,6 +831,34 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
   })
 
+  test('does not override explicit env-only MiniMax selection with saved profile', async () => {
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+    process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        }),
+      ],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.minimax.io/anthropic',
+    )
+    expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  })
+
   test('does not override explicit startup selection when profile marker is stale', async () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()
@@ -1123,7 +1158,7 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.provider).toBe('minimax')
     expect(defaults.name).toBe('MiniMax')
-    expect(defaults.baseUrl).toBe('https://api.minimax.io/v1')
+    expect(defaults.baseUrl).toBe('https://api.minimax.io/anthropic')
     expect(defaults.model).toBe('MiniMax-M2.7')
     expect(defaults.requiresApiKey).toBe(true)
   })
@@ -1206,7 +1241,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [openaiProfile],
       }))
 
-      const result = setActiveProviderProfile('openai_prof')
+      const result = setActiveProviderProfile('openai_prof', {
+        configDir: testConfigDir ?? undefined,
+      })
 
       expect(result?.id).toBe('openai_prof')
       expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
@@ -1216,6 +1253,64 @@ describe('setActiveProviderProfile', () => {
         'openai_prof',
       )
     } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  // xAI OAuth profile (provider='xai', no API key) must persist the
+  // startup file as profile='xai' with XAI_CREDENTIAL_SOURCE='oauth' so
+  // (a) startup validation accepts it without XAI_API_KEY, and (b)
+  // clearPersistedXaiOAuthProfile() can find and remove it on logout.
+  // Regression: previously written as profile='openai' with no marker,
+  // leaving a stale startup file that hit the missing-cred warning on
+  // every non-interactive launch after logout.
+  test('persists xAI OAuth profile with marker so logout cleanup can clear it', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const { clearPersistedXaiOAuthProfile, isPersistedXaiOAuthProfile } =
+        await import('./providerProfile.js')
+
+      const xaiOAuthProfile = buildProfile({
+        id: 'xai_oauth_prof',
+        name: 'xAI OAuth',
+        provider: 'xai',
+        baseUrl: 'https://api.x.ai/v1',
+        model: 'grok-4.3',
+        apiKey: '',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [xaiOAuthProfile],
+      }))
+
+      const result = setActiveProviderProfile('xai_oauth_prof', { configDir })
+      const profilePath = join(configDir, '.openclaude-profile.json')
+      const persisted = JSON.parse(readFileSync(profilePath, 'utf8'))
+
+      expect(result?.id).toBe('xai_oauth_prof')
+      expect(persisted.profile).toBe('xai')
+      expect(persisted.env.XAI_CREDENTIAL_SOURCE).toBe('oauth')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+      expect(persisted.env.OPENAI_MODEL).toBe('grok-4.3')
+      // No leaked API key fields.
+      expect(persisted.env.OPENAI_API_KEY).toBeUndefined()
+      expect(persisted.env.XAI_API_KEY).toBeUndefined()
+
+      // Logout cleanup recognises and removes the marker-tagged file.
+      expect(isPersistedXaiOAuthProfile(persisted)).toBe(true)
+      const removed = clearPersistedXaiOAuthProfile({ configDir })
+      expect(removed).toBe(profilePath)
+      expect(existsSync(profilePath)).toBe(false)
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
       rmSync(configDir, { recursive: true, force: true })
     }
   })
@@ -1244,7 +1339,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [ollamaProfile],
       }))
 
-      const result = setActiveProviderProfile('ollama_prof')
+      const result = setActiveProviderProfile('ollama_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1287,7 +1384,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [deepSeekProfile],
       }))
 
-      const result = setActiveProviderProfile('deepseek_prof')
+      const result = setActiveProviderProfile('deepseek_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1330,7 +1429,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [deepSeekProfile],
       }))
 
-      const result = setActiveProviderProfile('deepseek_vendor_prof')
+      const result = setActiveProviderProfile('deepseek_vendor_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1369,7 +1470,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [veniceProfile],
       }))
 
-      const result = setActiveProviderProfile('venice_prof')
+      const result = setActiveProviderProfile('venice_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1410,7 +1513,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [mimoProfile],
       }))
 
-      const result = setActiveProviderProfile('mimo_prof')
+      const result = setActiveProviderProfile('mimo_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1453,7 +1558,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [bedrockProfile],
       }))
 
-      const result = setActiveProviderProfile('bedrock_prof')
+      const result = setActiveProviderProfile('bedrock_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1495,7 +1602,9 @@ describe('setActiveProviderProfile', () => {
         providerProfiles: [anthropicProfile],
       }))
 
-      const result = setActiveProviderProfile('anthro_persisted_prof')
+      const result = setActiveProviderProfile('anthro_persisted_prof', {
+        configDir,
+      })
       const persisted = JSON.parse(
         readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
@@ -1531,7 +1640,9 @@ describe('setActiveProviderProfile', () => {
       providerProfiles: [anthropicProfile],
     }))
 
-    const result = setActiveProviderProfile('anthro_prof')
+    const result = setActiveProviderProfile('anthro_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result?.id).toBe('anthro_prof')
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
@@ -1569,12 +1680,16 @@ describe('setActiveProviderProfile', () => {
     }))
 
     // First activate the openai profile
-    setActiveProviderProfile('openai_prof')
+    setActiveProviderProfile('openai_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
 
     // Now switch to the anthropic profile
-    const result = setActiveProviderProfile('anthro_prof')
+    const result = setActiveProviderProfile('anthro_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result?.id).toBe('anthro_prof')
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
@@ -1614,12 +1729,16 @@ describe('setActiveProviderProfile', () => {
     }))
 
     // First activate the anthropic profile
-    setActiveProviderProfile('anthro_prof')
+    setActiveProviderProfile('anthro_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
 
     // Now switch to the openai profile
-    const result = setActiveProviderProfile('openai_prof')
+    const result = setActiveProviderProfile('openai_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result?.id).toBe('openai_prof')
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
@@ -1643,7 +1762,9 @@ describe('setActiveProviderProfile', () => {
       providerProfiles: [openaiProfile],
     }))
 
-    const result = setActiveProviderProfile('nonexistent_prof')
+    const result = setActiveProviderProfile('nonexistent_prof', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(result).toBeNull()
   })
@@ -1858,7 +1979,9 @@ describe('setActiveProviderProfile model cache', () => {
       ],
     }
 
-    setActiveProviderProfile('multi_provider')
+    setActiveProviderProfile('multi_provider', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     const cache = getActiveOpenAIModelOptionsCache()
     const cacheValues = cache.map((opt: { value: string }) => opt.value)
@@ -1899,7 +2022,9 @@ describe('setActiveProviderProfile model cache', () => {
       },
     }
 
-    setActiveProviderProfile('multi_provider')
+    setActiveProviderProfile('multi_provider', {
+      configDir: testConfigDir ?? undefined,
+    })
 
     expect(getActiveOpenAIModelOptionsCache()).toEqual([
       {

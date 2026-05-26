@@ -22,9 +22,11 @@ import {
   buildNvidiaNimProfileEnv,
   buildOpenAIProfileEnv,
   buildVeniceProfileEnv,
+  buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
+  type ProfileFileLocation,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
@@ -40,6 +42,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
+import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -94,6 +97,9 @@ function resolveProfileCompatibility(provider: string): {
     return { route, compatibilityMode: 'vertex' }
   }
   if (route.vendorId === 'anthropic') {
+    return { route, compatibilityMode: 'anthropic' }
+  }
+  if (route.vendorId === 'minimax') {
     return { route, compatibilityMode: 'anthropic' }
   }
   if (route.vendorId === 'gemini') {
@@ -343,6 +349,7 @@ function hasProviderSelectionFlags(
 function hasCompleteProviderSelection(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (resolveEnvOnlyProviderRouteId(processEnv) !== null) return true
   if (!hasProviderSelectionFlags(processEnv)) return false
   if (processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) {
     return (
@@ -579,10 +586,20 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   }
 
   if (compatibilityMode === 'anthropic') {
-    profileEnv = {
-      ANTHROPIC_BASE_URL: profile.baseUrl,
-      ANTHROPIC_MODEL: primaryModel,
-      ...(profile.apiKey ? { ANTHROPIC_API_KEY: profile.apiKey } : {}),
+    if (route.vendorId === 'minimax') {
+      profileEnv =
+        buildMiniMaxProfileEnv({
+          model: primaryModel,
+          baseUrl: profile.baseUrl,
+          apiKey: profile.apiKey,
+          processEnv: process.env,
+        }) ?? {}
+    } else {
+      profileEnv = {
+        ANTHROPIC_BASE_URL: profile.baseUrl,
+        ANTHROPIC_MODEL: primaryModel,
+        ...(profile.apiKey ? { ANTHROPIC_API_KEY: profile.apiKey } : {}),
+      }
     }
   } else if (compatibilityMode === 'mistral') {
     profileEnv = {
@@ -988,6 +1005,18 @@ function buildStartupProfileFromActiveProfile(
 
   switch (compatibilityMode) {
     case 'anthropic':
+      if (route.vendorId === 'minimax') {
+        const env =
+          buildMiniMaxProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
       return {
         profile: 'anthropic',
         env: applySupportedProfileCustomHeaders(activeProfile, {
@@ -1100,6 +1129,24 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
+      // xAI OAuth profile (provider=xai with no API key). Tag the startup
+      // file with profile='xai' + XAI_CREDENTIAL_SOURCE=oauth so:
+      //   1. validation accepts it at startup (no spurious
+      //      "XAI_API_KEY is required" before openaiShim resolves the
+      //      stored OAuth token)
+      //   2. `clearPersistedXaiOAuthProfile()` can identify and remove it
+      //      on logout, instead of leaving a stale openai-shaped file
+      //      pointing at api.x.ai with no credential.
+      if (route.vendorId === 'xai' && !activeProfile.apiKey) {
+        const env = applySupportedProfileCustomHeaders(activeProfile, {
+          ...buildXaiOAuthProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+          }),
+          OPENAI_BASE_URL: activeProfile.baseUrl,
+        })
+        return { profile: 'xai', env }
+      }
+
       const env = buildOpenAICompatibleStartupEnv(activeProfile)
       return env ? { profile: 'openai', env } : null
     }
@@ -1128,6 +1175,7 @@ function triggerStartupDiscoveryRefreshForProfile(
 
 export function setActiveProviderProfile(
   profileId: string,
+  options?: ProfileFileLocation,
 ): ProviderProfile | null {
   const current = getGlobalConfig()
   const profiles = getProviderProfiles(current)
@@ -1158,7 +1206,7 @@ export function setActiveProviderProfile(
 
   if (startupProfile) {
     const file = createProfileFile(startupProfile.profile, startupProfile.env)
-    saveProfileFile(file)
+    saveProfileFile(file, options)
   }
 
   return activeProfile

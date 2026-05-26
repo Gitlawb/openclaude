@@ -116,6 +116,43 @@ function isMiniMaxModelName(value: string | undefined): boolean {
   )
 }
 
+function hasMiniMaxModelIntent(model: string | undefined): boolean {
+  return (
+    isMiniMaxModelName(model) ||
+    isMiniMaxModelName(process.env.OPENAI_MODEL) ||
+    isMiniMaxModelName(process.env.ANTHROPIC_MODEL)
+  )
+}
+
+function hasConflictingOpenAIBaseUrlForMiniMax(): boolean {
+  const openAIBaseUrl =
+    process.env.OPENAI_BASE_URL?.trim() || process.env.OPENAI_API_BASE?.trim()
+  return Boolean(openAIBaseUrl && getMiniMaxBaseUrlOverride() === undefined)
+}
+
+function shouldUseMiniMaxEnvOnlyProvider(
+  model: string | undefined,
+  envOnlyProviderRouteId: string | null,
+): boolean {
+  const hasMiniMaxCredential =
+    process.env.MINIMAX_API_KEY?.trim() ||
+    (getMiniMaxBaseUrlOverride() !== undefined &&
+      process.env.ANTHROPIC_API_KEY?.trim())
+
+  if (!hasMiniMaxCredential) {
+    return false
+  }
+
+  if (envOnlyProviderRouteId === 'minimax') {
+    return true
+  }
+
+  return (
+    (hasMiniMaxModelIntent(model) || getMiniMaxBaseUrlOverride() !== undefined) &&
+    !hasConflictingOpenAIBaseUrlForMiniMax()
+  )
+}
+
 function isXaiModelName(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
@@ -124,32 +161,39 @@ function isXaiModelName(value: string | undefined): boolean {
   )
 }
 
+function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
+  const modelOverride =
+    (isMiniMaxModelName(model) ? model?.trim() : undefined) ??
+    process.env.OPENAI_MODEL?.trim() ??
+    process.env.ANTHROPIC_MODEL?.trim() ??
+    undefined
+
+  const apiKey =
+    process.env.MINIMAX_API_KEY?.trim() ||
+    process.env.ANTHROPIC_API_KEY?.trim()
+  if (apiKey) {
+    process.env.ANTHROPIC_API_KEY = apiKey
+  }
+
+  process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  process.env.ANTHROPIC_MODEL =
+    (isMiniMaxModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('minimax')
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
 function isXiaomiMimoModelName(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
     normalized &&
       (normalized.startsWith('mimo-') || normalized.startsWith('mimo/')),
   )
-}
-
-function applyMiniMaxEnvOnlyDefaults(): void {
-  const baseUrlOverride = getMiniMaxBaseUrlOverride()
-  const hasMiniMaxBaseOverride = baseUrlOverride !== undefined
-  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
-
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL =
-    baseUrlOverride ?? getRouteDefaultBaseUrl('minimax')
-  process.env.OPENAI_MODEL =
-    (hasMiniMaxBaseOverride || isMiniMaxModelName(modelOverride)
-      ? modelOverride
-      : undefined) ??
-    getRouteDefaultModel('minimax')
-  process.env.OPENAI_API_KEY = process.env.MINIMAX_API_KEY
-  delete process.env.OPENAI_API_FORMAT
-  delete process.env.OPENAI_AUTH_HEADER
-  delete process.env.OPENAI_AUTH_SCHEME
-  delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
 function applyXiaomiMimoEnvOnlyDefaults(): void {
@@ -245,8 +289,31 @@ export async function getAnthropicClient({
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
   }
 
+  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
+  const useMiniMaxEnvOnlyProvider = shouldUseMiniMaxEnvOnlyProvider(
+    model,
+    envOnlyProviderRouteId,
+  )
+  const useXiaomiMimoEnvOnlyProvider =
+    envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
+  const useXaiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
+  if (useMiniMaxEnvOnlyProvider) {
+    applyMiniMaxEnvOnlyDefaults(model)
+  }
+  if (useXiaomiMimoEnvOnlyProvider) {
+    applyXiaomiMimoEnvOnlyDefaults()
+  }
+  if (useXaiEnvOnlyProvider) {
+    applyXaiEnvOnlyDefaults()
+  }
+
   const shouldUseFirstPartyAuth =
     shouldUseFirstPartyAnthropicAuth(providerOverride)
+  const useMiniMaxNativeProvider =
+    useMiniMaxEnvOnlyProvider ||
+    (getAPIProvider() === 'minimax' &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI))
 
   if (shouldUseFirstPartyAuth) {
     logForDebugging('[API:auth] OAuth token check starting')
@@ -313,22 +380,7 @@ export async function getAnthropicClient({
     }
     return new Anthropic(nativeArgs)
   }
-  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
-  const useXiaomiMimoEnvOnlyProvider = envOnlyProviderRouteId === 'xiaomi-mimo'
-  const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
-  const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
-  if (useMiniMaxEnvOnlyProvider) {
-    applyMiniMaxEnvOnlyDefaults()
-  }
-  if (useXiaomiMimoEnvOnlyProvider) {
-    applyXiaomiMimoEnvOnlyDefaults()
-  }
-  if (useXaiEnvOnlyProvider) {
-    applyXaiEnvOnlyDefaults()
-  }
-
   if (
-    useMiniMaxEnvOnlyProvider ||
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
@@ -499,7 +551,11 @@ export async function getAnthropicClient({
 
   // Determine authentication method based on available tokens
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-    apiKey: isClaudeAiSubscriber ? null : apiKey || getAnthropicApiKey(),
+    apiKey: isClaudeAiSubscriber
+      ? null
+      : useMiniMaxNativeProvider
+        ? process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_API_KEY
+        : apiKey || getAnthropicApiKey(),
     authToken: isClaudeAiSubscriber
       ? getClaudeAIOAuthTokens()?.accessToken
       : undefined,
@@ -507,7 +563,9 @@ export async function getAnthropicClient({
     ...(process.env.USER_TYPE === 'ant' &&
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
-      : {}),
+      : process.env.ANTHROPIC_BASE_URL
+        ? { baseURL: process.env.ANTHROPIC_BASE_URL }
+        : {}),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
   }

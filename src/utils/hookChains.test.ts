@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 type HookChainsModule = typeof import('./hookChains.js')
 
@@ -38,22 +42,27 @@ async function importHookChainsModule(options?: {
   return import(`./hookChains.js?test=${Date.now()}-${Math.random()}`)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/hookChains.test.ts')
   process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS = '1'
 })
 
 afterEach(async () => {
-  mock.restore()
+  try {
+    mock.restore()
 
-  if (originalHookChainsEnabled === undefined) {
-    delete process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS
-  } else {
-    process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS = originalHookChainsEnabled
+    if (originalHookChainsEnabled === undefined) {
+      delete process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS
+    } else {
+      process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS = originalHookChainsEnabled
+    }
+
+    await Promise.all(
+      tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
+    )
+  } finally {
+    releaseSharedMutationLock()
   }
-
-  await Promise.all(
-    tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
-  )
 })
 
 describe('hookChains schema validation', () => {

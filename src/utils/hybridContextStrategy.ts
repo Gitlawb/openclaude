@@ -111,9 +111,14 @@ function getCacheAge(message: Message): number {
 }
 
 function getMessageTokenCount(message: Message): number {
+  const countTextTokens = (text: string): number => {
+    if (text.length === 0) return 0
+    return Math.max(1, roughTokenCountEstimation(text))
+  }
+
   const content = message.message?.content
   if (typeof content === 'string') {
-    return roughTokenCountEstimation(content)
+    return countTextTokens(content)
   }
   if (Array.isArray(content)) {
     let tokens = 0
@@ -123,17 +128,17 @@ function getMessageTokenCount(message: Message): number {
       const b = block as Record<string, unknown>
 
       if (b.type === 'text' && typeof b.text === 'string') {
-        tokens += roughTokenCountEstimation(b.text)
+        tokens += countTextTokens(b.text)
       } else if (b.type === 'tool_use') {
         const inputSize = JSON.stringify(b.input ?? {}).length
         tokens += Math.ceil(inputSize / 4) + 20
       } else if (b.type === 'tool_result') {
         if (typeof b.content === 'string') {
-          tokens += roughTokenCountEstimation(b.content)
+          tokens += countTextTokens(b.content)
         } else if (Array.isArray(b.content)) {
           for (const rc of b.content) {
             if (typeof rc === 'object' && rc !== null && 'text' in rc) {
-              tokens += roughTokenCountEstimation((rc as { text: string }).text)
+              tokens += countTextTokens((rc as { text: string }).text)
             }
           }
         } else {
@@ -141,7 +146,7 @@ function getMessageTokenCount(message: Message): number {
         }
         if (b.is_error === true) tokens += 10
       } else if (b.type === 'thinking' && typeof b.thinking === 'string') {
-        tokens += roughTokenCountEstimation(b.thinking)
+        tokens += countTextTokens(b.thinking)
       }
     }
     return tokens

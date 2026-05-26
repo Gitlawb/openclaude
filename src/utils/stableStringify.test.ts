@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { sortKeysDeep, stableStringify } from './stableStringify'
+import {
+  sortKeysDeep,
+  stableStringify,
+  stableStringifyJson,
+} from './stableStringify'
 
 /**
  * Contract: `stableStringify(input)` must equal `JSON.stringify(input)`
@@ -140,7 +144,45 @@ describe('stableStringify — primitive wrapper unboxing', () => {
     }
     expect(stableStringify(input)).toBe('{"a":"x","m":false,"z":1}')
     // Native form: same primitive shape (without sort guarantee).
-    expect(JSON.parse(stableStringify(input))).toEqual(JSON.parse(JSON.stringify(input)))
+    expect(JSON.parse(stableStringifyJson(input))).toEqual(JSON.parse(JSON.stringify(input)))
+  })
+})
+
+describe('stableStringify — spacing', () => {
+  test('positive space uses pretty-printed sorted output', () => {
+    expect(stableStringify({ z: 1, a: { y: 2, x: 3 } }, 2)).toBe(
+      [
+        '{',
+        '  "a": {',
+        '    "x": 3,',
+        '    "y": 2',
+        '  },',
+        '  "z": 1',
+        '}',
+      ].join('\n'),
+    )
+  })
+
+  test('compact-equivalent numeric space values keep compact output', () => {
+    const input = { z: 1, a: 2 }
+    const compact = '{"a":2,"z":1}'
+
+    expect(stableStringify(input, 0)).toBe(compact)
+    expect(stableStringify(input, 0.5)).toBe(compact)
+    expect(stableStringify(input, -1)).toBe(compact)
+    expect(stableStringify(input, Number.NaN)).toBe(compact)
+  })
+
+  test('top-level non-JSON values match native undefined result', () => {
+    expect(stableStringify(undefined)).toBeUndefined()
+    expect(stableStringify(() => {})).toBeUndefined()
+    expect(stableStringify(Symbol('hidden'))).toBeUndefined()
+  })
+
+  test('stableStringifyJson rejects top-level non-JSON values', () => {
+    expect(() => stableStringifyJson(undefined)).toThrow(TypeError)
+    expect(() => stableStringifyJson(() => {})).toThrow(TypeError)
+    expect(() => stableStringifyJson(Symbol('hidden'))).toThrow(TypeError)
   })
 })
 

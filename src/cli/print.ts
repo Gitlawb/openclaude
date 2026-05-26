@@ -538,9 +538,16 @@ export async function runHeadless(
     proactiveModule.activateProactive('command')
   }
 
-  // Periodically force a full GC to keep memory usage in check
-  if (typeof Bun !== 'undefined') {
-    const gcTimer = setInterval(Bun.gc, 1000)
+  // Periodically force a full GC to keep memory usage in check. The package
+  // launcher starts Node with --expose-gc; Bun exposes Bun.gc directly.
+  const forceGc =
+    typeof Bun !== 'undefined'
+      ? Bun.gc
+      : typeof (globalThis as { gc?: () => void }).gc === 'function'
+        ? (globalThis as { gc: () => void }).gc
+        : null
+  if (forceGc) {
+    const gcTimer = setInterval(forceGc, 1000)
     gcTimer.unref()
   }
 

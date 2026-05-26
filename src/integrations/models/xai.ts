@@ -33,6 +33,20 @@ export default [
     maxOutputTokens: 32_768,
   }),
   defineModel({
+    id: 'grok-code-fast-1',
+    label: 'Grok Code Fast 1',
+    brandId: 'xai',
+    vendorId: 'xai',
+    classification: ['chat', 'reasoning', 'coding'],
+    defaultModel: 'grok-code-fast-1',
+    capabilities: {
+      ...grokCapabilities,
+      supportsVision: false,
+    },
+    contextWindow: 256_000,
+    maxOutputTokens: 64_000,
+  }),
+  defineModel({
     id: 'grok-3',
     label: 'Grok 3',
     brandId: 'xai',

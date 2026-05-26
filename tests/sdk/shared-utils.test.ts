@@ -1,10 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, test, expect } from 'bun:test'
 import {
   assertValidSessionId,
   mapMessageToSDK,
-  acquireEnvMutex,
-  releaseEnvMutex,
-  resetEnvMutexForTesting,
+  createEnvMutexForTesting,
 } from '../../src/entrypoints/sdk/shared.js'
 
 describe('assertValidSessionId', () => {
@@ -83,69 +81,87 @@ describe('mapMessageToSDK', () => {
 })
 
 describe.serial('env mutex timeout', () => {
-  beforeEach(() => {
-    resetEnvMutexForTesting()
-  })
-
-  afterEach(() => {
-    resetEnvMutexForTesting()
-  })
-
   test('acquireEnvMutex returns timeout result when mutex is locked', async () => {
+    const { acquireEnvMutex, releaseEnvMutex } = createEnvMutexForTesting()
     // First acquire locks the mutex
-    const firstResult = await acquireEnvMutex()
+    const firstResult = await acquireEnvMutex({ timeoutMs: 5_000 })
     expect(firstResult.acquired).toBe(true)
 
     // Second acquire with timeout should return timeout result
-    const secondResult = await acquireEnvMutex({ timeoutMs: 100 })
-    expect(secondResult.acquired).toBe(false)
-    expect(secondResult.reason).toBe('timeout')
-
-    // Clean up
-    releaseEnvMutex()
+    try {
+      const secondResult = await acquireEnvMutex({ timeoutMs: 100 })
+      expect(secondResult.acquired).toBe(false)
+      expect(secondResult.reason).toBe('timeout')
+    } finally {
+      releaseEnvMutex()
+    }
   })
 
   test('acquireEnvMutex succeeds before timeout', async () => {
-    await acquireEnvMutex()
+    const { acquireEnvMutex, releaseEnvMutex } = createEnvMutexForTesting()
+    const firstResult = await acquireEnvMutex({ timeoutMs: 5_000 })
+    expect(firstResult.acquired).toBe(true)
 
     // Release after 50ms
     setTimeout(releaseEnvMutex, 50)
 
     // Second acquire with 200ms timeout should succeed
-    const result = await acquireEnvMutex({ timeoutMs: 200 })
-    expect(result.acquired).toBe(true)
-
-    releaseEnvMutex()
+    let acquiredSecond = false
+    try {
+      const result = await acquireEnvMutex({ timeoutMs: 200 })
+      acquiredSecond = result.acquired
+      expect(result.acquired).toBe(true)
+    } finally {
+      if (acquiredSecond) {
+        releaseEnvMutex()
+      }
+    }
   })
 
   test('acquireEnvMutex without timeout waits indefinitely (default behavior)', async () => {
-    await acquireEnvMutex()
+    const { acquireEnvMutex, releaseEnvMutex } = createEnvMutexForTesting()
+    const firstResult = await acquireEnvMutex({ timeoutMs: 5_000 })
+    expect(firstResult.acquired).toBe(true)
 
     // Release after short delay
     setTimeout(releaseEnvMutex, 50)
 
     // No timeout option - should wait and succeed
-    const result = await acquireEnvMutex()
-    expect(result.acquired).toBe(true)
-
-    releaseEnvMutex()
+    let acquiredSecond = false
+    try {
+      const result = await acquireEnvMutex()
+      acquiredSecond = result.acquired
+      expect(result.acquired).toBe(true)
+    } finally {
+      if (acquiredSecond) {
+        releaseEnvMutex()
+      }
+    }
   })
 
   test('mutex remains functional after timeout', async () => {
+    const { acquireEnvMutex, releaseEnvMutex } = createEnvMutexForTesting()
     // First acquire locks it
-    await acquireEnvMutex()
+    const firstResult = await acquireEnvMutex({ timeoutMs: 5_000 })
+    expect(firstResult.acquired).toBe(true)
 
-    // Second acquire with timeout fails
-    const result2 = await acquireEnvMutex({ timeoutMs: 50 })
-    expect(result2.acquired).toBe(false)
-
-    // Release the first
-    releaseEnvMutex()
+    try {
+      // Second acquire with timeout fails
+      const result2 = await acquireEnvMutex({ timeoutMs: 50 })
+      expect(result2.acquired).toBe(false)
+    } finally {
+      // Release the first
+      releaseEnvMutex()
+    }
 
     // Third acquire should succeed (mutex not permanently locked)
     const result3 = await acquireEnvMutex({ timeoutMs: 100 })
-    expect(result3.acquired).toBe(true)
-
-    releaseEnvMutex()
+    try {
+      expect(result3.acquired).toBe(true)
+    } finally {
+      if (result3.acquired) {
+        releaseEnvMutex()
+      }
+    }
   })
 })

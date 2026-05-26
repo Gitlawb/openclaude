@@ -1,22 +1,43 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
 import { getProviderMode, getProviderChain, getAvailableProviders } from './index.js'
 import type { ProviderMode } from './index.js'
+
+const savedWebSearchEnv = {
+  WEB_SEARCH_PROVIDER: process.env.WEB_SEARCH_PROVIDER,
+  TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+}
+
+function restoreWebSearchEnv() {
+  for (const [key, value] of Object.entries(savedWebSearchEnv)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('WebSearchTool/providers/index.test.ts')
+})
+
+afterEach(() => {
+  try {
+    restoreWebSearchEnv()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 // ---------------------------------------------------------------------------
 // getProviderMode
 // ---------------------------------------------------------------------------
 
 describe('getProviderMode', () => {
-  const savedEnv = process.env.WEB_SEARCH_PROVIDER
-
-  afterEach(() => {
-    if (savedEnv === undefined) {
-      delete process.env.WEB_SEARCH_PROVIDER
-    } else {
-      process.env.WEB_SEARCH_PROVIDER = savedEnv
-    }
-  })
-
   test('returns auto by default', () => {
     delete process.env.WEB_SEARCH_PROVIDER
     expect(getProviderMode()).toBe('auto')

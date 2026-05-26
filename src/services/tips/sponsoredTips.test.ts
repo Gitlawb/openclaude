@@ -1,4 +1,8 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 type StubSettings = {
   sponsoredTipsEnabled?: boolean
@@ -12,6 +16,8 @@ const configRef: {
 } = { value: { numStartups: 100 } }
 
 // mock.module is process-global — install once, then mutate the refs per test.
+await acquireSharedMutationLock('services/tips/sponsoredTips.test.ts')
+
 mock.module('../../utils/settings/settings.js', () => ({
   getSettings_DEPRECATED: () => settingsRef.value,
   getInitialSettings: () => settingsRef.value,
@@ -24,6 +30,14 @@ mock.module('../../utils/config.js', () => ({
     configRef.value = mut(configRef.value)
   },
 }))
+
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 async function freshImport() {
   const stamp = `${Date.now()}-${Math.random()}`
@@ -79,25 +93,44 @@ describe('getSponsoredTipsFrequency', () => {
 })
 
 describe('sponsored tip catalog', () => {
-  test('has exactly 4 Atomic tips', async () => {
+  test('has Atomic Chat and Xiaomi MiMo tips', async () => {
     resetState()
     const { sponsoredTips } = await freshImport()
-    expect(sponsoredTips.sponsoredTips.length).toBe(4)
+    const atomicTips = sponsoredTips.sponsoredTips.filter(
+      (t: { sponsor?: { name: string; url?: string } }) =>
+        t.sponsor?.name === 'Atomic Chat',
+    )
+    const xiaomiTips = sponsoredTips.sponsoredTips.filter(
+      (t: { sponsor?: { name: string; url?: string } }) =>
+        t.sponsor?.name === 'Xiaomi MiMo',
+    )
+    expect(atomicTips.length).toBe(4)
+    expect(xiaomiTips.length).toBe(5)
     expect(
-      sponsoredTips.sponsoredTips.every(
-        (t: { sponsor?: { name: string; url?: string } }) =>
-          t.sponsor?.name === 'Atomic Chat' &&
-          t.sponsor.url === 'https://atomic.chat/',
+      atomicTips.every(
+        (t: { sponsor?: { url?: string } }) =>
+          t.sponsor?.url === 'https://atomic.chat/',
+      ),
+    ).toBe(true)
+    expect(
+      xiaomiTips.every(
+        (t: { sponsor?: { url?: string } }) =>
+          t.sponsor?.url === 'https://api.xiaomimimo.com/v1',
       ),
     ).toBe(true)
   })
 
-  test('all tips have unique ids prefixed with atomic-', async () => {
+  test('all tips have unique sponsor-prefixed ids', async () => {
     resetState()
     const { sponsoredTips } = await freshImport()
     const ids = sponsoredTips.sponsoredTips.map((t: { id: string }) => t.id)
     expect(new Set(ids).size).toBe(ids.length)
-    expect(ids.every((id: string) => id.startsWith('atomic-'))).toBe(true)
+    expect(
+      ids.every(
+        (id: string) =>
+          id.startsWith('atomic-') || id.startsWith('xiaomi-mimo-'),
+      ),
+    ).toBe(true)
   })
 
   test('rendered content embeds sponsor name, tip body, and URL', async () => {
@@ -110,6 +143,19 @@ describe('sponsored tip catalog', () => {
     expect(rendered).toContain('Atomic Chat')
     expect(rendered).toContain('Setup free local models')
     expect(rendered).toContain('https://atomic.chat/')
+  })
+
+  test('Xiaomi MiMo tips render through sponsored tip chrome', async () => {
+    resetState()
+    const { sponsoredTips } = await freshImport()
+    const tip = sponsoredTips.sponsoredTips.find(
+      (t: { id: string }) => t.id === 'xiaomi-mimo-context-window',
+    )
+    const rendered: string = await tip.content({ theme: 'dark' })
+    expect(rendered).toContain('Sponsored')
+    expect(rendered).toContain('Xiaomi MiMo')
+    expect(rendered).toContain('Increase your context window')
+    expect(rendered).toContain('https://api.xiaomimimo.com/v1')
   })
 
   test('isRelevant follows sponsoredTipsEnabled', async () => {

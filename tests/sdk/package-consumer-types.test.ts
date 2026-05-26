@@ -10,7 +10,7 @@
  * - Self-referential type wrappers
  */
 import { afterAll, describe, expect, test } from 'bun:test'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync, cpSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto'
 const ROOT = join(import.meta.dir, '..', '..')
 const SDK_DTS = join(ROOT, 'src', 'entrypoints', 'sdk.d.ts')
 const CORE_TYPES_TS = join(ROOT, 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts')
+const TSC_BIN = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc')
 
 /** All temp dirs created during tests — cleaned up in afterAll */
 const tempDirs: string[] = []
@@ -92,7 +93,7 @@ function setupConsumerProject(name: string): string {
 
 /** Compile consumer.ts in the given tmpDir. Returns stdout (empty = success). */
 function tsc(tmpDir: string): string {
-  return execSync('npx tsc -p tsconfig.json --pretty false', {
+  return execFileSync(process.execPath, [TSC_BIN, '-p', 'tsconfig.json', '--pretty', 'false'], {
     cwd: tmpDir,
     encoding: 'utf-8',
     timeout: 60000,

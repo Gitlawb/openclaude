@@ -702,12 +702,6 @@ export const BashTool = buildTool({
       if (result.stdout && result.stdout.includes(".git/index.lock': File exists")) {
         logEvent('tengu_git_index_lock_error', {});
       }
-      if (interpretationResult.isError && !isInterrupt) {
-        // Only add exit code if it's actually an error
-        if (result.code !== 0) {
-          stdoutAccumulator.append(`Exit code ${result.code}`);
-        }
-      }
       if (!preventCwdChanges) {
         const appState = getAppState();
         if (resetCwdIfOutsideProject(appState.toolPermissionContext)) {
@@ -721,10 +715,13 @@ export const BashTool = buildTool({
         throw new Error(result.preSpawnError);
       }
       if (interpretationResult.isError && !isInterrupt) {
-        // stderr is merged into stdout (merged fd); outputWithSbFailures
-        // already has the full output. Pass '' for stdout to avoid
-        // duplication in getErrorParts() and processBashCommand.
-        throw new ShellError('', outputWithSbFailures, result.code, result.interrupted);
+        // Merged-fd setup puts both streams into result.stdout. Carry it on
+        // the stdout slot of ShellError (matches PowerShellTool.tsx:595) so
+        // getErrorParts() emits the captured output alongside "Exit code N"
+        // — without this, a non-zero exit hides the very output users need
+        // to debug the failure (issue #1231). result.stderr is empty in
+        // file mode but populated in pipe mode (hooks).
+        throw new ShellError(outputWithSbFailures, result.stderr || '', result.code, result.interrupted);
       }
       wasInterrupted = result.interrupted;
     } finally {

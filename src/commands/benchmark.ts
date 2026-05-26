@@ -15,7 +15,7 @@ async function runBenchmark(
   if (!isBenchmarkSupported()) {
     context?.stdout?.write(
       'Benchmark not supported for this provider.\n' +
-        'Supported: OpenAI-compatible endpoints (Ollama, NVIDIA NIM, MiniMax)\n',
+        'Supported: OpenAI-compatible endpoints (Ollama, NVIDIA NIM)\n',
     )
     return
   }

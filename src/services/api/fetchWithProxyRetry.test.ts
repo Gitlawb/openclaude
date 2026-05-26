@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import { _resetKeepAliveForTesting } from '../../utils/proxy.js'
 import {
@@ -22,17 +23,22 @@ function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('fetchWithProxyRetry.test.ts')
   process.env.HTTP_PROXY = 'http://127.0.0.1:15236'
   delete process.env.HTTPS_PROXY
   _resetKeepAliveForTesting()
 })
 
 afterEach(() => {
-  globalThis.fetch = originalFetch
-  restoreEnv('HTTP_PROXY', originalEnv.HTTP_PROXY)
-  restoreEnv('HTTPS_PROXY', originalEnv.HTTPS_PROXY)
-  _resetKeepAliveForTesting()
+  try {
+    globalThis.fetch = originalFetch
+    restoreEnv('HTTP_PROXY', originalEnv.HTTP_PROXY)
+    restoreEnv('HTTPS_PROXY', originalEnv.HTTPS_PROXY)
+    _resetKeepAliveForTesting()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('isRetryableFetchError matches Bun socket-closed failures', () => {

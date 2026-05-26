@@ -163,7 +163,7 @@ import {
 } from './hooks/sessionHooks.js'
 import type { AppState } from '../state/AppState.js'
 import { jsonStringify, jsonParse } from './slowOperations.js'
-import { stableStringify } from './stableStringify.js'
+import { stableStringifyJson } from './stableStringify.js'
 import { isEnvTruthy } from './envUtils.js'
 import { errorMessage, getErrnoCode } from './errors.js'
 import { getAgentName, getTeamName, getTeammateColor } from './teammate.js'
@@ -190,7 +190,7 @@ function dedupeRegisteredPluginHooks(
       continue
     }
 
-    const pluginMatcherKey = stableStringify({
+    const pluginMatcherKey = stableStringifyJson({
       pluginId: matcher.pluginId,
       pluginName: matcher.pluginName,
       pluginRoot: matcher.pluginRoot,

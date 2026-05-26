@@ -4,6 +4,7 @@ export const CODEX_OAUTH_ISSUER = 'https://auth.openai.com'
 export const CODEX_REFRESH_URL = `${CODEX_OAUTH_ISSUER}/oauth/token`
 export const DEFAULT_CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 export const DEFAULT_CODEX_OAUTH_CALLBACK_PORT = 1455
+export const DEFAULT_CODEX_OAUTH_CALLBACK_HOST = 'localhost'
 export const CODEX_OAUTH_SCOPE =
   'openid profile email offline_access api.connectors.read api.connectors.invoke'
 export const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs'
@@ -12,6 +13,11 @@ export const CODEX_ID_TOKEN_SUBJECT_TYPE =
   'urn:ietf:params:oauth:token-type:id_token'
 export const CODEX_TOKEN_EXCHANGE_GRANT =
   'urn:ietf:params:oauth:grant-type:token-exchange'
+const ALLOWED_CODEX_OAUTH_CALLBACK_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+])
 
 export function asTrimmedString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -39,6 +45,26 @@ export function getCodexOAuthCallbackPort(
   }
 
   return DEFAULT_CODEX_OAUTH_CALLBACK_PORT
+}
+
+export function getCodexOAuthCallbackHost(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const rawHost = asTrimmedString(env.CODEX_OAUTH_CALLBACK_HOST)
+  if (rawHost && ALLOWED_CODEX_OAUTH_CALLBACK_HOSTS.has(rawHost)) {
+    return rawHost
+  }
+
+  return DEFAULT_CODEX_OAUTH_CALLBACK_HOST
+}
+
+export function getCodexOAuthCallbackOrigin(
+  port: number,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const host = getCodexOAuthCallbackHost(env)
+  const formattedHost = host.includes(':') ? `[${host}]` : host
+  return `http://${formattedHost}:${port}`
 }
 
 export function decodeJwtPayload(

@@ -1,12 +1,16 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import stripAnsi from 'strip-ansi'
 
 import { createRoot } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 import { AppStateProvider } from '../state/AppState.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -113,6 +117,7 @@ const PRESET_ORDER = [
   'Bankr',
   'DeepSeek',
   'Codex OAuth',
+  'xAI OAuth (Grok)',
   'Google Gemini',
   'Groq',
   'Hicap',
@@ -229,7 +234,7 @@ function mockProviderProfilesModule(options?: {
         return {
           provider: 'minimax',
           name: 'MiniMax',
-          baseUrl: 'https://api.minimax.io/v1',
+          baseUrl: 'https://api.minimax.io/anthropic',
           model: 'MiniMax-M2.7',
           apiKey: '',
           requiresApiKey: true,
@@ -502,15 +507,23 @@ async function renderProviderManagerFrame(
   return output
 }
 
-afterEach(() => {
-  mock.restore()
+beforeEach(async () => {
+  await acquireSharedMutationLock('components/ProviderManager.test.tsx')
+})
 
-  for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
-    if (value === undefined) {
-      delete process.env[key as keyof typeof ORIGINAL_ENV]
-    } else {
-      process.env[key as keyof typeof ORIGINAL_ENV] = value
+afterEach(() => {
+  try {
+    mock.restore()
+
+    for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
+      if (value === undefined) {
+        delete process.env[key as keyof typeof ORIGINAL_ENV]
+      } else {
+        process.env[key as keyof typeof ORIGINAL_ENV] = value
+      }
     }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
@@ -792,8 +805,15 @@ test('ProviderManager saves OpenAI preset GPT-5 models with Responses API', asyn
   }
 })
 
-test('ProviderManager skips advanced setup fields when adding MiniMax preset', async () => {
-  mockProviderManagerDependencies(() => undefined, async () => undefined)
+test('ProviderManager saves MiniMax preset with Anthropic-compatible endpoint and type', async () => {
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'minimax_profile',
+    ...payload,
+  }))
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+  })
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -818,6 +838,7 @@ test('ProviderManager skips advanced setup fields when adding MiniMax preset', a
 
     expect(modelOutput).toContain('MiniMax')
     expect(modelOutput).toContain('MiniMax-M2.7')
+    expect(modelOutput).toContain('Provider type: Anthropic-compatible API')
     expect(modelOutput).not.toContain('Provider name')
     expect(modelOutput).not.toContain('Base URL')
     expect(modelOutput).not.toContain('API mode')
@@ -833,6 +854,107 @@ test('ProviderManager skips advanced setup fields when adding MiniMax preset', a
     expect(keyOutput).not.toContain('API mode')
     expect(keyOutput).not.toContain('Auth header')
     expect(keyOutput).not.toContain('Custom headers')
+
+    mounted.stdin.write('minimax-test-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'minimax',
+        baseUrl: 'https://api.minimax.io/anthropic',
+        model: 'MiniMax-M2.7',
+        apiFormat: 'chat_completions',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager edit flow keeps MiniMax on Anthropic-compatible provider path', async () => {
+  const minimaxProfile = {
+    id: 'provider_minimax',
+    provider: 'minimax',
+    name: 'MiniMax',
+    baseUrl: 'https://api.minimax.io/anthropic',
+    model: 'MiniMax-M2.7',
+    apiKey: 'minimax-key',
+  }
+  const updateProviderProfile = mock((id: string, payload: any) => ({
+    ...minimaxProfile,
+    id,
+    ...payload,
+  }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [minimaxProfile],
+      getActiveProviderProfile: () => minimaxProfile,
+      updateProviderProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Edit provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider') &&
+      frame.includes('MiniMax') &&
+      !frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    const editOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider profile') &&
+      frame.includes('Provider type: Anthropic-compatible API'),
+    )
+
+    expect(editOutput).toContain('Provider type: Anthropic-compatible API')
+    expect(editOutput).not.toContain('API mode')
+    expect(editOutput).not.toContain('Auth header')
+    expect(editOutput).not.toContain('Custom headers')
+
+    for (let step = 2; step <= 4; step++) {
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes(`Step ${step} of 4`),
+      )
+    }
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => updateProviderProfile.mock.calls.length > 0)
+    expect(updateProviderProfile).toHaveBeenCalledWith(
+      'provider_minimax',
+      expect.objectContaining({
+        provider: 'minimax',
+        baseUrl: 'https://api.minimax.io/anthropic',
+        model: 'MiniMax-M2.7',
+      }),
+    )
+    expect(updateProviderProfile.mock.calls[0]?.[1]).toMatchObject({
+      authHeader: undefined,
+      authScheme: undefined,
+      authHeaderValue: undefined,
+      customHeaders: undefined,
+    })
   } finally {
     await mounted.dispose()
   }

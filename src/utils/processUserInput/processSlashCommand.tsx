@@ -443,7 +443,10 @@ export async function processSlashCommand(inputString: string, precedingInputBlo
     return {
       messages: [],
       shouldQuery: false,
+      allowedTools,
       model,
+      effort,
+      resultText,
       nextInput,
       submitNextInput
     };
@@ -705,6 +708,15 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
             }
 
             // Text result — use system message so it doesn't render as a user bubble
+            if (result.display === 'skip') {
+              return {
+                messages: [],
+                shouldQuery: false,
+                command,
+                resultText: result.value
+              };
+            }
+
             return {
               messages: [userMessage, createCommandInputMessage(`<local-command-stdout>${result.value}</local-command-stdout>`)],
               shouldQuery: false,

@@ -1,5 +1,22 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
 import { extractHits, customProvider, isPrivateHostname } from './custom.js'
+
+async function importFreshCustomProvider() {
+  const stamp = `${Date.now()}-${Math.random()}`
+  return import(`./custom.ts?ts=${stamp}`)
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('WebSearchTool/providers/custom.test.ts')
+})
+
+afterEach(() => {
+  releaseSharedMutationLock()
+})
 
 // ---------------------------------------------------------------------------
 // extractHits — flexible response parsing
@@ -227,9 +244,15 @@ describe('built-in preset request shapes', () => {
   ]
   const savedEnv: Record<string, string | undefined> = {}
   const originalFetch = globalThis.fetch
+  const originalConsoleWarn = console.warn
+  let capturedWarnings: unknown[][] = []
 
   beforeEach(() => {
     for (const k of PRESET_ENV_KEYS) savedEnv[k] = process.env[k]
+    capturedWarnings = []
+    console.warn = (...args: unknown[]) => {
+      capturedWarnings.push(args)
+    }
   })
 
   afterEach(() => {
@@ -238,6 +261,7 @@ describe('built-in preset request shapes', () => {
       else process.env[k] = v
     }
     globalThis.fetch = originalFetch
+    console.warn = originalConsoleWarn
   })
 
   test('google preset sends ?key= and ?cx= as query params, no auth header', async () => {
@@ -254,14 +278,19 @@ describe('built-in preset request shapes', () => {
       return new Response(JSON.stringify({ items: [] }), { status: 200 })
     }) as typeof fetch
 
-    const { customProvider } = require('./custom.js')
-    await customProvider.search({ query: 'hello world' })
+    const { customProvider: freshCustomProvider } = await importFreshCustomProvider()
+    await freshCustomProvider.search({ query: 'hello world' })
 
     expect(capturedUrl).toContain('https://www.googleapis.com/customsearch/v1')
     expect(capturedUrl).toContain('key=gck-test-key')
     expect(capturedUrl).toContain('cx=cse-test-id')
     expect(capturedUrl).toContain('q=hello+world')
     expect(capturedHeaders.Authorization).toBeUndefined()
+    expect(
+      capturedWarnings.some(call =>
+        String(call[0]).includes('Custom search provider is active'),
+      ),
+    ).toBe(true)
   })
 
   test('google preset throws clear error when GOOGLE_CSE_ID is missing', async () => {

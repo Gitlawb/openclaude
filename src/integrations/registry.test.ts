@@ -1,6 +1,6 @@
 // src/integrations/registry.test.ts
 
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { ensureIntegrationsLoaded } from './index.js'
 import {
   _clearRegistryForTesting,
@@ -22,14 +22,23 @@ import {
   registerVendor,
   validateIntegrationRegistry,
 } from './registry.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('integrations/registry.test.ts')
   _clearRegistryForTesting()
 })
 
-afterAll(() => {
-  _clearRegistryForTesting()
-  ensureIntegrationsLoaded()
+afterEach(() => {
+  try {
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 // ---------------------------------------------------------------------------

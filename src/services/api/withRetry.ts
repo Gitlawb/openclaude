@@ -22,6 +22,7 @@ import {
   isEnterpriseSubscriber,
 } from '../../utils/auth.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { validateBoundedIntEnvVar } from '../../utils/envValidation.js'
 import { errorMessage } from '../../utils/errors.js'
 import {
   type CooldownReason,
@@ -50,9 +51,12 @@ import { extractConnectionErrorDetails } from './errorUtils.js'
 const abortError = () => new APIUserAbortError()
 
 const DEFAULT_MAX_RETRIES = 10
+const MAX_CONFIGURABLE_RETRIES = 100
 const FLOOR_OUTPUT_TOKENS = 3000
 const MAX_529_RETRIES = 3
-export const BASE_DELAY_MS = 500
+export const DEFAULT_RETRY_DELAY_MS = 500
+export const BASE_DELAY_MS = DEFAULT_RETRY_DELAY_MS
+const MAX_RETRY_DELAY_BASE_MS = 60_000
 
 // Foreground query sources where the user IS blocking on the result — these
 // retry on 529. Everything else (summaries, titles, suggestions, classifiers)
@@ -400,6 +404,30 @@ export async function* withRetry<T>(
         throw new CannotRetryError(error, retryContext)
       }
 
+      // OpenRouter / OpenAI-compatible quota gateways: HTTP 402 with the
+      // affordable max_tokens in the message. Retry once at the affordable
+      // cap instead of failing on a credits-vs-max_tokens mismatch the user
+      // can't see in their shell (#1125). One adjustment per chain — if 402
+      // recurs after this, the retry chain falls through to the normal error
+      // path.
+      if (error instanceof APIError) {
+        const affordData = parseOpenRouterAffordableMaxTokensError(error)
+        if (affordData && retryContext.maxTokensOverride === undefined) {
+          retryContext.maxTokensOverride = affordData.affordableMaxTokens
+          logEvent('tengu_openrouter_402_max_tokens_adjustment', {
+            requestedMaxTokens: affordData.requestedMaxTokens,
+            affordableMaxTokens: affordData.affordableMaxTokens,
+            attempt,
+          })
+          // Surface the credit pressure so the user understands why output
+          // shrank. Single line; the provider already explained the why.
+          console.error(
+            `Provider returned 402 — retrying with max_tokens=${affordData.affordableMaxTokens} (was ${affordData.requestedMaxTokens}). Top up credits to restore the full budget.`,
+          )
+          continue
+        }
+      }
+
       // Handle max tokens context overflow errors by adjusting max_tokens for the next attempt
       // NOTE: With extended-context-window beta, this 400 error should not occur.
       // The API now returns 'model_context_window_exceeded' stop_reason instead.
@@ -558,12 +586,48 @@ export function getRetryDelay(
     }
   }
 
+  const baseDelayMs = getDefaultRetryDelayMs()
   const baseDelay = Math.min(
-    BASE_DELAY_MS * Math.pow(2, attempt - 1),
+    baseDelayMs * Math.pow(2, attempt - 1),
     maxDelayMs,
   )
   const jitter = Math.random() * 0.25 * baseDelay
   return baseDelay + jitter
+}
+
+/**
+ * OpenRouter (and several other quota-billed gateways) reply with HTTP 402
+ * when the caller has fewer credits than the requested max_tokens would
+ * consume. The error message includes the affordable cap, so we can retry
+ * once with the lower number instead of forcing the user to manually lower
+ * their max_tokens (issue #1125).
+ *
+ * Example body:
+ *   This request requires more credits, or fewer max_tokens. You requested
+ *   up to 32000 tokens, but can only afford 27342. To increase, visit ...
+ */
+export function parseOpenRouterAffordableMaxTokensError(error: APIError):
+  | { requestedMaxTokens: number; affordableMaxTokens: number }
+  | undefined {
+  if (error.status !== 402 || !error.message) {
+    return undefined
+  }
+  const regex =
+    /requested up to (\d+) tokens?, but can only afford (\d+)/i
+  const match = error.message.match(regex)
+  if (!match || match.length !== 3 || !match[1] || !match[2]) {
+    return undefined
+  }
+  const requestedMaxTokens = parseInt(match[1], 10)
+  const affordableMaxTokens = parseInt(match[2], 10)
+  if (
+    isNaN(requestedMaxTokens) ||
+    isNaN(affordableMaxTokens) ||
+    affordableMaxTokens <= 0
+  ) {
+    return undefined
+  }
+  return { requestedMaxTokens, affordableMaxTokens }
 }
 
 export function parseMaxTokensContextOverflowError(error: APIError):
@@ -747,6 +811,12 @@ function shouldRetry(error: APIError): boolean {
     return true
   }
 
+  // OpenRouter-style 402 with an affordable max_tokens in the message — we
+  // can retry once at the lower cap (issue #1125).
+  if (parseOpenRouterAffordableMaxTokensError(error)) {
+    return true
+  }
+
   // Note this is not a standard header.
   const shouldRetryHeader = error.headers?.get('x-should-retry')
 
@@ -807,13 +877,61 @@ function shouldRetry(error: APIError): boolean {
 }
 
 export function getDefaultMaxRetries(): number {
-  if (process.env.CLAUDE_CODE_MAX_RETRIES) {
-    return parseInt(process.env.CLAUDE_CODE_MAX_RETRIES, 10)
+  const openClaudeMaxRetries = process.env.OPENCLAUDE_MAX_RETRIES
+  if (openClaudeMaxRetries) {
+    return validateRetryAttemptsEnvVar(
+      'OPENCLAUDE_MAX_RETRIES',
+      openClaudeMaxRetries,
+    )
   }
+
+  const legacyMaxRetries = process.env.CLAUDE_CODE_MAX_RETRIES
+  if (legacyMaxRetries) {
+    logForDebugging(
+      'CLAUDE_CODE_MAX_RETRIES is deprecated; use OPENCLAUDE_MAX_RETRIES instead',
+    )
+    return validateRetryAttemptsEnvVar(
+      'CLAUDE_CODE_MAX_RETRIES',
+      legacyMaxRetries,
+    )
+  }
+
   return DEFAULT_MAX_RETRIES
+}
+
+export function getDefaultRetryDelayMs(): number {
+  return validateBoundedIntEnvVar(
+    'OPENCLAUDE_RETRY_DELAY_MS',
+    process.env.OPENCLAUDE_RETRY_DELAY_MS,
+    DEFAULT_RETRY_DELAY_MS,
+    MAX_RETRY_DELAY_BASE_MS,
+  ).effective
 }
 function getMaxRetries(options: RetryOptions): number {
   return options.maxRetries ?? getDefaultMaxRetries()
+}
+
+function validateRetryAttemptsEnvVar(
+  envVarName: string,
+  value: string | undefined,
+): number {
+  if (!value) {
+    return DEFAULT_MAX_RETRIES
+  }
+  const parsed = parseInt(value, 10)
+  if (isNaN(parsed) || parsed < 0) {
+    logForDebugging(
+      `${envVarName} Invalid value "${value}" (using default: ${DEFAULT_MAX_RETRIES})`,
+    )
+    return DEFAULT_MAX_RETRIES
+  }
+  if (parsed > MAX_CONFIGURABLE_RETRIES) {
+    logForDebugging(
+      `${envVarName} Capped from ${parsed} to ${MAX_CONFIGURABLE_RETRIES}`,
+    )
+    return MAX_CONFIGURABLE_RETRIES
+  }
+  return parsed
 }
 
 const DEFAULT_FAST_MODE_FALLBACK_HOLD_MS = 30 * 60 * 1000 // 30 minutes

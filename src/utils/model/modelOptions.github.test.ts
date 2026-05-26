@@ -2,7 +2,11 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mock } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
-import { saveGlobalConfig } from '../config.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import { getGlobalConfig, saveGlobalConfig } from '../config.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
@@ -32,6 +36,22 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   ANTHROPIC_CUSTOM_MODEL_OPTION: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION,
 }
+const initialConfig = getGlobalConfig()
+const originalConfig = {
+  additionalModelOptionsCache: structuredClone(
+    initialConfig.additionalModelOptionsCache ?? [],
+  ),
+  additionalModelOptionsCacheScope:
+    initialConfig.additionalModelOptionsCacheScope,
+  openaiAdditionalModelOptionsCache: structuredClone(
+    initialConfig.openaiAdditionalModelOptionsCache ?? [],
+  ),
+  openaiAdditionalModelOptionsCacheByProfile: structuredClone(
+    initialConfig.openaiAdditionalModelOptionsCacheByProfile ?? {},
+  ),
+  providerProfiles: structuredClone(initialConfig.providerProfiles ?? []),
+  activeProviderProfileId: initialConfig.activeProviderProfileId,
+}
 
 function restoreEnvValue(
   key: keyof typeof originalEnv,
@@ -44,7 +64,8 @@ function restoreEnvValue(
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/modelOptions.github.test.ts')
   mock.restore()
   setSessionSettingsCache({ settings: {}, errors: [] })
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -60,27 +81,32 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  mock.restore()
-  resetSettingsCache()
-  restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
-  restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
-  restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
-  restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
-  restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
-  restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
-  restoreEnvValue('OPENAI_MODEL')
-  restoreEnvValue('OPENAI_BASE_URL')
-  restoreEnvValue('ANTHROPIC_CUSTOM_MODEL_OPTION')
-  saveGlobalConfig(current => ({
-    ...current,
-    additionalModelOptionsCache: [],
-    additionalModelOptionsCacheScope: undefined,
-    openaiAdditionalModelOptionsCache: [],
-    openaiAdditionalModelOptionsCacheByProfile: {},
-    providerProfiles: [],
-    activeProviderProfileId: undefined,
-  }))
-  resetModelStringsForTestingOnly()
+  try {
+    mock.restore()
+    resetSettingsCache()
+    restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
+    restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
+    restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
+    restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
+    restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
+    restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
+    restoreEnvValue('OPENAI_MODEL')
+    restoreEnvValue('OPENAI_BASE_URL')
+    restoreEnvValue('ANTHROPIC_CUSTOM_MODEL_OPTION')
+    saveGlobalConfig(current => ({
+      ...current,
+      additionalModelOptionsCache: originalConfig.additionalModelOptionsCache,
+      additionalModelOptionsCacheScope: originalConfig.additionalModelOptionsCacheScope,
+      openaiAdditionalModelOptionsCache: originalConfig.openaiAdditionalModelOptionsCache,
+      openaiAdditionalModelOptionsCacheByProfile:
+        originalConfig.openaiAdditionalModelOptionsCacheByProfile,
+      providerProfiles: originalConfig.providerProfiles,
+      activeProviderProfileId: originalConfig.activeProviderProfileId,
+    }))
+    resetModelStringsForTestingOnly()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('GitHub provider exposes default + all Copilot models in /model options', async () => {

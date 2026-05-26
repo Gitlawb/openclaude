@@ -124,6 +124,33 @@ export function createSyntheticOutputTool(
   return result
 }
 
+// Anthropic tool_use blocks require the input to be a JSON object — the
+// `input` field is typed as a map. A top-level array (or any non-object root)
+// schema is valid JSON Schema but cannot be expressed as a tool input, so the
+// model emits `{}` and downstream validation fails (issue #1256). Wrap
+// non-object root schemas as `{result: <orig>}` so the model has a valid
+// object to fill, then unwrap before emitting `structured_output`. Users see
+// the same shape they asked for.
+const WRAPPED_FIELD = 'result'
+
+function isObjectRootSchema(schema: Record<string, unknown>): boolean {
+  const t = schema['type']
+  if (t === 'object') return true
+  if (Array.isArray(t) && t.includes('object')) return true
+  return false
+}
+
+function wrapNonObjectSchema(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: { [WRAPPED_FIELD]: schema },
+    required: [WRAPPED_FIELD],
+    additionalProperties: false,
+  }
+}
+
 function buildSyntheticOutputTool(
   jsonSchema: Record<string, unknown>,
 ): CreateResult {
@@ -133,12 +160,17 @@ function buildSyntheticOutputTool(
     if (!isValidSchema) {
       return { error: ajv.errorsText(ajv.errors) }
     }
-    const validateSchema = ajv.compile(jsonSchema)
+
+    const needsWrapping = !isObjectRootSchema(jsonSchema)
+    const effectiveSchema = needsWrapping
+      ? wrapNonObjectSchema(jsonSchema)
+      : jsonSchema
+    const validateSchema = ajv.compile(effectiveSchema)
 
     return {
       tool: {
         ...SyntheticOutputTool,
-        inputJSONSchema: jsonSchema as ToolInputJSONSchema,
+        inputJSONSchema: effectiveSchema as ToolInputJSONSchema,
         async call(input) {
           const isValid = validateSchema(input)
           if (!isValid) {
@@ -150,9 +182,15 @@ function buildSyntheticOutputTool(
               `StructuredOutput schema mismatch: ${(errors ?? '').slice(0, 150)}`,
             )
           }
+          // Unwrap the synthetic `{result: ...}` envelope before surfacing so
+          // the CLI emits the array (or whatever non-object shape) the user
+          // actually asked for.
+          const structured = needsWrapping
+            ? (input as Record<string, unknown>)[WRAPPED_FIELD]
+            : input
           return {
             data: 'Structured output provided successfully',
-            structured_output: input,
+            structured_output: structured,
           }
         },
       },

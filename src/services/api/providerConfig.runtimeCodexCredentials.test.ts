@@ -1,12 +1,24 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { resolveRuntimeCodexCredentials } from './providerConfig.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('services/api/providerConfig.runtimeCodexCredentials.test.ts')
+})
 
 afterEach(() => {
-  mock.restore()
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 function makeJwt(payload: Record<string, unknown>): string {

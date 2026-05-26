@@ -1,9 +1,13 @@
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { setInlinePlugins } from '../../bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
 import {
   clearPluginCache,
@@ -14,10 +18,18 @@ import {
 } from './pluginLoader.js'
 import { clearPluginSkillsCache, getPluginSkills } from './loadPluginCommands.js'
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/plugins/pluginLoader.test.ts')
+})
+
 afterEach(() => {
-  setInlinePlugins([])
-  clearPluginCache('pluginLoader.test cleanup')
-  clearPluginSkillsCache()
+  try {
+    setInlinePlugins([])
+    clearPluginCache('pluginLoader.test cleanup')
+    clearPluginSkillsCache()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 function marketplacePlugin(

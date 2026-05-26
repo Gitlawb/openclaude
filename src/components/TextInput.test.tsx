@@ -74,6 +74,24 @@ function createTestStreams(): {
   }
 }
 
+async function waitForOutput(
+  getOutput: () => string,
+  predicate: (output: string) => boolean,
+  timeoutMs = 2500,
+): Promise<string> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const output = stripAnsi(extractLastFrame(getOutput()))
+    if (predicate(output)) {
+      return output
+    }
+    await Bun.sleep(10)
+  }
+
+  throw new Error('Timed out waiting for TextInput test output')
+}
+
 function DelayedControlledTextInput(): React.ReactNode {
   const [value, setValue] = React.useState('')
   const [cursorOffset, setCursorOffset] = React.useState(0)
@@ -183,18 +201,18 @@ test('TextInput renders typed characters before delayed parent value commits', a
 
   root.render(<DelayedControlledTextInput />)
 
-  await Bun.sleep(50)
+  await waitForOutput(getOutput, output => output.includes('Type here...'))
   stdin.write('a')
-  await Bun.sleep(25)
   stdin.write('b')
-  await Bun.sleep(25)
 
-  const output = stripAnsi(extractLastFrame(getOutput()))
+  const output = await waitForOutput(
+    getOutput,
+    frame => frame.includes('ab') && !frame.includes('Type here...'),
+  )
 
   root.unmount()
   stdin.end()
   stdout.end()
-  await Bun.sleep(25)
 
   expect(output).toContain('ab')
   expect(output).not.toContain('Type here...')
@@ -217,22 +235,20 @@ test('VimTextInput preserves rapid typed characters before delayed parent value 
 
   root.render(<DelayedControlledVimTextInput />)
 
-  await Bun.sleep(50)
+  await waitForOutput(getOutput, output => output.includes('Type here...'))
   stdin.write('a')
-  await Bun.sleep(25)
   stdin.write('s')
-  await Bun.sleep(25)
   stdin.write('d')
-  await Bun.sleep(25)
   stdin.write('f')
-  await Bun.sleep(25)
 
-  const output = stripAnsi(extractLastFrame(getOutput()))
+  const output = await waitForOutput(
+    getOutput,
+    frame => frame.includes('asdf') && !frame.includes('Type here...'),
+  )
 
   root.unmount()
   stdin.end()
   stdout.end()
-  await Bun.sleep(25)
 
   expect(output).toContain('asdf')
   expect(output).not.toContain('Type here...')

@@ -1,4 +1,26 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+
+const originalSimple = process.env.CLAUDE_CODE_SIMPLE
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/githubModelsCredentials.test.ts')
+})
+
+afterEach(() => {
+  try {
+    if (originalSimple === undefined) {
+      delete process.env.CLAUDE_CODE_SIMPLE
+    } else {
+      process.env.CLAUDE_CODE_SIMPLE = originalSimple
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 describe('readGithubModelsToken', () => {
   test('returns undefined in bare mode', async () => {
@@ -6,14 +28,8 @@ describe('readGithubModelsToken', () => {
       './githubModelsCredentials.js?read-bare-mode'
     )
 
-    const prev = process.env.CLAUDE_CODE_SIMPLE
     process.env.CLAUDE_CODE_SIMPLE = '1'
     expect(readGithubModelsToken()).toBeUndefined()
-    if (prev === undefined) {
-      delete process.env.CLAUDE_CODE_SIMPLE
-    } else {
-      process.env.CLAUDE_CODE_SIMPLE = prev
-    }
   })
 })
 
@@ -23,16 +39,10 @@ describe('saveGithubModelsToken / clearGithubModelsToken', () => {
       './githubModelsCredentials.js?save-bare-mode'
     )
 
-    const prev = process.env.CLAUDE_CODE_SIMPLE
     process.env.CLAUDE_CODE_SIMPLE = '1'
     const r = saveGithubModelsToken('abc')
     expect(r.success).toBe(false)
     expect(r.warning).toContain('Bare mode')
-    if (prev === undefined) {
-      delete process.env.CLAUDE_CODE_SIMPLE
-    } else {
-      process.env.CLAUDE_CODE_SIMPLE = prev
-    }
   })
 
   test('clear succeeds in bare mode', async () => {
@@ -40,14 +50,8 @@ describe('saveGithubModelsToken / clearGithubModelsToken', () => {
       './githubModelsCredentials.js?clear-bare-mode'
     )
 
-    const prev = process.env.CLAUDE_CODE_SIMPLE
     process.env.CLAUDE_CODE_SIMPLE = '1'
     expect(clearGithubModelsToken().success).toBe(true)
-    if (prev === undefined) {
-      delete process.env.CLAUDE_CODE_SIMPLE
-    } else {
-      process.env.CLAUDE_CODE_SIMPLE = prev
-    }
   })
 })
 

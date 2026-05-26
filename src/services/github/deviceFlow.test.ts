@@ -1,4 +1,8 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 import {
   DEFAULT_GITHUB_DEVICE_SCOPE,
@@ -12,8 +16,16 @@ async function importFreshModule() {
   return import(`./deviceFlow.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('services/github/deviceFlow.test.ts')
+})
+
 afterEach(() => {
-  mock.restore()
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('requestDeviceCode', () => {

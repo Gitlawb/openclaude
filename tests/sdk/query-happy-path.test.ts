@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { MockQueryEngine } from './helpers/mock-engine.js'
 import { query } from '../../src/entrypoints/sdk/index.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 
 // ---------------------------------------------------------------------------
 // No mock.module() — avoids module-cache leakage across test files.
@@ -12,7 +16,8 @@ import { query } from '../../src/entrypoints/sdk/index.js'
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
-beforeAll(() => {
+beforeAll(async () => {
+  await acquireSharedMutationLock('tests/sdk/query-happy-path.test.ts')
   savedApiKey = process.env[AUTH_KEY]
   if (!savedApiKey) {
     process.env[AUTH_KEY] = 'sk-test-happy-path-stub'
@@ -20,10 +25,14 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  if (savedApiKey === undefined) {
-    delete process.env[AUTH_KEY]
-  } else {
-    process.env[AUTH_KEY] = savedApiKey
+  try {
+    if (savedApiKey === undefined) {
+      delete process.env[AUTH_KEY]
+    } else {
+      process.env[AUTH_KEY] = savedApiKey
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

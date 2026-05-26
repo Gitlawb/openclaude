@@ -259,8 +259,51 @@ export class SQLiteProvider {
     }
   }
 
+  public clear(): boolean {
+    if (!this.db) {
+      if (!existsSync(this.dbPath)) {
+        return true
+      }
+
+      if (typeof Bun === 'undefined') {
+        return false
+      }
+
+      try {
+        const { Database } = require('bun:sqlite')
+        this.db = new Database(this.dbPath)
+        this.db.exec('PRAGMA journal_mode = WAL;')
+        this.db.exec('PRAGMA foreign_keys = ON;')
+        this.createTables()
+        return this.clear()
+      } catch (e) {
+        console.error('Failed to open SQLite knowledge graph for clearing:', e)
+        return false
+      } finally {
+        this.close()
+      }
+    }
+
+    try {
+      this.db.transaction(() => {
+        this.db!.exec('DELETE FROM relations')
+        this.db!.exec('DELETE FROM entities')
+        this.db!.exec('DELETE FROM summaries')
+        this.db!.exec('DELETE FROM rules')
+        this.db!.exec('DELETE FROM sync_meta')
+      })()
+      return true
+    } catch (e) {
+      console.error('Failed to clear SQLite knowledge graph:', e)
+      return false
+    }
+  }
+
   public close(): void {
     if (this.db) {
+      try {
+        this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);')
+      } catch {}
       try {
         this.db.close()
       } catch {}

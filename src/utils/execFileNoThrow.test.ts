@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -55,11 +55,15 @@ test('execFileNoThrowWithCwd preserves Windows .cmd compatibility', async () => 
   const { execFileNoThrowWithCwd } = await importFreshExecFileNoThrowModule()
 
   const dir = mkdtempSync(join(tmpdir(), 'openclaude-execfile-'))
-  const file = join(dir, 'hello.cmd')
-  writeFileSync(file, '@echo off\r\necho hello\r\n')
+  try {
+    const file = join(dir, 'hello.cmd')
+    writeFileSync(file, '@echo off\r\necho hello\r\n')
 
-  const result = await execFileNoThrowWithCwd(file, [])
+    const result = await execFileNoThrowWithCwd(file, [])
 
-  expect(result.code).toBe(0)
-  expect(result.stdout).toContain('hello')
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('hello')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

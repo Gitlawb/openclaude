@@ -11,6 +11,10 @@ import {
   setOriginalCwd,
   getParentSessionId,
 } from '../../src/bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 import type { SessionId } from '../../src/entrypoints/agentSdkTypes.js'
 
 // Snapshot global state before each test so we can restore it
@@ -20,7 +24,8 @@ let originalOriginalCwd: string
 let originalSessionProjectDir: string | null
 
 describe('SDK context isolation', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('sdk-context-isolation')
     originalSessionId = getSessionId()
     originalCwd = getCwdState()
     originalOriginalCwd = getOriginalCwd()
@@ -28,10 +33,14 @@ describe('SDK context isolation', () => {
   })
 
   afterEach(() => {
-    // Restore global state after each test
-    switchSession(originalSessionId, originalSessionProjectDir)
-    setCwdState(originalCwd)
-    setOriginalCwd(originalOriginalCwd)
+    try {
+      // Restore global state after each test
+      switchSession(originalSessionId, originalSessionProjectDir)
+      setCwdState(originalCwd)
+      setOriginalCwd(originalOriginalCwd)
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   describe('setCwdState', () => {

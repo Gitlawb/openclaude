@@ -34,8 +34,8 @@ function getBenchmarkEndpoint(): string | null {
   if (provider === 'openai' || provider === 'firstParty') {
     return `${baseUrl || 'https://api.openai.com/v1'}/chat/completions`
   }
-  // NVIDIA NIM or MiniMax via OPENAI_BASE_URL
-  if (baseUrl?.includes('nvidia') || baseUrl?.includes('minimax')) {
+  // NVIDIA NIM via OPENAI_BASE_URL
+  if (baseUrl?.includes('nvidia')) {
     return `${baseUrl}/chat/completions`
   }
   return null

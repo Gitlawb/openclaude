@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 // Mock the Anthropic-API-side before importing the module under test, so
 // queryHaiku resolves into whatever the individual test wants (slow, failing,
@@ -7,6 +11,7 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 const haikuMock = mock()
 
 beforeEach(async () => {
+  await acquireSharedMutationLock('tools/WebFetchTool/applyPromptFallback.test.ts')
   haikuMock.mockReset()
   const actual = await import('../../services/api/claude.js')
   mock.module('../../services/api/claude.js', () => ({
@@ -16,7 +21,11 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
-  mock.restore()
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function runApply(markdown = 'Hello world.', signal?: AbortSignal): Promise<string> {

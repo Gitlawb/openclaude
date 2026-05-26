@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 type TestGlobalConfig = {
   officialMarketplaceAutoInstallAttempted?: boolean
@@ -32,6 +36,8 @@ const addMarketplaceSource = mock(async () => ({
   resolvedSource: {},
 }))
 
+await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
+
 mock.module('../../services/analytics/growthbook.js', () => ({
   getFeatureValue_CACHED_MAY_BE_STALE: () => true,
 }))
@@ -41,8 +47,29 @@ mock.module('../../services/analytics/index.js', () => ({
 }))
 
 mock.module('../config.js', () => ({
+  checkHasTrustDialogAccepted: () => true,
+  enableConfigs: mock(() => {}),
+  getCurrentProjectConfig: () => ({}),
   getGlobalConfig: () => config,
+  getGlobalConfigWriteCount: () => 0,
+  getAutoUpdaterDisabledReason: () => null,
+  formatAutoUpdaterDisabledReason: () => 'enabled',
+  getManagedClaudeRulesDir: () => '/tmp/openclaude-managed-rules',
+  getMemoryPath: () => '/tmp/openclaude-memory.md',
+  getOrCreateUserID: () => 'test-user-id',
+  getProjectPathForConfig: () => '/tmp/openclaude-project-config.json',
+  getRemoteControlAtStartup: () => false,
+  getUserClaudeRulesDir: () => '/tmp/openclaude-user-rules',
+  isAutoUpdaterDisabled: () => false,
+  recordFirstStartTime: mock(() => {}),
+  getCustomApiKeyStatus: () => ({ hasCustomApiKey: false }),
+  isGlobalConfigKey: () => false,
+  isPathTrusted: () => true,
+  isProjectConfigKey: () => false,
+  resetTrustDialogAcceptedCacheForTesting: mock(() => {}),
+  shouldSkipPluginAutoupdate: () => false,
   saveGlobalConfig,
+  saveCurrentProjectConfig: mock(() => {}),
 }))
 
 mock.module('../debug.js', () => ({
@@ -64,8 +91,13 @@ mock.module('./marketplaceHelpers.js', () => ({
 
 mock.module('./marketplaceManager.js', () => ({
   addMarketplaceSource,
+  getMarketplace: async () => ({ plugins: [] }),
+  getMarketplaceCacheOnly: async () => ({ plugins: [] }),
   getMarketplacesCacheDir: () => '/tmp/openclaude-marketplaces',
+  getPluginById: async () => undefined,
+  getPluginByIdCacheOnly: async () => undefined,
   loadKnownMarketplacesConfig: async () => knownMarketplaces,
+  loadKnownMarketplacesConfigSafe: async () => knownMarketplaces,
   saveKnownMarketplacesConfig,
 }))
 
@@ -73,9 +105,19 @@ mock.module('./officialMarketplaceGcs.js', () => ({
   fetchOfficialMarketplaceFromGcs,
 }))
 
-const { checkAndInstallOfficialMarketplace } = await import(
-  './officialMarketplaceStartupCheck.js'
-)
+let checkAndInstallOfficialMarketplace:
+  typeof import('./officialMarketplaceStartupCheck.js').checkAndInstallOfficialMarketplace
+
+const mod = await import('./officialMarketplaceStartupCheck.js')
+checkAndInstallOfficialMarketplace = mod.checkAndInstallOfficialMarketplace
+
+afterAll(() => {
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 beforeEach(() => {
   config = {}

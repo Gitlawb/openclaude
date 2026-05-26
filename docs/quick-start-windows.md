@@ -103,6 +103,23 @@ Close PowerShell, open a new one, and try again:
 openclaude
 ```
 
+If PowerShell still says `openclaude` is not recognized, npm's global bin
+folder may be missing from your user `Path`. Add it, then open a new
+PowerShell window:
+
+```powershell
+$npmPrefix = npm config get prefix
+$currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+if (($currentUserPath -split ';') -notcontains $npmPrefix) {
+    [Environment]::SetEnvironmentVariable(
+        "Path",
+        "$currentUserPath;$npmPrefix",
+        "User"
+    )
+}
+```
+
 ## 5. If Your Provider Fails
 
 Check the basics:

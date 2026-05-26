@@ -1,4 +1,8 @@
-import { beforeEach, expect, test, describe } from 'bun:test'
+import { afterEach, beforeEach, expect, test, describe } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import {
   _setHistoryCapForTesting,
   getCacheStatsHistory,
@@ -21,9 +25,19 @@ function makeMetrics(partial: Partial<CacheMetrics>): CacheMetrics {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('services/api/cacheStatsTracker.test.ts')
   resetSessionCacheStats()
   _setHistoryCapForTesting(500)
+})
+
+afterEach(() => {
+  try {
+    resetSessionCacheStats()
+    _setHistoryCapForTesting(500)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('cacheStatsTracker — aggregation', () => {

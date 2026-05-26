@@ -10,13 +10,18 @@ import {
   createMultiTurnConversation,
   UUID_REGEX,
 } from './helpers/query-test-doubles.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 
 // Tests that drain fully (no early interrupt) trigger init(), which checks
 // for auth credentials. Provide a stub key so init() succeeds without network.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
-beforeAll(() => {
+beforeAll(async () => {
+  await acquireSharedMutationLock('tests/sdk/query-lifecycle.test.ts')
   savedApiKey = process.env[AUTH_KEY]
   if (!savedApiKey) {
     process.env[AUTH_KEY] = 'sk-test-lifecycle-stub'
@@ -24,10 +29,14 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  if (savedApiKey === undefined) {
-    delete process.env[AUTH_KEY]
-  } else {
-    process.env[AUTH_KEY] = savedApiKey
+  try {
+    if (savedApiKey === undefined) {
+      delete process.env[AUTH_KEY]
+    } else {
+      process.env[AUTH_KEY] = savedApiKey
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

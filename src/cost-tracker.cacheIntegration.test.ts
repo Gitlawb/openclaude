@@ -14,12 +14,16 @@
  * rather than mocking the tracker module. Fewer moving parts, and the
  * test fails for the right reason if anyone breaks the wrapping.
  */
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { addToTotalSessionCost, resetCostState } from './cost-tracker.js'
 import {
   getCurrentTurnCacheMetrics,
   getSessionCacheMetrics,
 } from './services/api/cacheStatsTracker.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from './test/sharedMutationLock.js'
 
 // BetaUsage-compatible shape — minimum fields addToTotalSessionCost
 // needs to run without throwing. Cache fields are the ones we care
@@ -40,10 +44,19 @@ function anthropicUsage(partial: {
   } as Parameters<typeof addToTotalSessionCost>[1]
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('cost-tracker.cacheIntegration.test.ts')
   // resetCostState is the wrapped version that ALSO clears the cache
   // tracker — this line is itself part of what we're verifying.
   resetCostState()
+})
+
+afterEach(() => {
+  try {
+    resetCostState()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('addToTotalSessionCost → cacheStatsTracker wiring', () => {

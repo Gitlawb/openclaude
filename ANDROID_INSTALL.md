@@ -62,7 +62,7 @@ This downloads ~200–400MB. Wait for it to complete.
 proot-distro login ubuntu
 curl -fsSL https://bun.sh/install | bash
 source ~/.bashrc
-bun --version  # should show 1.3.11+
+bun --version  # should show 1.3.13+
 ```
 
 ### Step 6 — Build OpenClaude

@@ -204,7 +204,7 @@ export function useManageMCPConnections(
   // in a single setAppState call via setTimeout. Using a time-based window
   // (instead of queueMicrotask) ensures updates are batched even when
   // connection callbacks arrive at different times due to network I/O.
-  const MCP_BATCH_FLUSH_MS = 16
+  const MCP_BATCH_FLUSH_MS = 100
   type PendingUpdate = MCPServerConnection & {
     tools?: Tool[]
     commands?: Command[]
@@ -1008,7 +1008,17 @@ export function useManageMCPConnections(
       })
     }
 
-    void loadAndConnectMcpConfigs()
+    // Defer MCP connections by one event-loop tick to ensure Ink's stdin
+    // raw-mode setup (handleSetRawMode in App.tsx) has fully committed
+    // before any async MCP callback can trigger a re-render. Mitigates the
+    // race described in issue #603 where rapid mount/unmount during early
+    // MCP state updates could corrupt rawModeEnabledCount or deregister
+    // stdin listeners before they were fully attached.
+    setTimeout(() => {
+      if (!cancelled) {
+        void loadAndConnectMcpConfigs()
+      }
+    }, 0)
 
     return () => {
       cancelled = true

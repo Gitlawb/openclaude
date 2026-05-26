@@ -4129,6 +4129,24 @@ async function run(): Promise<CommanderCommand> {
     await authLogout();
   });
 
+  const xaiAuth = auth.command('xai').description('Sign in to xAI (Grok) with browser OAuth or device code').configureHelp(createSortedHelpConfig());
+  xaiAuth.command('login').description('Browser OAuth sign-in for an xAI account').action(async () => {
+    const { xaiLogin } = await import('./cli/handlers/xaiAuth.js');
+    await xaiLogin({ flow: 'browser' });
+  });
+  xaiAuth.command('device').description('Device-code sign-in for remote hosts (no localhost callback needed)').action(async () => {
+    const { xaiLogin } = await import('./cli/handlers/xaiAuth.js');
+    await xaiLogin({ flow: 'device-code' });
+  });
+  xaiAuth.command('logout').description('Clear stored xAI OAuth credentials').action(async () => {
+    const { xaiLogout } = await import('./cli/handlers/xaiAuth.js');
+    await xaiLogout();
+  });
+  xaiAuth.command('status').description('Show xAI OAuth credential status').action(async () => {
+    const { xaiStatus } = await import('./cli/handlers/xaiAuth.js');
+    await xaiStatus();
+  });
+
   /**
    * Helper function to handle marketplace command errors consistently.
    * Logs the error and exits the process with status 1.
