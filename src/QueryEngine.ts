@@ -63,7 +63,11 @@ import {
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
 import { registerStructuredOutputEnforcement } from './utils/hooks/hookHelpers.js'
 import { getInMemoryErrors } from './utils/log.js'
-import { countToolCalls, SYNTHETIC_MESSAGES } from './utils/messages.js'
+import {
+  countToolCalls,
+  isCompactBoundaryMessage,
+  SYNTHETIC_MESSAGES,
+} from './utils/messages.js'
 import {
   getMainLoopModel,
   parseUserSpecifiedModel,
@@ -429,6 +433,9 @@ export class QueryEngine {
 
     // Push new messages, including user input and any attachments
     this.mutableMessages.push(...messagesFromUserInput)
+    if (messagesFromUserInput.some(isCompactBoundaryMessage)) {
+      this.autoCompactTracking = undefined
+    }
 
     // Update params to reflect updates from processing /slash commands
     const messages = [...this.mutableMessages]

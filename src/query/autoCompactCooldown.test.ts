@@ -277,3 +277,63 @@ test('post-compact turn tracking callback publishes a fresh object', async () =>
   expect(trackingUpdates[0]?.turnCounter).toBe(1)
   expect(initialTracking.turnCounter).toBe(0)
 })
+
+test('breaker metadata tracking callback publishes a fresh object', async () => {
+  const initialTracking: AutoCompactTrackingState = {
+    compacted: false,
+    turnId: 'turn',
+    turnCounter: 0,
+    consecutiveFailures: 2,
+    nextRetryAtMs: 10_000,
+    lastFailureAtMs: 5_000,
+  }
+  const trackingUpdates: AutoCompactTrackingState[] = []
+  const deps = {
+    callModel: mock(() => {
+      throw new Error('model should not be called while autocompact cools down')
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      nextRetryAtMs: 20_000,
+      lastFailureAtMs: 15_000,
+      circuitBreakerActive: true,
+      circuitBreakerTripped: true,
+    })),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { terminal } = await drain(
+    query({
+      messages: [userMessage('x'.repeat(100_000))],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      deps,
+      autoCompactTracking: initialTracking,
+      onAutoCompactTrackingChange: tracking => {
+        if (tracking) {
+          trackingUpdates.push(tracking)
+        }
+      },
+    }),
+  )
+
+  expect(terminal.reason).toBe('blocking_limit')
+  expect(trackingUpdates).toHaveLength(1)
+  expect(trackingUpdates[0]).not.toBe(initialTracking)
+  expect(trackingUpdates[0]?.consecutiveFailures).toBe(
+    MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+  )
+  expect(trackingUpdates[0]?.nextRetryAtMs).toBe(20_000)
+  expect(trackingUpdates[0]?.lastFailureAtMs).toBe(15_000)
+  expect(initialTracking.consecutiveFailures).toBe(2)
+  expect(initialTracking.nextRetryAtMs).toBe(10_000)
+  expect(initialTracking.lastFailureAtMs).toBe(5_000)
+})

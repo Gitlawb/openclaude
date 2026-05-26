@@ -97,7 +97,7 @@ export function getAutoCompactFailureCooldownMs(): number {
 export function resolveAutoCompactCircuitBreakerState(args: {
   tracking?: Pick<
     AutoCompactTrackingState,
-    'consecutiveFailures' | 'nextRetryAtMs'
+    'consecutiveFailures' | 'nextRetryAtMs' | 'lastFailureAtMs'
   >
   nowMs: number
   cooldownMs: number
@@ -113,7 +113,7 @@ export function resolveAutoCompactCircuitBreakerState(args: {
       nextRetryAtMs: number
       circuitBreakerActive: true
     } {
-  const { tracking, nowMs } = args
+  const { tracking, nowMs, cooldownMs } = args
   const consecutiveFailures = Math.max(0, tracking?.consecutiveFailures ?? 0)
   if (consecutiveFailures < MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES) {
     return {
@@ -123,7 +123,16 @@ export function resolveAutoCompactCircuitBreakerState(args: {
     }
   }
 
-  const nextRetryAtMs = tracking?.nextRetryAtMs
+  let nextRetryAtMs = tracking?.nextRetryAtMs
+  if (
+    (typeof nextRetryAtMs !== 'number' ||
+      !Number.isFinite(nextRetryAtMs)) &&
+    typeof tracking?.lastFailureAtMs === 'number' &&
+    Number.isFinite(tracking.lastFailureAtMs) &&
+    Number.isFinite(cooldownMs)
+  ) {
+    nextRetryAtMs = tracking.lastFailureAtMs + cooldownMs
+  }
   if (
     typeof nextRetryAtMs === 'number' &&
     Number.isFinite(nextRetryAtMs) &&
