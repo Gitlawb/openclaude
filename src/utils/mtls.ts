@@ -152,6 +152,35 @@ export function getTLSFetchOptions(): {
 }
 
 /**
+ * Get the raw TLS connect options (cert, key, passphrase, ca) without
+ * building a full undici Agent. This lets callers (e.g. a scoped DNS
+ * dispatcher) bake TLS options into their own agent rather than having
+ * to juggle two separate dispatchers.
+ *
+ * Returns `undefined` when no mTLS/CA configuration is present.
+ */
+export function getTLSConnectOptions():
+  | {
+      cert?: string
+      key?: string
+      passphrase?: string
+      ca?: string | string[] | Buffer
+    }
+  | undefined {
+  const mtlsConfig = getMTLSConfig()
+  const caCerts = getCACertificates()
+
+  if (!mtlsConfig && !caCerts) {
+    return undefined
+  }
+
+  return {
+    ...mtlsConfig,
+    ...(caCerts && { ca: caCerts }),
+  }
+}
+
+/**
  * Clear the mTLS configuration cache.
  */
 export function clearMTLSCache(): void {

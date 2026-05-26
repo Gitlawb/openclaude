@@ -254,21 +254,31 @@ function sleepMs(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 
 import type * as undici from 'undici'
+import { getTLSConnectOptions } from '../../utils/mtls.js'
 
+// Cache key combines dnsResultOrder + a stable hash of TLS options so that
+// a change in TLS config (e.g. in tests) produces a fresh agent.
 const dnsDispatcherCache = new Map<string, undici.Dispatcher>()
 
 /**
  * Returns a cached undici dispatcher that forces the declared DNS result
- * order for its connections. Returns `undefined` when no custom DNS
- * behaviour is needed so callers can pass it through to fetchWithProxyRetry
- * (which ignores `undefined` dispatchers).
+ * order for its connections and, when TLS connect options are present,
+ * bakes them into the same agent so IPv4-first DNS and mTLS/custom CA
+ * both apply to the same request.
+ *
+ * Returns `undefined` when no custom DNS behaviour is needed.
  */
 function getDnsDispatcher(
   dnsResultOrder: 'ipv4first' | 'verbatim' | undefined,
 ): undici.Dispatcher | undefined {
   if (!dnsResultOrder) return undefined
 
-  const cached = dnsDispatcherCache.get(dnsResultOrder)
+  const tlsOpts = getTLSConnectOptions()
+  // Include a TLS sentinel in the cache key so a TLS-enabled agent is not
+  // returned to a caller that does not need TLS (and vice-versa).
+  const cacheKey = tlsOpts ? `${dnsResultOrder}+tls` : dnsResultOrder
+
+  const cached = dnsDispatcherCache.get(cacheKey)
   if (cached) return cached
 
   try {
@@ -280,13 +290,19 @@ function getDnsDispatcher(
 
     const agent = new undiciMod.Agent({
       connect: {
+        // Merge TLS options (cert/key/ca) so that mTLS and IPv4-first DNS
+        // both apply through this single agent. Without this, a TLS-only
+        // dispatcher returned by getProxyFetchOptions() would shadow the
+        // scoped DNS dispatcher in fetchWithProxyRetry, silently dropping
+        // the IPv4 preference for enterprise TLS users.
+        ...tlsOpts,
         lookup: (hostname, options, callback) => {
           dns.lookup(hostname, { ...options, family }, callback)
         },
       },
     })
 
-    dnsDispatcherCache.set(dnsResultOrder, agent)
+    dnsDispatcherCache.set(cacheKey, agent)
     return agent
   } catch {
     // undici or dns not available (e.g. Bun) — fall back to default behaviour
@@ -2743,6 +2759,9 @@ class OpenAIShimMessages {
     // This avoids mutating the global dns.setDefaultResultOrder, keeping DNS
     // behaviour scoped to requests routed through this specific gateway.
     // Cached per dnsResultOrder value so the Agent is reused across requests.
+    // getDnsDispatcher merges any active TLS connect options (mTLS / custom CA)
+    // into the same undici Agent so both IPv4-first DNS and enterprise TLS
+    // apply to the same connection rather than one silently shadowing the other.
     const scopedDnsDispatcher = getDnsDispatcher(shimConfig.dnsResultOrder)
 
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
