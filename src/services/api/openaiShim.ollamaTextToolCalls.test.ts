@@ -214,6 +214,110 @@ describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', 
   })
 })
 
+describe('Ollama streaming — plain text response with no tool calls', () => {
+  beforeEach(() => {
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  })
+  afterEach(() => {
+    delete process.env.OLLAMA_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_BASE_URL
+  })
+
+  test('plain text in two chunks (content then stop) is emitted as text_delta', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('Hello from Ollama.'),
+          ollamaChunk('', 'stop'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+
+    expect(allText).toBe('Hello from Ollama.')
+    expect(events.filter(e => e.type === 'content_block_start' && (e.content_block as Record<string, string>)?.type === 'tool_use')).toHaveLength(0)
+    expect(events.some(e => e.type === 'message_stop')).toBe(true)
+  })
+
+  test('plain text in single chunk (content + stop) is emitted as text_delta', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([ollamaChunk('Hello from Ollama.', 'stop')]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+
+    expect(allText).toBe('Hello from Ollama.')
+  })
+
+  test('multi-chunk plain text (no tool calls) assembles correctly', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('Hello '),
+          ollamaChunk('from '),
+          ollamaChunk('Ollama.'),
+          ollamaChunk('', 'stop'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+
+    expect(allText).toBe('Hello from Ollama.')
+  })
+})
+
 describe('Ollama streaming — visible text before real structured tool_calls (P2)', () => {
   beforeEach(() => {
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'

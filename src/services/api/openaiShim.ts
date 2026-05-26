@@ -1898,7 +1898,18 @@ async function* openaiStreamToAnthropic(
                 yield { type: 'content_block_stop', index: toolBlockIndex }
               }
               choice.finish_reason = 'tool_calls'
-            } else if (ollamaTextBuffer && hasEmittedContentStart) {
+            } else if (ollamaTextBuffer) {
+              // No tool calls — flush the buffered text before the normal close below.
+              // Open a text block first if one is not already open (guards the edge case
+              // where hasEmittedContentStart is false but the buffer has content).
+              if (!hasEmittedContentStart) {
+                yield {
+                  type: 'content_block_start',
+                  index: contentBlockIndex,
+                  content_block: { type: 'text', text: '' },
+                }
+                hasEmittedContentStart = true
+              }
               yield {
                 type: 'content_block_delta',
                 index: contentBlockIndex,
