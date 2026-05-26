@@ -17,3 +17,6 @@ package-lock.json
 coverage/
 agent.log
 plan/
+
+# openlore analysis artifacts
+.openlore/
