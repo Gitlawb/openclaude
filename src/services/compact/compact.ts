@@ -1229,6 +1229,8 @@ async function streamCompactSummary({
         // "Request was aborted." as the summary — the text doesn't start with
         // "API Error" so the caller's startsWithApiErrorPrefix guard misses it.
         if (assistantMsg && assistantText && !assistantMsg.isApiErrorMessage) {
+          // Forked agent completed — snap progress to 100%
+          context.onCompactProgress?.({ type: 'compact_progress', ratio: 1 })
           // Skip success logging for PTL error text — it's returned so the
           // caller's retry loop catches it, but it's not a successful summary.
           if (!assistantText.startsWith(PROMPT_TOO_LONG_ERROR_MESSAGE)) {
@@ -1274,6 +1276,15 @@ async function streamCompactSummary({
       false,
     )
     const maxAttempts = retryEnabled ? MAX_COMPACT_STREAMING_RETRIES : 1
+
+    // Estimate output target: summary is typically proportional to input but
+    // capped by COMPACT_MAX_OUTPUT_TOKENS. Use chars as unit (roughly 4 chars/token).
+    const estimatedOutputChars = Math.min(
+      preCompactTokenCount * 0.25,
+      COMPACT_MAX_OUTPUT_TOKENS * 4,
+    )
+    let totalCharsStreamed = 0
+    let lastEmittedRatio = 0
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // Reset state for retry
@@ -1367,7 +1378,15 @@ async function streamCompactSummary({
           event.event.delta.type === 'text_delta'
         ) {
           const charactersStreamed = event.event.delta.text.length
+          totalCharsStreamed += charactersStreamed
           context.setResponseLength?.(length => length + charactersStreamed)
+
+          // Emit progress tick — cap at 95% until we get the final message
+          const ratio = Math.min(0.95, totalCharsStreamed / Math.max(1, estimatedOutputChars))
+          if (ratio - lastEmittedRatio >= 0.02) {
+            lastEmittedRatio = ratio
+            context.onCompactProgress?.({ type: 'compact_progress', ratio })
+          }
         }
 
         if (event.type === 'assistant') {
@@ -1378,6 +1397,8 @@ async function streamCompactSummary({
       }
 
       if (response) {
+        // Streaming complete — snap progress to 100%
+        context.onCompactProgress?.({ type: 'compact_progress', ratio: 1 })
         return response
       }
 

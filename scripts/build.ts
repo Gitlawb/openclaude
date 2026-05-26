@@ -57,6 +57,7 @@ const featureFlags: Record<string, boolean> = {
   SHOT_STATS: true,                   // Shot distribution stats in session summary
   EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
   FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  RESUME_COMPACT_PROMPT: true,        // Prompt to compact on /resume + determinate progress bar
   VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
   PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
   HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts

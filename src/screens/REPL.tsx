@@ -21,6 +21,8 @@ import { Box, Text, useStdin, useTheme, useTerminalFocus, useTerminalTitle, useT
 import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
+import { ResumeCompactPrompt } from '../components/ResumeCompactPrompt.js';
+import { ProgressBar } from '../components/design-system/ProgressBar.js';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, useLayoutEffect, type RefObject } from 'react';
 import { useNotifications } from '../context/notifications.js';
@@ -1531,6 +1533,12 @@ export function REPL({
   const [spinnerMessage, setSpinnerMessage] = useState<string | null>(null);
   const [spinnerColor, setSpinnerColor] = useState<keyof Theme | null>(null);
   const [spinnerShimmerColor, setSpinnerShimmerColor] = useState<keyof Theme | null>(null);
+  const [compactProgressRatio, setCompactProgressRatio] = useState<number | null>(null);
+  const [resumeCompactPending, setResumeCompactPending] = useState<{
+    tokenCount: number;
+    model: string;
+    messages: Message[];
+  } | null>(null);
   const [isMessageSelectorVisible, setIsMessageSelectorVisible] = useState(false);
   const [messageSelectorPreselect, setMessageSelectorPreselect] = useState<UserMessage | undefined>(undefined);
   const [showCostDialog, setShowCostDialog] = useState(false);
@@ -1989,6 +1997,16 @@ export function REPL({
 
       // Clear input to ensure no residual state
       setInputValue('');
+
+      // Prompt to compact if the resumed session is large
+      if (feature('RESUME_COMPACT_PROMPT')) {
+        const { shouldPromptCompactOnResume } = await import('../services/compact/resumeCompactPrompt.js');
+        if (shouldPromptCompactOnResume(hydratedMessages, mainLoopModel, false)) {
+          const tokenCount = (await import('../utils/tokens.js')).tokenCountWithEstimation(hydratedMessages);
+          setResumeCompactPending({ tokenCount, model: mainLoopModel, messages: hydratedMessages });
+        }
+      }
+
       logEvent('tengu_session_resumed', {
         entrypoint: entrypoint as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         success: true,
@@ -2074,12 +2092,15 @@ export function REPL({
   // Permission and interactive dialogs can show even when toolJSX is set,
   // as long as shouldContinueAnimation is true. This prevents deadlocks when
   // agents set background hints while waiting for user interaction.
-  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | undefined {
+  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | 'resume-compact' | undefined {
     // Exit states always take precedence
     if (isExiting || exitFlow) return undefined;
 
     // High priority dialogs (always show regardless of typing)
     if (isMessageSelectorVisible) return 'message-selector';
+
+    // Resume compact prompt — shown after resuming a large session
+    if (resumeCompactPending) return 'resume-compact';
 
     const allowDialogsWithAnimation = !toolJSX || !!toolJSX.shouldContinueAnimation;
     const criticalDialog = resolveCriticalInputDialog({
@@ -2547,7 +2568,11 @@ export function REPL({
           case 'compact_start':
             setSpinnerMessage('Compacting conversation');
             break;
+          case 'compact_progress':
+            setCompactProgressRatio(event.ratio);
+            break;
           case 'compact_end':
+            setCompactProgressRatio(null);
             setSpinnerMessage(null);
             setSpinnerColor(null);
             setSpinnerShimmerColor(null);
@@ -4589,6 +4614,12 @@ export function REPL({
             `✓ Done` for ~1.5s. Suppressed wherever another element owns the
             row or the user's attention. */}
         <CompletionFlash turnActive={isLoading || userInputOnProcessing !== undefined} suppressed={isBriefOnly || hasRunningTeammates || hasActivePrompt || viewedAgentTask !== undefined} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} />
+        {compactProgressRatio !== null && feature('RESUME_COMPACT_PROMPT') && <Box flexDirection="row" paddingLeft={1} gap={1}>
+          <Text color="claudeBlue">
+            <ProgressBar ratio={compactProgressRatio} width={30} fillColor="claudeBlue" emptyColor="border" />
+          </Text>
+          <Text dimColor>{Math.round(compactProgressRatio * 100)}%</Text>
+        </Box>}
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
       </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
@@ -4807,6 +4838,22 @@ export function REPL({
               clearBuffer: () => { },
               resetHistory: () => { }
             });
+          }} />}
+          {focusedInputDialog === 'resume-compact' && resumeCompactPending && <ResumeCompactPrompt tokenCount={resumeCompactPending.tokenCount} model={resumeCompactPending.model} onDone={async choice => {
+            const pending = resumeCompactPending;
+            setResumeCompactPending(null);
+            logEvent('tengu_resume_compact_prompt', {
+              action: (choice === 'yes' ? 'accept' : 'decline') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+              tokenCount: pending.tokenCount,
+            });
+            if (choice === 'yes') {
+              skipIdleCheckRef.current = true;
+              void onSubmitRef.current('/compact', {
+                setCursorOffset: () => {},
+                clearBuffer: () => {},
+                resetHistory: () => {}
+              });
+            }
           }} />}
           {focusedInputDialog === 'ide-onboarding' && <IdeOnboardingDialog onDone={() => setShowIdeOnboarding(false)} installationStatus={ideInstallationStatus} />}
           {focusedInputDialog === 'effort-callout' && <EffortCallout model={mainLoopModel} onDone={selection => {

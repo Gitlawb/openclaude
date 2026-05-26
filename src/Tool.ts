@@ -154,6 +154,7 @@ export type CompactProgressEvent =
     }
   | { type: 'compact_start' }
   | { type: 'compact_end' }
+  | { type: 'compact_progress'; ratio: number }
 
 export type ToolUseContext = {
   options: {
