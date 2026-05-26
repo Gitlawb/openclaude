@@ -47,7 +47,11 @@ import {
   checkSonnet1mAccess,
 } from '../../utils/model/check1mAccess.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
-import { buildRouteCatalogModelOptions, mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
+import {
+  buildRouteCatalogModelOptions,
+  mergeProfileConfiguredModels,
+  mergeRouteCatalogEntries,
+} from '../../utils/model/routeCatalogOptions.js'
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
   getDefaultMainLoopModelSetting,
@@ -174,7 +178,12 @@ async function loadDescriptorDiscoveryContext(
   const routeLabel = descriptor.label
   const routeDefaultModel =
     'defaultModel' in descriptor ? descriptor.defaultModel : undefined
-  const staticEntries = catalog.models ?? []
+  const activeProfile = getActiveProviderProfile()
+  const profileModelField = activeProfile?.model
+  const staticEntries = mergeProfileConfiguredModels(
+    catalog.models ?? [],
+    profileModelField,
+  )
   const trafficRestricted = isEssentialTrafficOnly()
   const canRefresh = Boolean(
     catalog.discovery && catalog.allowManualRefresh && !trafficRestricted,
@@ -463,7 +472,10 @@ function ModelPickerWrapper({
 
       const nextOptions = buildRouteCatalogModelOptions(
         discoveryContext.routeLabel,
-        result?.models ?? [],
+        mergeProfileConfiguredModels(
+          result?.models ?? [],
+          getActiveProviderProfile()?.model,
+        ),
         discoveryContext.routeDefaultModel,
       )
       const changed = !haveSameModelOptions(optionsOverride ?? [], nextOptions)
@@ -736,7 +748,10 @@ async function refreshModelsAndSummarize(): Promise<string> {
     })
     const nextOptions = buildRouteCatalogModelOptions(
       discoveryContext.routeLabel,
-      result?.models ?? [],
+      mergeProfileConfiguredModels(
+        result?.models ?? [],
+        getActiveProviderProfile()?.model,
+      ),
       discoveryContext.routeDefaultModel,
     )
     const changed = !haveSameModelOptions(
