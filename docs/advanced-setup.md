@@ -108,9 +108,8 @@ export CLAUDE_CODE_USE_VERTEX=1
 export ANTHROPIC_VERTEX_PROJECT_ID=my-gcp-project
 export GOOGLE_CLOUD_PROJECT=my-gcp-project
 export CLOUD_ML_REGION=us-east5
-export ANTHROPIC_MODEL=claude-sonnet-4-6
 
-openclaude
+openclaude --model claude-sonnet-4-6
 ```
 
 `CLOUD_ML_REGION` is optional and defaults to `us-east5`. Model-specific
@@ -252,9 +251,10 @@ export OPENAI_MODEL=gpt-4o
 | `OPENCLAUDE_DISABLE_CO_AUTHORED_BY` | No | Suppress the default `Co-Authored-By` trailer in generated git commits |
 | `OPENCLAUDE_LOG_TOKEN_USAGE` | No | When truthy (e.g. `verbose`), emits one JSON line on stderr per API request with input/output/cache tokens and the resolved provider. **User-facing debug output** — complements the REPL display controlled by `/config showCacheStats`. Distinct from `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, which is **model-facing** (injects context usage info into the prompt itself). Both can run together. |
 
-Model env vars are provider-scoped: Anthropic-native sessions read
+Model env vars are provider-scoped: first-party Anthropic sessions read
 `ANTHROPIC_MODEL`, OpenAI-compatible sessions read `OPENAI_MODEL`, Gemini reads
-`GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`.
+`GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
+or Foundry launches, select the model with `--model`.
 
 ## Runtime Hardening
 
