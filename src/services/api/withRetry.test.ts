@@ -24,6 +24,9 @@ const envKeys = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_MAX_RETRIES',
+  'OPENCLAUDE_MAX_RETRIES',
+  'OPENCLAUDE_RETRY_DELAY_MS',
   'OPENAI_MODEL',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
@@ -104,29 +107,109 @@ async function importWithRetryForQuotaAttemptTest(options: {
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
+describe('retry configuration', () => {
+  test('uses default retry attempts when env var is absent', async () => {
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(10)
+  })
+
+  test('reads retry attempts from OPENCLAUDE_MAX_RETRIES', async () => {
+    process.env.OPENCLAUDE_MAX_RETRIES = '4'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(4)
+  })
+
+  test('allows zero retry attempts', async () => {
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(0)
+  })
+
+  test('falls back to legacy CLAUDE_CODE_MAX_RETRIES when new env var is absent', async () => {
+    process.env.CLAUDE_CODE_MAX_RETRIES = '0'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(0)
+  })
+
+  test('prefers OPENCLAUDE_MAX_RETRIES over legacy CLAUDE_CODE_MAX_RETRIES', async () => {
+    process.env.OPENCLAUDE_MAX_RETRIES = '3'
+    process.env.CLAUDE_CODE_MAX_RETRIES = '0'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(3)
+  })
+
+  test('falls back to default retry attempts for invalid values', async () => {
+    process.env.OPENCLAUDE_MAX_RETRIES = 'nope'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(10)
+  })
+
+  test('caps retry attempts to a bounded value', async () => {
+    process.env.OPENCLAUDE_MAX_RETRIES = '1000'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(100)
+  })
+
+  test('uses default retry delay when env var is absent', async () => {
+    const { getDefaultRetryDelayMs } = await importFreshWithRetryModule()
+    expect(getDefaultRetryDelayMs()).toBe(500)
+  })
+
+  test('reads retry delay from OPENCLAUDE_RETRY_DELAY_MS', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1500'
+    const { getDefaultRetryDelayMs } = await importFreshWithRetryModule()
+    expect(getDefaultRetryDelayMs()).toBe(1500)
+  })
+
+  test('falls back to default retry delay for invalid values', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '-1'
+    const { getDefaultRetryDelayMs } = await importFreshWithRetryModule()
+    expect(getDefaultRetryDelayMs()).toBe(500)
+  })
+
+  test('uses configured retry delay as exponential backoff base', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
+    const originalRandom = Math.random
+    Math.random = () => 0
+    try {
+      const { getRetryDelay } = await importFreshWithRetryModule()
+      expect(getRetryDelay(1)).toBe(2000)
+      expect(getRetryDelay(2)).toBe(4000)
+    } finally {
+      Math.random = originalRandom
+    }
+  })
+
+  test('retry-after header takes precedence over configured delay', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
+    const { getRetryDelay } = await importFreshWithRetryModule()
+    expect(getRetryDelay(1, '3')).toBe(3000)
+  })
+})
+
 // --- parseOpenAIDuration ---
 describe('parseOpenAIDuration', () => {
-  test('parses seconds: "1s" ΓåÆ 1000', async () => {
+  test('parses seconds: "1s" → 1000', async () => {
     const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('1s')).toBe(1000)
   })
 
-  test('parses minutes+seconds: "6m0s" ΓåÆ 360000', async () => {
+  test('parses minutes+seconds: "6m0s" → 360000', async () => {
     const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('6m0s')).toBe(360000)
   })
 
-  test('parses hours+minutes+seconds: "1h30m0s" ΓåÆ 5400000', async () => {
+  test('parses hours+minutes+seconds: "1h30m0s" → 5400000', async () => {
     const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('1h30m0s')).toBe(5400000)
   })
 
-  test('parses milliseconds: "500ms" ΓåÆ 500', async () => {
+  test('parses milliseconds: "500ms" → 500', async () => {
     const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('500ms')).toBe(500)
   })
 
-  test('parses minutes only: "2m" ΓåÆ 120000', async () => {
+  test('parses minutes only: "2m" → 120000', async () => {
     const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('2m')).toBe(120000)
   })
@@ -221,7 +304,7 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
     const { getRateLimitResetDelayMs } =
       await importFreshWithRetryModule('bedrock')
     const error = makeError({ 'anthropic-ratelimit-unified-reset': String(Math.floor(Date.now() / 1000) + 60) })
-    // Bedrock doesn't use this header ΓÇö should still return null
+    // Bedrock doesn't use this header — should still return null
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })
 
@@ -234,8 +317,7 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
   })
 })
 
-
-// Regression for #1125 ΓÇö OpenRouter 402 (credits-vs-max_tokens mismatch)
+// Regression for #1125 — OpenRouter 402 (credits-vs-max_tokens mismatch)
 // carries the affordable cap in the message. The retry loop should adjust
 // max_tokens to that cap once instead of bubbling a confusing 402 to the user.
 describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
@@ -299,9 +381,8 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
       'You requested up to 32000 tokens, but can only afford 27342',
     )
     expect(shouldRetry(err)).toBe(true)
-      })
+  })
 })
-
 
 describe('withRetry quota guard integration', () => {
   test('enforces quota guard once per attempt using provider override transport', async () => {
