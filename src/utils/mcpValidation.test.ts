@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mcpContentNeedsTruncation, truncateMcpContent } from './mcpValidation.js'
 
 // Mutable state shared between mock factories and test cases via closure.
@@ -102,3 +102,5 @@ describe('truncateMcpContent — SEC-05 budget invariant', () => {
     expect(result as string).toContain('[OUTPUT TRUNCATED')
   })
 })
+
+afterAll(() => mock.restore())
