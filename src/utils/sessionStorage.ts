@@ -1223,32 +1223,21 @@ class Project {
           ? getAgentTranscriptPath(asAgentId(entry.agentId!))
           : sessionFile
 
-        // For message entries, check if UUID already exists in current session.
-        // Skip dedup for agent sidechain LOCAL writes — they go to a separate
-        // file, and fork-inherited parent messages share UUIDs with the main
-        // session transcript. Deduping against the main session's set would
-        // drop them, leaving the persisted sidechain transcript incomplete
-        // (resume-of-fork loads a 10KB file instead of the full 85KB inherited
-        // context).
-        //
-        // The sidechain bypass applies ONLY to the local file write — remote
-        // persistence (session-ingress) uses a single Last-Uuid chain per
-        // sessionId, so re-POSTing a UUID it already has 409s and eventually
-        // exhausts retries → gracefulShutdownSync(1). See inc-4718.
-        const isNewUuid = !messageSet.has(entry.uuid)
-        if (isAgentSidechain || isNewUuid) {
-          // Enqueue write — appendToFile handles ENOENT by creating directories
-          void this.enqueueWrite(targetFile, entry)
-
-          if (!isAgentSidechain) {
-            // messageSet is main-file-authoritative. Sidechain entries go to a
-            // separate agent file — adding their UUIDs here causes recordTranscript
-            // to skip them on the main thread (line ~1270), so the message is never
-            // written to the main session file. The next main-thread message then
-            // chains its parentUuid to a UUID that only exists in the agent file,
-            // and --resume's buildConversationChain terminates at the dangling ref.
-            // Same constraint for remote (inc-4718 above): sidechain persisting a
-            // UUID the main thread hasn't written yet → 409 when main writes it.
+        // For message entries, check if UUID already exists.
+        // For agent sidechain LOCAL writes, check getAgentMessages to avoid duplicate
+        // writes when context messages are passed. For main session writes, check messageSet.
+        if (isAgentSidechain) {
+          const agentMessageSet = await getAgentMessages(entry.agentId!)
+          if (!agentMessageSet.has(entry.uuid)) {
+            // Enqueue write — appendToFile handles ENOENT by creating directories
+            void this.enqueueWrite(targetFile, entry)
+            agentMessageSet.add(entry.uuid)
+          }
+        } else {
+          const isNewUuid = !messageSet.has(entry.uuid)
+          if (isNewUuid) {
+            // Enqueue write — appendToFile handles ENOENT by creating directories
+            void this.enqueueWrite(targetFile, entry)
             messageSet.add(entry.uuid)
 
             if (isTranscriptMessage(entry)) {
@@ -4100,11 +4089,29 @@ const getSessionMessages = memoize(
 )
 
 /**
- * Clear the memoized session messages cache.
+ * Gets message UUIDs for a specific agent sidechain transcript.
+ * Memoized to avoid re-reading the same agent file multiple times.
+ */
+const getAgentMessages = memoize(
+  async (agentId: string): Promise<Set<UUID>> => {
+    const agentFile = getAgentTranscriptPath(asAgentId(agentId))
+    try {
+      const { messages } = await loadTranscriptFile(agentFile)
+      return new Set(messages.keys())
+    } catch {
+      return new Set<UUID>()
+    }
+  },
+  (agentId: string) => agentId,
+)
+
+/**
+ * Clear the memoized session and agent messages cache.
  * Call after compaction when old message UUIDs are no longer valid.
  */
 export function clearSessionMessagesCache(): void {
   getSessionMessages.cache.clear?.()
+  getAgentMessages.cache.clear?.()
 }
 
 /**

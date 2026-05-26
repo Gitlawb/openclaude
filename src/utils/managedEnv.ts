@@ -15,6 +15,7 @@ import {
   getSettings_DEPRECATED,
   getSettingsForSource,
 } from './settings/settings.js'
+import { clearDnsDispatcherCache } from '../services/api/openaiShim.js'
 
 /**
  * `claude ssh` remote: ANTHROPIC_UNIX_SOCKET routes auth through a -R forwarded
@@ -209,6 +210,7 @@ export function applyConfigEnvironmentVariables(): void {
   clearCACertsCache()
   clearMTLSCache()
   clearProxyCache()
+  clearDnsDispatcherCache()
 
   // Reconfigure proxy/mTLS agents to pick up any proxy env vars from settings
   configureGlobalAgents()

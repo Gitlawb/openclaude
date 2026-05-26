@@ -261,6 +261,13 @@ import { getTLSConnectOptions } from '../../utils/mtls.js'
 const dnsDispatcherCache = new Map<string, undici.Dispatcher>()
 
 /**
+ * Clear the DNS dispatcher cache. Called during environment changes.
+ */
+export function clearDnsDispatcherCache(): void {
+  dnsDispatcherCache.clear()
+}
+
+/**
  * Returns a cached undici dispatcher that forces the declared DNS result
  * order for its connections and, when TLS connect options are present,
  * bakes them into the same agent so IPv4-first DNS and mTLS/custom CA

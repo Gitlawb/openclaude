@@ -56,8 +56,8 @@ export async function fetchWithProxyRetry(
 
       const response = await fetch(input, {
         ...init,
-        ...scopedDispatcher,
         ...proxyOpts,
+        ...scopedDispatcher,
       })
 
       // If an upstream proxy or local NAT silently dropped the keep-alive socket,

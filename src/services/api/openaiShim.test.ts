@@ -6252,3 +6252,9 @@ test('dnsResultOrder: ipv4first does not mutate global dns.getDefaultResultOrder
   // of a scoped undici Agent, this assertion would fail.
   expect(dns.getDefaultResultOrder()).toBe(originalOrder)
 })
+
+test('clearDnsDispatcherCache clears the internal agent cache without throwing', async () => {
+  const { clearDnsDispatcherCache } = await import('./openaiShim.js')
+  expect(() => clearDnsDispatcherCache()).not.toThrow()
+})
+
