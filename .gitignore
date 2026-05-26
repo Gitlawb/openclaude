@@ -25,3 +25,6 @@ plan/
 .tmp
 .tmp-*
 temp_reference/
+
+# openlore analysis artifacts
+.openlore/
