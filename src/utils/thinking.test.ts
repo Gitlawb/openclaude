@@ -57,9 +57,13 @@ afterEach(() => {
 
 async function importFreshThinkingModule() {
   mock.restore()
-  mock.module('./model/providers.js', () => ({
-    getAPIProvider: () => 'openai',
-  }))
+  const originalProviders = await import('./model/providers.js')
+  mock.module('./model/providers.js', () => {
+    return {
+      ...originalProviders,
+      getAPIProvider: () => 'openai',
+    }
+  })
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./thinking.js?ts=${nonce}`)
 }
@@ -107,5 +111,15 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
+  })
+})
+
+describe('modelSupportsThinking — Ollama', () => {
+  test('does not enable thinking for unknown Ollama models', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
+
+    expect(modelSupportsThinking('llama3.1:8b')).toBe(false)
   })
 })
