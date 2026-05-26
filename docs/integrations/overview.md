@@ -162,7 +162,7 @@ Normal contributor flow for new preset-participating routes is:
 1. add or edit the descriptor file;
 2. add `preset` metadata only when the route should be user-facing;
 3. add `preset.badge` metadata if the route should show a display tag (e.g.
-   `[FREE]`, `[Sponsor]`, `[Zen]`, `[Go]`) in the preset picker — this avoids
+   `[FREE]`, `[Sponsor]`) in the preset picker — this avoids
    hard-coded badge logic in `src/components/ProviderManager.tsx`;
 4. run `bun run integrations:generate`;
 5. let the generated manifest feed the loader, compatibility mapping, preset

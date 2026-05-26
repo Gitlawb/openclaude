@@ -1010,6 +1010,68 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
  */
+/**
+ * Passthrough for Anthropic Messages API SSE streams.
+ * The response events are already in AnthropicStreamEvent format —
+ * we just parse the SSE frames and yield them directly.
+ */
+async function* anthropicSsePassthrough(
+  response: Response,
+  _model: string,
+  signal?: AbortSignal,
+): AsyncGenerator<AnthropicStreamEvent> {
+  const reader = response.body?.getReader()
+  if (!reader) return
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  // Read helper that properly cleans up abort listeners (mirrors codexShim.ts pattern).
+  function readWithAbort(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    if (!signal) return reader.read()
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
+      signal.addEventListener('abort', onAbort, { once: true })
+      reader.read().then(
+        result => { signal.removeEventListener('abort', onAbort); resolve(result) },
+        err => { signal.removeEventListener('abort', onAbort); reject(err) },
+      )
+    })
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await readWithAbort()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() ?? ''
+
+      for (const chunk of chunks) {
+        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
+        if (lines.length === 0) continue
+
+        const dataLines = lines.filter(l => l.startsWith('data: '))
+        if (dataLines.length === 0) continue
+
+        const rawData = dataLines.map(l => l.slice(6)).join('\n')
+        if (rawData === '[DONE]') return
+
+        try {
+          const parsed = JSON.parse(rawData) as AnthropicStreamEvent
+          if (parsed && typeof parsed === 'object' && 'type' in parsed) {
+            yield parsed
+          }
+        } catch {
+          // skip malformed frames
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
@@ -1606,6 +1668,7 @@ class OpenAIShimMessages {
 
       if (params.stream) {
         const isResponsesStream = response.url?.includes('/responses')
+        const isMessagesStream = response.url?.includes('/messages')
         return new OpenAIShimStream(
           (
             request.transport === 'codex_responses' ||
@@ -1613,7 +1676,9 @@ class OpenAIShimMessages {
             isResponsesStream
           )
             ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
-            : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+            : isMessagesStream
+              ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
+              : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
         )
       }
 
@@ -1626,6 +1691,7 @@ class OpenAIShimMessages {
       }
 
       const isResponsesNonStream = response.url?.includes('/responses')
+      const isMessagesNonStream = response.url?.includes('/messages')
       if (
         request.transport === 'responses' ||
         isResponsesNonStream ||
@@ -1645,6 +1711,15 @@ class OpenAIShimMessages {
             )
           }
           return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+        }
+      }
+
+      // Anthropic Messages API response — already in Anthropic format,
+      // pass through directly without conversion.
+      if (isMessagesNonStream) {
+        const contentType = response.headers.get('content-type') ?? ''
+        if (contentType.includes('application/json')) {
+          return await response.json() as Record<string, unknown>
         }
       }
 
@@ -1785,6 +1860,15 @@ class OpenAIShimMessages {
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
+    // When endpointPath is overridden, the body format must match the target
+    // API contract rather than request.transport from providerConfig.
+    // - /responses → OpenAI Responses API (input, max_output_tokens, instructions)
+    // - /messages  → Anthropic Messages API (system, max_tokens, content blocks)
+    const effectiveTransport = shimConfig.endpointPath === '/responses'
+      ? 'responses'
+      : shimConfig.endpointPath === '/messages'
+        ? 'anthropic_messages'
+        : request.transport
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
@@ -1966,6 +2050,42 @@ class OpenAIShimMessages {
       }
 
       return responsesBody
+    }
+
+    // Anthropic Messages API body — used when endpointPath is /messages.
+    // params.messages, params.tools, etc. are already in Anthropic format
+    // (they originate from the Anthropic SDK). We pass them through directly,
+    // only adding the top-level system (as string or content-block array)
+    // and max_tokens.
+    let omitAnthropicTools = false
+    const buildAnthropicMessagesBody = (): Record<string, unknown> => {
+      const anthropicBody: Record<string, unknown> = {
+        model: request.resolvedModel,
+        messages: params.messages,
+        max_tokens: params.max_tokens,
+        stream: params.stream ?? false,
+      }
+
+      // Pass system through in native format. The Anthropic Messages API
+      // accepts either a string or an array of content blocks (with optional
+      // cache_control markers). Only filter the billing header block.
+      if (Array.isArray(params.system)) {
+        const filtered = (params.system as Array<{ type?: string; text?: string }>)
+          .filter(block => !(block.type === 'text' && (block.text ?? '').startsWith('x-anthropic-billing-header')))
+        if (filtered.length > 0) anthropicBody.system = filtered
+      } else if (params.system) {
+        const text = typeof params.system === 'string' ? params.system : String(params.system)
+        if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
+      }
+
+      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+        anthropicBody.tools = params.tools
+      }
+      if (params.tool_choice) {
+        anthropicBody.tool_choice = params.tool_choice
+      }
+
+      return anthropicBody
     }
 
     const headers: Record<string, string> = {
@@ -2153,7 +2273,9 @@ class OpenAIShimMessages {
     // `JSON.stringify` fast path when the fast-path config opts out.
     const serializeBody = (): string => {
       const payload =
-        request.transport === 'responses' ? buildResponsesBody() : body
+        effectiveTransport === 'responses' ? buildResponsesBody()
+          : effectiveTransport === 'anthropic_messages' ? buildAnthropicMessagesBody()
+          : body
       return fastPath.skipStableStringify
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
@@ -2384,7 +2506,7 @@ class OpenAIShimMessages {
       }
 
       const hasToolsPayload =
-        request.transport === 'responses'
+        effectiveTransport === 'responses' || effectiveTransport === 'anthropic_messages'
           ? Array.isArray(params.tools) && params.tools.length > 0
           : Array.isArray(body.tools) && body.tools.length > 0
 
@@ -2400,6 +2522,7 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         omitResponsesTools = true
+        omitAnthropicTools = true
         refreshSerializedBody()
 
         logForDebugging(

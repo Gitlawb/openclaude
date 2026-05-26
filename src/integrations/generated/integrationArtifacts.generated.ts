@@ -312,11 +312,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ],
-    "badge": {
-      "text": "Go",
-      "color": "green"
-    }
+    ]
   },
   {
     "preset": "opencode",
@@ -330,11 +326,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"
-    ],
-    "badge": {
-      "text": "Zen",
-      "color": "cyan"
-    }
+    ]
   },
   {
     "preset": "openrouter",

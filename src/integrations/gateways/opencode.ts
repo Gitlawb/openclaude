@@ -23,7 +23,6 @@ export default defineGateway({
     description: 'OpenCode Zen — pay-as-you-go AI gateway (41 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
-    badge: { text: 'Zen', color: 'cyan' },
   },
   validation: {
     kind: 'credential-env',
