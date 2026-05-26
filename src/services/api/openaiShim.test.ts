@@ -4952,39 +4952,6 @@ test('Local provider (vLLM/Ollama/etc.): strips unsupported store on chat_comple
   expect(requestBody?.store).toBeUndefined()
 })
 
-test('Ollama: does not send thinking when model does not support it', async () => {
-  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
-  process.env.OPENAI_API_KEY = 'ollama'
-
-  let requestBody: Record<string, unknown> | undefined
-  globalThis.fetch = (async (_input, init) => {
-    requestBody = JSON.parse(String(init?.body))
-    return new Response(
-      JSON.stringify({
-        id: 'chatcmpl-1',
-        model: 'llama3.1:8b',
-        choices: [
-          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
-        ],
-        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
-      }),
-      { headers: { 'Content-Type': 'application/json' } },
-    )
-  }) as FetchType
-
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  await client.beta.messages.create({
-    model: 'llama3.1:8b',
-    system: 'you are local',
-    messages: [{ role: 'user', content: 'hi' }],
-    max_tokens: 64,
-    thinking: { type: 'enabled', budget_tokens: 1024 },
-    stream: false,
-  })
-
-  expect(requestBody?.thinking).toBeUndefined()
-})
-
 test('Groq: keeps max_completion_tokens and strips unsupported store', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
   process.env.OPENAI_API_KEY = 'gsk-test'

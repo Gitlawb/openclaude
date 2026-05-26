@@ -25,6 +25,7 @@ const ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  'CLAUDE_CODE_DISABLE_THINKING',
   'USER_TYPE',
 ]
 
@@ -114,12 +115,15 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
   })
 })
 
-describe('modelSupportsThinking — Ollama', () => {
-  test('does not enable thinking for unknown Ollama models', async () => {
+describe('shouldUseThinkingForModel — Ollama', () => {
+  test('does not use thinking for Ollama models when app-level thinking is enabled', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
-    const { modelSupportsThinking } = await importFreshThinkingModule()
+    const { shouldUseThinkingForModel } = await importFreshThinkingModule()
+    const enabledThinking = { type: 'enabled' as const, budgetTokens: 1024 }
 
-    expect(modelSupportsThinking('llama3.1:8b')).toBe(false)
+    expect(shouldUseThinkingForModel('llama3.1:8b', enabledThinking)).toBe(false)
+    // Covers catalog-missing local names that would otherwise match Claude 4 heuristics.
+    expect(shouldUseThinkingForModel('claude-sonnet-4-local', enabledThinking)).toBe(false)
   })
 })
