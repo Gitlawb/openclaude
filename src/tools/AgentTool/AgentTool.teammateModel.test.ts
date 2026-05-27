@@ -4,6 +4,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import type { AgentDefinition } from './loadAgentsDir.js'
 
 type ModelAllowlistModule = typeof import('../../utils/model/modelAllowlist.js')
 type SpawnMultiAgentModule = typeof import('../shared/spawnMultiAgent.js')
@@ -102,6 +103,7 @@ async function importAgentToolWithSpawnMock(): Promise<{
 
 function makeToolUseContext(options: {
   mainLoopModel?: string
+  activeAgents?: AgentDefinition[]
 } = {}): ToolUseContext {
   const appState = {
     toolPermissionContext: { mode: 'default' },
@@ -119,7 +121,10 @@ function makeToolUseContext(options: {
       mcpClients: [],
       mcpResources: {},
       isNonInteractiveSession: false,
-      agentDefinitions: { activeAgents: [], allAgents: [] },
+      agentDefinitions: {
+        activeAgents: options.activeAgents ?? [],
+        allAgents: options.activeAgents ?? [],
+      },
     },
     abortController: new AbortController(),
     readFileState: {},
@@ -144,9 +149,11 @@ function callTeammateAgentTool(
   AgentTool: typeof import('./AgentTool.js').AgentTool,
   input: {
     model?: string
+    subagent_type?: string
   } = {},
   contextOptions: {
     mainLoopModel?: string
+    activeAgents?: AgentDefinition[]
   } = {},
 ): ReturnType<typeof AgentTool.call> {
   return AgentTool.call(
@@ -180,6 +187,7 @@ test('trims an allowed custom model before spawning a teammate', async () => {
   await callTeammateAgentTool(AgentTool, { model: '  allowed-model  ' })
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('allowed-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(true)
 })
 
 test('resolves inherit before spawning a teammate', async () => {
@@ -192,6 +200,7 @@ test('resolves inherit before spawning a teammate', async () => {
   )
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('allowed-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(true)
 })
 
 test('leaves teammate default selection to spawn layer without a model override', async () => {
@@ -200,4 +209,28 @@ test('leaves teammate default selection to spawn layer without a model override'
   await callTeammateAgentTool(AgentTool)
 
   expect(getSpawnConfig(spawnTeammate).model).toBeUndefined()
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
+test('marks agent definition model fallbacks as non-tool-specified', async () => {
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+  const activeAgents = [
+    {
+      agentType: 'reviewer',
+      color: 'blue',
+      source: 'projectSettings',
+      whenToUse: 'review code',
+      model: 'allowed-model',
+      getSystemPrompt: () => 'review code',
+    } as unknown as AgentDefinition,
+  ]
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'reviewer' },
+    { activeAgents },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('allowed-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
 })

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveAgentProvider } from './agentRouting.js'
+import {
+  resolveAgentModelProvider,
+  resolveAgentProvider,
+  resolveAgentRunModelRouting,
+} from './agentRouting.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 const baseSettings = {
@@ -121,5 +125,110 @@ describe('resolveAgentProvider', () => {
   test('name only (no subagentType)', () => {
     const result = resolveAgentProvider('frontend-dev', undefined, baseSettings)
     expect(result?.model).toBe('deepseek-chat')
+  })
+
+})
+
+describe('resolveAgentModelProvider', () => {
+  test('returns null when settings is null', () => {
+    expect(resolveAgentModelProvider('deepseek-chat', null)).toBeNull()
+  })
+
+  test('returns null when agentModels is missing', () => {
+    const settings = { agentRouting: baseSettings.agentRouting } as unknown as SettingsJson
+    expect(resolveAgentModelProvider('deepseek-chat', settings)).toBeNull()
+  })
+
+  test('exact match returns provider override', () => {
+    const result = resolveAgentModelProvider('deepseek-chat', baseSettings)
+    expect(result).toEqual({
+      model: 'deepseek-chat',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: 'sk-ds',
+    })
+  })
+
+  test('trims whitespace around requested model', () => {
+    const result = resolveAgentModelProvider('  deepseek-chat  ', baseSettings)
+    expect(result?.model).toBe('deepseek-chat')
+  })
+
+  test('no fuzzy matching', () => {
+    expect(resolveAgentModelProvider('deepseek_chat', baseSettings)).toBeNull()
+    expect(resolveAgentModelProvider('DEEPSEEK-CHAT', baseSettings)).toBeNull()
+  })
+})
+
+describe('resolveAgentRunModelRouting', () => {
+  test('explicit configured model wins over agentRouting', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      toolSpecifiedModel: 'deepseek-chat',
+      agentName: 'frontend-dev',
+      subagentType: 'Explore',
+      settings: baseSettings,
+    })
+
+    expect(result).toEqual({
+      mainLoopModel: 'deepseek-chat',
+      providerOverride: {
+        model: 'deepseek-chat',
+        baseURL: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-ds',
+      },
+    })
+  })
+
+  test('explicit non-configured model keeps resolved model behavior', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'haiku-model',
+      toolSpecifiedModel: 'haiku',
+      agentName: 'frontend-dev',
+      subagentType: 'Explore',
+      settings: baseSettings,
+    })
+
+    expect(result).toEqual({ mainLoopModel: 'haiku-model' })
+  })
+
+  test('explicit inherit keeps resolved parent model despite default routing', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-runtime-model',
+      toolSpecifiedModel: ' InHerit ',
+      subagentType: 'unknown-type',
+      settings: baseSettings,
+    })
+
+    expect(result).toEqual({ mainLoopModel: 'parent-runtime-model' })
+  })
+
+  test('agent definition model key is used after routing misses', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'default-model',
+      subagentType: 'unknown-type',
+      agentDefinitionModel: 'deepseek-chat',
+      settings: {
+        agentModels: baseSettings.agentModels,
+        agentRouting: {},
+      } as unknown as SettingsJson,
+    })
+
+    expect(result.mainLoopModel).toBe('deepseek-chat')
+    expect(result.providerOverride?.apiKey).toBe('sk-ds')
+  })
+
+  test('falls back to resolved model when no provider override matches', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'default-model',
+      toolSpecifiedModel: 'haiku',
+      subagentType: 'unknown-type',
+      agentDefinitionModel: 'sonnet',
+      settings: {
+        agentModels: baseSettings.agentModels,
+        agentRouting: {},
+      } as unknown as SettingsJson,
+    })
+
+    expect(result).toEqual({ mainLoopModel: 'default-model' })
   })
 })

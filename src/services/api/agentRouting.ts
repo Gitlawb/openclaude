@@ -13,6 +13,11 @@ export interface ProviderOverride {
   apiKey: string
 }
 
+export interface AgentRunModelRouting {
+  mainLoopModel: string
+  providerOverride?: ProviderOverride
+}
+
 /**
  * Normalize an agent identifier for case-insensitive, hyphen/underscore-agnostic matching.
  */
@@ -43,7 +48,9 @@ export function resolveAgentProvider(
   for (const [key, value] of Object.entries(routing)) {
     const nk = normalize(key)
     if (normalizedRouting.has(nk)) {
-      console.error(`[agentRouting] Warning: routing key "${key}" collides with an existing key after normalization (both map to "${nk}"). First entry wins.`)
+      console.error(
+        `[agentRouting] Warning: routing key "${key}" collides with an existing key after normalization (both map to "${nk}"). First entry wins.`,
+      )
     }
     if (!normalizedRouting.has(nk)) {
       normalizedRouting.set(nk, value)
@@ -71,5 +78,66 @@ export function resolveAgentProvider(
     model: modelName,
     baseURL: modelConfig.base_url,
     apiKey: modelConfig.api_key,
+  }
+}
+
+/**
+ * Resolve provider override directly from a requested model name.
+ * Checks for an exact match in agentModels. Does not fuzzy match or normalize case.
+ */
+export function resolveAgentModelProvider(
+  modelName: string | undefined,
+  settings: SettingsJson | null,
+): ProviderOverride | null {
+  if (!settings || !settings.agentModels || !modelName) return null
+
+  const trimmedModelName = modelName.trim()
+  const modelConfig = settings.agentModels[trimmedModelName]
+
+  if (modelConfig) {
+    return {
+      model: trimmedModelName,
+      baseURL: modelConfig.base_url,
+      apiKey: modelConfig.api_key,
+    }
+  }
+
+  return null
+}
+
+export function resolveAgentRunModelRouting({
+  resolvedAgentModel,
+  toolSpecifiedModel,
+  agentName,
+  subagentType,
+  agentDefinitionModel,
+  settings,
+}: {
+  resolvedAgentModel: string
+  toolSpecifiedModel?: string
+  agentName?: string
+  subagentType?: string
+  agentDefinitionModel?: string
+  settings: SettingsJson | null
+}): AgentRunModelRouting {
+  const toolRequestedModel = toolSpecifiedModel?.trim()
+  if (toolRequestedModel) {
+    // Tool-specified models are explicit. If the request is not a configured
+    // agentModels key, preserve getAgentModel() alias/inherit/custom-ID behavior
+    // instead of falling through to persistent agentRouting.
+    const providerOverride = resolveAgentModelProvider(toolRequestedModel, settings)
+    return {
+      mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
+      ...(providerOverride && { providerOverride }),
+    }
+  }
+
+  const providerOverride =
+    resolveAgentProvider(agentName, subagentType, settings) ??
+    resolveAgentModelProvider(agentDefinitionModel, settings)
+
+  return {
+    mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
+    ...(providerOverride && { providerOverride }),
   }
 }
