@@ -258,6 +258,61 @@ test('getModelOptionsBase: 3P path includes inactive profile options when env ap
   }
 })
 
+test('getModelOptionsBase: local OpenAI-compatible scope still appends inactive profile options', async () => {
+  // Regression for #1164: when the active profile is a local OpenAI-compatible
+  // endpoint (Ollama, lm-studio, etc.), the scope-based early return used to
+  // skip the inactive-profile compute and the cross-profile switcher
+  // disappeared from `/model`. Now the inactive options are hoisted above the
+  // early return and forwarded in this branch too.
+  const active = buildProviderProfileFixture({
+    id: 'profile_local',
+    name: 'Local Ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'llama3.2',
+  })
+  const inactive = buildProviderProfileFixture({
+    id: 'profile_remote',
+    name: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-5.1',
+  })
+
+  const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  // Force the local OpenAI-compatible branch by pinning the scope getter to
+  // an `openai:` value. The real source reads the global config; we override
+  // it directly to keep the test hermetic.
+  mock.module('../../services/api/providerConfig.js', () => ({
+    getAdditionalModelOptionsCacheScope: () => 'openai:http://localhost:11434/v1',
+  }))
+  try {
+    const { getModelOptions, parseSwitchProfileValue } =
+      await importFreshModelOptionsModule({
+        getProviderProfiles: () => [active, inactive],
+        getActiveProviderProfile: () => active,
+        getProfileModelOptions: profile => [
+          { value: profile.model, label: profile.model, description: profile.name },
+        ],
+      })
+
+    const options = getModelOptions(false)
+    const switchOptions = options.filter(o => o.switchToProfileId !== undefined)
+    expect(switchOptions.length).toBeGreaterThan(0)
+    expect(switchOptions[0]?.switchToProfileId).toBe('profile_remote')
+    const parsed = parseSwitchProfileValue(switchOptions[0]!.value)
+    expect(parsed).toEqual({
+      profileId: 'profile_remote',
+      model: 'glm-5.1',
+    })
+  } finally {
+    if (previousFlag === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = previousFlag
+    }
+  }
+})
+
 test('getModelOptionsBase: 3P path omits inactive profile options when env NOT applied', async () => {
   // If the user hasn't gone through `/provider` yet (profile env not applied),
   // surfacing cross-profile switching would be confusing — they haven't opted
