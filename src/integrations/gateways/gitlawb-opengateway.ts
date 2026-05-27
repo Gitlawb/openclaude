@@ -44,6 +44,7 @@ export default defineGateway({
   preset: {
     id: 'gitlawb-opengateway',
     description: 'Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models (API key required, mint at https://gitlawb.com/opengateway/keys)',
+    apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
     vendorId: 'openai',
