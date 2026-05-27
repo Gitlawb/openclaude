@@ -1,5 +1,5 @@
 import type * as undici from 'undici'
-import { disableKeepAlive, getProxyFetchOptions, getProxyUrl } from '../../utils/proxy.js'
+import { disableKeepAlive, getProxyFetchOptions, getProxyUrl, shouldBypassProxy } from '../../utils/proxy.js'
 
 const RETRYABLE_FETCH_ERROR_PATTERN =
   /socket connection was closed unexpectedly|ECONNRESET|EPIPE|socket hang up|Connection reset by peer|fetch failed/i
@@ -39,18 +39,18 @@ export async function fetchWithProxyRetry(
         forAnthropicAPI: options?.forAnthropicAPI,
       })
 
-      // Use the caller's scoped dispatcher only when no real proxy is active.
-      // - If a proxy is configured, the proxy dispatcher handles DNS through the
-      //   tunnel — a custom lookup dispatcher would be both unnecessary and would
-      //   conflict, so we drop it.
-      // - If only TLS options are active (no proxy URL), the scoped dispatcher
-      //   already has TLS baked in (getDnsDispatcher merges getTLSConnectOptions),
-      //   so we prefer it over the plain TLS-only dispatcher from proxyOpts.
-      //   This preserves IPv4-first DNS for Opengateway users who also have
-      //   enterprise mTLS/custom CA configured.
-      const hasActiveProxy = Boolean(getProxyUrl())
+      // Use the caller's scoped dispatcher only when the request is NOT going
+      // through a proxy tunnel:
+      // - If a proxy URL is set AND this URL is not in NO_PROXY, the proxy
+      //   dispatcher handles DNS through the tunnel — a custom lookup dispatcher
+      //   would conflict, so we drop it.
+      // - If no proxy is configured, or this URL is bypassed by NO_PROXY (i.e.
+      //   the request goes direct), we apply the scoped dispatcher. It already
+      //   merges getTLSConnectOptions, so mTLS/custom CA are preserved too.
+      const requestUrl = input instanceof Request ? input.url : String(input)
+      const proxyIsActive = Boolean(getProxyUrl()) && !shouldBypassProxy(requestUrl)
       const scopedDispatcher =
-        !hasActiveProxy && options?.dispatcher
+        !proxyIsActive && options?.dispatcher
           ? { dispatcher: options.dispatcher }
           : {}
 

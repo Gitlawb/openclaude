@@ -55,7 +55,6 @@ import { TASK_LIST_TOOL_NAME } from '../../tools/TaskListTool/constants.js'
 import { TASK_UPDATE_TOOL_NAME } from '../../tools/TaskUpdateTool/constants.js'
 import { TEAM_CREATE_TOOL_NAME } from '../../tools/TeamCreateTool/constants.js'
 import { TEAM_DELETE_TOOL_NAME } from '../../tools/TeamDeleteTool/constants.js'
-import type { AgentId } from '../../types/ids.js'
 import type { Message } from '../../types/message.js'
 import type { PermissionDecision } from '../../types/permissions.js'
 import {
@@ -1087,16 +1086,6 @@ export async function runInProcessTeammate(
         setAppState,
       )
 
-      // Apply sliding window pruning to allMessages to maintain flat heap usage
-      const prunedMessages = pruneMessagesToSlidingWindow(allMessages)
-      if (prunedMessages.length < allMessages.length) {
-        logForDebugging(
-          `[inProcessRunner] ${identity.agentId} pruning history to sliding window (${allMessages.length} -> ${prunedMessages.length} messages)`,
-        )
-        allMessages.length = 0
-        allMessages.push(...prunedMessages)
-      }
-
       // Prepare prompt messages for this iteration
       // For the first iteration, start fresh
       // For subsequent iterations, pass accumulated messages as context
@@ -1585,94 +1574,4 @@ export function startInProcessTeammate(config: InProcessRunnerConfig): void {
   void runInProcessTeammate(config).catch(error => {
     logForDebugging(`[inProcessRunner] Unhandled error in ${agentId}: ${error}`)
   })
-}
-
-/**
- * Prunes the in-memory teammate conversation history messages array to a sliding window.
- * Ensures the first message after pruning is a user message (not a tool result),
- * and that no tool_use/tool_result pair is split across the boundary.
- */
-export function pruneMessagesToSlidingWindow(
-  messages: Message[],
-  maxMessages: number = 80,
-  minRetain: number = 40,
-): Message[] {
-  if (messages.length <= maxMessages) {
-    return messages
-  }
-
-  const targetIndex = messages.length - minRetain
-  let splitIndex = -1
-
-  // Scan backward from targetIndex to find the safest split point.
-  // We want the largest splitIndex <= targetIndex such that:
-  // 1. messages[splitIndex] is a user message (role === 'user' / type === 'user').
-  // 2. messages[splitIndex] does not contain tool results.
-  // 3. No tool_use / tool_result pair is split across the boundary.
-  for (let i = targetIndex; i >= 0; i--) {
-    const msg = messages[i]
-    if (!msg || msg.type !== 'user' || msg.message.role !== 'user') {
-      continue
-    }
-
-    // Check if it has any tool results
-    const content = msg.message.content
-    let hasToolResult = false
-    if (Array.isArray(content)) {
-      hasToolResult = content.some(
-        block => typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_result'
-      )
-    }
-    if (hasToolResult) {
-      continue
-    }
-
-    // Verify that no tool use has its result on the other side of the boundary.
-    // All tool uses before i must have their results before i.
-    const toolUsesBefore = new Set<string>()
-    const toolResultsBefore = new Set<string>()
-
-    for (let j = 0; j < i; j++) {
-      const m = messages[j]
-      if (!m) continue
-      if (m.type === 'assistant') {
-        const contentBlocks = m.message.content
-        if (Array.isArray(contentBlocks)) {
-          for (const block of contentBlocks) {
-            if (block.type === 'tool_use') {
-              toolUsesBefore.add(block.id)
-            }
-          }
-        }
-      } else if (m.type === 'user') {
-        const contentBlocks = m.message.content
-        if (Array.isArray(contentBlocks)) {
-          for (const block of contentBlocks) {
-            if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_result') {
-              toolResultsBefore.add(block.tool_use_id)
-            }
-          }
-        }
-      }
-    }
-
-    let hasDanglingToolUse = false
-    for (const useId of toolUsesBefore) {
-      if (!toolResultsBefore.has(useId)) {
-        hasDanglingToolUse = true
-        break
-      }
-    }
-
-    if (!hasDanglingToolUse) {
-      splitIndex = i
-      break
-    }
-  }
-
-  if (splitIndex > 0) {
-    return messages.slice(splitIndex)
-  }
-
-  return messages
 }

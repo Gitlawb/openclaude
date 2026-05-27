@@ -108,3 +108,28 @@ test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 r
   expect((calls[0] as RequestInit).keepalive).toBeUndefined()
   expect((calls[1] as RequestInit).keepalive).toBe(false)
 })
+
+test('fetchWithProxyRetry applies scoped dispatcher when target URL is in NO_PROXY', async () => {
+  // Regression for: hasActiveProxy = Boolean(getProxyUrl()) was too broad.
+  // With HTTPS_PROXY set but NO_PROXY=opengateway.gitlawb.com, the request
+  // goes direct and MUST still receive the IPv4 scoped dispatcher.
+  process.env.HTTPS_PROXY = 'http://127.0.0.1:15236'
+  process.env.NO_PROXY = 'opengateway.gitlawb.com'
+
+  let capturedInit: RequestInit | undefined
+  globalThis.fetch = (async (_input, init) => {
+    capturedInit = init
+    return new Response('ok')
+  }) as FetchType
+
+  const fakeDispatcher = { fake: true } as unknown as import('undici').Dispatcher
+
+  await fetchWithProxyRetry('https://opengateway.gitlawb.com/v1/chat', undefined, {
+    dispatcher: fakeDispatcher,
+  })
+
+  // The scoped dispatcher should have been applied since the URL is bypassed by NO_PROXY
+  expect((capturedInit as RequestInit & { dispatcher?: unknown }).dispatcher).toBe(fakeDispatcher)
+
+  delete process.env.NO_PROXY
+})
