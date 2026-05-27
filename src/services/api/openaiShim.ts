@@ -155,7 +155,8 @@ function isGeminiModelName(model: string | undefined): boolean {
   const normalized = model?.trim().toLowerCase()
   return (
     normalized?.startsWith('google/gemini-') === true ||
-    normalized?.startsWith('gemini-') === true
+    normalized?.startsWith('gemini-') === true ||
+    normalized?.includes('gemini-') === true
   )
 }
 
@@ -163,7 +164,7 @@ function shouldPreserveGeminiThoughtSignature(
   model: string | undefined,
   baseUrl?: string,
 ): boolean {
-  return isGeminiMode() || hasGeminiApiHost(baseUrl) || isGeminiModelName(model)
+  return isGeminiMode(model) || hasGeminiApiHost(baseUrl)
 }
 
 function geminiThoughtSignatureFromExtraContent(
@@ -432,10 +433,12 @@ function convertContentBlocks(
   return parts
 }
 
-function isGeminiMode(): boolean {
+function isGeminiMode(model?: string): boolean {
+  if (model && isGeminiModelName(model)) return true
   return (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    hasGeminiApiHost(process.env.OPENAI_BASE_URL)
+    hasGeminiApiHost(process.env.OPENAI_BASE_URL) ||
+    isGeminiModelName(process.env.OPENAI_MODEL)
   )
 }
 
@@ -662,18 +665,26 @@ function convertMessages(
 
                 // Gemini OpenAI-compatible endpoints require Google's
                 // thought_signature to be replayed with prior function-call
-                // parts. Preserve only real signatures received from the
-                // provider; synthetic placeholders are rejected by GMI.
+                // parts.
+                // NOTE: Ollama sometimes fails to send a signature but still
+                // requires one in the next turn. We provide a stable fallback
+                // placeholder if none is found for non-Google providers to avoid 400 errors.
                 if (preserveGeminiThoughtSignature) {
-                  const signature =
+                  let signature =
                     tu.signature ??
                     geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
                     (thinkingBlock as { signature?: string } | undefined)?.signature
 
-                  toolCall.extra_content = mergeGeminiThoughtSignature(
-                    toolCall.extra_content,
-                    signature,
-                  )
+                  if (!signature && !hasGeminiApiHost(process.env.OPENAI_BASE_URL)) {
+                    signature = Buffer.from(`synthetic-sig-${id}`).toString('base64')
+                  }
+
+                  if (signature) {
+                    toolCall.extra_content = mergeGeminiThoughtSignature(
+                      toolCall.extra_content,
+                      signature,
+                    )
+                  }
                 }
 
                 return toolCall
@@ -845,9 +856,10 @@ function normalizeSchemaForOpenAI(
 
 function convertTools(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
+  model?: string,
   options: { skipStrict?: boolean } = {},
 ): OpenAITool[] {
-  const isGemini = isGeminiMode()
+  const isGemini = isGeminiMode(model)
   const strict =
     !isGemini &&
     !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS) &&
@@ -874,7 +886,7 @@ function convertTools(
         function: {
           name: t.name,
           description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(schema, strict),
+          parameters: normalizeSchemaForOpenAI(schema, !isGemini && strict),
         },
       }
     })
@@ -1018,13 +1030,14 @@ async function* openaiStreamToAnthropic(
   const messageId = makeMessageId()
   let contentBlockIndex = 0
   const activeToolCalls = new Map<
-    number,
+    string,
     {
       id: string
       name: string
       index: number
       jsonBuffer: string
       normalizeAtStop: boolean
+      signature?: string
     }
   >()
   let hasEmittedContentStart = false
@@ -1036,6 +1049,9 @@ async function* openaiStreamToAnthropic(
   let hasProcessedFinishReason = false
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
+  let stickySignature: string | undefined = undefined
+
+  const preserveGeminiSignature = shouldPreserveGeminiThoughtSignature(model)
 
   // Emit message_start
   yield {
@@ -1240,22 +1256,38 @@ async function* openaiStreamToAnthropic(
       for (const choice of chunk.choices ?? []) {
         const delta = choice.delta
 
-        // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
-        // in `reasoning_content` before the actual reply appears in `content`.
+        // Capture Gemini thought signature from chunk extra_content
+        const chunkSignature = geminiThoughtSignatureFromExtraContent(delta.extra_content)
+        if (chunkSignature) {
+          stickySignature = chunkSignature
+        }
+
+        // Reasoning models (e.g. GLM-5, DeepSeek, Ollama/Gemini) may stream
+        // chain-of-thought in `reasoning_content` or `reasoning` before the
+        // actual reply appears in `content`.
         // Emit reasoning as a thinking block and content as a text block.
-        if (delta.reasoning_content != null && delta.reasoning_content !== '') {
+        const reasoningContent = delta.reasoning_content ?? (delta as any).reasoning
+        if (reasoningContent != null && reasoningContent !== '') {
           if (!hasEmittedThinkingStart) {
             yield {
               type: 'content_block_start',
               index: contentBlockIndex,
-              content_block: { type: 'thinking', thinking: '' },
+              content_block: {
+                type: 'thinking',
+                thinking: '',
+                ...(stickySignature ? { signature: stickySignature } : {}),
+              },
             }
             hasEmittedThinkingStart = true
           }
           yield {
             type: 'content_block_delta',
             index: contentBlockIndex,
-            delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
+            delta: {
+              type: 'thinking_delta',
+              thinking: reasoningContent,
+              ...(stickySignature ? { signature: stickySignature } : {}),
+            },
           }
         }
 
@@ -1320,18 +1352,29 @@ async function* openaiStreamToAnthropic(
               const toolExtraContent = tc.extra_content ?? delta.extra_content
               const toolSignature =
                 geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
-                geminiThoughtSignatureFromExtraContent(delta.extra_content)
+                geminiThoughtSignatureFromExtraContent(delta.extra_content) ??
+                stickySignature ??
+                (preserveGeminiSignature && !hasGeminiApiHost(process.env.OPENAI_BASE_URL)
+                  ? Buffer.from(`synthetic-sig-${tc.id}`).toString('base64')
+                  : undefined)
+
+              if (toolSignature) {
+                stickySignature = toolSignature
+              }
+
               const mergedToolExtraContent = mergeGeminiThoughtSignature(
                 toolExtraContent,
                 toolSignature,
               )
+              const callKey = tc.id
               processStreamChunk(streamState, tc.function.arguments ?? '')
-              activeToolCalls.set(tc.index, {
+              activeToolCalls.set(callKey, {
                 id: tc.id,
                 name: tc.function.name,
                 index: toolBlockIndex,
                 jsonBuffer: initialArguments,
                 normalizeAtStop,
+                signature: toolSignature,
               })
 
               yield {
@@ -1356,12 +1399,14 @@ async function* openaiStreamToAnthropic(
                   delta: {
                     type: 'input_json_delta',
                     partial_json: tc.function.arguments,
+                    ...(toolSignature ? { signature: toolSignature } : {}),
                   },
                 }
               }
             } else if (tc.function?.arguments) {
               // Continuation of existing tool call
-              const active = activeToolCalls.get(tc.index)
+              const callKey = tc.id ?? (tc.index !== undefined ? [...activeToolCalls.values()].find(a => a.index === tc.index)?.id : undefined)
+              const active = callKey ? activeToolCalls.get(callKey) : undefined
               if (active) {
                 if (tc.function.arguments) {
                   active.jsonBuffer += tc.function.arguments
@@ -1377,11 +1422,13 @@ async function* openaiStreamToAnthropic(
                   delta: {
                     type: 'input_json_delta',
                     partial_json: tc.function.arguments,
+                    ...(active.signature ? { signature: active.signature } : {}),
                   },
                 }
               }
             }
           }
+
         }
 
         // Finish — guard ensures we only process finish_reason once even if
@@ -1436,6 +1483,7 @@ async function* openaiStreamToAnthropic(
                 delta: {
                   type: 'input_json_delta',
                   partial_json: partialJson,
+                  ...(tc.signature ? { signature: tc.signature } : {}),
                 },
               }
               yield { type: 'content_block_stop', index: tc.index }
@@ -1465,6 +1513,7 @@ async function* openaiStreamToAnthropic(
                 delta: {
                   type: 'input_json_delta',
                   partial_json: suffixToAdd,
+                  ...(tc.signature ? { signature: tc.signature } : {}),
                 },
               }
             }
@@ -1887,6 +1936,7 @@ class OpenAIShimMessages {
           description?: string
           input_schema?: Record<string, unknown>
         }>,
+        request.resolvedModel,
         { skipStrict: fastPath.skipStrictTools },
       )
       if (converted.length > 0) {
@@ -2458,12 +2508,20 @@ class OpenAIShimMessages {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
 
+    const messageSignature = geminiThoughtSignatureFromExtraContent(
+      choice?.message?.extra_content,
+    )
+
     // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
     // reasoning_content while content stays null. Preserve it as a thinking
     // block, but do not surface it as visible assistant text.
     const reasoningText = choice?.message?.reasoning_content
     if (typeof reasoningText === 'string' && reasoningText) {
-      content.push({ type: 'thinking', thinking: reasoningText })
+      content.push({
+        type: 'thinking',
+        thinking: reasoningText,
+        ...(messageSignature ? { signature: messageSignature } : {}),
+      })
     }
     const rawContent =
       choice?.message?.content !== '' && choice?.message?.content != null
@@ -2481,6 +2539,7 @@ class OpenAIShimMessages {
             id: toolCall.id,
             name: toolCall.name,
             input: JSON.parse(toolCall.argumentsJson),
+            ...(messageSignature ? { signature: messageSignature } : {}),
           })
         }
       } else {
@@ -2514,6 +2573,7 @@ class OpenAIShimMessages {
               id: toolCall.id,
               name: toolCall.name,
               input: JSON.parse(toolCall.argumentsJson),
+              ...(messageSignature ? { signature: messageSignature } : {}),
             })
           }
         } else {
@@ -2525,6 +2585,8 @@ class OpenAIShimMessages {
       }
     }
 
+    const isGemini = isGeminiMode(model)
+
     if (choice?.message?.tool_calls) {
       for (const tc of choice.message.tool_calls) {
         const input = normalizeToolArguments(
@@ -2534,7 +2596,9 @@ class OpenAIShimMessages {
         const toolExtraContent = tc.extra_content ?? choice.message.extra_content
         const toolSignature =
           geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
-          geminiThoughtSignatureFromExtraContent(choice.message.extra_content)
+          messageSignature ??
+          (isGemini ? Buffer.from(`synthetic-sig-${tc.id}`).toString('base64') : undefined)
+
         const mergedToolExtraContent = mergeGeminiThoughtSignature(
           toolExtraContent,
           toolSignature,
