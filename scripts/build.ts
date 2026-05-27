@@ -289,6 +289,12 @@ export const createClaudeForChromeMcpServer = noop;
         const pathMod = require('path')
         const srcDir = pathMod.resolve(__dirname, '..', 'src')
         const missingModules = new Set<string>()
+        // Relative missing imports keyed by specifier + importer so identical
+        // specifiers in different folders do not stub the wrong module.
+        const missingRelativeImports = new Map<
+          string,
+          Array<{ importerPath: string; stubPath: string }>
+        >()
         const missingModuleExports = new Map<string, Set<string>>()
 
         // Known missing external packages
@@ -304,39 +310,62 @@ export const createClaudeForChromeMcpServer = noop;
 
         // Scan source to find imports that can't resolve
         function scanForMissingImports() {
-          function checkAndRegister(specifier: string, fileDir: string, namedPart: string) {
-                const names = namedPart.split(',')
-                  .map((s: string) => s.trim().replace(/^type\s+/, ''))
-                  .filter((s: string) => s && !s.startsWith('type '))
+          function checkAndRegister(
+            specifier: string,
+            importerFile: string,
+            namedPart: string,
+          ) {
+            const fileDir = pathMod.dirname(importerFile)
+            const names = namedPart.split(',')
+              .map((s: string) => s.trim().replace(/^type\s+/, ''))
+              .filter((s: string) => s && !s.startsWith('type '))
 
-                // Check src/tasks/ non-relative imports
-                if (specifier.startsWith('src/tasks/')) {
-                  const resolved = pathMod.resolve(__dirname, '..', specifier)
-                  const candidates = [
-                    resolved,
-                    `${resolved}.ts`, `${resolved}.tsx`,
-                    resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
-                    pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
-                  ]
-                  if (!candidates.some((c: string) => fs.existsSync(c))) {
-                    missingModules.add(specifier)
-                  }
-                }
-                // Check relative .js imports
-                else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
-                  const resolved = pathMod.resolve(fileDir, specifier)
-                  const tsVariant = resolved.replace(/\.js$/, '.ts')
-                  const tsxVariant = resolved.replace(/\.js$/, '.tsx')
-                  if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
-                    missingModules.add(specifier)
-                  }
-                }
+            let stubKey: string | undefined
 
-                // Track named exports for missing modules
-                if (names.length > 0) {
-                  if (!missingModuleExports.has(specifier)) missingModuleExports.set(specifier, new Set())
-                  for (const n of names) missingModuleExports.get(specifier)!.add(n)
-                }
+            // Check src/tasks/ non-relative imports
+            if (specifier.startsWith('src/tasks/')) {
+              const resolved = pathMod.resolve(__dirname, '..', specifier)
+              const candidates = [
+                resolved,
+                `${resolved}.ts`, `${resolved}.tsx`,
+                resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
+                pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
+              ]
+              if (!candidates.some((c: string) => fs.existsSync(c))) {
+                missingModules.add(specifier)
+                stubKey = specifier
+              }
+            }
+            // Check relative .js imports
+            else if (
+              specifier.endsWith('.js') &&
+              (specifier.startsWith('./') || specifier.startsWith('../'))
+            ) {
+              const resolved = pathMod.resolve(fileDir, specifier)
+              const tsVariant = resolved.replace(/\.js$/, '.ts')
+              const tsxVariant = resolved.replace(/\.js$/, '.tsx')
+              if (
+                !fs.existsSync(resolved) &&
+                !fs.existsSync(tsVariant) &&
+                !fs.existsSync(tsxVariant)
+              ) {
+                const entries = missingRelativeImports.get(specifier) ?? []
+                entries.push({
+                  importerPath: pathMod.normalize(importerFile),
+                  stubPath: tsVariant,
+                })
+                missingRelativeImports.set(specifier, entries)
+                stubKey = tsVariant
+              }
+            }
+
+            // Track named exports for missing modules
+            if (names.length > 0 && stubKey) {
+              if (!missingModuleExports.has(stubKey)) {
+                missingModuleExports.set(stubKey, new Set())
+              }
+              for (const n of names) missingModuleExports.get(stubKey)!.add(n)
+            }
           }
 
           function walk(dir: string) {
@@ -345,7 +374,6 @@ export const createClaudeForChromeMcpServer = noop;
               if (ent.isDirectory()) { walk(full); continue }
               if (!/\.(ts|tsx)$/.test(ent.name)) continue
               const rawCode: string = fs.readFileSync(full, 'utf-8')
-              const fileDir = pathMod.dirname(full)
 
               // Strip comments before scanning for imports/requires.
               // The regex scanner matches require()/import() patterns
@@ -357,18 +385,18 @@ export const createClaudeForChromeMcpServer = noop;
 
               // Collect static imports: import { X } from '...'
               for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
-                checkAndRegister(m[4], fileDir, m[1] || m[3] || '')
+                checkAndRegister(m[4], full, m[1] || m[3] || '')
               }
 
               // Collect dynamic requires: require('...') — these are used
               // behind feature() gates and become live when flags are enabled.
               for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-                checkAndRegister(m[1], fileDir, '')
+                checkAndRegister(m[1], full, '')
               }
 
               // Collect dynamic imports: import('...')
               for (const m of code.matchAll(/import\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-                checkAndRegister(m[1], fileDir, '')
+                checkAndRegister(m[1], full, '')
               }
             }
           }
@@ -376,13 +404,28 @@ export const createClaudeForChromeMcpServer = noop;
         }
         scanForMissingImports()
 
-        // Register exact-match resolvers for each missing module
+        // Register exact-match resolvers for each missing non-relative module
         for (const mod of missingModules) {
           const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
           build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
             path: mod,
             namespace: 'missing-module-stub',
           }))
+        }
+
+        // Stub missing relative imports only from the file that references them.
+        for (const [specifier, entries] of missingRelativeImports) {
+          const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, (args) => {
+            if (!args.importer) return
+            const importer = pathMod.normalize(args.importer)
+            const match = entries.find(entry => entry.importerPath === importer)
+            if (!match) return
+            return {
+              path: match.stubPath,
+              namespace: 'missing-module-stub',
+            }
+          })
         }
 
         build.onLoad(
