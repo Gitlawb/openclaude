@@ -1189,6 +1189,16 @@ async function streamCompactSummary({
         // creating a thinking config mismatch that invalidates the cache.
         // The streaming fallback path (below) can safely set maxOutputTokensOverride
         // since it doesn't share cache with the main thread.
+        // Track real character-level progress from text deltas via onStreamEvent.
+        // Output is ~25% of input tokens, converted to chars (×4).
+        // Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
+        const estimatedOutputChars = Math.min(
+          Math.max(preCompactTokenCount * 0.25, COMPACT_MAX_OUTPUT_TOKENS),
+          COMPACT_MAX_OUTPUT_TOKENS * 4,
+        )
+        let totalCharsStreamed = 0
+        let lastEmittedRatio = 0
+
         // Use a child AbortController that properly propagates parent aborts
         // (user ESC) and cleans up listeners automatically via createChildAbortController.
         const forkAbortController = context.abortController
@@ -1208,6 +1218,17 @@ async function streamCompactSummary({
               maxTurns: 1,
               skipCacheWrite: true,
               overrides: { abortController: forkAbortController },
+              onStreamEvent: event => {
+                if (event.event?.delta?.type === 'text_delta') {
+                  const charactersStreamed = event.event.delta.text?.length ?? 0
+                  totalCharsStreamed += charactersStreamed
+                  const ratio = Math.min(0.95, totalCharsStreamed / Math.max(1, estimatedOutputChars))
+                  if (ratio - lastEmittedRatio >= 0.02) {
+                    lastEmittedRatio = ratio
+                    context.onCompactProgress?.({ type: 'compact_progress', ratio })
+                  }
+                }
+              },
             }),
             new Promise<never>((_, reject) => {
               timeoutId = setTimeout(() => {
@@ -1277,10 +1298,12 @@ async function streamCompactSummary({
     )
     const maxAttempts = retryEnabled ? MAX_COMPACT_STREAMING_RETRIES : 1
 
-    // Estimate output target: summary is typically proportional to input but
-    // capped by COMPACT_MAX_OUTPUT_TOKENS. Use chars as unit (roughly 4 chars/token).
+    // Estimate output target: summary is ~25% of input tokens, converted to
+    // chars (×4). Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
+    // Floor at COMPACT_MAX_OUTPUT_TOKENS to handle cases where
+    // tokenCountWithEstimation returns a fallback estimate (e.g. after /resume).
     const estimatedOutputChars = Math.min(
-      preCompactTokenCount * 0.25,
+      Math.max(preCompactTokenCount * 0.25, COMPACT_MAX_OUTPUT_TOKENS),
       COMPACT_MAX_OUTPUT_TOKENS * 4,
     )
     let totalCharsStreamed = 0

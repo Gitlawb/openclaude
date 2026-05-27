@@ -55,11 +55,17 @@ export const call: LocalCommandCall = async (args, context) => {
     // Try session memory compaction first if no custom instructions
     // (session memory compaction doesn't support custom instructions)
     if (!customInstructions) {
+      context.onCompactProgress?.({
+        type: 'hooks_start',
+        hookType: 'pre_compact',
+      })
+      context.onCompactProgress?.({ type: 'compact_start' })
       const sessionMemoryResult = await trySessionMemoryCompaction(
         messages,
         context.agentId,
       )
       if (sessionMemoryResult) {
+        context.onCompactProgress?.({ type: 'compact_end' })
         getUserContext.cache.clear?.()
         runPostCompactCleanup()
         // Reset cache read baseline so the post-compact drop isn't flagged

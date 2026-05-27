@@ -22,7 +22,7 @@ import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
 import { ResumeCompactPrompt } from '../components/ResumeCompactPrompt.js';
-import { ProgressBar } from '../components/design-system/ProgressBar.js';
+import { CompactProgressBar } from '../components/CompactProgressBar.js';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, useLayoutEffect, type RefObject } from 'react';
 import { useNotifications } from '../context/notifications.js';
@@ -2567,6 +2567,7 @@ export function REPL({
             break;
           case 'compact_start':
             setSpinnerMessage('Compacting conversation');
+            setCompactProgressRatio(0);
             break;
           case 'compact_progress':
             setCompactProgressRatio(event.ratio);
@@ -4609,17 +4610,12 @@ export function REPL({
         </Box>}
         {feature('WEB_BROWSER_TOOL') ? WebBrowserPanelModule && <WebBrowserPanelModule.WebBrowserPanel /> : null}
         <Box flexGrow={1} />
-        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
+        {showSpinner && compactProgressRatio === null && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {/* Permanently mounted: it observes the isLoading transition to flash
             `✓ Done` for ~1.5s. Suppressed wherever another element owns the
             row or the user's attention. */}
         <CompletionFlash turnActive={isLoading || userInputOnProcessing !== undefined} suppressed={isBriefOnly || hasRunningTeammates || hasActivePrompt || viewedAgentTask !== undefined} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} />
-        {compactProgressRatio !== null && feature('RESUME_COMPACT_PROMPT') && <Box flexDirection="row" paddingLeft={1} gap={1}>
-          <Text color="claudeBlue">
-            <ProgressBar ratio={compactProgressRatio} width={30} fillColor="claudeBlue" emptyColor="border" />
-          </Text>
-          <Text dimColor>{Math.round(compactProgressRatio * 100)}%</Text>
-        </Box>}
+        {compactProgressRatio !== null && feature('RESUME_COMPACT_PROMPT') && <CompactProgressBar ratio={compactProgressRatio} />}
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
       </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
