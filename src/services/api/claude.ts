@@ -820,6 +820,13 @@ function getNonstreamingFallbackTimeoutMs(): number {
   return isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ? 120_000 : 300_000
 }
 
+function shouldAttachClientRequestIdHeader(
+  providerOverride?: Options['providerOverride'],
+): boolean {
+  if (providerOverride) return false
+  return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+}
+
 /**
  * Helper generator for non-streaming API requests.
  * Encapsulates the common pattern of creating a withRetry generator,
@@ -1830,10 +1837,11 @@ async function* queryModel(
         // Generate and track client request ID so timeouts (which return no
         // server request ID) can still be correlated with server logs.
         // First-party only — 3P providers don't log it (inc-4029 class).
-        clientRequestId =
-          getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
-            ? randomUUID()
-            : undefined
+        clientRequestId = shouldAttachClientRequestIdHeader(
+          options.providerOverride,
+        )
+          ? randomUUID()
+          : undefined
 
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
@@ -2669,7 +2677,7 @@ async function* queryModel(
       try {
         // Fall back to non-streaming mode
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource, effortValue: effort },
+          { model: options.model, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,
