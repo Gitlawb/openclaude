@@ -1029,7 +1029,7 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             message: {
@@ -1056,7 +1056,7 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
+    model: 'openai/gpt-5-mini',
     system: 'test system',
     messages: [
       { role: 'user', content: 'Use Bash' },
@@ -2125,7 +2125,7 @@ test('preserves Gemini tool call extra_content from streaming chunks', async () 
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2155,7 +2155,7 @@ test('preserves Gemini tool call extra_content from streaming chunks', async () 
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2173,7 +2173,7 @@ test('preserves Gemini tool call extra_content from streaming chunks', async () 
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -2281,19 +2281,184 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
   ) as { content_block?: Record<string, unknown> } | undefined
 
   expect(toolStart?.content_block).toMatchObject({
-    type: 'tool_use',
-    id: 'function-call-1',
-    name: 'Write',
-    extra_content: {
-      google: {
-        thought_signature: 'sig-delta',
-      },
+  type: 'tool_use',
+  id: 'function-call-1',
+  name: 'Write',
+  extra_content: {
+    google: {
+      thought_signature: 'sig-delta',
     },
-    signature: 'sig-delta',
+  },
+  signature: 'sig-delta',
   })
-})
+  })
 
-test('preserves Gemini thought signature from non-streaming message extra_content', async () => {
+  test('preserves Gemini thought signature across multiple tool calls in streaming', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+  const chunks = makeStreamChunks([
+    {
+      id: 'chatcmpl-multi',
+      object: 'chat.completion.chunk',
+      model: 'google/gemini-2.0-flash-thinking-exp',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant',
+            extra_content: {
+              google: {
+                thought_signature: 'sticky-sig-123',
+              },
+            },
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call-1',
+                type: 'function',
+                function: {
+                  name: 'Bash',
+                  arguments: '{"command":"ls"}',
+                },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      id: 'chatcmpl-multi',
+      object: 'chat.completion.chunk',
+      model: 'google/gemini-2.0-flash-thinking-exp',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 1,
+                id: 'call-2',
+                type: 'function',
+                function: {
+                  name: 'Write',
+                  arguments: '{"file_path":"test.txt","content":"hello"}',
+                },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+    },
+  ])
+
+  return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+  .create({
+    model: 'google/gemini-2.0-flash-thinking-exp',
+    messages: [{ role: 'user', content: 'ls and write' }],
+    max_tokens: 128,
+    stream: true,
+  })
+  .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+  events.push(event)
+  }
+
+  const toolStarts = events.filter(
+  event =>
+    event.type === 'content_block_start' &&
+    (event.content_block as Record<string, any>)?.type === 'tool_use',
+  ) as Array<{ content_block: any }>
+
+  expect(toolStarts).toHaveLength(2)
+
+  // First tool call
+  expect(toolStarts[0].content_block).toMatchObject({
+  id: 'call-1',
+  signature: 'sticky-sig-123',
+  })
+
+  // Second tool call (this is where it currently fails/misses the signature)
+  expect(toolStarts[1].content_block).toMatchObject({
+    id: 'call-2',
+    signature: 'sticky-sig-123',
+  })
+  })
+
+  test('preserves Gemini thought signature when using Ollama model names', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-ollama',
+        object: 'chat.completion.chunk',
+        model: 'gemini-3-flash-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              extra_content: {
+                google: {
+                  thought_signature: 'ollama-sig-456',
+                },
+              },
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"ls"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'gemini-3-flash-preview',
+      messages: [{ role: 'user', content: 'ls' }],
+      max_tokens: 128,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      (event.content_block as Record<string, any>)?.type === 'tool_use',
+  ) as { content_block: any }
+
+  expect(toolStart.content_block).toMatchObject({
+    id: 'call-1',
+    signature: 'ollama-sig-456',
+  })
+  })
+
+  test('preserves Gemini thought signature from non-streaming message extra_content', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
       JSON.stringify({
@@ -2529,7 +2694,7 @@ test('normalizes plain string Bash tool arguments from OpenAI-compatible respons
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             message: {
@@ -2565,7 +2730,7 @@ test('normalizes plain string Bash tool arguments from OpenAI-compatible respons
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
+    model: 'openai/gpt-5-mini',
     system: 'test system',
     messages: [{ role: 'user', content: 'Use Bash' }],
     max_tokens: 64,
@@ -2591,7 +2756,7 @@ test('normalizes Bash tool arguments that are valid JSON strings', async () => {
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             message: {
@@ -2627,7 +2792,7 @@ test('normalizes Bash tool arguments that are valid JSON strings', async () => {
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
+    model: 'openai/gpt-5-mini',
     system: 'test system',
     messages: [{ role: 'user', content: 'Use Bash' }],
     max_tokens: 64,
@@ -2657,7 +2822,7 @@ test.each([
       return new Response(
         JSON.stringify({
           id: 'chatcmpl-1',
-          model: 'google/gemini-3.1-pro-preview',
+          model: 'openai/gpt-5-mini',
           choices: [
             {
               message: {
@@ -2693,7 +2858,7 @@ test.each([
     const client = createOpenAIShimClient({}) as OpenAIShimClient
 
     const message = await client.beta.messages.create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -2718,7 +2883,7 @@ test('keeps terminal empty Bash tool arguments invalid in non-streaming response
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             message: {
@@ -2754,7 +2919,7 @@ test('keeps terminal empty Bash tool arguments invalid in non-streaming response
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
+    model: 'openai/gpt-5-mini',
     system: 'test system',
     messages: [{ role: 'user', content: 'Use Bash' }],
     max_tokens: 64,
@@ -2779,7 +2944,7 @@ test('normalizes plain string Bash tool arguments in streaming responses', async
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2804,7 +2969,7 @@ test('normalizes plain string Bash tool arguments in streaming responses', async
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2822,7 +2987,7 @@ test('normalizes plain string Bash tool arguments in streaming responses', async
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -2855,7 +3020,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with an 
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2880,7 +3045,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with an 
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2902,7 +3067,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with an 
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2920,7 +3085,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with an 
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -2953,7 +3118,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with whi
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -2978,7 +3143,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with whi
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3000,7 +3165,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with whi
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3018,7 +3183,7 @@ test('normalizes plain string Bash tool arguments when streaming starts with whi
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3051,7 +3216,7 @@ test('keeps terminal whitespace-only Bash arguments invalid in streaming respons
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3076,7 +3241,7 @@ test('keeps terminal whitespace-only Bash arguments invalid in streaming respons
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3094,7 +3259,7 @@ test('keeps terminal whitespace-only Bash arguments invalid in streaming respons
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3127,7 +3292,7 @@ test('normalizes streaming Bash arguments that begin with bracket syntax', async
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3152,7 +3317,7 @@ test('normalizes streaming Bash arguments that begin with bracket syntax', async
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3170,7 +3335,7 @@ test('normalizes streaming Bash arguments that begin with bracket syntax', async
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3203,7 +3368,7 @@ test('normalizes streaming Bash arguments when the first chunk is only an openin
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3228,7 +3393,7 @@ test('normalizes streaming Bash arguments when the first chunk is only an openin
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3250,7 +3415,7 @@ test('normalizes streaming Bash arguments when the first chunk is only an openin
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3268,7 +3433,7 @@ test('normalizes streaming Bash arguments when the first chunk is only an openin
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3301,7 +3466,7 @@ test('repairs truncated structured Bash JSON in streaming responses', async () =
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3326,7 +3491,7 @@ test('repairs truncated structured Bash JSON in streaming responses', async () =
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3344,7 +3509,7 @@ test('repairs truncated structured Bash JSON in streaming responses', async () =
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3377,7 +3542,7 @@ test('does not normalize incomplete streamed Bash commands when finish_reason is
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3402,7 +3567,7 @@ test('does not normalize incomplete streamed Bash commands when finish_reason is
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3420,7 +3585,7 @@ test('does not normalize incomplete streamed Bash commands when finish_reason is
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3453,7 +3618,7 @@ test('repairs truncated JSON objects even without command field', async () => {
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3478,7 +3643,7 @@ test('repairs truncated JSON objects even without command field', async () => {
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             index: 0,
@@ -3496,7 +3661,7 @@ test('repairs truncated JSON objects even without command field', async () => {
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'openai/gpt-5-mini',
       system: 'test system',
       messages: [{ role: 'user', content: 'Use Bash' }],
       max_tokens: 64,
@@ -3528,7 +3693,7 @@ test('preserves raw input for unknown plain string tool arguments', async () => 
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             message: {
@@ -3564,7 +3729,7 @@ test('preserves raw input for unknown plain string tool arguments', async () => 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
+    model: 'openai/gpt-5-mini',
     system: 'test system',
     messages: [{ role: 'user', content: 'Use tool' }],
     max_tokens: 64,
@@ -3588,7 +3753,7 @@ test('preserves parsed string input for unknown JSON string tool arguments', asy
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-pro-preview',
+        model: 'openai/gpt-5-mini',
         choices: [
           {
             message: {
@@ -3624,7 +3789,7 @@ test('preserves parsed string input for unknown JSON string tool arguments', asy
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-pro-preview',
+    model: 'openai/gpt-5-mini',
     system: 'test system',
     messages: [{ role: 'user', content: 'Use tool' }],
     max_tokens: 64,
