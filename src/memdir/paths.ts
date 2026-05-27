@@ -24,7 +24,10 @@ import {
  *   1. CLAUDE_CODE_DISABLE_AUTO_MEMORY env var (1/true → OFF, 0/false → ON)
  *   2. CLAUDE_CODE_SIMPLE (--bare) → OFF
  *   3. CCR without persistent storage → OFF (no CLAUDE_CODE_REMOTE_MEMORY_DIR)
- *   4. autoMemoryEnabled in settings.json (supports project-level opt-out)
+ *   4. settings.json — `memory.autoWrite` and `autoMemoryEnabled` are equivalent
+ *      opt-outs (#1326). When both are set, the more restrictive (false) value
+ *      wins so a parent-scope opt-out can't be silently re-enabled by a
+ *      narrower scope.
  *   5. Default: enabled
  */
 export function isAutoMemoryEnabled(): boolean {
@@ -48,8 +51,14 @@ export function isAutoMemoryEnabled(): boolean {
     return false
   }
   const settings = getInitialSettings()
-  if (settings.autoMemoryEnabled !== undefined) {
-    return settings.autoMemoryEnabled
+  const legacy = settings.autoMemoryEnabled
+  const aliased = settings.memory?.autoWrite
+  // Either key opts out. Only fall back to the default if both are unset.
+  if (legacy === false || aliased === false) {
+    return false
+  }
+  if (legacy === true || aliased === true) {
+    return true
   }
   return true
 }
