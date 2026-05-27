@@ -776,6 +776,14 @@ export async function main() {
       extractFlag('--model', {
         hasValue: true
       });
+      // `--fallback-model` mirrors `--model`: the SSH local wrapper consumes
+      // the flag from process.argv before spawning the remote child, so
+      // without this forward the remote interactive REPL never sees the
+      // failover model and the local wrapper's REPL has nothing to fall back
+      // to either (the actual query runs over `sshRemote`, not in-process).
+      extractFlag('--fallback-model', {
+        hasValue: true
+      });
     }
     // After pre-extraction, any remaining dash-arg at [1] is either -h/--help
     // (commander handles) or an unknown-to-ssh flag (fall through to commander
