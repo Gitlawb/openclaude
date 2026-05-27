@@ -65,6 +65,13 @@ const originalEnv = {
   CLAUDE_CODE_REMOTE_SESSION_ID: process.env.CLAUDE_CODE_REMOTE_SESSION_ID,
   SESSION_INGRESS_URL: process.env.SESSION_INGRESS_URL,
   USER_TYPE: process.env.USER_TYPE,
+  // Env-only provider credential keys — if the CI runner has any of these set,
+  // resolveEnvOnlyProviderRouteId() fires before the CLAUDE_CODE_USE_OPENAI
+  // branch and routes the request away from 'openai', breaking co-author name.
+  XAI_API_KEY: process.env.XAI_API_KEY,
+  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  VENICE_API_KEY: process.env.VENICE_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
 }
 const originalClientType = getClientType()
 const originalMainLoopModelOverride = getMainLoopModelOverride()
