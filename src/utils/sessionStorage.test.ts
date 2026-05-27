@@ -8,6 +8,7 @@ import {
   loadTranscriptFile,
   stripPersistedToolUseResultsFromJSONLBuffer,
 } from './sessionStorage.ts'
+import { clearSessionMessagesCache } from './sessionStorage.ts'
 
 const tempDirs: string[] = []
 const sessionId = '00000000-0000-4000-8000-000000000999'
@@ -258,4 +259,41 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
   expect(
     (loaded?.message.content as Array<{ content: string }>)[0]?.content,
   ).toContain('Preview text')
+})
+
+test('agent sidechain dedupe is keyed by transcript path, not agentId — session/subdir switch yields independent UUID sets', async () => {
+  // Regression test for P2: getAgentMessages was memoized only by agentId,
+  // but the file it reads depends on sessionId + optional subdir too.
+  // A same-agentId, different-path write (new session or workflow subdir)
+  // must NOT reuse the UUID set from the previous path.
+
+  const agentId = 'worker@teamA'
+
+  // Two separate transcript files representing the same agentId under
+  // different paths (e.g. different sessionId or subagent subdir).
+  const msgA = { ...user(id(51), null, 'msg-in-path-A'), agentId, isSidechain: true }
+  const msgB = { ...user(id(52), null, 'msg-in-path-B'), agentId, isSidechain: true }
+
+  const pathA = await writeJsonl([msgA])
+  const pathB = await writeJsonl([msgB])
+
+  clearSessionMessagesCache()
+
+  const { messages: msgsA } = await loadTranscriptFile(pathA)
+  const { messages: msgsB } = await loadTranscriptFile(pathB)
+
+  const uuidsA = new Set(msgsA.keys())
+  const uuidsB = new Set(msgsB.keys())
+
+  // Each path should contain only its own message UUID.
+  expect(uuidsA.has(id(51))).toBe(true)
+  expect(uuidsA.has(id(52))).toBe(false)
+
+  expect(uuidsB.has(id(52))).toBe(true)
+  expect(uuidsB.has(id(51))).toBe(false)
+
+  // The two sets must be disjoint — the same agentId must not bleed UUIDs
+  // from pathA into pathB's dedup check.
+  const intersection = [...uuidsA].filter(u => uuidsB.has(u))
+  expect(intersection).toEqual([])
 })

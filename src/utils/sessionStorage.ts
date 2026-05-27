@@ -1227,7 +1227,9 @@ class Project {
         // For agent sidechain LOCAL writes, check getAgentMessages to avoid duplicate
         // writes when context messages are passed. For main session writes, check messageSet.
         if (isAgentSidechain) {
-          const agentMessageSet = await getAgentMessages(entry.agentId!)
+          // Key by resolved path so a session/subdirectory change for the same
+          // agentId correctly consults the new file instead of a stale cache entry.
+          const agentMessageSet = await getAgentMessages(targetFile)
           if (!agentMessageSet.has(entry.uuid)) {
             // Enqueue write — appendToFile handles ENOENT by creating directories
             void this.enqueueWrite(targetFile, entry)
@@ -4090,19 +4092,20 @@ const getSessionMessages = memoize(
 
 /**
  * Gets message UUIDs for a specific agent sidechain transcript.
- * Memoized to avoid re-reading the same agent file multiple times.
+ * Memoized by the resolved transcript path (not agentId alone) so that a
+ * session change or subdirectory switch for the same agentId correctly reads
+ * the new file rather than returning a stale UUID set from a previous sidechain.
  */
 const getAgentMessages = memoize(
-  async (agentId: string): Promise<Set<UUID>> => {
-    const agentFile = getAgentTranscriptPath(asAgentId(agentId))
+  async (agentTranscriptPath: string): Promise<Set<UUID>> => {
     try {
-      const { messages } = await loadTranscriptFile(agentFile)
+      const { messages } = await loadTranscriptFile(agentTranscriptPath)
       return new Set(messages.keys())
     } catch {
       return new Set<UUID>()
     }
   },
-  (agentId: string) => agentId,
+  (agentTranscriptPath: string) => agentTranscriptPath,
 )
 
 /**
