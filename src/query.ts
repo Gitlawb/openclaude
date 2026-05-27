@@ -507,7 +507,7 @@ async function* queryLoop(
     )
 
     queryCheckpoint('query_autocompact_start')
-    const { compactionResult, consecutiveFailures } = await deps.autocompact(
+    const { compactionResult, consecutiveFailures, lastFailureAt } = await deps.autocompact(
       messagesForQuery,
       toolUseContext,
       {
@@ -590,11 +590,14 @@ async function* queryLoop(
       // Continue on with the current query call using the post compact messages
       messagesForQuery = postCompactMessages
     } else if (consecutiveFailures !== undefined) {
-      // Autocompact failed — propagate failure count so the circuit breaker
-      // can stop retrying on the next iteration.
+      // Autocompact failed — propagate failure count + timestamp so the
+      // circuit breaker can stop retrying on the next iteration and then
+      // re-arm after the cooldown elapses (see CIRCUIT_BREAKER_COOLDOWN_MS
+      // in autoCompact.ts; #1373).
       tracking = {
         ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
         consecutiveFailures,
+        lastFailureAt,
       }
     }
 

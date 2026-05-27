@@ -64,6 +64,13 @@ export type AutoCompactTrackingState = {
   // Used as a circuit breaker to stop retrying when the context is
   // irrecoverably over the limit (e.g., prompt_too_long).
   consecutiveFailures?: number
+  // Timestamp (ms since epoch) of the most recent autocompact failure.
+  // Used by the circuit breaker to time the cooldown — after
+  // CIRCUIT_BREAKER_COOLDOWN_MS the failure counter resets and one more
+  // attempt is allowed, so transient summarization errors (e.g. provider
+  // 5xx during the spike that tripped the breaker) don't permanently
+  // disable compaction for the rest of the session (#1373).
+  lastFailureAt?: number
 }
 
 export const AUTOCOMPACT_BUFFER_TOKENS = 13_000
@@ -75,6 +82,39 @@ export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
 // BQ 2026-03-10: 1,279 sessions had 50+ consecutive failures (up to 3,272)
 // in a single session, wasting ~250K API calls/day globally.
 const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
+
+// How long the circuit breaker stays open after MAX_CONSECUTIVE failures
+// before allowing a retry. Fixes #1373: previously the breaker latched
+// for the whole session and `state.messages` grew unbounded for the
+// ~3 hours it took to OOM, even when the original failure was a transient
+// provider 5xx during the spike that tripped the breaker. Five minutes is
+// long enough to drain the failure burst, short enough that a normal-mode
+// session recovers compaction without the user noticing.
+export const CIRCUIT_BREAKER_COOLDOWN_MS = 5 * 60_000
+
+/**
+ * Decide whether the autocompact circuit breaker should hold this call.
+ *
+ * Returns true when the breaker has tripped (consecutive failures >= max)
+ * AND the cooldown has not yet elapsed. Caller should short-circuit and
+ * return `wasCompacted: false` without hitting the compaction API.
+ *
+ * Pure so the cooldown contract can be regression-tested without mocking
+ * the whole compaction stack — see autoCompact.test.ts (#1373).
+ */
+export function isAutoCompactBreakerHolding(
+  tracking: { consecutiveFailures?: number; lastFailureAt?: number } | undefined,
+  now: number,
+): boolean {
+  if (
+    tracking?.consecutiveFailures === undefined ||
+    tracking.consecutiveFailures < MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+  ) {
+    return false
+  }
+  const lastFailureAt = tracking.lastFailureAt ?? 0
+  return now - lastFailureAt < CIRCUIT_BREAKER_COOLDOWN_MS
+}
 
 export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
@@ -261,6 +301,7 @@ export async function autoCompactIfNeeded(
   wasCompacted: boolean
   compactionResult?: CompactionResult
   consecutiveFailures?: number
+  lastFailureAt?: number
 }> {
   if (isEnvTruthy(process.env.DISABLE_COMPACT)) {
     return { wasCompacted: false }
@@ -269,11 +310,25 @@ export async function autoCompactIfNeeded(
   // Circuit breaker: stop retrying after N consecutive failures.
   // Without this, sessions where context is irrecoverably over the limit
   // hammer the API with doomed compaction attempts on every turn.
+  //
+  // Once the cooldown elapses we let one attempt through (fall through to
+  // the compaction call below without resetting the counter). On success
+  // the counter is reset to 0; on failure it stays at MAX, lastFailureAt
+  // is bumped, and the breaker latches again for another CIRCUIT_BREAKER_COOLDOWN_MS.
+  // This keeps the original anti-API-spam guarantee while preventing the
+  // permanent latch from #1373.
+  const now = Date.now()
+  if (isAutoCompactBreakerHolding(tracking, now)) {
+    return { wasCompacted: false }
+  }
   if (
     tracking?.consecutiveFailures !== undefined &&
     tracking.consecutiveFailures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
   ) {
-    return { wasCompacted: false }
+    const elapsed = now - (tracking.lastFailureAt ?? 0)
+    logForDebugging(
+      `autocompact: circuit breaker cooldown (${Math.round(elapsed / 1000)}s) elapsed — re-attempting`,
+    )
   }
 
   const model = toolUseContext.options.mainLoopModel
@@ -382,15 +437,23 @@ export async function autoCompactIfNeeded(
     }
     // Increment consecutive failure count for circuit breaker.
     // The caller threads this through autoCompactTracking so the
-    // next query loop iteration can skip futile retry attempts.
+    // next query loop iteration can skip futile retry attempts —
+    // until CIRCUIT_BREAKER_COOLDOWN_MS elapses and the guard above
+    // lets one through, at which point a success here resets the
+    // counter to 0 and a failure latches the breaker for another
+    // cooldown window (rather than the rest of the session, see #1373).
     const prevFailures = tracking?.consecutiveFailures ?? 0
     const nextFailures = prevFailures + 1
     if (nextFailures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES) {
       logForDebugging(
-        `autocompact: circuit breaker tripped after ${nextFailures} consecutive failures — skipping future attempts this session`,
+        `autocompact: circuit breaker tripped after ${nextFailures} consecutive failures — pausing for ${Math.round(CIRCUIT_BREAKER_COOLDOWN_MS / 60000)} min before retry`,
         { level: 'warn' },
       )
     }
-    return { wasCompacted: false, consecutiveFailures: nextFailures }
+    return {
+      wasCompacted: false,
+      consecutiveFailures: nextFailures,
+      lastFailureAt: Date.now(),
+    }
   }
 }

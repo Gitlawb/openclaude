@@ -135,6 +135,109 @@ describe('getEffectiveContextWindowSize', () => {
   })
 })
 
+describe('isAutoCompactBreakerHolding (circuit-breaker cooldown — #1373)', () => {
+  test('lets attempts through when no failures recorded', async () => {
+    const { isAutoCompactBreakerHolding } = await importAutoCompact()
+    expect(isAutoCompactBreakerHolding(undefined, Date.now())).toBe(false)
+    expect(isAutoCompactBreakerHolding({}, Date.now())).toBe(false)
+  })
+
+  test('lets attempts through below the failure threshold', async () => {
+    const { isAutoCompactBreakerHolding } = await importAutoCompact()
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 1, lastFailureAt: Date.now() },
+        Date.now(),
+      ),
+    ).toBe(false)
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 2, lastFailureAt: Date.now() },
+        Date.now(),
+      ),
+    ).toBe(false)
+  })
+
+  test('holds calls when at-or-above threshold AND cooldown not yet elapsed', async () => {
+    const { isAutoCompactBreakerHolding, CIRCUIT_BREAKER_COOLDOWN_MS } =
+      await importAutoCompact()
+    const now = 1_000_000_000
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 3, lastFailureAt: now },
+        now,
+      ),
+    ).toBe(true)
+    // 1 minute later, still inside the 5-minute cooldown
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 3, lastFailureAt: now },
+        now + 60_000,
+      ),
+    ).toBe(true)
+    // Right at the boundary — still holding (< not <=)
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 3, lastFailureAt: now },
+        now + CIRCUIT_BREAKER_COOLDOWN_MS - 1,
+      ),
+    ).toBe(true)
+  })
+
+  test('releases after the cooldown elapses — fixes permanent-latch #1373', async () => {
+    const { isAutoCompactBreakerHolding, CIRCUIT_BREAKER_COOLDOWN_MS } =
+      await importAutoCompact()
+    const now = 1_000_000_000
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 3, lastFailureAt: now },
+        now + CIRCUIT_BREAKER_COOLDOWN_MS,
+      ),
+    ).toBe(false)
+    // Hours later — definitely released. This is the case from #1373 where
+    // the previous implementation latched permanently for the rest of the
+    // session and let state.messages grow unbounded.
+    expect(
+      isAutoCompactBreakerHolding(
+        { consecutiveFailures: 3, lastFailureAt: now },
+        now + 3 * 60 * 60_000,
+      ),
+    ).toBe(false)
+  })
+
+  test('higher failure counts (5, 10, 50) follow the same cooldown rule', async () => {
+    const { isAutoCompactBreakerHolding, CIRCUIT_BREAKER_COOLDOWN_MS } =
+      await importAutoCompact()
+    const now = 1_000_000_000
+    for (const count of [5, 10, 50]) {
+      // Still holding inside cooldown
+      expect(
+        isAutoCompactBreakerHolding(
+          { consecutiveFailures: count, lastFailureAt: now },
+          now + 1000,
+        ),
+      ).toBe(true)
+      // Released after cooldown
+      expect(
+        isAutoCompactBreakerHolding(
+          { consecutiveFailures: count, lastFailureAt: now },
+          now + CIRCUIT_BREAKER_COOLDOWN_MS,
+        ),
+      ).toBe(false)
+    }
+  })
+
+  test('treats missing lastFailureAt as ancient (releases immediately)', async () => {
+    const { isAutoCompactBreakerHolding } = await importAutoCompact()
+    // Tracking from an older session/version without the timestamp field
+    // should release rather than latch — failing open here is safer than
+    // permanently disabling compaction over a missing field.
+    expect(
+      isAutoCompactBreakerHolding({ consecutiveFailures: 3 }, Date.now()),
+    ).toBe(false)
+  })
+})
+
 describe('getAutoCompactThreshold', () => {
   test('returns positive threshold for known models', async () => {
     const { getAutoCompactThreshold } = await importAutoCompact()
