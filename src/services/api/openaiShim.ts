@@ -65,6 +65,7 @@ import {
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
   isLocalProviderUrl,
+  isTextOnlyOpenAICompatProvider,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
@@ -306,9 +307,48 @@ function convertSystemPrompt(
   return String(system)
 }
 
+function safeHostnameOrEmpty(baseUrl: string | undefined): string {
+  if (!baseUrl) return ''
+  try {
+    return new URL(baseUrl).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+// Tracks providers that have already received the "images stripped" warning
+// in this process, keyed by hostname. The warning surfaces once per host so
+// users learn the limitation without spamming the terminal every turn. See
+// `noteImageStrippedForProvider`.
+const imageStripWarningEmittedHosts: Set<string> = new Set()
+
+function noteImageStrippedForProvider(providerHost: string): void {
+  if (!providerHost || imageStripWarningEmittedHosts.has(providerHost)) return
+  imageStripWarningEmittedHosts.add(providerHost)
+  process.stderr.write(
+    `Warning: ${providerHost} is text-only — image content was stripped from this request. ` +
+      `Use a multimodal provider (e.g. an OpenAI-compatible vision endpoint) to send images.\n`,
+  )
+  logForDebugging(
+    `[openaiShim] stripped image_url blocks for text-only provider ${providerHost}`,
+  )
+}
+
+/** Marker text inserted in place of a stripped image block. Kept short so it
+ * doesn't dominate the message; the surrounding prose still carries the user
+ * intent and the model can ask a follow-up if it needs more detail. */
+const STRIPPED_IMAGE_PLACEHOLDER =
+  '[image omitted: this provider does not accept image content]'
+
+type ConvertOptions = {
+  stripImages?: boolean
+  providerHost?: string
+}
+
 function convertToolResultContent(
   content: unknown,
   isError?: boolean,
+  options?: ConvertOptions,
 ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
   if (typeof content === 'string') {
     return isError ? `Error: ${content}` : content
@@ -330,6 +370,11 @@ function convertToolResultContent(
     }
 
     if (block?.type === 'image') {
+      if (options?.stripImages) {
+        parts.push({ type: 'text', text: STRIPPED_IMAGE_PLACEHOLDER })
+        if (options.providerHost) noteImageStrippedForProvider(options.providerHost)
+        continue
+      }
       const source = block.source
       if (source?.type === 'url' && source.url) {
         parts.push({ type: 'image_url', image_url: { url: source.url } })
@@ -374,6 +419,7 @@ function convertToolResultContent(
 
 function convertContentBlocks(
   content: unknown,
+  options?: ConvertOptions,
 ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
@@ -385,6 +431,11 @@ function convertContentBlocks(
         parts.push({ type: 'text', text: block.text ?? '' })
         break
       case 'image': {
+        if (options?.stripImages) {
+          parts.push({ type: 'text', text: STRIPPED_IMAGE_PLACEHOLDER })
+          if (options.providerHost) noteImageStrippedForProvider(options.providerHost)
+          break
+        }
         const src = block.source
         if (src?.type === 'base64') {
           parts.push({
@@ -494,11 +545,17 @@ function convertMessages(
     preserveReasoningContent?: boolean
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
+    stripImages?: boolean
+    providerHost?: string
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
   const reasoningContentFallback = options?.reasoningContentFallback
   const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
+  const convertOpts: ConvertOptions = {
+    stripImages: options?.stripImages === true,
+    providerHost: options?.providerHost,
+  }
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -554,7 +611,7 @@ function convertMessages(
             result.push({
               role: 'tool',
               tool_call_id: id,
-              content: convertToolResultContent(tr.content, tr.is_error),
+              content: convertToolResultContent(tr.content, tr.is_error, convertOpts),
             })
           } else {
             logForDebugging(
@@ -567,13 +624,13 @@ function convertMessages(
         if (otherContent.length > 0) {
           result.push({
             role: 'user',
-            content: convertContentBlocks(otherContent),
+            content: convertContentBlocks(otherContent, convertOpts),
           })
         }
       } else {
         result.push({
           role: 'user',
-          content: convertContentBlocks(content),
+          content: convertContentBlocks(content, convertOpts),
         })
       }
     } else if (role === 'assistant') {
@@ -592,7 +649,7 @@ function convertMessages(
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(textContent)
+            const c = convertContentBlocks(textContent, convertOpts)
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -695,7 +752,7 @@ function convertMessages(
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
-            const c = convertContentBlocks(content)
+            const c = convertContentBlocks(content, convertOpts)
             return typeof c === 'string'
               ? c
               : Array.isArray(c)
@@ -1785,6 +1842,7 @@ class OpenAIShimMessages {
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
+    const stripImagesForProvider = isTextOnlyOpenAICompatProvider(request.baseUrl)
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
@@ -1792,6 +1850,10 @@ class OpenAIShimMessages {
         request.resolvedModel,
         request.baseUrl,
       ),
+      stripImages: stripImagesForProvider,
+      providerHost: stripImagesForProvider
+        ? safeHostnameOrEmpty(request.baseUrl)
+        : undefined,
     })
 
     const body: Record<string, unknown> = {

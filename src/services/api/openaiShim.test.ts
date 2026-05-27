@@ -5983,3 +5983,120 @@ test('emits reasoning_effort from codex alias default when no override is passed
 
   expect(requestBody?.reasoning_effort).toBe('high')
 })
+
+test('strips image_url blocks and emits warning when provider is DeepSeek (#1382)', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-pro',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-pro',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What is in this image?' },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+            },
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = (requestBody?.messages ?? []) as Array<{
+    role: string
+    content: unknown
+  }>
+  const userMsg = messages.find(m => m.role === 'user')
+  expect(userMsg).toBeDefined()
+  const content = userMsg!.content
+  // Whatever shape the shim chose (array of text parts or a collapsed string),
+  // it MUST NOT contain any image_url part that would 400 DeepSeek.
+  const serialised = JSON.stringify(content)
+  expect(serialised.includes('image_url')).toBe(false)
+  // And the model still sees the original text + a placeholder noting the
+  // image was dropped, so it can ask a follow-up if needed.
+  expect(serialised.includes('What is in this image?')).toBe(true)
+  expect(serialised.includes('image omitted')).toBe(true)
+})
+
+test('preserves image_url blocks on multimodal providers (regression guard)', async () => {
+  // The stripper is gated on hostname. A vanilla OpenAI base URL should still
+  // forward images verbatim — confirms isTextOnlyOpenAICompatProvider doesn't
+  // accidentally fire on the wider OpenAI-compatible population.
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-openai'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe' },
+          {
+            type: 'image',
+            source: { type: 'url', url: 'https://example.com/img.png' },
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = (requestBody?.messages ?? []) as Array<{
+    role: string
+    content: unknown
+  }>
+  const serialised = JSON.stringify(messages.find(m => m.role === 'user')?.content)
+  expect(serialised.includes('image_url')).toBe(true)
+  expect(serialised.includes('https://example.com/img.png')).toBe(true)
+})
