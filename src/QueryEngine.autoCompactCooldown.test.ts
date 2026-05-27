@@ -4,6 +4,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// Cold Windows checkouts can exceed Bun's default 5s while loading QueryEngine.
+const FIXTURE_TIMEOUT_MS = 60_000
+const TEST_TIMEOUT_MS = FIXTURE_TIMEOUT_MS + 5_000
 
 test('SDK manual compact clears stale auto-compact cooldown tracking', () => {
   const fixture = resolve(
@@ -14,6 +17,7 @@ test('SDK manual compact clears stale auto-compact cooldown tracking', () => {
   const result = spawnSync(process.execPath, [fixture], {
     cwd: repoRoot,
     encoding: 'utf8',
+    timeout: FIXTURE_TIMEOUT_MS,
     env: {
       ...process.env,
       FORCE_COLOR: '0',
@@ -34,4 +38,4 @@ test('SDK manual compact clears stale auto-compact cooldown tracking', () => {
         .join('\n\n'),
     )
   }
-})
+}, { timeout: TEST_TIMEOUT_MS })
