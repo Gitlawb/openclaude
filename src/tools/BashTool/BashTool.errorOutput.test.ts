@@ -66,4 +66,27 @@ describe('BashTool error output (#1231)', () => {
     expect(err.code).toBe(1)
     expect(formatError(err)).toBe('Exit code 1')
   })
+
+  // Regression for #1359 — when the captured output rolls to a file because
+  // it exceeds getMaxOutputLength (default 30k bytes) AND the command exits
+  // non-zero, the model used to see only the truncated first chunk on
+  // result.stdout with no signal that the rest existed. The error path now
+  // persists the roll file into the tool-results dir and appends a marker
+  // pointing at it, so the model can FileRead the full output.
+  test('large-output non-zero exit persists output and embeds path in error', async () => {
+    // Generate ~50k bytes (well above BASH_MAX_OUTPUT_DEFAULT=30000) then
+    // exit non-zero. The shell's rolling-file path engages once the in-memory
+    // accumulator exceeds the cap.
+    const err = await expectShellError(
+      `for i in $(seq 1 700); do printf 'line %04d %s\\n' "$i" "padding-to-make-this-line-fat-enough-to-cross-the-limit"; done; exit 1`,
+    )
+    expect(err.code).toBe(1)
+    const formatted = formatError(err)
+    expect(formatted).toContain('Exit code 1')
+    // The marker tells the model the full output is on disk along with the
+    // byte count. We don't pin the exact path (it's a temp dir) but we do
+    // require the canonical phrasing so the model's prompt template can
+    // anchor on it.
+    expect(formatted).toMatch(/full output \(\d+ bytes\) saved to .+; read with the Read tool/)
+  })
 })

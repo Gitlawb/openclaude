@@ -311,6 +311,65 @@ import type { BashProgress } from '../../types/tools.js';
  * @param command The command to check
  * @returns false for commands that should not be auto-backgrounded (like sleep)
  */
+/**
+ * Maximum bytes we copy from a rolled-output file into the tool-results dir.
+ * Files larger than this are truncated before the link/copy so a runaway
+ * command does not blow up disk usage in the user's home dir.
+ */
+const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
+
+/**
+ * Copy the shell's rolled-output file into the tool-results dir so the model
+ * can read it back via FileRead. Used by both the success path and the
+ * non-zero-exit error path (issue #1359): without this on the error side,
+ * the ShellError carries only the truncated first chunk from `result.stdout`
+ * and the model has no way to recover the failure body, leaving it to ask
+ * the user to re-run with redirection.
+ *
+ * Returns the destination path and size on success; returns `null` if the
+ * roll file is missing or the link/copy itself fails. Callers fall back to
+ * the in-memory stdout preview in that case.
+ */
+async function persistShellOutputFile(
+  sourcePath: string,
+  taskId: string,
+): Promise<{ path: string; size: number } | null> {
+  try {
+    const fileStat = await fsStat(sourcePath);
+    const size = fileStat.size;
+    await ensureToolResultsDir();
+    const dest = getToolResultPath(taskId, false);
+    if (size > MAX_PERSISTED_SHELL_OUTPUT_SIZE) {
+      await fsTruncate(sourcePath, MAX_PERSISTED_SHELL_OUTPUT_SIZE);
+    }
+    try {
+      await link(sourcePath, dest);
+    } catch {
+      await copyFile(sourcePath, dest);
+    }
+    return { path: dest, size };
+  } catch {
+    // File may already be gone — caller's stdout preview is sufficient.
+    return null;
+  }
+}
+
+/**
+ * Append a "[…full output saved to <path>]" marker to the captured stdout
+ * carried on a ShellError. Pads with a blank line so the marker reads as a
+ * distinct paragraph regardless of whether `stdout` ended with a newline.
+ */
+function appendPersistedOutputHint(
+  stdout: string,
+  persistedPath: string,
+  persistedSize: number,
+): string {
+  const hint = `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
+  if (!stdout) return hint;
+  const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
+  return `${trimmed}\n\n${hint}`;
+}
+
 function isAutobackgroundingAllowed(command: string): boolean {
   const parts = splitCommand_DEPRECATED(command);
   if (parts.length === 0) return true;
@@ -752,7 +811,29 @@ export const BashTool = buildTool({
         // — without this, a non-zero exit hides the very output users need
         // to debug the failure (issue #1231). result.stderr is empty in
         // file mode but populated in pipe mode (hooks).
-        throw new ShellError(outputWithSbFailures, result.stderr || '', result.code, result.interrupted);
+        //
+        // When the shell rolled output to a file (large output path), the
+        // first chunk on `result.stdout` is truncated. Hoist the persist
+        // step here so the error message can point at the full output
+        // (issue #1359) — otherwise the model sees only the exit code +
+        // the truncated chunk and has no signal that the rest exists. The
+        // persist step is identical to the success-path block below; both
+        // sites resolve the same `result.outputFilePath` / outputTaskId.
+        let errorStdout = outputWithSbFailures
+        if (result.outputFilePath && result.outputTaskId) {
+          const persistedForError = await persistShellOutputFile(
+            result.outputFilePath,
+            result.outputTaskId,
+          )
+          if (persistedForError) {
+            errorStdout = appendPersistedOutputHint(
+              errorStdout,
+              persistedForError.path,
+              persistedForError.size,
+            )
+          }
+        }
+        throw new ShellError(errorStdout, result.stderr || '', result.code, result.interrupted);
       }
       wasInterrupted = result.interrupted;
     } finally {
@@ -766,26 +847,16 @@ export const BashTool = buildTool({
     // stdout already contains the first chunk (from getStdout()). Copy the
     // output file to the tool-results dir so the model can read it via
     // FileRead. If > 64 MB, truncate after copying.
-    const MAX_PERSISTED_SIZE = 64 * 1024 * 1024;
     let persistedOutputPath: string | undefined;
     let persistedOutputSize: number | undefined;
     if (result.outputFilePath && result.outputTaskId) {
-      try {
-        const fileStat = await fsStat(result.outputFilePath);
-        persistedOutputSize = fileStat.size;
-        await ensureToolResultsDir();
-        const dest = getToolResultPath(result.outputTaskId, false);
-        if (fileStat.size > MAX_PERSISTED_SIZE) {
-          await fsTruncate(result.outputFilePath, MAX_PERSISTED_SIZE);
-        }
-        try {
-          await link(result.outputFilePath, dest);
-        } catch {
-          await copyFile(result.outputFilePath, dest);
-        }
-        persistedOutputPath = dest;
-      } catch {
-        // File may already be gone — stdout preview is sufficient
+      const persisted = await persistShellOutputFile(
+        result.outputFilePath,
+        result.outputTaskId,
+      );
+      if (persisted) {
+        persistedOutputPath = persisted.path;
+        persistedOutputSize = persisted.size;
       }
     }
     const commandType = input.command.split(' ')[0];
