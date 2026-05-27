@@ -54,9 +54,16 @@ export async function fetchWithProxyRetry(
           ? { dispatcher: options.dispatcher }
           : {}
 
+      // getProxyFetchOptions() is URL-unaware: under Bun it returns
+      // { proxy: proxyUrl } whenever a proxy env var is set, even for URLs
+      // that NO_PROXY says should go direct. Strip the proxy key here so
+      // bypassed requests are truly sent without a proxy tunnel.
+      const { proxy: _unusedProxy, ...proxyOptsWithoutProxy } = proxyOpts as typeof proxyOpts & { proxy?: string }
+      const effectiveProxyOpts = proxyIsActive ? proxyOpts : proxyOptsWithoutProxy
+
       const response = await fetch(input, {
         ...init,
-        ...proxyOpts,
+        ...effectiveProxyOpts,
         ...scopedDispatcher,
       })
 

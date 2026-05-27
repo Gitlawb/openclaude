@@ -128,8 +128,37 @@ test('fetchWithProxyRetry applies scoped dispatcher when target URL is in NO_PRO
     dispatcher: fakeDispatcher,
   })
 
+  type CapturedInit = RequestInit & { dispatcher?: unknown; proxy?: string }
   // The scoped dispatcher should have been applied since the URL is bypassed by NO_PROXY
-  expect((capturedInit as RequestInit & { dispatcher?: unknown }).dispatcher).toBe(fakeDispatcher)
+  expect((capturedInit as CapturedInit).dispatcher).toBe(fakeDispatcher)
+  // The proxy option must NOT be present — bypassed requests must go direct
+  expect((capturedInit as CapturedInit).proxy).toBeUndefined()
 
   delete process.env.NO_PROXY
+})
+
+test('fetchWithProxyRetry passes proxy option and drops scoped dispatcher when URL is not in NO_PROXY', async () => {
+  // Complementary to the bypass test: when the URL is not excluded by NO_PROXY,
+  // the proxy env var should flow through and the scoped dispatcher must be dropped
+  // to avoid conflicting with the proxy tunnel's own DNS resolution.
+  process.env.HTTPS_PROXY = 'http://127.0.0.1:15236'
+  delete process.env.NO_PROXY
+
+  let capturedInit: RequestInit | undefined
+  globalThis.fetch = (async (_input, init) => {
+    capturedInit = init
+    return new Response('ok')
+  }) as FetchType
+
+  const fakeDispatcher = { fake: true } as unknown as import('undici').Dispatcher
+
+  await fetchWithProxyRetry('https://api.example.com/v1/chat', undefined, {
+    dispatcher: fakeDispatcher,
+  })
+
+  type CapturedInit = RequestInit & { dispatcher?: unknown; proxy?: string }
+  // proxy should be forwarded to fetch since the URL is NOT bypassed
+  expect((capturedInit as CapturedInit).proxy).toBe('http://127.0.0.1:15236')
+  // the scoped dispatcher must be dropped — proxy tunnel handles DNS
+  expect((capturedInit as CapturedInit).dispatcher).toBeUndefined()
 })
