@@ -23,3 +23,4 @@ export type AttachmentMessage = any
 export type ProgressMessage = any
 export type HookResultMessage = any
 export type NormalizedUserMessage = any
+export type SystemCompactBoundaryMessage = any
