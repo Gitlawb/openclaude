@@ -203,4 +203,86 @@ describe('normalizeToolInputForValidation', () => {
     )
     expect(byFlag).toBe(input)
   })
+
+  // Regression for #1266 follow-up review: when an MCP tool's
+  // `inputJSONSchema` is available, strip top-level nulls for properties
+  // that were originally optional AND non-nullable. The Codex side widens
+  // those to nullable type unions (#1264), so the model emits `null` to
+  // satisfy a slot it didn't intend to fill — but the MCP server's AJV
+  // runs against the unmodified schema and rejects the null.
+  test('MCP: strips null for originally-optional, non-nullable property', () => {
+    const input = { query: 'foo', limit: null }
+    const result = normalizeToolInputForValidation(
+      {
+        name: 'mcp__example__search',
+        inputJSONSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            limit: { type: 'number' },
+          },
+          required: ['query'],
+        },
+      } as never,
+      input,
+    )
+    expect(result).toEqual({ query: 'foo' })
+  })
+
+  test('MCP: keeps null for required-nullable property', () => {
+    const input = { query: 'foo', cursor: null }
+    const result = normalizeToolInputForValidation(
+      {
+        name: 'mcp__example__search',
+        inputJSONSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            cursor: { type: ['string', 'null'] },
+          },
+          required: ['query', 'cursor'],
+        },
+      } as never,
+      input,
+    )
+    expect(result).toEqual(input)
+  })
+
+  test('MCP: keeps null for optional-nullable property', () => {
+    const input = { query: 'foo', tag: null }
+    const result = normalizeToolInputForValidation(
+      {
+        name: 'mcp__example__search',
+        inputJSONSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            tag: { type: ['string', 'null'] },
+          },
+          required: ['query'],
+        },
+      } as never,
+      input,
+    )
+    expect(result).toEqual(input)
+  })
+
+  test('MCP: identity preserved when no nulls present', () => {
+    const input = { query: 'foo', limit: 10 }
+    const result = normalizeToolInputForValidation(
+      {
+        name: 'mcp__example__search',
+        inputJSONSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            limit: { type: 'number' },
+          },
+          required: ['query'],
+        },
+      } as never,
+      input,
+    )
+    expect(result).toBe(input)
+  })
 })

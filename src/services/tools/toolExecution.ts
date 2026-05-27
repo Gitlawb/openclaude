@@ -659,8 +659,81 @@ function stripNullToolInputProperties(input: unknown): unknown {
   return cleaned
 }
 
+/**
+ * Schema-aware top-level null strip for MCP tool inputs.
+ *
+ * Codex strict mode forces every MCP tool property into `required` and widens
+ * originally-optional fields to `type: [<orig>, 'null']` so the model can
+ * emit `null` to satisfy a slot it didn't intend to fill. But the MCP
+ * server's own AJV runs against the unmodified `inputJSONSchema`, where
+ * those fields are still typed narrowly (e.g. `limit?: number`). Forwarding
+ * the literal `null` produced by the strict-mode escape hatch surfaces as
+ * `data/limit must be number` before `callTool` ever runs.
+ *
+ * Resolution: only strip a top-level null when the original MCP schema (a)
+ * does not list the property as `required` AND (b) does not advertise `null`
+ * in its type. Required-nullable fields stay intact — the server asked for a
+ * null sentinel and we honour it. Optional-nullable fields are also kept,
+ * matching the same intent on the MCP side.
+ */
+function stripNullPropertiesAgainstMcpSchema(
+  input: unknown,
+  inputJSONSchema: Tool['inputJSONSchema'],
+): unknown {
+  if (!isRecord(input)) return input
+
+  // No schema → no information to make the call. Forward the input untouched,
+  // matching the prior MCP exemption — the server's own validator is the
+  // source of truth.
+  if (!inputJSONSchema || typeof inputJSONSchema !== 'object') return input
+
+  const schema = inputJSONSchema as Record<string, unknown>
+  const properties =
+    isRecord(schema.properties)
+      ? (schema.properties as Record<string, unknown>)
+      : null
+  const requiredSet = new Set(
+    Array.isArray(schema.required)
+      ? (schema.required as unknown[]).filter(
+          (k): k is string => typeof k === 'string',
+        )
+      : [],
+  )
+
+  const isOriginallyNullable = (propSchema: unknown): boolean => {
+    if (!isRecord(propSchema)) return false
+    const t = propSchema.type
+    if (t === 'null') return true
+    if (Array.isArray(t) && t.includes('null')) return true
+    return false
+  }
+
+  let hasStrippable = false
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== null) continue
+    if (requiredSet.has(key)) continue
+    if (properties && isOriginallyNullable(properties[key])) continue
+    hasStrippable = true
+    break
+  }
+  if (!hasStrippable) return input
+
+  const cleaned: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      value === null &&
+      !requiredSet.has(key) &&
+      !(properties && isOriginallyNullable(properties[key]))
+    ) {
+      continue
+    }
+    cleaned[key] = value
+  }
+  return cleaned
+}
+
 export function normalizeToolInputForValidation(
-  tool: Pick<Tool, 'name' | 'isMcp'>,
+  tool: Pick<Tool, 'name' | 'isMcp' | 'inputJSONSchema'>,
   input: unknown,
 ): unknown {
   // Generic top-level null strip first: Codex strict schemas widen optional
@@ -668,13 +741,20 @@ export function normalizeToolInputForValidation(
   // "not set" even though tool Zod schemas type optional as `T | undefined`.
   // Strip nulls so the field reaches the tool as missing.
   //
-  // Scope: built-in tools only. MCP tools own their JSON Schema and may
-  // accept/require `null`; we forward args verbatim to the server, so don't
-  // pre-strip them. `mcp__` prefix mirrors isMcpTool() and the analytics
-  // gating elsewhere in this file.
+  // MCP tools own their JSON Schema and may legitimately accept or require a
+  // `null` value, so we cannot blindly strip nulls there. But we also widen
+  // their optional fields to nullable on the Codex side (#1264), and the
+  // model uses that null sentinel for any field it didn't intend to fill —
+  // which the server-side AJV against the unmodified schema then rejects.
+  // For MCP, use schema-aware stripping: drop nulls only for properties that
+  // were originally optional AND non-nullable in `inputJSONSchema`, keeping
+  // required-nullable / optional-nullable fields intact. `mcp__` prefix
+  // mirrors isMcpTool() and the analytics gating elsewhere in this file.
   const isMcp =
     tool.isMcp === true || (typeof tool.name === 'string' && tool.name.startsWith('mcp__'))
-  const denulled = isMcp ? input : stripNullToolInputProperties(input)
+  const denulled = isMcp
+    ? stripNullPropertiesAgainstMcpSchema(input, tool.inputJSONSchema)
+    : stripNullToolInputProperties(input)
 
   if (!isRecord(denulled)) {
     return denulled
