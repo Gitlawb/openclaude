@@ -538,6 +538,36 @@ export function shouldAttemptLocalToollessRetry(options: {
   return isLikelyOllamaEndpoint(options.baseUrl)
 }
 
+/**
+ * OpenAI-compatible providers whose chat API is text-only and rejects
+ * `image_url` content parts. DeepSeek (#1382) returns 400 with
+ * `unknown variant image_url, expected text`, and because the failed message
+ * stays in conversation history the session is effectively dead — every
+ * subsequent turn re-sends the same payload and reproduces the error.
+ *
+ * Conservative match list. Add an entry only after confirming the provider's
+ * chat endpoint rejects multimodal blocks; defaulting to "forward" is safer
+ * than silently stripping on a provider that would have understood the image.
+ */
+const TEXT_ONLY_OPENAI_COMPAT_HOSTNAME_SUFFIXES: readonly string[] = [
+  'api.deepseek.com',
+  'deepseek.com',
+]
+
+export function isTextOnlyOpenAICompatProvider(
+  baseUrl: string | undefined,
+): boolean {
+  if (!baseUrl) return false
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return TEXT_ONLY_OPENAI_COMPAT_HOSTNAME_SUFFIXES.some(
+      suffix => hostname === suffix || hostname.endsWith(`.${suffix}`),
+    )
+  } catch {
+    return false
+  }
+}
+
 export function isCodexBaseUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false
   try {
