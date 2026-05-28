@@ -11,25 +11,46 @@ import {
 import type { Message } from '../types/message.js'
 import { query } from '../query.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
+import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 
 const SAVED_ENV = {
   CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
+  DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
+  DISABLE_COMPACT: process.env.DISABLE_COMPACT,
 }
+let savedAutoCompactEnabled: boolean | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('query/autoCompactCooldown.test.ts')
+  savedAutoCompactEnabled = getGlobalConfig().autoCompactEnabled
+  saveGlobalConfig(current => ({ ...current, autoCompactEnabled: true }))
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
+  delete process.env.DISABLE_AUTO_COMPACT
+  delete process.env.DISABLE_COMPACT
 })
 
 afterEach(() => {
-  if (SAVED_ENV.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE === undefined) {
-    delete process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
-  } else {
-    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE =
-      SAVED_ENV.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+  try {
+    if (savedAutoCompactEnabled !== undefined) {
+      const autoCompactEnabled = savedAutoCompactEnabled
+      saveGlobalConfig(current => ({
+        ...current,
+        autoCompactEnabled,
+      }))
+      savedAutoCompactEnabled = undefined
+    }
+
+    for (const [key, value] of Object.entries(SAVED_ENV)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
-  releaseSharedMutationLock()
 })
 
 function userMessage(content: string): Message {

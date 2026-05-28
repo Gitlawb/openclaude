@@ -6,10 +6,13 @@ import {
 } from '../../test/sharedMutationLock.js'
 
 type ModelAllowlistModule = typeof import('../../utils/model/modelAllowlist.js')
+type AgentSwarmsEnabledModule =
+  typeof import('../../utils/agentSwarmsEnabled.js')
 type SpawnMultiAgentModule = typeof import('../shared/spawnMultiAgent.js')
 type SpawnTeammateConfig = Parameters<SpawnMultiAgentModule['spawnTeammate']>[0]
 
 let originalModelAllowlistModule: ModelAllowlistModule | undefined
+let originalAgentSwarmsEnabledModule: AgentSwarmsEnabledModule | undefined
 let originalSpawnMultiAgentModule: SpawnMultiAgentModule | undefined
 
 const originalEnv = {
@@ -33,6 +36,12 @@ afterEach(async () => {
       mock.module(
         '../../utils/model/modelAllowlist.js',
         () => originalModelAllowlistModule!,
+      )
+    }
+    if (originalAgentSwarmsEnabledModule) {
+      mock.module(
+        '../../utils/agentSwarmsEnabled.js',
+        () => originalAgentSwarmsEnabledModule!,
       )
     }
     if (originalSpawnMultiAgentModule) {
@@ -63,6 +72,12 @@ async function importActualModelAllowlist(): Promise<ModelAllowlistModule> {
   )
 }
 
+async function importActualAgentSwarmsEnabled(): Promise<AgentSwarmsEnabledModule> {
+  return import(
+    `../../utils/agentSwarmsEnabled.ts?agentToolActual=${Date.now()}-${Math.random()}`
+  )
+}
+
 async function importActualSpawnMultiAgent(): Promise<SpawnMultiAgentModule> {
   return import(
     `../shared/spawnMultiAgent.ts?agentToolActual=${Date.now()}-${Math.random()}`
@@ -74,6 +89,7 @@ async function importAgentToolWithSpawnMock(): Promise<{
   spawnTeammate: ReturnType<typeof mock>
 }> {
   originalModelAllowlistModule ??= await importActualModelAllowlist()
+  originalAgentSwarmsEnabledModule ??= await importActualAgentSwarmsEnabled()
   originalSpawnMultiAgentModule ??= await importActualSpawnMultiAgent()
   const spawnTeammate = mock(async () => ({
     data: {
@@ -88,6 +104,10 @@ async function importAgentToolWithSpawnMock(): Promise<{
     ...originalModelAllowlistModule!,
     isModelAllowed: (model: string) =>
       model.trim().toLowerCase() === 'allowed-model',
+  }))
+  mock.module('../../utils/agentSwarmsEnabled.js', () => ({
+    ...originalAgentSwarmsEnabledModule!,
+    isAgentSwarmsEnabled: () => true,
   }))
   mock.module('../shared/spawnMultiAgent.js', () => ({
     ...originalSpawnMultiAgentModule!,

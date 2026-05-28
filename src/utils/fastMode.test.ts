@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import * as realAxios from 'axios'
+import * as realOauthConstants from 'src/constants/oauth.js'
+import * as realGrowthbook from 'src/services/analytics/growthbook.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realAuth from './auth.js'
+import * as realModel from './model/model.js'
+import * as realProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
 
@@ -156,13 +162,8 @@ function installCommonMocks(options?: {
     validateForceLoginOrg: async () => ({ ok: true }),
   }))
 
-  mock.module('./model/providers.js', () => ({
-    getAPIProvider: () => 'firstParty',
-    getAPIProviderForStatsig: () => 'firstParty',
-    isFirstPartyAnthropicBaseUrl: () => true,
-    isGithubNativeAnthropicMode: () => false,
-    usesAnthropicAccountFlow: () => true,
-  }))
+  mock.module('./model/model.js', () => realModel)
+  mock.module('./model/providers.js', () => realProviders)
 }
 
 async function prepareFastModeTestState(): Promise<void> {
@@ -199,6 +200,12 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    mock.module('axios', () => realAxios)
+    mock.module('src/constants/oauth.js', () => realOauthConstants)
+    mock.module('src/services/analytics/growthbook.js', () => realGrowthbook)
+    mock.module('./auth.js', () => realAuth)
+    mock.module('./model/model.js', () => realModel)
+    mock.module('./model/providers.js', () => realProviders)
     process.env = { ...originalEnv }
     const { resetStateForTests } = await import('../bootstrap/state.js')
     resetStateForTests()

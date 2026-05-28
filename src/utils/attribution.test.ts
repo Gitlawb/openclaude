@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { getClientType, setClientType } from '../bootstrap/state.js'
+import {
+  getClientType,
+  getMainLoopModelOverride,
+  setClientType,
+  setMainLoopModelOverride,
+} from '../bootstrap/state.js'
 import {
   getAttributionTexts,
   getDefaultCommitCoAuthorEmail,
@@ -13,7 +18,21 @@ import {
 import type { SettingsJson } from './settings/types.js'
 
 const originalEnv = {
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  GEMINI_MODEL: process.env.GEMINI_MODEL,
+  MISTRAL_MODEL: process.env.MISTRAL_MODEL,
+  NVIDIA_NIM: process.env.NVIDIA_NIM,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENCLAUDE_DISABLE_CO_AUTHORED_BY:
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
@@ -22,6 +41,7 @@ const originalEnv = {
   USER_TYPE: process.env.USER_TYPE,
 }
 const originalClientType = getClientType()
+const originalMainLoopModelOverride = getMainLoopModelOverride()
 
 const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
@@ -43,7 +63,21 @@ function restoreEnv(): void {
 beforeEach(() => {
   resetSettingsCache()
   setClientType('cli')
+  setMainLoopModelOverride(undefined)
+  delete process.env.ANTHROPIC_MODEL
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.GEMINI_MODEL
+  delete process.env.MISTRAL_MODEL
+  delete process.env.NVIDIA_NIM
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_BASE_URL
   process.env.OPENAI_MODEL = 'gpt-5.5'
   delete process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY
   delete process.env.CLAUDE_CODE_REMOTE_SESSION_ID
@@ -54,6 +88,7 @@ beforeEach(() => {
 afterEach(() => {
   resetSettingsCache()
   setClientType(originalClientType)
+  setMainLoopModelOverride(originalMainLoopModelOverride)
   restoreEnv()
 })
 
