@@ -1,46 +1,33 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
 
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { startXaiOAuthCallback } from './xaiOAuthCallback.js'
 
-/**
- * Acquire an OS-assigned ephemeral port the test can hand back. Bun's test
- * runner can pile concurrent files; we don't want them stomping on each
- * other or on a developer's actual 56121.
- */
-async function getEphemeralPort(): Promise<number> {
-  const server = createServer()
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => resolve())
-  })
-  const port = (server.address() as AddressInfo).port
-  await new Promise<void>(resolve => server.close(() => resolve()))
-  return port
-}
-
 async function startTestServer() {
-  const port = await getEphemeralPort()
   const handle = await startXaiOAuthCallback({
-    port,
+    port: 0,
     host: '127.0.0.1',
     callbackPath: '/callback',
     successTitle: 'xAI OAuth complete',
   })
-  return { handle, port }
+  return { handle, port: handle.port }
 }
 
 describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
   let cleanup: (() => void) | null = null
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('xaiOAuthCallback.test.ts')
     cleanup = null
   })
 
   afterEach(() => {
-    cleanup?.()
-    cleanup = null
+    try {
+      cleanup?.()
+      cleanup = null
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   test('OPTIONS preflight from auth.x.ai returns 204 with CORS echo', async () => {
@@ -211,9 +198,8 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
   })
 
   test('successTitle is HTML-escaped in the success page', async () => {
-    const port = await getEphemeralPort()
     const handle = await startXaiOAuthCallback({
-      port,
+      port: 0,
       host: '127.0.0.1',
       callbackPath: '/callback',
       successTitle: '<script>alert(1)</script>',
@@ -222,7 +208,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
 
     const callbackPromise = handle.waitForCallback()
     const res = await fetch(
-      `http://127.0.0.1:${port}/callback?code=A&state=B`,
+      `http://127.0.0.1:${handle.port}/callback?code=A&state=B`,
     )
     const body = await res.text()
     expect(body).not.toContain('<script>alert(1)</script>')
