@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { Box } from '../ink.js';
+import { useAppState } from '../state/AppState.js';
 import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js';
 import type { MemoryFileInfo } from '../utils/claudemd.js';
 import { getMemoryFiles } from '../utils/claudemd.js';
@@ -53,10 +54,14 @@ export function StatusNotices(t0) {
   }
   React.useEffect(t1, [t1]);
   const t2 = getGlobalConfig();
-  const context = {
+  const permissionMode = useAppState(s => s.toolPermissionContext.mode);
+  const mainLoopModel = useAppState(s => s.mainLoopModel);
+  const context: StatusNoticeContext = {
     config: t2,
     agentDefinitions,
-    memoryFiles
+    memoryFiles,
+    permissionMode,
+    mainLoopModel: mainLoopModel ?? undefined,
   };
   const activeNotices = getActiveNotices(context);
   if (activeNotices.length === 0) {

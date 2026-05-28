@@ -74,9 +74,12 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeId": "gitlawb-opengateway",
     "vendorId": "openai",
     "gatewayId": "gitlawb-opengateway",
-    "description": "Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models",
+    "description": "Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models (API key required, mint at https://gitlawb.com/opengateway/keys)",
     "label": "Gitlawb Opengateway",
     "name": "Gitlawb Opengateway",
+    "apiKeyEnvVars": [
+      "OPENGATEWAY_API_KEY"
+    ],
     "baseUrlEnvVars": [
       "OPENGATEWAY_BASE_URL",
       "OPENAI_BASE_URL"

@@ -18,6 +18,26 @@ function parseInputEvent(sequence: string): InputEvent {
   return new InputEvent(item as ParsedKey)
 }
 
+function parseInputEventsFromByteChunks(text: string): InputEvent[] {
+  let state = INITIAL_STATE
+  const events: InputEvent[] = []
+
+  for (const byte of Buffer.from(text, 'utf8')) {
+    const [items, nextState] = parseMultipleKeypresses(
+      state,
+      Buffer.from([byte]),
+    )
+    state = nextState
+
+    for (const item of items) {
+      expect(item.kind).toBe('key')
+      events.push(new InputEvent(item as ParsedKey))
+    }
+  }
+
+  return events
+}
+
 test('treats CSI-u modifier 0 as unmodified printable input', () => {
   const event = parseInputEvent('\x1b[47;0u')
 
@@ -46,4 +66,11 @@ test('preserves printable Unicode CSI-u input with explicit modifier 0', () => {
   expect(event.key.meta).toBe(false)
   expect(event.key.shift).toBe(false)
   expect(event.key.super).toBe(false)
+})
+
+test('preserves Vietnamese UTF-8 input split across stdin chunks', () => {
+  const events = parseInputEventsFromByteChunks('tiếng Việt')
+
+  expect(events.map(event => event.input).join('')).toBe('tiếng Việt')
+  expect(events.some(event => event.input.includes('\uFFFD'))).toBe(false)
 })

@@ -470,7 +470,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     applyProviderProfileToProcessEnv(
       buildProfile({
         provider: 'minimax',
-        baseUrl: 'https://api.minimax.io/v1',
+        baseUrl: 'https://api.minimax.io/anthropic',
         model: 'MiniMax-M2.7',
         apiKey: 'minimax-live-key',
         apiFormat: 'responses',
@@ -483,10 +483,11 @@ describe('applyProviderProfileToProcessEnv', () => {
       }),
     )
 
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
-    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
-    expect(process.env.OPENAI_API_KEY).toBe('minimax-live-key')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+    expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-live-key')
     expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
     expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
@@ -830,6 +831,34 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
   })
 
+  test('does not override explicit env-only MiniMax selection with saved profile', async () => {
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+    process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        }),
+      ],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.minimax.io/anthropic',
+    )
+    expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  })
+
   test('does not override explicit startup selection when profile marker is stale', async () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()
@@ -1129,7 +1158,7 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.provider).toBe('minimax')
     expect(defaults.name).toBe('MiniMax')
-    expect(defaults.baseUrl).toBe('https://api.minimax.io/v1')
+    expect(defaults.baseUrl).toBe('https://api.minimax.io/anthropic')
     expect(defaults.model).toBe('MiniMax-M2.7')
     expect(defaults.requiresApiKey).toBe(true)
   })
@@ -1224,6 +1253,64 @@ describe('setActiveProviderProfile', () => {
         'openai_prof',
       )
     } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  // xAI OAuth profile (provider='xai', no API key) must persist the
+  // startup file as profile='xai' with XAI_CREDENTIAL_SOURCE='oauth' so
+  // (a) startup validation accepts it without XAI_API_KEY, and (b)
+  // clearPersistedXaiOAuthProfile() can find and remove it on logout.
+  // Regression: previously written as profile='openai' with no marker,
+  // leaving a stale startup file that hit the missing-cred warning on
+  // every non-interactive launch after logout.
+  test('persists xAI OAuth profile with marker so logout cleanup can clear it', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const { clearPersistedXaiOAuthProfile, isPersistedXaiOAuthProfile } =
+        await import('./providerProfile.js')
+
+      const xaiOAuthProfile = buildProfile({
+        id: 'xai_oauth_prof',
+        name: 'xAI OAuth',
+        provider: 'xai',
+        baseUrl: 'https://api.x.ai/v1',
+        model: 'grok-4.3',
+        apiKey: '',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [xaiOAuthProfile],
+      }))
+
+      const result = setActiveProviderProfile('xai_oauth_prof', { configDir })
+      const profilePath = join(configDir, '.openclaude-profile.json')
+      const persisted = JSON.parse(readFileSync(profilePath, 'utf8'))
+
+      expect(result?.id).toBe('xai_oauth_prof')
+      expect(persisted.profile).toBe('xai')
+      expect(persisted.env.XAI_CREDENTIAL_SOURCE).toBe('oauth')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+      expect(persisted.env.OPENAI_MODEL).toBe('grok-4.3')
+      // No leaked API key fields.
+      expect(persisted.env.OPENAI_API_KEY).toBeUndefined()
+      expect(persisted.env.XAI_API_KEY).toBeUndefined()
+
+      // Logout cleanup recognises and removes the marker-tagged file.
+      expect(isPersistedXaiOAuthProfile(persisted)).toBe(true)
+      const removed = clearPersistedXaiOAuthProfile({ configDir })
+      expect(removed).toBe(profilePath)
+      expect(existsSync(profilePath)).toBe(false)
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
       rmSync(configDir, { recursive: true, force: true })
     }
   })

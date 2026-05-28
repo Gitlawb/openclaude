@@ -326,12 +326,19 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
 describe('applyProviderFlag - minimax', () => {
   test('preserves MiniMax default base URL and model semantics', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-5'
+
     const result = applyProviderFlag('minimax', [])
 
     expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
-    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+    expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
   })
 })
 

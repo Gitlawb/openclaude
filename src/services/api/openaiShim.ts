@@ -35,8 +35,13 @@ import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
+import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
-import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
+import {
+  isXaiBaseUrl,
+  resolveRouteCredentialValue,
+} from '../../integrations/routeMetadata.js'
+import { getSessionId } from '../../bootstrap/state.js'
 import {
   createThinkTagFilter,
   stripThinkTags,
@@ -1976,10 +1981,23 @@ class OpenAIShimMessages {
       baseUrl: request.baseUrl,
       processEnv: process.env,
     })
+    // xAI OAuth: when the active route is xAI and no API key is set, fall
+    // back to a stored OAuth access token (auto-refreshed). The token is
+    // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
+    const isXaiRoute =
+      runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+    const xaiOAuthToken =
+      isXaiRoute &&
+      !this.providerOverride?.apiKey &&
+      !routeCredential &&
+      !process.env.OPENAI_API_KEY
+        ? await resolveXaiAccessToken()
+        : undefined
     const apiKey =
       this.providerOverride?.apiKey ??
       routeCredential ??
       process.env.OPENAI_API_KEY ??
+      xaiOAuthToken ??
       ''
     const configuredAuthHeaderValue = process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
     const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
@@ -2048,6 +2066,14 @@ class OpenAIShimMessages {
     } else if (isGithubModels) {
       headers['Accept'] = 'application/vnd.github+json'
       headers['X-GitHub-Api-Version'] = '2022-11-28'
+    }
+
+    // xAI / Grok prompt caching. Pinning the session id via x-grok-conv-id
+    // routes follow-up requests to the same backend so xAI can reuse the
+    // cached system prompt and conversation history. Mirrors the Hermes
+    // implementation (RELEASE_v0.8.0 PR #5604).
+    if (isXaiRoute) {
+      headers['x-grok-conv-id'] ??= getSessionId()
     }
 
     const buildChatCompletionsUrl = (baseUrl: string): string => {

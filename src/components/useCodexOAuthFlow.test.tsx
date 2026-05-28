@@ -133,13 +133,21 @@ test('does not persist credentials when downstream setup rejects', async () => {
   )
 
   function Harness(): React.ReactNode {
-    const handleAuthenticated = React.useCallback(onAuthenticated, [onAuthenticated])
+    const handleAuthenticated = React.useCallback(onAuthenticated, [
+      onAuthenticated,
+    ])
     const status = useCodexOAuthFlow({
       onAuthenticated: handleAuthenticated,
       deps,
     })
 
-    return <Text>{status.state === 'error' ? status.message : status.state}</Text>
+    return (
+      <Text>
+        {status.state === 'error'
+          ? `Codex OAuth failed: ${status.message}`
+          : status.state}
+      </Text>
+    )
   }
 
   const streams = createTestStreams()
@@ -195,7 +203,9 @@ test('persists credentials with profile linkage after downstream setup succeeds'
   )
 
   function Harness(): React.ReactNode {
-    const handleAuthenticated = React.useCallback(onAuthenticated, [onAuthenticated])
+    const handleAuthenticated = React.useCallback(onAuthenticated, [
+      onAuthenticated,
+    ])
     useCodexOAuthFlow({
       onAuthenticated: handleAuthenticated,
       deps,
@@ -223,6 +233,155 @@ test('persists credentials with profile linkage after downstream setup succeeds'
       accountId: TOKENS.accountId,
       profileId: 'profile_codex_oauth',
     })
+  } finally {
+    root.unmount()
+    streams.stdin.end()
+    streams.stdout.end()
+    await Bun.sleep(0)
+  }
+})
+
+test('returns a successful storage warning without entering the error state', async () => {
+  const saveCodexCredentials = mock(() => ({
+    success: true,
+    warning: 'Warning: Storing credentials in plaintext.',
+  }))
+  let storageWarning: string | undefined
+  const onAuthenticated = mock(
+    async (
+      _tokens: typeof TOKENS,
+      persistCredentials: (
+        options?: { profileId?: string },
+      ) => { warning?: string } | void,
+    ) => {
+      const result = persistCredentials({
+        profileId: 'profile_codex_oauth',
+      })
+      storageWarning =
+        result && typeof result === 'object' ? result.warning : undefined
+    },
+  )
+  const cleanup = mock(() => {})
+  const deps = {
+    createOAuthService: () => ({
+      async startOAuthFlow(
+        onAuthorizationUrl: (authUrl: string) => void | Promise<void>,
+      ) {
+        await onAuthorizationUrl('https://chatgpt.com/codex')
+        return TOKENS
+      },
+      cleanup,
+    }),
+    openBrowser: async () => true,
+    saveCodexCredentials,
+    isBareMode: () => false,
+  }
+
+  const { useCodexOAuthFlow } = await import(
+    `./useCodexOAuthFlow.js?real-persist-warning-${Date.now()}-${Math.random()}`
+  )
+
+  function Harness(): React.ReactNode {
+    const handleAuthenticated = React.useCallback(onAuthenticated, [onAuthenticated])
+    const status = useCodexOAuthFlow({
+      onAuthenticated: handleAuthenticated,
+      deps,
+    })
+
+    return (
+      <Text>
+        {status.state === 'error'
+          ? `Codex OAuth failed: ${status.message}`
+          : status.state}
+      </Text>
+    )
+  }
+
+  const streams = createTestStreams()
+  const root = await createRoot({
+    stdout: streams.stdout as unknown as NodeJS.WriteStream,
+    stdin: streams.stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+  root.render(<Harness />)
+
+  try {
+    await waitForCondition(() => saveCodexCredentials.mock.calls.length === 1)
+    await Bun.sleep(0)
+    expect(storageWarning).toBe('Warning: Storing credentials in plaintext.')
+    expect(extractLastFrame(streams.getOutput())).not.toContain(
+      'Codex OAuth failed',
+    )
+  } finally {
+    root.unmount()
+    streams.stdin.end()
+    streams.stdout.end()
+    await Bun.sleep(0)
+  }
+})
+
+test('reports credential persistence failures without token values', async () => {
+  const saveCodexCredentials = mock(() => ({
+    success: false,
+    warning: 'secure storage unavailable',
+  }))
+  const onAuthenticated = mock(
+    async (
+      _tokens: typeof TOKENS,
+      persistCredentials: (options?: { profileId?: string }) => void,
+    ) => {
+      persistCredentials({ profileId: 'profile_codex_oauth' })
+    },
+  )
+  const cleanup = mock(() => {})
+  const deps = {
+    createOAuthService: () => ({
+      async startOAuthFlow(
+        onAuthorizationUrl: (authUrl: string) => void | Promise<void>,
+      ) {
+        await onAuthorizationUrl('https://chatgpt.com/codex')
+        return TOKENS
+      },
+      cleanup,
+    }),
+    openBrowser: async () => true,
+    saveCodexCredentials,
+    isBareMode: () => false,
+  }
+
+  const { useCodexOAuthFlow } = await import(
+    `./useCodexOAuthFlow.js?real-persist-failure-${Date.now()}-${Math.random()}`
+  )
+
+  function Harness(): React.ReactNode {
+    const handleAuthenticated = React.useCallback(onAuthenticated, [onAuthenticated])
+    const status = useCodexOAuthFlow({
+      onAuthenticated: handleAuthenticated,
+      deps,
+    })
+
+    return <Text>{status.state === 'error' ? status.message : status.state}</Text>
+  }
+
+  const streams = createTestStreams()
+  const root = await createRoot({
+    stdout: streams.stdout as unknown as NodeJS.WriteStream,
+    stdin: streams.stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+  root.render(<Harness />)
+
+  try {
+    await waitForCondition(() =>
+      extractLastFrame(streams.getOutput()).includes(
+        'secure storage unavailable',
+      ),
+    )
+    const frame = extractLastFrame(streams.getOutput())
+    expect(frame).toContain('secure storage unavailable')
+    for (const value of Object.values(TOKENS)) {
+      expect(frame).not.toContain(value)
+    }
   } finally {
     root.unmount()
     streams.stdin.end()
