@@ -129,13 +129,13 @@ async function importAgentToolWithSpawnMock(): Promise<{
     getInitialSettings: () => settingsForTest,
     getSettings_DEPRECATED: () => settingsForTest,
   }))
-  mock.module('../shared/spawnMultiAgent.js', () => ({
-    ...originalSpawnMultiAgentModule!,
-    spawnTeammate,
-  }))
   mock.module('../../utils/agentSwarmsEnabled.js', () => ({
     ...originalAgentSwarmsEnabledModule!,
     isAgentSwarmsEnabled: () => true,
+  }))
+  mock.module('../shared/spawnMultiAgent.js', () => ({
+    ...originalSpawnMultiAgentModule!,
+    spawnTeammate,
   }))
 
   const { AgentTool } = await import(

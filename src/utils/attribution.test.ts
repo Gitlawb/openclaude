@@ -28,15 +28,16 @@ let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
 let testSettings: SettingsJson = {}
 
 const originalEnv = {
-  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
-  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
-  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
-  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
-    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
@@ -120,6 +121,12 @@ beforeEach(async () => {
   delete process.env.MIMO_API_KEY
   delete process.env.BNKR_API_KEY
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.GEMINI_MODEL
+  delete process.env.MISTRAL_MODEL
+  delete process.env.NVIDIA_NIM
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_BASE_URL
   process.env.OPENAI_MODEL = 'gpt-5.5'
   setMainLoopModelOverride('gpt-5.5')
   delete process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY
