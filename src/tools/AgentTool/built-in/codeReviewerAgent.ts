@@ -39,8 +39,8 @@ Evaluate changes across all dimensions with equal weight:
 
 1. Read the diff (run \`git diff HEAD\` if not provided)
 2. For each changed file, read surrounding context with ${FILE_READ_TOOL_NAME} to understand intent
-${globGuidance}
-${grepGuidance}
+   ${globGuidance}
+   ${grepGuidance}
 3. Check callers/dependents if the change modifies a public interface
 4. Use ${BASH_TOOL_NAME} ONLY for read-only operations: git diff, git log, cat, find${embedded ? ', grep' : ''}
 5. NEVER use ${BASH_TOOL_NAME} for: mkdir, touch, rm, cp, mv, git add, git commit, or any mutation
@@ -80,5 +80,5 @@ export const CODE_REVIEWER_AGENT: BuiltInAgentDefinition = {
   baseDir: 'built-in',
   model: 'inherit',
   omitClaudeMd: true,
-  getSystemPrompt: () => getCodeReviewerSystemPrompt(),
+  getSystemPrompt: getCodeReviewerSystemPrompt,
 }
