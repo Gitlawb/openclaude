@@ -889,7 +889,7 @@ export function persistActiveProviderProfileModel(
     // lose models they configured during setup (#1360).
     const finalModel =
       existingModels.length > 1
-        ? [...existingModels, nextModel].join('; ')
+        ? [nextModel, ...existingModels].join('; ')
         : nextModel
     nextProfiles[profileIndex] = {
       ...currentProfile,
