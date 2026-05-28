@@ -45,7 +45,6 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_DEFAULT_OPUS_MODEL:
     process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
@@ -121,12 +120,6 @@ beforeEach(async () => {
   delete process.env.MIMO_API_KEY
   delete process.env.BNKR_API_KEY
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  delete process.env.CLAUDE_CODE_USE_VERTEX
-  delete process.env.GEMINI_MODEL
-  delete process.env.MISTRAL_MODEL
-  delete process.env.NVIDIA_NIM
-  delete process.env.OPENAI_API_BASE
-  delete process.env.OPENAI_BASE_URL
   process.env.OPENAI_MODEL = 'gpt-5.5'
   setMainLoopModelOverride('gpt-5.5')
   delete process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY
