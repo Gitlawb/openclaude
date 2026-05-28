@@ -33,7 +33,7 @@ export async function update() {
   // Forked builds (e.g. OpenClaude) set their own PACKAGE_URL and have their own
   // distribution — the update mechanism targets that package URL, not the Anthropic
   // bucket, so the gate would permanently lock them out of auto-update (#1404).
-  if (getAPIProvider() !== 'firstParty' && MACRO.PACKAGE_URL.startsWith('@anthropic')) {
+  if (getAPIProvider() !== 'firstParty' && MACRO.PACKAGE_URL.startsWith('@anthropic-ai/')) {
     writeToStdout(
       chalk.yellow(
         `Auto-update is not available for third-party provider builds.\n`,
