@@ -49,14 +49,6 @@ interface PDFCreateOptions {
 }
 \`\`\`
 
-### \`mergePDFs(paths: string[]): Promise<Buffer>\`
-
-Merges multiple existing PDF files into one.
-
-### \`splitPDF(path: string, outputDir: string): Promise<string[]>\`
-
-Splits a PDF into individual pages, returns array of output file paths.
-
 ## Example Workflow
 
 \`\`\`typescript
@@ -97,9 +89,9 @@ export function registerPdfSkill(): void {
   registerBundledSkill({
     name: 'pdf',
     description:
-      'Generate PDF documents from structured content. Create reports, formatted documents, tables, and more. Also supports merging and splitting existing PDFs.',
+      'Generate PDF documents from structured content. Create reports, formatted documents, tables, and more.',
     whenToUse:
-      'Use when the user wants to create, generate, build, or produce a PDF document, or when they want to merge/split PDF files.',
+      'Use when the user wants to create, generate, build, or produce a PDF document.',
     argumentHint: '<description of PDF to generate>',
     userInvocable: true,
     allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'MultiEdit'],
@@ -126,8 +118,8 @@ export function registerPdfSkill(): void {
 const PDFGEN_SOURCE = `// pdfgen.ts — Pure TypeScript PDF generation (PDF 1.4)
 // No external dependencies. ~350 lines.
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs'
-import { join, basename } from 'path'
+import { readFileSync, writeFileSync } from 'fs'
+import { basename } from 'path'
 
 // ─── Types ───
 
@@ -255,109 +247,87 @@ function wrapText(text: string, maxWidth: number, fontSize: number, font: string
 // ─── Low-level PDF builder ───
 
 class PDFWriter {
-  private objects: Buffer[] = []
-  private offsets: number[] = []
-  private pos = 0
-
-  private write(data: string | Buffer): void {
-    const buf = typeof data === 'string' ? Buffer.from(data, 'binary') : data
-    this.objects.push(buf)
-    this.offsets.push(this.pos)
-    this.pos += buf.length
-  }
-
-  private ref(objNum: number): string {
-    return \`\${objNum} 0 R\`
-  }
-
   build(opts: PDFCreateOptions): Buffer {
-    // Object 1: Catalog
-    this.write('')
-    const catalogIdx = this.objects.length
-    // placeholder — we'll patch later
+    // Collect all body objects (object 3 and beyond).
+    // Object 1 = Catalog, Object 2 = Pages (hardcoded below).
+    const bodyObjects: string[] = []
+    const pageObjPdfNums: number[] = []
 
-    // Object 2: Pages (placeholder)
-    this.write('')
-    const pagesIdx = this.objects.length
+    // Object 3: Font dictionary
+    bodyObjects.push(buildFontDict())
 
-    // Build pages
-    const fontObjIdx = this.objects.length + 1 // next object will be fonts
-    this.write(buildFontDict(fontObjIdx))
-
-    const pageObjIndices: number[] = []
-    const streamObjIndices: number[] = []
-
+    // Build per-page objects
     for (const page of opts.pages) {
       const size = PAGE_SIZES[page.pageSize || opts.defaultPageSize || 'A4']
       const [pw, ph] = page.orientation === 'landscape' ? [size[1], size[0]] : size
       const m = page.margins || opts.defaultMargins || DEFAULT_MARGINS
       const contentW = pw - m.left - m.right
 
-      // Build content stream
       const { stream, images } = buildPageStream(page.content, pw, ph, m, contentW)
 
-      // Image objects (if any)
-      const imgXObjects: string[] = []
+      // Image XObject entries (if any)
+      const pageImagePdfNums: number[] = []
       for (const img of images) {
-        const imgObjIdx = this.objects.length
-        this.write(img.xobj)
-        imgXObjects.push(\`/Img\${imgXObjects.length} \${this.ref(imgObjIdx)}\`)
+        pageImagePdfNums.push(bodyObjects.length + 3)
+        bodyObjects.push(img.xobj)
       }
 
-      // Stream object
-      const streamObjIdx = this.objects.length
-      this.write(stream)
-      streamObjIndices.push(streamObjIdx)
+      // Content-stream object
+      const streamPdfNum = bodyObjects.length + 3
+      bodyObjects.push(stream)
+
+      // Build XObject resource string
+      const imgXObjects = pageImagePdfNums
+        .map((num, idx) => \`/Img\${idx} \${num} 0 R\`)
+        .join(' ')
+      const xobjStr = imgXObjects.length
+        ? \`\\n    << \${imgXObjects} >>\`
+        : ''
 
       // Page object
-      const pageObjIdx = this.objects.length
-      const xobjStr = imgXObjects.length ? '\\n    << ' + imgXObjects.join(' ') + ' >>' : ''
-      this.write(
-        \`<< /Type /Page /Parent \${this.ref(pagesIdx)} /MediaBox [0 0 \${pw} \${ph}]\` +
-        \`\\n   /Contents \${this.ref(streamObjIdx)}\` +
-        \`\\n   /Resources << /Font << /F1 \${this.ref(fontObjIdx)} /F2 \${this.ref(fontObjIdx)} /F3 \${this.ref(fontObjIdx)} /F4 \${this.ref(fontObjIdx)} /F5 \${this.ref(fontObjIdx)} /F6 \${this.ref(fontObjIdx)} /F7 \${this.ref(fontObjIdx)} /F8 \${this.ref(fontObjIdx)} >> /XObject <<\${xobjStr ? xobjStr.slice(4) : ''} >> >> >>\`
+      const fontPdfNum = 3
+      pageObjPdfNums.push(bodyObjects.length + 3)
+      bodyObjects.push(
+        \`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \${pw} \${ph}]\` +
+        \`\\n   /Contents \${streamPdfNum} 0 R\` +
+        \`\\n   /Resources << /Font << /F1 \${fontPdfNum} 0 R /F2 \${fontPdfNum} 0 R /F3 \${fontPdfNum} 0 R /F4 \${fontPdfNum} 0 R /F5 \${fontPdfNum} 0 R /F6 \${fontPdfNum} 0 R /F7 \${fontPdfNum} 0 R /F8 \${fontPdfNum} 0 R >> /XObject <<\${xobjStr ? xobjStr.slice(4) : ''} >> >> >>\`
       )
-      pageObjIndices.push(pageObjIdx)
     }
 
-    // Info object
-    const infoIdx = this.objects.length
-    this.write(buildInfoDict(opts.title, opts.author))
+    // Info dictionary
+    const infoPdfNum = bodyObjects.length + 3
+    bodyObjects.push(buildInfoDict(opts.title, opts.author))
 
-    // Now build the full PDF
+    // Assemble the final PDF
     const parts: Buffer[] = []
-    const header = Buffer.from('%PDF-1.4\\n%\xe2\xe3\xcf\xd3\\n')
-    parts.push(header)
-
-    let objNum = 0
     const objPositions: number[] = []
 
-    // Write all objects in order
-    // 1: Catalog
-    objPositions.push(getBufLen(parts))
-    parts.push(Buffer.from(\`1 0 obj\\n<< /Type /Catalog /Pages \${this.ref(pagesIdx)} >>\\nendobj\\n\`))
-    objNum = 1
+    // Header
+    parts.push(Buffer.from('%PDF-1.4\\n%\\xe2\\xe3\\xcf\\xd3\\n'))
 
-    // 2: Pages
+    // Object 1: Catalog
     objPositions.push(getBufLen(parts))
-    const kids = pageObjIndices.map(i => \`\${i} 0 R\`).join(' ')
-    parts.push(Buffer.from(\`2 0 obj\\n<< /Type /Pages /Kids [${kids}] /Count \${pageObjIndices.length} >>\\nendobj\\n\`))
-    objNum = 2
+    parts.push(Buffer.from(\`1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\nendobj\\n\`))
 
-    // Write remaining objects (font, streams, pages, info)
-    for (let i = 0; i < this.objects.length; i++) {
-      objNum++
-      if (this.offsets[i] !== undefined) {
-        objPositions.push(getBufLen(parts))
-        parts.push(Buffer.from(\`\${objNum} 0 obj\\n\`))
-        parts.push(this.objects[i])
-        parts.push(Buffer.from('\\nendobj\\n'))
-      }
+    // Object 2: Pages
+    objPositions.push(getBufLen(parts))
+    const kids = pageObjPdfNums.map(n => \`\${n} 0 R\`).join(' ')
+    parts.push(Buffer.from(\`2 0 obj\\n<< /Type /Pages /Kids [\${kids}] /Count \${pageObjPdfNums.length} >>\\nendobj\\n\`))
+
+    // Objects 3+: body objects (font, streams, pages, images, info)
+    for (let i = 0; i < bodyObjects.length; i++) {
+      const objNum = i + 3
+      objPositions.push(getBufLen(parts))
+      parts.push(Buffer.from(\`\${objNum} 0 obj\\n\`))
+      parts.push(Buffer.from(bodyObjects[i]))
+      parts.push(Buffer.from('\\nendobj\\n'))
     }
 
-    // XRef table
+    const totalObjs = 2 + bodyObjects.length
+
+    // Cross-reference table
     const xrefOffset = getBufLen(parts)
-    parts.push(Buffer.from(\`xref\\n0 \${objNum + 1}\\n\`))
+    parts.push(Buffer.from(\`xref\\n0 \${totalObjs + 1}\\n\`))
     parts.push(Buffer.from('0000000000 65535 f \\n'))
     for (const pos of objPositions) {
       parts.push(Buffer.from(\`\${String(pos).padStart(10, '0')} 00000 n \\n\`))
@@ -365,12 +335,13 @@ class PDFWriter {
 
     // Trailer
     parts.push(Buffer.from(
-      \`trailer\\n<< /Size \${objNum + 1} /Root 1 0 R /Info \${this.ref(infoIdx)} >>\\nstartxref\\n\${xrefOffset}\\n%%EOF\\n\`
+      \`trailer\\n<< /Size \${totalObjs + 1} /Root 1 0 R /Info \${infoPdfNum} 0 R >>\\nstartxref\\n\${xrefOffset}\\n%%EOF\\n\`
     ))
 
     return Buffer.concat(parts)
   }
 }
+
 
 function getBufLen(parts: Buffer[]): number {
   let total = 0
@@ -378,10 +349,9 @@ function getBufLen(parts: Buffer[]): number {
   return total
 }
 
-function buildFontDict(objIdx: number): string {
+function buildFontDict(): string {
   return \`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\`
 }
-
 function buildInfoDict(title?: string, author?: string): string {
   let s = '<< '
   if (title) s += \`/Title (\${escapePdf(title)}) \`
@@ -555,7 +525,7 @@ function buildPageStream(
           if (data[0] === 0x50 && data[1] === 0x36) {
             // PPM format
             y -= (el.height || 100)
-            lines.push(\`\\${margins.left} \${y} \${el.width || 200} \${el.height || 100} re W n\`)
+            lines.push(\`\${margins.left} \${y} \${el.width || 200} \${el.height || 100} re W n\`)
           } else {
             y -= 20
             // Skip unsupported formats — leave a placeholder text
@@ -585,31 +555,6 @@ export async function createPDF(opts: PDFCreateOptions): Promise<Buffer> {
   return writer.build(opts)
 }
 
-export async function mergePDFs(_paths: string[]): Promise<Buffer> {
-  // Basic merge: concatenate PDFs (simplified — reuses first PDF's structure)
-  // For production use, a full cross-reference rebuild would be needed
-  if (_paths.length === 0) throw new Error('No PDFs to merge')
-  if (_paths.length === 1) return readFileSync(_paths[0])
-  // Read all files and concatenate their body content (excluding %%EOF)
-  const parts: Buffer[] = []
-  for (const p of _paths) {
-    const data = readFileSync(p)
-    parts.push(data)
-  }
-  // Note: This is a simplified merge. A full implementation would parse
-  // each PDF's object structure and rebuild the cross-reference table.
-  // For the skill prompt, the model will be instructed to use this for
-  // simple cases and write proper merging logic for complex ones.
-  return Buffer.concat(parts)
-}
-
-export async function splitPDF(_path: string, _outputDir: string): Promise<string[]> {
-  // Simplified split — in practice would need proper PDF object parsing
-  mkdirSync(_outputDir, { recursive: true })
-  // This is a stub — the model will implement proper splitting via
-  // content stream analysis when needed
-  return []
-}
 
 // ─── CLI ───
 
