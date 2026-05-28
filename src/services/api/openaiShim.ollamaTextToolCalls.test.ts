@@ -371,3 +371,55 @@ describe('Ollama streaming — visible text before real structured tool_calls (P
     expect((toolStarts[0].content_block as Record<string, string>).name).toBe('Bash')
   })
 })
+
+describe('Ollama streaming — visible prose before text-based tool-call fallback (P2 buffered path)', () => {
+  beforeEach(() => {
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  })
+  afterEach(() => {
+    delete process.env.OLLAMA_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_BASE_URL
+  })
+
+  test('visible prose before text-based JSON tool call is preserved in emitted text_delta', async () => {
+    // Repro: Ollama model emits prose then tool-call JSON as plain text (no delta.tool_calls).
+    // Before fix: hasEmittedContentStart === false in the fallback branch, so the prose in
+    // ollamaTextBuffer was discarded — only the synthetic tool_use block was emitted.
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('I will inspect the file.\n'),
+          ollamaChunk('{"name":"Read","arguments":{"file_path":"/tmp/foo.ts"}}'),
+          ollamaChunk('', 'stop'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'read the file' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).toContain('I will inspect the file.')
+
+    const toolStarts = events.filter(
+      e => e.type === 'content_block_start' && (e.content_block as Record<string, string>)?.type === 'tool_use',
+    )
+    expect(toolStarts).toHaveLength(1)
+    expect((toolStarts[0].content_block as Record<string, string>).name).toBe('Read')
+  })
+})

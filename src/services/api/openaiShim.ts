@@ -1867,18 +1867,33 @@ async function* openaiStreamToAnthropic(
             const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(accumulatedText)
             if (textToolCalls.length > 0) {
               ollamaClosedContentBlock = true
+              // Compute visible prose (tool-call JSON stripped, think-tags removed).
+              // Use accumulatedText (raw) as source because toolCallRanges are relative to it.
+              const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
+              const strippedVisible = stripThinkTags(stripped).trim()
               if (hasEmittedContentStart) {
-                const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
-                // Use stripThinkTags (handles closed pairs, unterminated opens, and
-                // orphan tags) so hidden <think> content in the raw accumulator never
-                // resurfaces as visible assistant text in the fallback path.
-                const strippedVisible = stripThinkTags(stripped).trim()
+                // Text block was already open — emit stripped prose then close it.
                 if (strippedVisible) {
                   yield {
                     type: 'content_block_delta',
                     index: contentBlockIndex,
                     delta: { type: 'text_delta', text: strippedVisible },
                   }
+                }
+                yield* closeActiveContentBlock()
+              } else if (strippedVisible) {
+                // Text was buffered (Ollama path, hasEmittedContentStart === false).
+                // Open a text block, emit the visible prose before the tool call, close it.
+                yield {
+                  type: 'content_block_start',
+                  index: contentBlockIndex,
+                  content_block: { type: 'text', text: '' },
+                }
+                hasEmittedContentStart = true
+                yield {
+                  type: 'content_block_delta',
+                  index: contentBlockIndex,
+                  delta: { type: 'text_delta', text: strippedVisible },
                 }
                 yield* closeActiveContentBlock()
               }
