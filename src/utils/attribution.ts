@@ -39,6 +39,9 @@ export type AttributionTexts = {
   pr: string
 }
 
+const DEFAULT_PR_ATTRIBUTION =
+  '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+
 function sanitizeCoAuthorNamePart(value: string): string {
   return value
     .replace(/[\r\n<>]/g, ' ')
@@ -101,8 +104,8 @@ export function getDefaultCommitCoAuthorEmail(_apiProvider: string): string {
  * Returns attribution text for commits and PRs based on user settings.
  * Handles:
  * - Dynamic model name via getPublicModelName()
- * - Custom attribution settings (settings.attribution.commit/pr)
- * - Backward compatibility with deprecated includeCoAuthoredBy setting
+ * - Explicit custom attribution settings (settings.attribution.commit/pr)
+ * - Backward compatibility with deprecated includeCoAuthoredBy setting as an opt-in
  * - Remote mode: returns session URL for attribution
  */
 export function getAttributionTexts(): AttributionTexts {
@@ -123,6 +126,21 @@ export function getAttributionTexts(): AttributionTexts {
     return { commit: '', pr: '' }
   }
 
+  const settings = getInitialSettings()
+
+  // Explicit attribution settings take precedence over the deprecated setting.
+  // Omitted fields stay off by default to avoid unrequested Git metadata.
+  if (settings.attribution) {
+    return {
+      commit: settings.attribution.commit ?? '',
+      pr: settings.attribution.pr ?? '',
+    }
+  }
+
+  if (settings.includeCoAuthoredBy !== true) {
+    return { commit: '', pr: '' }
+  }
+
   // First-party unknown models may be unreleased Claude codenames. Other
   // providers can safely use the configured public model string.
   const model = getMainLoopModel()
@@ -132,8 +150,6 @@ export function getAttributionTexts(): AttributionTexts {
     apiProvider,
     isInternalRepo: isInternalModelRepoCached(),
   })
-  const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
   const coAuthorEmail = getDefaultCommitCoAuthorEmail(apiProvider)
   const defaultCommit = isEnvTruthy(
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
@@ -141,22 +157,7 @@ export function getAttributionTexts(): AttributionTexts {
     ? ''
     : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
 
-  const settings = getInitialSettings()
-
-  // New attribution setting takes precedence over deprecated includeCoAuthoredBy
-  if (settings.attribution) {
-    return {
-      commit: settings.attribution.commit ?? defaultCommit,
-      pr: settings.attribution.pr ?? defaultAttribution,
-    }
-  }
-
-  // Backward compatibility: deprecated includeCoAuthoredBy setting
-  if (settings.includeCoAuthoredBy === false) {
-    return { commit: '', pr: '' }
-  }
-
-  return { commit: defaultCommit, pr: defaultAttribution }
+  return { commit: defaultCommit, pr: DEFAULT_PR_ATTRIBUTION }
 }
 
 /**
@@ -352,7 +353,7 @@ async function getTranscriptStats(): Promise<{
  * - Shows Claude contribution percentage from commit attribution
  * - Shows N-shotted where N is the prompt count (1-shotted, 2-shotted, etc.)
  * - Shows short model name (e.g., claude-opus-4-5)
- * - Returns default attribution if stats can't be computed
+ * - Returns default attribution if explicitly enabled and stats can't be computed
  *
  * @param getAppState Function to get the current AppState (from command context)
  */
@@ -377,18 +378,20 @@ export async function getEnhancedPRAttribution(
 
   const settings = getInitialSettings()
 
-  // If user has custom PR attribution, use that
-  if (settings.attribution?.pr) {
+  // If user configured PR attribution, use the exact value. Omitted PR
+  // attribution stays off even if commit attribution is configured.
+  if (settings.attribution?.pr !== undefined) {
     return settings.attribution.pr
   }
-
-  // Backward compatibility: deprecated includeCoAuthoredBy setting
-  if (settings.includeCoAuthoredBy === false) {
+  if (settings.attribution) {
     return ''
   }
 
-  const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+  // Backward compatibility: deprecated includeCoAuthoredBy setting is now an
+  // explicit opt-in for the old generated attribution behavior.
+  if (settings.includeCoAuthoredBy !== true) {
+    return ''
+  }
 
   // Get AppState first
   const appState = getAppState()
@@ -426,7 +429,7 @@ export async function getEnhancedPRAttribution(
   // If no attribution data, return default
   if (claudePercent === 0 && promptCount === 0 && memoryAccessCount === 0) {
     logForDebugging('PR Attribution: returning default (no data)')
-    return defaultAttribution
+    return DEFAULT_PR_ATTRIBUTION
   }
 
   // Build the enhanced attribution: "🤖 Generated with Claude Code (93% 3-shotted by claude-opus-4-5, 2 memories recalled)"

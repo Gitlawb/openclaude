@@ -47,15 +47,10 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
 
-// Set max heap size for child processes.
-// Local runs get 8 GB so long agentic tasks (multi-file reads, large prompts,
-// tool-heavy loops) do not hit V8's ~2 GB default ceiling. Only raise the cap
-// when the user has not already set NODE_OPTIONS --max-old-space-size so we
-// do not override an intentionally lower or higher personal setting.
-// CCR (Claude Code Remote / container) environments are covered by the same
-// unconditional assignment — the previous CLAUDE_CODE_REMOTE guard was too
-// restrictive, preventing local users from benefiting from the raised limit.
-// Closes: Gitlawb/openclaude#402 — JavaScript heap OOM during large tasks.
+// Set max heap size for child processes. The current CLI process is already
+// running by this point; the package launcher raises its heap before importing
+// dist/cli.mjs. Keeping NODE_OPTIONS here preserves the larger cap for tools or
+// subprocesses spawned after startup without overriding user-provided limits.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level, custom-rules/safe-env-boolean-check
 if (!process.env.NODE_OPTIONS?.includes('--max-old-space-size')) {
   // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level

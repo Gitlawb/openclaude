@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach, afterAll } from 'bun:test'
 import {
   addGlobalEntity,
   addGlobalSummary,
@@ -18,7 +18,8 @@ import { getFsImplementation } from './fsOperations.js'
 describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   const originalOrama = process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
-  let configDir: string | undefined
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-stress-'))
+  const cwd = getFsImplementation().cwd()
 
   const removeDirWithRetry = (dir: string) => {
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -46,7 +47,6 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
 
   beforeEach(async () => {
     await acquireEnvMutex()
-    configDir = mkdtempSync(join(tmpdir(), 'openclaude-stress-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = '1'
     setClaudeConfigHomeDirForTesting(configDir)
@@ -69,16 +69,12 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
       }
       setClaudeConfigHomeDirForTesting(undefined)
     } finally {
-      const dirToRemove = configDir
-      configDir = undefined
-      try {
-        if (dirToRemove) {
-          removeDirWithRetry(dirToRemove)
-        }
-      } finally {
-        releaseEnvMutex()
-      }
+      releaseEnvMutex()
     }
+  })
+
+  afterAll(() => {
+    removeDirWithRetry(configDir)
   })
 
   it('handles high-volume entity insertion (Stress Test)', async () => {
@@ -113,7 +109,6 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     // 1. Create a valid DB
     await addGlobalEntity('type', 'valid', { val: '1' })
     const { getOramaPersistencePath } = await import('./knowledgeGraph.js')
-    const cwd = getFsImplementation().cwd()
     const oramaPath = getOramaPersistencePath(cwd)
     expect(existsSync(oramaPath)).toBe(true)
 
@@ -131,9 +126,9 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     
     // 5. Verify the corrupted file was moved
     const { readdirSync } = await import('fs')
-    const projectDir = dirname(oramaPath)
-    expect(existsSync(projectDir)).toBe(true)
-    // Search recursively for the corrupted file
+    const oramaDir = dirname(oramaPath)
+    expect(existsSync(oramaDir)).toBe(true)
+    // Search from the actual persistence directory for the corrupted file.
     const findCorrupted = (dir: string): boolean => {
       const entries = readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
@@ -145,7 +140,7 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
       }
       return false
     }
-    expect(findCorrupted(projectDir)).toBe(true)
+    expect(findCorrupted(oramaDir)).toBe(true)
   })
 
   it('maintains consistency between JSON and Orama', async () => {

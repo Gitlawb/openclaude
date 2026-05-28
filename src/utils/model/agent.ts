@@ -1,7 +1,8 @@
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { capitalize } from '../stringUtils.js'
-import { MODEL_ALIASES, type ModelAlias } from './aliases.js'
+import { MODEL_ALIASES } from './aliases.js'
 import { applyBedrockRegionPrefix, getBedrockRegionPrefix } from './bedrock.js'
+import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
   getRuntimeMainLoopModel,
@@ -37,7 +38,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -67,12 +68,26 @@ export function getAgentModel(
   }
 
   // Prioritize tool-specified model if provided
-  if (toolSpecifiedModel) {
-    if (aliasMatchesParentTier(toolSpecifiedModel, parentModel)) {
+  const trimmedToolSpecifiedModel = toolSpecifiedModel?.trim()
+  if (trimmedToolSpecifiedModel) {
+    if (trimmedToolSpecifiedModel.toLowerCase() === 'inherit') {
+      return getRuntimeMainLoopModel({
+        permissionMode: permissionMode ?? 'default',
+        mainLoopModel: parentModel,
+        exceeds200kTokens: false,
+      })
+    }
+    if (aliasMatchesParentTier(trimmedToolSpecifiedModel, parentModel)) {
+      assertToolSpecifiedModelAllowed(trimmedToolSpecifiedModel, parentModel)
       return parentModel
     }
-    const model = parseUserSpecifiedModel(toolSpecifiedModel)
-    return applyParentRegionPrefix(model, toolSpecifiedModel)
+    const model = parseUserSpecifiedModel(trimmedToolSpecifiedModel)
+    const effectiveModel = applyParentRegionPrefix(
+      model,
+      trimmedToolSpecifiedModel,
+    )
+    assertToolSpecifiedModelAllowed(trimmedToolSpecifiedModel, effectiveModel)
+    return effectiveModel
   }
 
   const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
@@ -139,6 +154,21 @@ function aliasMatchesParentTier(alias: string, parentModel: string): boolean {
     default:
       return false
   }
+}
+
+function assertToolSpecifiedModelAllowed(
+  requestedModel: string,
+  effectiveModel: string,
+): void {
+  if (
+    isModelAllowed(requestedModel) ||
+    (effectiveModel !== requestedModel && isModelAllowed(effectiveModel))
+  ) {
+    return
+  }
+  throw new Error(
+    `Model '${requestedModel}' is not available. Your organization restricts model selection.`,
+  )
 }
 
 /**

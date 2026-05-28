@@ -22,6 +22,7 @@ import {
   isEnterpriseSubscriber,
 } from '../../utils/auth.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { validateBoundedIntEnvVar } from '../../utils/envValidation.js'
 import { errorMessage } from '../../utils/errors.js'
 import {
   type CooldownReason,
@@ -50,9 +51,12 @@ import { extractConnectionErrorDetails } from './errorUtils.js'
 const abortError = () => new APIUserAbortError()
 
 const DEFAULT_MAX_RETRIES = 10
+const MAX_CONFIGURABLE_RETRIES = 100
 const FLOOR_OUTPUT_TOKENS = 3000
 const MAX_529_RETRIES = 3
-export const BASE_DELAY_MS = 500
+export const DEFAULT_RETRY_DELAY_MS = 500
+export const BASE_DELAY_MS = DEFAULT_RETRY_DELAY_MS
+const MAX_RETRY_DELAY_BASE_MS = 60_000
 
 // Foreground query sources where the user IS blocking on the result — these
 // retry on 529. Everything else (summaries, titles, suggestions, classifiers)
@@ -582,8 +586,9 @@ export function getRetryDelay(
     }
   }
 
+  const baseDelayMs = getDefaultRetryDelayMs()
   const baseDelay = Math.min(
-    BASE_DELAY_MS * Math.pow(2, attempt - 1),
+    baseDelayMs * Math.pow(2, attempt - 1),
     maxDelayMs,
   )
   const jitter = Math.random() * 0.25 * baseDelay
@@ -872,13 +877,61 @@ function shouldRetry(error: APIError): boolean {
 }
 
 export function getDefaultMaxRetries(): number {
-  if (process.env.CLAUDE_CODE_MAX_RETRIES) {
-    return parseInt(process.env.CLAUDE_CODE_MAX_RETRIES, 10)
+  const openClaudeMaxRetries = process.env.OPENCLAUDE_MAX_RETRIES
+  if (openClaudeMaxRetries) {
+    return validateRetryAttemptsEnvVar(
+      'OPENCLAUDE_MAX_RETRIES',
+      openClaudeMaxRetries,
+    )
   }
+
+  const legacyMaxRetries = process.env.CLAUDE_CODE_MAX_RETRIES
+  if (legacyMaxRetries) {
+    logForDebugging(
+      'CLAUDE_CODE_MAX_RETRIES is deprecated; use OPENCLAUDE_MAX_RETRIES instead',
+    )
+    return validateRetryAttemptsEnvVar(
+      'CLAUDE_CODE_MAX_RETRIES',
+      legacyMaxRetries,
+    )
+  }
+
   return DEFAULT_MAX_RETRIES
+}
+
+export function getDefaultRetryDelayMs(): number {
+  return validateBoundedIntEnvVar(
+    'OPENCLAUDE_RETRY_DELAY_MS',
+    process.env.OPENCLAUDE_RETRY_DELAY_MS,
+    DEFAULT_RETRY_DELAY_MS,
+    MAX_RETRY_DELAY_BASE_MS,
+  ).effective
 }
 function getMaxRetries(options: RetryOptions): number {
   return options.maxRetries ?? getDefaultMaxRetries()
+}
+
+function validateRetryAttemptsEnvVar(
+  envVarName: string,
+  value: string | undefined,
+): number {
+  if (!value) {
+    return DEFAULT_MAX_RETRIES
+  }
+  const parsed = parseInt(value, 10)
+  if (isNaN(parsed) || parsed < 0) {
+    logForDebugging(
+      `${envVarName} Invalid value "${value}" (using default: ${DEFAULT_MAX_RETRIES})`,
+    )
+    return DEFAULT_MAX_RETRIES
+  }
+  if (parsed > MAX_CONFIGURABLE_RETRIES) {
+    logForDebugging(
+      `${envVarName} Capped from ${parsed} to ${MAX_CONFIGURABLE_RETRIES}`,
+    )
+    return MAX_CONFIGURABLE_RETRIES
+  }
+  return parsed
 }
 
 const DEFAULT_FAST_MODE_FALLBACK_HOLD_MS = 30 * 60 * 1000 // 30 minutes
