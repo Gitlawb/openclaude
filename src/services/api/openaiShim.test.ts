@@ -6873,6 +6873,44 @@ test('non-streaming: parses plain-content JSON tool call array from Ollama conte
 >>>>>>> fix(openai-shim): handle plain-content JSON tool calls from Ollama and add regression tests (PR #433 review)
 })
 
+test('non-streaming: rejects mixed JSON array where some items are not valid tool calls', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mixed-array',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '[{"name": "WebSearch", "arguments": {"query": "Paris"}}, {"name": "note", "arguments": {"text": "keep me"}}]',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'search and note' }],
+    max_tokens: 64,
+    tools: [
+      { name: 'WebSearch', description: 'Search', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ],
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  // Mixed array: "note" is not a requested tool, so the whole array is preserved as text
+  expect(message.content).toEqual([
+    { type: 'text', text: '[{"name": "WebSearch", "arguments": {"query": "Paris"}}, {"name": "note", "arguments": {"text": "keep me"}}]' },
+  ])
+})
+
 test('non-streaming: does not treat arbitrary JSON with name but no arguments as tool call (PR #433 P1)', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
