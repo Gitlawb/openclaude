@@ -257,7 +257,7 @@ function sleepMs(ms: number): Promise<void> {
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content?: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  content?: string | OpenAIContentPart[]
   tool_calls?: Array<{
     id: string
     type: 'function'
@@ -274,6 +274,12 @@ interface OpenAIMessage {
    * block captured when the original response was translated.
    */
   reasoning_content?: string
+}
+
+type OpenAIContentPart = {
+  type: string
+  text?: string
+  image_url?: { url: string }
 }
 
 interface OpenAITool {
@@ -304,6 +310,24 @@ function convertSystemPrompt(
       .join('\n\n')
   }
   return String(system)
+}
+
+function ensureTextPartForImageContent(
+  parts: OpenAIContentPart[],
+): OpenAIContentPart[] {
+  const hasImage = parts.some(part => part.type === 'image_url')
+  if (!hasImage) {
+    return parts
+  }
+
+  const hasText = parts.some(
+    part => part.type === 'text' && (part.text ?? '').trim().length > 0,
+  )
+  if (hasText) {
+    return parts
+  }
+
+  return [{ type: 'text', text: 'Image attached.' }, ...parts]
 }
 
 function convertToolResultContent(
@@ -374,11 +398,11 @@ function convertToolResultContent(
 
 function convertContentBlocks(
   content: unknown,
-): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+): string | OpenAIContentPart[] {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
 
-  const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+  const parts: OpenAIContentPart[] = []
   for (const block of content) {
     switch (block.type) {
       case 'text':
@@ -429,7 +453,7 @@ function convertContentBlocks(
     return parts.map(p => p.text ?? '').join('\n\n')
   }
 
-  return parts
+  return ensureTextPartForImageContent(parts)
 }
 
 function isGeminiMode(): boolean {

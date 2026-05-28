@@ -1850,6 +1850,82 @@ test('preserves image tool results as placeholders in follow-up requests', async
   expect(imagePart?.image_url?.url).toBe('data:image/png;base64,ZmFrZQ==')
 })
 
+test('adds text part for image-only user messages', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    system: 'test system',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'ZmFrZQ==',
+            },
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const userMessage = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => message.role === 'user',
+  ) as {
+    content?: Array<{
+      type: string
+      text?: string
+      image_url?: { url: string }
+    }>
+  } | undefined
+
+  expect(userMessage?.content).toEqual([
+    { type: 'text', text: 'Image attached.' },
+    {
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+    },
+  ])
+})
+
 test('preserves mixed text and image tool results as multipart content', async () => {
   let requestBody: Record<string, unknown> | undefined
 
