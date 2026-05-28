@@ -3,13 +3,22 @@ import { defineGateway } from '../define.js'
 export default defineGateway({
   id: 'opencode-go',
   label: 'OpenCode Go',
-  category: 'hosted',
+  category: 'aggregating',
   defaultBaseUrl: 'https://opencode.ai/zen/go/v1',
   defaultModel: 'glm-5.1',
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
     credentialEnvVars: ['OPENCODE_API_KEY'],
+  },
+  validation: {
+    kind: 'credential-env',
+    routing: {
+      matchDefaultBaseUrl: true,
+    },
+    credentialEnvVars: ['OPENCODE_API_KEY'],
+    missingCredentialMessage:
+      'OPENCODE_API_KEY is required. Get your API key from https://opencode.ai',
   },
   transportConfig: {
     kind: 'openai-compatible',

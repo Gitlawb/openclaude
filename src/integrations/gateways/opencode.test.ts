@@ -128,9 +128,9 @@ describe('OpenCode Go gateway descriptor', () => {
     expect(gateway!.label).toBe('OpenCode Go')
   })
 
-  test('has hosted category', () => {
+  test('has aggregating category', () => {
     const gateway = getGateway('opencode-go')
-    expect(gateway!.category).toBe('hosted')
+    expect(gateway!.category).toBe('aggregating')
   })
 
   test('has correct default base URL', () => {
