@@ -62,4 +62,21 @@ describe('projectSnippedView', () => {
     ]
     expect(projectSnippedView(messages).length).toBe(2)
   })
+
+  // Mirrors the snipReplay path in QueryEngine: the boundary is appended to
+  // the store and the removed messages precede it. Prunes regardless of order.
+  test('prunes earlier messages when the boundary is appended last', () => {
+    const store = [
+      { uuid: 'aaa', type: 'user' },
+      { uuid: 'bbb', type: 'assistant' },
+      { uuid: 'ccc', type: 'user' },
+    ]
+    const boundary = {
+      uuid: 'bnd',
+      type: 'system',
+      snipMetadata: { removedUuids: ['aaa', 'bbb'] },
+    }
+    const result = projectSnippedView([...store, boundary])
+    expect(result.map((m: any) => m.uuid)).toEqual(['ccc', 'bnd'])
+  })
 })

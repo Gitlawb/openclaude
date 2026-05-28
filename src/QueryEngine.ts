@@ -122,9 +122,6 @@ const getCoordinatorUserContext: (
 
 // Dead code elimination: conditional import for snip compaction
 /* eslint-disable @typescript-eslint/no-require-imports */
-const snipModule = feature('HISTORY_SNIP')
-  ? (require('./services/compact/snipCompact.js') as typeof import('./services/compact/snipCompact.js'))
-  : null
 const snipProjection = feature('HISTORY_SNIP')
   ? (require('./services/compact/snipProjection.js') as typeof import('./services/compact/snipProjection.js'))
   : null
@@ -1430,8 +1427,17 @@ export async function* ask({
           snipReplay: (yielded: Message, store: Message[]) => {
             if (!snipProjection!.isSnipBoundaryMessage(yielded))
               return undefined
-            const result = snipModule!.snipCompactIfNeeded(store, { force: true })
-            return { messages: result.messages, executed: result.tokensFreed > 0 }
+            // The pending set was already consumed in query.ts when the
+            // boundary was produced, so prune the store by the boundary's own
+            // removedUuids. Keep the boundary as the marker for later replays.
+            const projected = snipProjection!.projectSnippedView([
+              ...store,
+              yielded,
+            ])
+            return {
+              messages: projected,
+              executed: projected.length !== store.length + 1,
+            }
           },
         }
       : {}),

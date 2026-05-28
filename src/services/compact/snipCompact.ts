@@ -50,7 +50,6 @@ export function shouldNudgeForSnips(messages: any[]): boolean {
 
 export function snipCompactIfNeeded(
   messages: any[],
-  opts?: { force?: boolean },
 ): { messages: any[]; tokensFreed: number; boundaryMessage?: any } {
   if (pendingSnipIds.size === 0) {
     return { messages, tokensFreed: 0 }
