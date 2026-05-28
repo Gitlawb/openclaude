@@ -12,7 +12,11 @@ const tokenState = {
 }
 
 mock.module('../services/analytics/growthbook.js', () => ({
-  getFeatureValue_CACHED_MAY_BE_STALE: () => null,
+  // Only intercept the mcpValidation flag (tengu_satin_quoll); return defaultValue
+  // for all other flags so this mock does not affect unrelated test files that
+  // import growthbook.js after this suite runs (e.g. analyzeContext, hybridContextStrategy).
+  getFeatureValue_CACHED_MAY_BE_STALE: (flag: string, defaultValue: unknown) =>
+    flag === 'tengu_satin_quoll' ? null : defaultValue,
 }))
 
 mock.module('../services/tokenEstimation.js', () => ({
