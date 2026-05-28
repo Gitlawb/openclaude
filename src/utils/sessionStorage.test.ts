@@ -5,13 +5,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  adoptResumedSessionFile,
   buildConversationChain,
   loadTranscriptFile,
   recordGoalState,
   resetProjectForTesting,
+  resetSessionFilePointer,
   setSessionFileForTesting,
+  restoreSessionMetadata,
   stripPersistedToolUseResultsFromJSONLBuffer,
 } from './sessionStorage.ts'
+import { createGoalState } from '../services/goal/state.js'
 import { getSessionId, switchSession } from '../bootstrap/state.js'
 
 const tempDirs: string[] = []
@@ -388,6 +392,43 @@ test('loadTranscriptFile treats null goal-state as cleared', async () => {
   const { goalStates } = await loadTranscriptFile(filePath)
 
   expect(goalStates.get(sessionId as never)).toBeNull()
+})
+
+test('restoreSessionMetadata clears cached goal when resumed transcript has no goal metadata', async () => {
+  const originalPersistence = process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  const originalSessionId = getSessionId()
+  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+  try {
+    resetProjectForTesting()
+    restoreSessionMetadata({
+      goal: createGoalState('stale previous session goal', ts),
+    })
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
+    tempDirs.push(dir)
+    const filePath = join(dir, `${sessionId}.jsonl`)
+    await writeFile(
+      filePath,
+      `${JSON.stringify(user(id(51), null, 'resume me'))}\n`,
+    )
+
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+    restoreSessionMetadata({})
+    adoptResumedSessionFile()
+
+    const text = await readFile(filePath, 'utf8')
+    expect(text).not.toContain('"type":"goal-state"')
+    expect(text).not.toContain('stale previous session goal')
+  } finally {
+    if (originalPersistence === undefined) {
+      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalPersistence
+    }
+    switchSession(originalSessionId)
+    resetProjectForTesting()
+  }
 })
 
 test('recordGoalState writes goal metadata durably before resolving', async () => {

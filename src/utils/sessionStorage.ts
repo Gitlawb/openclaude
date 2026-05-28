@@ -3077,9 +3077,10 @@ export function restoreSessionMetadata(meta: {
     project.currentSessionPrNumber = meta.prNumber
   if (meta.prUrl) project.currentSessionPrUrl = meta.prUrl
   if (meta.prRepository) project.currentSessionPrRepository = meta.prRepository
-  if (meta.goal !== undefined) {
-    project.currentSessionGoal = meta.goal ?? undefined
-  }
+  // Unlike display-only metadata, absence of a goal-state entry means this
+  // resumed session has no goal. Clear any cached goal so adopt/re-append
+  // cannot persist a previous session's active goal into this transcript.
+  project.currentSessionGoal = meta.goal ?? undefined
 }
 
 /**
