@@ -12,7 +12,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'gpt-5.5',
+    defaultModel: 'opencode-gpt-5.5',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -30,7 +30,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'gpt-5.5-pro',
+    defaultModel: 'opencode-gpt-5.5-pro',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -48,7 +48,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'gpt-5.4',
+    defaultModel: 'opencode-gpt-5.4',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -66,7 +66,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'gpt-5.4-pro',
+    defaultModel: 'opencode-gpt-5.4-pro',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -84,7 +84,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gpt-5.4-mini',
+    defaultModel: 'opencode-gpt-5.4-mini',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -102,7 +102,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gpt-5.4-nano',
+    defaultModel: 'opencode-gpt-5.4-nano',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -120,7 +120,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5.3-codex',
+    defaultModel: 'opencode-gpt-5.3-codex',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -138,7 +138,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5.3-codex-spark',
+    defaultModel: 'opencode-gpt-5.3-codex-spark',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -156,7 +156,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gpt-5.2',
+    defaultModel: 'opencode-gpt-5.2',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -174,7 +174,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5.2-codex',
+    defaultModel: 'opencode-gpt-5.2-codex',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -192,7 +192,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gpt-5.1',
+    defaultModel: 'opencode-gpt-5.1',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -210,7 +210,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5.1-codex',
+    defaultModel: 'opencode-gpt-5.1-codex',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -228,7 +228,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5.1-codex-max',
+    defaultModel: 'opencode-gpt-5.1-codex-max',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -246,7 +246,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5.1-codex-mini',
+    defaultModel: 'opencode-gpt-5.1-codex-mini',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -264,7 +264,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gpt-5',
+    defaultModel: 'opencode-gpt-5',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -282,7 +282,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'gpt-5-codex',
+    defaultModel: 'opencode-gpt-5-codex',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -300,7 +300,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gpt-5-nano',
+    defaultModel: 'opencode-gpt-5-nano',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -320,7 +320,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-opus-4-7',
+    defaultModel: 'opencode-claude-opus-4-7',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -338,7 +338,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-opus-4-6',
+    defaultModel: 'opencode-claude-opus-4-6',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -356,7 +356,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-opus-4-5',
+    defaultModel: 'opencode-claude-opus-4-5',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -374,7 +374,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-opus-4-1',
+    defaultModel: 'opencode-claude-opus-4-1',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -392,7 +392,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: 'opencode-claude-sonnet-4-6',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -410,7 +410,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'opencode-claude-sonnet-4-5',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -428,7 +428,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'claude-sonnet-4',
+    defaultModel: 'opencode-claude-sonnet-4',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -446,7 +446,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'claude-haiku-4-5',
+    defaultModel: 'opencode-claude-haiku-4-5',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -464,7 +464,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'claude-3-5-haiku',
+    defaultModel: 'opencode-claude-3-5-haiku',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -484,7 +484,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gemini-3.5-flash',
+    defaultModel: 'opencode-gemini-3.5-flash',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -502,7 +502,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'gemini-3.1-pro',
+    defaultModel: 'opencode-gemini-3.1-pro',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -520,7 +520,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'gemini-3-flash',
+    defaultModel: 'opencode-gemini-3-flash',
     capabilities: {
       supportsVision: true,
       supportsStreaming: true,
@@ -540,7 +540,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'qwen3.6-plus',
+    defaultModel: 'opencode-qwen3.6-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -558,7 +558,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'qwen3.5-plus',
+    defaultModel: 'opencode-qwen3.5-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -578,7 +578,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'minimax-m2.7',
+    defaultModel: 'opencode-minimax-m2.7',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -596,7 +596,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'minimax-m2.5',
+    defaultModel: 'opencode-minimax-m2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -614,7 +614,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'glm-5.1',
+    defaultModel: 'opencode-glm-5.1',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -632,7 +632,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'glm-5',
+    defaultModel: 'opencode-glm-5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -650,7 +650,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'kimi-k2.5',
+    defaultModel: 'opencode-kimi-k2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -668,7 +668,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'kimi-k2.6',
+    defaultModel: 'opencode-kimi-k2.6',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -686,7 +686,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'grok-build-0.1',
+    defaultModel: 'opencode-grok-build-0.1',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -704,7 +704,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'big-pickle',
+    defaultModel: 'opencode-big-pickle',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -722,7 +722,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'deepseek-v4-flash-free',
+    defaultModel: 'opencode-deepseek-v4-flash-free',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -740,7 +740,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'nemotron-3-super-free',
+    defaultModel: 'opencode-nemotron-3-super-free',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -764,7 +764,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'glm-5.1',
+    defaultModel: 'opencode-glm-5.1',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -782,7 +782,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'glm-5',
+    defaultModel: 'opencode-glm-5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -800,7 +800,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'kimi-k2.5',
+    defaultModel: 'opencode-kimi-k2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -818,7 +818,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'kimi-k2.6',
+    defaultModel: 'opencode-kimi-k2.6',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -836,7 +836,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'deepseek-v4-pro',
+    defaultModel: 'opencode-deepseek-v4-pro',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -854,7 +854,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'deepseek-v4-flash',
+    defaultModel: 'opencode-deepseek-v4-flash',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -872,7 +872,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'mimo-v2.5',
+    defaultModel: 'opencode-mimo-v2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -890,7 +890,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'mimo-v2.5-pro',
+    defaultModel: 'opencode-mimo-v2.5-pro',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -910,7 +910,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'minimax-m2.7',
+    defaultModel: 'opencode-minimax-m2.7',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -928,7 +928,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'minimax-m2.5',
+    defaultModel: 'opencode-minimax-m2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -946,7 +946,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'qwen3.6-plus',
+    defaultModel: 'opencode-qwen3.6-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -964,7 +964,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'qwen3.5-plus',
+    defaultModel: 'opencode-qwen3.5-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
