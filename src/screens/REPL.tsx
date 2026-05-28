@@ -2065,6 +2065,20 @@ export function REPL({
         getAppState: () => store.getState(),
         setAppState
       });
+      // Startup resume paths (--continue, --resume <id>, ResumeConversation
+      // screen) install initialMessages via the initial useState rather than
+      // the resume() callback at line ~2024, so schedule the compact prompt
+      // here too. Uses the already-hydrated `messages` state, which mirrors
+      // the hydration applied in resume().
+      if (feature('RESUME_COMPACT_PROMPT')) {
+        void (async () => {
+          const { shouldPromptCompactOnResume } = await import('../services/compact/resumeCompactPrompt.js');
+          if (shouldPromptCompactOnResume(messages, mainLoopModel, false)) {
+            const tokenCount = (await import('../utils/tokens.js')).tokenCountWithEstimation(messages);
+            setResumeCompactPending({ tokenCount, model: mainLoopModel, messages });
+          }
+        })();
+      }
     }
     // Only run on mount - initialMessages shouldn't change during component lifetime
     // eslint-disable-next-line react-hooks/exhaustive-deps
