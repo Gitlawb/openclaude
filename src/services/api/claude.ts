@@ -820,7 +820,7 @@ function getNonstreamingFallbackTimeoutMs(): number {
   return isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ? 120_000 : 300_000
 }
 
-function shouldAttachClientRequestIdHeader(
+export function shouldAttachClientRequestIdHeader(
   providerOverride?: Options['providerOverride'],
 ): boolean {
   if (providerOverride) return false
