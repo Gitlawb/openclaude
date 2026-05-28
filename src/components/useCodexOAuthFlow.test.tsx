@@ -122,6 +122,7 @@ test('does not persist credentials when downstream setup rejects', async () => {
         return TOKENS
       },
       cleanup,
+      submitManualCallback: () => ({ ok: true as const }),
     }),
     openBrowser: async () => true,
     saveCodexCredentials,
@@ -192,6 +193,7 @@ test('persists credentials with profile linkage after downstream setup succeeds'
         return TOKENS
       },
       cleanup,
+      submitManualCallback: () => ({ ok: true as const }),
     }),
     openBrowser: async () => true,
     saveCodexCredentials,
@@ -271,6 +273,7 @@ test('returns a successful storage warning without entering the error state', as
         return TOKENS
       },
       cleanup,
+      submitManualCallback: () => ({ ok: true as const }),
     }),
     openBrowser: async () => true,
     saveCodexCredentials,
@@ -343,6 +346,7 @@ test('reports credential persistence failures without token values', async () =>
         return TOKENS
       },
       cleanup,
+      submitManualCallback: () => ({ ok: true as const }),
     }),
     openBrowser: async () => true,
     saveCodexCredentials,

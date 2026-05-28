@@ -257,6 +257,111 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   }
 })
 
+test('manual callback paste completes the flow when the loopback is unreachable', async () => {
+  await acquireCodexOAuthTestIsolation()
+
+  try {
+    process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
+
+    globalThis.fetch = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          access_token: 'manual-access-token',
+          refresh_token: 'manual-refresh-token',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+    }) as typeof fetch
+
+    // Hanging listener — never resolves on its own. The manual paste path
+    // must be what completes the flow.
+    let capturedState = ''
+    let pending = false
+    const hangingListenerFactory = ((callbackPath: string) => ({
+      callbackPath,
+      async start(): Promise<number> {
+        return 41100
+      },
+      hasPendingResponse(): boolean {
+        return pending
+      },
+      async waitForAuthorization(
+        state: string,
+        onReady: () => Promise<void>,
+      ): Promise<string> {
+        capturedState = state
+        pending = true
+        await onReady()
+        return new Promise<string>(() => {
+          /* never resolves */
+        })
+      },
+      handleSuccessRedirect(): void {
+        pending = false
+      },
+      handleErrorRedirect(): void {
+        pending = false
+      },
+      cancelPendingAuthorization(): void {
+        pending = false
+      },
+    })) as unknown as NonNullable<
+      ConstructorParameters<typeof CodexOAuthService>[0]
+    >['createAuthCodeListener']
+
+    const service = new CodexOAuthService({
+      callbackPort: 0,
+      callbackHost: '127.0.0.1',
+      createAuthCodeListener: hangingListenerFactory,
+    })
+
+    const flowPromise = service.startOAuthFlow(async () => {})
+
+    // Wait until startOAuthFlow has populated expectedState via the listener.
+    while (!capturedState) {
+      await Bun.sleep(0)
+    }
+
+    const stateMismatch = service.submitManualCallback(
+      'http://localhost:41100/auth/callback?code=foo&state=wrong',
+    )
+    expect(stateMismatch.ok).toBe(false)
+    if (!stateMismatch.ok) {
+      expect(stateMismatch.error).toContain('State mismatch')
+    }
+
+    const missingCode = service.submitManualCallback(
+      `http://localhost:41100/auth/callback?state=${capturedState}`,
+    )
+    expect(missingCode.ok).toBe(false)
+    if (!missingCode.ok) {
+      expect(missingCode.error).toContain('`code`')
+    }
+
+    const errorRedirect = service.submitManualCallback(
+      `http://localhost:41100/auth/callback?error=access_denied&state=${capturedState}`,
+    )
+    expect(errorRedirect.ok).toBe(false)
+    if (!errorRedirect.ok) {
+      expect(errorRedirect.error).toContain('access_denied')
+    }
+
+    const success = service.submitManualCallback(
+      `http://localhost:41100/auth/callback?code=manual-auth-code&state=${capturedState}`,
+    )
+    expect(success.ok).toBe(true)
+
+    const tokens = await flowPromise
+    expect(tokens.accessToken).toBe('manual-access-token')
+    expect(tokens.refreshToken).toBe('manual-refresh-token')
+  } finally {
+    restoreCodexOAuthTestIsolation()
+  }
+})
+
 test('cancellation during token exchange returns a cancelled page and rejects the flow', async () => {
   await acquireCodexOAuthTestIsolation()
 

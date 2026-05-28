@@ -602,6 +602,35 @@ function XaiManualCodeInput({
   )
 }
 
+function CodexManualCallbackInput({
+  onSubmit,
+}: {
+  onSubmit: (input: string) => void
+}): React.ReactNode {
+  const [value, setValue] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  const { columns: terminalColumns } = useTerminalSize()
+  const inputColumns = Math.max(20, Math.min(120, terminalColumns - 12))
+  return (
+    <Box>
+      <Text>Callback URL › </Text>
+      <TextInput
+        value={value}
+        onChange={setValue}
+        cursorOffset={cursorOffset}
+        onChangeCursorOffset={setCursorOffset}
+        columns={inputColumns}
+        onSubmit={submitted => {
+          const trimmed = submitted.trim()
+          if (trimmed) onSubmit(trimmed)
+        }}
+        // The parent `CodexOAuthSetup` owns Esc via `useKeybinding('confirm:no')`.
+        disableEscapeDoublePress
+      />
+    </Box>
+  )
+}
+
 function CodexOAuthSetup({
   onBack,
   onConfigured,
@@ -638,6 +667,10 @@ function CodexOAuthSetup({
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
   })
+  const [pasteError, setPasteError] = React.useState<string | undefined>()
+  const isRemoteSession = Boolean(
+    process.env['SSH_CONNECTION'] || process.env['SSH_CLIENT'],
+  )
 
   if (status.state === 'error') {
     return (
@@ -693,6 +726,34 @@ function CodexOAuthSetup({
       ) : (
         <Text dimColor>Opening your browser...</Text>
       )}
+      {status.state === 'waiting' ? (
+        <>
+          {isRemoteSession ? (
+            <Text color="warning">
+              SSH session detected — the browser cannot reach this host's
+              localhost callback. After signing in, copy the full URL your
+              browser was redirected to (it starts with http://localhost:) and
+              paste it below.
+            </Text>
+          ) : (
+            <Text dimColor>
+              If the browser cannot reach localhost (remote / containerized
+              session), paste the full callback URL it was redirected to:
+            </Text>
+          )}
+          <CodexManualCallbackInput
+            onSubmit={input => {
+              const result = status.submitManualCallback(input)
+              if (!result.ok) {
+                setPasteError(result.error)
+              } else {
+                setPasteError(undefined)
+              }
+            }}
+          />
+          {pasteError ? <Text color="error">{pasteError}</Text> : null}
+        </>
+      ) : null}
       <Text dimColor>Press Esc to cancel and go back.</Text>
     </Box>
   )
