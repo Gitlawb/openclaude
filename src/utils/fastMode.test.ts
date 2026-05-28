@@ -163,7 +163,14 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./model/model.js', () => realModel)
-  mock.module('./model/providers.js', () => realProviders)
+  mock.module('./model/providers.js', () => ({
+    ...realProviders,
+    getAPIProvider: () => 'firstParty',
+    getAPIProviderForStatsig: () => 'firstParty',
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
+    usesAnthropicAccountFlow: () => true,
+  }))
 }
 
 async function prepareFastModeTestState(): Promise<void> {
