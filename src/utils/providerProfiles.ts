@@ -42,6 +42,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
+import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -96,6 +97,9 @@ function resolveProfileCompatibility(provider: string): {
     return { route, compatibilityMode: 'vertex' }
   }
   if (route.vendorId === 'anthropic') {
+    return { route, compatibilityMode: 'anthropic' }
+  }
+  if (route.vendorId === 'minimax') {
     return { route, compatibilityMode: 'anthropic' }
   }
   if (route.vendorId === 'gemini') {
@@ -345,6 +349,7 @@ function hasProviderSelectionFlags(
 function hasCompleteProviderSelection(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  if (resolveEnvOnlyProviderRouteId(processEnv) !== null) return true
   if (!hasProviderSelectionFlags(processEnv)) return false
   if (processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) {
     return (
@@ -581,10 +586,20 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   }
 
   if (compatibilityMode === 'anthropic') {
-    profileEnv = {
-      ANTHROPIC_BASE_URL: profile.baseUrl,
-      ANTHROPIC_MODEL: primaryModel,
-      ...(profile.apiKey ? { ANTHROPIC_API_KEY: profile.apiKey } : {}),
+    if (route.vendorId === 'minimax') {
+      profileEnv =
+        buildMiniMaxProfileEnv({
+          model: primaryModel,
+          baseUrl: profile.baseUrl,
+          apiKey: profile.apiKey,
+          processEnv: process.env,
+        }) ?? {}
+    } else {
+      profileEnv = {
+        ANTHROPIC_BASE_URL: profile.baseUrl,
+        ANTHROPIC_MODEL: primaryModel,
+        ...(profile.apiKey ? { ANTHROPIC_API_KEY: profile.apiKey } : {}),
+      }
     }
   } else if (compatibilityMode === 'mistral') {
     profileEnv = {
@@ -990,6 +1005,18 @@ function buildStartupProfileFromActiveProfile(
 
   switch (compatibilityMode) {
     case 'anthropic':
+      if (route.vendorId === 'minimax') {
+        const env =
+          buildMiniMaxProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
       return {
         profile: 'anthropic',
         env: applySupportedProfileCustomHeaders(activeProfile, {

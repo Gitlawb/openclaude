@@ -186,6 +186,7 @@ export type ProfileFile = {
 type SecretValueSource = Partial<
   Record<
     | 'OPENAI_API_KEY'
+    | 'ANTHROPIC_API_KEY'
     | 'OPENAI_AUTH_HEADER_VALUE'
     | 'CODEX_API_KEY'
     | 'GEMINI_API_KEY'
@@ -448,22 +449,29 @@ export function buildMiniMaxProfileEnv(options: {
   if (!defaultBaseUrl || !defaultModel) {
     throw new Error('MiniMax route defaults are missing from integration metadata.')
   }
-  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
+  const secretSource: SecretValueSource = {
+    ANTHROPIC_API_KEY: key,
+    MINIMAX_API_KEY: key,
+    OPENAI_API_KEY: key,
+  }
 
   return {
-    OPENAI_BASE_URL:
+    ANTHROPIC_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, secretSource) ||
       defaultBaseUrl,
-    OPENAI_MODEL:
+    ANTHROPIC_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model, secretSource),
       ) ||
       normalizeProfileModel(
-        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+        sanitizeProviderConfigValue(
+          processEnv.ANTHROPIC_MODEL ?? processEnv.OPENAI_MODEL,
+          secretSource,
+        ),
       ) ||
       defaultModel,
-    OPENAI_API_KEY: key,
+    ANTHROPIC_API_KEY: key,
     MINIMAX_API_KEY: key,
     MINIMAX_BASE_URL: defaultBaseUrl,
     MINIMAX_MODEL: defaultModel,

@@ -14,6 +14,9 @@ const originalEnv = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
@@ -58,6 +61,9 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
@@ -217,6 +223,18 @@ test('env-only MiniMax API key resolves to the minimax provider', async () => {
 
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('minimax')
+})
+
+test('Anthropic-compatible MiniMax profile resolves to the minimax provider', async () => {
+  clearProviderEnv()
+  process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  process.env.ANTHROPIC_API_KEY = 'minimax-key'
+  process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+  expect(usesAnthropicAccountFlow()).toBe(false)
 })
 
 test('conflicting OpenAI base prevents env-only MiniMax provider label', async () => {

@@ -21,7 +21,9 @@ import {
   getRouteDescriptor,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
 } from '../../integrations/routeMetadata.js'
+import { resolveProfileRoute } from '../../integrations/profileResolver.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -62,6 +64,7 @@ import { parseCustomHeadersEnv } from '../../utils/providerCustomHeaders.js'
 import {
   getActiveOpenAIModelOptionsCache,
   getActiveProviderProfile,
+  getProfileModelOptions,
   setActiveOpenAIModelOptionsCache,
 } from '../../utils/providerProfiles.js'
 
@@ -106,6 +109,55 @@ function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolea
       option.descriptionForModel === other.descriptionForModel
     )
   })
+}
+
+export function mergeActiveProfileModelOptions(
+  routeId: string,
+  routeOptions: ModelOption[],
+): ModelOption[] {
+  const activeProfile = getActiveProviderProfile()
+  if (!activeProfile) {
+    return routeOptions
+  }
+
+  const profileEnvApplied =
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID === activeProfile.id
+  const activeProfileRouteId =
+    resolveRouteIdFromBaseUrl(activeProfile.baseUrl) ??
+    resolveProfileRoute(activeProfile.provider).routeId
+
+  if (!profileEnvApplied || activeProfileRouteId !== routeId) {
+    return routeOptions
+  }
+
+  const profileOptions = getProfileModelOptions(activeProfile)
+  if (profileOptions.length === 0) {
+    return routeOptions
+  }
+
+  const routeOptionsByValue = new Map(
+    routeOptions.flatMap(option => {
+      const value =
+        typeof option.value === 'string' ? option.value.trim().toLowerCase() : ''
+      return value ? [[value, option] as const] : []
+    }),
+  )
+  const merged: ModelOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of profileOptions) {
+    const value = typeof option.value === 'string' ? option.value.trim() : ''
+    const key = value.toLowerCase()
+    if (!value || seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    merged.push(routeOptionsByValue.get(key) ?? option)
+  }
+
+  return merged
 }
 
 function getActiveRouteId(): string | null {
@@ -185,15 +237,17 @@ async function loadDescriptorDiscoveryContext(
       return null
     }
 
+    const routeOptions = buildRouteCatalogModelOptions(
+      routeLabel,
+      staticEntries,
+      routeDefaultModel,
+    )
+
     return {
       kind: 'descriptor',
       autoRefresh: false,
       canRefresh,
-      optionsOverride: buildRouteCatalogModelOptions(
-        routeLabel,
-        staticEntries,
-        routeDefaultModel,
-      ),
+      optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
       routeId,
       routeDefaultModel,
       routeLabel,
@@ -230,16 +284,18 @@ async function loadDescriptorDiscoveryContext(
     }
   }
 
+  const routeOptions = buildRouteCatalogModelOptions(
+    routeLabel,
+    mergedEntries,
+    routeDefaultModel,
+  )
+
   return {
     kind: 'descriptor',
     autoRefresh,
     canRefresh,
     discoveryState,
-    optionsOverride: buildRouteCatalogModelOptions(
-      routeLabel,
-      mergedEntries,
-      routeDefaultModel,
-    ),
+    optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
     routeId,
     routeDefaultModel,
     routeLabel,
@@ -461,10 +517,13 @@ function ModelPickerWrapper({
         },
       )
 
-      const nextOptions = buildRouteCatalogModelOptions(
-        discoveryContext.routeLabel,
-        result?.models ?? [],
-        discoveryContext.routeDefaultModel,
+      const nextOptions = mergeActiveProfileModelOptions(
+        discoveryContext.routeId,
+        buildRouteCatalogModelOptions(
+          discoveryContext.routeLabel,
+          result?.models ?? [],
+          discoveryContext.routeDefaultModel,
+        ),
       )
       const changed = !haveSameModelOptions(optionsOverride ?? [], nextOptions)
 
@@ -734,10 +793,13 @@ async function refreshModelsAndSummarize(): Promise<string> {
       ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
       forceRefresh: true,
     })
-    const nextOptions = buildRouteCatalogModelOptions(
-      discoveryContext.routeLabel,
-      result?.models ?? [],
-      discoveryContext.routeDefaultModel,
+    const nextOptions = mergeActiveProfileModelOptions(
+      discoveryContext.routeId,
+      buildRouteCatalogModelOptions(
+        discoveryContext.routeLabel,
+        result?.models ?? [],
+        discoveryContext.routeDefaultModel,
+      ),
     )
     const changed = !haveSameModelOptions(
       discoveryContext.optionsOverride,

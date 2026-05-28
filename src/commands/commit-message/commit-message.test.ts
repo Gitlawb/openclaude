@@ -1,10 +1,31 @@
-import { describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
+  getClaudeConfigHomeDir,
+  setClaudeConfigHomeDirForTesting,
+} from '../../utils/envUtils.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
+import {
+  call,
   formatCoAuthorTrailer,
   parseCoAuthor,
   stripMatchingQuotes,
   USAGE,
 } from './commit-message.js'
+
+let tempSettingsDir: string | null = null
+
+afterEach(() => {
+  setClaudeConfigHomeDirForTesting(undefined)
+  getClaudeConfigHomeDir.cache?.clear?.()
+  resetSettingsCache()
+  if (tempSettingsDir) {
+    rmSync(tempSettingsDir, { recursive: true, force: true })
+    tempSettingsDir = null
+  }
+})
 
 describe('commit-message command helpers', () => {
   it('parses quoted co-author names with a plain email', () => {
@@ -54,5 +75,16 @@ describe('commit-message command helpers', () => {
       '/commit-message set "Generated with OpenClaude using GPT-5.5"',
     )
     expect(USAGE).not.toContain('/commit-message set-attribution')
+  })
+
+  it('describes default reset as privacy-preserving', async () => {
+    tempSettingsDir = mkdtempSync(join(tmpdir(), 'openclaude-settings-'))
+    setClaudeConfigHomeDirForTesting(tempSettingsDir)
+    getClaudeConfigHomeDir.cache?.clear?.()
+
+    await expect(call('default', {} as never)).resolves.toEqual({
+      type: 'text',
+      value: 'Commit attribution reset to the privacy-preserving default.',
+    })
   })
 })

@@ -20,6 +20,10 @@ const originalEnv = {
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
     process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
 }
@@ -74,6 +78,14 @@ afterEach(() => {
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv(
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+      originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+    )
+    restoreEnv(
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+      originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+    )
     restoreEnv(
       'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
       originalEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
@@ -159,6 +171,7 @@ test('opens the model picker without awaiting descriptor-backed route refresh', 
   mock.module('../../utils/providerProfiles.js', () => ({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => null,
+    getProfileModelOptions: () => [],
     setActiveOpenAIModelOptionsCache: () => {},
   }))
 
@@ -208,6 +221,175 @@ test('shouldAutoRefreshRouteCatalog respects discovery refresh modes', async () 
       stale: true,
     }),
   ).toBe(false)
+})
+
+test('descriptor model options include active profile configured models', async () => {
+  const activeProfile = {
+    id: 'mistral-profile',
+    name: 'Mistral AI',
+    provider: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'devstral-latest, mistral-medium-latest',
+    apiKey: 'sk-mistral',
+  }
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+    getProfileModelOptions: () => [
+      {
+        value: 'devstral-latest',
+        label: 'devstral-latest',
+        description: 'Provider: Mistral AI',
+      },
+      {
+        value: 'mistral-medium-latest',
+        label: 'mistral-medium-latest',
+        description: 'Provider: Mistral AI',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  }))
+
+  const { mergeActiveProfileModelOptions } =
+    await importFreshModelModule('descriptor-profile-model-merge')
+
+  expect(
+    mergeActiveProfileModelOptions(
+      'mistral',
+      [
+        {
+          value: 'devstral-latest',
+          label: 'Devstral Latest',
+          description: 'Recommended · Provider: Mistral AI',
+        },
+      ],
+    ),
+  ).toEqual([
+    {
+      value: 'devstral-latest',
+      label: 'Devstral Latest',
+      description: 'Recommended · Provider: Mistral AI',
+    },
+    {
+      value: 'mistral-medium-latest',
+      label: 'mistral-medium-latest',
+      description: 'Provider: Mistral AI',
+    },
+  ])
+})
+
+test('descriptor model options omit route defaults outside active profile models', async () => {
+  const activeProfile = {
+    id: 'mistral-profile',
+    name: 'Mistral AI',
+    provider: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'mistral-medium-latest, mistral-small-latest',
+    apiKey: 'sk-mistral',
+  }
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+    getProfileModelOptions: () => [
+      {
+        value: 'mistral-medium-latest',
+        label: 'mistral-medium-latest',
+        description: 'Provider: Mistral AI',
+      },
+      {
+        value: 'mistral-small-latest',
+        label: 'mistral-small-latest',
+        description: 'Provider: Mistral AI',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  }))
+
+  const { mergeActiveProfileModelOptions } =
+    await importFreshModelModule('descriptor-profile-model-filter')
+
+  expect(
+    mergeActiveProfileModelOptions(
+      'mistral',
+      [
+        {
+          value: 'devstral-latest',
+          label: 'Devstral Latest',
+          description: 'Recommended · Provider: Mistral AI',
+        },
+        {
+          value: 'mistral-small-latest',
+          label: 'Mistral Small Latest',
+          description: 'Provider: Mistral AI',
+        },
+      ],
+    ),
+  ).toEqual([
+    {
+      value: 'mistral-medium-latest',
+      label: 'mistral-medium-latest',
+      description: 'Provider: Mistral AI',
+    },
+    {
+      value: 'mistral-small-latest',
+      label: 'Mistral Small Latest',
+      description: 'Provider: Mistral AI',
+    },
+  ])
+})
+
+test('descriptor model options skip saved profile models for env-selected routes', async () => {
+  const savedProfile = {
+    id: 'mistral-profile',
+    name: 'Mistral AI',
+    provider: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'devstral-latest, mistral-medium-latest',
+    apiKey: 'sk-mistral',
+  }
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => savedProfile,
+    getProfileModelOptions: () => [
+      {
+        value: 'mistral-medium-latest',
+        label: 'mistral-medium-latest',
+        description: 'Provider: Mistral AI',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  }))
+
+  const { mergeActiveProfileModelOptions } =
+    await importFreshModelModule('descriptor-profile-model-env-skip')
+
+  expect(
+    mergeActiveProfileModelOptions(
+      'openrouter',
+      [
+        {
+          value: 'openai/gpt-5-mini',
+          label: 'GPT-5 Mini',
+          description: 'Provider: OpenRouter',
+        },
+      ],
+    ),
+  ).toEqual([
+    {
+      value: 'openai/gpt-5-mini',
+      label: 'GPT-5 Mini',
+      description: 'Provider: OpenRouter',
+    },
+  ])
 })
 
 test('/model refresh clears descriptor cache and reports updates', async () => {
@@ -264,6 +446,7 @@ test('/model refresh clears descriptor cache and reports updates', async () => {
   mock.module('../../utils/providerProfiles.js', () => ({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => null,
+    getProfileModelOptions: () => [],
     setActiveOpenAIModelOptionsCache: () => {},
   }))
 
@@ -329,6 +512,7 @@ test('/model does not auto-refresh descriptor models when nonessential traffic i
   mock.module('../../utils/providerProfiles.js', () => ({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => null,
+    getProfileModelOptions: () => [],
     setActiveOpenAIModelOptionsCache: () => {},
   }))
 

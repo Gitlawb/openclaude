@@ -110,6 +110,11 @@ type Screen =
   | 'select-edit'
   | 'select-delete'
 
+type CodexOAuthPersistenceResult = { warning?: string }
+type PersistCodexOAuthCredentials = (options?: {
+  profileId?: string
+}) => CodexOAuthPersistenceResult | void
+
 type DraftField =
   | 'name'
   | 'baseUrl'
@@ -600,23 +605,32 @@ function CodexOAuthSetup({
   onConfigured,
 }: {
   onBack: () => void
-  onConfigured: (tokens: {
-    accessToken: string
-    refreshToken: string
-    accountId?: string
-    idToken?: string
-    apiKey?: string
-  }, persistCredentials: (options?: { profileId?: string }) => void) => void | Promise<void>
+  onConfigured: (
+    tokens: {
+      accessToken: string
+      refreshToken: string
+      accountId?: string
+      idToken?: string
+      apiKey?: string
+    },
+    persistCredentials: PersistCodexOAuthCredentials,
+  ) => void | Promise<void>
 }): React.ReactNode {
-  const handleAuthenticated = React.useCallback(async (tokens: {
-    accessToken: string
-    refreshToken: string
-    accountId?: string
-    idToken?: string
-    apiKey?: string
-  }, persistCredentials: (options?: { profileId?: string }) => void) => {
-    await onConfigured(tokens, persistCredentials)
-  }, [onConfigured])
+  const handleAuthenticated = React.useCallback(
+    async (
+      tokens: {
+        accessToken: string
+        refreshToken: string
+        accountId?: string
+        idToken?: string
+        apiKey?: string
+      },
+      persistCredentials: PersistCodexOAuthCredentials,
+    ) => {
+      await onConfigured(tokens, persistCredentials)
+    },
+    [onConfigured],
+  )
   useKeybinding('confirm:no', onBack)
 
   const status = useCodexOAuthFlow({
@@ -1078,17 +1092,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return clearStartupProviderOverrides()
   }
 
+  function formatWarningsForMessage(warnings: string[]): string {
+    const joined = warnings.join('; ')
+    return /[.!?]$/.test(joined.trim()) ? joined : `${joined}.`
+  }
+
   function buildCodexOAuthActivationMessage(options: {
     prefix: string
     activationWarning: string | null
     warnings: string[]
   }): string {
     if (options.activationWarning) {
-      return `${options.prefix}. Saved for next startup. Warning: ${options.warnings.join('; ')}.`
+      return `${options.prefix}. Saved for next startup. Warning: ${formatWarningsForMessage(options.warnings)}`
     }
 
     if (options.warnings.length > 0) {
-      return `${options.prefix}. OpenClaude switched to it for this session with warnings: ${options.warnings.join('; ')}.`
+      return `${options.prefix}. OpenClaude switched to it for this session with warnings: ${formatWarningsForMessage(options.warnings)}`
     }
 
     return `${options.prefix}. OpenClaude switched to it for this session.`
@@ -2470,7 +2489,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            persistCredentials({ profileId: saved.id })
+            const persistenceResult = persistCredentials({
+              profileId: saved.id,
+            })
+            const storageWarning =
+              persistenceResult && typeof persistenceResult === 'object'
+                ? persistenceResult.warning
+                : null
             const settingsOverrideError =
               clearStartupProviderOverrideFromUserSettings()
             const activationWarning = await activateCodexOAuthSession(tokens)
@@ -2478,6 +2503,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             setStoredCodexOAuthProfileId(saved.id)
             refreshProfiles()
             const warnings = [
+              storageWarning,
               activationWarning,
               settingsOverrideError
                 ? `could not clear startup provider override (${settingsOverrideError})`
