@@ -1,70 +1,45 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import {
   clearAgentDefinitionsCache,
   getAgentDefinitionsWithOverrides,
 } from '../loadAgentsDir.js'
 import { loadMarkdownFilesForSubdir } from '../../../utils/markdownConfigLoader.js'
-import {
-  acquireSharedMutationLock,
-  releaseSharedMutationLock,
-} from '../../../test/sharedMutationLock.js'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
-
-let tempDir: string
-
-beforeEach(async () => {
-  await acquireSharedMutationLock('codeReviewerAgent.test.ts')
-  tempDir = await mkdtemp(join(tmpdir(), 'openclaude-reviewer-test-'))
-  process.env.CLAUDE_CONFIG_DIR = join(tempDir, '.openclaude')
-  clearAgentDefinitionsCache()
-  loadMarkdownFilesForSubdir.cache.clear?.()
-})
-
-afterEach(async () => {
-  try {
-    await rm(tempDir, { recursive: true, force: true })
-    delete process.env.CLAUDE_CONFIG_DIR
-    clearAgentDefinitionsCache()
-    loadMarkdownFilesForSubdir.cache.clear?.()
-  } finally {
-    releaseSharedMutationLock()
-  }
-})
+import type { ToolUseContext } from '../../../Tool.js'
 
 describe('code-reviewer built-in agent', () => {
   let agent: BuiltInAgentDefinition
 
   beforeAll(async () => {
-    // Must use tempDir after beforeEach sets it — but beforeAll runs before beforeEach.
-    // Use a temp dir directly here.
-    const dir = await mkdtemp(join(tmpdir(), 'openclaude-reviewer-all-'))
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-reviewer-test-'))
+    const prev = process.env.CLAUDE_CONFIG_DIR
     process.env.CLAUDE_CONFIG_DIR = join(dir, '.openclaude')
     clearAgentDefinitionsCache()
     loadMarkdownFilesForSubdir.cache.clear?.()
 
-    const { activeAgents } = await getAgentDefinitionsWithOverrides(dir)
-    const found = activeAgents.find(a => a.agentType === 'code-reviewer')
-    if (!found || found.source !== 'built-in') {
-      throw new Error('code-reviewer agent not found in built-in agents')
+    try {
+      const { activeAgents } = await getAgentDefinitionsWithOverrides(dir)
+      const found = activeAgents.find(a => a.agentType === 'code-reviewer')
+      if (!found || found.source !== 'built-in') {
+        throw new Error('code-reviewer agent not found in built-in agents')
+      }
+      agent = found as BuiltInAgentDefinition
+    } finally {
+      // Restore env regardless of outcome so other test files are not affected
+      if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR
+      else process.env.CLAUDE_CONFIG_DIR = prev
+      await rm(dir, { recursive: true, force: true })
     }
-    agent = found as BuiltInAgentDefinition
-    await rm(dir, { recursive: true, force: true })
   })
 
-  // ── Registration ──────────────────────────────────────────────
-
-  test('is registered in built-in agents', () => {
-    expect(agent).toBeDefined()
-  })
+  // ── Definition ────────────────────────────────────────────────
 
   test('source is built-in', () => {
     expect(agent.source).toBe('built-in')
   })
-
-  // ── Definition ────────────────────────────────────────────────
 
   test('model is inherit (allows agentRouting override)', () => {
     expect(agent.model).toBe('inherit')
@@ -93,8 +68,9 @@ describe('code-reviewer built-in agent', () => {
     let prompt: string
 
     beforeAll(() => {
-      // @ts-ignore — toolUseContext unused by this agent
-      prompt = agent.getSystemPrompt({})
+      prompt = agent.getSystemPrompt({
+        toolUseContext: {} as Pick<ToolUseContext, 'options'>,
+      })
     })
 
     test('returns non-empty string', () => {

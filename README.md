@@ -198,7 +198,7 @@ Add to `~/.openclaude.json`:
     "Explore": "deepseek-v4-flash",
     "Plan": "gpt-4o",
     "general-purpose": "gpt-4o",
-    "code-reviewer": "gpt-4o",
+    "code-reviewer": "<your-reviewer-model>",
     "frontend-dev": "deepseek-v4-flash",
     "default": "gpt-4o"
   }
