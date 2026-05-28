@@ -48,6 +48,12 @@ export default defineGateway({
     source: 'static',
     models: [
       { id: 'mistral-devstral', apiName: 'devstral-latest', label: 'Devstral Latest', modelDescriptorId: 'devstral-latest' },
+      { id: 'mistral-large', apiName: 'mistral-large-latest', label: 'Mistral Large Latest', modelDescriptorId: 'mistral-large-latest' },
+      { id: 'mistral-small', apiName: 'mistral-small-latest', label: 'Mistral Small Latest', modelDescriptorId: 'mistral-small-latest' },
+      { id: 'ministral-3b', apiName: 'ministral-3b-latest', label: 'Ministral 3B Latest', modelDescriptorId: 'ministral-3b-latest' },
+      { id: 'mixtral-8x7b', apiName: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B 32768', modelDescriptorId: 'mixtral-8x7b-32768' },
+      { id: 'codestral', apiName: 'codestral', label: 'Codestral', modelDescriptorId: 'codestral' },
+      { id: 'mistral-7b', apiName: 'mistral:7b', label: 'Mistral 7B', modelDescriptorId: 'mistral:7b' },
     ],
   },
   usage: { supported: false },

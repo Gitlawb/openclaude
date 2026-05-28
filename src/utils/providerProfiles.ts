@@ -884,9 +884,16 @@ export function persistActiveProviderProfileModel(
     }
 
     const nextProfiles = [...currentProfiles]
+    // Preserve multi-model lists: when switching to a model that isn't
+    // already in the list, append rather than replace so the user doesn't
+    // lose models they configured during setup (#1360).
+    const finalModel =
+      existingModels.length > 1
+        ? [...existingModels, nextModel].join('; ')
+        : nextModel
     nextProfiles[profileIndex] = {
       ...currentProfile,
-      model: nextModel,
+      model: finalModel,
     }
 
     return {
