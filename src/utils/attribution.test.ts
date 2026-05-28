@@ -1,21 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import {
   getClientType,
   getMainLoopModelOverride,
   setClientType,
   setMainLoopModelOverride,
 } from '../bootstrap/state.js'
-import {
-  getAttributionTexts,
-  getDefaultCommitCoAuthorEmail,
-  getDefaultCommitCoAuthorName,
-  getEnhancedPRAttribution,
-} from './attribution.js'
+import * as actualModel from './model/model.js'
+import * as actualProviders from './model/providers.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
+
+let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
+let getDefaultCommitCoAuthorEmail: (typeof import('./attribution.js'))[
+  'getDefaultCommitCoAuthorEmail'
+]
+let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
+  'getDefaultCommitCoAuthorName'
+]
+let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
+  'getEnhancedPRAttribution'
+]
 
 const originalEnv = {
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
@@ -60,7 +67,7 @@ function restoreEnv(): void {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetSettingsCache()
   setClientType('cli')
   setMainLoopModelOverride(undefined)
@@ -83,12 +90,32 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   delete process.env.SESSION_INGRESS_URL
   delete process.env.USER_TYPE
+
+  mock.module('./model/model.js', () => ({
+    ...actualModel,
+    getMainLoopModel: () => process.env.OPENAI_MODEL ?? 'gpt-5.5',
+  }))
+  mock.module('./model/providers.js', () => ({
+    ...actualProviders,
+    getAPIProvider: () => 'openai',
+  }))
+
+  const attribution = await import(
+    `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
+  )
+  getAttributionTexts = attribution.getAttributionTexts
+  getDefaultCommitCoAuthorEmail = attribution.getDefaultCommitCoAuthorEmail
+  getDefaultCommitCoAuthorName = attribution.getDefaultCommitCoAuthorName
+  getEnhancedPRAttribution = attribution.getEnhancedPRAttribution
 })
 
 afterEach(() => {
   resetSettingsCache()
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
+  mock.restore()
+  mock.module('./model/model.js', () => actualModel)
+  mock.module('./model/providers.js', () => actualProviders)
   restoreEnv()
 })
 
