@@ -12,6 +12,31 @@ import {
 } from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
 
+// Provider-routing env vars that `getAttributionTexts` resolves through
+// (getAPIProvider → resolveActiveRouteIdFromEnv + isCodexModel, and
+// getMainLoopModel). These are NOT owned by this suite, but sibling test
+// files (codexShim/openaiShim/providerConfig/gemini, etc.) set them and an
+// incomplete restore there used to flip our resolved provider/model under
+// interleaved `bun test` ordering — turning the expected
+// `Co-Authored-By: OpenClaude (gpt-5.5) …` into a different string or empty
+// commit. Capture + neutralize them so this suite is hermetic regardless of
+// run order.
+const ROUTING_ENV_KEYS = [
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'NVIDIA_NIM',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'GEMINI_MODEL',
+  'MISTRAL_MODEL',
+  'ANTHROPIC_MODEL',
+] as const
+
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
@@ -20,6 +45,7 @@ const originalEnv = {
   CLAUDE_CODE_REMOTE_SESSION_ID: process.env.CLAUDE_CODE_REMOTE_SESSION_ID,
   SESSION_INGRESS_URL: process.env.SESSION_INGRESS_URL,
   USER_TYPE: process.env.USER_TYPE,
+  ...Object.fromEntries(ROUTING_ENV_KEYS.map(key => [key, process.env[key]])),
 }
 const originalClientType = getClientType()
 
@@ -43,6 +69,12 @@ function restoreEnv(): void {
 beforeEach(() => {
   resetSettingsCache()
   setClientType('cli')
+  // Clear competing provider-routing env first so the route resolves
+  // deterministically to plain OpenAI (no base-url override, no
+  // alternate-provider flag) and the model stays gpt-5.5.
+  for (const key of ROUTING_ENV_KEYS) {
+    delete process.env[key]
+  }
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_MODEL = 'gpt-5.5'
   delete process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY
