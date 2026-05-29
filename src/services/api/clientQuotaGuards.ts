@@ -50,7 +50,7 @@ export type ClientQuotaGuardOptions = {
 let rpmAttemptTimestampsMs: number[] = []
 let rpmGuardMutexTail: Promise<void> = Promise.resolve()
 
-async function withRpmGuardLock<T>(fn: () => T): Promise<T> {
+async function withRpmGuardLock<T>(fn: () => Promise<T>): Promise<T> {
   const previous = rpmGuardMutexTail
   let release: (() => void) | undefined
   const next = new Promise<void>(resolve => {
@@ -60,7 +60,7 @@ async function withRpmGuardLock<T>(fn: () => T): Promise<T> {
 
   await previous
   try {
-    return fn()
+    return await fn()
   } finally {
     release?.()
   }
@@ -213,7 +213,12 @@ async function saveRpdState(path: string, state: RpdState): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST' || (error as NodeJS.ErrnoException).code === 'EPERM') {
       await unlink(path).catch(() => undefined)
-      await rename(tempPath, path)
+      try {
+        await rename(tempPath, path)
+      } catch (cleanupError) {
+        await unlink(tempPath).catch(() => undefined)
+        throw cleanupError
+      }
     } else {
       await unlink(tempPath).catch(() => undefined)
       throw error
@@ -305,7 +310,7 @@ async function enforceRpmGuard(options: ClientQuotaGuardOptions): Promise<void> 
       }))
 
   while (true) {
-    const waitMs = await withRpmGuardLock(() => {
+    const waitMs = await withRpmGuardLock(async () => {
       const nowMs = getNowMs(options.nowMs)
       rpmAttemptTimestampsMs = rpmAttemptTimestampsMs.filter(
         ts => nowMs - ts < rpmWindowMs,

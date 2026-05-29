@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { APIError } from '@anthropic-ai/sdk/error'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 // Local stub classes that mirror the real error shapes. Used in the withRetry
@@ -238,6 +239,139 @@ describe('executeNonStreamingRequest providerOverride propagation', () => {
     }
 
     // getAnthropicClient must have been called exactly once, with providerOverride.
+    expect(capturedClientOptions).toHaveLength(1)
+    expect(capturedClientOptions[0]?.providerOverride).toEqual(providerOverride)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// queryModel 404 stream-creation fallback — end-to-end providerOverride check
+//
+// Drives the full 404 fallback path through queryModel itself (not just
+// executeNonStreamingRequest in isolation) to guard against line 2678
+// regressing by dropping providerOverride from the executeNonStreamingRequest
+// call. If that regression occurs, capturedClientOptions[0].providerOverride
+// will be undefined and this test fails.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('queryModel 404 stream-creation fallback — providerOverride propagation', () => {
+  test('providerOverride reaches getAnthropicClient on non-streaming fallback', async () => {
+    mock.restore()
+
+    // MACRO is a build-time global normally injected by the Bun bundler.
+    // Tests run without bundling so we inject it onto globalThis so that
+    // modules like fingerprint.ts and system.ts resolve MACRO.VERSION etc.
+    const globalWithMacro = globalThis as Record<string, unknown>
+    const originalMacro = globalWithMacro.MACRO
+    globalWithMacro.MACRO = {
+      VERSION: '0.0.0-test',
+      DISPLAY_VERSION: '0.0.0-test',
+      BUILD_TIME: new Date(0).toISOString(),
+      ISSUES_EXPLAINER: '',
+      PACKAGE_URL: '',
+      NATIVE_PACKAGE_URL: undefined,
+    }
+
+    const capturedClientOptions: Array<Record<string, unknown>> = []
+    let withRetryCallCount = 0
+
+    const mockBetaMessage = {
+      id: 'msg_fallback_test',
+      type: 'message',
+      role: 'assistant',
+      content: [],
+      model: 'claude-3-5-haiku-20241022',
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: {
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    }
+
+    const mockAnthropicClient = {
+      beta: {
+        messages: {
+          create: async (_params: unknown) => mockBetaMessage,
+        },
+      },
+    }
+
+    applyClaudeMocks({
+      provider: 'openai',
+      isFirstParty: false,
+      getClientSpy: (opts: unknown) => {
+        capturedClientOptions.push(opts as Record<string, unknown>)
+        return Promise.resolve(mockAnthropicClient)
+      },
+      withRetrySpy: async function* (
+        getClient: () => Promise<unknown>,
+        operation: (client: unknown, attempt: number, ctx: unknown) => Promise<unknown>,
+        options: Record<string, unknown>,
+      ) {
+        withRetryCallCount++
+        if (withRetryCallCount === 1) {
+          // First invocation: the streaming withRetry in queryModel.
+          // Throw CannotRetryError wrapping a real APIError with status 404 to
+          // trigger the stream-creation 404 fallback at claude.ts line 2625+.
+          const apiError = new APIError(404, null, 'Not Found', undefined)
+          throw new StubCannotRetryError(apiError, { model: 'claude-3-5-haiku-20241022' })
+        }
+        // Second invocation: the non-streaming withRetry inside executeNonStreamingRequest.
+        // Call getClient (which hits our getAnthropicClient spy) then run the operation.
+        const client = await getClient()
+        const result = await operation(client, 1, {
+          model: (options.model as string) ?? 'claude-3-5-haiku-20241022',
+          thinkingConfig: options.thinkingConfig ?? { type: 'disabled' },
+        })
+        return result
+      },
+    })
+
+    const { queryModelWithoutStreaming } = await importClaudeFresh()
+
+    const providerOverride = {
+      model: 'gpt-4o',
+      baseURL: 'https://api.openai.com/v1',
+      apiKey: 'test-provider-key-fallback',
+    }
+
+    const controller = new AbortController()
+    const options = {
+      model: 'claude-3-5-haiku-20241022',
+      getToolPermissionContext: () =>
+        Promise.resolve({
+          mode: 'default',
+          additionalWorkingDirectories: new Map(),
+          alwaysAllowRules: {},
+          alwaysDenyRules: {},
+          alwaysAskRules: {},
+          isBypassPermissionsModeAvailable: false,
+        }),
+      isNonInteractiveSession: true,
+      hasAppendSystemPrompt: false,
+      agents: [],
+      mcpTools: [],
+      querySource: 'api',
+      providerOverride,
+    }
+
+    await queryModelWithoutStreaming({
+      messages: [],
+      systemPrompt: [],
+      thinkingConfig: { type: 'disabled' },
+      tools: [],
+      signal: controller.signal,
+      options,
+    })
+
+    // Restore original MACRO value after the test.
+    globalWithMacro.MACRO = originalMacro
+
+    // The non-streaming fallback (2nd withRetry) must call getAnthropicClient
+    // with providerOverride. If line 2678 drops providerOverride, this fails.
     expect(capturedClientOptions).toHaveLength(1)
     expect(capturedClientOptions[0]?.providerOverride).toEqual(providerOverride)
   })
