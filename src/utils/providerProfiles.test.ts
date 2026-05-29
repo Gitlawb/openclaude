@@ -1194,6 +1194,61 @@ describe('getProviderProfiles', () => {
   })
 })
 
+describe('clearActiveProviderProfile', () => {
+  test('returns undefined active profile while preserving saved profiles (#1426)', async () => {
+    const {
+      getActiveProviderProfile,
+      clearActiveProviderProfile,
+      getProviderProfiles,
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [
+        buildProfile({ id: 'saved_deepseek', name: 'DeepSeek' }),
+      ],
+      activeProviderProfileId: 'saved_deepseek',
+    }))
+
+    expect(getActiveProviderProfile()?.id).toBe('saved_deepseek')
+
+    const hadActive = clearActiveProviderProfile()
+
+    expect(hadActive).toBe(true)
+    expect(mockConfigState.activeProviderProfileId).toBe(
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    )
+    // Falls back to Anthropic, NOT to profiles[0].
+    expect(getActiveProviderProfile()).toBeUndefined()
+    // Saved profiles remain for later re-selection.
+    expect(getProviderProfiles()).toHaveLength(1)
+  })
+
+  test('clears managed provider env from the current session', async () => {
+    const { clearActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = 'saved_deepseek'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'saved_deepseek' })],
+      activeProviderProfileId: 'saved_deepseek',
+    }))
+
+    clearActiveProviderProfile()
+
+    expect(
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+    ).toBeUndefined()
+    expect(
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+    ).toBeUndefined()
+  })
+})
+
 describe('applyActiveProviderProfileFromConfig', () => {
   test('does not override explicit startup provider selection', async () => {
     const { applyActiveProviderProfileFromConfig } =

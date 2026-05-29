@@ -28,6 +28,7 @@ import {
   buildAtlasCloudProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
+  deleteProfileFile,
   type ProfileFileLocation,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
@@ -717,6 +718,16 @@ function isProcessEnvAlignedWithProfile(
   )
 }
 
+/**
+ * Sentinel `activeProviderProfileId` meaning "use built-in Anthropic", kept
+ * distinct from `undefined`. Without it, clearing the active id falls through
+ * to `profiles[0]` (see below), so a user with any saved third-party profile
+ * could never return to Anthropic from `/provider` without hand-editing
+ * `~/.openclaude.json` and restarting (#1426). Storing the sentinel preserves
+ * the saved profiles for re-selection while expressing "no third-party active".
+ */
+export const ANTHROPIC_DEFAULT_PROFILE_ID = '__anthropic_default__'
+
 export function getActiveProviderProfile(
   config = getGlobalConfig(),
 ): ProviderProfile | undefined {
@@ -726,7 +737,35 @@ export function getActiveProviderProfile(
   }
 
   const activeId = trimOrUndefined(config.activeProviderProfileId)
+  // Explicit Anthropic selection: do not fall back to the first saved profile.
+  if (activeId === ANTHROPIC_DEFAULT_PROFILE_ID) {
+    return undefined
+  }
   return profiles.find(profile => profile.id === activeId) ?? profiles[0]
+}
+
+/**
+ * Switch back to built-in Anthropic while keeping saved provider profiles.
+ * Clears the managed env this session (so the switch takes effect without a
+ * restart), records the Anthropic sentinel as the active id (so startup no
+ * longer replays a third-party profile), and removes the startup profile
+ * mirror file. Returns false when there was nothing to clear.
+ */
+export function clearActiveProviderProfile(
+  options?: ProfileFileLocation,
+): boolean {
+  const hadActiveProfile = getActiveProviderProfile() !== undefined
+
+  saveGlobalConfig(config => ({
+    ...config,
+    activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    openaiAdditionalModelOptionsCache: [],
+  }))
+
+  clearProviderProfileEnvFromProcessEnv()
+  deleteProfileFile(options)
+
+  return hadActiveProfile
 }
 
 export function clearProviderProfileEnvFromProcessEnv(

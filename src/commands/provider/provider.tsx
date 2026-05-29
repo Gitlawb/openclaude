@@ -57,6 +57,7 @@ import {
   type ProfileFile,
   type ProviderProfile,
 } from '../../utils/providerProfile.js'
+import { clearActiveProviderProfile } from '../../utils/providerProfiles.js'
 import {
   getGeminiProjectIdHint,
   mayHaveGeminiAdcCredentials,
@@ -136,7 +137,7 @@ function describeOllamaReadinessIssue(
   return ''
 }
 
-type ProviderChoice = 'auto' | ProviderProfile | 'codex-oauth' | 'clear'
+type ProviderChoice = 'auto' | ProviderProfile | 'codex-oauth' | 'clear' | 'anthropic'
 
 type Step =
   | { name: 'choose' }
@@ -720,6 +721,15 @@ function ProviderChooser({
         ]
       : []),
   ]
+
+  if (summary.providerLabel !== 'Anthropic') {
+    options.push({
+      label: 'Use Anthropic (built-in)',
+      value: 'anthropic',
+      description:
+        'Switch back to Claude now without a restart — saved profiles are kept',
+    })
+  }
 
   if (summary.savedProfileLabel !== 'none') {
     options.push({
@@ -1328,6 +1338,14 @@ export function ProviderWizard({
               })
             } else if (value === 'codex-oauth') {
               setStep({ name: 'codex-oauth' })
+            } else if (value === 'anthropic') {
+              clearActiveProviderProfile()
+              onDone('Switched back to Anthropic (built-in) for this session.', {
+                display: 'system',
+                metaMessages: [
+                  '<system-reminder>Provider switched mid-session to Anthropic (built-in Claude). Use Anthropic for subsequent requests unless the user switches again.</system-reminder>',
+                ],
+              })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
