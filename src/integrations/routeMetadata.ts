@@ -347,6 +347,7 @@ function hasNoExplicitNonOpenAICompatibleProvider(
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_PERPLEXITY) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
@@ -628,6 +629,9 @@ export function resolveActiveRouteIdFromEnv(
   }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
     return 'mistral'
+  }
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_PERPLEXITY)) {
+    return 'perplexity'
   }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return 'github'

@@ -31,6 +31,7 @@ import gatewayOllama from '../gateways/ollama.js'
 import gatewayOpencodeGo from '../gateways/opencode-go.js'
 import gatewayOpencode from '../gateways/opencode.js'
 import gatewayOpenrouter from '../gateways/openrouter.js'
+import gatewayPerplexity from '../gateways/perplexity.js'
 import gatewayTogether from '../gateways/together.js'
 import gatewayVertex from '../gateways/vertex.js'
 import brandClaude from '../brands/claude.js'
@@ -44,6 +45,7 @@ import brandMinimax from '../brands/minimax.js'
 import brandMistral from '../brands/mistral.js'
 import brandNemotron from '../brands/nemotron.js'
 import brandOpenaiCompatibleAlias from '../brands/openai-compatible-alias.js'
+import brandPerplexity from '../brands/perplexity.js'
 import brandQwen from '../brands/qwen.js'
 import brandXai from '../brands/xai.js'
 import brandXiaomiMimo from '../brands/xiaomi-mimo.js'
@@ -59,15 +61,17 @@ import modelMistral from '../models/mistral.js'
 import modelNemotron from '../models/nemotron.js'
 import modelOpenaiCompatibleAlias from '../models/openai-compatible-alias.js'
 import modelOpencode from '../models/opencode.js'
+import modelPerplexity from '../models/perplexity.js'
 import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
 export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
-export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpencodeGo, gatewayOpencode, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
+export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpencodeGo, gatewayOpencode, gatewayOpenrouter, gatewayPerplexity, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
-export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
-export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
+export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandPerplexity, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
+export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelPerplexity, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
+
 export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]
 
 export const PROVIDER_PRESET_MANIFEST = [
@@ -257,6 +261,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     "description": "Mistral OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "MISTRAL_API_KEY"
+    ]
+  },
+  {
+    "preset": "perplexity",
+    "routeKind": "gateway",
+    "routeId": "perplexity",
+    "vendorId": "openai",
+    "gatewayId": "perplexity",
+    "description": "Perplexity AI OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "PERPLEXITY_API_KEY"
     ]
   },
   {
@@ -452,6 +467,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "ollama",
   "minimax",
   "mistral",
+  "perplexity",
   "moonshotai",
   "kimi-code",
   "nvidia-nim",
