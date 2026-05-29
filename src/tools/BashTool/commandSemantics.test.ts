@@ -218,9 +218,27 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(false)
     })
 
-    test('tsc exit code 1 = compile errors (not error)', () => {
-      const result = interpretCommandResult('tsc --noEmit', 1, 'TS2304: cannot find name', '')
+    // tsc is inverted vs other linters (verified against TypeScript 5.9):
+    // exit 1 = CLI/usage error, exit 2 = diagnostics found.
+    test('tsc exit code 0 = clean', () => {
+      const result = interpretCommandResult('tsc --noEmit', 0, '', '')
       expect(result.isError).toBe(false)
+    })
+
+    test('tsc exit code 2 = type/syntax errors found (not error)', () => {
+      const result = interpretCommandResult('tsc --noEmit', 2, 'TS2322: Type mismatch', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Type errors found')
+    })
+
+    test('tsc exit code 1 = CLI/usage error (real failure)', () => {
+      const result = interpretCommandResult('tsc --bogusFlag', 1, '', 'Unknown compiler option')
+      expect(result.isError).toBe(true)
+    })
+
+    test('tsc exit code 3 = config/internal error', () => {
+      const result = interpretCommandResult('tsc -p bad.json', 3, '', '')
+      expect(result.isError).toBe(true)
     })
   })
 

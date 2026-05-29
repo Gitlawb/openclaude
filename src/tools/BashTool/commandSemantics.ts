@@ -108,7 +108,20 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   // Type checkers: 0=clean, 1=type errors found (informational), 2+=tool error
   ['mypy', exitOneInformational('Type errors found')],
   ['pyright', exitOneInformational('Type errors found')],
-  ['tsc', exitOneInformational('Type errors found')],
+
+  // tsc is inverted vs other linters (verified against TypeScript 5.9):
+  //   0=clean, 1=CLI/usage error (real failure), 2=diagnostics found,
+  //   3+=config/internal error. Exit 2 (type/syntax errors) is informational —
+  //   the model should read the diagnostics, not retry the command.
+  [
+    'tsc',
+    (exitCode, _stdout, _stderr) => {
+      if (exitCode === 0) return { isError: false }
+      if (exitCode === 2)
+        return { isError: false, message: 'Type errors found' }
+      return { isError: true }
+    },
+  ],
 
   // Test runners: 0=all passed, 1=test failures (informational), 2+=runner error
   ['pytest', exitOneInformational('Test failures')],
