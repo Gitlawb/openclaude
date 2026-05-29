@@ -79,7 +79,10 @@ test('Gemini Vertex client sends Anthropic-style messages to Vertex generateCont
       { role: 'user', parts: [{ text: 'Suite' }] },
     ],
     generationConfig: {
-      maxOutputTokens: 321,
+      // gemini-3.5-flash is a thinking model: we raise the floor so the
+      // model has room to think AND emit visible text. The caller asked
+      // for 321 but the floor wins.
+      maxOutputTokens: 8192,
       temperature: 0.25,
     },
   })
@@ -125,6 +128,107 @@ test('Gemini Vertex client supports Anthropic streaming withResponse contract', 
     type: 'content_block_delta',
     index: 0,
     delta: { type: 'text_delta', text: 'Bonjour Vertex' },
+  })
+})
+
+test('Gemini Vertex client forwards Anthropic tools as Vertex functionDeclarations', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-2.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return createJsonVertexResponse('ok')
+    }) as typeof fetch,
+  })
+
+  await client.messages.create({
+    model: 'gemini-2.5-flash',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'list files' }],
+    tools: [
+      {
+        name: 'Read',
+        description: 'Read a file',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: 'absolute path' },
+            limit: { type: 'integer' },
+          },
+          required: ['file_path'],
+          additionalProperties: false,
+        },
+      },
+    ],
+  })
+
+  expect(capturedBody?.tools).toEqual([
+    {
+      functionDeclarations: [
+        {
+          name: 'Read',
+          description: 'Read a file',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              file_path: { type: 'STRING', description: 'absolute path' },
+              limit: { type: 'INTEGER' },
+            },
+            required: ['file_path'],
+          },
+        },
+      ],
+    },
+  ])
+})
+
+test('Gemini Vertex client surfaces functionCall responses as tool_use blocks', async () => {
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-2.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'Read',
+                      args: { file_path: '/tmp/notes.md' },
+                    },
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch,
+  })
+
+  const response = await client.messages.create({
+    model: 'gemini-2.5-flash',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'list files' }],
+  })
+
+  expect(response.stop_reason).toBe('tool_use')
+  expect(response.content).toHaveLength(1)
+  const block = response.content[0]!
+  expect(block.type).toBe('tool_use')
+  expect(block).toMatchObject({
+    type: 'tool_use',
+    name: 'Read',
+    input: { file_path: '/tmp/notes.md' },
   })
 })
 
