@@ -28,12 +28,32 @@ import { writeToStdout } from 'src/utils/process.js'
 import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 
+/**
+ * Whether `openclaude update` must refuse to run.
+ *
+ * Auto-update reinstalls `${MACRO.PACKAGE_URL}@latest`. On the upstream
+ * first-party (Anthropic) build that URL is the Anthropic package, so a user
+ * running a third-party provider must NOT auto-update — it would silently
+ * replace their shim build with the upstream Claude Code binary.
+ *
+ * OpenClaude builds set `PACKAGE_URL` to `@gitlawb/openclaude`
+ * (scripts/build.ts), so `update` reinstalls the *same* OpenClaude package and
+ * is always safe, regardless of which provider happens to be active. Gating on
+ * the active provider alone wrongly blocked every OpenClaude user (issue #1404).
+ */
+export function isAutoUpdateBlockedForThirdParty(
+  packageUrl: string | undefined,
+  apiProvider: ReturnType<typeof getAPIProvider>,
+): boolean {
+  const isAnthropicPackage = !packageUrl || packageUrl.startsWith('@anthropic')
+  return isAnthropicPackage && apiProvider !== 'firstParty'
+}
+
 export async function update() {
-  // Block updates for third-party providers. The update mechanism downloads
-  // from the first-party distribution bucket, which would silently replace the
-  // OpenClaude build (with the OpenAI shim) with the upstream Claude Code
-  // binary (without it).
-  if (getAPIProvider() !== 'firstParty') {
+  // Block updates only when an Anthropic-packaged build is paired with a
+  // third-party provider — reinstalling would overwrite the shim build with
+  // the upstream Claude Code binary. OpenClaude-packaged builds are unaffected.
+  if (isAutoUpdateBlockedForThirdParty(MACRO.PACKAGE_URL, getAPIProvider())) {
     writeToStdout(
       chalk.yellow(
         `Auto-update is not available for third-party provider builds.\n`,
