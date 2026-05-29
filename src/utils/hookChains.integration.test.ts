@@ -8,9 +8,6 @@ import {
 } from '../test/sharedMutationLock.js'
 
 type HookChainsModule = typeof import('./hookChains.js')
-type AgentToolModule = typeof import('../tools/AgentTool/AgentTool.js')
-type TeammateMailboxModule = typeof import('./teammateMailbox.js')
-
 type ImportHarnessOptions = {
   allowRemoteSessions?: boolean
   teamFile?:
@@ -27,33 +24,43 @@ type ImportHarnessOptions = {
 const tempDirs: string[] = []
 const originalHookChainsEnabled = process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS
 
-async function importActualAgentToolModule(): Promise<AgentToolModule> {
-  return import(
-    `../tools/AgentTool/AgentTool.tsx?hookChainsActual=${Date.now()}-${Math.random()}`
-  ) as Promise<AgentToolModule>
-}
-
-async function importActualTeammateMailboxModule(): Promise<TeammateMailboxModule> {
-  return import(
-    `./teammateMailbox.ts?hookChainsActual=${Date.now()}-${Math.random()}`
-  ) as Promise<TeammateMailboxModule>
-}
-
-async function restorePersistentModuleMocks(): Promise<void> {
-  const [actualAgentTool, actualTeammateMailbox] = await Promise.all([
-    importActualAgentToolModule(),
-    importActualTeammateMailboxModule(),
-  ])
-  mock.module('../tools/AgentTool/AgentTool.js', () => actualAgentTool)
-  mock.module('./teammateMailbox.js', () => actualTeammateMailbox)
-}
-
 async function createConfigFile(config: unknown): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-hook-chains-int-'))
   tempDirs.push(dir)
   const filePath = join(dir, 'hook-chains.json')
   await writeFile(filePath, JSON.stringify(config, null, 2), 'utf-8')
   return filePath
+}
+
+// Cache-busted imports of the real modules so mock.module can spread them.
+// This prevents partial mocks from breaking transitive imports in other test
+// files that run after this one (mock.module is process-global and
+// mock.restore does not fully undo module mocks in Bun).
+async function importRealModules() {
+  const ts = Date.now()
+  const rand = Math.random()
+  return {
+    analytics: await import(`../services/analytics/index.js?real=${ts}-${rand}`) as typeof import('../services/analytics/index.js'),
+    events: await import(`./telemetry/events.js?real=${ts}-${rand}`) as typeof import('./telemetry/events.js'),
+    policyLimits: await import(`../services/policyLimits/index.js?real=${ts}-${rand}`) as typeof import('../services/policyLimits/index.js'),
+    teamHelpers: await import(`./swarm/teamHelpers.js?real=${ts}-${rand}`) as typeof import('./swarm/teamHelpers.js'),
+    teammateMailbox: await import(`./teammateMailbox.js?real=${ts}-${rand}`) as typeof import('./teammateMailbox.js'),
+    teammate: await import(`./teammate.js?real=${ts}-${rand}`) as typeof import('./teammate.js'),
+    replBridge: await import(`../bridge/replBridgeHandle.js?real=${ts}-${rand}`) as typeof import('../bridge/replBridgeHandle.js'),
+    agentTool: await import(`../tools/AgentTool/AgentTool.js?real=${ts}-${rand}`) as typeof import('../tools/AgentTool/AgentTool.js'),
+  }
+}
+
+async function restorePersistentModuleMocks(): Promise<void> {
+  const real = await importRealModules()
+  mock.module('../services/analytics/index.js', () => real.analytics)
+  mock.module('./telemetry/events.js', () => real.events)
+  mock.module('../services/policyLimits/index.js', () => real.policyLimits)
+  mock.module('./swarm/teamHelpers.js', () => real.teamHelpers)
+  mock.module('./teammateMailbox.js', () => real.teammateMailbox)
+  mock.module('./teammate.js', () => real.teammate)
+  mock.module('../bridge/replBridgeHandle.js', () => real.replBridge)
+  mock.module('../tools/AgentTool/AgentTool.js', () => real.agentTool)
 }
 
 async function importHookChainsHarness(
@@ -77,55 +84,51 @@ async function importHookChainsHarness(
       agentId: 'agent-fallback-1',
     },
   }))
-  const [actualAgentTool, actualTeammateMailbox] = await Promise.all([
-    importActualAgentToolModule(),
-    importActualTeammateMailboxModule(),
-  ])
+  const real = await importRealModules()
 
   mock.module('../services/analytics/index.js', () => ({
+    ...real.analytics,
     logEvent: () => {},
   }))
 
   mock.module('./telemetry/events.js', () => ({
+    ...real.events,
     logOTelEvent: async () => {},
   }))
 
   mock.module('../services/policyLimits/index.js', () => ({
+    ...real.policyLimits,
     isPolicyAllowed: () => allowRemoteSessions,
   }))
 
   mock.module('./swarm/teamHelpers.js', () => ({
+    ...real.teamHelpers,
     readTeamFileAsync: async () => options.teamFile ?? null,
   }))
 
   mock.module('./teammateMailbox.js', () => ({
-    ...actualTeammateMailbox,
+    ...real.teammateMailbox,
     writeToMailbox: writeToMailboxSpy,
   }))
 
   mock.module('./teammate.js', () => ({
+    ...real.teammate,
     getAgentName: () => senderName,
     getTeamName: () => teamName,
     getTeammateColor: () => 'blue',
-    // Keep parity with the real module's surface so later tests that
-    // run after this file (mock.module is process-global and mock.restore
-    // does not undo module mocks in Bun) do not see undefined members.
-    isTeammate: () => false,
-    isPlanModeRequired: () => false,
-    getAgentId: () => undefined,
-    getParentSessionId: () => undefined,
   }))
 
   mock.module('../bridge/replBridgeHandle.js', () => ({
+    ...real.replBridge,
     getReplBridgeHandle: () => replBridgeHandle,
   }))
 
   // Integration mock target requested in the task: fallback action can route
   // through this mocked tool launcher from runtime callback wiring.
   mock.module('../tools/AgentTool/AgentTool.js', () => ({
-    ...actualAgentTool,
+    ...real.agentTool,
     AgentTool: {
-      ...actualAgentTool.AgentTool,
+      ...real.agentTool.AgentTool,
       call: agentToolCallSpy,
     },
   }))
