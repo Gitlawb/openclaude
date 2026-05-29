@@ -168,6 +168,7 @@ import {
   getDynamicSkills,
 } from './skills/loadSkillsDir.js'
 import { getBundledSkills } from './skills/bundledSkills.js'
+import { translateCommandDescription } from './skills/bundled/i18n.js'
 import { getBuiltinPluginSkillCommands } from './plugins/builtinPlugins.js'
 import {
   getPluginCommands,
@@ -752,7 +753,7 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description ?? ''
+    return translateCommandDescription(cmd.description ?? '')
   }
 
   const desc = cmd.description ?? ''
