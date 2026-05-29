@@ -13,6 +13,10 @@ type GeminiVertexClientOptions = {
 
 type GeminiVertexFunctionCallPart = {
   functionCall: { name: string; args?: Record<string, unknown> }
+  // Gemini thinking models (gemini-3.x, 2.5-pro) attach an opaque
+  // thoughtSignature to each functionCall part. It MUST be echoed back when the
+  // call is replayed in history, or Vertex rejects the request with 400.
+  thoughtSignature?: string
 }
 type GeminiVertexFunctionResponsePart = {
   functionResponse: { name: string; response: Record<string, unknown> }
@@ -54,6 +58,7 @@ type GeminiVertexSafetyRating = {
 type GeminiVertexResponsePart = {
   text?: string
   functionCall?: { name?: string; args?: Record<string, unknown> }
+  thoughtSignature?: string
 }
 
 type GeminiVertexResponse = {
@@ -86,6 +91,57 @@ function summarizeBlockedSafetyRatings(
     .filter(r => r.blocked || r.probability === 'HIGH' || r.probability === 'MEDIUM')
     .map(r => `${r.category ?? '?'}=${r.probability ?? '?'}`)
   return blocked.length ? ` (${blocked.join(', ')})` : ''
+}
+
+// Compact, non-sensitive snapshot of a response that produced no usable
+// content. Surfaced in the empty-response error so a single real test reveals
+// the exact shape (parts present? thought-only? token split?) instead of us
+// guessing across round-trips. Reports part *keys* and text lengths, never the
+// text itself, so it can't leak prompt content.
+function diagnoseEmptyResponse(json: GeminiVertexResponse): string {
+  const candidate = json.candidates?.[0]
+  const parts = candidate?.content?.parts
+  let partsSummary: string
+  if (Array.isArray(parts)) {
+    partsSummary = parts.length === 0
+      ? 'parts=[]'
+      : parts
+          .map((p, i) => {
+            const rec = p as Record<string, unknown>
+            const keys = Object.keys(rec)
+            const textLen =
+              typeof rec.text === 'string' ? (rec.text as string).length : 0
+            return `#${i}{${keys.join(',') || 'empty'}${textLen ? ` textLen=${textLen}` : ''}}`
+          })
+          .join(' ')
+  } else {
+    partsSummary = parts === undefined ? 'parts=undefined' : 'parts=null'
+  }
+  const u = json.usageMetadata ?? {}
+  const usage = `prompt=${u.promptTokenCount ?? 0} candidates=${u.candidatesTokenCount ?? 0} thoughts=${u.thoughtsTokenCount ?? 0} total=${u.totalTokenCount ?? 0}`
+  const contentPresent = candidate?.content ? 'content:yes' : 'content:no'
+  const promptBlock = json.promptFeedback?.blockReason
+    ? `promptBlock=${json.promptFeedback.blockReason}`
+    : 'promptBlock:none'
+  return `[diag candidates=${json.candidates?.length ?? 0} ${contentPresent} ${partsSummary} | usage ${usage} | ${promptBlock}]`
+}
+
+// Role + part-kind sequence of the request we sent (no content, just shape).
+// Surfaced alongside the response diagnostic so a structural cause — a trailing
+// model turn, a missing functionResponse, an empty part — is visible directly.
+function summarizeRequestContents(contents: GeminiVertexContent[]): string {
+  const seq = contents
+    .map(c => {
+      const kinds = c.parts.map(p => {
+        if ('functionCall' in p) return 'fc'
+        if ('functionResponse' in p) return 'fr'
+        if ('text' in p) return (p as { text: string }).text ? 'text' : 'text:empty'
+        return '?'
+      })
+      return `${c.role}[${kinds.join(',')}]`
+    })
+    .join(' ')
+  return `[req n=${contents.length} ${seq}]`
 }
 
 // Thinking-capable Vertex Gemini models spend a chunk of maxOutputTokens on
@@ -156,23 +212,34 @@ type GeminiVertexPromise = Promise<GeminiVertexMessage> & {
   withResponse(): Promise<GeminiVertexWithResponseResult>
 }
 
-// JSON Schema → Vertex schema. Vertex requires UPPERCASE type names and
-// doesn't accept $schema/$ref/additionalProperties. We translate recursively
-// and drop anything we know Vertex will reject so a single odd field on one
-// tool's schema doesn't fail the whole request.
-const VERTEX_SCHEMA_DROP_KEYS = new Set([
-  '$schema',
-  '$id',
-  '$ref',
-  '$defs',
-  'definitions',
-  'additionalProperties',
-  'unevaluatedProperties',
-  'patternProperties',
-  'dependentSchemas',
-  'if',
-  'then',
-  'else',
+// JSON Schema → Vertex schema. Vertex's schema is an OpenAPI 3.0 subset: it
+// requires UPPERCASE type names and rejects ANY field it doesn't recognize
+// (e.g. propertyNames, exclusiveMinimum, const, $schema, additionalProperties).
+// We therefore use an ALLOWLIST: only fields Vertex documents are forwarded,
+// everything else is dropped. This is robust against future JSON Schema
+// keywords that a drop-list could never anticipate.
+//
+// Supported scalar fields are copied as-is; structural fields (properties,
+// items, anyOf, ...) are translated recursively.
+const VERTEX_SCHEMA_SCALAR_KEYS = new Set([
+  'format',
+  'title',
+  'description',
+  'nullable',
+  'default',
+  'minItems',
+  'maxItems',
+  'enum',
+  'required',
+  'minProperties',
+  'maxProperties',
+  'minimum',
+  'maximum',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'example',
+  'propertyOrdering',
 ])
 
 function toVertexSchema(schema: unknown): GeminiVertexSchema {
@@ -181,7 +248,6 @@ function toVertexSchema(schema: unknown): GeminiVertexSchema {
   }
   const out: GeminiVertexSchema = {}
   for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
-    if (VERTEX_SCHEMA_DROP_KEYS.has(key)) continue
     if (key === 'type' && typeof value === 'string') {
       out.type = value.toUpperCase()
     } else if (key === 'properties' && value && typeof value === 'object') {
@@ -203,9 +269,20 @@ function toVertexSchema(schema: unknown): GeminiVertexSchema {
       if (Array.isArray(value)) {
         out.anyOf = value.map(s => toVertexSchema(s))
       }
-    } else {
+    } else if (key === 'const') {
+      // Vertex rejects `const` but supports `enum`; translate to preserve the
+      // single-value constraint.
+      out.enum = [value]
+    } else if (key === 'exclusiveMinimum' && typeof value === 'number') {
+      // No exclusive bounds in the Vertex subset; approximate with `minimum`.
+      out.minimum = value
+    } else if (key === 'exclusiveMaximum' && typeof value === 'number') {
+      out.maximum = value
+    } else if (VERTEX_SCHEMA_SCALAR_KEYS.has(key)) {
       out[key] = value
     }
+    // Any other key (propertyNames, additionalProperties, $schema, $ref, if,
+    // patternProperties, ...) is silently dropped — Vertex would 400 on it.
   }
   return out
 }
@@ -311,10 +388,19 @@ function toGeminiContents(
 
   for (const message of messages) {
     const role: 'user' | 'model' = message.role === 'assistant' ? 'model' : 'user'
-    const parts: GeminiVertexPart[] = []
+    // Gemini's function-calling protocol expects a turn carrying
+    // functionResponse parts to be PURE (no text mixed in) and to immediately
+    // follow the model's functionCall turn. openclaude, however, appends
+    // system-reminder text blocks to the same user message as a tool_result —
+    // which would emit `user[functionResponse, text]`. Vertex then silently
+    // produces an empty response (finishReason STOP, 0 tokens). So we collect
+    // functionResponse parts separately and emit them in their own clean turn,
+    // pushing any accompanying text into a following user turn.
+    const responseParts: GeminiVertexPart[] = []
+    const otherParts: GeminiVertexPart[] = []
 
     if (typeof message.content === 'string') {
-      if (message.content) parts.push({ text: message.content })
+      if (message.content) otherParts.push({ text: message.content })
     } else {
       for (const block of message.content) {
         const b = block as {
@@ -327,18 +413,23 @@ function toGeminiContents(
           content?: unknown
         }
         if (b.type === 'text' && typeof b.text === 'string' && b.text) {
-          parts.push({ text: b.text })
+          otherParts.push({ text: b.text })
         } else if (b.type === 'tool_use' && b.name && b.id) {
           toolUseIdToName.set(b.id, b.name)
-          parts.push({
+          const { thoughtSignature } = decodeToolUseId(b.id)
+          const functionCallPart: GeminiVertexFunctionCallPart = {
             functionCall: {
               name: b.name,
               args: safeJsonParse(b.input),
             },
-          })
+          }
+          // Replay the thinking model's thoughtSignature so Vertex accepts the
+          // call in history (it 400s on functionCall parts missing it).
+          if (thoughtSignature) functionCallPart.thoughtSignature = thoughtSignature
+          otherParts.push(functionCallPart)
         } else if (b.type === 'tool_result' && b.tool_use_id) {
           const name = toolUseIdToName.get(b.tool_use_id) ?? 'tool'
-          parts.push({
+          responseParts.push({
             functionResponse: {
               name,
               response: { result: stringifyToolResultContent(b.content) },
@@ -348,8 +439,10 @@ function toGeminiContents(
       }
     }
 
-    if (parts.length === 0) continue
-    out.push({ role, parts })
+    // Emit the pure functionResponse turn first (immediately after the model's
+    // functionCall), then any remaining text/other parts as a separate turn.
+    if (responseParts.length > 0) out.push({ role, parts: responseParts })
+    if (otherParts.length > 0) out.push({ role, parts: otherParts })
   }
   return out
 }
@@ -396,6 +489,25 @@ function nextToolUseId(): string {
   return `toolu_vertex_${Date.now().toString(36)}_${toolUseCounter}`
 }
 
+// Gemini thinking models require the functionCall's thoughtSignature to be
+// replayed on the next turn. The Anthropic message shape has no field for it,
+// so we smuggle it through the tool_use `id` (preserved verbatim by the agent
+// loop, even across session save/restore). The `~~sig~~` delimiter can't appear
+// in our synthesised ids nor in a base64 signature, so decoding is unambiguous.
+const TOOL_USE_SIG_DELIM = '~~sig~~'
+
+function encodeToolUseId(baseId: string, thoughtSignature: string | undefined): string {
+  if (!thoughtSignature) return baseId
+  return `${baseId}${TOOL_USE_SIG_DELIM}${thoughtSignature}`
+}
+
+function decodeToolUseId(id: string): { thoughtSignature?: string } {
+  const idx = id.indexOf(TOOL_USE_SIG_DELIM)
+  if (idx === -1) return {}
+  const sig = id.slice(idx + TOOL_USE_SIG_DELIM.length)
+  return sig ? { thoughtSignature: sig } : {}
+}
+
 // Build Anthropic-shaped content blocks (text + tool_use) from Vertex parts,
 // preserving the original ordering. A response that mixes text and function
 // calls is valid and is what the agent loop needs to actually call tools.
@@ -418,7 +530,7 @@ function extractContentBlocks(
       flushText()
       blocks.push({
         type: 'tool_use',
-        id: nextToolUseId(),
+        id: encodeToolUseId(nextToolUseId(), part.thoughtSignature),
         name: part.functionCall.name,
         input: part.functionCall.args ?? {},
       })
@@ -495,18 +607,32 @@ export function createGeminiVertexClient(options: GeminiVertexClientOptions) {
         : `${options.location}-aiplatform.googleapis.com`
       const url = `https://${host}/v1/projects/${options.project}/locations/${options.location}/publishers/google/models/${model}:generateContent`
 
+      const thinking = isThinkingModel(model)
+
       // For thinking models, raise the floor so the model has room to think
       // *and* still emit visible output. Honor the caller's value when it's
       // already large enough — only boost when the requested budget would
       // certainly be eaten by the thinking phase.
       const requestedMaxTokens = params.max_tokens
-      const effectiveMaxTokens = isThinkingModel(model)
+      const effectiveMaxTokens = thinking
         ? Math.max(requestedMaxTokens ?? 0, THINKING_MODEL_MIN_OUTPUT_TOKENS)
         : requestedMaxTokens
+
+      // Gemini 3 thinking models misbehave below temperature 1.0: Google warns
+      // it "may lead to unexpected behavior, such as looping or degraded
+      // performance". In practice the model burns its budget thinking and then
+      // emits ZERO text parts (finishReason STOP, empty response). openclaude,
+      // like most coding agents, sends a low temperature for determinism — so
+      // we clamp thinking models to the documented 1.0 floor. Non-thinking
+      // models keep the caller's temperature untouched.
+      const effectiveTemperature = thinking
+        ? Math.max(params.temperature ?? 1, 1)
+        : params.temperature
 
       const systemInstruction = toGeminiSystemInstruction(params.system)
       const tools = toGeminiTools(params.tools)
       const toolConfig = toGeminiToolConfig(params.tool_choice, Boolean(tools))
+      const contents = toGeminiContents(params.messages)
 
       const response = await fetchImpl(url, {
         method: 'POST',
@@ -516,7 +642,7 @@ export function createGeminiVertexClient(options: GeminiVertexClientOptions) {
           'x-goog-user-project': options.project,
         },
         body: JSON.stringify({
-          contents: toGeminiContents(params.messages),
+          contents,
           ...(systemInstruction ? { systemInstruction } : {}),
           // Forward tool definitions so the model emits well-formed
           // functionCall parts instead of inventing syntax that Vertex
@@ -529,8 +655,8 @@ export function createGeminiVertexClient(options: GeminiVertexClientOptions) {
             ...(effectiveMaxTokens !== undefined
               ? { maxOutputTokens: effectiveMaxTokens }
               : {}),
-            ...(params.temperature !== undefined
-              ? { temperature: params.temperature }
+            ...(effectiveTemperature !== undefined
+              ? { temperature: effectiveTemperature }
               : {}),
           },
         }),
@@ -609,12 +735,17 @@ export function createGeminiVertexClient(options: GeminiVertexClientOptions) {
         }
 
         // 5. Catch-all: model finished normally (STOP / OTHER / undefined)
-        //    but produced no text or function call. Surface it instead of
-        //    silently dropping.
+        //    but produced no text or function call. Surface it — with a compact
+        //    diagnostic of the raw response — instead of silently dropping, so
+        //    the true cause (thought-only output, empty parts, blocked content)
+        //    is visible from one test rather than guessed at.
         throw new Error(
           `Gemini Vertex returned an empty response from "${model}"` +
             `${finishReason ? ` (finishReason: ${finishReason})` : ''}. ` +
-            `This usually means the model couldn't generate output for this prompt — try another model or rephrase.`,
+            `This usually means the model couldn't generate output for this prompt — try another model or rephrase. ` +
+            diagnoseEmptyResponse(json) +
+            ' ' +
+            summarizeRequestContents(contents),
         )
       }
 

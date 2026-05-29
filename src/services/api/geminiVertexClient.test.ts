@@ -83,7 +83,9 @@ test('Gemini Vertex client sends Anthropic-style messages to Vertex generateCont
       // model has room to think AND emit visible text. The caller asked
       // for 321 but the floor wins.
       maxOutputTokens: 8192,
-      temperature: 0.25,
+      // Thinking models degrade (looping / empty output) below temperature
+      // 1.0, so the caller's 0.25 is clamped up to the documented 1.0 floor.
+      temperature: 1,
     },
   })
   expect(response).toMatchObject({
@@ -91,6 +93,54 @@ test('Gemini Vertex client sends Anthropic-style messages to Vertex generateCont
     model: 'gemini-3.5-flash',
     content: [{ type: 'text', text: 'Bonjour Vertex' }],
   })
+})
+
+test('Gemini Vertex client clamps thinking-model temperature to the 1.0 floor', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-3.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return createJsonVertexResponse('ok')
+    }) as typeof fetch,
+  })
+
+  await client.messages.create({
+    model: 'gemini-3.5-flash',
+    max_tokens: 100,
+    temperature: 0, // coding-agent determinism — must be lifted to 1.0
+    messages: [{ role: 'user', content: 'salut' }],
+  })
+
+  expect((capturedBody?.generationConfig as Record<string, unknown>).temperature).toBe(1)
+})
+
+test('Gemini Vertex client preserves temperature for non-thinking models', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-2.5-flash', // not a thinking model
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return createJsonVertexResponse('ok')
+    }) as typeof fetch,
+  })
+
+  await client.messages.create({
+    model: 'gemini-2.5-flash',
+    max_tokens: 100,
+    temperature: 0.25,
+    messages: [{ role: 'user', content: 'salut' }],
+  })
+
+  expect((capturedBody?.generationConfig as Record<string, unknown>).temperature).toBe(0.25)
 })
 
 test('Gemini Vertex client supports Anthropic streaming withResponse contract', async () => {
@@ -186,6 +236,65 @@ test('Gemini Vertex client forwards Anthropic tools as Vertex functionDeclaratio
   ])
 })
 
+test('Gemini Vertex client strips JSON Schema keywords Vertex rejects', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-2.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return createJsonVertexResponse('ok')
+    }) as typeof fetch,
+  })
+
+  await client.messages.create({
+    model: 'gemini-2.5-flash',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'go' }],
+    tools: [
+      {
+        name: 'Tricky',
+        description: 'Schema with keywords Vertex does not accept',
+        input_schema: {
+          type: 'object',
+          $schema: 'http://json-schema.org/draft-07/schema#',
+          additionalProperties: false,
+          propertyNames: { pattern: '^[a-z]+$' },
+          properties: {
+            count: { type: 'integer', exclusiveMinimum: 0 },
+            mode: { type: 'string', const: 'fast' },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              patternProperties: { '.*': { type: 'string' } },
+            },
+          },
+          required: ['count'],
+        },
+      },
+    ],
+  })
+
+  const tools = capturedBody?.tools as Array<{
+    functionDeclarations: Array<{ parameters: Record<string, unknown> }>
+  }>
+  const params = tools[0]!.functionDeclarations[0]!.parameters
+  expect(params).toEqual({
+    type: 'OBJECT',
+    properties: {
+      // exclusiveMinimum approximated as minimum, type uppercased
+      count: { type: 'INTEGER', minimum: 0 },
+      // const translated to single-value enum
+      mode: { type: 'STRING', enum: ['fast'] },
+      tags: { type: 'ARRAY', items: { type: 'STRING' } },
+    },
+    required: ['count'],
+  })
+})
+
 test('Gemini Vertex client surfaces functionCall responses as tool_use blocks', async () => {
   const client = createGeminiVertexClient({
     project: 'project-123',
@@ -230,6 +339,156 @@ test('Gemini Vertex client surfaces functionCall responses as tool_use blocks', 
     name: 'Read',
     input: { file_path: '/tmp/notes.md' },
   })
+})
+
+test('Gemini Vertex client round-trips functionCall thoughtSignature through history', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-3.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      // The model emits a functionCall WITH a thoughtSignature (thinking model).
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: { name: 'Skill', args: { skill: 'x' } },
+                    thoughtSignature: 'SIG_ABC_123',
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }) as typeof fetch,
+  })
+
+  // First turn: capture the tool_use id the client synthesises.
+  const first = await client.messages.create({
+    model: 'gemini-3.5-flash',
+    max_tokens: 100,
+    messages: [{ role: 'user', content: 'salut' }],
+  })
+  const toolUse = first.content[0] as { type: string; id: string; name: string }
+  expect(toolUse.type).toBe('tool_use')
+
+  // Second turn: replay the assistant tool_use + a tool_result, exactly as the
+  // agent loop would. The functionCall part sent to Vertex MUST carry the
+  // original thoughtSignature, or Vertex 400s.
+  await client.messages.create({
+    model: 'gemini-3.5-flash',
+    max_tokens: 100,
+    messages: [
+      { role: 'user', content: 'salut' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: toolUse.id, name: toolUse.name, input: { skill: 'x' } }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: toolUse.id, content: 'done' }],
+      },
+    ],
+  })
+
+  const contents = capturedBody?.contents as Array<{
+    role: string
+    parts: Array<Record<string, unknown>>
+  }>
+  const functionCallPart = contents
+    .flatMap(c => c.parts)
+    .find(p => 'functionCall' in p)
+  expect(functionCallPart).toEqual({
+    functionCall: { name: 'Skill', args: { skill: 'x' } },
+    thoughtSignature: 'SIG_ABC_123',
+  })
+})
+
+test('Gemini Vertex client keeps functionResponse turns pure (splits trailing text)', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-2.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return createJsonVertexResponse('Bonjour')
+    }) as typeof fetch,
+  })
+
+  await client.messages.create({
+    model: 'gemini-2.5-flash',
+    max_tokens: 100,
+    messages: [
+      { role: 'user', content: 'salut' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'toolu_1', name: 'Skill', input: { skill: 'x' } }],
+      },
+      {
+        // openclaude appends a system-reminder text AFTER the tool_result in
+        // the SAME user message — this must not pollute the functionResponse turn.
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'toolu_1', content: 'loaded' },
+          { type: 'text', text: '<system-reminder>stay on task</system-reminder>' },
+        ],
+      },
+    ],
+  })
+
+  // The functionResponse turn is emitted pure, immediately after the model's
+  // functionCall; the reminder text is pushed to its own following user turn.
+  expect(capturedBody?.contents).toEqual([
+    { role: 'user', parts: [{ text: 'salut' }] },
+    { role: 'model', parts: [{ functionCall: { name: 'Skill', args: { skill: 'x' } } }] },
+    { role: 'user', parts: [{ functionResponse: { name: 'Skill', response: { result: 'loaded' } } }] },
+    { role: 'user', parts: [{ text: '<system-reminder>stay on task</system-reminder>' }] },
+  ])
+})
+
+test('Gemini Vertex client includes a response diagnostic on empty STOP responses', async () => {
+  const client = createGeminiVertexClient({
+    project: 'project-123',
+    location: 'global',
+    model: 'gemini-3.5-flash',
+    getAccessToken: async () => 'access-token-123',
+    fetch: (async () =>
+      new Response(
+        JSON.stringify({
+          // A "thought-only" turn: the model burned tokens thinking but emitted
+          // no visible parts. finishReason STOP, empty content.
+          candidates: [{ content: { role: 'model', parts: [] }, finishReason: 'STOP' }],
+          usageMetadata: {
+            promptTokenCount: 1200,
+            candidatesTokenCount: 0,
+            thoughtsTokenCount: 640,
+            totalTokenCount: 1840,
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch,
+  })
+
+  await expect(
+    client.messages.create({
+      model: 'gemini-3.5-flash',
+      max_tokens: 100,
+      messages: [{ role: 'user', content: 'salut' }],
+    }),
+  ).rejects.toThrow(/\[diag candidates=1 content:yes parts=\[\] \| usage prompt=1200 candidates=0 thoughts=640 total=1840 \| promptBlock:none\]/)
 })
 
 test('Gemini Vertex client propagates HTTP errors', async () => {
