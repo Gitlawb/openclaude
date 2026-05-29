@@ -368,5 +368,18 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('cd /tmp && uvx ruff check app.py', 1, '', '')
       expect(result.isError).toBe(false)
     })
+
+    test('npx -p <pkg> <cmd> unwraps to the command, not the package value', () => {
+      // tsc exit 2 = diagnostics found (not error); proves -p value was skipped
+      const result = interpretCommandResult('npx -p typescript tsc --noEmit', 2, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('-m as a script arg (not at position 1) does not mis-resolve', () => {
+      // `-m` here is an argument to script.py, not python's module flag;
+      // command stays python → default semantics → exit 1 is a real error
+      const result = interpretCommandResult('python script.py -m ruff', 1, '', '')
+      expect(result.isError).toBe(true)
+    })
   })
 })

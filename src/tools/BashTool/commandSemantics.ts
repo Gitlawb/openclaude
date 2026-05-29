@@ -3,9 +3,10 @@
  *
  * Many commands use exit codes to convey information other than just success/failure.
  * For example, grep returns 1 when no matches are found, which is not an error condition.
- * Linters and test runners follow the same pattern: exit code 1 means "issues found"
- * (something the model should read and act on), while exit code 2+ means the tool
- * itself failed (a real error worth retrying or surfacing).
+ * Most linters and test runners follow the same pattern: exit code 1 means "issues
+ * found" (something the model should read and act on, not retry), while exit code 2+
+ * means the tool itself failed. Exceptions exist — e.g. tsc inverts this — so the
+ * per-command semantics below are authoritative over the general rule.
  */
 
 import { splitCommand_DEPRECATED } from '../../utils/bash/commands.js'
@@ -34,10 +35,12 @@ const DEFAULT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
  * linters, type checkers, and test runners.
  */
 function exitOneInformational(message: string): CommandSemantic {
-  return (exitCode, _stdout, _stderr) => ({
-    isError: exitCode >= 2,
-    message: exitCode === 1 ? message : undefined,
-  })
+  return (exitCode, _stdout, _stderr) => {
+    if (exitCode === 1) return { isError: false, message }
+    if (exitCode >= 2)
+      return { isError: true, message: `Command failed with exit code ${exitCode}` }
+    return { isError: false }
+  }
 }
 
 /**
@@ -157,6 +160,9 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
 const PACKAGE_RUNNERS = new Set(['uvx', 'npx', 'bunx', 'pipx'])
 const MODULE_RUNNERS = new Set(['python', 'python3'])
 const RUN_SUBCOMMANDS = new Set(['run'])
+// Runner flags that take a separate value (the next token is the flag's
+// argument, not the tool to run). e.g. `npx -p typescript tsc` runs tsc.
+const VALUE_FLAGS = new Set(['-p', '--package', '-c', '--call', '-w', '--workspace'])
 
 /**
  * Resolve a raw token to a bare command name: strip any leading path and a
@@ -197,20 +203,25 @@ function extractBaseCommand(command: string): string {
   const first = resolveToolName(words[0])
 
   // `python -m <module>` / `python3 -m <module>`: the module is the real tool.
+  // `-m` must immediately follow the interpreter — a later `-m` is a script arg.
   // A bare `python script.py` keeps default semantics (exit 1 = real error).
   if (MODULE_RUNNERS.has(first)) {
-    const mIdx = words.indexOf('-m')
-    if (mIdx !== -1 && words[mIdx + 1]) {
-      return resolveToolName(words[mIdx + 1])
+    if (words[1] === '-m' && words[2]) {
+      return resolveToolName(words[2])
     }
     return first
   }
 
-  // Package runners: skip the runner, any flags, and a `run` subcommand, then
-  // take the first real argument as the tool being executed.
+  // Package runners: skip the runner, value-flags and their argument, plain
+  // flags, and a `run` subcommand, then take the first real argument as the
+  // tool being executed.
   if (PACKAGE_RUNNERS.has(first)) {
     for (let i = 1; i < words.length; i++) {
       const w = words[i]
+      if (VALUE_FLAGS.has(w)) {
+        i++ // also skip the flag's value
+        continue
+      }
       if (w.startsWith('-')) continue
       if (RUN_SUBCOMMANDS.has(w)) continue
       return resolveToolName(w)
