@@ -248,7 +248,7 @@ export function applyProviderFlag(
 
     case 'perplexity':
       process.env.CLAUDE_CODE_USE_PERPLEXITY = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.perplexity.ai'
+      process.env.PERPLEXITY_BASE_URL ??= defaultBaseUrl ?? 'https://api.perplexity.ai'
       process.env.PERPLEXITY_MODEL ??= defaultModel ?? 'sonar-pro'
       if (process.env.PERPLEXITY_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.PERPLEXITY_API_KEY

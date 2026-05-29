@@ -621,20 +621,23 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const isPerplexityMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)
   const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
-  const requestedModel =
-    options?.model?.trim() ||
-    (isMistralMode
-      ? process.env.MISTRAL_MODEL?.trim()
-      : isPerplexityMode
-        ? process.env.PERPLEXITY_MODEL?.trim()
-        : process.env.OPENAI_MODEL?.trim()) ||
-    (isGeminiMode
-      ? process.env.GEMINI_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
-    options?.fallbackModel?.trim() ||
-    (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
-    (isPerplexityMode ? 'sonar-pro' : undefined) ||
-    (isGithubMode ? 'github:copilot' : 'codexplan')
+  let requestedModel = options?.model?.trim()
+  if (!requestedModel) {
+    if (isPerplexityMode) {
+      requestedModel = process.env.PERPLEXITY_MODEL?.trim() || 'sonar-pro'
+    } else if (isMistralMode) {
+      requestedModel = process.env.MISTRAL_MODEL?.trim() || process.env.OPENAI_MODEL?.trim()
+    } else if (isGeminiMode) {
+      requestedModel = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL
+    } else {
+      requestedModel = process.env.OPENAI_MODEL?.trim()
+    }
+  }
+  if (!requestedModel) {
+    requestedModel =
+      options?.fallbackModel?.trim() ||
+      (isGithubMode ? 'github:copilot' : 'codexplan')
+  }
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
