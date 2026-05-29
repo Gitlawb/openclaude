@@ -23,6 +23,7 @@ import {
   clearPersistedCodexOAuthProfile,
   clearPersistedXaiOAuthProfile,
   createProfileFile,
+  PROFILE_ENV_KEYS,
 } from '../utils/providerProfile.js'
 import {
   clearXaiCredentials,
@@ -47,6 +48,7 @@ import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
   applyActiveProviderProfileFromConfig,
+  clearActiveProviderProfile,
   deleteProviderProfile,
   getActiveProviderProfile,
   getProviderPresetDefaults,
@@ -209,6 +211,8 @@ const FORM_STEPS: Array<{
   },
 ]
 
+const ANTHROPIC_PROVIDER_ID = '__anthropic__'
+const ANTHROPIC_PROVIDER_LABEL = 'Anthropic / Claude'
 const GITHUB_PROVIDER_ID = '__github_models__'
 const GITHUB_PROVIDER_LABEL = 'GitHub Models'
 const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
@@ -1191,6 +1195,31 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       // (saveGlobalConfig, saveProfileFile, updateSettingsForSource) which can
       // block the main thread on Windows (antivirus, disk cache, NTFS metadata).
       await new Promise<void>(resolve => queueMicrotask(resolve))
+
+      if (profileId === ANTHROPIC_PROVIDER_ID) {
+        providerLabel = ANTHROPIC_PROVIDER_LABEL
+        // Clear the active provider profile from config and delete the
+        // startup profile file so Anthropic is used on next launch too.
+        clearActiveProviderProfile()
+        // Wipe all third-party provider env vars from the current process so
+        // the running session immediately routes back to Anthropic without
+        // requiring a restart.
+        for (const key of PROFILE_ENV_KEYS) {
+          delete process.env[key]
+        }
+        clearStartupProviderOverrideFromUserSettings()
+        setActiveProfileId(undefined)
+        refreshProfiles()
+        setStatusMessage(`Active provider: ${ANTHROPIC_PROVIDER_LABEL}`)
+        setIsActivating(false)
+        onDone({
+          action: 'activated',
+          activeProviderName: ANTHROPIC_PROVIDER_LABEL,
+          message: `Provider switched to ${ANTHROPIC_PROVIDER_LABEL}`,
+        })
+        returnToMenu()
+        return
+      }
 
       if (profileId === GITHUB_PROVIDER_ID) {
         providerLabel = GITHUB_PROVIDER_LABEL
@@ -2287,9 +2316,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     title: string,
     emptyMessage: string,
     onSelect: (profileId: string) => void,
-    options?: { includeGithub?: boolean },
+    options?: { includeGithub?: boolean; includeAnthropic?: boolean },
   ): React.ReactNode {
     const includeGithub = options?.includeGithub ?? false
+    const includeAnthropic = options?.includeAnthropic ?? false
     const selectOptions = profiles.map(profile => ({
       value: profile.id,
       label:
@@ -2306,6 +2336,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ? `${GITHUB_PROVIDER_LABEL} (active)`
           : GITHUB_PROVIDER_LABEL,
         description: `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()}`,
+      })
+    }
+
+    if (includeAnthropic) {
+      const isAnthropicActive = !activeProfileId && !isGithubActive
+      selectOptions.push({
+        value: ANTHROPIC_PROVIDER_ID,
+        label: isAnthropicActive
+          ? `${ANTHROPIC_PROVIDER_LABEL} (active)`
+          : ANTHROPIC_PROVIDER_LABEL,
+        description: 'Use your Anthropic OAuth session or ANTHROPIC_API_KEY',
       })
     }
 
@@ -2547,7 +2588,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         profileId => {
           void activateSelectedProvider(profileId)
         },
-        { includeGithub: true },
+        { includeGithub: true, includeAnthropic: true },
       )
       break
     case 'select-edit':

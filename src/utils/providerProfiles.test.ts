@@ -1864,6 +1864,47 @@ describe('deleteProviderProfile', () => {
   })
 })
 
+describe('clearActiveProviderProfile', () => {
+  test('clears activeProviderProfileId from config and removes startup profile file', async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile, clearActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+
+      const openaiProfile = buildProfile({
+        id: 'openai_prof',
+        name: 'OpenAI Provider',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [openaiProfile],
+      }))
+
+      // Activate a third-party provider first
+      setActiveProviderProfile('openai_prof', { configDir })
+      expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+      expect(mockConfigState.activeProviderProfileId).toBe('openai_prof')
+
+      // Switch back to Anthropic
+      clearActiveProviderProfile({ configDir })
+
+      // Config should no longer have an active provider profile
+      expect(mockConfigState.activeProviderProfileId).toBeUndefined()
+    } finally {
+      rmSync(configDir, { recursive: true, force: true })
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('getProfileModelOptions', () => {
   test('generates options for multi-model profile', async () => {
     const { getProfileModelOptions } =

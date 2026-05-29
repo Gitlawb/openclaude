@@ -13,6 +13,7 @@ import { getPrimaryModel, parseModelList } from './providerModels.js'
 import {
   buildCompatibilityProcessEnv,
   createProfileFile,
+  deleteProfileFile,
   saveProfileFile,
   buildBedrockProfileEnv,
   buildGeminiProfileEnv,
@@ -1210,6 +1211,21 @@ export function setActiveProviderProfile(
   }
 
   return activeProfile
+}
+
+export function clearActiveProviderProfile(options?: ProfileFileLocation): void {
+  saveGlobalConfig(config => ({
+    ...config,
+    activeProviderProfileId: undefined,
+    openaiAdditionalModelOptionsCache: [],
+  }))
+
+  // Delete the startup profile file so Anthropic is used on next launch too.
+  try {
+    deleteProfileFile(options)
+  } catch {
+    // Profile file may not exist — that is fine.
+  }
 }
 
 export function deleteProviderProfile(profileId: string): {
