@@ -13,6 +13,9 @@ import {
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
   expect(getRouteProviderTypeLabel('anthropic')).toBe('Anthropic native API')
   expect(getRouteProviderTypeLabel('gemini')).toBe('Gemini API')
+  expect(getRouteProviderTypeLabel('gemini-vertex')).toBe(
+    'Google Vertex AI Gemini API',
+  )
   expect(getRouteProviderTypeLabel('bedrock')).toBe(
     'AWS Bedrock Claude API',
   )
@@ -80,6 +83,24 @@ test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () =
   expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1')).toBe('xiaomi-mimo')
   expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1/chat/completions')).toBe('xiaomi-mimo')
   expect(resolveRouteIdFromBaseUrl('https://api.mimo-v2.com/v1')).toBe('xiaomi-mimo')
+})
+
+test('resolveActiveRouteIdFromEnv resolves gemini-vertex when CLAUDE_CODE_USE_GEMINI_VERTEX is enabled', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+    }),
+  ).toBe('gemini-vertex')
+})
+
+test('resolveActiveRouteIdFromEnv gives gemini-vertex precedence over gemini and vertex flags', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+      CLAUDE_CODE_USE_GEMINI: '1',
+      CLAUDE_CODE_USE_VERTEX: '1',
+    }),
+  ).toBe('gemini-vertex')
 })
 
 test('resolveActiveRouteIdFromEnv treats Xiaomi MiMo credential-only env as Xiaomi MiMo', () => {

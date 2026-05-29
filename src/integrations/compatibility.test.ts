@@ -22,6 +22,7 @@ const EXPECTED_PRESETS = [
   'moonshotai',
   'deepseek',
   'gemini',
+  'gemini-vertex',
   'mistral',
   'together',
   'groq',

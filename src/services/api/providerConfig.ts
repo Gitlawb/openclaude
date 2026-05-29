@@ -20,6 +20,12 @@ import {
   DEFAULT_GEMINI_MODEL,
 } from 'src/utils/providerProfile.js'
 import {
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
+  DEFAULT_GEMINI_VERTEX_MODEL,
+} from '../../utils/geminiAuth.js'
+import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
 } from '../../integrations/runtimeMetadata.js'
@@ -119,6 +125,8 @@ export type ResolvedProviderRequest = {
   requestedModel: string
   resolvedModel: string
   baseUrl: string
+  vertexProject?: string
+  vertexLocation?: string
   reasoning?: {
     effort: ReasoningEffort
   }
@@ -616,16 +624,23 @@ export function resolveProviderRequest(options?: {
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
-  const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const isGeminiVertexMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX)
+  const isGeminiMode = isGeminiVertexMode || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const geminiVertexModel = getGeminiVertexModel(process.env)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? process.env.MISTRAL_MODEL?.trim()
+      : isGeminiVertexMode
+      ? geminiVertexModel
       : process.env.OPENAI_MODEL?.trim()) ||
     (isGeminiMode
-      ? process.env.GEMINI_MODEL?.trim()
+      ? isGeminiVertexMode
+        ? geminiVertexModel
+        : process.env.GEMINI_MODEL?.trim()
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
+    (isGeminiVertexMode ? DEFAULT_GEMINI_VERTEX_MODEL : undefined) ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
@@ -759,6 +774,8 @@ export function resolveProviderRequest(options?: {
             ? GITHUB_COPILOT_BASE_URL
             : DEFAULT_OPENAI_BASE_URL))
       ).replace(/\/+$/, ''),
+    vertexProject: isGeminiVertexMode ? getGeminiVertexProjectId(process.env) : undefined,
+    vertexLocation: isGeminiVertexMode ? getGeminiVertexLocation(process.env) : undefined,
     reasoning,
   }
 }

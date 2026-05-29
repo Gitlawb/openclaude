@@ -20,6 +20,7 @@ const RESTORED_KEYS = [
   'CLAUDE_CONFIG_DIR',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GEMINI_VERTEX',
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
@@ -178,6 +179,16 @@ function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
   })
 }
 
+function buildGeminiVertexProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'gemini-vertex',
+    name: 'Gemini Vertex',
+    baseUrl: 'https://aiplatform.googleapis.com',
+    model: 'gemini-2.5-flash',
+    ...overrides,
+  })
+}
+
 function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'openai',
@@ -258,6 +269,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.GEMINI_MODEL).toBe('gemini-3-flash-preview')
     expect(getFreshAPIProvider()).toBe('gemini')
+  })
+
+  test('gemini vertex profile uses native Vertex routing instead of OpenAI-compatible base URL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://aiplatform.googleapis.com'
+    process.env.OPENAI_MODEL = 'gemini-3.5-flash'
+
+    applyProviderProfileToProcessEnv(buildGeminiVertexProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.GEMINI_VERTEX_MODEL).toBe('gemini-2.5-flash')
+    expect(getFreshAPIProvider()).toBe('gemini-vertex')
   })
 
   test('bedrock profile sets CLAUDE_CODE_USE_BEDROCK and preserves anthropic model routing', async () => {
@@ -1082,6 +1112,12 @@ describe('persistActiveProviderProfileModel', () => {
 })
 
 describe('getProviderPresetDefaults', () => {
+  test('gemini vertex preset default model is a Vertex-supported Gemini model', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const defaults = getProviderPresetDefaults('gemini-vertex')
+    expect(defaults?.model).toBe('gemini-2.5-flash')
+  })
+
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL

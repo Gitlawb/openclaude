@@ -16,6 +16,7 @@ import {
   saveProfileFile,
   buildBedrockProfileEnv,
   buildGeminiProfileEnv,
+  buildGeminiVertexProfileEnv,
   buildGithubProfileEnv,
   buildMiniMaxProfileEnv,
   buildMistralProfileEnv,
@@ -79,6 +80,7 @@ type ProfileCompatibilityMode =
   | 'github'
   | 'bedrock'
   | 'vertex'
+  | 'gemini-vertex'
   | 'openai'
 
 function resolveProfileCompatibility(provider: string): {
@@ -101,6 +103,9 @@ function resolveProfileCompatibility(provider: string): {
   }
   if (route.vendorId === 'minimax') {
     return { route, compatibilityMode: 'anthropic' }
+  }
+  if (route.vendorId === 'gemini-vertex') {
+    return { route, compatibilityMode: 'gemini-vertex' }
   }
   if (route.vendorId === 'gemini') {
     return { route, compatibilityMode: 'gemini' }
@@ -398,6 +403,7 @@ function hasConflictingProviderFlagsForProfile(
   return (
     (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
     (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
+    (compatibilityMode !== 'gemini-vertex' && processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX !== undefined) ||
     (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
     (compatibilityMode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
     (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
@@ -470,6 +476,22 @@ function isProcessEnvAlignedWithProfile(
       sameOptionalEnvValue(processEnv.GEMINI_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
+    )
+  }
+
+  if (compatibilityMode === 'gemini-vertex') {
+    return (
+      processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX !== undefined &&
+      processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
+      processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+      processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
+      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
+      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
+      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
+      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
+      processEnv.OPENAI_BASE_URL === undefined &&
+      processEnv.OPENAI_MODEL === undefined &&
+      sameOptionalEnvValue(processEnv.GEMINI_VERTEX_MODEL, getPrimaryModel(profile.model))
     )
   }
 
@@ -613,6 +635,16 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       GEMINI_MODEL: primaryModel,
       ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
     }
+  } else if (compatibilityMode === 'gemini-vertex') {
+    profileEnv = buildGeminiVertexProfileEnv({
+      model: primaryModel,
+      project: process.env.GEMINI_VERTEX_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID,
+      location: process.env.GEMINI_VERTEX_LOCATION,
+      authMode:
+        process.env.GEMINI_VERTEX_AUTH_MODE === 'access-token' || process.env.GEMINI_VERTEX_AUTH_MODE === 'adc'
+          ? process.env.GEMINI_VERTEX_AUTH_MODE
+          : 'adc',
+    })
   } else if (compatibilityMode === 'github') {
     profileEnv = buildGithubProfileEnv({
       model: primaryModel,
@@ -1076,6 +1108,14 @@ function buildStartupProfileFromActiveProfile(
           baseUrl: activeProfile.baseUrl,
         })),
       }
+    case 'gemini-vertex': {
+      const env = buildGeminiVertexProfileEnv({
+        model: getPrimaryModel(activeProfile.model),
+        project: activeProfile.baseUrl,
+        processEnv: process.env,
+      })
+      return { profile: 'gemini-vertex', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+    }
     case 'openai': {
       if (route.gatewayId === 'nvidia-nim') {
         const env =

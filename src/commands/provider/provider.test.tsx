@@ -636,24 +636,35 @@ test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Co
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
 })
 
-test('buildCurrentProviderSummary recognizes Gemini mode', () => {
+test('buildCurrentProviderSummary recognizes Gemini Vertex mode', () => {
   const summary = buildCurrentProviderSummary({
     processEnv: {
-      CLAUDE_CODE_USE_GEMINI: '1',
-      GEMINI_MODEL: 'gemini-2.5-pro',
-      GEMINI_BASE_URL:
-        'https://generativelanguage.googleapis.com/v1beta/openai',
+      CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+      GEMINI_VERTEX_MODEL: 'gemini-3.5-flash',
+      GEMINI_VERTEX_PROJECT: 'project-test-1234',
+      GEMINI_VERTEX_LOCATION: 'us-central1',
     },
     persisted: null,
   })
 
-  expect(summary.providerLabel).toBe('Google Gemini')
-  expect(summary.modelLabel).toBe('gemini-2.5-pro')
-  expect(summary.endpointLabel).toBe(
-    'https://generativelanguage.googleapis.com/v1beta/openai',
-  )
+  expect(summary.providerLabel).toBe('Google Vertex AI Gemini')
+  expect(summary.modelLabel).toBe('gemini-3.5-flash')
+  expect(summary.endpointLabel).toBe('project-test-1234/us-central1')
 })
 
+test('buildCurrentProviderSummary uses current Gemini Vertex defaults in display', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_GEMINI_VERTEX: '1',
+      GEMINI_VERTEX_PROJECT: 'project-test-1234',
+    },
+    persisted: null,
+  })
+
+  expect(summary.providerLabel).toBe('Google Vertex AI Gemini')
+  expect(summary.modelLabel).toBe('gemini-2.5-flash')
+  expect(summary.endpointLabel).toBe('project-test-1234/global')
+})
 test('buildCurrentProviderSummary recognizes Mistral mode', () => {
   const summary = buildCurrentProviderSummary({
     processEnv: {
@@ -705,4 +716,18 @@ test('ProviderWizard hides Codex OAuth while running in bare mode', async () => 
 
   expect(output).toContain('Set up a provider profile')
   expect(output).not.toContain('Codex OAuth')
+})
+
+test('ProviderWizard offers Gemini Vertex as a dedicated provider choice', async () => {
+  const output = await renderProviderWizardFrame()
+
+  expect(output).toContain('Google Vertex AI Gemini')
+})
+
+test('ProviderWizard defaults Gemini Vertex location from the environment', () => {
+  const defaults = getProviderWizardDefaults({
+    GEMINI_VERTEX_LOCATION: 'us-central1',
+  })
+
+  expect(defaults.geminiVertexLocation).toBe('us-central1')
 })

@@ -5,6 +5,7 @@ import type { AnthropicProxyDescriptor, BrandDescriptor, GatewayDescriptor, Mode
 import vendorAnthropic from '../vendors/anthropic.js'
 import vendorBankr from '../vendors/bankr.js'
 import vendorDeepseek from '../vendors/deepseek.js'
+import vendorGeminiVertex from '../vendors/gemini-vertex.js'
 import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
@@ -60,7 +61,7 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGeminiVertex, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
 export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
@@ -162,6 +163,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     "apiKeyEnvVars": [
       "DEEPSEEK_API_KEY"
     ]
+  },
+  {
+    "preset": "gemini-vertex",
+    "routeKind": "vendor",
+    "routeId": "gemini-vertex",
+    "vendorId": "gemini-vertex",
+    "description": "Gemini on Google Vertex AI",
+    "modelEnvVars": [
+      "GEMINI_VERTEX_MODEL"
+    ],
+    "fallbackModel": "gemini-2.5-flash"
   },
   {
     "preset": "gemini",
@@ -405,6 +417,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "azure-openai",
   "bankr",
   "deepseek",
+  "gemini-vertex",
   "gemini",
   "groq",
   "hicap",

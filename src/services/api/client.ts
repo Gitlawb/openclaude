@@ -1,4 +1,5 @@
 import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk'
+import { type ClientOptions as BedrockClientOptions } from '@anthropic-ai/bedrock-sdk/client'
 import { randomUUID } from 'crypto'
 import {
   checkAndRefreshOAuthTokenIfNeeded,
@@ -42,6 +43,12 @@ import {
   getXiaomiMimoBaseUrlOverride,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
+import {
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
+  resolveGeminiCredential,
+} from '../../utils/geminiAuth.js'
 import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
@@ -380,6 +387,38 @@ export async function getAnthropicClient({
     }
     return new Anthropic(nativeArgs)
   }
+
+  const useGeminiVertexProvider = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX)
+  if (useGeminiVertexProvider) {
+    const project = getGeminiVertexProjectId(process.env)
+    const location = getGeminiVertexLocation(process.env)
+    const geminiVertexModel = getGeminiVertexModel(process.env) || model?.trim() || 'gemini-3.5-flash'
+    const credential = await resolveGeminiCredential({
+      ...process.env,
+      GEMINI_AUTH_MODE:
+        process.env.GEMINI_VERTEX_AUTH_MODE ??
+        (process.env.GEMINI_ACCESS_TOKEN ? 'access-token' : 'adc'),
+      GEMINI_API_KEY: undefined,
+      GOOGLE_API_KEY: undefined,
+    } as NodeJS.ProcessEnv)
+    if (credential.kind === 'none') {
+      throw new Error('Gemini Vertex authentication requires GEMINI_ACCESS_TOKEN or Google ADC credentials')
+    }
+    const vertexProject = project ?? (credential.kind === 'adc' ? credential.projectId : undefined)
+    if (!vertexProject) {
+      throw new Error('Gemini Vertex project is required via GEMINI_VERTEX_PROJECT or GOOGLE_CLOUD_PROJECT')
+    }
+
+    const { createGeminiVertexClient } = await import('./geminiVertexClient.js')
+    return createGeminiVertexClient({
+      project: vertexProject,
+      location,
+      model: geminiVertexModel,
+      getAccessToken: async () => credential.credential,
+      ...(resolvedFetch ? { fetch: resolvedFetch } : {}),
+    }) as unknown as Anthropic
+  }
+
   if (
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
@@ -405,7 +444,7 @@ export async function getAnthropicClient({
         ? process.env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION
         : getAWSRegion()
 
-    const bedrockArgs: ConstructorParameters<typeof AnthropicBedrock>[0] = {
+    const bedrockArgs: BedrockClientOptions = {
       ...ARGS,
       awsRegion,
       ...(isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH) && {
@@ -426,13 +465,30 @@ export async function getAnthropicClient({
       // Refresh auth and get credentials with cache clearing
       const cachedCredentials = await refreshAndGetAwsCredentials()
       if (cachedCredentials) {
-        bedrockArgs.awsAccessKey = cachedCredentials.accessKeyId
-        bedrockArgs.awsSecretKey = cachedCredentials.secretAccessKey
-        bedrockArgs.awsSessionToken = cachedCredentials.sessionToken
+        const staticCredentials = cachedCredentials.sessionToken
+          ? {
+              awsAccessKey: cachedCredentials.accessKeyId,
+              awsSecretKey: cachedCredentials.secretAccessKey,
+              awsSessionToken: cachedCredentials.sessionToken,
+            }
+          : {
+              awsAccessKey: cachedCredentials.accessKeyId,
+              awsSecretKey: cachedCredentials.secretAccessKey,
+            }
+        // we have always been lying about the return type - this doesn't support batching or models
+        return new AnthropicBedrock({
+          ...bedrockArgs,
+          ...staticCredentials,
+        }) as unknown as Anthropic
       }
     }
     // we have always been lying about the return type - this doesn't support batching or models
-    return new AnthropicBedrock(bedrockArgs) as unknown as Anthropic
+    return new AnthropicBedrock({
+      ...bedrockArgs,
+      awsAccessKey: null,
+      awsSecretKey: null,
+      awsSessionToken: null,
+    }) as unknown as Anthropic
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
     const { AnthropicFoundry } = await importRuntimeModule(

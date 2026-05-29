@@ -8,6 +8,7 @@ import {
 } from './context.ts'
 
 const originalEnv = {
+  CLAUDE_CODE_USE_GEMINI_VERTEX: process.env.CLAUDE_CODE_USE_GEMINI_VERTEX,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS:
@@ -24,6 +25,7 @@ const originalEnv = {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('context.test.ts')
+  delete process.env.CLAUDE_CODE_USE_GEMINI_VERTEX
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
@@ -38,6 +40,12 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    if (originalEnv.CLAUDE_CODE_USE_GEMINI_VERTEX === undefined) {
+      delete process.env.CLAUDE_CODE_USE_GEMINI_VERTEX
+    } else {
+      process.env.CLAUDE_CODE_USE_GEMINI_VERTEX =
+        originalEnv.CLAUDE_CODE_USE_GEMINI_VERTEX
+    }
     if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
       delete process.env.CLAUDE_CODE_USE_OPENAI
     } else {
@@ -94,6 +102,18 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+test('gemini-3.5-flash uses Gemini Vertex metadata for context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_GEMINI_VERTEX = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('gemini-3.5-flash')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('gemini-3.5-flash')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('gemini-3.5-flash')).toBe(65_536)
 })
 
 test('deepseek-v4-flash uses the gateway-safe output cap by default', () => {

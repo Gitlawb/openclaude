@@ -21,6 +21,7 @@ const TRANSPORT_KIND_PROVIDER_TYPE_LABELS: Partial<
 > = {
   'anthropic-native': 'Anthropic native API',
   'gemini-native': 'Gemini API',
+  'gemini-vertex': 'Google Vertex AI Gemini API',
   bedrock: 'AWS Bedrock Claude API',
   vertex: 'Google Vertex Claude API',
   'anthropic-proxy': 'Anthropic-compatible API',
@@ -345,6 +346,7 @@ function hasNoExplicitNonOpenAICompatibleProvider(
   return (
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
@@ -623,6 +625,9 @@ export function resolveActiveRouteIdFromEnv(
     activeProfileProvider?: string
   },
 ): string | null {
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX)) {
+    return 'gemini-vertex'
+  }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
     return 'gemini'
   }

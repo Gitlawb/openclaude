@@ -118,6 +118,7 @@ const PRESET_ORDER = [
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',
+  'Gemini Vertex',
   'Google Gemini',
   'Groq',
   'Hicap',
