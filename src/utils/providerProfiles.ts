@@ -638,7 +638,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   } else if (compatibilityMode === 'gemini-vertex') {
     profileEnv = buildGeminiVertexProfileEnv({
       model: primaryModel,
-      project: process.env.GEMINI_VERTEX_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID,
+      project: profile.baseUrl || process.env.GEMINI_VERTEX_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || process.env.GOOGLE_PROJECT_ID,
       location: process.env.GEMINI_VERTEX_LOCATION,
       authMode:
         process.env.GEMINI_VERTEX_AUTH_MODE === 'access-token' || process.env.GEMINI_VERTEX_AUTH_MODE === 'adc'

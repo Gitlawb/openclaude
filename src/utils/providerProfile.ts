@@ -91,6 +91,13 @@ const PROFILE_ENV_KEYS = [
   'GOOGLE_PROJECT_ID',
   'GOOGLE_APPLICATION_CREDENTIALS',
   'GOOGLE_API_KEY',
+  // CLOUD_ML_REGION is read by the @anthropic-ai/vertex-sdk to pick a region
+  // (via getDefaultVertexRegion). Leaving a stale value in process.env after a
+  // profile switch would let a malformed location like "glogal" leak into a
+  // 404 even when the active profile is Gemini Vertex. Clear it with the rest
+  // of the managed vars so each profile activation starts from a clean slate.
+  'CLOUD_ML_REGION',
+  'ANTHROPIC_VERTEX_PROJECT_ID',
   'NVIDIA_NIM',
   'NVIDIA_API_KEY',
   'NVIDIA_MODEL',

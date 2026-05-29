@@ -67,6 +67,7 @@ import {
   type AtomicChatReadiness,
   type OllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
+import { getGeminiProjectIdHint } from '../utils/geminiAuth.js'
 import {
   rankOllamaModels,
   recommendOllamaModel,
@@ -104,6 +105,7 @@ type Screen =
   | 'codex-oauth'
   | 'xai-oauth'
   | 'form'
+  | 'preset-gemini-vertex-project'
   | 'preset-model'
   | 'preset-api-key'
   | 'select-active'
@@ -1438,6 +1440,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
+    if (preset === 'gemini-vertex') {
+      const projectHint = getGeminiProjectIdHint(process.env) ?? ''
+      setDraft(prev => ({ ...prev, baseUrl: projectHint }))
+      setCursorOffset(projectHint.length)
+      setScreen('preset-gemini-vertex-project')
+      return
+    }
+
     if (preset === 'custom' || !canUseStreamlinedPresetFlow(nextDraft)) {
       setScreen('form')
       return
@@ -1795,8 +1805,23 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isActive: screen === 'form',
   })
 
+  function handleBackFromPresetGeminiVertexProject(): void {
+    setErrorMessage(undefined)
+    setScreen('select-preset')
+  }
+
+  useKeybinding('confirm:no', handleBackFromPresetGeminiVertexProject, {
+    context: 'Settings',
+    isActive: screen === 'preset-gemini-vertex-project',
+  })
+
   function handleBackFromPresetModel(): void {
     setErrorMessage(undefined)
+    if (draftProvider === 'gemini-vertex') {
+      setCursorOffset(draft.baseUrl.length)
+      setScreen('preset-gemini-vertex-project')
+      return
+    }
     setScreen('select-preset')
   }
 
@@ -1995,8 +2020,62 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
   }
 
+  function renderPresetGeminiVertexProject(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Create provider profile
+        </Text>
+        <Text dimColor>
+          Enter your Google Cloud project ID. Required to route requests to Vertex AI.
+        </Text>
+        <Text dimColor>
+          Step 1 of 2: Google Cloud project ID
+        </Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={draft.baseUrl}
+            onChange={value =>
+              setDraft(prev => ({
+                ...prev,
+                baseUrl: value,
+              }))
+            }
+            onSubmit={value => {
+              const project = value.trim()
+              if (!project) {
+                setErrorMessage('A Google Cloud project ID is required.')
+                return
+              }
+              setDraft(prev => ({ ...prev, baseUrl: project }))
+              setErrorMessage(undefined)
+              setCursorOffset(draft.model.length)
+              setScreen('preset-model')
+            }}
+            focus={true}
+            showCursor={true}
+            placeholder={`my-gcp-project${figures.ellipsis}`}
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
   function renderPresetModel(): React.ReactNode {
-    const needsApiKey = presetRequiresApiKey && !draft.apiKey.trim()
+    // gemini-vertex authenticates via ADC (Application Default Credentials),
+    // not an API key — never prompt for one.
+    const needsApiKey =
+      presetRequiresApiKey &&
+      !draft.apiKey.trim() &&
+      draftProvider !== 'gemini-vertex'
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -2012,7 +2091,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
         </Text>
         <Text dimColor>
-          Step 1 of {needsApiKey ? 2 : 1}: Default model
+          Step {draftProvider === 'gemini-vertex' ? '2 of 2' : `1 of ${needsApiKey ? 2 : 1}`}: Default model
         </Text>
         <Box flexDirection="row" gap={1}>
           <Text>{figures.pointer}</Text>
@@ -2352,6 +2431,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   switch (screen) {
     case 'select-preset':
       content = renderPresetSelection()
+      break
+    case 'preset-gemini-vertex-project':
+      content = renderPresetGeminiVertexProject()
       break
     case 'select-ollama-model':
       content = renderOllamaSelection()

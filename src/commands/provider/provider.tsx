@@ -169,7 +169,9 @@ type Step =
       apiKey?: string
       authMode: 'api-key' | 'access-token' | 'adc'
     }
-  | { name: 'gemini-vertex'; defaultModel: string }
+  | { name: 'gemini-vertex-project'; defaultModel: string }
+  | { name: 'gemini-vertex-location'; project: string; defaultModel: string }
+  | { name: 'gemini-vertex'; project: string; location: string; defaultModel: string }
   | { name: 'codex-oauth' }
   | { name: 'codex-check' }
 
@@ -1356,7 +1358,7 @@ export function ProviderWizard({
             } else if (value === 'gemini') {
               setStep({ name: 'gemini-auth-method' })
             } else if (value === 'gemini-vertex') {
-              setStep({ name: 'gemini-vertex', defaultModel: defaults.geminiVertexModel })
+              setStep({ name: 'gemini-vertex-project', defaultModel: defaults.geminiVertexModel })
             } else if (value === 'mistral') {
               setStep({
                 name: 'mistral-key',
@@ -1809,12 +1811,74 @@ export function ProviderWizard({
         />
       )
 
+    case 'gemini-vertex-project': {
+      const geminiVertexMetadata = getProviderPresetUiMetadata('gemini-vertex')
+      const projectHint = getGeminiProjectIdHint(process.env) ?? ''
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title={`${geminiVertexMetadata.label} setup`}
+          subtitle="Step 1 of 3"
+          description={
+            projectHint
+              ? `Enter your Google Cloud project ID, or leave blank to reuse the detected value (${projectHint}).`
+              : 'Enter your Google Cloud project ID.'
+          }
+          initialValue={projectHint}
+          placeholder="my-gcp-project"
+          allowEmpty={Boolean(projectHint)}
+          validate={value => {
+            const candidate = value.trim() || projectHint
+            return candidate ? null : 'A Google Cloud project ID is required. Set GOOGLE_CLOUD_PROJECT or enter one here.'
+          }}
+          onSubmit={value => {
+            setStep({
+              name: 'gemini-vertex-location',
+              project: value.trim() || projectHint,
+              defaultModel: step.defaultModel,
+            })
+          }}
+          onCancel={() => setStep({ name: 'choose' })}
+        />
+      )
+    }
+
+    case 'gemini-vertex-location': {
+      const geminiVertexMetadata = getProviderPresetUiMetadata('gemini-vertex')
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title={`${geminiVertexMetadata.label} setup`}
+          subtitle="Step 2 of 3"
+          description="Enter the Vertex AI region. Leave blank for global (recommended — required for gemini-3.5-flash)."
+          initialValue={defaults.geminiVertexLocation === 'global' ? '' : defaults.geminiVertexLocation}
+          placeholder="global"
+          allowEmpty
+          onSubmit={value => {
+            setStep({
+              name: 'gemini-vertex',
+              project: step.project,
+              location: value.trim() || 'global',
+              defaultModel: step.defaultModel,
+            })
+          }}
+          onCancel={() =>
+            setStep({
+              name: 'gemini-vertex-project',
+              defaultModel: step.defaultModel,
+            })
+          }
+        />
+      )
+    }
+
     case 'gemini-vertex': {
       const geminiVertexMetadata = getProviderPresetUiMetadata('gemini-vertex')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
           title={`${geminiVertexMetadata.label} setup`}
+          subtitle="Step 3 of 3"
           description={`Enter a model name. Leave blank for ${step.defaultModel}.`}
           initialValue={defaults.geminiVertexModel}
           placeholder={step.defaultModel}
@@ -1822,11 +1886,19 @@ export function ProviderWizard({
           onSubmit={value => {
             const env = buildGeminiVertexProfileEnv({
               model: value.trim() || step.defaultModel,
-              processEnv: process.env,
+              project: step.project,
+              location: step.location,
+              processEnv: {},
             })
             finishProfileSave(onDone, 'gemini-vertex', env)
           }}
-          onCancel={() => setStep({ name: 'choose' })}
+          onCancel={() =>
+            setStep({
+              name: 'gemini-vertex-location',
+              project: step.project,
+              defaultModel: step.defaultModel,
+            })
+          }
         />
       )
     }

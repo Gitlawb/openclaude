@@ -53,6 +53,7 @@ import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
 } from './authRouting.js'
+import { getActiveProviderProfile } from '../../utils/providerProfiles.js'
 
 const importRuntimeModule = new Function(
   'specifier',
@@ -388,7 +389,21 @@ export async function getAnthropicClient({
     return new Anthropic(nativeArgs)
   }
 
-  const useGeminiVertexProvider = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX)
+  // Belt-and-suspenders intent check: if the user's active provider profile is
+  // gemini-vertex, route to our Gemini Vertex client even when the env flag is
+  // missing — a stale CLAUDE_CODE_USE_VERTEX from the launching shell would
+  // otherwise fall through to the Anthropic Vertex SDK and emit a 404 for
+  // publishers/anthropic/models/gemini-* (a model that doesn't exist there).
+  const activeProfileProvider = (() => {
+    try {
+      return getActiveProviderProfile()?.provider
+    } catch {
+      return undefined
+    }
+  })()
+  const useGeminiVertexProvider =
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX) ||
+    activeProfileProvider === 'gemini-vertex'
   if (useGeminiVertexProvider) {
     const project = getGeminiVertexProjectId(process.env)
     const location = getGeminiVertexLocation(process.env)
@@ -522,7 +537,14 @@ export async function getAnthropicClient({
     // we have always been lying about the return type - this doesn't support batching or models
     return new AnthropicFoundry(foundryArgs) as unknown as Anthropic
   }
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)) {
+  if (
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+    activeProfileProvider !== 'gemini-vertex'
+  ) {
+    // Anthropic-on-Vertex (Claude models). Skip when the user's active
+    // profile is Gemini-on-Vertex — that path was already handled above and
+    // a leftover CLAUDE_CODE_USE_VERTEX=1 from the launching shell would
+    // otherwise hit publishers/anthropic with a Gemini model id (a 404).
     // Refresh GCP credentials if gcpAuthRefresh is configured and credentials are expired
     // This is similar to how we handle AWS credential refresh for Bedrock
     if (!isEnvTruthy(process.env.CLAUDE_CODE_SKIP_VERTEX_AUTH)) {
