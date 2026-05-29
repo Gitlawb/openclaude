@@ -25,6 +25,7 @@
     "README.md"
   ],
   "scripts": {
+    "prepare": "bun run scripts/build.ts",
     "build": "bun run scripts/build.ts",
     "integrations:generate": "bun run scripts/generate-integrations-artifacts.ts",
     "integrations:check": "bun run scripts/generate-integrations-artifacts.ts --check",
