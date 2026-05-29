@@ -316,7 +316,7 @@ import type { BashProgress } from '../../types/tools.js';
  * Files larger than this are truncated before the link/copy so a runaway
  * command does not blow up disk usage in the user's home dir.
  */
-const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
+export const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
 
 /**
  * Copy the shell's rolled-output file into the tool-results dir so the model
@@ -333,13 +333,14 @@ const MAX_PERSISTED_SHELL_OUTPUT_SIZE = 64 * 1024 * 1024;
 async function persistShellOutputFile(
   sourcePath: string,
   taskId: string,
-): Promise<{ path: string; size: number } | null> {
+): Promise<{ path: string; size: number; truncated: boolean } | null> {
   try {
     const fileStat = await fsStat(sourcePath);
     const size = fileStat.size;
     await ensureToolResultsDir();
     const dest = getToolResultPath(taskId, false);
-    if (size > MAX_PERSISTED_SHELL_OUTPUT_SIZE) {
+    const truncated = size > MAX_PERSISTED_SHELL_OUTPUT_SIZE;
+    if (truncated) {
       await fsTruncate(sourcePath, MAX_PERSISTED_SHELL_OUTPUT_SIZE);
     }
     try {
@@ -347,7 +348,11 @@ async function persistShellOutputFile(
     } catch {
       await copyFile(sourcePath, dest);
     }
-    return { path: dest, size };
+    // `size` is the original (pre-cap) byte count, which the success path
+    // reports as the output total. `truncated` tells the error path that the
+    // saved file is capped at MAX_PERSISTED_SHELL_OUTPUT_SIZE so it does not
+    // describe a partial file as the full output.
+    return { path: dest, size, truncated };
   } catch {
     // File may already be gone — caller's stdout preview is sufficient.
     return null;
@@ -355,16 +360,24 @@ async function persistShellOutputFile(
 }
 
 /**
- * Append a "[…full output saved to <path>]" marker to the captured stdout
- * carried on a ShellError. Pads with a blank line so the marker reads as a
- * distinct paragraph regardless of whether `stdout` ended with a newline.
+ * Append a "[…output saved to <path>]" marker to the captured stdout carried
+ * on a ShellError. Pads with a blank line so the marker reads as a distinct
+ * paragraph regardless of whether `stdout` ended with a newline.
+ *
+ * When the rolled output exceeded MAX_PERSISTED_SHELL_OUTPUT_SIZE the saved
+ * file is capped, so the marker says so rather than claiming the full failure
+ * body is on disk — otherwise the model trusts a truncated file and may miss a
+ * compiler/test error that appears past the cap.
  */
-function appendPersistedOutputHint(
+export function appendPersistedOutputHint(
   stdout: string,
   persistedPath: string,
   persistedSize: number,
+  truncated: boolean,
 ): string {
-  const hint = `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
+  const hint = truncated
+    ? `[output truncated above — first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes of the ${persistedSize}-byte output saved to ${persistedPath} (capped, tail not saved); read with the Read tool]`
+    : `[output truncated above — full output (${persistedSize} bytes) saved to ${persistedPath}; read with the Read tool]`;
   if (!stdout) return hint;
   const trimmed = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
   return `${trimmed}\n\n${hint}`;
@@ -830,6 +843,7 @@ export const BashTool = buildTool({
               errorStdout,
               persistedForError.path,
               persistedForError.size,
+              persistedForError.truncated,
             )
           }
         }

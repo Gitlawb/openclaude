@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { BashTool } from './BashTool.js'
+import {
+  BashTool,
+  appendPersistedOutputHint,
+  MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+} from './BashTool.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { ShellError } from '../../utils/errors.js'
 import { formatError } from '../../utils/toolErrors.js'
@@ -88,5 +92,24 @@ describe('BashTool error output (#1231)', () => {
     // require the canonical phrasing so the model's prompt template can
     // anchor on it.
     expect(formatted).toMatch(/full output \(\d+ bytes\) saved to .+; read with the Read tool/)
+  })
+
+  // Follow-up to #1359 — persistShellOutputFile caps the saved roll file at
+  // MAX_PERSISTED_SHELL_OUTPUT_SIZE. When that cap engages the error marker
+  // must NOT claim the full output is on disk, or the model trusts a truncated
+  // file and can miss a failure that appears past the cap.
+  test('hint reports a cap instead of "full output" when the roll file was truncated', () => {
+    const original = MAX_PERSISTED_SHELL_OUTPUT_SIZE + 4096
+    const hint = appendPersistedOutputHint('preview', '/tmp/out', original, true)
+    expect(hint).not.toContain('full output')
+    expect(hint).toContain('capped')
+    expect(hint).toContain(`first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes`)
+    expect(hint).toContain(`${original}-byte`)
+    expect(hint).toContain('/tmp/out')
+  })
+
+  test('hint keeps "full output" wording when the roll file fit under the cap', () => {
+    const hint = appendPersistedOutputHint('preview', '/tmp/out', 1234, false)
+    expect(hint).toMatch(/full output \(1234 bytes\) saved to \/tmp\/out; read with the Read tool/)
   })
 })
