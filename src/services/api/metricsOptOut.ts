@@ -132,6 +132,12 @@ async function refreshMetricsStatus(): Promise<MetricsStatus> {
  * an extra one during the 24h window is acceptable.
  */
 export async function checkMetricsEnabled(): Promise<MetricsStatus> {
+  // Third-party providers never use Anthropic metrics. Short-circuit before
+  // disk cache so a stale first-party `enabled: true` entry cannot leak.
+  if (getAPIProvider() !== 'firstParty') {
+    return { enabled: false, hasError: false }
+  }
+
   // Service key OAuth sessions lack user:profile scope → would 403.
   // API key users (non-subscribers) fall through and use x-api-key auth.
   // This check runs before the disk read so we never persist auth-state-derived
