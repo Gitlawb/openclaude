@@ -264,17 +264,6 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
-    "preset": "perplexity",
-    "routeKind": "gateway",
-    "routeId": "perplexity",
-    "vendorId": "openai",
-    "gatewayId": "perplexity",
-    "description": "Perplexity AI OpenAI-compatible endpoint",
-    "apiKeyEnvVars": [
-      "PERPLEXITY_API_KEY"
-    ]
-  },
-  {
     "preset": "moonshotai",
     "routeKind": "vendor",
     "routeId": "moonshot",
@@ -355,6 +344,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     "description": "OpenRouter OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "OPENROUTER_API_KEY"
+    ]
+  },
+  {
+    "preset": "perplexity",
+    "routeKind": "gateway",
+    "routeId": "perplexity",
+    "vendorId": "openai",
+    "gatewayId": "perplexity",
+    "description": "Perplexity AI OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "PERPLEXITY_API_KEY"
     ]
   },
   {
@@ -467,7 +467,6 @@ export const ORDERED_PROVIDER_PRESETS = [
   "ollama",
   "minimax",
   "mistral",
-  "perplexity",
   "moonshotai",
   "kimi-code",
   "nvidia-nim",
@@ -475,6 +474,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "opencode-go",
   "opencode",
   "openrouter",
+  "perplexity",
   "together",
   "venice",
   "xai",

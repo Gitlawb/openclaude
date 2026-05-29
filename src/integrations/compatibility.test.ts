@@ -28,6 +28,7 @@ const EXPECTED_PRESETS = [
   'hicap',
   'azure-openai',
   'openrouter',
+  'perplexity',
   'lmstudio',
   'dashscope-cn',
   'dashscope-intl',
