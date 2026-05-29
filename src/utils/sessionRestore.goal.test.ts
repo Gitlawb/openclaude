@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { createGoalState, markGoalEvaluated } from '../services/goal/state.js'
-import { getDefaultAppState } from '../state/AppStateStore.js'
+import { getDefaultAppState, type AppState } from '../state/AppStateStore.js'
 import {
   processResumedConversation,
   restoreSessionStateFromLog,
@@ -69,7 +69,7 @@ describe('session restore goal lifecycle', () => {
 
   test('restoreSessionStateFromLog clears stale in-memory goal when resumed session has none', () => {
     const staleGoal = createGoalState('stale interactive resume goal')
-    let state = {
+    let state: AppState = {
       ...getDefaultAppState(),
       goal: staleGoal,
     }

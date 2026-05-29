@@ -17,6 +17,7 @@ import {
 } from './sessionStorage.ts'
 import { createGoalState } from '../services/goal/state.js'
 import { getSessionId, switchSession } from '../bootstrap/state.js'
+import type { GoalState } from '../services/goal/types.js'
 
 const tempDirs: string[] = []
 const sessionId = '00000000-0000-4000-8000-000000000999'
@@ -118,6 +119,38 @@ async function writeJsonl(entries: unknown[]): Promise<string> {
   const filePath = join(dir, 'session.jsonl')
   await writeFile(filePath, `${entries.map(e => JSON.stringify(e)).join('\n')}\n`)
   return filePath
+}
+
+function readGoalStateEntries(text: string): Array<{ goal: GoalState | null }> {
+  return text
+    .split('\n')
+    .filter(Boolean)
+    .map(
+      line =>
+        JSON.parse(line) as { type?: string; goal?: GoalState | null },
+    )
+    .filter(
+      (entry): entry is { goal: GoalState | null } =>
+        entry.type === 'goal-state',
+    )
+}
+
+async function withSessionPersistence<T>(fn: () => Promise<T>): Promise<T> {
+  const originalPersistence = process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  const originalSessionId = getSessionId()
+  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+  try {
+    resetProjectForTesting()
+    return await fn()
+  } finally {
+    if (originalPersistence === undefined) {
+      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalPersistence
+    }
+    switchSession(originalSessionId)
+    resetProjectForTesting()
+  }
 }
 
 afterEach(async () => {
@@ -395,11 +428,7 @@ test('loadTranscriptFile treats null goal-state as cleared', async () => {
 })
 
 test('restoreSessionMetadata clears cached goal when resumed transcript has no goal metadata', async () => {
-  const originalPersistence = process.env.TEST_ENABLE_SESSION_PERSISTENCE
-  const originalSessionId = getSessionId()
-  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
-  try {
-    resetProjectForTesting()
+  await withSessionPersistence(async () => {
     restoreSessionMetadata({
       goal: createGoalState('stale previous session goal', ts),
     })
@@ -418,25 +447,63 @@ test('restoreSessionMetadata clears cached goal when resumed transcript has no g
     adoptResumedSessionFile()
 
     const text = await readFile(filePath, 'utf8')
-    expect(text).not.toContain('"type":"goal-state"')
-    expect(text).not.toContain('stale previous session goal')
-  } finally {
-    if (originalPersistence === undefined) {
-      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
-    } else {
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalPersistence
-    }
-    switchSession(originalSessionId)
-    resetProjectForTesting()
-  }
+    expect(readGoalStateEntries(text)).toEqual([])
+  })
+})
+
+test('restoreSessionMetadata clears cached goal when resumed transcript has explicit null goal metadata', async () => {
+  await withSessionPersistence(async () => {
+    restoreSessionMetadata({
+      goal: createGoalState('stale previous session goal', ts),
+    })
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
+    tempDirs.push(dir)
+    const filePath = join(dir, `${sessionId}.jsonl`)
+    await writeFile(
+      filePath,
+      `${JSON.stringify(user(id(52), null, 'resume cleared goal'))}\n`,
+    )
+
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+    restoreSessionMetadata({ goal: null })
+    adoptResumedSessionFile()
+
+    const text = await readFile(filePath, 'utf8')
+    expect(readGoalStateEntries(text)).toEqual([])
+  })
+})
+
+test('restoreSessionMetadata re-appends the resumed active goal instead of stale cached goal', async () => {
+  await withSessionPersistence(async () => {
+    restoreSessionMetadata({
+      goal: createGoalState('stale previous session goal', ts),
+    })
+    const resumedGoal = createGoalState('resumed current goal', ts)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
+    tempDirs.push(dir)
+    const filePath = join(dir, `${sessionId}.jsonl`)
+    await writeFile(
+      filePath,
+      `${JSON.stringify(user(id(53), null, 'resume active goal'))}\n`,
+    )
+
+    switchSession(sessionId as never, dir)
+    await resetSessionFilePointer()
+    restoreSessionMetadata({ goal: resumedGoal })
+    adoptResumedSessionFile()
+
+    const text = await readFile(filePath, 'utf8')
+    expect(
+      readGoalStateEntries(text).map(entry => entry.goal?.condition),
+    ).toEqual(['resumed current goal'])
+  })
 })
 
 test('recordGoalState writes goal metadata durably before resolving', async () => {
-  const originalPersistence = process.env.TEST_ENABLE_SESSION_PERSISTENCE
-  const originalSessionId = getSessionId()
-  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
-  try {
-    resetProjectForTesting()
+  await withSessionPersistence(async () => {
     const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
     tempDirs.push(dir)
     const filePath = join(dir, `${sessionId}.jsonl`)
@@ -461,13 +528,5 @@ test('recordGoalState writes goal metadata durably before resolving', async () =
     const text = await readFile(filePath, 'utf8')
     expect(text).toContain('"type":"goal-state"')
     expect(text).toContain('durable goal')
-  } finally {
-    if (originalPersistence === undefined) {
-      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
-    } else {
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalPersistence
-    }
-    switchSession(originalSessionId)
-    resetProjectForTesting()
-  }
+  })
 })
