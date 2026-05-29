@@ -93,6 +93,14 @@ async function importAgentToolWithSpawnMock(): Promise<{
     ...originalSpawnMultiAgentModule!,
     spawnTeammate,
   }))
+  // Pin isAgentSwarmsEnabled to true — a prior test's mock.module on
+  // growthbook.js may have left a stale binding in agentSwarmsEnabled.ts
+  // that returns false for the killswitch check. Cache-busting AgentTool.js
+  // doesn't help because agentSwarmsEnabled.ts is a transitive dep that
+  // keeps its already-loaded (mocked) growthbook import.
+  mock.module('../../utils/agentSwarmsEnabled.js', () => ({
+    isAgentSwarmsEnabled: () => true,
+  }))
 
   const { AgentTool } = await import(
     `./AgentTool.js?teammateModel=${Date.now()}-${Math.random()}`
