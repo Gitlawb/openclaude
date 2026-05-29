@@ -411,13 +411,19 @@ type HljsNode = {
 
 // Filename-based and extension-based language detection (approximates bat's
 // SyntaxMapping + syntect's find_syntax_by_extension)
-const FILENAME_LANGS: Record<string, string> = {
-  Dockerfile: 'dockerfile',
-  Makefile: 'makefile',
-  Rakefile: 'ruby',
-  Gemfile: 'ruby',
-  CMakeLists: 'cmake',
-}
+// Keyed lookup must be a Map, not a plain object: a file whose basename or
+// stem collides with an Object.prototype member (`constructor`, `toString`,
+// `valueOf`, `hasOwnProperty`, …) would otherwise resolve to the inherited
+// function instead of `undefined`, and highlight.js#getLanguage() crashes on
+// the non-string value with "(name || '').toLowerCase is not a function"
+// (issue #1430, e.g. editing `constructor.css`).
+const FILENAME_LANGS = new Map<string, string>([
+  ['Dockerfile', 'dockerfile'],
+  ['Makefile', 'makefile'],
+  ['Rakefile', 'ruby'],
+  ['Gemfile', 'ruby'],
+  ['CMakeLists', 'cmake'],
+])
 
 function detectLanguage(
   filePath: string,
@@ -428,7 +434,7 @@ function detectLanguage(
 
   // Filename-based lookup (handles Dockerfile, Makefile, CMakeLists.txt, etc.)
   const stem = base.split('.')[0] ?? ''
-  const byName = FILENAME_LANGS[base] ?? FILENAME_LANGS[stem]
+  const byName = FILENAME_LANGS.get(base) ?? FILENAME_LANGS.get(stem)
   if (byName && hljs().getLanguage(byName)) return byName
   if (ext) {
     const lang = hljs().getLanguage(ext)
