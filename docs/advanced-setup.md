@@ -246,6 +246,16 @@ export MISTRAL_API_KEY=...
 export MISTRAL_MODEL=devstral-latest
 ```
 
+### Perplexity AI
+
+```bash
+export CLAUDE_CODE_USE_PERPLEXITY=1
+export PERPLEXITY_API_KEY=pplx-...
+export PERPLEXITY_MODEL=sonar-pro
+```
+
+The `/provider perplexity` preset sets `CLAUDE_CODE_USE_PERPLEXITY=1` and stores the key as `PERPLEXITY_API_KEY`. Available models include `sonar-pro`, `sonar`, `sonar-reasoning-pro`, and `sonar-deep-research`. Get an API key at [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api).
+
 ### Azure OpenAI
 
 ```bash
@@ -274,6 +284,10 @@ export OPENAI_MODEL=gpt-4o
 | `MISTRAL_API_KEY` | Mistral only | Mistral API key |
 | `MISTRAL_MODEL` | Mistral only | Model name such as `devstral-latest` |
 | `MISTRAL_BASE_URL` | No | Override the Mistral base URL |
+| `CLAUDE_CODE_USE_PERPLEXITY` | Perplexity only | Set to `1` to enable the dedicated Perplexity AI provider path |
+| `PERPLEXITY_API_KEY` | Perplexity only | Perplexity AI API key |
+| `PERPLEXITY_MODEL` | Perplexity only | Model name such as `sonar-pro` (default) or `sonar-reasoning-pro` |
+| `PERPLEXITY_BASE_URL` | No | Override the Perplexity base URL (default: `https://api.perplexity.ai`) |
 | `CODEX_API_KEY` | Codex only | Codex or ChatGPT access token override |
 | `CHATGPT_ACCOUNT_ID` / `CODEX_ACCOUNT_ID` | Codex only | Required for manual Codex env setup when the account id is not coming from `auth.json` or stored OAuth credentials |
 | `CODEX_AUTH_JSON_PATH` | Codex only | Path to a Codex CLI `auth.json` file |
@@ -285,8 +299,7 @@ export OPENAI_MODEL=gpt-4o
 
 Model env vars are provider-scoped: first-party Anthropic sessions read
 `ANTHROPIC_MODEL`, OpenAI-compatible sessions read `OPENAI_MODEL`, Gemini reads
-`GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
-or Foundry launches, select the model with `--model`.
+`GEMINI_MODEL`, Mistral reads `MISTRAL_MODEL`, and Perplexity reads `PERPLEXITY_MODEL`. For manual Bedrock, Vertex, or Foundry launches, select the model with `--model`.
 
 ## Runtime Hardening
 
@@ -315,7 +328,7 @@ bun run hardening:strict
 Notes:
 
 - `doctor:runtime` fails fast if `CLAUDE_CODE_USE_OPENAI=1` with a placeholder key or a missing key for non-local providers.
-- `doctor:runtime` also validates the dedicated Gemini and Mistral env paths when `CLAUDE_CODE_USE_GEMINI=1` or `CLAUDE_CODE_USE_MISTRAL=1`.
+- `doctor:runtime` also validates the dedicated Gemini, Mistral, and Perplexity env paths when `CLAUDE_CODE_USE_GEMINI=1`, `CLAUDE_CODE_USE_MISTRAL=1`, or `CLAUDE_CODE_USE_PERPLEXITY=1`.
 - Local providers such as `http://localhost:11434/v1`, `http://10.0.0.1:11434/v1`, and `http://127.0.0.1:1337/v1` can run without `OPENAI_API_KEY`.
 - Codex profiles validate `CODEX_API_KEY` or the Codex CLI auth file and probe `POST /responses` instead of `GET /models`.
 
