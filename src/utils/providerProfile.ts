@@ -46,12 +46,15 @@ export const DEFAULT_GEMINI_BASE_URL =
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
+export const DEFAULT_PERPLEXITY_BASE_URL = 'https://api.perplexity.ai'
+export const DEFAULT_PERPLEXITY_MODEL = 'sonar-pro'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_PERPLEXITY',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
@@ -88,6 +91,9 @@ const PROFILE_ENV_KEYS = [
   'MISTRAL_BASE_URL',
   'MISTRAL_API_KEY',
   'MISTRAL_MODEL',
+  'PERPLEXITY_BASE_URL',
+  'PERPLEXITY_API_KEY',
+  'PERPLEXITY_MODEL',
   'BANKR_BASE_URL',
   'BNKR_API_KEY',
   'BANKR_MODEL',
@@ -103,6 +109,7 @@ export type CompatibilityProfileMode =
   | 'openai'
   | 'gemini'
   | 'mistral'
+  | 'perplexity'
   | 'github'
   | 'bedrock'
   | 'vertex'
@@ -116,6 +123,7 @@ const SECRET_ENV_KEYS = [
   'NVIDIA_API_KEY',
   'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
+  'PERPLEXITY_API_KEY',
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'VENICE_API_KEY',
@@ -133,6 +141,7 @@ export type ProviderProfile =
   | 'nvidia-nim'
   | 'minimax'
   | 'mistral'
+  | 'perplexity'
   | 'github'
   | 'bedrock'
   | 'vertex'
@@ -172,6 +181,9 @@ export type ProfileEnv = {
   MISTRAL_BASE_URL?: string
   MISTRAL_API_KEY?: string
   MISTRAL_MODEL?: string
+  PERPLEXITY_BASE_URL?: string
+  PERPLEXITY_API_KEY?: string
+  PERPLEXITY_MODEL?: string
   BANKR_BASE_URL?: string
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
@@ -199,6 +211,7 @@ type SecretValueSource = Partial<
     | 'NVIDIA_API_KEY'
     | 'MINIMAX_API_KEY'
     | 'MISTRAL_API_KEY'
+    | 'PERPLEXITY_API_KEY'
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
     | 'VENICE_API_KEY'
@@ -314,6 +327,7 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'nvidia-nim' ||
     value === 'minimax' ||
     value === 'mistral' ||
+    value === 'perplexity' ||
     value === 'github' ||
     value === 'bedrock' ||
     value === 'vertex' ||
@@ -746,6 +760,46 @@ export function buildMistralProfileEnv(options: {
     )
   if (baseUrl) {
     env.MISTRAL_BASE_URL = baseUrl
+  }
+
+  return env
+}
+
+export function buildPerplexityProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.PERPLEXITY_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const env: ProfileEnv = {
+    PERPLEXITY_API_KEY: key,
+    PERPLEXITY_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, { PERPLEXITY_API_KEY: key }),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(
+          processEnv.PERPLEXITY_MODEL,
+          { PERPLEXITY_API_KEY: key },
+        ),
+      ) ||
+      DEFAULT_PERPLEXITY_MODEL,
+  }
+
+  const baseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, { PERPLEXITY_API_KEY: key }) ||
+    sanitizeProviderConfigValue(
+      processEnv.PERPLEXITY_BASE_URL,
+      { PERPLEXITY_API_KEY: key },
+    )
+  if (baseUrl) {
+    env.PERPLEXITY_BASE_URL = baseUrl
   }
 
   return env

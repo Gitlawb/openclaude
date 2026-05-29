@@ -80,6 +80,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
   const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
+  const usePerplexity = process.env.CLAUDE_CODE_USE_PERPLEXITY === '1' || process.env.CLAUDE_CODE_USE_PERPLEXITY === 'true'
 
   if (useGemini) {
     const model = modelOverride || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
@@ -91,6 +92,12 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     const model = modelOverride || process.env.MISTRAL_MODEL || 'devstral-latest'
     const baseUrl = process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1'
     return { name: 'Mistral', model, baseUrl, isLocal: false }
+  }
+
+  if (usePerplexity) {
+    const model = modelOverride || process.env.PERPLEXITY_MODEL || 'sonar-pro'
+    const baseUrl = process.env.PERPLEXITY_BASE_URL || 'https://api.perplexity.ai'
+    return { name: 'Perplexity AI', model, baseUrl, isLocal: false }
   }
 
   if (useGithub) {

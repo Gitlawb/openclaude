@@ -21,6 +21,7 @@ import {
   buildMistralProfileEnv,
   buildNvidiaNimProfileEnv,
   buildOpenAIProfileEnv,
+  buildPerplexityProfileEnv,
   buildVeniceProfileEnv,
   buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
@@ -76,6 +77,7 @@ type ProfileCompatibilityMode =
   | 'anthropic'
   | 'gemini'
   | 'mistral'
+  | 'perplexity'
   | 'github'
   | 'bedrock'
   | 'vertex'
@@ -107,6 +109,9 @@ function resolveProfileCompatibility(provider: string): {
   }
   if (route.vendorId === 'mistral' || route.gatewayId === 'mistral') {
     return { route, compatibilityMode: 'mistral' }
+  }
+  if (route.gatewayId === 'perplexity') {
+    return { route, compatibilityMode: 'perplexity' }
   }
 
   return { route, compatibilityMode: 'openai' }
@@ -325,6 +330,7 @@ function hasProviderSelectionFlags(
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
     processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
+    processEnv.CLAUDE_CODE_USE_PERPLEXITY !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
@@ -373,6 +379,13 @@ function hasCompleteProviderSelection(
       trimOrUndefined(processEnv.MISTRAL_API_KEY) !== undefined
     )
   }
+  if (processEnv.CLAUDE_CODE_USE_PERPLEXITY !== undefined) {
+    return (
+      trimOrUndefined(processEnv.PERPLEXITY_BASE_URL) !== undefined ||
+      trimOrUndefined(processEnv.PERPLEXITY_MODEL) !== undefined ||
+      trimOrUndefined(processEnv.PERPLEXITY_API_KEY) !== undefined
+    )
+  }
   if (processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) {
     return (
       trimOrUndefined(processEnv.GITHUB_TOKEN) !== undefined ||
@@ -399,6 +412,7 @@ function hasConflictingProviderFlagsForProfile(
     (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
     (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
     (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
+    (compatibilityMode !== 'perplexity' && processEnv.CLAUDE_CODE_USE_PERPLEXITY !== undefined) ||
     (compatibilityMode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
     (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
     (compatibilityMode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
@@ -446,6 +460,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined &&
       processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
       processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
+      processEnv.CLAUDE_CODE_USE_PERPLEXITY === undefined &&
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
@@ -454,6 +469,23 @@ function isProcessEnvAlignedWithProfile(
       sameOptionalEnvValue(processEnv.MISTRAL_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
+    )
+  }
+
+  if (compatibilityMode === 'perplexity') {
+    return (
+      processEnv.CLAUDE_CODE_USE_PERPLEXITY !== undefined &&
+      processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+      processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
+      processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
+      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
+      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
+      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
+      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
+      sameOptionalEnvValue(processEnv.PERPLEXITY_BASE_URL, profile.baseUrl) &&
+      sameOptionalEnvValue(processEnv.PERPLEXITY_MODEL, getPrimaryModel(profile.model)) &&
+      (!includeApiKey ||
+        sameOptionalEnvValue(processEnv.PERPLEXITY_API_KEY, profile.apiKey))
     )
   }
 
@@ -606,6 +638,12 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       MISTRAL_BASE_URL: profile.baseUrl,
       MISTRAL_MODEL: primaryModel,
       ...(profile.apiKey ? { MISTRAL_API_KEY: profile.apiKey } : {}),
+    }
+  } else if (compatibilityMode === 'perplexity') {
+    profileEnv = {
+      PERPLEXITY_BASE_URL: profile.baseUrl,
+      PERPLEXITY_MODEL: primaryModel,
+      ...(profile.apiKey ? { PERPLEXITY_API_KEY: profile.apiKey } : {}),
     }
   } else if (compatibilityMode === 'gemini') {
     profileEnv = {
@@ -1050,6 +1088,18 @@ function buildStartupProfileFromActiveProfile(
         }) ?? null
       return env
         ? { profile: 'mistral', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+        : null
+    }
+    case 'perplexity': {
+      const env =
+        buildPerplexityProfileEnv({
+          model: getPrimaryModel(activeProfile.model),
+          baseUrl: activeProfile.baseUrl,
+          apiKey: activeProfile.apiKey,
+          processEnv: process.env,
+        }) ?? null
+      return env
+        ? { profile: 'perplexity', env: applySupportedProfileCustomHeaders(activeProfile, env) }
         : null
     }
     case 'github':

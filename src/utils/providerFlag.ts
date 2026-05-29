@@ -32,6 +32,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'openai',
   'gemini',
   'mistral',
+  'perplexity',
   'github',
   'bedrock',
   'vertex',
@@ -147,6 +148,9 @@ export function applyModelFlagFromArgs(args: string[]): void {
   const useMistral =
     process.env.CLAUDE_CODE_USE_MISTRAL === '1' ||
     process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
+  const usePerplexity =
+    process.env.CLAUDE_CODE_USE_PERPLEXITY === '1' ||
+    process.env.CLAUDE_CODE_USE_PERPLEXITY === 'true'
   const useOpenAI =
     process.env.CLAUDE_CODE_USE_OPENAI === '1' ||
     process.env.CLAUDE_CODE_USE_OPENAI === 'true'
@@ -158,6 +162,8 @@ export function applyModelFlagFromArgs(args: string[]): void {
     process.env.GEMINI_MODEL = model
   } else if (useMistral) {
     process.env.MISTRAL_MODEL = model
+  } else if (usePerplexity) {
+    process.env.PERPLEXITY_MODEL = model
   } else if (useOpenAI || useGithub) {
     process.env.OPENAI_MODEL = model
   } else {
@@ -208,6 +214,7 @@ export function applyProviderFlag(
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_PERPLEXITY
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
@@ -237,6 +244,16 @@ export function applyProviderFlag(
     case 'mistral':
       process.env.CLAUDE_CODE_USE_MISTRAL = '1'
       if (model) process.env.MISTRAL_MODEL = model
+      break
+
+    case 'perplexity':
+      process.env.CLAUDE_CODE_USE_PERPLEXITY = '1'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.perplexity.ai'
+      process.env.PERPLEXITY_MODEL ??= defaultModel ?? 'sonar-pro'
+      if (process.env.PERPLEXITY_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.PERPLEXITY_API_KEY
+      }
+      if (model) process.env.PERPLEXITY_MODEL = model
       break
 
     case 'github':

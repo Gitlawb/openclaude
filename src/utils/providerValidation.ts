@@ -426,6 +426,7 @@ export async function getProviderValidationError(
     GEMINI_API_KEY: env.GEMINI_API_KEY,
     GOOGLE_API_KEY: env.GOOGLE_API_KEY,
     MISTRAL_API_KEY: env.MISTRAL_API_KEY,
+    PERPLEXITY_API_KEY: env.PERPLEXITY_API_KEY,
     BNKR_API_KEY: env.BNKR_API_KEY,
   }
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)

@@ -21,6 +21,7 @@ export type LegacyAPIProvider =
   | 'nvidia-nim'
   | 'minimax'
   | 'mistral'
+  | 'perplexity'
   | 'xai'
   | 'xiaomi-mimo'
 
@@ -40,6 +41,8 @@ export function getAPIProvider(): LegacyAPIProvider {
       return 'gemini'
     case 'mistral':
       return 'mistral'
+    case 'perplexity':
+      return 'perplexity'
     case 'github':
       return 'github'
     case 'bedrock':

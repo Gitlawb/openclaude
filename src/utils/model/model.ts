@@ -53,6 +53,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
   }
+  if (getAPIProvider() === 'perplexity') {
+    return process.env.PERPLEXITY_MODEL || 'sonar'
+  }
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
@@ -140,6 +143,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
+      (provider === 'perplexity' ? process.env.PERPLEXITY_MODEL : undefined) ||
       (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
       (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
@@ -192,6 +196,10 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'devstral-latest'
   }
+  // Perplexity provider
+  if (getAPIProvider() === 'perplexity') {
+    return process.env.PERPLEXITY_MODEL || 'sonar-pro'
+  }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
@@ -242,6 +250,10 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'mistral-medium-latest'
   }
+  // Perplexity provider
+  if (getAPIProvider() === 'perplexity') {
+    return process.env.PERPLEXITY_MODEL || 'sonar-pro'
+  }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
@@ -285,6 +297,10 @@ export function getDefaultHaikuModel(): ModelName {
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
+  }
+  // Perplexity provider
+  if (getAPIProvider() === 'perplexity') {
+    return process.env.PERPLEXITY_MODEL || 'sonar'
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
@@ -377,6 +393,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   }
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'devstral-latest'
+  }
+  if (getAPIProvider() === 'perplexity') {
+    return process.env.PERPLEXITY_MODEL || 'sonar-pro'
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
@@ -591,7 +610,8 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     getAPIProvider() === 'minimax' ||
     getAPIProvider() === 'xiaomi-mimo' ||
     getAPIProvider() === 'nvidia-nim' ||
-    getAPIProvider() === 'mistral'
+    getAPIProvider() === 'mistral' ||
+    getAPIProvider() === 'perplexity'
   ) {
     // Return display names for known GitHub Copilot models
     const copilotModelNames: Record<string, string> = {

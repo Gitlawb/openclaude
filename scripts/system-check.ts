@@ -125,6 +125,7 @@ function isLocalBaseUrl(baseUrl: string): boolean {
 
 const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
 const MISTRAL_DEFAULT_BASE_URL = 'https://api.mistral.ai/v1'
+const PERPLEXITY_DEFAULT_BASE_URL = 'https://api.perplexity.ai'
 const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 
 function currentBaseUrl(): string {
@@ -133,6 +134,9 @@ function currentBaseUrl(): string {
   }
   if (isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
     return process.env.MISTRAL_BASE_URL ?? MISTRAL_DEFAULT_BASE_URL
+  }
+  if (isTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)) {
+    return process.env.PERPLEXITY_BASE_URL ?? PERPLEXITY_DEFAULT_BASE_URL
   }
   if (isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     return process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE
@@ -190,6 +194,31 @@ function checkMistralEnv(): CheckResult[] {
   return results
 }
 
+function checkPerplexityEnv(): CheckResult[] {
+  const results: CheckResult[] = []
+  const model = process.env.PERPLEXITY_MODEL
+  const key = process.env.PERPLEXITY_API_KEY
+  const baseUrl = process.env.PERPLEXITY_BASE_URL ?? PERPLEXITY_DEFAULT_BASE_URL
+
+  results.push(pass('Provider mode', 'Perplexity AI provider enabled.'))
+
+  if (!model) {
+    results.push(pass('PERPLEXITY_MODEL', 'Not set. Default will be used at runtime (sonar-pro).'))
+  } else {
+    results.push(pass('PERPLEXITY_MODEL', model))
+  }
+
+  results.push(pass('PERPLEXITY_BASE_URL', baseUrl))
+
+  if (!key) {
+    results.push(fail('PERPLEXITY_API_KEY', 'Missing. Set PERPLEXITY_API_KEY.'))
+  } else {
+    results.push(pass('PERPLEXITY_API_KEY', 'Configured.'))
+  }
+
+  return results
+}
+
 function checkGithubEnv(): CheckResult[] {
   const results: CheckResult[] = []
   const baseUrl = process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE
@@ -222,6 +251,7 @@ function checkOpenAIEnv(): CheckResult[] {
   const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const useMistral = isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const usePerplexity = isTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
 
   if (useGemini) {
@@ -230,6 +260,10 @@ function checkOpenAIEnv(): CheckResult[] {
 
   if (useMistral) {
     return checkMistralEnv()
+  }
+
+  if (usePerplexity) {
+    return checkPerplexityEnv()
   }
 
   if (useGithub && !useOpenAI) {
@@ -309,8 +343,9 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const useMistral = isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const usePerplexity = isTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)
 
-  if (!useGemini && !useOpenAI && !useGithub && !useMistral) {
+  if (!useGemini && !useOpenAI && !useGithub && !useMistral && !usePerplexity) {
     return pass('Provider reachability', 'Skipped (OpenAI-compatible mode disabled).')
   }
 
@@ -370,6 +405,8 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
       headers.Authorization = `Bearer ${process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY}`
     } else if (useMistral && process.env.MISTRAL_API_KEY) {
       headers.Authorization = `Bearer ${process.env.MISTRAL_API_KEY}`
+    } else if (usePerplexity && process.env.PERPLEXITY_API_KEY) {
+      headers.Authorization = `Bearer ${process.env.PERPLEXITY_API_KEY}`
     } else if (process.env.OPENAI_API_KEY) {
       headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY}`
     }
@@ -415,8 +452,9 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const useMistral = isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const usePerplexity = isTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)
 
-  if (!useGemini && !useOpenAI && !useGithub && !useMistral) {
+  if (!useGemini && !useOpenAI && !useGithub && !useMistral && !usePerplexity) {
     return pass('Provider generation readiness', 'Skipped (OpenAI-compatible mode disabled).')
   }
 
@@ -427,7 +465,7 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
     )
   }
 
-  if (useGemini || useMistral) {
+  if (useGemini || useMistral || usePerplexity) {
     return pass(
       'Provider generation readiness',
       'Skipped for managed provider mode.',
@@ -509,7 +547,8 @@ function checkOllamaProcessorMode(): CheckResult {
     !isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
     isTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
-    isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) ||
+    isTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)
   ) {
     return pass('Ollama processor mode', 'Skipped (OpenAI-compatible mode disabled).')
   }
@@ -567,6 +606,14 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
       MISTRAL_MODEL: process.env.MISTRAL_MODEL ?? '(unset, default: devstral-latest)',
       MISTRAL_BASE_URL: process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1',
       MISTRAL_API_KEY_SET: Boolean(process.env.MISTRAL_API_KEY),
+    }
+  }
+  if (isTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)) {
+    return {
+      CLAUDE_CODE_USE_PERPLEXITY: true,
+      PERPLEXITY_MODEL: process.env.PERPLEXITY_MODEL ?? '(unset, default: sonar-pro)',
+      PERPLEXITY_BASE_URL: process.env.PERPLEXITY_BASE_URL ?? 'https://api.perplexity.ai',
+      PERPLEXITY_API_KEY_SET: Boolean(process.env.PERPLEXITY_API_KEY),
     }
   }
   if (

@@ -40,6 +40,7 @@ export type DetectedProviderKind =
   | 'openai'
   | 'gemini'
   | 'mistral'
+  | 'perplexity'
   | 'minimax'
   | 'xiaomi-mimo'
   | 'xai'
@@ -157,6 +158,10 @@ export function detectProviderFromEnv(
 
   if (envHasNonEmpty(env, 'MISTRAL_API_KEY')) {
     return { kind: 'mistral', source: 'MISTRAL_API_KEY set' }
+  }
+
+  if (envHasNonEmpty(env, 'PERPLEXITY_API_KEY')) {
+    return { kind: 'perplexity', source: 'PERPLEXITY_API_KEY set' }
   }
 
   if (envHasNonEmpty(env, 'MINIMAX_API_KEY')) {

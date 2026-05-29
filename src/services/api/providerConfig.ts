@@ -29,6 +29,7 @@ export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1'
 export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
+export const DEFAULT_PERPLEXITY_BASE_URL = 'https://api.perplexity.ai'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
@@ -618,17 +619,21 @@ export function resolveProviderRequest(options?: {
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const isPerplexityMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY)
   const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? process.env.MISTRAL_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
+      : isPerplexityMode
+        ? process.env.PERPLEXITY_MODEL?.trim()
+        : process.env.OPENAI_MODEL?.trim()) ||
     (isGeminiMode
       ? process.env.GEMINI_MODEL?.trim()
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
+    (isPerplexityMode ? 'sonar-pro' : undefined) ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
@@ -638,6 +643,11 @@ export function resolveProviderRequest(options?: {
     'MISTRAL_BASE_URL',
   )
 
+  const normalizedPerplexityEnvBaseUrl = asNamedEnvUrl(
+    process.env.PERPLEXITY_BASE_URL,
+    'PERPLEXITY_BASE_URL',
+  )
+
   const normalizedGeminiEnvBaseUrl = asNamedEnvUrl(
     process.env.GEMINI_BASE_URL,
     'GEMINI_BASE_URL',
@@ -645,16 +655,22 @@ export function resolveProviderRequest(options?: {
 
   const primaryEnvBaseUrl = isMistralMode
     ? normalizedMistralEnvBaseUrl
+    : isPerplexityMode
+    ? normalizedPerplexityEnvBaseUrl
     : isGeminiMode
     ? normalizedGeminiEnvBaseUrl
     : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
-  // In Mistral mode, a literal "undefined" MISTRAL_BASE_URL is treated as
-  // misconfiguration and falls back to OPENAI_API_BASE, then
-  // DEFAULT_MISTRAL_BASE_URL for a safe default endpoint.
+  // In Mistral/Perplexity mode, a literal "undefined" BASE_URL is treated as
+  // misconfiguration and falls back to OPENAI_API_BASE, then the provider
+  // default for a safe default endpoint.
   const fallbackEnvBaseUrl = isMistralMode
     ? (primaryEnvBaseUrl === undefined
       ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
+      : undefined)
+    : isPerplexityMode
+    ? (primaryEnvBaseUrl === undefined
+      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_PERPLEXITY_BASE_URL
       : undefined)
     : isGeminiMode
     ? (primaryEnvBaseUrl === undefined
@@ -769,6 +785,7 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
     if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_PERPLEXITY) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
