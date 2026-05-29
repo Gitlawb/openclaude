@@ -44,14 +44,27 @@ export default defineVendor({
     source: 'static',
     models: [
       {
+        id: 'gemini-2.5-flash',
+        apiName: 'gemini-2.5-flash',
+        label: 'Gemini 2.5 Flash',
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
+      },
+      {
+        id: 'gemini-2.5-pro',
+        apiName: 'gemini-2.5-pro',
+        label: 'Gemini 2.5 Pro',
+        contextWindow: 1_048_576,
+        maxOutputTokens: 65_536,
+      },
+      // Thinking model — available on global endpoint only
+      {
         id: 'gemini-3.5-flash',
         apiName: 'gemini-3.5-flash',
         label: 'Gemini 3.5 Flash',
         contextWindow: 1_048_576,
         maxOutputTokens: 65_536,
       },
-      { id: 'gemini-2.5-flash', apiName: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-      { id: 'gemini-2.5-pro', apiName: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
     ],
   },
   usage: { supported: false },
