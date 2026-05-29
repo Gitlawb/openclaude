@@ -2,6 +2,7 @@ import { toJSONSchema } from 'zod/v4'
 import { SettingsSchema } from '../../utils/settings/types.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { registerBundledSkill } from '../bundledSkills.js'
+import { t } from './i18n.js'
 
 /**
  * Generate JSON Schema from the settings Zod schema.
@@ -446,8 +447,10 @@ If a hook isn't running:
 export function registerUpdateConfigSkill(): void {
   registerBundledSkill({
     name: 'update-config',
-    description:
-      'Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, use Config tool.',
+    description: t({
+      en: 'Use this skill to configure the Claude Code harness via settings.json. Automated behaviors ("from now on when X", "each time X", "whenever X", "before/after X") require hooks configured in settings.json - the harness executes these, not Claude, so memory/preferences cannot fulfill them. Also use for: permissions ("allow X", "add permission", "move permission to"), env vars ("set X=Y"), hook troubleshooting, or any changes to settings.json/settings.local.json files. Examples: "allow npm commands", "add bq permission to global settings", "move permission to user settings", "set DEBUG=true", "when claude stops show X". For simple settings like theme/model, use Config tool.',
+      vi: 'Sử dụng skill này để cấu hình Claude Code qua settings.json. Các hành vi tự động ("từ giờ khi X", "mỗi lần X", "bất cứ khi nào X", "trước/sau X") yêu cầu hooks được cấu hình trong settings.json - hệ thống thực thi hooks, không phải Claude, nên memory/preferences không thể thực hiện được. Cũng dùng cho: phân quyền ("cho phép X", "thêm quyền", "chuyển quyền"), biến môi trường ("set X=Y"), khắc phục sự cố hooks, hoặc bất kỳ thay đổi nào với settings.json/settings.local.json. Ví dụ: "cho phép lệnh npm", "thêm quyền bq vào settings toàn cục", "chuyển quyền sang user settings", "set DEBUG=true", "khi claude dừng hiển thị X". Với cài đặt đơn giản như theme/model, dùng Config tool.',
+    }),
     allowedTools: ['Read'],
     userInvocable: true,
     async getPromptForCommand(args) {
