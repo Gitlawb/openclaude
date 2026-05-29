@@ -3,6 +3,9 @@
  *
  * Many commands use exit codes to convey information other than just success/failure.
  * For example, grep returns 1 when no matches are found, which is not an error condition.
+ * Linters and test runners follow the same pattern: exit code 1 means "issues found"
+ * (something the model should read and act on), while exit code 2+ means the tool
+ * itself failed (a real error worth retrying or surfacing).
  */
 
 import { splitCommand_DEPRECATED } from '../../utils/bash/commands.js'
@@ -24,6 +27,18 @@ const DEFAULT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
   message:
     exitCode !== 0 ? `Command failed with exit code ${exitCode}` : undefined,
 })
+
+/**
+ * Semantic factory for tools where exit code 1 is informational (issues found,
+ * not a crash) and exit code 2+ means the tool itself failed. Covers most
+ * linters, type checkers, and test runners.
+ */
+function exitOneInformational(message: string): CommandSemantic {
+  return (exitCode, _stdout, _stderr) => ({
+    isError: exitCode >= 2,
+    message: exitCode === 1 ? message : undefined,
+  })
+}
 
 /**
  * Command-specific semantics
@@ -84,9 +99,64 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
     }),
   ],
 
+  // Linters: 0=clean, 1=violations found (informational), 2+=tool error
+  ['ruff', exitOneInformational('Lint violations found')],
+  ['eslint', exitOneInformational('Lint violations found')],
+  ['flake8', exitOneInformational('Lint violations found')],
+  ['biome', exitOneInformational('Lint violations found')],
+
+  // Type checkers: 0=clean, 1=type errors found (informational), 2+=tool error
+  ['mypy', exitOneInformational('Type errors found')],
+  ['pyright', exitOneInformational('Type errors found')],
+  ['tsc', exitOneInformational('Type errors found')],
+
+  // Test runners: 0=all passed, 1=test failures (informational), 2+=runner error
+  ['pytest', exitOneInformational('Test failures')],
+  ['jest', exitOneInformational('Test failures')],
+  ['vitest', exitOneInformational('Test failures')],
+
+  // pylint uses an OR-ed bitfield exit code:
+  //   1=fatal, 2=error msg, 4=warning, 8=refactor, 16=convention, 32=usage error
+  // Only a fatal pylint crash (1) or a CLI usage error (32) is a real failure;
+  // the message bits (2/4/8/16) are lint findings the model should read.
+  [
+    'pylint',
+    (exitCode, _stdout, _stderr) => {
+      if (exitCode === 0) return { isError: false }
+      const fatal = (exitCode & 1) !== 0
+      const usageError = (exitCode & 32) !== 0
+      return {
+        isError: fatal || usageError,
+        message: fatal || usageError ? undefined : 'Lint messages found',
+      }
+    },
+  ],
+
   // wc, head, tail, cat, etc.: these typically only fail on real errors
   // so we use default semantics
 ])
+
+/**
+ * Package/module runners that invoke another tool as a subprocess and inherit
+ * its exit code. To interpret the exit code correctly we must look past the
+ * runner to the tool it actually runs (e.g. `uvx ruff check` → ruff).
+ */
+const PACKAGE_RUNNERS = new Set(['uvx', 'npx', 'bunx', 'pipx'])
+const MODULE_RUNNERS = new Set(['python', 'python3'])
+const RUN_SUBCOMMANDS = new Set(['run'])
+
+/**
+ * Resolve a raw token to a bare command name: strip any leading path and a
+ * trailing version pin or Windows extension.
+ *   ./node_modules/.bin/eslint → eslint
+ *   /usr/bin/ruff              → ruff
+ *   eslint@8.0.0               → eslint
+ *   ruff.exe                   → ruff
+ */
+function resolveToolName(token: string): string {
+  const base = token.split(/[/\\]/).pop() || token
+  return base.replace(/@.*$/, '').replace(/\.(exe|cmd|bat|ps1)$/i, '')
+}
 
 /**
  * Get the semantic interpretation for a command
@@ -99,10 +169,43 @@ function getCommandSemantic(command: string): CommandSemantic {
 }
 
 /**
- * Extract just the command name (first word) from a single command string.
+ * Extract the effective command name from a single command string, looking past
+ * package/module runners and resolving path/version-pinned invocations.
+ *   uvx ruff check --fix    → ruff
+ *   npx --yes eslint .      → eslint
+ *   python -m ruff check    → ruff
+ *   pipx run black          → black
+ *   ./node_modules/.bin/tsc → tsc
  */
 function extractBaseCommand(command: string): string {
-  return command.trim().split(/\s+/)[0] || ''
+  const words = command.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ''
+
+  const first = resolveToolName(words[0])
+
+  // `python -m <module>` / `python3 -m <module>`: the module is the real tool.
+  // A bare `python script.py` keeps default semantics (exit 1 = real error).
+  if (MODULE_RUNNERS.has(first)) {
+    const mIdx = words.indexOf('-m')
+    if (mIdx !== -1 && words[mIdx + 1]) {
+      return resolveToolName(words[mIdx + 1])
+    }
+    return first
+  }
+
+  // Package runners: skip the runner, any flags, and a `run` subcommand, then
+  // take the first real argument as the tool being executed.
+  if (PACKAGE_RUNNERS.has(first)) {
+    for (let i = 1; i < words.length; i++) {
+      const w = words[i]
+      if (w.startsWith('-')) continue
+      if (RUN_SUBCOMMANDS.has(w)) continue
+      return resolveToolName(w)
+    }
+    return first
+  }
+
+  return first
 }
 
 /**

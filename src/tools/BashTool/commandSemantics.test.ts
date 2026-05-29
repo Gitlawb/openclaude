@@ -160,4 +160,195 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(true)
     })
   })
+
+  // --- linters: 0=clean, 1=violations (not error), 2+=tool error ---
+  describe('linters', () => {
+    test('ruff exit code 1 = violations found (not error)', () => {
+      const result = interpretCommandResult('ruff check app.py', 1, 'E501 Line too long', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Lint violations found')
+    })
+
+    test('ruff exit code 0 = clean', () => {
+      const result = interpretCommandResult('ruff check app.py', 0, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('ruff exit code 2 = internal error', () => {
+      const result = interpretCommandResult('ruff check app.py', 2, '', 'invalid config')
+      expect(result.isError).toBe(true)
+    })
+
+    test('eslint exit code 1 = violations (not error)', () => {
+      const result = interpretCommandResult('eslint src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('eslint exit code 2 = fatal config error', () => {
+      const result = interpretCommandResult('eslint src/', 2, '', 'Cannot read config')
+      expect(result.isError).toBe(true)
+    })
+
+    test('flake8 exit code 1 = violations (not error)', () => {
+      const result = interpretCommandResult('flake8 app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('biome exit code 1 = violations (not error)', () => {
+      const result = interpretCommandResult('biome check .', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+  })
+
+  // --- type checkers: 0=clean, 1=type errors (not error), 2+=tool error ---
+  describe('type checkers', () => {
+    test('mypy exit code 1 = type errors found (not error)', () => {
+      const result = interpretCommandResult('mypy app.py', 1, 'error: incompatible type', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Type errors found')
+    })
+
+    test('mypy exit code 2 = tool error', () => {
+      const result = interpretCommandResult('mypy app.py', 2, '', 'cannot find module')
+      expect(result.isError).toBe(true)
+    })
+
+    test('pyright exit code 1 = errors found (not error)', () => {
+      const result = interpretCommandResult('pyright', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('tsc exit code 1 = compile errors (not error)', () => {
+      const result = interpretCommandResult('tsc --noEmit', 1, 'TS2304: cannot find name', '')
+      expect(result.isError).toBe(false)
+    })
+  })
+
+  // --- test runners: 0=pass, 1=failures (not error), 2+=runner error ---
+  describe('test runners', () => {
+    test('pytest exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('pytest tests/', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Test failures')
+    })
+
+    test('pytest exit code 0 = all passed', () => {
+      const result = interpretCommandResult('pytest tests/', 0, '5 passed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('pytest exit code 2 = interrupted/internal error', () => {
+      const result = interpretCommandResult('pytest tests/', 2, '', 'INTERNALERROR')
+      expect(result.isError).toBe(true)
+    })
+
+    test('jest exit code 1 = failures (not error)', () => {
+      const result = interpretCommandResult('jest', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('vitest exit code 1 = failures (not error)', () => {
+      const result = interpretCommandResult('vitest run', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+  })
+
+  // --- pylint: OR-ed bitfield (1=fatal, 2=error, 4=warn, 8=refactor, 16=convention, 32=usage) ---
+  describe('pylint bitfield', () => {
+    test('exit code 0 = clean', () => {
+      const result = interpretCommandResult('pylint app.py', 0, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('exit code 16 = convention only (not error)', () => {
+      const result = interpretCommandResult('pylint app.py', 16, 'C0114 missing docstring', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Lint messages found')
+    })
+
+    test('exit code 4 = warning only (not error)', () => {
+      const result = interpretCommandResult('pylint app.py', 4, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('exit code 2 = error-category message (not a crash)', () => {
+      const result = interpretCommandResult('pylint app.py', 2, 'E1101', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('exit code 1 = fatal pylint crash (error)', () => {
+      const result = interpretCommandResult('pylint app.py', 1, '', 'fatal')
+      expect(result.isError).toBe(true)
+    })
+
+    test('exit code 32 = usage error (error)', () => {
+      const result = interpretCommandResult('pylint --bogus', 32, '', 'usage error')
+      expect(result.isError).toBe(true)
+    })
+
+    test('exit code 20 = convention(16)+warning(4) only (not error)', () => {
+      const result = interpretCommandResult('pylint app.py', 20, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('exit code 17 = fatal(1)+convention(16) (error)', () => {
+      const result = interpretCommandResult('pylint app.py', 17, '', '')
+      expect(result.isError).toBe(true)
+    })
+  })
+
+  // --- package/module runners unwrap to the real tool ---
+  describe('runner unwrapping', () => {
+    test('uvx ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('uvx ruff check --fix app.py', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npx eslint exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('npx eslint src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npx with --yes flag still unwraps to eslint', () => {
+      const result = interpretCommandResult('npx --yes eslint src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npx with version pin unwraps to eslint', () => {
+      const result = interpretCommandResult('npx eslint@8.0.0 src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('python -m ruff exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('python -m ruff check app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('python3 -m pytest exit 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('python3 -m pytest tests/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('pipx run black exit 1 falls back to default (black not in map)', () => {
+      // black exit 1 = files would be reformatted; not in the map, so default
+      // semantics apply. This documents current behaviour, not an endorsement.
+      const result = interpretCommandResult('pipx run black --check app.py', 1, '', '')
+      expect(result.isError).toBe(true)
+    })
+
+    test('path-based eslint invocation unwraps to eslint', () => {
+      const result = interpretCommandResult('./node_modules/.bin/eslint src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('bare python script exit 1 stays a real error', () => {
+      const result = interpretCommandResult('python script.py', 1, '', 'Traceback')
+      expect(result.isError).toBe(true)
+    })
+
+    test('uvx ruff as last command in compound chain', () => {
+      const result = interpretCommandResult('cd /tmp && uvx ruff check app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+  })
 })
