@@ -50,7 +50,7 @@ function parseLaunchOptions(argv: string[]): LaunchOptions {
       continue
     }
 
-    if ((lower === 'auto' || lower === 'openai' || lower === 'ollama' || lower === 'codex' || lower === 'gemini' || lower ==='mistral' || lower === 'atomic-chat') && requestedProfile === 'auto') {
+    if ((lower === 'auto' || lower === 'openai' || lower === 'ollama' || lower === 'codex' || lower === 'gemini' || lower === 'gemini-vertex' || lower ==='mistral' || lower === 'atomic-chat') && requestedProfile === 'auto') {
       requestedProfile = lower as ProviderProfile | 'auto'
       continue
     }
@@ -124,6 +124,8 @@ function printSummary(profile: ProviderProfile): void {
   console.log(`Launching profile: ${profile}`)
   if (profile === 'gemini') {
     console.log('Using configured Gemini provider settings.')
+  } else if (profile === 'gemini-vertex') {
+    console.log('Using Google Vertex AI Gemini (native). ADC credentials required.')
   } else if (profile === 'mistral') {
     console.log('Using configured Mistral provider settings.')
   } else if (profile === 'codex') {
@@ -156,7 +158,7 @@ async function main(): Promise<void> {
   const options = parseLaunchOptions(process.argv.slice(2))
   const requestedProfile = options.requestedProfile
   if (!requestedProfile) {
-    console.error('Usage: bun run scripts/provider-launch.ts [openai|ollama|codex|gemini|mistral|atomic-chat|mistral|auto] [--fast] [--goal <latency|balanced|coding>] [-- <cli args>]')
+    console.error('Usage: bun run scripts/provider-launch.ts [openai|ollama|codex|gemini|gemini-vertex|mistral|atomic-chat|auto] [--fast] [--goal <latency|balanced|coding>] [-- <cli args>]')
     process.exit(1)
   }
 
@@ -219,6 +221,11 @@ async function main(): Promise<void> {
 
   if (profile === 'gemini' && !hasUsableGeminiLaunchAuth(env)) {
     console.error('Gemini credentials are required for gemini profile. Use `bun run profile:init -- --provider gemini --api-key <key>`, save an access-token/ADC Gemini profile with `/provider`, or set GEMINI_API_KEY/GOOGLE_API_KEY/GEMINI_ACCESS_TOKEN.')
+    process.exit(1)
+  }
+
+  if (profile === 'gemini-vertex' && !env.GEMINI_VERTEX_PROJECT) {
+    console.error('GEMINI_VERTEX_PROJECT (or GOOGLE_CLOUD_PROJECT) is required for gemini-vertex profile.\nRun: bun run profile:init -- --provider gemini-vertex --project <project-id>\nOr set GEMINI_VERTEX_PROJECT in your environment.')
     process.exit(1)
   }
 

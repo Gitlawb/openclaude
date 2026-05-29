@@ -32,6 +32,7 @@
     "dev:codex": "bun run scripts/provider-launch.ts codex",
     "dev:openai": "bun run scripts/provider-launch.ts openai",
     "dev:gemini": "bun run scripts/provider-launch.ts gemini",
+    "dev:gemini-vertex": "bun run scripts/provider-launch.ts gemini-vertex",
     "dev:ollama": "bun run scripts/provider-launch.ts ollama",
     "dev:ollama:fast": "bun run scripts/provider-launch.ts ollama --fast --bare",
     "dev:atomic-chat": "bun run scripts/provider-launch.ts atomic-chat",
