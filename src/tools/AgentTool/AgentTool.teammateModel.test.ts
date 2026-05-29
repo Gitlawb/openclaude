@@ -7,10 +7,12 @@ import {
 
 type ModelAllowlistModule = typeof import('../../utils/model/modelAllowlist.js')
 type SpawnMultiAgentModule = typeof import('../shared/spawnMultiAgent.js')
+type AgentSwarmsEnabledModule = typeof import('../../utils/agentSwarmsEnabled.js')
 type SpawnTeammateConfig = Parameters<SpawnMultiAgentModule['spawnTeammate']>[0]
 
 let originalModelAllowlistModule: ModelAllowlistModule | undefined
 let originalSpawnMultiAgentModule: SpawnMultiAgentModule | undefined
+let originalAgentSwarmsEnabledModule: AgentSwarmsEnabledModule | undefined
 
 const originalEnv = {
   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:
@@ -41,6 +43,12 @@ afterEach(async () => {
         () => originalSpawnMultiAgentModule!,
       )
     }
+    if (originalAgentSwarmsEnabledModule) {
+      mock.module(
+        '../../utils/agentSwarmsEnabled.js',
+        () => originalAgentSwarmsEnabledModule!,
+      )
+    }
     restoreEnv('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS')
     restoreEnv('CLAUDE_CODE_SUBAGENT_MODEL')
   } finally {
@@ -69,12 +77,19 @@ async function importActualSpawnMultiAgent(): Promise<SpawnMultiAgentModule> {
   )
 }
 
+async function importActualAgentSwarmsEnabled(): Promise<AgentSwarmsEnabledModule> {
+  return import(
+    `../../utils/agentSwarmsEnabled.ts?agentToolActual=${Date.now()}-${Math.random()}`
+  )
+}
+
 async function importAgentToolWithSpawnMock(): Promise<{
   AgentTool: typeof import('./AgentTool.js').AgentTool
   spawnTeammate: ReturnType<typeof mock>
 }> {
   originalModelAllowlistModule ??= await importActualModelAllowlist()
   originalSpawnMultiAgentModule ??= await importActualSpawnMultiAgent()
+  originalAgentSwarmsEnabledModule ??= await importActualAgentSwarmsEnabled()
   const spawnTeammate = mock(async () => ({
     data: {
       teammate_id: 'teammate-1',
@@ -92,6 +107,10 @@ async function importAgentToolWithSpawnMock(): Promise<{
   mock.module('../shared/spawnMultiAgent.js', () => ({
     ...originalSpawnMultiAgentModule!,
     spawnTeammate,
+  }))
+  mock.module('../../utils/agentSwarmsEnabled.js', () => ({
+    ...originalAgentSwarmsEnabledModule!,
+    isAgentSwarmsEnabled: () => true,
   }))
 
   const { AgentTool } = await import(

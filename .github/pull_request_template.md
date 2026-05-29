@@ -12,6 +12,7 @@
 
 - [ ] `bun run build`
 - [ ] `bun run smoke`
+- [ ] `bun run check`
 - [ ] focused tests:
 
 ## Notes

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import figures from 'figures'
 import type { StatusNoticeContext } from './statusNoticeDefinitions.js'
 import {
   getActiveNotices,
@@ -169,13 +170,15 @@ describe('safety notice rendering', () => {
       ctx,
     )
 
-    expect(thirdPartyNotice).toContain('⚠ bypassPermissions')
-    expect(thirdPartyNotice).not.toContain('⚠bypassPermissions')
+    expect(thirdPartyNotice).toContain(`${figures.warning} bypassPermissions`)
+    expect(thirdPartyNotice).not.toContain(
+      `${figures.warning}bypassPermissions`,
+    )
     expect(dangerouslySkipNotice).toContain(
-      '⚠ --dangerously-skip-permissions',
+      `${figures.warning} --dangerously-skip-permissions`,
     )
     expect(dangerouslySkipNotice).not.toContain(
-      '⚠--dangerously-skip-permissions',
+      `${figures.warning}--dangerously-skip-permissions`,
     )
     expect(
       thirdPartyNotice

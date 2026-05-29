@@ -8,6 +8,8 @@ import {
 } from '../test/sharedMutationLock.js'
 
 type HookChainsModule = typeof import('./hookChains.js')
+type AgentToolModule = typeof import('../tools/AgentTool/AgentTool.js')
+type TeammateMailboxModule = typeof import('./teammateMailbox.js')
 
 type ImportHarnessOptions = {
   allowRemoteSessions?: boolean
@@ -24,6 +26,27 @@ type ImportHarnessOptions = {
 
 const tempDirs: string[] = []
 const originalHookChainsEnabled = process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS
+
+async function importActualAgentToolModule(): Promise<AgentToolModule> {
+  return import(
+    `../tools/AgentTool/AgentTool.tsx?hookChainsActual=${Date.now()}-${Math.random()}`
+  ) as Promise<AgentToolModule>
+}
+
+async function importActualTeammateMailboxModule(): Promise<TeammateMailboxModule> {
+  return import(
+    `./teammateMailbox.ts?hookChainsActual=${Date.now()}-${Math.random()}`
+  ) as Promise<TeammateMailboxModule>
+}
+
+async function restorePersistentModuleMocks(): Promise<void> {
+  const [actualAgentTool, actualTeammateMailbox] = await Promise.all([
+    importActualAgentToolModule(),
+    importActualTeammateMailboxModule(),
+  ])
+  mock.module('../tools/AgentTool/AgentTool.js', () => actualAgentTool)
+  mock.module('./teammateMailbox.js', () => actualTeammateMailbox)
+}
 
 async function createConfigFile(config: unknown): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-hook-chains-int-'))
@@ -54,6 +77,10 @@ async function importHookChainsHarness(
       agentId: 'agent-fallback-1',
     },
   }))
+  const [actualAgentTool, actualTeammateMailbox] = await Promise.all([
+    importActualAgentToolModule(),
+    importActualTeammateMailboxModule(),
+  ])
 
   mock.module('../services/analytics/index.js', () => ({
     logEvent: () => {},
@@ -72,6 +99,7 @@ async function importHookChainsHarness(
   }))
 
   mock.module('./teammateMailbox.js', () => ({
+    ...actualTeammateMailbox,
     writeToMailbox: writeToMailboxSpy,
   }))
 
@@ -95,7 +123,9 @@ async function importHookChainsHarness(
   // Integration mock target requested in the task: fallback action can route
   // through this mocked tool launcher from runtime callback wiring.
   mock.module('../tools/AgentTool/AgentTool.js', () => ({
+    ...actualAgentTool,
     AgentTool: {
+      ...actualAgentTool.AgentTool,
       call: agentToolCallSpy,
     },
   }))
@@ -112,6 +142,7 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    await restorePersistentModuleMocks()
 
     if (originalHookChainsEnabled === undefined) {
       delete process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS
