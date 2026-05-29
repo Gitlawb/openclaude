@@ -251,6 +251,11 @@ function sleepMs(ms: number): Promise<void> {
 // Scoped DNS dispatcher — per-request IPv4/IPv6 preference without mutating
 // global dns.setDefaultResultOrder. Uses a cached undici Agent whose
 // connect.lookup forces the declared address family.
+//
+// Bun compatibility: Bun's fetch does not support undici dispatchers, so
+// getDnsDispatcher returns undefined under Bun. Instead, resolveIPv4ForBun()
+// pre-resolves the hostname to an IPv4 address and rewrites the URL. The
+// caller adds a Host header so TLS SNI and virtual hosting still work.
 // ---------------------------------------------------------------------------
 
 import type * as undici from 'undici'
@@ -273,12 +278,18 @@ export function clearDnsDispatcherCache(): void {
  * bakes them into the same agent so IPv4-first DNS and mTLS/custom CA
  * both apply to the same request.
  *
- * Returns `undefined` when no custom DNS behaviour is needed.
+ * Returns `undefined` when no custom DNS behaviour is needed or when
+ * running under Bun (Bun's fetch ignores undici dispatchers — use
+ * resolveIPv4ForBun instead).
  */
 function getDnsDispatcher(
   dnsResultOrder: 'ipv4first' | 'verbatim' | undefined,
 ): undici.Dispatcher | undefined {
   if (!dnsResultOrder) return undefined
+
+  // Bun's fetch does not honour undici dispatchers. The caller should use
+  // resolveIPv4ForBun() instead for the Bun runtime path.
+  if (typeof Bun !== 'undefined') return undefined
 
   const tlsOpts = getTLSConnectOptions()
   // Include a TLS sentinel in the cache key so a TLS-enabled agent is not
@@ -312,8 +323,48 @@ function getDnsDispatcher(
     dnsDispatcherCache.set(cacheKey, agent)
     return agent
   } catch {
-    // undici or dns not available (e.g. Bun) — fall back to default behaviour
+    // undici or dns not available — fall back to default behaviour
     return undefined
+  }
+}
+
+/**
+ * Bun-specific IPv4 resolution. Bun's fetch ignores undici dispatchers, so
+ * we pre-resolve the hostname to an IPv4 address and rewrite the URL.
+ *
+ * Returns `{ url, hostHeader }` when resolution succeeds under Bun, or
+ * `null` when not running under Bun, when no DNS rewrite is needed, or
+ * when the lookup fails (in which case we fall through to the default path).
+ */
+async function resolveIPv4ForBun(
+  requestUrl: string,
+  dnsResultOrder: 'ipv4first' | 'verbatim' | undefined,
+): Promise<{ url: string; hostHeader: string } | null> {
+  if (dnsResultOrder !== 'ipv4first') return null
+  if (typeof Bun === 'undefined') return null
+
+  try {
+    const parsed = new URL(requestUrl)
+    const hostname = parsed.hostname
+
+    // Already an IP literal — nothing to resolve.
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.startsWith('[')) {
+      return null
+    }
+
+    // Bun.dns.lookup returns an array of { address, family } objects.
+    // Request family:4 to get only IPv4 results.
+    const results = await (Bun as { dns: { lookup: (h: string, opts: { family: number }) => Promise<Array<{ address: string; family: number }>> } }).dns.lookup(hostname, { family: 4 })
+    const ipv4 = results.find((r: { family: number }) => r.family === 4)
+    if (!ipv4) return null
+
+    // Preserve the original Host for TLS SNI and virtual hosting.
+    const hostHeader = parsed.port ? `${hostname}:${parsed.port}` : hostname
+    parsed.hostname = ipv4.address
+    return { url: parsed.toString(), hostHeader }
+  } catch {
+    // DNS lookup failed — fall through to default resolution.
+    return null
   }
 }
 
@@ -2761,15 +2812,29 @@ class OpenAIShimMessages {
       : request.baseUrl.includes('anthropic') ? 'anthropic'
       : 'openai'
 
-    // Scoped DNS dispatcher: when shimConfig.dnsResultOrder is 'ipv4first',
-    // create a per-gateway undici Agent whose connect.lookup forces { family: 4 }.
-    // This avoids mutating the global dns.setDefaultResultOrder, keeping DNS
-    // behaviour scoped to requests routed through this specific gateway.
-    // Cached per dnsResultOrder value so the Agent is reused across requests.
-    // getDnsDispatcher merges any active TLS connect options (mTLS / custom CA)
-    // into the same undici Agent so both IPv4-first DNS and enterprise TLS
-    // apply to the same connection rather than one silently shadowing the other.
+    // Scoped DNS: when shimConfig.dnsResultOrder is 'ipv4first', force IPv4.
+    //
+    // Node path: a cached undici Agent whose connect.lookup forces { family: 4 }.
+    // Avoids mutating global dns.setDefaultResultOrder, keeping DNS behaviour
+    // scoped. getDnsDispatcher merges TLS connect options (mTLS / custom CA)
+    // into the same agent so both IPv4 DNS and enterprise TLS apply together.
+    //
+    // Bun path: Bun's fetch ignores undici dispatchers, so getDnsDispatcher
+    // returns undefined. Instead, resolveIPv4ForBun pre-resolves the hostname
+    // to an IPv4 address via Bun.dns.lookup({family:4}), rewrites requestUrl
+    // to use the IP, and sets a Host header so TLS SNI still works.
     const scopedDnsDispatcher = getDnsDispatcher(shimConfig.dnsResultOrder)
+
+    // Bun runtime: pre-resolve hostname to IPv4 and rewrite URL + Host header.
+    const bunIpv4 = await resolveIPv4ForBun(requestUrl, shimConfig.dnsResultOrder)
+    if (bunIpv4) {
+      requestUrl = bunIpv4.url
+      // Set Host header so TLS SNI and virtual hosting work with the IP-based URL.
+      // Only set if not already explicitly provided by the caller/config.
+      if (!headers['Host'] && !headers['host']) {
+        headers['Host'] = bunIpv4.hostHeader
+      }
+    }
 
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {

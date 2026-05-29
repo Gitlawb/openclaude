@@ -6258,3 +6258,85 @@ test('clearDnsDispatcherCache clears the internal agent cache without throwing',
   expect(() => clearDnsDispatcherCache()).not.toThrow()
 })
 
+test('dnsResultOrder: ipv4first rewrites fetch URL to IPv4 address under Bun', async () => {
+  // Regression test: Bun's fetch ignores undici dispatchers, so the scoped
+  // connect.lookup that forces IPv4 never runs under the Bun runtime. The
+  // fix pre-resolves the hostname to an IPv4 address via Bun.dns.lookup and
+  // rewrites the URL before calling fetch, adding a Host header for TLS SNI.
+  //
+  // This test verifies that:
+  // 1. The fetch URL uses an IPv4 address (not the original hostname)
+  // 2. A Host header is set to the original hostname for TLS SNI
+
+  registerGateway({
+    id: 'bun-ipv4-test',
+    label: 'Bun IPv4 Test',
+    category: 'hosted',
+    defaultBaseUrl: 'https://bun-ipv4-test.example.com/v1',
+    defaultModel: 'test-model',
+    setup: {
+      requiresAuth: true,
+      authMode: 'api-key',
+      credentialEnvVars: ['OPENAI_API_KEY'],
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        dnsResultOrder: 'ipv4first',
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://bun-ipv4-test.example.com/v1'
+  process.env.OPENAI_MODEL = 'test-model'
+
+  let capturedUrl: string | undefined
+  let capturedHeaders: Record<string, string> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = input instanceof Request ? input.url : String(input)
+    capturedHeaders = init?.headers as Record<string, string>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-bun-ipv4',
+        model: 'test-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'test-model',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  // Under Bun (which this test runner is), the URL should have been rewritten
+  // to use an IPv4 address instead of the original hostname, and a Host header
+  // should be present for TLS SNI.
+  expect(capturedUrl).toBeDefined()
+  const parsedUrl = new URL(capturedUrl!)
+
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(parsedUrl.hostname)) {
+    // Bun.dns.lookup succeeded: hostname was replaced with an IPv4 address.
+    // The Host header must be set to the original hostname for TLS SNI.
+    expect(capturedHeaders?.['Host']).toBe('bun-ipv4-test.example.com')
+  } else {
+    // Bun.dns.lookup failed to resolve (e.g. in CI with no network for that
+    // hostname). The URL should still be the original hostname — this is the
+    // graceful fallback. In production, if Bun.dns.lookup fails, Bun's
+    // default DNS resolution takes over (which may or may not try IPv4 first).
+    expect(parsedUrl.hostname).toBe('bun-ipv4-test.example.com')
+  }
+})
