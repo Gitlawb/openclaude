@@ -3,20 +3,24 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+type ProvidersModule = typeof import('./model/providers.js')
 
 const originalEnv = { ...process.env }
+let originalProvidersModule: ProvidersModule | undefined
 
 async function importFreshFastModeModule() {
   return import(`./fastMode.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
-function installCommonMocks(options?: {
+async function installCommonMocks(options?: {
   cachedEnabled?: boolean
   apiKey?: string | null
   oauthToken?: string | null
   hasProfileScope?: boolean
   axiosReject?: boolean
 }) {
+  originalProvidersModule ??= await importActualProviders()
+
   mock.module('axios', () => ({
     default: {
       get: options?.axiosReject
@@ -157,12 +161,19 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./model/providers.js', () => ({
+    ...originalProvidersModule!,
     getAPIProvider: () => 'firstParty',
     getAPIProviderForStatsig: () => 'firstParty',
     isFirstPartyAnthropicBaseUrl: () => true,
     isGithubNativeAnthropicMode: () => false,
     usesAnthropicAccountFlow: () => true,
   }))
+}
+
+async function importActualProviders(): Promise<ProvidersModule> {
+  return import(
+    `./model/providers.ts?fastModeActual=${Date.now()}-${Math.random()}`
+  )
 }
 
 async function prepareFastModeTestState(): Promise<void> {
@@ -199,6 +210,9 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    if (originalProvidersModule) {
+      mock.module('./model/providers.js', () => originalProvidersModule!)
+    }
     process.env = { ...originalEnv }
     const { resetStateForTests } = await import('../bootstrap/state.js')
     resetStateForTests()
@@ -213,7 +227,7 @@ describe('fastMode ant-only fallback cleanup', () => {
   test('resolveFastModeStatusFromCache does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
     forceFirstPartyProviderEnv()
-    installCommonMocks({ cachedEnabled: false })
+    await installCommonMocks({ cachedEnabled: false })
 
     const {
       resolveFastModeStatusFromCache,
@@ -231,7 +245,7 @@ describe('fastMode ant-only fallback cleanup', () => {
   test('prefetchFastModeStatus without auth does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
     forceFirstPartyProviderEnv()
-    installCommonMocks({ cachedEnabled: false, apiKey: null, oauthToken: null })
+    await installCommonMocks({ cachedEnabled: false, apiKey: null, oauthToken: null })
 
     const {
       prefetchFastModeStatus,
@@ -249,7 +263,7 @@ describe('fastMode ant-only fallback cleanup', () => {
   test('prefetchFastModeStatus network failure does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
     forceFirstPartyProviderEnv()
-    installCommonMocks({
+    await installCommonMocks({
       cachedEnabled: false,
       apiKey: 'test-key',
       axiosReject: true,
