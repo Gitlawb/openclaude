@@ -28,7 +28,18 @@ export function getTokenUsage(message: Message): Usage | undefined {
     ) &&
     message.message.model !== SYNTHETIC_MODEL
   ) {
-    return message.message.usage
+    const usage = message.message.usage
+    // Providers that strip stream_options (e.g. Xiaomi MiMo, Gitlawb OpenGateway)
+    // cannot include usage in streaming responses. The shim initialises the message
+    // with { input_tokens: 0, output_tokens: 0 } and the values stay at zero for
+    // the whole turn. A real API response always has ≥ 1 output token, so an
+    // all-zero record is a reliable signal that the provider did not report usage.
+    // Returning undefined here causes getCurrentUsage() → null → status line
+    // shows "N/A" instead of a misleading "0% used".
+    if (usage && usage.input_tokens === 0 && usage.output_tokens === 0) {
+      return undefined
+    }
+    return usage
   }
   return undefined
 }

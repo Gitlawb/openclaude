@@ -879,6 +879,71 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent?.usage?.output_tokens).toBe(45)
 })
 
+test('preserves usage from early stream chunk when finish_reason chunk has no usage', async () => {
+  // Some providers emit usage in an early chunk (before the finish_reason chunk).
+  // lastSeenUsage accumulation ensures this is captured and forwarded in message_delta.
+  globalThis.fetch = (async (_input, init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-early-usage',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [
+          {
+            index: 0,
+            delta: { role: 'assistant', content: 'hi' },
+            finish_reason: null,
+          },
+        ],
+        usage: {
+          prompt_tokens: 77,
+          completion_tokens: 11,
+          total_tokens: 88,
+        },
+      },
+      // Stop chunk — no usage field
+      {
+        id: 'chatcmpl-early-usage',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const usageEvent = events.find(
+    event => event.type === 'message_delta' && typeof event.usage === 'object' && event.usage !== null,
+  ) as { usage?: { input_tokens?: number; output_tokens?: number } } | undefined
+
+  // The early-chunk usage should be carried forward to the message_delta
+  expect(usageEvent).toBeDefined()
+  expect(usageEvent?.usage?.input_tokens).toBe(77)
+  expect(usageEvent?.usage?.output_tokens).toBe(11)
+})
+
 test('uses max_tokens instead of max_completion_tokens for local providers', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 

@@ -1274,6 +1274,10 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
+  // Accumulate the most recent non-undefined usage seen across all chunks.
+  // Some providers send usage in an early chunk before the finish_reason chunk;
+  // without this accumulator the message_delta would be emitted without usage.
+  let lastSeenUsage: Partial<AnthropicUsage> | undefined
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
 
@@ -1476,6 +1480,11 @@ async function* openaiStreamToAnthropic(
       }
 
       const chunkUsage = convertChunkUsage(chunk.usage)
+      // Keep a running record of the most recent usage seen across all chunks.
+      // Some providers emit usage in an early chunk before the finish_reason
+      // chunk arrives, so chunkUsage may be undefined at stop time even though
+      // we already observed real usage data earlier in the stream.
+      if (chunkUsage) lastSeenUsage = chunkUsage
 
       for (const choice of chunk.choices ?? []) {
         const delta = choice.delta
@@ -1755,12 +1764,16 @@ async function* openaiStreamToAnthropic(
           }
           lastStopReason = stopReason
 
+          // Prefer usage from the current stop chunk; fall back to the last
+          // usage seen anywhere in the stream (handles providers that emit
+          // usage in an early chunk rather than the finish_reason chunk).
+          const finalUsage = chunkUsage ?? lastSeenUsage
           yield {
             type: 'message_delta',
             delta: { stop_reason: stopReason, stop_sequence: null },
-            ...(chunkUsage ? { usage: chunkUsage } : {}),
+            ...(finalUsage ? { usage: finalUsage } : {}),
           }
-          if (chunkUsage) {
+          if (finalUsage) {
             hasEmittedFinalUsage = true
           }
         }
@@ -1768,14 +1781,14 @@ async function* openaiStreamToAnthropic(
 
       if (
         !hasEmittedFinalUsage &&
-        chunkUsage &&
+        (chunkUsage ?? lastSeenUsage) &&
         (chunk.choices?.length ?? 0) === 0 &&
         lastStopReason !== null
       ) {
         yield {
           type: 'message_delta',
           delta: { stop_reason: lastStopReason, stop_sequence: null },
-          usage: chunkUsage,
+          usage: (chunkUsage ?? lastSeenUsage)!,
         }
         hasEmittedFinalUsage = true
       }
