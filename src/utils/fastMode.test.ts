@@ -4,9 +4,11 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 type ProvidersModule = typeof import('./model/providers.js')
+type AxiosModule = typeof import('axios')
 
 const originalEnv = { ...process.env }
 let originalProvidersModule: ProvidersModule | undefined
+let originalAxiosModule: AxiosModule | undefined
 
 async function importFreshFastModeModule() {
   return import(`./fastMode.ts?ts=${Date.now()}-${Math.random()}`)
@@ -20,9 +22,17 @@ async function installCommonMocks(options?: {
   axiosReject?: boolean
 }) {
   originalProvidersModule ??= await importActualProviders()
+  originalAxiosModule ??= await import('axios')
 
   mock.module('axios', () => ({
     default: {
+      defaults: {},
+      interceptors: {
+        request: {
+          use: () => 0,
+          eject: () => {},
+        },
+      },
       get: options?.axiosReject
         ? async () => {
             throw new Error('network fail')
@@ -212,6 +222,9 @@ afterEach(async () => {
     mock.restore()
     if (originalProvidersModule) {
       mock.module('./model/providers.js', () => originalProvidersModule!)
+    }
+    if (originalAxiosModule) {
+      mock.module('axios', () => originalAxiosModule!)
     }
     process.env = { ...originalEnv }
     const { resetStateForTests } = await import('../bootstrap/state.js')

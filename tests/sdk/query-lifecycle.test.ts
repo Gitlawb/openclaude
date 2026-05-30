@@ -14,18 +14,36 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../src/test/sharedMutationLock.js'
+import { clearAgentDefinitionsCache } from '../../src/tools/AgentTool/loadAgentsDir.js'
 
 // Tests that drain fully (no early interrupt) trigger init(), which checks
 // for auth credentials. Provide a stub key so init() succeeds without network.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
+const DISABLE_BUILTIN_AGENTS_KEY = 'CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS'
 let savedApiKey: string | undefined
+let savedDisableBuiltinAgents: string | undefined
+let hadSavedMacro = false
+let savedMacro: unknown
 
 beforeAll(async () => {
   await acquireSharedMutationLock('tests/sdk/query-lifecycle.test.ts')
   savedApiKey = process.env[AUTH_KEY]
+  savedDisableBuiltinAgents = process.env[DISABLE_BUILTIN_AGENTS_KEY]
+  hadSavedMacro = Object.hasOwn(globalThis, 'MACRO')
+  savedMacro = (globalThis as Record<string, unknown>).MACRO
   if (!savedApiKey) {
     process.env[AUTH_KEY] = 'sk-test-lifecycle-stub'
   }
+  process.env[DISABLE_BUILTIN_AGENTS_KEY] = '1'
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    VERSION: '0.0.0-test',
+    DISPLAY_VERSION: '0.0.0-test',
+    BUILD_TIME: 'test',
+    ISSUES_EXPLAINER: 'test',
+    PACKAGE_URL: 'test',
+    NATIVE_PACKAGE_URL: undefined,
+  }
+  clearAgentDefinitionsCache()
 })
 
 afterAll(() => {
@@ -35,6 +53,17 @@ afterAll(() => {
     } else {
       process.env[AUTH_KEY] = savedApiKey
     }
+    if (savedDisableBuiltinAgents === undefined) {
+      delete process.env[DISABLE_BUILTIN_AGENTS_KEY]
+    } else {
+      process.env[DISABLE_BUILTIN_AGENTS_KEY] = savedDisableBuiltinAgents
+    }
+    if (hadSavedMacro) {
+      ;(globalThis as Record<string, unknown>).MACRO = savedMacro
+    } else {
+      delete (globalThis as Record<string, unknown>).MACRO
+    }
+    clearAgentDefinitionsCache()
   } finally {
     releaseSharedMutationLock()
   }
@@ -227,11 +256,7 @@ describe('Query resume lifecycle', () => {
     })
   })
 
-  // These tests require full init() without mock engine. They fail in CI
-  // where axios/proxy/agent-loading side-effects crash init(). Skip on CI.
-  const testIfNotCI = process.env.CI ? test.skip : test
-
-  testIfNotCI('query() with fork:true — creates new sessionId', async () => {
+  test('query() with fork:true — creates new sessionId', async () => {
     await withTempDir(async (dir) => {
       tempDirs.push(dir)
       const sid = randomUUID()
@@ -242,29 +267,15 @@ describe('Query resume lifecycle', () => {
         prompt: 'forked conversation',
         options: { cwd: dir, sessionId: sid, fork: true },
       })
-      // Fork happens lazily during iteration; iterate to trigger it.
-      // Interrupt after a short delay to let fork logic run.
-      const interruptTimer = setTimeout(() => q.interrupt(), 100)
-      let caughtError: unknown = null
+      // Fork happens lazily during iteration. The first item is enough to
+      // trigger session resolution without advancing into the API request.
+      const iterator = q[Symbol.asyncIterator]()
       try {
-        for await (const _ of q) {
-          // drain
-        }
-      } catch (err) {
-        caughtError = err
+        const first = await iterator.next()
+        expect(first.done).toBe(false)
       } finally {
-        clearTimeout(interruptTimer)
-      }
-      if (caughtError instanceof Error) {
-        // Full-suite runs can hit unrelated global axios bootstrap side effects.
-        // Accept that environmental failure mode so this test only asserts
-        // fork behavior when the query engine actually initializes.
-        expect(
-          /axios\.defaults\.proxy|MACRO is not defined|unknown tool 'Glob'/.test(
-            caughtError.message,
-          ),
-        ).toBe(true)
-        return
+        q.interrupt()
+        await iterator.return?.()
       }
       expect(q.sessionId).toBeDefined()
       expect(q.sessionId).not.toBe(sid)
@@ -290,7 +301,7 @@ describe('Query resume lifecycle', () => {
     })
   })
 
-  testIfNotCI('query() with resumeSessionAt pointing to invalid UUID — throws', async () => {
+  test('query() with resumeSessionAt pointing to invalid UUID — throws', async () => {
     await withTempDir(async (dir) => {
       tempDirs.push(dir)
       const sid = randomUUID()
@@ -309,14 +320,8 @@ describe('Query resume lifecycle', () => {
         }
       } catch (err: any) {
         caught = true
-        if (err.message.includes('axios.defaults.proxy')) {
-          // See note in fork:true test above — tolerate suite-level bootstrap
-          // contamination so this test remains deterministic.
-          expect(err.message).toContain('axios.defaults.proxy')
-        } else {
-          expect(err.message).toContain('resumeSessionAt')
-          expect(err.message).toContain('not found')
-        }
+        expect(err.message).toContain('resumeSessionAt')
+        expect(err.message).toContain('not found')
       }
       expect(caught).toBe(true)
     })
