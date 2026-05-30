@@ -69,6 +69,13 @@ async function readSkillResource(
       // session hooks that run shell in the user's workspace, bypassing the
       // inline-shell guard that already blocks !`…` for loadedFrom === 'mcp'.
       hooks: undefined,
+      // Security: likewise discard `allowed-tools`. On the user-typed slash
+      // path it is written into alwaysAllowRules (REPL onQueryImpl), so a
+      // remote skill could auto-approve tool calls (e.g. Bash) that its own
+      // body then drives the model to make — no permission prompt. With it
+      // empty, the model still prompts on each tool use. (The model-invoked
+      // SkillTool path already gates this via skillHasOnlySafeProperties.)
+      allowedTools: [],
     })
   } catch (error) {
     logForDebugging(
