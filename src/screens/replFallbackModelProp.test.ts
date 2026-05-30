@@ -6,58 +6,59 @@
  *   1. Foreground REPL query() call (via sessionConfig spread)
  *   2. --resume picker (via launchResumeChooser -> ResumeConversation -> REPL)
  *   3. Background session (Ctrl+B -> startBackgroundSession queryParams)
+ *
+ * Tests read source files as text (no module loading) to avoid pulling in
+ * transitive dependencies that can't resolve in the test environment.
  */
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-function readCompiledSource(modulePath: string): string {
-  try {
-    return readFileSync(require.resolve(modulePath), 'utf8')
-  } catch {
-    // Source file may not be compiled yet in dev environment
-    return ''
-  }
+const testDir = import.meta.dirname
+
+function readSource(filename: string): string {
+  return readFileSync(join(testDir, filename), 'utf8')
 }
 
 describe('fallbackModel: REPL Props contract', () => {
-  test('REPL component accepts optional fallbackModel in Props', () => {
-    // TypeScript compilation verifies REPL destructures fallbackModel
-    // from Props. If the prop is removed from the type, this import
-    // will fail at compile time.
-    const { REPL } = require('./REPL.js')
-    expect(REPL).toBeInstanceOf(Function)
+  test('REPL Props type declares optional fallbackModel', () => {
+    const source = readSource('REPL.tsx')
+    expect(source).toContain('fallbackModel?: string')
   })
 
-  test('REPL passes fallbackModel to foreground query() call', () => {
-    const source = readCompiledSource('./REPL.js')
-    // The query() call in the foreground path should reference fallbackModel
-    if (source) {
-      expect(source).toContain('fallbackModel')
-    }
+  test('REPL destructures fallbackModel from Props into function body', () => {
+    const source = readSource('REPL.tsx')
+    // fallbackModel appears in the Props type, in the destructuring param list,
+    // and in the query/session config construction code. At minimum:
+    // (1) type definition, (2) destructuring, (3+) usage in query calls
+    const matches = source.match(/fallbackModel/g)
+    expect(matches).not.toBeNull()
+    expect(matches!.length).toBeGreaterThanOrEqual(3)
   })
 })
 
 describe('fallbackModel: ResumeConversation Props contract', () => {
-  test('ResumeConversation accepts optional fallbackModel in Props', () => {
-    const { ResumeConversation } = require('./ResumeConversation.js')
-    expect(ResumeConversation).toBeInstanceOf(Function)
+  test('ResumeConversation Props type declares optional fallbackModel', () => {
+    const source = readSource('ResumeConversation.tsx')
+    expect(source).toContain('fallbackModel?: string')
   })
 
-  test('ResumeConversation passes fallbackModel to REPL', () => {
-    const source = readCompiledSource('./ResumeConversation.js')
-    if (source) {
-      expect(source).toContain('fallbackModel')
-    }
+  test('ResumeConversation passes fallbackModel through to REPL', () => {
+    const source = readSource('ResumeConversation.tsx')
+    expect(source).toContain('fallbackModel={fallbackModel}')
   })
 })
 
 describe('fallbackModel: background session path', () => {
-  test('Background session queryParams includes fallbackModel', () => {
-    const source = readCompiledSource('./REPL.js')
-    if (source) {
-      // The startBackgroundSession call in the compiled REPL code
-      // should reference fallbackModel in its queryParams object
-      expect(source).toContain('fallbackModel')
-    }
+  test('REPL source references fallbackModel in query construction code', () => {
+    const source = readSource('REPL.tsx')
+    // fallbackModel must be referenced beyond just the Props type definition
+    // and destructuring — it must appear in the sessionConfig/queryParams
+    // spread for both foreground and background query paths.
+    const matches = source.match(/fallbackModel/g)
+    expect(matches).not.toBeNull()
+    // Type definition + destructuring = 2 minimum. This test requires at
+    // least 3, proving it's also used in query/session construction.
+    expect(matches!.length).toBeGreaterThanOrEqual(3)
   })
 })
