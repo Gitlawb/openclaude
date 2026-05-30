@@ -211,13 +211,27 @@ async function saveRpdState(path: string, state: RpdState): Promise<void> {
   try {
     await rename(tempPath, path)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST' || (error as NodeJS.ErrnoException).code === 'EPERM') {
-      await unlink(path).catch(() => undefined)
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'EEXIST' || code === 'EPERM') {
+      // Windows: rename fails if destination exists.
+      // Use backup strategy: move existing state aside first,
+      // then rename temp into place, then remove backup.
+      // This ensures the state path is never missing on failure.
+      const backupPath = `${path}.bak`
       try {
-        await rename(tempPath, path)
-      } catch (cleanupError) {
+        await rename(path, backupPath)
+        try {
+          await rename(tempPath, path)
+          await unlink(backupPath).catch(() => undefined)
+        } catch (renameError) {
+          // Second rename failed — restore backup so state is never missing
+          await rename(backupPath, path).catch(() => undefined)
+          await unlink(tempPath).catch(() => undefined)
+          throw renameError
+        }
+      } catch (backupError) {
         await unlink(tempPath).catch(() => undefined)
-        throw cleanupError
+        throw backupError
       }
     } else {
       await unlink(tempPath).catch(() => undefined)
