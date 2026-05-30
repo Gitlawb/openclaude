@@ -86,27 +86,44 @@ export function snipCompactIfNeeded(
   // Consume only the matched UUIDs; another session's pending removals survive.
   for (const uuid of uuidsToRemove) pendingSnipUuids.delete(uuid)
 
-  // Collect tool_use IDs from snipped assistant messages so we can also
-  // drop the paired tool-result user messages.
+  // A tool interaction spans an assistant tool_use and the paired user
+  // tool_result. The model can snip from EITHER side, so we pair in both
+  // directions and drop the whole interaction:
+  //   - snippedToolUseIds: tool_use ids from snipped ASSISTANT messages, used
+  //     to drop the paired tool-result user messages.
+  //   - snippedResultToolUseIds: tool_use ids referenced by tool_result blocks
+  //     in snipped USER messages, used to drop the paired assistant tool_use.
+  //     ([id:] tags are appended to user messages only, so this is the path the
+  //     model actually exercises.) Leaving the assistant tool_use orphaned would
+  //     make the next API-prep pass synthesize a placeholder result, so the tool
+  //     interaction would never actually be removed from context or replay.
   const snippedToolUseIds = new Set<string>()
+  const snippedResultToolUseIds = new Set<string>()
   for (const msg of messages) {
     if (!uuidsToRemove.has(msg?.uuid)) continue
-    if (msg?.type !== 'assistant') continue
     const blocks = msg?.message?.content
     if (!Array.isArray(blocks)) continue
-    for (const block of blocks) {
-      if (block?.type === 'tool_use' && block?.id) snippedToolUseIds.add(block.id as string)
+    if (msg?.type === 'assistant') {
+      for (const block of blocks) {
+        if (block?.type === 'tool_use' && block?.id) snippedToolUseIds.add(block.id as string)
+      }
+    } else if (msg?.type === 'user') {
+      for (const block of blocks) {
+        if (block?.type === 'tool_result' && block?.tool_use_id) {
+          snippedResultToolUseIds.add(block.tool_use_id as string)
+        }
+      }
     }
   }
 
   let tokensFreed = 0
   const surviving: any[] = []
-  // Paired tool-result messages dropped alongside their snipped assistant
-  // tool-use message. These are removed from the live context here, so they
-  // must also be recorded in the boundary's removedUuids — otherwise replay
-  // (projectSnippedView / loadTranscriptFile) only drops the explicitly-marked
-  // assistant messages and resurrects orphaned tool results on --resume.
-  const removedToolResultUuids = new Set<UUID>()
+  // Messages dropped as the other half of a snipped tool interaction (paired
+  // tool-result users, or paired assistant tool-uses). They leave the live
+  // context here, so they must also be recorded in the boundary's removedUuids —
+  // otherwise replay (projectSnippedView / loadTranscriptFile) only drops the
+  // explicitly-marked messages and resurrects the orphaned half on --resume.
+  const removedPairedUuids = new Set<UUID>()
 
   for (const msg of messages) {
     // Drop snipped messages
@@ -122,7 +139,21 @@ export function snipCompactIfNeeded(
         results.every((r: any) => snippedToolUseIds.has(r?.tool_use_id))
       ) {
         tokensFreed += estimateTokens(msg)
-        if (msg?.uuid) removedToolResultUuids.add(msg.uuid as UUID)
+        if (msg?.uuid) removedPairedUuids.add(msg.uuid as UUID)
+        continue
+      }
+    }
+    // Drop assistant messages whose tool calls were all snipped from the result
+    // side. Mirrors the user-message .every() guard: if any tool_use in this
+    // turn still has a surviving result, keep the message to avoid orphaning it.
+    if (msg?.type === 'assistant' && Array.isArray(msg?.message?.content)) {
+      const toolUses = (msg.message.content as any[]).filter(b => b?.type === 'tool_use')
+      if (
+        toolUses.length > 0 &&
+        toolUses.every((t: any) => snippedResultToolUseIds.has(t?.id))
+      ) {
+        tokensFreed += estimateTokens(msg)
+        if (msg?.uuid) removedPairedUuids.add(msg.uuid as UUID)
         continue
       }
     }
@@ -139,8 +170,9 @@ export function snipCompactIfNeeded(
     level: 'info' as const,
     snipMetadata: {
       // Every UUID removed from the live context: explicitly-snipped messages
-      // plus their paired tool-result messages. Replay must drop the same set.
-      removedUuids: [...uuidsToRemove, ...removedToolResultUuids] as UUID[],
+      // plus the paired half of each snipped tool interaction. Replay must drop
+      // the same set.
+      removedUuids: [...uuidsToRemove, ...removedPairedUuids] as UUID[],
     },
   }
 

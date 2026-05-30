@@ -132,6 +132,75 @@ describe('snipCompactIfNeeded', () => {
     expect(removed).toContain(toolResultUuid)
   })
 
+  test('snipping a tool-result user message also drops the paired assistant tool-use', () => {
+    // [id:] tags are appended to USER messages only, so the model references a
+    // tool-result user message. Dropping just that user message would orphan the
+    // preceding assistant tool_use, which the next API-prep pass "repairs" with a
+    // synthesized placeholder result — so the tool interaction is never actually
+    // removed. The paired assistant tool-use must be dropped (and persisted) too.
+    const assistantUuid = 'aaaa0060-0000-0000-0000-000000000060'
+    const toolResultUuid = 'bbbb0061-0000-0000-0000-000000000061'
+    const toolUseId = 'tu-060'
+    const shortId = deriveShortMessageId(toolResultUuid)
+    const assistantMsg = {
+      ...makeAssistant(assistantUuid),
+      message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }] },
+    }
+    const toolResultMsg = {
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+      }),
+      uuid: toolResultUuid,
+    }
+    const messages = [assistantMsg, toolResultMsg, makeUser('survivor')]
+    markForSnip([shortId], messages)
+    const result = snipCompactIfNeeded(messages)
+    // Both the tool-result user message and the assistant tool-use are gone from live context.
+    expect(result.messages.map((m: any) => m.uuid)).toEqual(['survivor'])
+    const hasToolUse = result.messages.some((m: any) =>
+      Array.isArray(m.message?.content) &&
+      m.message.content.some((b: any) => b.type === 'tool_use' && b.id === toolUseId)
+    )
+    expect(hasToolUse).toBe(false)
+    // Both UUIDs are persisted so replay drops the same set.
+    const removed = result.boundaryMessage?.snipMetadata?.removedUuids ?? []
+    expect(removed).toContain(toolResultUuid)
+    expect(removed).toContain(assistantUuid)
+  })
+
+  test('keeps an assistant message when only some of its tool results are snipped', () => {
+    // An assistant turn with two tool calls whose results land in two separate
+    // user messages: snipping one result must NOT drop the assistant (that would
+    // orphan the other, un-snipped result). Mirrors the .every() safety of the
+    // assistant->user direction.
+    const assistantUuid = 'aaaa0070-0000-0000-0000-000000000070'
+    const resultAUuid = 'bbbb0071-0000-0000-0000-000000000071'
+    const resultBUuid = 'cccc0072-0000-0000-0000-000000000072'
+    const assistantMsg = {
+      ...makeAssistant(assistantUuid),
+      message: {
+        content: [
+          { type: 'tool_use', id: 'tu-A', name: 'Read', input: {} },
+          { type: 'tool_use', id: 'tu-B', name: 'Read', input: {} },
+        ],
+      },
+    }
+    const resultA = {
+      ...createUserMessage({ content: [{ type: 'tool_result', tool_use_id: 'tu-A', content: 'a' }] }),
+      uuid: resultAUuid,
+    }
+    const resultB = {
+      ...createUserMessage({ content: [{ type: 'tool_result', tool_use_id: 'tu-B', content: 'b' }] }),
+      uuid: resultBUuid,
+    }
+    const messages = [assistantMsg, resultA, resultB]
+    markForSnip([deriveShortMessageId(resultAUuid)], messages)
+    const result = snipCompactIfNeeded(messages)
+    expect(result.messages.map((m: any) => m.uuid)).toContain(assistantUuid)
+    expect(result.messages.map((m: any) => m.uuid)).toContain(resultBUuid)
+    expect(result.messages.map((m: any) => m.uuid)).not.toContain(resultAUuid)
+  })
+
   test('pending snips are scoped per conversation by resolved UUID', () => {
     // Models two concurrent in-process sessions sharing this module-level
     // registry. Session A marks a snip; session B reaches snipCompactIfNeeded
