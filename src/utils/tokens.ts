@@ -177,6 +177,29 @@ export function getCurrentUsage(messages: Message[]): {
         cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
       }
     }
+    // `getTokenUsage` returns undefined for two distinct reasons:
+    //   (a) Not a real assistant message (user message, tool_result, synthetic) → skip,
+    //       continue looking at older messages in the same conversation turn.
+    //   (b) Real assistant message with all-zero usage → the provider didn't report
+    //       usage (e.g. MiMo / Gitlawb OpenGateway with stream_options stripped).
+    //
+    // For case (b): stop here and return null. Do NOT fall back to an older
+    // assistant message — that would surface stale numbers from a previous API
+    // call, which is especially misleading after a provider switch mid-session.
+    if (
+      message?.type === 'assistant' &&
+      'usage' in message.message &&
+      message.message.model !== SYNTHETIC_MODEL &&
+      !(
+        message.message.content[0]?.type === 'text' &&
+        SYNTHETIC_MESSAGES.has(message.message.content[0].text)
+      )
+    ) {
+      // Confirmed real assistant message — getTokenUsage returned undefined only
+      // because usage is all-zero (case b). Bail out rather than showing stale data.
+      return null
+    }
+    // Case (a): non-assistant or synthetic — keep walking backwards.
   }
   return null
 }

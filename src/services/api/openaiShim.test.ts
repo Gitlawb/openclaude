@@ -944,6 +944,64 @@ test('preserves usage from early stream chunk when finish_reason chunk has no us
   expect(usageEvent?.usage?.output_tokens).toBe(11)
 })
 
+test('does not emit a second message_delta when lastSeenUsage triggers hasEmittedFinalUsage', async () => {
+  // When usage arrives in an early chunk, lastSeenUsage is set and the stop
+  // message_delta uses it (hasEmittedFinalUsage = true). If a trailing
+  // empty-choices chunk also happens to carry usage (or lastSeenUsage is set),
+  // the guard `!hasEmittedFinalUsage` must prevent a duplicate message_delta.
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      // Early chunk with usage
+      {
+        id: 'chatcmpl-no-double',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
+        usage: { prompt_tokens: 55, completion_tokens: 9, total_tokens: 64 },
+      },
+      // Stop chunk — no usage
+      {
+        id: 'chatcmpl-no-double',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+      // Trailing empty-choices chunk — would trigger fallback if not guarded
+      {
+        id: 'chatcmpl-no-double',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [],
+        usage: { prompt_tokens: 55, completion_tokens: 9, total_tokens: 64 },
+      },
+    ])
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 32,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const messageDeltaEvents = events.filter(e => e.type === 'message_delta')
+  // Only one message_delta should be emitted — the one from the stop chunk.
+  expect(messageDeltaEvents).toHaveLength(1)
+  const delta = messageDeltaEvents[0] as { usage?: { input_tokens?: number; output_tokens?: number } }
+  expect(delta.usage?.input_tokens).toBe(55)
+  expect(delta.usage?.output_tokens).toBe(9)
+})
+
 test('uses max_tokens instead of max_completion_tokens for local providers', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 

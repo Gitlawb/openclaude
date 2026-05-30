@@ -2,9 +2,10 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 import {
   getTokenCountFromUsage,
   getTokenUsage,
+  getCurrentUsage,
 } from './tokens.js'
 import { IncrementalTokenCounter } from './incrementalTokenCounter.js'
-import type { AssistantMessage } from '../types/message.js'
+import type { AssistantMessage, Message } from '../types/message.js'
 
 interface FakeUsage {
   input_tokens: number
@@ -74,6 +75,44 @@ describe('getTokenUsage', () => {
     const result = getTokenUsage(msg)
     expect(result).toBeDefined()
     expect(result?.output_tokens).toBe(25)
+  })
+})
+
+describe('getCurrentUsage', () => {
+  function makeUserMessage(): Message {
+    return {
+      type: 'user',
+      uuid: 'u-uuid',
+      timestamp: new Date().toISOString(),
+      message: { role: 'user', content: 'hello' },
+    }
+  }
+
+  it('returns usage from the most recent assistant message with non-zero tokens', () => {
+    const msg = makeAssistantMessage({ input_tokens: 300, output_tokens: 80 })
+    const result = getCurrentUsage([makeUserMessage(), msg])
+    expect(result?.input_tokens).toBe(300)
+    expect(result?.output_tokens).toBe(80)
+  })
+
+  it('returns null when the most recent assistant message has all-zero usage', () => {
+    // Pure 3P session: provider never reported usage, message stays at {0, 0}.
+    const msg = makeAssistantMessage({ input_tokens: 0, output_tokens: 0 })
+    expect(getCurrentUsage([makeUserMessage(), msg])).toBeNull()
+  })
+
+  it('returns null — does NOT fall back to older Anthropic message after a 3P turn', () => {
+    // Mixed-session: user started on Anthropic (real usage), then switched to
+    // MiMo (zero usage). getCurrentUsage must NOT surface the stale Anthropic numbers.
+    const anthropicMsg = makeAssistantMessage({ input_tokens: 1000, output_tokens: 200 })
+    const mimoMsg      = makeAssistantMessage({ input_tokens: 0, output_tokens: 0 })
+    const messages: Message[] = [anthropicMsg, makeUserMessage(), mimoMsg]
+    // Should stop at mimoMsg (all-zero real assistant message) and return null.
+    expect(getCurrentUsage(messages)).toBeNull()
+  })
+
+  it('returns null when there are no assistant messages', () => {
+    expect(getCurrentUsage([makeUserMessage()])).toBeNull()
   })
 })
 
