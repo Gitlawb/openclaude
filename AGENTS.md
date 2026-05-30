@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # AGENTS.md - AI Agent Coding Guide
 
 This guide is for AI coding agents working in the OpenClaude repository. Read it before changing code, and also follow [CONTRIBUTING.md](CONTRIBUTING.md) for contributor policy, PR expectations, review follow-up, and project scope.
@@ -101,4 +102,20 @@ When modifying provider behavior:
 - Do not skip tests for behavior changes.
 - Do not silently change provider tags; maintainers control them during review.
 - Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review.
-- Do not add a manually maintained release-notes data source to the static site; link to GitHub Releases instead.
+- Do not edit `web/src/data/releases.ts` in ordinary feature or bugfix PRs. That curated `/changelog` list is owned by the release/web process (release automation and dedicated web release PRs). If web CI fails because npm is ahead of the site version, leave `releases.ts` alone in your unrelated PR and let the release/web path update it.
+
+<!-- BEGIN OPENLORE (managed — edits inside this block will be overwritten) -->
+<!-- openlore-fingerprint: 54119b1928fb28c9 -->
+This project uses OpenLore for persistent architectural memory.
+
+ALWAYS call `orient()` (via the openlore MCP server, or `npx openlore orient --json`)
+before reading source files when starting a new task. This returns the relevant
+functions, callers, spec sections, and insertion points for the task at hand and
+saves you 15,000–50,000 tokens of file-by-file rediscovery.
+
+Re-orient whenever the Epistemic Lease indicates staleness (you'll see a prefix
+on tool responses telling you to do so).
+
+For the MCP setup, ensure `openlore mcp` is configured as an MCP server.
+See https://github.com/clay-good/OpenLore for details.
+<!-- END OPENLORE -->

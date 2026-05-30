@@ -1,4 +1,3 @@
-import { BASH_TOOL_NAME } from 'src/tools/BashTool/toolName.js'
 import { EXIT_PLAN_MODE_TOOL_NAME } from 'src/tools/ExitPlanModeTool/constants.js'
 import { FILE_EDIT_TOOL_NAME } from 'src/tools/FileEditTool/constants.js'
 import { FILE_READ_TOOL_NAME } from 'src/tools/FileReadTool/prompt.js'
@@ -7,6 +6,7 @@ import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from 'src/tools/NotebookEditTool/constants.js'
 import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
+import { SHELL_TOOL_NAMES } from 'src/utils/shell/shellToolUtils.js'
 import { AGENT_TOOL_NAME } from '../constants.js'
 import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
 
@@ -65,7 +65,7 @@ export const CODE_REVIEWER_AGENT: BuiltInAgentDefinition = {
     'Independent code reviewer for changes, diffs, and pull requests. Provides balanced critique across correctness, security, performance, maintainability, and design. Use after completing a coding task or when asked to review specific changes. Invoke with subagent_type: "code-reviewer".',
   disallowedTools: [
     AGENT_TOOL_NAME,
-    BASH_TOOL_NAME,
+    ...SHELL_TOOL_NAMES,
     EXIT_PLAN_MODE_TOOL_NAME,
     FILE_EDIT_TOOL_NAME,
     FILE_WRITE_TOOL_NAME,
