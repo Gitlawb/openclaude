@@ -130,6 +130,7 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   ['pytest', exitOneInformational('Test failures')],
   ['jest', exitOneInformational('Test failures')],
   ['vitest', exitOneInformational('Test failures')],
+  ['npm', exitOneInformational('Test failures')],
 
   // pylint uses an OR-ed bitfield exit code:
   //   1=fatal, 2=error msg, 4=warning, 8=refactor, 16=convention, 32=usage error

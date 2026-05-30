@@ -269,6 +269,22 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('vitest run', 1, '', '')
       expect(result.isError).toBe(false)
     })
+
+    test('npm test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('npm test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Test failures')
+    })
+
+    test('npm test exit code 0 = all passed', () => {
+      const result = interpretCommandResult('npm test', 0, '5 passed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npm test exit code 2 = runner error', () => {
+      const result = interpretCommandResult('npm test', 2, '', 'ENOENT')
+      expect(result.isError).toBe(true)
+    })
   })
 
   // --- pylint: OR-ed bitfield (1=fatal, 2=error, 4=warn, 8=refactor, 16=convention, 32=usage) ---
@@ -380,6 +396,11 @@ describe('interpretCommandResult', () => {
       // command stays python → default semantics → exit 1 is a real error
       const result = interpretCommandResult('python script.py -m ruff', 1, '', '')
       expect(result.isError).toBe(true)
+    })
+
+    test('npm test in compound command', () => {
+      const result = interpretCommandResult('cd /project && npm test', 1, '', '')
+      expect(result.isError).toBe(false)
     })
   })
 })
