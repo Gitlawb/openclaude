@@ -29,6 +29,34 @@ async function startTestServer() {
     callbackPath: '/callback',
     successTitle: 'xAI OAuth complete',
   })
+  
+  // Polling loop: forcefully wait until the server is actually answering requests
+  await new Promise<void>((resolve, reject) => {
+    const maxAttempts = 50
+    let attempts = 0
+    
+    const checkConnection = async () => {
+      try {
+        const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+          method: 'OPTIONS',
+        })
+        // Clean up the response to prevent memory leaks in the test runner
+        res.body?.cancel() 
+        resolve()
+      } catch (error) {
+        attempts++
+        if (attempts >= maxAttempts) {
+          reject(new Error(`Test server failed to start on port ${port} after ${maxAttempts} attempts`))
+        } else {
+          // Wait 10ms and try again
+          setTimeout(checkConnection, 10)
+        }
+      }
+    }
+    
+    checkConnection()
+  })
+  
   return { handle, port }
 }
 
