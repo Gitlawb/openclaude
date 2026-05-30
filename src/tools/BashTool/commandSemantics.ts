@@ -31,10 +31,12 @@ const DEFAULT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
  * linters, type checkers, and test runners.
  */
 function exitOneInformational(message: string): CommandSemantic {
-  return (exitCode, _stdout, _stderr) => ({
-    isError: exitCode >= 2,
-    message: exitCode === 1 ? message : undefined,
-  })
+  return (exitCode, _stdout, _stderr) => {
+    if (exitCode === 1) return { isError: false, message }
+    if (exitCode >= 2)
+      return { isError: true, message: `Command failed with exit code ${exitCode}` }
+    return { isError: false }
+  }
 }
 
 /**
