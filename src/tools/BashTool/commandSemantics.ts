@@ -26,6 +26,18 @@ const DEFAULT_SEMANTIC: CommandSemantic = (exitCode, _stdout, _stderr) => ({
 })
 
 /**
+ * Semantic factory for tools where exit code 1 is informational (issues found,
+ * not a crash) and exit code 2+ means the tool itself failed. Covers most
+ * linters, type checkers, and test runners.
+ */
+function exitOneInformational(message: string): CommandSemantic {
+  return (exitCode, _stdout, _stderr) => ({
+    isError: exitCode >= 2,
+    message: exitCode === 1 ? message : undefined,
+  })
+}
+
+/**
  * Command-specific semantics
  */
 const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
@@ -83,6 +95,36 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
       message: exitCode === 1 ? 'Condition is false' : undefined,
     }),
   ],
+
+  // Linters: 0=clean, 1=violations found (informational), 2+=tool error
+  ['ruff', exitOneInformational('Lint violations found')],
+  ['eslint', exitOneInformational('Lint violations found')],
+  ['flake8', exitOneInformational('Lint violations found')],
+  ['biome', exitOneInformational('Lint violations found')],
+
+  // Type checkers: 0=clean, 1=type errors found (informational), 2+=tool error
+  ['mypy', exitOneInformational('Type errors found')],
+  ['pyright', exitOneInformational('Type errors found')],
+
+  // tsc is inverted vs other linters (verified against TypeScript 5.9):
+  //   0=clean, 1=CLI/usage error (real failure), 2=diagnostics found,
+  //   3+=config/internal error. Exit 2 (type/syntax errors) is informational —
+  //   the model should read the diagnostics, not retry the command.
+  [
+    'tsc',
+    (exitCode, _stdout, _stderr) => {
+      if (exitCode === 0) return { isError: false }
+      if (exitCode === 2)
+        return { isError: false, message: 'Type errors found' }
+      return { isError: true }
+    },
+  ],
+
+  // Test runners: 0=all passed, 1=test failures (informational), 2+=runner error
+  ['pytest', exitOneInformational('Test failures')],
+  ['jest', exitOneInformational('Test failures')],
+  ['vitest', exitOneInformational('Test failures')],
+  ['npm', exitOneInformational('Test failures')],
 
   // wc, head, tail, cat, etc.: these typically only fail on real errors
   // so we use default semantics

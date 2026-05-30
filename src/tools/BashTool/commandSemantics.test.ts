@@ -160,4 +160,138 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(true)
     })
   })
+
+  // --- linters: 0=clean, 1=violations (not error), 2+=tool error ---
+  describe('linters', () => {
+    test('ruff exit code 1 = violations found (not error)', () => {
+      const result = interpretCommandResult('ruff check app.py', 1, 'E501 Line too long', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Lint violations found')
+    })
+
+    test('ruff exit code 0 = clean', () => {
+      const result = interpretCommandResult('ruff check app.py', 0, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('ruff exit code 2 = internal error', () => {
+      const result = interpretCommandResult('ruff check app.py', 2, '', 'invalid config')
+      expect(result.isError).toBe(true)
+    })
+
+    test('eslint exit code 1 = violations (not error)', () => {
+      const result = interpretCommandResult('eslint src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('eslint exit code 2 = fatal config error', () => {
+      const result = interpretCommandResult('eslint src/', 2, '', 'Cannot read config')
+      expect(result.isError).toBe(true)
+    })
+
+    test('flake8 exit code 1 = violations (not error)', () => {
+      const result = interpretCommandResult('flake8 app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('biome exit code 1 = violations (not error)', () => {
+      const result = interpretCommandResult('biome check .', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+  })
+
+  // --- type checkers: 0=clean, 1=type errors (not error), 2+=tool error ---
+  describe('type checkers', () => {
+    test('mypy exit code 1 = type errors found (not error)', () => {
+      const result = interpretCommandResult('mypy app.py', 1, 'error: incompatible type', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Type errors found')
+    })
+
+    test('mypy exit code 2 = tool error', () => {
+      const result = interpretCommandResult('mypy app.py', 2, '', 'cannot find module')
+      expect(result.isError).toBe(true)
+    })
+
+    test('pyright exit code 1 = errors found (not error)', () => {
+      const result = interpretCommandResult('pyright', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    // tsc is inverted vs other linters (verified against TypeScript 5.9):
+    // exit 1 = CLI/usage error, exit 2 = diagnostics found.
+    test('tsc exit code 0 = clean', () => {
+      const result = interpretCommandResult('tsc --noEmit', 0, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('tsc exit code 2 = type/syntax errors found (not error)', () => {
+      const result = interpretCommandResult('tsc --noEmit', 2, 'TS2322: Type mismatch', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Type errors found')
+    })
+
+    test('tsc exit code 1 = CLI/usage error (real failure)', () => {
+      const result = interpretCommandResult('tsc --bogusFlag', 1, '', 'Unknown compiler option')
+      expect(result.isError).toBe(true)
+    })
+
+    test('tsc exit code 3 = config/internal error', () => {
+      const result = interpretCommandResult('tsc -p bad.json', 3, '', '')
+      expect(result.isError).toBe(true)
+    })
+  })
+
+  // --- test runners: 0=pass, 1=failures (not error), 2+=runner error ---
+  describe('test runners', () => {
+    test('pytest exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('pytest tests/', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Test failures')
+    })
+
+    test('pytest exit code 0 = all passed', () => {
+      const result = interpretCommandResult('pytest tests/', 0, '5 passed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('pytest exit code 2 = interrupted/internal error', () => {
+      const result = interpretCommandResult('pytest tests/', 2, '', 'INTERNALERROR')
+      expect(result.isError).toBe(true)
+    })
+
+    test('jest exit code 1 = failures (not error)', () => {
+      const result = interpretCommandResult('jest', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('vitest exit code 1 = failures (not error)', () => {
+      const result = interpretCommandResult('vitest run', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npm test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('npm test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+      expect(result.message).toContain('Test failures')
+    })
+
+    test('npm test exit code 0 = all passed', () => {
+      const result = interpretCommandResult('npm test', 0, '5 passed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npm test exit code 2 = runner error', () => {
+      const result = interpretCommandResult('npm test', 2, '', 'ENOENT')
+      expect(result.isError).toBe(true)
+    })
+  })
+
+  // --- npm test in compound command ---
+  describe('npm test', () => {
+    test('npm test in compound command', () => {
+      const result = interpretCommandResult('cd /project && npm test', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+  })
 })
