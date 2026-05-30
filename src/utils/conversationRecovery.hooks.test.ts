@@ -52,6 +52,8 @@ async function writeJsonl(entry: unknown): Promise<string> {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/conversationRecovery.hooks.test.ts')
+  delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_BASE_URL
   mock.module('./model/providers.js', () => ({
     ...realProviders,
     getAPIProvider: () => 'firstParty',

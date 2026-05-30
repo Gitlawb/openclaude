@@ -36,6 +36,25 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
   let cleanup: (() => void) | null = null
   let savedProxyEnv: Record<string, string | undefined> = {}
 
+  // ─── Proxy environment isolation ──────────────────────────────────────────
+  // These tests use httpFetch (undici) to hit a real loopback HTTP server.
+  // Under Bun's --max-concurrency=1 (used by both `test:full` and
+  // `test:provider`), all test files share a single process, so env mutations
+  // from earlier files persist.
+  //
+  // The CI `test:provider` suite runs `src/services/api/*.test.ts` in
+  // alphabetical order. fetchWithProxyRetry.test.ts runs before this file and
+  // sets HTTP_PROXY to a fake address (127.0.0.1:15236). If any proxy env var
+  // survives into this file, undici routes loopback requests through the
+  // nonexistent proxy → ConnectionRefused on every single test.
+  //
+  // Critically, getProxyUrl() in proxy.ts checks LOWERCASE variants first:
+  //   env.https_proxy || env.HTTPS_PROXY || env.http_proxy || env.HTTP_PROXY
+  // so we must scrub both cases. An earlier version only cleared uppercase
+  // vars, which passed `test:full` (different file ordering) but failed
+  // `test:provider` — a maddening CI-only failure that took many iterations
+  // to diagnose.
+  // ─────────────────────────────────────────────────────────────────────────
   beforeEach(() => {
     cleanup = null
     savedProxyEnv = {
@@ -43,11 +62,17 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
       HTTPS_PROXY: process.env.HTTPS_PROXY,
       ALL_PROXY: process.env.ALL_PROXY,
       NO_PROXY: process.env.NO_PROXY,
+      http_proxy: process.env.http_proxy,
+      https_proxy: process.env.https_proxy,
+      no_proxy: process.env.no_proxy,
     }
     delete process.env.HTTP_PROXY
     delete process.env.HTTPS_PROXY
     delete process.env.ALL_PROXY
+    delete process.env.http_proxy
+    delete process.env.https_proxy
     process.env.NO_PROXY = '127.0.0.1,localhost'
+    process.env.no_proxy = '127.0.0.1,localhost'
   })
 
   afterEach(() => {

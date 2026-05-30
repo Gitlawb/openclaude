@@ -6344,6 +6344,9 @@ test('dnsResultOrder: ipv4first rewrites fetch URL to IPv4 address under Bun', a
 test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification', async () => {
   // 1. Mock Bun DNS to return a fake IPv4 address, triggering the rewrite
   const originalBunDnsLookup = Bun.dns.lookup
+  const originalEnv = { ...process.env }
+  const originalFetch = globalThis.fetch
+
   Bun.dns.lookup = async () => [{ address: '192.0.2.1', family: 4 }]
 
   try {
@@ -6405,5 +6408,9 @@ test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification
     }
   } finally {
     Bun.dns.lookup = originalBunDnsLookup
+    globalThis.fetch = originalFetch
+    process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
+    process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+    process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
   }
 })
