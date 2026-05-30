@@ -2,12 +2,28 @@ import { randomUUID } from 'crypto'
 import type { UUID } from 'crypto'
 import { deriveShortMessageId } from '../../utils/messages.js'
 
-// Module-level registry of short message IDs queued for removal.
-// Populated by SnipTool.call(); consumed and cleared by snipCompactIfNeeded().
-const pendingSnipIds = new Set<string>()
+// Module-level registry of message UUIDs queued for removal. We resolve the
+// model-facing short IDs to full UUIDs at mark time (against the snipping
+// conversation's own messages) and store the UUIDs. This makes the registry
+// self-scoping across concurrent in-process sessions that share this module:
+// a UUID only ever matches the conversation it came from, so snipCompactIfNeeded
+// consumes ONLY the UUIDs present in its own message array and leaves another
+// session's pending removals untouched. (Storing short IDs instead would let one
+// session's pending ID collide with — and prune — the wrong message in another.)
+// Populated by SnipTool.call(); consumed by snipCompactIfNeeded().
+const pendingSnipUuids = new Set<UUID>()
 
-export function markForSnip(ids: string[]): void {
-  for (const id of ids) pendingSnipIds.add(id)
+export function markForSnip(shortIds: string[], messages: any[]): void {
+  const shortIdToUuid = new Map<string, UUID>()
+  for (const msg of messages) {
+    if (msg?.uuid) {
+      shortIdToUuid.set(deriveShortMessageId(msg.uuid as string), msg.uuid as UUID)
+    }
+  }
+  for (const shortId of shortIds) {
+    const uuid = shortIdToUuid.get(shortId)
+    if (uuid) pendingSnipUuids.add(uuid)
+  }
 }
 
 export function isSnipRuntimeEnabled(): boolean {
@@ -51,29 +67,24 @@ export function shouldNudgeForSnips(messages: any[]): boolean {
 export function snipCompactIfNeeded(
   messages: any[],
 ): { messages: any[]; tokensFreed: number; boundaryMessage?: any } {
-  if (pendingSnipIds.size === 0) {
+  if (pendingSnipUuids.size === 0) {
     return { messages, tokensFreed: 0 }
   }
 
-  // Map short ID → UUID for messages present in the current array
-  const shortIdToUuid = new Map<string, UUID>()
-  for (const msg of messages) {
-    if (msg?.uuid) {
-      shortIdToUuid.set(deriveShortMessageId(msg.uuid as string), msg.uuid as UUID)
-    }
-  }
-
-  // Resolve pending short IDs to full UUIDs
+  // Match pending UUIDs against THIS conversation's messages. UUIDs that belong
+  // to another in-process session won't be present here, so they stay pending.
   const uuidsToRemove = new Set<UUID>()
-  for (const shortId of pendingSnipIds) {
-    const uuid = shortIdToUuid.get(shortId)
-    if (uuid) uuidsToRemove.add(uuid)
+  for (const msg of messages) {
+    const uuid = msg?.uuid as UUID | undefined
+    if (uuid && pendingSnipUuids.has(uuid)) uuidsToRemove.add(uuid)
   }
-  pendingSnipIds.clear()
 
   if (uuidsToRemove.size === 0) {
     return { messages, tokensFreed: 0 }
   }
+
+  // Consume only the matched UUIDs; another session's pending removals survive.
+  for (const uuid of uuidsToRemove) pendingSnipUuids.delete(uuid)
 
   // Collect tool_use IDs from snipped assistant messages so we can also
   // drop the paired tool-result user messages.
@@ -90,6 +101,12 @@ export function snipCompactIfNeeded(
 
   let tokensFreed = 0
   const surviving: any[] = []
+  // Paired tool-result messages dropped alongside their snipped assistant
+  // tool-use message. These are removed from the live context here, so they
+  // must also be recorded in the boundary's removedUuids — otherwise replay
+  // (projectSnippedView / loadTranscriptFile) only drops the explicitly-marked
+  // assistant messages and resurrects orphaned tool results on --resume.
+  const removedToolResultUuids = new Set<UUID>()
 
   for (const msg of messages) {
     // Drop snipped messages
@@ -105,6 +122,7 @@ export function snipCompactIfNeeded(
         results.every((r: any) => snippedToolUseIds.has(r?.tool_use_id))
       ) {
         tokensFreed += estimateTokens(msg)
+        if (msg?.uuid) removedToolResultUuids.add(msg.uuid as UUID)
         continue
       }
     }
@@ -120,7 +138,9 @@ export function snipCompactIfNeeded(
     uuid: randomUUID() as UUID,
     level: 'info' as const,
     snipMetadata: {
-      removedUuids: [...uuidsToRemove] as UUID[],
+      // Every UUID removed from the live context: explicitly-snipped messages
+      // plus their paired tool-result messages. Replay must drop the same set.
+      removedUuids: [...uuidsToRemove, ...removedToolResultUuids] as UUID[],
     },
   }
 
@@ -133,5 +153,5 @@ export function isSnipMarkerMessage(message: unknown): boolean {
 
 /** Exposed for test isolation only — do not call in production code. */
 export function _resetForTesting(): void {
-  pendingSnipIds.clear()
+  pendingSnipUuids.clear()
 }

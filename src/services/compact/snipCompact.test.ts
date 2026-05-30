@@ -50,7 +50,7 @@ describe('snipCompactIfNeeded', () => {
     const uuid = 'a1b2c3d4-0000-0000-0000-000000000001'
     const shortId = deriveShortMessageId(uuid)
     const messages = [makeUser(uuid, 'old stuff'), makeUser('keep-uuid', 'keep me')]
-    markForSnip([shortId])
+    markForSnip([shortId], messages)
     const result = snipCompactIfNeeded(messages)
     expect(result.messages.map((m: any) => m.uuid)).toEqual(['keep-uuid'])
     expect(result.tokensFreed).toBeGreaterThan(0)
@@ -59,8 +59,9 @@ describe('snipCompactIfNeeded', () => {
   test('returns a boundary message with snipMetadata.removedUuids', () => {
     const uuid = 'a1b2c3d4-0000-0000-0000-000000000002'
     const shortId = deriveShortMessageId(uuid)
-    markForSnip([shortId])
-    const result = snipCompactIfNeeded([makeUser(uuid)])
+    const messages = [makeUser(uuid)]
+    markForSnip([shortId], messages)
+    const result = snipCompactIfNeeded(messages)
     expect(result.boundaryMessage).toBeDefined()
     expect(result.boundaryMessage?.snipMetadata?.removedUuids).toContain(uuid)
   })
@@ -69,7 +70,7 @@ describe('snipCompactIfNeeded', () => {
     const uuid = 'a1b2c3d4-0000-0000-0000-000000000003'
     const shortId = deriveShortMessageId(uuid)
     const messages = [makeUser(uuid), makeUser('other')]
-    markForSnip([shortId])
+    markForSnip([shortId], messages)
     snipCompactIfNeeded(messages)
     const second = snipCompactIfNeeded([makeUser('other')])
     expect(second.tokensFreed).toBe(0)
@@ -77,7 +78,7 @@ describe('snipCompactIfNeeded', () => {
   })
 
   test('also removes tool-result messages for snipped assistant tool calls', () => {
-    const assistantUuid = 'a1b2c3d4-0000-0000-0000-000000000004'
+    const assistantUuid = 'aaaa0004-0000-0000-0000-000000000004'
     const toolUseId = 'tu-001'
     const shortId = deriveShortMessageId(assistantUuid)
     const assistantMsg = {
@@ -86,11 +87,15 @@ describe('snipCompactIfNeeded', () => {
         content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }],
       },
     }
-    const toolResultMsg = createUserMessage({
-      content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
-    })
-    markForSnip([shortId])
-    const result = snipCompactIfNeeded([assistantMsg, toolResultMsg, makeUser('survivor')])
+    const toolResultMsg = {
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+      }),
+      uuid: 'bbbb0041-0000-0000-0000-000000000041',
+    }
+    const messages = [assistantMsg, toolResultMsg, makeUser('survivor')]
+    markForSnip([shortId], messages)
+    const result = snipCompactIfNeeded(messages)
     expect(result.messages.map((m: any) => m.uuid ?? 'noid')).not.toContain(assistantUuid)
     const hasToolResult = result.messages.some((m: any) =>
       Array.isArray(m.message?.content) &&
@@ -100,9 +105,57 @@ describe('snipCompactIfNeeded', () => {
     expect(result.messages.some((m: any) => m.uuid === 'survivor')).toBe(true)
   })
 
+  test('records paired tool-result UUIDs in removedUuids so replay drops the same set', () => {
+    // The live snip drops both the assistant tool-use message AND its paired
+    // tool-result user message; the persisted boundary must record both UUIDs,
+    // otherwise projectSnippedView / loadTranscriptFile resurrect the orphaned
+    // tool-result on --resume.
+    const assistantUuid = 'aaaa0050-0000-0000-0000-000000000050'
+    const toolResultUuid = 'bbbb0051-0000-0000-0000-000000000051'
+    const toolUseId = 'tu-050'
+    const shortId = deriveShortMessageId(assistantUuid)
+    const assistantMsg = {
+      ...makeAssistant(assistantUuid),
+      message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }] },
+    }
+    const toolResultMsg = {
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+      }),
+      uuid: toolResultUuid,
+    }
+    const messages = [assistantMsg, toolResultMsg, makeUser('survivor')]
+    markForSnip([shortId], messages)
+    const result = snipCompactIfNeeded(messages)
+    const removed = result.boundaryMessage?.snipMetadata?.removedUuids ?? []
+    expect(removed).toContain(assistantUuid)
+    expect(removed).toContain(toolResultUuid)
+  })
+
+  test('pending snips are scoped per conversation by resolved UUID', () => {
+    // Models two concurrent in-process sessions sharing this module-level
+    // registry. Session A marks a snip; session B reaches snipCompactIfNeeded
+    // first with its own (unrelated) messages. B must NOT consume or lose A's
+    // pending removal, and must NOT prune one of its own messages by mistake.
+    const aUuid = 'cccc00a1-0000-0000-0000-0000000000a1'
+    const aMessages = [makeUser(aUuid, 'session A stale'), makeUser('a-keep', 'keep')]
+    markForSnip([deriveShortMessageId(aUuid)], aMessages)
+
+    const bMessages = [makeUser('b1', 'session B one'), makeUser('b2', 'session B two')]
+    const bResult = snipCompactIfNeeded(bMessages)
+    expect(bResult.tokensFreed).toBe(0)
+    expect(bResult.boundaryMessage).toBeUndefined()
+    expect(bResult.messages).toHaveLength(2)
+
+    // A's pending removal survived B's pass and still applies to A's context.
+    const aResult = snipCompactIfNeeded(aMessages)
+    expect(aResult.messages.map((m: any) => m.uuid)).toEqual(['a-keep'])
+    expect(aResult.boundaryMessage?.snipMetadata?.removedUuids).toContain(aUuid)
+  })
+
   test('ignores short IDs that do not match any message (graceful)', () => {
     const messages = [makeUser('real-uuid')]
-    markForSnip(['xxxxxx'])
+    markForSnip(['xxxxxx'], messages)
     const result = snipCompactIfNeeded(messages)
     expect(result.messages).toHaveLength(1)
     expect(result.tokensFreed).toBe(0)

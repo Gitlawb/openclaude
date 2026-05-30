@@ -38,10 +38,12 @@ export const SnipTool = buildTool({
   get inputSchema(): InputSchema {
     return inputSchema()
   },
-  async call(input) {
+  async call(input, context) {
     const { markForSnip } =
       require('../../services/compact/snipCompact.js') as typeof import('../../services/compact/snipCompact.js')
-    markForSnip(input.message_ids)
+    // Resolve short IDs → UUIDs against THIS conversation's messages so the
+    // pending removal is scoped to this session (see markForSnip).
+    markForSnip(input.message_ids, context.messages)
     return { data: { sniped: input.message_ids.length } }
   },
   renderToolUseMessage() {
