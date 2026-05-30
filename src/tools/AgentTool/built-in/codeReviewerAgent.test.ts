@@ -57,6 +57,7 @@ describe('code-reviewer built-in agent', () => {
     const disallowed = agent.disallowedTools ?? []
     expect(disallowed).toContain('Agent')
     expect(disallowed).toContain('Bash')
+    expect(disallowed).toContain('PowerShell')
     expect(disallowed).toContain('Edit')
     expect(disallowed).toContain('Write')
     expect(disallowed).toContain('NotebookEdit')
