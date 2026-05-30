@@ -285,6 +285,26 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('npm test', 2, '', 'ENOENT')
       expect(result.isError).toBe(true)
     })
+
+    test('npm t shorthand exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('npm t', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npm run test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('npm run test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('npm install exit code 1 = real failure', () => {
+      const result = interpretCommandResult('npm install', 1, '', 'ERR!')
+      expect(result.isError).toBe(true)
+    })
+
+    test('npm run build exit code 1 = real failure', () => {
+      const result = interpretCommandResult('npm run build', 1, '', 'Build failed')
+      expect(result.isError).toBe(true)
+    })
   })
 
   // --- pylint: OR-ed bitfield (1=fatal, 2=error, 4=warn, 8=refactor, 16=convention, 32=usage) ---

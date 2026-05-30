@@ -87,11 +87,14 @@ describe('e2e: tsc real exit codes', () => {
   )
 })
 
-describe('e2e: ruff via uvx (real exit codes)', () => {
-  const uvxAvailable = hasBinary('uvx', ['--version'])
-  // Confirm ruff itself resolves through uvx before relying on it
-  const ruffAvailable =
-    uvxAvailable && hasBinary('uvx', ['ruff', '--version'])
+describe('e2e: ruff (real exit codes, validates uvx-prefix unwrapping)', () => {
+  // Gate on a locally-installed ruff binary. Using `uvx ruff --version` as
+  // a probe would trigger a uvx package-index resolution / network fetch on
+  // machines that don't have ruff cached, making the normal test suite depend
+  // on external network state. We run ruff directly but pass the uvx-prefixed
+  // command string to interpretCommandResult to exercise the runner-unwrapping
+  // logic without side-effects.
+  const ruffAvailable = hasBinary('ruff', ['--version'])
   let dir: string
 
   beforeAll(() => {
@@ -107,7 +110,7 @@ describe('e2e: ruff via uvx (real exit codes)', () => {
     () => {
       const f = join(dir, 'clean.py')
       writeFileSync(f, 'x = 1\n')
-      const r = spawnSync('uvx', ['ruff', 'check', f], { encoding: 'utf8' })
+      const r = spawnSync('ruff', ['check', f], { encoding: 'utf8' })
       const result = interpretCommandResult(
         `uvx ruff check ${f}`,
         r.status ?? -1,
@@ -117,7 +120,7 @@ describe('e2e: ruff via uvx (real exit codes)', () => {
       expect(r.status).toBe(0)
       expect(result.isError).toBe(false)
     },
-    120_000,
+    60_000,
   )
 
   test.if(ruffAvailable)(
@@ -126,27 +129,25 @@ describe('e2e: ruff via uvx (real exit codes)', () => {
       const f = join(dir, 'lint.py')
       // unused import + bare statement → guaranteed violations
       writeFileSync(f, 'import os\nx=1\n')
-      const r = spawnSync('uvx', ['ruff', 'check', f], { encoding: 'utf8' })
+      const r = spawnSync('ruff', ['check', f], { encoding: 'utf8' })
       const result = interpretCommandResult(
         `uvx ruff check ${f}`,
         r.status ?? -1,
         r.stdout,
         r.stderr,
       )
-      // The whole point of #1436: violations (exit 1) must NOT look like a crash,
+      // violations (exit 1) must NOT look like a crash,
       // and the runner prefix (uvx) must resolve to ruff.
       expect(r.status).toBe(1)
       expect(result.isError).toBe(false)
     },
-    120_000,
+    60_000,
   )
 
   test.if(ruffAvailable)(
     'unknown CLI flag → exit 2, classified as a real error',
     () => {
-      const r = spawnSync('uvx', ['ruff', '--definitelyNotAFlag'], {
-        encoding: 'utf8',
-      })
+      const r = spawnSync('ruff', ['--definitelyNotAFlag'], { encoding: 'utf8' })
       const result = interpretCommandResult(
         'uvx ruff --definitelyNotAFlag',
         r.status ?? -1,
@@ -156,6 +157,6 @@ describe('e2e: ruff via uvx (real exit codes)', () => {
       expect(r.status).toBe(2)
       expect(result.isError).toBe(true)
     },
-    120_000,
+    60_000,
   )
 })

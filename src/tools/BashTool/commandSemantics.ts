@@ -130,7 +130,10 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   ['pytest', exitOneInformational('Test failures')],
   ['jest', exitOneInformational('Test failures')],
   ['vitest', exitOneInformational('Test failures')],
-  ['npm', exitOneInformational('Test failures')],
+  // Compound key: only npm test / npm t / npm run test[:<variant>] get
+  // informational semantics. npm install, npm publish, npm run build etc.
+  // all have exit 1 = real failure and must keep DEFAULT_SEMANTIC.
+  ['npm test', exitOneInformational('Test failures')],
 
   // pylint uses an OR-ed bitfield exit code:
   //   1=fatal, 2=error msg, 4=warning, 8=refactor, 16=convention, 32=usage error
@@ -210,6 +213,16 @@ function extractBaseCommand(command: string): string {
     if (words[1] === '-m' && words[2]) {
       return resolveToolName(words[2])
     }
+    return first
+  }
+
+  // npm: only `npm test` / `npm t` / `npm run test[:<variant>]` get
+  // informational semantics — other subcommands (install, publish, build…)
+  // exit 1 on real failures and must fall through to DEFAULT_SEMANTIC.
+  if (first === 'npm') {
+    const sub = words[1]
+    if (sub === 'test' || sub === 't') return 'npm test'
+    if (sub === 'run' && words[2] && /^test(:.+)?$/.test(words[2])) return 'npm test'
     return first
   }
 
