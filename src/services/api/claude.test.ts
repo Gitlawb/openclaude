@@ -330,6 +330,13 @@ describe('queryModel 404 stream-creation fallback — providerOverride propagati
       },
     })
 
+    mock.module('../vcr.js', () => ({
+      withStreamingVCR: async function* (_messages: unknown, fn: () => AsyncGenerator) {
+        yield* fn()
+      },
+      withVCR: async (_messages: unknown, fn: () => Promise<unknown>) => fn(),
+    }))
+
     const { queryModelWithoutStreaming } = await importClaudeFresh()
 
     const providerOverride = {
