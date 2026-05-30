@@ -38,7 +38,11 @@ const addMarketplaceSource = mock(async () => ({
 
 await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
 
+const realGrowthbook = await import(
+  `../../services/analytics/growthbook.js?real=${Date.now()}-${Math.random()}`
+)
 mock.module('../../services/analytics/growthbook.js', () => ({
+  ...realGrowthbook,
   getFeatureValue_CACHED_MAY_BE_STALE: () => true,
 }))
 

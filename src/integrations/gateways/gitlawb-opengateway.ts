@@ -52,6 +52,7 @@ export default defineGateway({
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
     fallbackModel: 'mimo-v2.5-pro',
+    badge: { text: 'FREE', color: 'success' },
   },
   catalog: {
     source: 'static',

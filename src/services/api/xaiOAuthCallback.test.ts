@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { fetch as httpFetch } from 'undici'
 
 import { startXaiOAuthCallback } from './xaiOAuthCallback.js'
 
@@ -31,23 +32,42 @@ async function startTestServer() {
   return { handle, port }
 }
 
-describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
+describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
   let cleanup: (() => void) | null = null
+  let savedProxyEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
     cleanup = null
+    savedProxyEnv = {
+      HTTP_PROXY: process.env.HTTP_PROXY,
+      HTTPS_PROXY: process.env.HTTPS_PROXY,
+      ALL_PROXY: process.env.ALL_PROXY,
+      NO_PROXY: process.env.NO_PROXY,
+    }
+    delete process.env.HTTP_PROXY
+    delete process.env.HTTPS_PROXY
+    delete process.env.ALL_PROXY
+    process.env.NO_PROXY = '127.0.0.1,localhost'
   })
 
   afterEach(() => {
     cleanup?.()
     cleanup = null
+    for (const [key, value] of Object.entries(savedProxyEnv)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+    savedProxyEnv = {}
   })
 
   test('OPTIONS preflight from auth.x.ai returns 204 with CORS echo', async () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'OPTIONS',
       headers: {
         Origin: 'https://auth.x.ai',
@@ -84,7 +104,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'OPTIONS',
       headers: {
         Origin: 'https://auth.x.ai',
@@ -102,7 +122,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'OPTIONS',
       headers: { Origin: 'https://accounts.x.ai' },
     })
@@ -116,7 +136,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'OPTIONS',
       headers: { Origin: 'https://attacker.example.com' },
     })
@@ -128,7 +148,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'OPTIONS',
       headers: { Origin: 'http://auth.x.ai' },
     })
@@ -140,7 +160,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'OPTIONS',
       headers: { Origin: 'https://auth.x.ai.evil.example.com' },
     })
@@ -153,7 +173,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
-    const res = await fetch(
+    const res = await httpFetch(
       `http://127.0.0.1:${port}/callback?code=ABC123&state=xyz`,
       { headers: { Origin: 'https://auth.x.ai' } },
     )
@@ -171,7 +191,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
-    const res = await fetch(
+    const res = await httpFetch(
       `http://127.0.0.1:${port}/callback?error=access_denied`,
     )
     expect(res.status).toBe(400)
@@ -182,7 +202,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/something-else`)
+    const res = await httpFetch(`http://127.0.0.1:${port}/something-else`)
     expect(res.status).toBe(404)
 
     let settled = false
@@ -202,7 +222,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await fetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
       method: 'POST',
       body: 'code=ABC&state=xyz',
     })
@@ -221,7 +241,7 @@ describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
-    const res = await fetch(
+    const res = await httpFetch(
       `http://127.0.0.1:${port}/callback?code=A&state=B`,
     )
     const body = await res.text()
