@@ -64,6 +64,11 @@ async function readSkillResource(
       loadedFrom: 'mcp',
       paths: undefined,
       executionContext: parsed.executionContext,
+      // Security: MCP skills are remote and untrusted. Discard any `hooks`
+      // frontmatter — otherwise the slash-command path would register them as
+      // session hooks that run shell in the user's workspace, bypassing the
+      // inline-shell guard that already blocks !`…` for loadedFrom === 'mcp'.
+      hooks: undefined,
     })
   } catch (error) {
     logForDebugging(
