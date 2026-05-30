@@ -56,6 +56,7 @@ describe('code-reviewer built-in agent', () => {
   test('disallows mutation tools', () => {
     const disallowed = agent.disallowedTools ?? []
     expect(disallowed).toContain('Agent')
+    expect(disallowed).toContain('Bash')
     expect(disallowed).toContain('Edit')
     expect(disallowed).toContain('Write')
     expect(disallowed).toContain('NotebookEdit')

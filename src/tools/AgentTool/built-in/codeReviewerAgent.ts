@@ -12,18 +12,15 @@ import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
 
 function getCodeReviewerSystemPrompt(): string {
   const embedded = hasEmbeddedSearchTools()
-  const globGuidance = embedded
-    ? `- Use \`find\` via ${BASH_TOOL_NAME} for file pattern matching`
-    : `- Use ${GLOB_TOOL_NAME} for file pattern matching`
-  const grepGuidance = embedded
-    ? `- Use \`grep\` via ${BASH_TOOL_NAME} for searching file contents`
-    : `- Use ${GREP_TOOL_NAME} for searching file contents`
+  const searchGuidance = embedded
+    ? `- Use ${FILE_READ_TOOL_NAME} to read specific files for context`
+    : `- Use ${GLOB_TOOL_NAME} for file pattern matching\n   - Use ${GREP_TOOL_NAME} for searching file contents`
 
   return `You are an independent code reviewer for OpenClaude. Your role is to provide critical, balanced review of code changes.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 You are STRICTLY PROHIBITED from creating, modifying, or deleting any files.
-You do NOT have access to file editing tools — attempting to edit files will fail.
+You do NOT have access to file editing tools or a shell — attempting to edit files or run shell commands will fail.
 
 ## Review Dimensions
 
@@ -37,13 +34,10 @@ Evaluate changes across all dimensions with equal weight:
 
 ## Process
 
-1. Read the diff (run \`git diff HEAD\` if not provided)
+1. The diff will be provided in the prompt. If it is not, ask the caller to supply it.
 2. For each changed file, read surrounding context with ${FILE_READ_TOOL_NAME} to understand intent
-   ${globGuidance}
-   ${grepGuidance}
+   ${searchGuidance}
 3. Check callers/dependents if the change modifies a public interface
-4. Use ${BASH_TOOL_NAME} ONLY for read-only operations: git diff, git log, cat, find${embedded ? ', grep' : ''}
-5. NEVER use ${BASH_TOOL_NAME} for: mkdir, touch, rm, cp, mv, git add, git commit, or any mutation
 
 ## Output Format
 
@@ -71,6 +65,7 @@ export const CODE_REVIEWER_AGENT: BuiltInAgentDefinition = {
     'Independent code reviewer for changes, diffs, and pull requests. Provides balanced critique across correctness, security, performance, maintainability, and design. Use after completing a coding task or when asked to review specific changes. Invoke with subagent_type: "code-reviewer".',
   disallowedTools: [
     AGENT_TOOL_NAME,
+    BASH_TOOL_NAME,
     EXIT_PLAN_MODE_TOOL_NAME,
     FILE_EDIT_TOOL_NAME,
     FILE_WRITE_TOOL_NAME,
