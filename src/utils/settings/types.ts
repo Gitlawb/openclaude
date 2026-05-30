@@ -732,6 +732,63 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),
+      localThinkingBudget: z
+        .object({
+          enabled: z
+            .boolean()
+            .optional()
+            .describe(
+              'Master switch. When absent or false, per-turn thinking control is ' +
+                'off and requests are unchanged. Only applies to local ' +
+                'OpenAI-compatible backends (llama.cpp / vLLM / Ollama).',
+            ),
+          backend: z
+            .enum(['llama.cpp', 'vllm', 'ollama'])
+            .optional()
+            .describe(
+              'Local inference backend. Required to distinguish llama.cpp from ' +
+                'vLLM (they share localhost ports). When omitted, Ollama is ' +
+                'auto-detected; otherwise the feature no-ops with a warning.',
+            ),
+          budgetTokens: z
+            .object({
+              afterRoutineTool: z
+                .number()
+                .optional()
+                .describe(
+                  'Thinking-token budget on turns whose last action was a ' +
+                    'routine tool (Read/Write/Edit/LS/Grep/Glob). 0 = suppress ' +
+                    'thinking entirely. Default 0.',
+                ),
+              normalTurn: z
+                .number()
+                .optional()
+                .describe(
+                  'Thinking-token budget on regular turns. Default 1024.',
+                ),
+              complexTurn: z
+                .number()
+                .optional()
+                .describe(
+                  'Thinking-token budget on turns matching complexKeywords. ' +
+                    '-1 = unlimited. Default -1.',
+                ),
+            })
+            .optional()
+            .describe('Per-turn-category thinking-token budgets.'),
+          complexKeywords: z
+            .array(z.string())
+            .optional()
+            .describe(
+              'Keywords that mark a user turn as complex (unlimited thinking). ' +
+                'Case-insensitive substring match. Has a sensible default list.',
+            ),
+        })
+        .optional()
+        .describe(
+          'Adaptive per-turn thinking budget for local reasoning models. ' +
+            'Opt-in; off unless enabled is true.',
+        ),
       advisorModel: z
         .string()
         .optional()

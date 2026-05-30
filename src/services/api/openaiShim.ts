@@ -71,6 +71,12 @@ import {
   type LocalFastPathConfig,
 } from './providerConfig.js'
 import {
+  classifyTurn,
+  injectLocalThinkingParams,
+  resolveLocalBackend,
+  resolveLocalThinkingConfig,
+} from './localThinkingBudget.js'
+import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
@@ -2155,6 +2161,31 @@ class OpenAIShimMessages {
         if (effort) {
           body.reasoning_effort = normalizeDeepSeekReasoningEffort(effort)
         }
+      }
+    }
+
+    // Adaptive per-turn thinking budget for local reasoning models. Opt-in
+    // (off unless localThinkingBudget.enabled); local backends only. Suppresses
+    // thinking on routine-tool turns, caps it on normal turns, frees it on
+    // complex turns. See localThinkingBudget.ts.
+    const localThinking = resolveLocalThinkingConfig()
+    if (localThinking && isLocalProviderUrl(request.baseUrl)) {
+      const backend = resolveLocalBackend(request.baseUrl, localThinking.backend)
+      if (backend) {
+        injectLocalThinkingParams(
+          body,
+          openaiMessages,
+          classifyTurn(
+            params.messages as Array<{
+              role?: string
+              message?: { role?: string; content?: unknown }
+              content?: unknown
+            }>,
+            localThinking.complexKeywords,
+          ),
+          localThinking,
+          backend,
+        )
       }
     }
 
