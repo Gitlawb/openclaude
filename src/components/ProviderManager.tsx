@@ -5,6 +5,7 @@ import { Box, Text } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
+import { getGlobalConfig } from '../utils/config.js'
 import type { ProviderProfile } from '../utils/config.js'
 import {
   clearCodexCredentials,
@@ -23,7 +24,6 @@ import {
   clearPersistedCodexOAuthProfile,
   clearPersistedXaiOAuthProfile,
   createProfileFile,
-  PROFILE_ENV_KEYS,
 } from '../utils/providerProfile.js'
 import {
   clearXaiCredentials,
@@ -49,6 +49,7 @@ import {
   addProviderProfile,
   applyActiveProviderProfileFromConfig,
   clearActiveProviderProfile,
+  clearProviderProfileEnvFromProcessEnv,
   deleteProviderProfile,
   getActiveProviderProfile,
   getProviderPresetDefaults,
@@ -1201,15 +1202,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // Clear the active provider profile from config and delete the
         // startup profile file so Anthropic is used on next launch too.
         clearActiveProviderProfile()
-        // Wipe all third-party provider env vars from the current process so
-        // the running session immediately routes back to Anthropic without
-        // requiring a restart.
-        for (const key of PROFILE_ENV_KEYS) {
-          delete process.env[key]
+        // Wipe all third-party provider env vars AND the profile-applied
+        // sentinel flags (CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED[_ID]) from
+        // the running process so routing resolves back to Anthropic immediately.
+        clearProviderProfileEnvFromProcessEnv()
+        // If GitHub Models was the previous provider its hydrated token lingers
+        // outside PROFILE_ENV_KEYS — clear it explicitly.
+        if (process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]) {
+          clearGithubModelsToken()
         }
         clearStartupProviderOverrideFromUserSettings()
+        // Reset in-session model to the system default (null = use config/env default).
+        // Other activation paths (GitHub, normal profiles) do the same.
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: null,
+          mainLoopModelForSession: null,
+        }))
+        // Update state directly instead of via refreshProfiles(): refreshProfiles()
+        // queues a microtask that calls getActiveProviderProfile(), which falls back
+        // to profiles[0] when activeProviderProfileId is undefined — overwriting the
+        // setActiveProfileId(undefined) we want here.
+        setProfiles(getProviderProfiles(getGlobalConfig()))
         setActiveProfileId(undefined)
-        refreshProfiles()
         setStatusMessage(`Active provider: ${ANTHROPIC_PROVIDER_LABEL}`)
         setIsActivating(false)
         onDone({
