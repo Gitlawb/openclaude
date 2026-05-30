@@ -6,6 +6,7 @@ import {
   isMechanicalBashCommand,
   resolveLocalBackend,
   resolveLocalThinkingConfig,
+  _resetWarningsForTest,
   type LocalThinkingConfig,
 } from './localThinkingBudget.ts'
 
@@ -77,6 +78,15 @@ describe('resolveLocalBackend', () => {
   })
 
   test('returns null for non-ollama endpoint with no explicit backend', () => {
+    _resetWarningsForTest()
+    expect(resolveLocalBackend('http://localhost:8000/v1', undefined)).toBeNull()
+  })
+
+  test('_resetWarningsForTest allows warning to fire again', () => {
+    _resetWarningsForTest()
+    expect(resolveLocalBackend('http://localhost:8000/v1', undefined)).toBeNull()
+    _resetWarningsForTest()
+    // second call after reset should also return null (not cached as warned)
     expect(resolveLocalBackend('http://localhost:8000/v1', undefined)).toBeNull()
   })
 })
@@ -377,7 +387,8 @@ describe('classifyTurn', () => {
   })
 
   test('Grep with long result → normalTurn', () => {
-    const longContent = 'x'.repeat(600)
+    // threshold is 500 tokens; at ~4 chars/token need >2000 chars to exceed it
+    const longContent = 'x'.repeat(2100)
     const messages = [
       {
         role: 'assistant',
@@ -459,6 +470,15 @@ describe('injectLocalThinkingParams', () => {
     const messages = [{ role: 'user', content: 'hi' }]
     injectLocalThinkingParams({}, messages, 'afterRoutineTool', cfg, 'ollama')
     expect(messages[0]).toEqual({ role: 'system', content: '/nothink' })
+  })
+
+  test('ollama idempotent: calling twice replaces directive, does not double-prepend', () => {
+    const messages = [{ role: 'system', content: 'You are helpful.' }]
+    injectLocalThinkingParams({}, messages, 'afterRoutineTool', cfg, 'ollama')
+    injectLocalThinkingParams({}, messages, 'complexTurn', cfg, 'ollama')
+    // second call should replace /nothink with /think, not prepend again
+    expect(messages[0].content).toBe('/think\nYou are helpful.')
+    expect(messages.length).toBe(1)
   })
 
   test('zero budget strips reasoning_effort', () => {

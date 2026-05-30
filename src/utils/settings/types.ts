@@ -757,8 +757,8 @@ export const SettingsSchema = lazySchema(() =>
                 .optional()
                 .describe(
                   'Thinking-token budget on turns whose last action was a ' +
-                    'routine tool (Read/Write/Edit/LS/Grep/Glob). 0 = suppress ' +
-                    'thinking entirely. Default 0.',
+                    'routine tool (LS/Glob/Grep or a mechanical Bash command). ' +
+                    '0 = suppress thinking entirely. Default 0.',
                 ),
               normalTurn: z
                 .number()
@@ -782,6 +782,15 @@ export const SettingsSchema = lazySchema(() =>
             .describe(
               'Keywords that mark a user turn as complex (unlimited thinking). ' +
                 'Case-insensitive substring match. Has a sensible default list.',
+            ),
+          maxRoutineResultTokens: z
+            .number()
+            .optional()
+            .describe(
+              'Approximate token threshold for routine tool results. Results ' +
+                'larger than this are reclassified as normalTurn even if the ' +
+                'tool is otherwise routine (LS/Glob/Grep/mechanical Bash). ' +
+                'Estimated at 4 chars per token. Default 500.',
             ),
         })
         .optional()

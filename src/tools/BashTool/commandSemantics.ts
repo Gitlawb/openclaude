@@ -126,7 +126,10 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   ['pytest', exitOneInformational('Test failures')],
   ['jest', exitOneInformational('Test failures')],
   ['vitest', exitOneInformational('Test failures')],
-  ['npm', exitOneInformational('Test failures')],
+  // Compound key: only npm test / npm t / npm run test[:<variant>] get
+  // informational semantics. npm install, npm publish, npm run build etc.
+  // all have exit 1 = real failure and must keep DEFAULT_SEMANTIC.
+  ['npm test', exitOneInformational('Test failures')],
 
   // wc, head, tail, cat, etc.: these typically only fail on real errors
   // so we use default semantics
@@ -143,10 +146,23 @@ function getCommandSemantic(command: string): CommandSemantic {
 }
 
 /**
- * Extract just the command name (first word) from a single command string.
+ * Extract just the command name (first word) from a single command string,
+ * with special handling for npm to scope test semantics to the test subcommand.
  */
 function extractBaseCommand(command: string): string {
-  return command.trim().split(/\s+/)[0] || ''
+  const words = command.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ''
+  const first = words[0]!
+  // npm: only `npm test` / `npm t` / `npm run test[:<variant>]` get
+  // informational semantics — other subcommands (install, publish, build…)
+  // exit 1 on real failures and must fall through to DEFAULT_SEMANTIC.
+  if (first === 'npm') {
+    const sub = words[1]
+    if (sub === 'test' || sub === 't') return 'npm test'
+    if (sub === 'run' && words[2] && /^test(:.+)?$/.test(words[2])) return 'npm test'
+    return first
+  }
+  return first
 }
 
 /**

@@ -139,6 +139,11 @@ export function resolveLocalThinkingConfig(
 
 let warnedMissingBackend = false
 
+/** Reset module-level warning state. Test use only. */
+export function _resetWarningsForTest(): void {
+  warnedMissingBackend = false
+}
+
 /**
  * Resolve the local backend. Explicit setting wins; otherwise Ollama is
  * auto-detected (reliable). llama.cpp and vLLM share bare localhost ports and
@@ -252,10 +257,11 @@ export function classifyTurn(
       .map(tr => (tr.tool_use_id ? toolUseById.get(tr.tool_use_id) : undefined))
       .filter((e): e is ToolUseEntry => Boolean(e))
     if (entries.length > 0 && entries.every(isRoutineToolUse)) {
-      // Check if any tool result content exceeds the threshold
+      // Approximate token count at 4 chars/token; upgrade to normalTurn when
+      // any result exceeds the threshold so large outputs get full reasoning.
       const exceedsThreshold = toolResults.some(tr => {
         const content = typeof tr.content === 'string' ? tr.content : ''
-        return content.length > maxRoutineResultTokens
+        return Math.ceil(content.length / 4) > maxRoutineResultTokens
       })
       if (!exceedsThreshold) {
         return 'afterRoutineTool'
@@ -290,6 +296,11 @@ function injectOllamaDirective(
 ): void {
   const first = openaiMessages[0]
   if (first && first.role === 'system' && typeof first.content === 'string') {
+    // Idempotent: skip if either directive is already present (e.g. on retry).
+    if (first.content.startsWith('/think') || first.content.startsWith('/nothink')) {
+      first.content = `${directive}\n${first.content.replace(/^\/(?:think|nothink)\n/, '')}`
+      return
+    }
     first.content = `${directive}\n${first.content}`
     return
   }

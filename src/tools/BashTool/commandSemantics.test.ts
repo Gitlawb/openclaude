@@ -285,6 +285,21 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('npm test', 2, '', 'ENOENT')
       expect(result.isError).toBe(true)
     })
+
+    test('npm install exit code 1 = real failure (not a test runner)', () => {
+      const result = interpretCommandResult('npm install', 1, '', 'ERR!')
+      expect(result.isError).toBe(true)
+    })
+
+    test('npm run build exit code 1 = real failure', () => {
+      const result = interpretCommandResult('npm run build', 1, '', 'Build failed')
+      expect(result.isError).toBe(true)
+    })
+
+    test('npm run test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('npm run test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+    })
   })
 
   // --- npm test in compound command ---
