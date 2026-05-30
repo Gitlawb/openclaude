@@ -180,7 +180,7 @@ const cfg: LocalThinkingConfig = {
   backend: undefined,
   budgetTokens: { afterRoutineTool: 0, normalTurn: 1024, complexTurn: -1 },
   complexKeywords: ['debug', 'architect'],
-  maxRoutineResultTokens: 500,
+  maxRoutineResultTokens: 200,
 }
 
 describe('classifyTurn', () => {
@@ -387,8 +387,8 @@ describe('classifyTurn', () => {
   })
 
   test('Grep with long result → normalTurn', () => {
-    // threshold is 500 tokens; at ~4 chars/token need >2000 chars to exceed it
-    const longContent = 'x'.repeat(2100)
+    // threshold is 200 tokens; at ~4 chars/token need >800 chars to exceed it
+    const longContent = 'x'.repeat(900)
     const messages = [
       {
         role: 'assistant',

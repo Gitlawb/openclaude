@@ -790,7 +790,7 @@ export const SettingsSchema = lazySchema(() =>
               'Approximate token threshold for routine tool results. Results ' +
                 'larger than this are reclassified as normalTurn even if the ' +
                 'tool is otherwise routine (LS/Glob/Grep/mechanical Bash). ' +
-                'Estimated at 4 chars per token. Default 500.',
+                'Estimated at 4 chars per token. Default 200.',
             ),
         })
         .optional()

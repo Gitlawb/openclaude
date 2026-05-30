@@ -98,7 +98,7 @@ const DEFAULT_COMPLEX_KEYWORDS = [
   'review',
 ]
 
-const DEFAULT_MAX_ROUTINE_RESULT_TOKENS = 500
+const DEFAULT_MAX_ROUTINE_RESULT_TOKENS = 200
 
 /**
  * Resolve the effective config from settings, filling defaults. Returns null
