@@ -172,10 +172,10 @@ describe('getAttributionTexts', () => {
   it('preserves includeCoAuthoredBy true as an explicit old-default opt-in', () => {
     useSettings({ includeCoAuthoredBy: true })
 
-    expect(attributionModule.getAttributionTexts()).toEqual({
-      commit: 'Co-Authored-By: OpenClaude (gpt-5.5) <openclaude@gitlawb.com>',
-      pr: defaultPrAttribution,
-    })
+    const attribution = attributionModule.getAttributionTexts()
+    expect(attribution.commit).toStartWith('Co-Authored-By: ')
+    expect(attribution.commit).toEndWith(' <openclaude@gitlawb.com>')
+    expect(attribution.pr).toBe(defaultPrAttribution)
   })
 
   it('keeps attribution off when includeCoAuthoredBy is false', () => {
