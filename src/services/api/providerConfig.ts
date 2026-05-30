@@ -27,6 +27,8 @@ import {
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
+export const DEFAULT_OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1'
+export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
@@ -459,7 +461,8 @@ function normalizePathWithV1(pathname: string): string {
   return `${trimmed}/v1`
 }
 
-function isLikelyOllamaEndpoint(baseUrl: string): boolean {
+export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
   try {
     const parsed = new URL(baseUrl)
     const hostname = parsed.hostname.toLowerCase()

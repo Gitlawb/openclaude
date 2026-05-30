@@ -17,6 +17,7 @@ package-lock.json
 coverage/
 agent.log
 plan/
+temp_reference/
 
 # openlore analysis artifacts
 .openlore/

@@ -40,6 +40,8 @@ export interface OpenAIShimTransportConfig {
   thinkingRequestFormat?: 'none' | 'deepseek-compatible'
   maxTokensField?: OpenAIShimTokenField
   removeBodyFields?: string[]
+  /** Override the endpoint path for this model (e.g., '/responses', '/messages'). */
+  endpointPath?: string
 }
 
 export interface CapabilityFlags {
@@ -147,6 +149,11 @@ export interface ValidationRoutingMetadata {
   skipWhenUseOpenAI?: boolean
 }
 
+export interface PresetBadge {
+  text: string
+  color?: string
+}
+
 export interface ProviderPresetMetadata {
   id: string
   description: string
@@ -158,6 +165,7 @@ export interface ProviderPresetMetadata {
   modelEnvVars?: string[]
   fallbackBaseUrl?: string
   fallbackModel?: string
+  badge?: PresetBadge
 }
 
 export type ProviderPresetRouteKind =
@@ -179,6 +187,7 @@ export interface ProviderPresetManifestEntry {
   modelEnvVars?: readonly string[]
   fallbackBaseUrl?: string
   fallbackModel?: string
+  badge?: PresetBadge
 }
 
 export type ValidationMetadata =

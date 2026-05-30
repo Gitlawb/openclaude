@@ -44,6 +44,7 @@ export default defineGateway({
   preset: {
     id: 'gitlawb-opengateway',
     description: 'Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models (API key required, mint at https://gitlawb.com/opengateway/keys)',
+    apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
     vendorId: 'openai',
@@ -51,6 +52,7 @@ export default defineGateway({
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
     fallbackModel: 'mimo-v2.5-pro',
+    badge: { text: 'FREE', color: 'success' },
   },
   catalog: {
     source: 'static',

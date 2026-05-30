@@ -218,6 +218,7 @@ function buildPresetManifestEntry(
     modelEnvVars: preset.modelEnvVars,
     fallbackBaseUrl: preset.fallbackBaseUrl,
     fallbackModel: preset.fallbackModel,
+    badge: preset.badge,
   }
 }
 
