@@ -2182,6 +2182,7 @@ class OpenAIShimMessages {
               content?: unknown
             }>,
             localThinking.complexKeywords,
+            localThinking.maxRoutineResultTokens,
           ),
           localThinking,
           backend,

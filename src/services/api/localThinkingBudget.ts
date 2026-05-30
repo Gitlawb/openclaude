@@ -24,6 +24,7 @@ export type LocalThinkingConfig = {
   backend?: LocalBackend
   budgetTokens: Record<TurnType, number>
   complexKeywords: string[]
+  maxRoutineResultTokens?: number
 }
 
 /**
@@ -97,6 +98,8 @@ const DEFAULT_COMPLEX_KEYWORDS = [
   'review',
 ]
 
+const DEFAULT_MAX_ROUTINE_RESULT_TOKENS = 500
+
 /**
  * Resolve the effective config from settings, filling defaults. Returns null
  * when the feature is absent or disabled — callers must treat null as "do
@@ -130,6 +133,7 @@ export function resolveLocalThinkingConfig(
       config.complexKeywords && config.complexKeywords.length > 0
         ? config.complexKeywords
         : DEFAULT_COMPLEX_KEYWORDS,
+    maxRoutineResultTokens: config.maxRoutineResultTokens ?? DEFAULT_MAX_ROUTINE_RESULT_TOKENS,
   }
 }
 
@@ -210,6 +214,7 @@ function isRoutineToolUse(entry: ToolUseEntry): boolean {
 export function classifyTurn(
   messages: LooseMessage[],
   keywords: string[],
+  maxRoutineResultTokens: number = DEFAULT_MAX_ROUTINE_RESULT_TOKENS,
 ): TurnType {
   // Map every tool_use id → { name, input } across assistant messages so a
   // tool_result can be resolved back to the tool that produced it.
@@ -247,7 +252,14 @@ export function classifyTurn(
       .map(tr => (tr.tool_use_id ? toolUseById.get(tr.tool_use_id) : undefined))
       .filter((e): e is ToolUseEntry => Boolean(e))
     if (entries.length > 0 && entries.every(isRoutineToolUse)) {
-      return 'afterRoutineTool'
+      // Check if any tool result content exceeds the threshold
+      const exceedsThreshold = toolResults.some(tr => {
+        const content = typeof tr.content === 'string' ? tr.content : ''
+        return content.length > maxRoutineResultTokens
+      })
+      if (!exceedsThreshold) {
+        return 'afterRoutineTool'
+      }
     }
   }
 

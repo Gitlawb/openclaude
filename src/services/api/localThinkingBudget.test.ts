@@ -170,6 +170,7 @@ const cfg: LocalThinkingConfig = {
   backend: undefined,
   budgetTokens: { afterRoutineTool: 0, normalTurn: 1024, complexTurn: -1 },
   complexKeywords: ['debug', 'architect'],
+  maxRoutineResultTokens: 500,
 }
 
 describe('classifyTurn', () => {
@@ -184,7 +185,7 @@ describe('classifyTurn', () => {
         content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
       },
     ]
-    expect(classifyTurn(messages, cfg.complexKeywords)).toBe('afterRoutineTool')
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('afterRoutineTool')
   })
 
   test('Grep tool_result → afterRoutineTool', () => {
@@ -198,7 +199,7 @@ describe('classifyTurn', () => {
         content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
       },
     ]
-    expect(classifyTurn(messages, cfg.complexKeywords)).toBe('afterRoutineTool')
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('afterRoutineTool')
   })
 
   test('Bash(git status) → afterRoutineTool', () => {
@@ -219,7 +220,7 @@ describe('classifyTurn', () => {
         content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
       },
     ]
-    expect(classifyTurn(messages, cfg.complexKeywords)).toBe('afterRoutineTool')
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('afterRoutineTool')
   })
 
   test('Bash(git diff) → normalTurn', () => {
@@ -286,7 +287,7 @@ describe('classifyTurn', () => {
         ],
       },
     ]
-    expect(classifyTurn(messages, cfg.complexKeywords)).toBe('afterRoutineTool')
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('afterRoutineTool')
   })
 
   test('mixed: Grep + Bash(git diff) → normalTurn (not all routine)', () => {
@@ -368,11 +369,41 @@ describe('classifyTurn', () => {
         },
       },
     ]
-    expect(classifyTurn(messages, cfg.complexKeywords)).toBe('afterRoutineTool')
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('afterRoutineTool')
   })
 
   test('empty messages → normalTurn', () => {
-    expect(classifyTurn([], cfg.complexKeywords)).toBe('normalTurn')
+    expect(classifyTurn([], cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('normalTurn')
+  })
+
+  test('Grep with long result → normalTurn', () => {
+    const longContent = 'x'.repeat(600)
+    const messages = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'Grep', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: longContent }],
+      },
+    ]
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('normalTurn')
+  })
+
+  test('Grep with short result → afterRoutineTool', () => {
+    const shortContent = 'x'.repeat(100)
+    const messages = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'Grep', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: shortContent }],
+      },
+    ]
+    expect(classifyTurn(messages, cfg.complexKeywords, cfg.maxRoutineResultTokens)).toBe('afterRoutineTool')
   })
 })
 
