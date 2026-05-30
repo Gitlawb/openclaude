@@ -1,5 +1,11 @@
 import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
 import { query, forkSession, getSessionMessages, unstable_v2_createSession } from '../../src/entrypoints/sdk/index.js'
+import {
+  buildPermissionContext,
+  createDefaultCanUseTool,
+  createExternalCanUseTool,
+  createPermissionTarget,
+} from '../../src/entrypoints/sdk/permissions.js'
 import { randomUUID } from 'crypto'
 import { rmSync } from 'fs'
 import {
@@ -330,18 +336,23 @@ describe('Query resume lifecycle', () => {
 
 describe('Secure-by-default permissions (SEC-2)', () => {
   test('createDefaultCanUseTool denies all tools when no callback is provided', async () => {
-    // We test this indirectly: create a query with no canUseTool or
-    // onPermissionRequest, and verify that tool uses are denied.
-    // The query engine will attempt to use tools, and the deny-by-default
-    // behavior should produce permission_denials in the result.
-    const q = query({
-      prompt: 'Read the file test.txt',
-      options: { cwd: process.cwd() },
-    })
+    const canUseTool = createDefaultCanUseTool(
+      buildPermissionContext({ cwd: process.cwd() }),
+      { warn: () => {} },
+    )
 
-    const messages = await drainQuery(q)
-    // The query should complete (not hang) and messages should be present
-    expect(Array.isArray(messages)).toBe(true)
+    const result = await canUseTool(
+      { name: 'Read' } as any,
+      { file_path: 'test.txt' },
+      {} as any,
+      {} as any,
+      'tool-use-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    expect(result.message).toContain('no canUseTool or onPermissionRequest')
+    expect(result.decisionReason).toEqual({ type: 'mode', mode: 'default' })
   })
 
   test('canUseTool callback overrides deny-by-default', async () => {
@@ -409,40 +420,46 @@ describe('Secure-by-default permissions (SEC-2)', () => {
 
 describe('Permission timeout eventing (PTO-1)', () => {
   test('timeout emits permission_timeout message in stream', async () => {
-    const messages: unknown[] = []
-
-    const q = query({
-      prompt: 'Read the file test.txt',
-      options: {
-        cwd: process.cwd(),
-        _permissionTimeoutMs: 100,
-        onPermissionRequest: () => {
-          // Deliberately do NOT call respondToPermission() — force timeout
-        },
+    const permissionTarget = createPermissionTarget()
+    const timeoutMessages: unknown[] = []
+    const warnings: string[] = []
+    const fallback = createDefaultCanUseTool(
+      buildPermissionContext({ cwd: process.cwd() }),
+      { warn: () => {} },
+    )
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      fallback,
+      permissionTarget,
+      () => {
+        // Deliberately do NOT resolve the pending permission; force timeout.
       },
-    })
-
-    // Drain with a timeout safety net
-    const drainPromise = drainQuery(q).then(msgs => { messages.push(...msgs) })
-    await drainPromise
-
-    // Verify no crash occurred
-    expect(Array.isArray(messages)).toBe(true)
-
-    // Check if a permission_timeout message was produced
-    const timeoutMsgs = messages.filter(
-      (msg: any) => msg?.type === 'permission_timeout',
+      message => timeoutMessages.push(message),
+      10,
+      'session-id',
+      { warn: message => warnings.push(message) },
     )
 
-    // If the engine tried to use a tool and hit the permission callback,
-    // we should see exactly one timeout message
-    if (timeoutMsgs.length > 0) {
-      const msg = timeoutMsgs[0] as Record<string, unknown>
-      expect(msg.type).toBe('permission_timeout')
-      expect(typeof msg.tool_name).toBe('string')
-      expect(typeof msg.tool_use_id).toBe('string')
-      expect(typeof msg.timed_out_after_ms).toBe('number')
-      expect(msg.timed_out_after_ms).toBe(100)
-    }
+    const result = await canUseTool(
+      { name: 'Read' } as any,
+      { file_path: 'test.txt' },
+      {} as any,
+      {} as any,
+      'tool-use-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    expect(timeoutMessages).toHaveLength(1)
+    expect(timeoutMessages[0]).toMatchObject({
+      type: 'permission_timeout',
+      tool_name: 'Read',
+      tool_use_id: 'tool-use-id',
+      timed_out_after_ms: 10,
+      session_id: 'session-id',
+    })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('timed out after 10ms')
+    expect(permissionTarget.pendingPermissionPrompts.size).toBe(0)
   }, 15_000)
 })

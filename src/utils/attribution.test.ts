@@ -12,7 +12,11 @@ import type { SettingsJson } from './settings/types.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   OPENCLAUDE_DISABLE_CO_AUTHORED_BY:
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   CLAUDE_CODE_REMOTE_SESSION_ID: process.env.CLAUDE_CODE_REMOTE_SESSION_ID,
@@ -46,6 +50,10 @@ beforeEach(async () => {
   setClientType('cli')
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_MODEL = 'gpt-5.5'
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.ANTHROPIC_MODEL
   delete process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY
   delete process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   delete process.env.SESSION_INGRESS_URL
