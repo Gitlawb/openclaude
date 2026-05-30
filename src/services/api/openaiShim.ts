@@ -2197,6 +2197,7 @@ class OpenAIShimMessages {
             message?: { role?: string; content?: unknown }
             content?: unknown
           }>,
+          false,
         ),
         stream: params.stream ?? false,
         store: false,
@@ -2211,7 +2212,7 @@ class OpenAIShimMessages {
           {
             type: 'message',
             role: 'user',
-            content: [{ type: 'input_text', text: '' }],
+            content: [{ type: 'text', text: '' }],
           },
         ]
       }

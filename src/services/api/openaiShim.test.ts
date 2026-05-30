@@ -273,7 +273,7 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
     {
       type: 'message',
       role: 'user',
-      content: [{ type: 'input_text', text: 'hello' }],
+      content: [{ type: 'text', text: 'hello' }],
     },
   ])
 })

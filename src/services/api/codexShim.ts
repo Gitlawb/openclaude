@@ -168,8 +168,9 @@ function convertToolResultToText(content: unknown): string {
 function convertContentBlocksToResponsesParts(
   content: unknown,
   role: 'user' | 'assistant',
+  isCodex: boolean,
 ): ResponsesInputPart[] {
-  const textType = role === 'assistant' ? 'output_text' : 'input_text'
+  const textType = isCodex ? (role === 'assistant' ? 'output_text' : 'input_text') : 'text'
   if (typeof content === 'string') {
     return [{ type: textType, text: content }]
   }
@@ -222,6 +223,7 @@ function convertContentBlocksToResponsesParts(
 
 export function convertAnthropicMessagesToResponsesInput(
   messages: Array<{ role?: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
+  isCodex: boolean = true,
 ): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = []
 
@@ -251,7 +253,7 @@ export function convertAnthropicMessagesToResponsesInput(
           })
         }
 
-        const parts = convertContentBlocksToResponsesParts(otherContent, 'user')
+        const parts = convertContentBlocksToResponsesParts(otherContent, 'user', isCodex)
         if (parts.length > 0) {
           items.push({
             type: 'message',
@@ -275,7 +277,7 @@ export function convertAnthropicMessagesToResponsesInput(
         ? content.filter((block: { type?: string }) =>
             block.type !== 'tool_use' && block.type !== 'thinking')
         : content
-      const parts = convertContentBlocksToResponsesParts(textBlocks, 'assistant')
+      const parts = convertContentBlocksToResponsesParts(textBlocks, 'assistant', isCodex)
       if (parts.length > 0) {
         items.push({
           type: 'message',
