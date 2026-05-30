@@ -59,6 +59,12 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
     type: 'boolean',
     description: 'Auto-compact when context is full',
   },
+  compactModel: {
+    source: 'global',
+    type: 'string',
+    description: 'Model used for compaction (defaults to main model)',
+    validateOnWrite: async (v: unknown) => validateModel(v as string),
+  },
   autoMemoryEnabled: {
     source: 'settings',
     type: 'boolean',

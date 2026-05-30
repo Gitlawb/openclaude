@@ -254,6 +254,7 @@ export type GlobalConfig = {
   bypassPermissionsModeAccepted?: boolean
   hasUsedBackslashReturn?: boolean
   autoCompactEnabled: boolean // Controls whether auto-compact is enabled
+  compactModel?: string // Override model used for compaction (defaults to mainLoopModel)
   toolHistoryCompressionEnabled: boolean // Compress old tool_result content for small-context providers
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
@@ -704,6 +705,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'editorMode',
   'hasUsedBackslashReturn',
   'autoCompactEnabled',
+  'compactModel',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',
   'showCacheStats',

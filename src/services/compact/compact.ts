@@ -41,7 +41,7 @@ import {
   getDeferredToolsDeltaAttachment,
   getMcpInstructionsDeltaAttachment,
 } from '../../utils/attachments.js'
-import { getMemoryPath } from '../../utils/config.js'
+import { getGlobalConfig, getMemoryPath } from '../../utils/config.js'
 import { COMPACT_MAX_OUTPUT_TOKENS } from '../../utils/context.js'
 import {
   analyzeContext,
@@ -1154,10 +1154,13 @@ async function streamCompactSummary({
   // main conversation's cached prefix (system prompt, tools, context messages).
   // Falls back to regular streaming path on failure.
   // 3P default: true — see comment at the other tengu_compact_cache_prefix read above.
-  const promptCacheSharingEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
-    'tengu_compact_cache_prefix',
-    true,
-  )
+  // Disabled when compactModel overrides mainLoopModel: different model = different
+  // cache key, so the forked-agent cache-sharing path would be a guaranteed miss.
+  const compactModel =
+    getGlobalConfig().compactModel ?? context.options.mainLoopModel
+  const promptCacheSharingEnabled =
+    compactModel === context.options.mainLoopModel &&
+    getFeatureValue_CACHED_MAY_BE_STALE('tengu_compact_cache_prefix', true)
   // Send keep-alive signals during compaction to prevent remote session
   // WebSocket idle timeouts from dropping bridge connections. Compaction
   // API calls can take 5-10+ seconds, during which no other messages
@@ -1312,13 +1315,13 @@ async function streamCompactSummary({
             const appState = context.getAppState()
             return appState.toolPermissionContext
           },
-          model: context.options.mainLoopModel,
+          model: compactModel,
           toolChoice: undefined,
           isNonInteractiveSession: context.options.isNonInteractiveSession,
           hasAppendSystemPrompt: !!context.options.appendSystemPrompt,
           maxOutputTokensOverride: Math.min(
             COMPACT_MAX_OUTPUT_TOKENS,
-            getMaxOutputTokensForModel(context.options.mainLoopModel),
+            getMaxOutputTokensForModel(compactModel),
           ),
           querySource: 'compact',
           agents: context.options.agentDefinitions.activeAgents,
