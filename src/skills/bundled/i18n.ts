@@ -1,15 +1,13 @@
 /**
  * Simple i18n helper for bundled skill descriptions.
- * Reads the `language` setting from config to determine locale.
+ * Reads the merged `language` setting to determine locale.
  *
- * To switch language, set `language` in ~/.claude/settings.json:
+ * To switch language, set `language` in your OpenClaude settings:
  *   { "language": "vietnamese" }  // or "vi"
  *   { "language": "english" }     // or "en" (default)
  */
 
-import { readFileSync } from 'fs'
-import { join } from 'path'
-import { homedir } from 'os'
+import { getInitialSettings } from 'src/utils/settings/settings.js'
 
 type Locale = 'en' | 'vi'
 
@@ -24,16 +22,14 @@ let cachedLocale: Locale | null = null
 
 function detectLocale(): Locale {
   if (cachedLocale) return cachedLocale
-  try {
-    const settingsPath = join(homedir(), '.claude', 'settings.json')
-    const content = readFileSync(settingsPath, 'utf-8')
-    const settings = JSON.parse(content)
-    const lang = settings?.language ?? 'en'
-    cachedLocale = LANGUAGE_MAP[lang.toLowerCase()] ?? 'en'
+  const settings = getInitialSettings()
+  const lang = settings.language
+  if (typeof lang !== 'string') {
+    cachedLocale = 'en'
     return cachedLocale
-  } catch {
-    return 'en'
   }
+  cachedLocale = LANGUAGE_MAP[lang.toLowerCase()] ?? 'en'
+  return cachedLocale
 }
 
 /**
