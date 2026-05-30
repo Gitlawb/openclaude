@@ -45,6 +45,12 @@ model_list:
     litellm_params:
       model: together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo
       api_key: os.environ/TOGETHER_API_KEY
+
+  - model_name: te-gpt-5.4-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/TUNING_ENGINES_API_KEY
+      api_base: https://api.tuningengines.com/v1
 ```
 
 ### Run the proxy
@@ -71,6 +77,19 @@ Replace `<your-litellm-model-alias>` with a model name from your `litellm_config
 
 If your LiteLLM proxy is local and does not enforce auth, `OPENAI_API_KEY` can
 be omitted when you configure env vars manually.
+
+For a governed route through Tuning Engines, set `TUNING_ENGINES_API_KEY` to your Tuning Engines inference key, keep `OPENAI_BASE_URL` pointed at LiteLLM, and use the alias you configured above:
+
+```bash
+export TUNING_ENGINES_API_KEY=sk-te-...
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=http://localhost:4000/v1
+export OPENAI_API_KEY=<your-master-key-or-placeholder>
+export OPENAI_MODEL=te-gpt-5.4-mini
+openclaude
+```
+
+OpenClaude still owns the coding-agent loop and tools. Tuning Engines adds governed model access, tenant policy, traces, approvals, and usage visibility behind the LiteLLM route.
 
 ### Option B: Using /provider
 
