@@ -174,14 +174,19 @@ const VALUE_FLAGS = new Set(['-p', '--package', '-c', '--call', '-w', '--workspa
 
 /**
  * Resolve a raw token to a bare command name: strip any leading path and a
- * trailing version pin or Windows extension.
+ * trailing version pin or Windows extension, and normalize quotes.
  *   ./node_modules/.bin/eslint → eslint
  *   /usr/bin/ruff              → ruff
  *   eslint@8.0.0               → eslint
  *   ruff.exe                   → ruff
+ *   "./path/to/cmd"            → cmd
  */
 function resolveToolName(token: string): string {
-  const base = token.split(/[/\\]/).pop() || token
+  // Remove surrounding quotes (both single and double)
+  let clean = token.replace(/^['"]|['"]$/g, '')
+  // Split by path separators and take the last component
+  const base = clean.split(/[/\\]/).pop() || clean
+  // Remove version pins (@8.0.0) and Windows extensions (.exe, .cmd, etc.)
   return base.replace(/@.*$/, '').replace(/\.(exe|cmd|bat|ps1)$/i, '')
 }
 
@@ -208,14 +213,23 @@ function extractBaseCommand(command: string): string {
   const words = command.trim().split(/\s+/).filter(Boolean)
   if (words.length === 0) return ''
 
-  const first = resolveToolName(words[0])
+  // Skip leading environment variable assignments (TOKEN=value)
+  let firstCmdIdx = 0
+  for (let i = 0; i < words.length; i++) {
+    if (!words[i].includes('=')) {
+      firstCmdIdx = i
+      break
+    }
+  }
+
+  const first = resolveToolName(words[firstCmdIdx])
 
   // `python -m <module>` / `python3 -m <module>`: the module is the real tool.
   // `-m` must immediately follow the interpreter — a later `-m` is a script arg.
   // A bare `python script.py` keeps default semantics (exit 1 = real error).
   if (MODULE_RUNNERS.has(first)) {
-    if (words[1] === '-m' && words[2]) {
-      return resolveToolName(words[2])
+    if (words[firstCmdIdx + 1] === '-m' && words[firstCmdIdx + 2]) {
+      return resolveToolName(words[firstCmdIdx + 2])
     }
     return first
   }
@@ -224,17 +238,17 @@ function extractBaseCommand(command: string): string {
   // Other subcommands (install/publish/build/run <non-test>) exit 1 on real
   // failures and must fall through to DEFAULT_SEMANTIC.
   if (first === 'npm' || first === 'yarn' || first === 'pnpm') {
-    const sub = words[1]
+    const sub = words[firstCmdIdx + 1]
     const key = `${first} test` as const
     if (sub === 'test' || sub === 't') return key
-    if (sub === 'run' && words[2] && /^test(:.+)?$/.test(words[2])) return key
+    if (sub === 'run' && words[firstCmdIdx + 2] && /^test(:.+)?$/.test(words[firstCmdIdx + 2])) return key
     return first
   }
 
   // bun test = bun's built-in runner (exit 1 = failures).
   // bun run <script> proxies to an arbitrary runner — keep default semantics.
   if (first === 'bun') {
-    if (words[1] === 'test') return 'bun test'
+    if (words[firstCmdIdx + 1] === 'test') return 'bun test'
     return first
   }
 
@@ -242,7 +256,7 @@ function extractBaseCommand(command: string): string {
   // flags, and a `run` subcommand, then take the first real argument as the
   // tool being executed.
   if (PACKAGE_RUNNERS.has(first)) {
-    for (let i = 1; i < words.length; i++) {
+    for (let i = firstCmdIdx + 1; i < words.length; i++) {
       const w = words[i]
       if (VALUE_FLAGS.has(w)) {
         i++ // also skip the flag's value

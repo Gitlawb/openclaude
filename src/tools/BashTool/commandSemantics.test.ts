@@ -448,5 +448,35 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('cd /project && npm test', 1, '', '')
       expect(result.isError).toBe(false)
     })
+
+    test('env-prefixed pytest (PYTHONPATH=.) exit 1 = test failures', () => {
+      const result = interpretCommandResult('PYTHONPATH=. pytest tests/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('env-prefixed npm test (CI=1 npm test) exit 1 = test failures', () => {
+      const result = interpretCommandResult('CI=1 npm test', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('env-prefixed ruff (RUFF_CACHE_DIR=.ruff_cache uvx ruff check) exit 1 = findings', () => {
+      const result = interpretCommandResult('RUFF_CACHE_DIR=.ruff_cache uvx ruff check app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('multiple env vars prefixed (VAR1=x VAR2=y pytest tests/) exit 1 = test failures', () => {
+      const result = interpretCommandResult('VAR1=value1 VAR2=value2 pytest tests/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('quoted path-based eslint ("./node_modules/.bin/eslint" src/) exit 1 = findings', () => {
+      const result = interpretCommandResult('"./node_modules/.bin/eslint" src/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test("single-quoted path-based command ('./node_modules/.bin/ruff' check) exit 1 = findings", () => {
+      const result = interpretCommandResult("'./node_modules/.bin/ruff' check app.py", 1, '', '')
+      expect(result.isError).toBe(false)
+    })
   })
 })
