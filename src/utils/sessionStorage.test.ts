@@ -87,6 +87,22 @@ function compactBoundary(
   }
 }
 
+function snipBoundary(
+  uuid: string,
+  parentUuid: string | null,
+  removedUuids: string[],
+) {
+  return {
+    ...base(uuid, parentUuid),
+    type: 'system',
+    subtype: 'snip_boundary',
+    level: 'info',
+    isMeta: false,
+    content: 'Conversation history snipped',
+    snipMetadata: { removedUuids },
+  }
+}
+
 async function writeJsonl(entries: unknown[]): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
   tempDirs.push(dir)
@@ -97,6 +113,48 @@ async function writeJsonl(entries: unknown[]): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+})
+
+test('loadTranscriptFile replays a persisted snip boundary, pruning and relinking', async () => {
+  // The headless snip path appends the boundary (carrying snipMetadata.removedUuids)
+  // to the append-only transcript while the pre-snip messages stay on disk. On
+  // resume, applySnipRemovals must drop the removed UUIDs and relink survivors,
+  // so the restored session reflects the context reduction rather than the
+  // un-snipped history.
+  const keep1 = user(id(41), null, 'keep 1')
+  const removeA = assistant(id(42), id(41), 'remove a')
+  const removeB = user(id(43), id(42), 'remove b')
+  const keep2 = assistant(id(44), id(43), 'keep 2') // parentUuid points into the removed gap
+  const boundary = snipBoundary(id(45), id(44), [id(42), id(43)])
+  const keep3 = assistant(id(46), id(45), 'keep 3')
+
+  const filePath = await writeJsonl([
+    keep1,
+    removeA,
+    removeB,
+    keep2,
+    boundary,
+    keep3,
+  ])
+
+  const { messages } = await loadTranscriptFile(filePath)
+  expect(messages.has(id(42))).toBe(false)
+  expect(messages.has(id(43))).toBe(false)
+  expect(messages.has(id(41))).toBe(true)
+  expect(messages.has(id(44))).toBe(true)
+  expect(messages.has(id(45))).toBe(true)
+  expect(messages.has(id(46))).toBe(true)
+  // keep2's dangling parentUuid (id(43), removed) relinks to the first
+  // surviving ancestor (id(41)).
+  expect(messages.get(id(44))?.parentUuid).toBe(id(41))
+
+  const chain = buildConversationChain(messages, messages.get(id(46))!)
+  expect(chain.map(message => message.uuid)).toEqual([
+    id(41),
+    id(44),
+    id(45),
+    id(46),
+  ])
 })
 
 test('loadTranscriptFile fails closed when preserved-segment tail is missing', async () => {

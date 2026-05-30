@@ -935,6 +935,19 @@ export class QueryEngine {
             if (snipResult.executed) {
               this.mutableMessages.length = 0
               this.mutableMessages.push(...snipResult.messages)
+              // Persist the snip boundary so a resumed session replays the same
+              // removal. recordTranscript is append-only by UUID, so the
+              // pre-snip messages already on disk remain; appending this
+              // boundary (which carries snipMetadata.removedUuids) lets
+              // applySnipRemovals prune them in loadTranscriptFile(). Without
+              // this, --resume/restart rebuilds the un-snipped history and the
+              // context reduction is lost. Mirror the boundary into the local
+              // `messages` recording copy — like the compact_boundary path —
+              // so later writes and the parent chain stay consistent.
+              messages.push(message)
+              if (persistSession) {
+                await recordTranscript(messages)
+              }
             }
             break
           }
