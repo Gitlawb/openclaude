@@ -6,6 +6,7 @@
  * 2. Session timeout / 500 error fix (stream idle timeout)
  * 3. Agent loop continuation nudge
  * 4. Web search result count improvements
+ * 5. [INTERRUPTED] correction context injection after user-cancel (issue #1422)
  */
 
 import { describe, test, expect } from 'bun:test'
@@ -408,5 +409,90 @@ describe('Project-scope MCP approval — third-party providers (issue #696)', ()
   test('issue #696 is referenced from the comment so future readers can find context', async () => {
     const content = await file('interactiveHelpers.tsx').text()
     expect(content).toContain('#696')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix 5: [INTERRUPTED] correction context injection after user-cancel (issue #1422)
+// When the model executes real tool calls before Escape, the auto-rewind is
+// skipped (messagesAfterAreOnlySynthetic returns false). The fix prepends a
+// meta user message with an [INTERRUPTED] signal so the model breaks momentum.
+// ---------------------------------------------------------------------------
+describe('Interrupt correction context injection (issue #1422)', () => {
+  test('REPL declares hadInterruptedTurnRef for cross-query interrupt tracking', async () => {
+    const content = await file('screens/REPL.tsx').text()
+    expect(content).toContain('hadInterruptedTurnRef')
+    expect(content).toContain('useRef(false)')
+  })
+
+  test('REPL snapshots ref into wasInterrupted before try block to prevent stale writes on throw', async () => {
+    const content = await file('screens/REPL.tsx').text()
+    expect(content).toContain('const wasInterrupted = hadInterruptedTurnRef.current')
+    // Reset must happen before try, not inside it
+    const resetIdx = content.indexOf('hadInterruptedTurnRef.current = false')
+    const tryIdx = content.indexOf('try {', content.indexOf('wasInterrupted'))
+    expect(resetIdx).toBeGreaterThan(-1)
+    expect(tryIdx).toBeGreaterThan(resetIdx)
+  })
+
+  test('REPL injects [INTERRUPTED] marker as isMeta user message', async () => {
+    const content = await file('screens/REPL.tsx').text()
+    expect(content).toContain('[INTERRUPTED]')
+    expect(content).toContain('Disregard prior tool calls')
+    // Marker must be sent as a meta message (hidden from REPL, visible to model)
+    const markerIdx = content.indexOf('[INTERRUPTED]')
+    const metaIdx = content.indexOf('isMeta: true', markerIdx - 200)
+    expect(metaIdx).toBeGreaterThan(-1)
+  })
+
+  test('REPL guards finally-block ref write with !queryGuard.isActive to prevent cancel+resubmit race corruption', async () => {
+    const content = await file('screens/REPL.tsx').text()
+    // The setter must check isActive so a racing new query does not get a
+    // spurious [INTERRUPTED] injected two turns later.
+    expect(content).toMatch(/user-cancel.*queryGuard\.isActive|queryGuard\.isActive.*user-cancel/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unit: messagesAfterAreOnlySynthetic gate (drives injection decision)
+// ---------------------------------------------------------------------------
+describe('messagesAfterAreOnlySynthetic — injection gate for #1422', () => {
+  test('returns false when assistant made tool calls — injection should fire', async () => {
+    const { messagesAfterAreOnlySynthetic } = await import('../utils/messageFilters.js')
+    const { createUserMessage, createAssistantMessage } = await import('../utils/messages.js')
+    const msgs = [
+      createUserMessage({ content: 'do X' }),
+      createAssistantMessage({ content: [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: {} }] as any }),
+    ]
+    expect(messagesAfterAreOnlySynthetic(msgs, 0)).toBe(false)
+  })
+
+  test('returns false when assistant produced text — injection should fire', async () => {
+    const { messagesAfterAreOnlySynthetic } = await import('../utils/messageFilters.js')
+    const { createUserMessage, createAssistantMessage } = await import('../utils/messages.js')
+    const msgs = [
+      createUserMessage({ content: 'do X' }),
+      createAssistantMessage({ content: [{ type: 'text', text: 'I will do X' }] as any }),
+    ]
+    expect(messagesAfterAreOnlySynthetic(msgs, 0)).toBe(false)
+  })
+
+  test('returns true when nothing meaningful after user message — injection skipped (auto-rewind path)', async () => {
+    const { messagesAfterAreOnlySynthetic } = await import('../utils/messageFilters.js')
+    const { createUserMessage } = await import('../utils/messages.js')
+    const msgs = [
+      createUserMessage({ content: 'do X' }),
+    ]
+    expect(messagesAfterAreOnlySynthetic(msgs, 0)).toBe(true)
+  })
+
+  test('isMeta user messages (e.g. the [INTERRUPTED] marker itself) are not meaningful', async () => {
+    const { messagesAfterAreOnlySynthetic } = await import('../utils/messageFilters.js')
+    const { createUserMessage } = await import('../utils/messages.js')
+    const msgs = [
+      createUserMessage({ content: 'do X' }),
+      createUserMessage({ content: '[INTERRUPTED] ...', isMeta: true }),
+    ]
+    expect(messagesAfterAreOnlySynthetic(msgs, 0)).toBe(true)
   })
 })
