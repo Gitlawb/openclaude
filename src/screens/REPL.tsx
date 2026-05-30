@@ -920,6 +920,11 @@ export function REPL({
   // defined, read in the onQuery finally block for auto-restore on interrupt.
   const restoreMessageSyncRef = useRef<(m: UserMessage) => void>(() => { });
 
+  // Set when a query ends via user-cancel; cleared on next onQuery start.
+  // Causes the next query to prepend an [INTERRUPTED] signal so the model
+  // breaks momentum from the prior (still-visible) tool calls.
+  const hadInterruptedTurnRef = useRef(false);
+
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
   const scrollRef = useRef<ScrollBoxHandle>(null);
@@ -2990,6 +2995,11 @@ export function REPL({
       });
       return;
     }
+    // Snapshot and clear the interrupt flag atomically before entering the
+    // try block — prevents a throw from leaving a stale true that bleeds
+    // into the query after next.
+    const wasInterrupted = hadInterruptedTurnRef.current;
+    hadInterruptedTurnRef.current = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3001,7 +3011,26 @@ export function REPL({
       // Idempotent with respect to the end-of-turn reset — double-reset
       // is a no-op.
       resetCurrentTurn();
-      setMessages(oldMessages => [...oldMessages, ...newMessages]);
+
+      // If the previous turn ended via user-cancel and the model had real
+      // progress (tool calls that weren't auto-rewound), prepend an explicit
+      // interrupt signal so the model doesn't re-execute the original task.
+      let messagesToQueue: MessageType[] = newMessages;
+      if (wasInterrupted) {
+        const currentMsgs = messagesRef.current;
+        const lastUserMsg = currentMsgs.findLast(selectableUserMessagesFilter);
+        if (lastUserMsg && !messagesAfterAreOnlySynthetic(currentMsgs, currentMsgs.lastIndexOf(lastUserMsg))) {
+          messagesToQueue = [
+            createUserMessage({
+              content: '[INTERRUPTED] Previous attempt was stopped by the user. Disregard prior tool calls. Follow only the next instruction.\n',
+              isMeta: true,
+            }),
+            ...newMessages,
+          ];
+        }
+      }
+
+      setMessages(oldMessages => [...oldMessages, ...messagesToQueue]);
       responseLengthRef.current = 0;
       if (feature('TOKEN_BUDGET')) {
         const parsedBudget = input ? parseTokenBudget(input) : null;
@@ -3136,6 +3165,14 @@ export function REPL({
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
         // propagating to the double-press exit flow.
         setAbortController(null);
+      }
+
+      // Mark that the next query should inject an [INTERRUPTED] correction context.
+      // Guard with !queryGuard.isActive: in the cancel+resubmit race the new
+      // query has already started, so setting the ref here would corrupt the
+      // query after that one instead.
+      if (abortController.signal.reason === 'user-cancel' && !queryGuard.isActive) {
+        hadInterruptedTurnRef.current = true;
       }
 
       // Auto-restore: if the user interrupted before any meaningful response
