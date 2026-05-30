@@ -305,6 +305,31 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult('npm run build', 1, '', 'Build failed')
       expect(result.isError).toBe(true)
     })
+
+    test('yarn test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('yarn test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('yarn install exit code 1 = real failure', () => {
+      const result = interpretCommandResult('yarn install', 1, '', 'ERR!')
+      expect(result.isError).toBe(true)
+    })
+
+    test('pnpm test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('pnpm test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('bun test exit code 1 = test failures (not error)', () => {
+      const result = interpretCommandResult('bun test', 1, '1 failed', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('bun run build exit code 1 = real failure', () => {
+      const result = interpretCommandResult('bun run build', 1, '', 'Build failed')
+      expect(result.isError).toBe(true)
+    })
   })
 
   // --- pylint: OR-ed bitfield (1=fatal, 2=error, 4=warn, 8=refactor, 16=convention, 32=usage) ---
@@ -386,6 +411,7 @@ describe('interpretCommandResult', () => {
     test('pipx run black exit 1 falls back to default (black not in map)', () => {
       // black exit 1 = files would be reformatted; not in the map, so default
       // semantics apply. This documents current behaviour, not an endorsement.
+      // TODO: add black (and formatter exit-code semantics generally) to the map.
       const result = interpretCommandResult('pipx run black --check app.py', 1, '', '')
       expect(result.isError).toBe(true)
     })

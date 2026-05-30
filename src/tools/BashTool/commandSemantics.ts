@@ -38,7 +38,7 @@ function exitOneInformational(message: string): CommandSemantic {
   return (exitCode, _stdout, _stderr) => {
     if (exitCode === 1) return { isError: false, message }
     if (exitCode >= 2)
-      return { isError: true, message: `Command failed with exit code ${exitCode}` }
+      return { isError: true }
     return { isError: false }
   }
 }
@@ -130,10 +130,14 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
   ['pytest', exitOneInformational('Test failures')],
   ['jest', exitOneInformational('Test failures')],
   ['vitest', exitOneInformational('Test failures')],
-  // Compound key: only npm test / npm t / npm run test[:<variant>] get
-  // informational semantics. npm install, npm publish, npm run build etc.
-  // all have exit 1 = real failure and must keep DEFAULT_SEMANTIC.
+  // Compound keys: only the test subcommand gets informational semantics.
+  // install/publish/build/run <non-test> all have exit 1 = real failure.
   ['npm test', exitOneInformational('Test failures')],
+  ['yarn test', exitOneInformational('Test failures')],
+  ['pnpm test', exitOneInformational('Test failures')],
+  // bun test is bun's built-in runner (exit 1 = failures).
+  // bun run <script> delegates to an arbitrary runner — handled separately.
+  ['bun test', exitOneInformational('Test failures')],
 
   // pylint uses an OR-ed bitfield exit code:
   //   1=fatal, 2=error msg, 4=warning, 8=refactor, 16=convention, 32=usage error
@@ -216,13 +220,21 @@ function extractBaseCommand(command: string): string {
     return first
   }
 
-  // npm: only `npm test` / `npm t` / `npm run test[:<variant>]` get
-  // informational semantics — other subcommands (install, publish, build…)
-  // exit 1 on real failures and must fall through to DEFAULT_SEMANTIC.
-  if (first === 'npm') {
+  // Package managers: scope informational semantics to the test subcommand.
+  // Other subcommands (install/publish/build/run <non-test>) exit 1 on real
+  // failures and must fall through to DEFAULT_SEMANTIC.
+  if (first === 'npm' || first === 'yarn' || first === 'pnpm') {
     const sub = words[1]
-    if (sub === 'test' || sub === 't') return 'npm test'
-    if (sub === 'run' && words[2] && /^test(:.+)?$/.test(words[2])) return 'npm test'
+    const key = `${first} test` as const
+    if (sub === 'test' || sub === 't') return key
+    if (sub === 'run' && words[2] && /^test(:.+)?$/.test(words[2])) return key
+    return first
+  }
+
+  // bun test = bun's built-in runner (exit 1 = failures).
+  // bun run <script> proxies to an arbitrary runner — keep default semantics.
+  if (first === 'bun') {
+    if (words[1] === 'test') return 'bun test'
     return first
   }
 

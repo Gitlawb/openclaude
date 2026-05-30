@@ -21,7 +21,7 @@ const TSC_BIN = join(
 
 function hasBinary(cmd: string, args: string[]): boolean {
   try {
-    const r = spawnSync(cmd, args, { stdio: 'ignore', timeout: 60_000 })
+    const r = spawnSync(cmd, args, { stdio: 'ignore', timeout: 5_000 })
     return r.error === undefined && r.status !== null
   } catch {
     return false
