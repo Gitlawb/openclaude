@@ -6340,3 +6340,70 @@ test('dnsResultOrder: ipv4first rewrites fetch URL to IPv4 address under Bun', a
     expect(parsedUrl.hostname).toBe('bun-ipv4-test.example.com')
   }
 })
+
+test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification', async () => {
+  // 1. Mock Bun DNS to return a fake IPv4 address, triggering the rewrite
+  const originalBunDnsLookup = Bun.dns.lookup
+  Bun.dns.lookup = async () => [{ address: '192.0.2.1', family: 4 }]
+
+  try {
+    registerGateway({
+      id: 'opengateway-test',
+      label: 'Opengateway Test',
+      category: 'hosted',
+      defaultBaseUrl: 'https://opengateway.gitlawb.com/v1',
+      defaultModel: 'test-model',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['OPENGATEWAY_API_KEY'],
+      },
+      transportConfig: {
+        kind: 'openai-compatible',
+        openaiShim: {
+          dnsResultOrder: 'ipv4first',
+        },
+      },
+    })
+
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+    process.env.OPENAI_MODEL = 'test-model'
+
+    // 2. Mock fetch to intercept the request and return an Opengateway 401
+    globalThis.fetch = (async (input, init) => {
+      const urlString = input instanceof Request ? input.url : String(input)
+      const headers = init?.headers as Record<string, string>
+      
+      // Assert the Transport URL was correctly rewritten to the IP
+      expect(urlString).toContain('192.0.2.1')
+      // Assert the Host header preserved the Logical URL
+      expect(headers['Host'] || headers['host']).toBe('opengateway.gitlawb.com')
+      
+      return new Response(JSON.stringify({ error: { message: 'api_key_required' } }), { 
+        status: 401 
+      })
+    }) as FetchType
+
+    const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+    // 3. Execute the shim request 
+    try {
+      await client.beta.messages.create({
+        model: 'test-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: false,
+      })
+      expect.unreachable()
+    } catch (error: any) {
+      // 4. The critical assertion: Ensure the error message includes the 
+      // Opengateway-specific auth hint, proving classifyOpenAIHttpFailure 
+      // received the logical hostname, not the 192.0.2.1 IP address.
+      expect(error.message).toContain('https://gitlawb.com/opengateway/keys')
+      expect(error.message).toContain('OPENGATEWAY_API_KEY')
+    }
+  } finally {
+    Bun.dns.lookup = originalBunDnsLookup
+  }
+})

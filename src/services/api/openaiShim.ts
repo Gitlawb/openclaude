@@ -2668,6 +2668,7 @@ class OpenAIShimMessages {
 
     let activeBaseUrl = request.baseUrl
     let requestUrl = buildRequestUrl(activeBaseUrl)
+    let transportUrl = requestUrl
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
     let didRetryWithoutTools = false
 
@@ -2683,6 +2684,7 @@ class OpenAIShimMessages {
         attemptedLocalBaseUrls.add(candidateBaseUrl)
         activeBaseUrl = candidateBaseUrl
         requestUrl = buildRequestUrl(activeBaseUrl)
+        transportUrl = requestUrl
 
         logForDebugging(
           `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
@@ -2793,13 +2795,24 @@ class OpenAIShimMessages {
         { level: 'warn' },
       )
 
+      const finalMessage = buildOpenAICompatibilityErrorMessage(
+        `OpenAI API error ${status}: ${errorBody}${rateHint}`,
+        failureWithUrl,
+      )
+
+      if (parsedBody && typeof parsedBody === 'object') {
+        const typedBody = parsedBody as Record<string, unknown>
+        if (typedBody.error && typeof typedBody.error === 'object') {
+          (typedBody.error as Record<string, unknown>).message = finalMessage
+        } else {
+          typedBody.message = finalMessage
+        }
+      }
+
       throw APIError.generate(
         status,
         parsedBody,
-        buildOpenAICompatibilityErrorMessage(
-          `OpenAI API error ${status}: ${errorBody}${rateHint}`,
-          failureWithUrl,
-        ),
+        finalMessage,
         responseHeaders,
       )
     }
@@ -2828,7 +2841,7 @@ class OpenAIShimMessages {
     // Bun runtime: pre-resolve hostname to IPv4 and rewrite URL + Host header.
     const bunIpv4 = await resolveIPv4ForBun(requestUrl, shimConfig.dnsResultOrder)
     if (bunIpv4) {
-      requestUrl = bunIpv4.url
+      transportUrl = bunIpv4.url
       // Set Host header so TLS SNI and virtual hosting work with the IP-based URL.
       // Only set if not already explicitly provided by the caller/config.
       if (!headers['Host'] && !headers['host']) {
@@ -2840,7 +2853,7 @@ class OpenAIShimMessages {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         response = await fetchWithProxyRetry(
-          requestUrl,
+          transportUrl,
           buildFetchInit(),
           { dispatcher: scopedDnsDispatcher },
         )
@@ -2916,11 +2929,23 @@ class OpenAIShimMessages {
       if (isGithub && response.status === 400) {
         if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
           const responsesUrl = `${request.baseUrl}/responses`
+          let responsesTransportUrl = responsesUrl
+          
+          // Apply Bun IPv4 rewrite to the fallback URL if needed (though GitHub
+          // API doesn't currently use dnsResultOrder, it's safer to keep parity)
+          const bunIpv4Responses = await resolveIPv4ForBun(responsesUrl, shimConfig.dnsResultOrder)
+          if (bunIpv4Responses) {
+            responsesTransportUrl = bunIpv4Responses.url
+            if (!headers['Host'] && !headers['host']) {
+              headers['Host'] = bunIpv4Responses.hostHeader
+            }
+          }
+
           const responsesBody = buildResponsesBody()
 
           let responsesResponse: Response
           try {
-            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
+            responsesResponse = await fetchWithProxyRetry(responsesTransportUrl, {
               method: 'POST',
               headers,
               body: stableStringifyJson(responsesBody),
