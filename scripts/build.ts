@@ -960,33 +960,33 @@ if (result?.success) {
   // silence the guard for new code — add the real source module, or gate the
   // path so it is not reachable when the module is absent. An entry here is a
   // known item to revisit, not a blessing that the stub is safe.
+  // Entries are repo-relative paths from `src/` onward, without extension — the
+  // same shape canonicalStub() produces, so the allowlist reads as the key.
   const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
-    '../../tools/VerifyPlanExecutionTool/constants.js',
-    '../services/compact/cachedMCConfig.js',
-    './MonitorMcpDetailDialog.js',
+    'src/tools/VerifyPlanExecutionTool/constants',
+    'src/services/compact/cachedMCConfig',
+    'src/components/tasks/MonitorMcpDetailDialog',
   ])
 
-  // Stub markers are not byte-stable across build hosts. Locally Bun emits the
-  // relative import specifier (`./commands/fork/index.js`); on the Linux CI
-  // merge run it has emitted the same stubs as absolute source paths
-  // (`/home/runner/work/openclaude/openclaude/src/commands/fork/index.ts`).
-  // Diffing the raw text made CI fail on already-allowlisted stubs and report
-  // them as stale. Canonicalize both sides to a stable key — the basename
-  // without extension — so a stub matches in either form.
-  const canonicalStub = (marker: string): string =>
-    (marker.split(/[\\/]/).pop() ?? marker).replace(/\.(?:[cm]?[jt]sx?)$/, '')
-
-  const acceptableCanonical = new Set([...ACCEPTABLE_RUNTIME_STUBS].map(canonicalStub))
-  // The basename key is only safe while no two allowlist entries share one.
-  // If they ever do, one entry could silently cover an unrelated stub of the
-  // same basename — fail loudly so the key scheme is made more specific instead.
-  if (acceptableCanonical.size !== ACCEPTABLE_RUNTIME_STUBS.size) {
-    console.error(
-      '\n✗ Build guard: ACCEPTABLE_RUNTIME_STUBS has entries with a colliding basename — ' +
-        'the canonical-stub key can no longer tell them apart. Disambiguate the guard key.',
-    )
-    process.exitCode = 1
+  // Stub markers are not byte-stable across build hosts: the per-importer
+  // scanner records each stub as the resolved absolute source path, which
+  // differs only by the repo-root prefix (`/home/ubuntu/.../openclaude` locally
+  // vs `/home/runner/work/openclaude/openclaude` on CI). Diffing raw text made
+  // CI fail on already-allowlisted stubs and report them stale. Key on the
+  // repo-relative path from `src/` onward without extension: stable across hosts
+  // yet still path-specific, so a stub named `constants.ts` in one directory
+  // cannot mask a different `constants.ts` somewhere else (a basename-only key
+  // would).
+  const canonicalStub = (marker: string): string => {
+    const normalized = marker.split(/[\\/]/).join('/')
+    const srcIdx = normalized.lastIndexOf('/src/')
+    const fromSrc = srcIdx >= 0 ? normalized.slice(srcIdx + 1) : normalized
+    return fromSrc.replace(/\.(?:[cm]?[jt]sx?)$/, '')
   }
+
+  const acceptableCanonical = new Set(
+    [...ACCEPTABLE_RUNTIME_STUBS].map(canonicalStub),
+  )
 
   const bundleText = await Bun.file('dist/cli.mjs').text()
   // canonical key -> raw marker text (kept for human-readable diagnostics)
@@ -1011,10 +1011,9 @@ if (result?.success) {
       '  An unresolved relative import was stubbed to a noop default export. If a feature flag\n' +
         '  made this require live but its source module is absent, named exports become undefined\n' +
         '  and crash on first use — add the real source module, or gate the path so it is\n' +
-        '  unreachable when the module is missing. If instead this is a scanner artifact (a\n' +
-        '  same-named specifier missing in one importer while the real module resolves in another,\n' +
-        '  or a path that never runs), confirm that and add it to ACCEPTABLE_RUNTIME_STUBS in\n' +
-        '  scripts/build.ts with justification.',
+        '  unreachable when the module is missing. If instead the stub sits on a path that\n' +
+        '  never runs, confirm that and add the repo-relative path (from src/, no extension)\n' +
+        '  to ACCEPTABLE_RUNTIME_STUBS in scripts/build.ts with justification.',
     )
     process.exitCode = 1
   } else {
