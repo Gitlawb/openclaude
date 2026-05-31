@@ -1589,9 +1589,9 @@ export function REPL({
   // Aggregate tool result budget: per-conversation decision tracking.
   // When the GrowthBook flag is on, query.ts enforces the budget; when
   // off (undefined), enforcement is skipped entirely. Stale entries after
-  // /clear, rewind, or compact are harmless (tool_use_ids are UUIDs, stale
-  // keys are never looked up). Memory is bounded by total replacement count
-  // × ~2KB preview over the REPL lifetime — negligible.
+  // /clear or rewind are inert (tool_use_ids are UUIDs, stale keys are never
+  // looked up again). After compact, pruneContentReplacementState() evicts
+  // pre-compact entries so they don't accumulate across long sessions (#1258).
   //
   // Lazy init via useState initializer — useRef(expr) evaluates expr on every
   // render (React ignores it after first, but the computation still runs).
@@ -2892,10 +2892,14 @@ export function REPL({
         // Prune stale entries from ContentReplacementState (same reason as the
         // auto-compact handler above — seenIds/replacements grow unboundedly
         // without pruning after compaction, contributing to #1258 OOM).
+        // NOTE: use `newMessages` (the post-compact set), NOT messagesRef.current.
+        // onQuery prepends newMessages to existing messages via setMessages before
+        // calling onQueryImpl, so messagesRef.current still holds the full
+        // pre-compact history at this point — pruning against it would evict nothing.
         if (contentReplacementStateRef.current) {
           pruneContentReplacementState(
             contentReplacementStateRef.current,
-            messagesRef.current,
+            newMessages,
           );
         }
       }
@@ -5161,6 +5165,20 @@ export function REPL({
               proactiveModule?.setContextBlocked(false);
             }
             setConversationId(randomUUID());
+            // Prune ContentReplacementState so stale tool_use_ids from
+            // compacted messages don't accumulate (#1258). postCompact is
+            // the definitive post-compact message set for both the fullscreen
+            // 'from' path (which keeps some scrollback) and the 'up_to' path.
+            // messagesRef.current is updated synchronously by the setMessages
+            // wrapper above, so it already reflects the post-compact slice
+            // for the non-fullscreen path — but using postCompact directly is
+            // unambiguous and correct for both branches.
+            if (contentReplacementStateRef.current) {
+              pruneContentReplacementState(
+                contentReplacementStateRef.current,
+                postCompact,
+              );
+            }
             runPostCompactCleanup(context.options.querySource);
             if (direction === 'from') {
               const r = textForResubmit(message);

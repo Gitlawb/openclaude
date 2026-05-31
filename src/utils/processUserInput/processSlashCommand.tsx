@@ -697,8 +697,8 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
               };
               // Reset microcompact state since full compact replaces all
               // messages — old tool IDs are no longer relevant. Budget state
-              // (on toolUseContext) needs no reset: stale entries are inert
-              // (UUIDs never repeat, so they're never looked up).
+              // (on toolUseContext) is pruned by pruneContentReplacementState()
+              // in the REPL compact_boundary handler — no separate reset needed here.
               resetMicrocompactState();
               return {
                 messages: buildPostCompactMessages(compactionResultWithSlashMessages),
