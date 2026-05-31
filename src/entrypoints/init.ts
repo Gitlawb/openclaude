@@ -1,4 +1,5 @@
 import { profileCheckpoint } from '../utils/startupProfiler.js'
+import { validateEnvVars } from '../utils/envValidation.js'
 import '../bootstrap/state.js'
 import '../utils/config.js'
 import memoize from 'lodash-es/memoize.js'
@@ -46,8 +47,9 @@ export const init = memoize(async (): Promise<void> => {
   const initStartTime = Date.now()
   logForDiagnosticsNoPII('info', 'init_started')
   profileCheckpoint('init_function_start')
-
-  // Validate configs are valid and enable configuration system
+  // Validate critical environment variables early
+  // Crashes immediately if invalid to avoid wasting time
+  validateEnvVars()
   try {
     const configsStart = Date.now()
     enableConfigs()

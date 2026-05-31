@@ -18,18 +18,13 @@ const LANGUAGE_MAP: Record<string, Locale> = {
   vi: 'vi',
 }
 
-let cachedLocale: Locale | null = null
-
 function detectLocale(): Locale {
-  if (cachedLocale) return cachedLocale
   const settings = getInitialSettings()
   const lang = settings.language
   if (typeof lang !== 'string') {
-    cachedLocale = 'en'
-    return cachedLocale
+    return 'en'
   }
-  cachedLocale = LANGUAGE_MAP[lang.toLowerCase()] ?? 'en'
-  return cachedLocale
+  return LANGUAGE_MAP[lang.toLowerCase()] ?? 'en'
 }
 
 /**
@@ -129,6 +124,23 @@ const commandDescVi: Record<string, string> = {
   'Strong everyday default for most users': 'Mặc định mạnh mẽ hàng ngày cho hầu hết người dùng',
   'Use Gemini with API key, access token, or local ADC': 'Dùng Gemini với API key, access token, hoặc local ADC',
   'Use existing ChatGPT Codex CLI auth or env credentials': 'Dùng xác thực ChatGPT Codex CLI hoặc biến môi trường hiện có',
+  'Ask a quick side question without interrupting the main conversation': 'Đặt câu hỏi nhanh bên lề mà không làm gián đoạn cuộc hội thoại chính',
+  'Clear conversation history but keep a summary in context. Optional: /compact [instructions for summarization]': 'Xóa lịch sử hội thoại nhưng giữ tóm tắt trong ngữ cảnh. Tùy chọn: /compact [hướng dẫn tóm tắt]',
+  'Complete a security review of the pending changes on the current branch': 'Hoàn thành đánh giá bảo mật cho các thay đổi đang chờ trên nhánh hiện tại',
+  'Configure auto-fix: run lint/test after AI edits': 'Cấu hình tự động sửa: chạy lint/test sau khi AI chỉnh sửa',
+  'Copy Claude': 'Sao chép Claude',
+  'Create verifier skill(s) for automated verification of code changes': 'Tạo skill xác minh để tự động kiểm tra thay đổi code',
+  'Generate your personalized animation': 'Tạo hoạt ảnh cá nhân hóa của bạn',
+  'Inject bridge failure states for manual recovery testing': 'Chèn trạng thái lỗi bridge để kiểm thử khôi phục thủ công',
+  'Print the version this session is running (not what autoupdate downloaded)': 'In phiên bản mà phiên này đang chạy (không phải phiên bản tự động cập nhật đã tải)',
+  'Provider: OpenRouter': 'Nhà cung cấp: OpenRouter',
+  'Run memory consolidation — synthesize recent sessions into durable memories': 'Chạy hợp nhất bộ nhớ — tổng hợp các phiên gần đây thành bộ nhớ lâu dài',
+  'Send identical requests to test prompt caching (results in debug log)': 'Gửi các yêu cầu giống hệt nhau để kiểm thử bộ nhớ đệm prompt (kết quả trong debug log)',
+  'Set up OpenClaude': 'Thiết lập OpenClaude',
+  'Setup OpenClaude on the web (requires connecting your GitHub account)': 'Thiết lập OpenClaude trên web (yêu cầu kết nối tài khoản GitHub)',
+  'Show OpenClaude status including version, model, account, API connectivity, and tool statuses': 'Hiển thị trạng thái OpenClaude bao gồm phiên bản, mô hình, tài khoản, kết nối API và trạng thái công cụ',
+  'Show per-turn and session cache hit/miss stats (works across all providers)': 'Hiển thị thống kê cache hit/miss theo lượt và phiên (hoạt động trên tất cả nhà cung cấp)',
+  'Skip this picker in the future (revert via /config)': 'Bỏ qua bộ chọn này trong tương lai (hoàn tác qua /config)',
 }
 
 /**

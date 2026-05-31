@@ -756,7 +756,7 @@ export function formatDescriptionWithSource(cmd: Command): string {
     return translateCommandDescription(cmd.description ?? '')
   }
 
-  const desc = cmd.description ?? ''
+  const desc = translateCommandDescription(cmd.description ?? '')
 
   if (cmd.kind === 'workflow') {
     return `${desc} (workflow)`
