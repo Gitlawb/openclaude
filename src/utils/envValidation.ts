@@ -42,13 +42,18 @@ export function validateBoundedIntEnvVar(
 
 // ─── Zod startup validation ───
 
+const optionalNonEmptyString = z.preprocess(
+  value => (value === '' ? undefined : value),
+  z.string().min(1).optional(),
+)
+
 const EnvSchema = z.object({
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  ANTHROPIC_AUTH_TOKEN: z.string().min(1).optional(),
-  CLAUDE_CONFIG_DIR: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: optionalNonEmptyString,
+  ANTHROPIC_AUTH_TOKEN: optionalNonEmptyString,
+  CLAUDE_CONFIG_DIR: optionalNonEmptyString,
   HTTP_PROXY: z.string().url().optional().or(z.literal('')),
   HTTPS_PROXY: z.string().url().optional().or(z.literal('')),
-  NODE_EXTRA_CA_CERTS: z.string().min(1).optional(),
+  NODE_EXTRA_CA_CERTS: optionalNonEmptyString,
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: z.string().optional(),
   CLAUDE_CODE_DISABLE_TERMINAL_TITLE: z.string().optional(),
   CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: z.string().optional(),

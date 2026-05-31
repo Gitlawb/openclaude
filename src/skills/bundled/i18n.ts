@@ -7,9 +7,11 @@
  *   { "language": "english" }     // or "en" (default)
  */
 
-import { getInitialSettings } from 'src/utils/settings/settings.js'
+import { getInitialSettings } from '../../utils/settings/settings.js'
 
 type Locale = 'en' | 'vi'
+
+export type LocalizedText = string | Record<Locale, string>
 
 const LANGUAGE_MAP: Record<string, Locale> = {
   english: 'en',
@@ -32,8 +34,20 @@ function detectLocale(): Locale {
  * Falls back to English if the current locale is not available.
  */
 export function t(translations: Record<Locale, string>): string {
+  return localize(translations)
+}
+
+/**
+ * Resolve a string that may already be localized text. Use at render time for
+ * command metadata that must react to language changes without re-registering.
+ */
+export function localize(text: LocalizedText): string {
+  if (typeof text === 'string') {
+    return text
+  }
+
   const locale = detectLocale()
-  return translations[locale] ?? translations.en
+  return text[locale] ?? text.en
 }
 
 // ─── Command description translations ───
@@ -65,7 +79,6 @@ const commandDescVi: Record<string, string> = {
   'Configure extra usage to keep working when limits are hit': 'Cấu hình sử dụng thêm khi đạt giới hạn',
   'List all files currently in context': 'Liệt kê tất cả file trong ngữ cảnh',
   'Dump the JS heap to ~/Desktop': 'Xuất JS heap ra ~/Desktop',
-  'Show help and available commands': 'Hiện trợ giúp và các lệnh có sẵn',
   'View hook configurations for tool events': 'Xem cấu hình hook cho sự kiện tool',
   'Manage IDE integrations and show status': 'Quản lý tích hợp IDE và hiện trạng thái',
   'Generate a report analyzing your OpenClaude sessions': 'Tạo báo cáo phân tích các phiên OpenClaude',

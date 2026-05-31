@@ -1,9 +1,27 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import {
   builtInCommandNames,
   formatDescriptionWithSource,
 } from './commands.js'
+import { registerLoopSkill } from './skills/bundled/loop.js'
+import { clearBundledSkills, getBundledSkills } from './skills/bundledSkills.js'
 import { isCommand } from './types/command.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from './utils/settings/settingsCache.js'
+
+function useLanguage(language?: string): void {
+  setSessionSettingsCache({
+    settings: language ? { language } : {},
+    errors: [],
+  })
+}
+
+afterEach(() => {
+  resetSettingsCache()
+  clearBundledSkills()
+})
 
 describe('builtInCommandNames', () => {
   test('includes the LSP command', () => {
@@ -70,5 +88,32 @@ describe('formatDescriptionWithSource', () => {
     } as any
 
     expect(formatDescriptionWithSource(command)).toBe('(MyPlugin) ')
+  })
+})
+
+describe('bundled skill localization', () => {
+  test('resolves descriptions from the current language at read time', () => {
+    resetSettingsCache()
+    clearBundledSkills()
+    registerLoopSkill()
+    const loop = getBundledSkills().find(command => command.name === 'loop')
+
+    expect(loop).toBeDefined()
+
+    useLanguage('english')
+    expect(loop!.description).toBe(
+      'Run a prompt on a fixed interval or dynamically reschedule it, including bare maintenance-mode loops.',
+    )
+    expect(loop!.whenToUse).toBe(
+      'When the user wants to poll for status, babysit a workflow, run recurring maintenance, or keep re-running a prompt within the current session.',
+    )
+
+    useLanguage('vietnamese')
+    expect(loop!.description).toBe(
+      'Chạy một prompt theo khoảng thời gian cố định hoặc lên lịch lại động, bao gồm cả chế độ bảo trì lặp lại.',
+    )
+    expect(loop!.whenToUse).toBe(
+      'Khi người dùng muốn kiểm tra trạng thái, giám sát quy trình, chạy bảo trì định kỳ, hoặc chạy lại một prompt trong phiên hiện tại.',
+    )
   })
 })

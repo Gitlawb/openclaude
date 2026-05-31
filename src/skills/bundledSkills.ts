@@ -7,6 +7,7 @@ import type { Command } from '../types/command.js'
 import { logForDebugging } from '../utils/debug.js'
 import { getBundledSkillsRoot } from '../utils/permissions/filesystem.js'
 import type { HooksSettings } from '../utils/settings/types.js'
+import { localize, type LocalizedText } from './bundled/i18n.js'
 
 /**
  * Definition for a bundled skill that ships with the CLI.
@@ -14,9 +15,9 @@ import type { HooksSettings } from '../utils/settings/types.js'
  */
 export type BundledSkillDefinition = {
   name: string
-  description: string
+  description: LocalizedText
   aliases?: string[]
-  whenToUse?: string
+  whenToUse?: LocalizedText
   argumentHint?: string
   allowedTools?: string[]
   model?: string
@@ -75,12 +76,16 @@ export function registerBundledSkill(definition: BundledSkillDefinition): void {
   const command: Command = {
     type: 'prompt',
     name: definition.name,
-    description: definition.description,
+    get description() {
+      return localize(definition.description)
+    },
     aliases: definition.aliases,
     hasUserSpecifiedDescription: true,
     allowedTools: definition.allowedTools ?? [],
     argumentHint: definition.argumentHint,
-    whenToUse: definition.whenToUse,
+    get whenToUse() {
+      return definition.whenToUse ? localize(definition.whenToUse) : undefined
+    },
     model: definition.model,
     disableModelInvocation: definition.disableModelInvocation ?? false,
     userInvocable: definition.userInvocable ?? true,

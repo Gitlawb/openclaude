@@ -5,7 +5,6 @@ import {
   isKairosCronEnabled,
 } from '../../tools/ScheduleCronTool/prompt.js'
 import { registerBundledSkill } from '../bundledSkills.js'
-import { t } from './i18n.js'
 
 type LoopMode =
   | 'dynamic-prompt'
@@ -205,14 +204,14 @@ ${reschedulePrompt}
 export function registerLoopSkill(): void {
   registerBundledSkill({
     name: 'loop',
-    description: t({
+    description: {
       en: 'Run a prompt on a fixed interval or dynamically reschedule it, including bare maintenance-mode loops.',
       vi: 'Chạy một prompt theo khoảng thời gian cố định hoặc lên lịch lại động, bao gồm cả chế độ bảo trì lặp lại.',
-    }),
-    whenToUse: t({
+    },
+    whenToUse: {
       en: 'When the user wants to poll for status, babysit a workflow, run recurring maintenance, or keep re-running a prompt within the current session.',
       vi: 'Khi người dùng muốn kiểm tra trạng thái, giám sát quy trình, chạy bảo trì định kỳ, hoặc chạy lại một prompt trong phiên hiện tại.',
-    }),
+    },
     argumentHint: '[interval] [prompt]',
     userInvocable: true,
     isEnabled: isKairosCronEnabled,
