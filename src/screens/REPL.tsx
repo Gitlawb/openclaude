@@ -181,7 +181,7 @@ import { deserializeMessages } from '../utils/conversationRecovery.js';
 import { extractReadFilesFromMessages, extractBashToolsFromMessages } from '../utils/queryHelpers.js';
 import { resetMicrocompactState } from '../services/compact/microCompact.js';
 import { runPostCompactCleanup } from '../services/compact/postCompactCleanup.js';
-import { applyToolResultReplacementsToMessages, provisionContentReplacementState, pruneContentReplacementState, reconstructContentReplacementState, type ContentReplacementRecord } from '../utils/toolResultStorage.js';
+import { applyToolResultReplacementsToMessages, createContentReplacementState, provisionContentReplacementState, pruneContentReplacementState, reconstructContentReplacementState, type ContentReplacementRecord } from '../utils/toolResultStorage.js';
 import { partialCompactConversation } from '../services/compact/compact.js';
 import type { LogOption } from '../types/logs.js';
 import type { AgentColorName } from '../tools/AgentTool/agentColorManager.js';
@@ -3263,6 +3263,11 @@ export function REPL({
           setAppState,
           setConversationId
         });
+        // Reset ContentReplacementState so stale seenIds/replacements don't leak
+        // after /clear drops all messages. See fix(memory): reset on /clear and rewind.
+        if (contentReplacementStateRef.current) {
+          contentReplacementStateRef.current = createContentReplacementState();
+        }
         haikuTitleAttemptedRef.current = false;
         setHaikuTitle(undefined);
         bashTools.current.clear();
@@ -3870,6 +3875,11 @@ export function REPL({
       rewindToMessageIndex: messageIndex
     });
     setMessages(prev.slice(0, messageIndex));
+    // Reset ContentReplacementState so stale seenIds/replacements don't leak
+    // after rewind truncates history. See fix(memory): reset on /clear and rewind.
+    if (contentReplacementStateRef.current) {
+      contentReplacementStateRef.current = createContentReplacementState();
+    }
     resetAutoCompactTracking();
     // Careful, this has to happen after setMessages
     setConversationId(randomUUID());
@@ -4986,6 +4996,11 @@ export function REPL({
                 setAppState,
                 setConversationId
               });
+              // Reset ContentReplacementState so stale seenIds/replacements don't leak
+              // after /clear drops all messages. See fix(memory): reset on /clear and rewind.
+              if (contentReplacementStateRef.current) {
+                contentReplacementStateRef.current = createContentReplacementState();
+              }
               haikuTitleAttemptedRef.current = false;
               setHaikuTitle(undefined);
               bashTools.current.clear();
