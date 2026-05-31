@@ -925,6 +925,10 @@ export function REPL({
   // breaks momentum from the prior (still-visible) tool calls.
   const hadInterruptedTurnRef = useRef(false);
 
+  // True while a model-bound query (shouldQuery=true) owns the queryGuard.
+  // Used by onCancel to avoid marking local-command cancels as interrupts.
+  const isModelTurnActiveRef = useRef(false);
+
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
   const scrollRef = useRef<ScrollBoxHandle>(null);
@@ -2207,7 +2211,9 @@ export function REPL({
     // Record user-cancel synchronously so the next onQuery sees it
     // immediately, even if the aborted turn's finally fires as a microtask
     // after onQuery has already started and snapshotted the flag.
-    if (wasQueryActive) {
+    // Only set for model-bound turns — local-command cancels must not leave
+    // a spurious [INTERRUPTED] marker for the next real model prompt.
+    if (wasQueryActive && isModelTurnActiveRef.current) {
       hadInterruptedTurnRef.current = true;
     }
 
@@ -3003,6 +3009,9 @@ export function REPL({
       });
       return;
     }
+    // Track whether the current guard owns a model turn so onCancel can
+    // distinguish model-bound cancels from local-command cancels.
+    isModelTurnActiveRef.current = shouldQuery;
     // Snapshot and clear the interrupt flag only for model queries — local
     // and slash commands (shouldQuery=false) must leave the flag so the next
     // real model query still sees it. Clear before the try block so a throw
@@ -3180,8 +3189,9 @@ export function REPL({
       // outside onCancel). The primary path is onCancel() setting the ref
       // synchronously above. Guard with !queryGuard.isActive so the
       // cancel+resubmit race (new query already started) doesn't set the flag
-      // after the new query has already consumed it.
-      if (abortController.signal.reason === 'user-cancel' && !queryGuard.isActive) {
+      // after the new query has already consumed it. Only applies to
+      // model-bound turns — local-command cancels must not mark an interrupt.
+      if (shouldQuery && abortController.signal.reason === 'user-cancel' && !queryGuard.isActive) {
         hadInterruptedTurnRef.current = true;
       }
 
