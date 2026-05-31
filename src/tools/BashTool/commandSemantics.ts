@@ -168,9 +168,24 @@ const COMMAND_SEMANTICS: Map<string, CommandSemantic> = new Map([
 const PACKAGE_RUNNERS = new Set(['uvx', 'npx', 'bunx', 'pipx'])
 const MODULE_RUNNERS = new Set(['python', 'python3'])
 const RUN_SUBCOMMANDS = new Set(['run'])
-// Runner flags that take a separate value (the next token is the flag's
-// argument, not the tool to run). e.g. `npx -p typescript tsc` runs tsc.
-const VALUE_FLAGS = new Set(['-p', '--package', '-c', '--call', '-w', '--workspace'])
+// Per-runner flags that take a separate value argument (the next token is the
+// flag's value, not the tool to run). e.g. `npx -p typescript tsc` runs tsc,
+// `uvx --with requests ruff check` runs ruff.
+const RUNNER_VALUE_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = {
+  uvx: new Set([
+    '--with', '--with-editable', '--with-requirements',
+    '-p', '--python', '--managed-python', '--env-file', '--from',
+    '--index', '--index-url', '--default-index', '--extra-index-url', '--find-links',
+    '--constraints', '--overrides', '--resolution', '--prerelease',
+    '--exclude-newer', '--refresh-package', '--cache-dir',
+  ]),
+  pipx: new Set([
+    '--python', '--spec', '--index-url', '--extra-index-url', '--find-links', '--pip-args',
+  ]),
+  npx: new Set(['-p', '--package', '-c', '--call', '-w', '--workspace']),
+  bunx: new Set(['-p', '--package']),
+}
+const DEFAULT_RUNNER_VALUE_FLAGS = new Set<string>()
 
 /**
  * Resolve a raw token to a bare command name: strip any leading path and a
@@ -275,9 +290,10 @@ function extractBaseCommand(command: string): string {
   // flags, and a `run` subcommand, then take the first real argument as the
   // tool being executed.
   if (PACKAGE_RUNNERS.has(first)) {
+    const valueFlags = RUNNER_VALUE_FLAGS[first] ?? DEFAULT_RUNNER_VALUE_FLAGS
     for (let i = firstCmdIdx + 1; i < words.length; i++) {
       const w = words[i]
-      if (VALUE_FLAGS.has(w)) {
+      if (valueFlags.has(w)) {
         i++ // also skip the flag's value
         continue
       }

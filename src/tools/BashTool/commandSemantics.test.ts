@@ -383,6 +383,36 @@ describe('interpretCommandResult', () => {
       expect(result.isError).toBe(false)
     })
 
+    test('uvx --with requests ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('uvx --with requests ruff check app.py', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('uvx --python 3.12 ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('uvx --python 3.12 ruff check app.py', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('uvx -p 3.12 ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('uvx -p 3.12 ruff check app.py', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('uvx --env-file .env ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('uvx --env-file .env ruff check app.py', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('uvx --with requests --python 3.12 ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('uvx --with requests --python 3.12 ruff check app.py', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('pipx run --python 3.12 ruff check exit 1 = violations (not error)', () => {
+      const result = interpretCommandResult('pipx run --python 3.12 ruff check .', 1, 'E501', '')
+      expect(result.isError).toBe(false)
+    })
+
     test('npx eslint exit 1 = violations (not error)', () => {
       const result = interpretCommandResult('npx eslint src/', 1, '', '')
       expect(result.isError).toBe(false)
