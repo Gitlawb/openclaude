@@ -267,7 +267,7 @@ export function convertAnthropicMessagesToResponsesInput(
       items.push({
         type: 'message',
         role: 'user',
-        content: convertContentBlocksToResponsesParts(content, 'user'),
+        content: convertContentBlocksToResponsesParts(content, 'user', isCodex),
       })
       continue
     }
