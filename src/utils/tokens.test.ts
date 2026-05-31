@@ -44,16 +44,19 @@ describe('getTokenUsage', () => {
     expect(result?.output_tokens).toBe(50)
   })
 
-  it('returns undefined when both input and output tokens are zero', () => {
-    // Providers that strip stream_options (e.g. MiMo, Gitlawb OpenGateway)
-    // never include usage in streaming responses. The shim seeds the message
-    // with {0, 0} and it never gets updated. We return undefined so the
-    // status line shows N/A instead of a misleading "0% used".
+  it('returns zero-usage object when both input and output tokens are zero', () => {
+    // getTokenUsage returns the raw usage regardless of whether tokens are zero.
+    // Callers that care about "no usage reported" (e.g. getCurrentUsage) must
+    // check for all-zero themselves — keeping that guard here would break callers
+    // like tokenCountFromLastAPIResponse that need to walk back past zero records.
     const msg = makeAssistantMessage({
       input_tokens: 0,
       output_tokens: 0,
     })
-    expect(getTokenUsage(msg)).toBeUndefined()
+    const result = getTokenUsage(msg)
+    expect(result).toBeDefined()
+    expect(result?.input_tokens).toBe(0)
+    expect(result?.output_tokens).toBe(0)
   })
 
   it('returns usage when only input_tokens is non-zero', () => {
@@ -61,7 +64,6 @@ describe('getTokenUsage', () => {
       input_tokens: 200,
       output_tokens: 0,
     })
-    // input_tokens > 0 means real data (partial usage), keep it
     const result = getTokenUsage(msg)
     expect(result).toBeDefined()
     expect(result?.input_tokens).toBe(200)
@@ -96,7 +98,10 @@ describe('getCurrentUsage', () => {
   })
 
   it('returns null when the most recent assistant message has all-zero usage', () => {
-    // Pure 3P session: provider never reported usage, message stays at {0, 0}.
+    // Pure 3P session: provider stripped stream_options so usage was never
+    // reported. The shim seeds the message with {0,0} and it stays there.
+    // getCurrentUsage detects getTokenCountFromUsage === 0 and returns null
+    // so the status line shows N/A instead of a misleading "0% used".
     const msg = makeAssistantMessage({ input_tokens: 0, output_tokens: 0 })
     expect(getCurrentUsage([makeUserMessage(), msg])).toBeNull()
   })
@@ -104,10 +109,10 @@ describe('getCurrentUsage', () => {
   it('returns null — does NOT fall back to older Anthropic message after a 3P turn', () => {
     // Mixed-session: user started on Anthropic (real usage), then switched to
     // MiMo (zero usage). getCurrentUsage must NOT surface the stale Anthropic numbers.
+    // It stops at the MiMo message (getTokenCountFromUsage === 0) and returns null.
     const anthropicMsg = makeAssistantMessage({ input_tokens: 1000, output_tokens: 200 })
     const mimoMsg      = makeAssistantMessage({ input_tokens: 0, output_tokens: 0 })
     const messages: Message[] = [anthropicMsg, makeUserMessage(), mimoMsg]
-    // Should stop at mimoMsg (all-zero real assistant message) and return null.
     expect(getCurrentUsage(messages)).toBeNull()
   })
 
