@@ -930,3 +930,69 @@ if (result?.success && sdkResult?.success) {
     process.exitCode = 1
   }
 }
+
+// ── Guard: no unexpected missing-module stubs in the shipped CLI bundle ─────
+// The missing-import scanner above stubs any unresolved relative import to a
+// noop default export. That is correct for a require behind a DISABLED feature
+// flag: the gated branch is dead-code-eliminated and the stub never reaches the
+// bundle. But when a flag is ENABLED, its gated require becomes live and the
+// stub silently degrades a real module to `() => null` — a named export (e.g. a
+// React component) then resolves to `undefined` and crashes the first time that
+// path runs. SnipBoundaryMessage shipped exactly this way (PR #1407): the build
+// passed, smoke passed, unit tests passed, and the UI crashed on the first snip.
+//
+// Because feature-flag DCE removes disabled branches before bundling, every
+// `missing-module-stub:` marker left in dist/cli.mjs is reachable in the shipped
+// build. Fail on any that is not explicitly grandfathered below.
+if (result?.success) {
+  // Pre-existing stubs grandfathered when this guard was introduced. Each ships
+  // today behind an enabled flag and is a latent crash/degrade-on-use that
+  // predates this guard, tracked separately. Do NOT add entries here to silence
+  // the guard for new code — add the real source module, or gate the path so it
+  // is not reachable when the module is absent. An entry here is a known debt,
+  // not a blessing that the stub is safe.
+  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
+    '../../tools/VerifyPlanExecutionTool/constants.js',
+    '../../utils/hooks/ssrfGuard.js',
+    '../services/compact/cachedMCConfig.js',
+    './MonitorMcpDetailDialog.js',
+    './UserForkBoilerplateMessage.js',
+    './commands/force-snip.js',
+    './commands/fork/index.js',
+    './dream.js',
+  ])
+
+  const bundleText = await Bun.file('dist/cli.mjs').text()
+  const stubbed = new Set(
+    [...bundleText.matchAll(/\/\/\s*missing-module-stub:(\S+)/g)].map(m => m[1]),
+  )
+  const unexpected = [...stubbed].filter(s => !ACCEPTABLE_RUNTIME_STUBS.has(s)).sort()
+  const staleAllowlist = [...ACCEPTABLE_RUNTIME_STUBS].filter(s => !stubbed.has(s)).sort()
+
+  if (unexpected.length > 0) {
+    console.error(
+      '\n✗ Build guard: enabled-feature import(s) resolved to a missing-module stub:',
+    )
+    for (const s of unexpected) console.error(`    ${s}`)
+    console.error(
+      '  A feature flag made this require live but its source module is absent, so it was\n' +
+        '  stubbed to a noop default export (named exports become undefined and crash on first\n' +
+        '  use). Add the real source module, or gate the path so it is unreachable when the\n' +
+        '  module is missing. If the stub is genuinely never invoked, add it to\n' +
+        '  ACCEPTABLE_RUNTIME_STUBS in scripts/build.ts with justification.',
+    )
+    process.exitCode = 1
+  } else {
+    console.log(`✓ Bundle guard: no unexpected missing-module stubs`)
+  }
+
+  // Keep the allowlist honest: a grandfathered entry that no longer appears
+  // means the path was fixed or removed — drop it so the list reflects reality.
+  if (staleAllowlist.length > 0) {
+    console.warn(
+      '\n⚠ Build guard: ACCEPTABLE_RUNTIME_STUBS has stale entries no longer in the bundle ' +
+        '(remove them):',
+    )
+    for (const s of staleAllowlist) console.warn(`    ${s}`)
+  }
+}
