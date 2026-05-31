@@ -51,7 +51,7 @@ export default defineGateway({
       { id: 'mistral-large', apiName: 'mistral-large-latest', label: 'Mistral Large Latest', modelDescriptorId: 'mistral-large-latest' },
       { id: 'mistral-small', apiName: 'mistral-small-latest', label: 'Mistral Small Latest', modelDescriptorId: 'mistral-small-latest' },
       { id: 'ministral-3b', apiName: 'ministral-3b-latest', label: 'Ministral 3B Latest', modelDescriptorId: 'ministral-3b-latest' },
-      { id: 'codestral', apiName: 'codestral-latest', label: 'Codestral Latest', modelDescriptorId: 'codestral-latest' },
+      { id: 'codestral', apiName: 'codestral-latest', label: 'Codestral Latest', modelDescriptorId: 'codestral' },
     ],
   },
   usage: { supported: false },
