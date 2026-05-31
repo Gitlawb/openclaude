@@ -1625,7 +1625,9 @@ function stripUnavailableToolReferencesFromUserMessage(
  * Only mutates the API-bound copy, not the stored message.
  * This lets Claude reference message IDs when calling the snip tool.
  */
-function appendMessageTagToUserMessage(message: UserMessage): UserMessage {
+export function appendMessageTagToUserMessage(
+  message: UserMessage,
+): UserMessage {
   if (message.isMeta) {
     return message
   }
@@ -1658,7 +1660,23 @@ function appendMessageTagToUserMessage(message: UserMessage): UserMessage {
     }
   }
   if (lastTextIdx === -1) {
-    return message
+    // Pure tool_result messages (large Read/Bash outputs) carry no text block
+    // to host the tag, yet they are the highest-value snip targets. Append a
+    // dedicated text block so the model can see and reference the [id:] tag.
+    // The tool_result block is left intact, so snip pairing is unaffected.
+    if (!content.some(block => block!.type === 'tool_result')) {
+      return message
+    }
+    return {
+      ...message,
+      message: {
+        ...message.message,
+        content: [
+          ...content,
+          { type: 'text' as const, text: tag.replace(/^\n/, '') },
+        ] as typeof content,
+      },
+    }
   }
 
   const newContent = [...content]
