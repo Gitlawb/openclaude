@@ -75,6 +75,7 @@ import {
   injectLocalThinkingParams,
   resolveLocalBackend,
   resolveLocalThinkingConfig,
+  shouldApplyLocalThinkingBudget,
 } from './localThinkingBudget.js'
 import {
   buildOpenAICompatibilityErrorMessage,
@@ -2169,7 +2170,7 @@ class OpenAIShimMessages {
     // thinking on routine-tool turns, caps it on normal turns, frees it on
     // complex turns. See localThinkingBudget.ts.
     const localThinking = resolveLocalThinkingConfig()
-    if (localThinking && isLocalProviderUrl(request.baseUrl)) {
+    if (localThinking && shouldApplyLocalThinkingBudget(localThinking, request.baseUrl)) {
       const backend = resolveLocalBackend(request.baseUrl, localThinking.backend)
       if (backend) {
         injectLocalThinkingParams(

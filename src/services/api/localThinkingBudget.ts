@@ -14,7 +14,7 @@
 import type { SettingsJson } from '../../utils/settings/types.js'
 import { getSettingsWithErrors } from '../../utils/settings/settings.js'
 import { logForDebugging } from '../../utils/debug.js'
-import { isLikelyOllamaEndpoint } from './providerConfig.js'
+import { isLikelyOllamaEndpoint, isLocalProviderUrl } from './providerConfig.js'
 
 export type LocalBackend = 'llama.cpp' | 'vllm' | 'ollama'
 
@@ -180,6 +180,23 @@ export function resolveLocalThinkingConfig(
         : DEFAULT_COMPLEX_KEYWORDS,
     maxRoutineResultTokens: config.maxRoutineResultTokens ?? DEFAULT_MAX_ROUTINE_RESULT_TOKENS,
   }
+}
+
+/**
+ * Decide whether the local thinking budget applies to this request.
+ *
+ * An explicit `backend` is a deliberate "this is a local backend" opt-in, so it
+ * bypasses URL-based auto-detection — covering LAN endpoints that don't classify
+ * as local (bare hostnames like "mamachine", internal split-horizon DNS like
+ * "api.corp.example"). Without an explicit backend we fall back to detecting
+ * local endpoints by URL (Ollama on a loopback / RFC1918 / .local host).
+ */
+export function shouldApplyLocalThinkingBudget(
+  config: LocalThinkingConfig | null,
+  baseUrl: string | undefined,
+): boolean {
+  if (!config) return false
+  return config.backend !== undefined || isLocalProviderUrl(baseUrl)
 }
 
 let warnedMissingBackend = false

@@ -6,6 +6,7 @@ import {
   isMechanicalBashCommand,
   resolveLocalBackend,
   resolveLocalThinkingConfig,
+  shouldApplyLocalThinkingBudget,
   _resetWarningsForTest,
   type LocalThinkingConfig,
 } from './localThinkingBudget.ts'
@@ -60,6 +61,32 @@ describe('resolveLocalThinkingConfig', () => {
       complexKeywords: [],
     })
     expect(cfg!.complexKeywords.length).toBeGreaterThan(0)
+  })
+})
+
+describe('shouldApplyLocalThinkingBudget', () => {
+  const withBackend = resolveLocalThinkingConfig({ enabled: true, backend: 'llama.cpp' })
+  const noBackend = resolveLocalThinkingConfig({ enabled: true })
+
+  test('returns false when config is null', () => {
+    expect(shouldApplyLocalThinkingBudget(null, 'http://localhost:8080/v1')).toBe(false)
+  })
+
+  test('explicit backend opts in regardless of URL (bare hostname)', () => {
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://mamachine:8080/v1')).toBe(true)
+  })
+
+  test('explicit backend opts in for public-looking split-horizon DNS', () => {
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'https://api.macompanie.pro/v1')).toBe(true)
+  })
+
+  test('no explicit backend falls back to URL detection: local URL passes', () => {
+    expect(shouldApplyLocalThinkingBudget(noBackend, 'http://127.0.0.1:11434/v1')).toBe(true)
+  })
+
+  test('no explicit backend + non-local URL does not apply', () => {
+    expect(shouldApplyLocalThinkingBudget(noBackend, 'http://mamachine:8080/v1')).toBe(false)
+    expect(shouldApplyLocalThinkingBudget(noBackend, 'https://api.macompanie.pro/v1')).toBe(false)
   })
 })
 
