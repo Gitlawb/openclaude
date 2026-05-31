@@ -281,7 +281,11 @@ test('descriptor model options include active profile configured models', async 
   ])
 })
 
-test('descriptor model options omit route defaults outside active profile models', async () => {
+test('descriptor model options show all route models and append profile-only models', async () => {
+  // Regression test for #1423: when a provider profile only has one saved model,
+  // the /model picker must still show the full route catalog — not just that one
+  // model. Profile-configured models that are NOT already in the route catalog
+  // are appended at the end so they remain accessible.
   const activeProfile = {
     id: 'mistral-profile',
     name: 'Mistral AI',
@@ -314,6 +318,10 @@ test('descriptor model options omit route defaults outside active profile models
   const { mergeActiveProfileModelOptions } =
     await importFreshModelModule('descriptor-profile-model-filter')
 
+  // Route has devstral-latest and mistral-small-latest.
+  // Profile has mistral-medium-latest (not in route) and mistral-small-latest (in route).
+  // Expected: all route options appear, plus mistral-medium-latest appended because
+  // it is only in the profile and not in the route catalog.
   expect(
     mergeActiveProfileModelOptions(
       'mistral',
@@ -332,13 +340,18 @@ test('descriptor model options omit route defaults outside active profile models
     ),
   ).toEqual([
     {
-      value: 'mistral-medium-latest',
-      label: 'mistral-medium-latest',
-      description: 'Provider: Mistral AI',
+      value: 'devstral-latest',
+      label: 'Devstral Latest',
+      description: 'Recommended · Provider: Mistral AI',
     },
     {
       value: 'mistral-small-latest',
       label: 'Mistral Small Latest',
+      description: 'Provider: Mistral AI',
+    },
+    {
+      value: 'mistral-medium-latest',
+      label: 'mistral-medium-latest',
       description: 'Provider: Mistral AI',
     },
   ])

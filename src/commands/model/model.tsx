@@ -136,15 +136,19 @@ export function mergeActiveProfileModelOptions(
     return routeOptions
   }
 
-  const routeOptionsByValue = new Map(
+  // Always show the full route catalog so users can see and switch to any
+  // available model (#1423). Additionally append any profile-configured models
+  // that are not already present in the route catalog (e.g. a custom model ID
+  // the user saved in their provider profile).
+  const routeOptionKeys = new Set(
     routeOptions.flatMap(option => {
       const value =
         typeof option.value === 'string' ? option.value.trim().toLowerCase() : ''
-      return value ? [[value, option] as const] : []
+      return value ? [value] : []
     }),
   )
-  const merged: ModelOption[] = []
-  const seen = new Set<string>()
+  const merged: ModelOption[] = [...routeOptions]
+  const seen = new Set<string>(routeOptionKeys)
 
   for (const option of profileOptions) {
     const value = typeof option.value === 'string' ? option.value.trim() : ''
@@ -154,7 +158,7 @@ export function mergeActiveProfileModelOptions(
     }
 
     seen.add(key)
-    merged.push(routeOptionsByValue.get(key) ?? option)
+    merged.push(option)
   }
 
   return merged
