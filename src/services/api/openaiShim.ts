@@ -1764,14 +1764,18 @@ async function* openaiStreamToAnthropic(
           }
           lastStopReason = stopReason
 
-          // Prefer usage from the current stop chunk; fall back to the last
-          // usage seen anywhere in the stream (handles providers that emit
-          // usage in an early chunk rather than the finish_reason chunk).
-          const finalUsage = chunkUsage ?? lastSeenUsage
+          // Only attach usage when this stop chunk actually carries it.
+          // Do NOT fall back to lastSeenUsage here: some providers emit an
+          // early/provisional usage chunk followed by a separate trailing
+          // empty-choices chunk with the real final totals. Emitting
+          // lastSeenUsage at stop time AND again at the trailing chunk would
+          // double-count both in addToTotalSessionCost. The in-loop post check
+          // below handles trailing chunks; the post-stream fallback handles
+          // providers that send no trailing chunk at all.
           yield {
             type: 'message_delta',
             delta: { stop_reason: stopReason, stop_sequence: null },
-            ...(finalUsage ? { usage: finalUsage } : {}),
+            ...(chunkUsage ? { usage: chunkUsage } : {}),
           }
           if (chunkUsage) {
             hasEmittedFinalUsage = true
@@ -1796,6 +1800,18 @@ async function* openaiStreamToAnthropic(
     }
   } finally {
     reader.releaseLock()
+  }
+
+  // Post-stream fallback: if a provider sent usage only in an early chunk
+  // (not the stop chunk, not a trailing empty-choices chunk), we still need
+  // to emit exactly one message_delta with that accumulated usage so the
+  // status-line and session-cost accounting see it.
+  if (!hasEmittedFinalUsage && lastSeenUsage && lastStopReason !== null) {
+    yield {
+      type: 'message_delta',
+      delta: { stop_reason: lastStopReason, stop_sequence: null },
+      usage: lastSeenUsage,
+    }
   }
 
   const stats = getStreamStats(streamState)
