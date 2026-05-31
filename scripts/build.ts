@@ -943,32 +943,27 @@ if (result?.success && sdkResult?.success) {
 //
 // This guard is a COARSE TRIPWIRE, not proof of reachability. A
 // `missing-module-stub:` marker in dist/cli.mjs does NOT by itself prove the
-// stub is reachable or invoked: the scanner keys missing modules by specifier
-// string, so a missing specifier seen in one importer (including a test file)
-// can leave a marker even when a different importer resolves the real module of
-// the same name, and a marker can also sit on a path that never actually runs.
+// stub is reachable or invoked. The scanner (since #1399) keys missing modules
+// per importer, so a marker means *that* importer resolved to a stub — but the
+// marker can still sit on a path that never actually runs (e.g. a flag-gated
+// require that is enabled yet whose code path is not exercised).
 // So treat a flagged stub as "inspect this", not "confirmed runtime crash".
 // What the guard reliably catches is a NEW stub appearing where none was
 // expected — the regression class above — which is worth a human look before it
 // ships. Fail on any marker that is not explicitly grandfathered below.
 if (result?.success) {
   // Pre-existing stubs grandfathered when this guard was introduced. Each is a
-  // marker the scanner emitted before this guard existed; some sit behind an
-  // enabled flag and are latent degrade-on-use debt, others may be scanner
-  // artifacts (see the specifier-string caveat above) — the list is a baseline
-  // to detect new regressions, not an assertion that every entry is a live
-  // crash. Do NOT add entries here to silence the guard for new code — add the
-  // real source module, or gate the path so it is not reachable when the module
-  // is absent. An entry here is a known item to revisit, not a blessing that the
-  // stub is safe.
+  // marker the scanner emitted before this guard existed; each sits behind an
+  // enabled flag and is latent degrade-on-use debt whose source is not mirrored
+  // in this tree — the list is a baseline to detect new regressions, not an
+  // assertion that every entry is a live crash. Do NOT add entries here to
+  // silence the guard for new code — add the real source module, or gate the
+  // path so it is not reachable when the module is absent. An entry here is a
+  // known item to revisit, not a blessing that the stub is safe.
   const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
     '../../tools/VerifyPlanExecutionTool/constants.js',
-    '../../utils/hooks/ssrfGuard.js',
     '../services/compact/cachedMCConfig.js',
     './MonitorMcpDetailDialog.js',
-    './UserForkBoilerplateMessage.js',
-    './commands/fork/index.js',
-    './dream.js',
   ])
 
   // Stub markers are not byte-stable across build hosts. Locally Bun emits the
