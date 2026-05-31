@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
@@ -16,6 +17,7 @@ function makeError(headers: Record<string, string>): APIError {
 
 // Save/restore env vars between tests
 const originalEnv = { ...process.env }
+let originalProvidersModule: ProvidersModule | undefined
 
 const envKeys = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -46,10 +48,19 @@ afterEach(() => {
       else process.env[key] = originalEnv[key]
     }
     mock.restore()
+    if (originalProvidersModule) {
+      mock.module('src/utils/model/providers.js', () => originalProvidersModule!)
+    }
   } finally {
     releaseSharedMutationLock()
   }
 })
+
+async function importActualProviders(): Promise<ProvidersModule> {
+  return import(
+    `../../utils/model/providers.ts?withRetryActual=${Date.now()}-${Math.random()}`
+  )
+}
 
 async function importFreshWithRetryModule(
   provider:
@@ -63,7 +74,9 @@ async function importFreshWithRetryModule(
     | 'foundry' = 'firstParty',
 ) {
   mock.restore()
+  originalProvidersModule ??= await importActualProviders()
   mock.module('src/utils/model/providers.js', () => ({
+    ...originalProvidersModule!,
     getAPIProvider: () => provider,
     getAPIProviderForStatsig: () => provider,
     isFirstPartyAnthropicBaseUrl: () => provider === 'firstParty',

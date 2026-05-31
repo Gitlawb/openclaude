@@ -77,7 +77,7 @@ async function requestLoopback(
   })
 }
 
-describe('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
+describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
   let cleanup: (() => void) | null = null
 
   beforeEach(async () => {

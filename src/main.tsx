@@ -169,7 +169,7 @@ import { setCwd } from 'src/utils/Shell.js';
 import { type ProcessedResume, processResumedConversation } from 'src/utils/sessionRestore.js';
 import { parseSettingSourcesFlag } from 'src/utils/settings/constants.js';
 import { plural } from 'src/utils/stringUtils.js';
-import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setAllowedSettingSources, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setFlagSettingsPath, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
+import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setAllowedSettingSources, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setFlagSettingsPath, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionDangerousPermissionMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER') ? require('./utils/permissions/autoModeState.js') as typeof import('./utils/permissions/autoModeState.js') : null;
@@ -922,7 +922,7 @@ async function run(): Promise<CommanderCommand> {
     // terminal shell integration may mirror the process name to the tab.
     // After init() so settings.json env can also gate this (gh-4765).
     if (!isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE)) {
-      process.title = 'claude';
+      process.title = 'openclaude';
     }
 
     // Attach logging sinks so subcommand handlers can use logEvent/logError.
@@ -1397,7 +1397,8 @@ async function run(): Promise<CommanderCommand> {
     });
 
     // Store session bypass permissions mode for trust dialog check
-    setSessionBypassPermissionsMode(permissionMode === 'bypassPermissions');
+    setSessionBypassPermissionsMode(permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess');
+    setSessionDangerousPermissionMode(permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess' ? permissionMode : null);
     if (feature('TRANSCRIPT_CLASSIFIER')) {
       // autoModeFlagCli is the "did the user intend auto this session" signal.
       // Set when: --enable-auto-mode, --permission-mode auto, resolved mode
@@ -2511,7 +2512,7 @@ async function run(): Promise<CommanderCommand> {
       githubActionInputs: process.env.GITHUB_ACTION_INPUTS,
       dangerouslySkipPermissionsPassed: dangerouslySkipPermissions ?? false,
       permissionMode,
-      modeIsBypass: permissionMode === 'bypassPermissions',
+      modeIsBypass: permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess',
       allowDangerouslySkipPermissionsPassed: allowDangerouslySkipPermissions,
       systemPromptFlag: systemPrompt ? options.systemPromptFile ? 'file' : 'flag' : undefined,
       appendSystemPromptFlag: appendSystemPrompt ? options.appendSystemPromptFile ? 'file' : 'flag' : undefined,
@@ -2653,9 +2654,13 @@ async function run(): Promise<CommanderCommand> {
       const headlessStore = createStore(headlessInitialState, onChangeAppState);
 
       // Check if bypassPermissions should be disabled based on Statsig gate
-      // This runs in parallel to the code below, to avoid blocking the main loop.
-      if (toolPermissionContext.mode === 'bypassPermissions' || allowDangerouslySkipPermissions) {
-        void checkAndDisableBypassPermissions(toolPermissionContext);
+      // before any headless turn starts, so the authoritative org verdict
+      // cannot race the first unrestricted action.
+      if (toolPermissionContext.mode === 'bypassPermissions' || toolPermissionContext.mode === 'fullAccess' || allowDangerouslySkipPermissions) {
+        const bypassDisabled = await checkAndDisableBypassPermissions(toolPermissionContext);
+        if (bypassDisabled) {
+          return;
+        }
       }
 
       // Async check of auto mode gate — corrects state and disables auto if needed.

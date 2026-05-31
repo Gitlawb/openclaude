@@ -18,6 +18,7 @@ import { SETTING_SOURCES } from '../settings/constants.js'
 import {
   getSettings_DEPRECATED,
   getSettingsFilePathForSource,
+  getSettingsWithSources,
   getUseAutoModeDuringPlan,
   hasAllowBypassPermissionsMode,
   hasAutoModeOptIn,
@@ -25,8 +26,10 @@ import {
 import {
   type PermissionMode,
   permissionModeFromString,
+  permissionModeTitle,
 } from './PermissionMode.js'
 import { applyPermissionRulesToPermissionContext } from './permissions.js'
+import { getStartupDangerousPermissionPromptState } from './dangerousModePromptRuntime.js'
 import { loadAllPermissionRulesFromDisk } from './permissionsLoader.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -75,7 +78,10 @@ import {
   type AdditionalWorkingDirectory,
   applyPermissionUpdate,
 } from './PermissionUpdate.js'
-import type { PermissionUpdateDestination } from './PermissionUpdateSchema.js'
+import type {
+  PermissionUpdate,
+  PermissionUpdateDestination,
+} from './PermissionUpdateSchema.js'
 import {
   normalizeLegacyToolName,
   permissionRuleValueFromString,
@@ -647,6 +653,67 @@ export function transitionPermissionMode(
 }
 
 /**
+ * Applies a permission update to the live session context.
+ *
+ * Unlike applyPermissionUpdate, this routes mode changes through the
+ * permission-mode transition state machine so plan/auto bookkeeping and
+ * dangerous-rule strip/restore side effects stay consistent across entrypoints.
+ */
+export function applyPermissionUpdateToLiveContext(
+  context: ToolPermissionContext,
+  update: PermissionUpdate,
+): ToolPermissionContext {
+  if (update.type !== 'setMode') {
+    return applyPermissionUpdate(context, update)
+  }
+
+  return applyPermissionModeChange(context, update.mode)
+}
+
+/**
+ * Applies permission updates to the live session context in order.
+ *
+ * Prefer this helper over applyPermissionUpdates anywhere updates can affect
+ * the active in-memory permission mode for the current session.
+ */
+export function applyPermissionUpdatesToLiveContext(
+  context: ToolPermissionContext,
+  updates: PermissionUpdate[],
+): ToolPermissionContext {
+  let updatedContext = context
+  for (const update of updates) {
+    updatedContext = applyPermissionUpdateToLiveContext(
+      updatedContext,
+      update,
+    )
+  }
+
+  return updatedContext
+}
+
+/**
+ * Applies a permission mode change to the live session context.
+ *
+ * Prefer this helper over calling transitionPermissionMode directly at
+ * call sites so the mode application path stays consistent.
+ */
+export function applyPermissionModeChange(
+  context: ToolPermissionContext,
+  mode: PermissionMode,
+): ToolPermissionContext {
+  const nextContext = transitionPermissionMode(context.mode, mode, context)
+
+  return {
+    ...nextContext,
+    mode,
+    isBypassPermissionsModeAvailable:
+      mode === 'bypassPermissions' || mode === 'fullAccess'
+        ? true
+        : nextContext.isBypassPermissionsModeAvailable,
+  }
+}
+
+/**
  * Parse base tools specification from CLI
  * Handles both preset names (default, none) and custom tool lists
  */
@@ -684,6 +751,47 @@ function isSymlinkTo({
     : false
 }
 
+function isDangerousDefaultPermissionMode(
+  mode: PermissionMode,
+): mode is 'bypassPermissions' | 'fullAccess' {
+  return mode === 'bypassPermissions' || mode === 'fullAccess'
+}
+
+export function getEffectiveDefaultPermissionModeFromSettingsSources(
+  sources: Array<{
+    source: SettingSource
+    settings: {
+      permissions?: {
+        defaultMode?: PermissionMode
+      }
+    }
+  }>,
+): PermissionMode | undefined {
+  let resolvedMode: PermissionMode | undefined
+
+  for (const { source, settings } of sources) {
+    const defaultMode = settings.permissions?.defaultMode
+    if (!defaultMode) {
+      continue
+    }
+
+    if (
+      source === 'projectSettings' &&
+      isDangerousDefaultPermissionMode(defaultMode)
+    ) {
+      logForDebugging(
+        `Ignoring project settings defaultMode "${defaultMode}" because dangerous default modes must come from a trusted source`,
+        { level: 'warn' },
+      )
+      continue
+    }
+
+    resolvedMode = defaultMode
+  }
+
+  return resolvedMode
+}
+
 /**
  * Safely convert CLI flags to a PermissionMode
  */
@@ -694,7 +802,12 @@ export function initialPermissionModeFromCLI({
   permissionModeCli: string | undefined
   dangerouslySkipPermissions: boolean | undefined
 }): { mode: PermissionMode; notification?: string } {
-  const settings = getSettings_DEPRECATED() || {}
+  const settingsWithSources = getSettingsWithSources()
+  const settings = settingsWithSources.effective || {}
+  const settingsDefaultMode =
+    getEffectiveDefaultPermissionModeFromSettingsSources(
+      settingsWithSources.sources,
+    )
 
   // Check GrowthBook gate first - highest precedence
   const growthBookDisableBypassPermissionsMode =
@@ -741,8 +854,8 @@ export function initialPermissionModeFromCLI({
       orderedModes.push(parsedMode)
     }
   }
-  if (settings.permissions?.defaultMode) {
-    const settingsMode = settings.permissions.defaultMode as PermissionMode
+  if (settingsDefaultMode) {
+    const settingsMode = settingsDefaultMode
     // CCR only supports acceptEdits and plan — ignore other defaultModes from
     // settings (e.g. bypassPermissions would otherwise silently grant full
     // access in a remote environment).
@@ -776,18 +889,21 @@ export function initialPermissionModeFromCLI({
   let result: { mode: PermissionMode; notification?: string } | undefined
 
   for (const mode of orderedModes) {
-    if (mode === 'bypassPermissions' && disableBypassPermissionsMode) {
+    if (
+      (mode === 'bypassPermissions' || mode === 'fullAccess') &&
+      disableBypassPermissionsMode
+    ) {
       if (growthBookDisableBypassPermissionsMode) {
-        logForDebugging('bypassPermissions mode is disabled by Statsig gate', {
+        logForDebugging(`${mode} mode is disabled by Statsig gate`, {
           level: 'warn',
         })
         notification =
-          'Bypass permissions mode was disabled by your organization policy'
+          `${permissionModeTitle(mode)} mode was disabled by your organization policy`
       } else {
-        logForDebugging('bypassPermissions mode is disabled by settings', {
+        logForDebugging(`${mode} mode is disabled by settings`, {
           level: 'warn',
         })
-        notification = 'Bypass permissions mode was disabled by settings'
+        notification = `${permissionModeTitle(mode)} mode was disabled by settings`
       }
       continue // Skip this mode if it's disabled
     }
@@ -940,6 +1056,7 @@ export async function initializeToolPermissionContext({
   const settingsAllowBypassPermissionsMode = hasAllowBypassPermissionsMode()
   const isBypassPermissionsModeAvailable =
     (permissionMode === 'bypassPermissions' ||
+      permissionMode === 'fullAccess' ||
       allowDangerouslySkipPermissions ||
       settingsAllowBypassPermissionsMode) &&
     !growthBookDisableBypassPermissionsMode &&
@@ -1384,6 +1501,154 @@ export function isBypassPermissionsModeDisabled(): boolean {
   )
 }
 
+type DangerousPermissionModeTransitionValidationDeps = {
+  getStartupDangerousPermissionPromptState: typeof getStartupDangerousPermissionPromptState
+  shouldDisableBypassPermissions: typeof shouldDisableBypassPermissions
+}
+
+export type PermissionModeChangeRequestDecision =
+  | { status: 'apply' }
+  | {
+      status: 'confirm'
+      mode: Extract<PermissionMode, 'bypassPermissions' | 'fullAccess'>
+    }
+  | { status: 'blocked'; error: string }
+
+const DEFAULT_DANGEROUS_PERMISSION_MODE_TRANSITION_VALIDATION_DEPS: DangerousPermissionModeTransitionValidationDeps =
+  {
+    getStartupDangerousPermissionPromptState,
+    shouldDisableBypassPermissions,
+  }
+
+export async function getPermissionModeChangeRequestDecision({
+  mode,
+  toolPermissionContext,
+  allowDangerousModeConfirmation = false,
+  allowSessionBypassPermissionsModeEnable = false,
+  skipDangerousModePrompt = false,
+  requireLocalConfirmation,
+}: {
+  mode: PermissionMode
+  toolPermissionContext: Pick<
+    ToolPermissionContext,
+    'isBypassPermissionsModeAvailable'
+  >
+  allowDangerousModeConfirmation?: boolean
+  allowSessionBypassPermissionsModeEnable?: boolean
+  skipDangerousModePrompt?: boolean
+  requireLocalConfirmation?: boolean
+}): Promise<PermissionModeChangeRequestDecision> {
+  if (mode === 'bypassPermissions' || mode === 'fullAccess') {
+    const resolvedRequireLocalConfirmation =
+      requireLocalConfirmation ?? !allowDangerousModeConfirmation
+    const dangerousModeError = await getDangerousPermissionModeTransitionError({
+      mode,
+      toolPermissionContext,
+      allowSessionBypassPermissionsModeEnable,
+      requireLocalConfirmation: false,
+    })
+    if (dangerousModeError) {
+      return {
+        status: 'blocked',
+        error: dangerousModeError,
+      }
+    }
+
+    if (!skipDangerousModePrompt && allowDangerousModeConfirmation) {
+      const promptState = getStartupDangerousPermissionPromptState({
+        permissionMode: mode,
+        allowDangerouslySkipPermissions: false,
+      })
+      if (promptState.shouldShow && promptState.mode) {
+        return {
+          status: 'confirm',
+          mode: promptState.mode,
+        }
+      }
+    }
+
+    if (resolvedRequireLocalConfirmation) {
+      const localConfirmationError =
+        await getDangerousPermissionModeTransitionError({
+          mode,
+          toolPermissionContext,
+          allowSessionBypassPermissionsModeEnable,
+          requireLocalConfirmation: true,
+        })
+      if (localConfirmationError) {
+        return {
+          status: 'blocked',
+          error: localConfirmationError,
+        }
+      }
+    }
+
+    return { status: 'apply' }
+  }
+
+  if (feature('TRANSCRIPT_CLASSIFIER') && mode === 'auto') {
+    if (!isAutoModeGateEnabled()) {
+      const reason = getAutoModeUnavailableReason()
+      return {
+        status: 'blocked',
+        error: reason
+          ? `Cannot set permission mode to auto: ${getAutoModeUnavailableNotification(reason)}`
+          : 'Cannot set permission mode to auto',
+      }
+    }
+  }
+
+  return { status: 'apply' }
+}
+
+export async function getDangerousPermissionModeTransitionError({
+  mode,
+  toolPermissionContext,
+  allowSessionBypassPermissionsModeEnable = false,
+  requireLocalConfirmation = true,
+  deps = DEFAULT_DANGEROUS_PERMISSION_MODE_TRANSITION_VALIDATION_DEPS,
+}: {
+  mode: PermissionMode
+  toolPermissionContext: Pick<
+    ToolPermissionContext,
+    'isBypassPermissionsModeAvailable'
+  >
+  allowSessionBypassPermissionsModeEnable?: boolean
+  requireLocalConfirmation?: boolean
+  deps?: DangerousPermissionModeTransitionValidationDeps
+}): Promise<string | undefined> {
+  if (mode !== 'bypassPermissions' && mode !== 'fullAccess') {
+    return undefined
+  }
+
+  if (isBypassPermissionsModeDisabled()) {
+    return `Cannot set permission mode to ${mode} because it is disabled by settings or configuration`
+  }
+
+  if (
+    !toolPermissionContext.isBypassPermissionsModeAvailable &&
+    !allowSessionBypassPermissionsModeEnable
+  ) {
+    return `Cannot set permission mode to ${mode}. Enable it with --allow-dangerously-skip-permissions or set permissions.allowBypassPermissionsMode in settings.json`
+  }
+
+  if (requireLocalConfirmation) {
+    const promptState = deps.getStartupDangerousPermissionPromptState({
+      permissionMode: mode,
+      allowDangerouslySkipPermissions: false,
+    })
+    if (promptState.shouldShow && promptState.mode) {
+      return `Cannot set permission mode to ${mode} until the user explicitly confirms ${permissionModeTitle(promptState.mode)} in a local interactive session`
+    }
+  }
+
+  if (await deps.shouldDisableBypassPermissions()) {
+    return `Cannot set permission mode to ${mode} because it is disabled by your organization policy`
+  }
+
+  return undefined
+}
+
 /**
  * Creates an updated context with bypassPermissions disabled
  */
@@ -1391,7 +1656,10 @@ export function createDisabledBypassPermissionsContext(
   currentContext: ToolPermissionContext,
 ): ToolPermissionContext {
   let updatedContext = currentContext
-  if (currentContext.mode === 'bypassPermissions') {
+  if (
+    currentContext.mode === 'bypassPermissions' ||
+    currentContext.mode === 'fullAccess'
+  ) {
     updatedContext = applyPermissionUpdate(currentContext, {
       type: 'setMode',
       mode: 'default',
@@ -1411,15 +1679,15 @@ export function createDisabledBypassPermissionsContext(
  */
 export async function checkAndDisableBypassPermissions(
   currentContext: ToolPermissionContext,
-): Promise<void> {
+): Promise<boolean> {
   // Only proceed if bypassPermissions mode is available
   if (!currentContext.isBypassPermissionsModeAvailable) {
-    return
+    return false
   }
 
   const shouldDisable = await shouldDisableBypassPermissions()
   if (!shouldDisable) {
-    return
+    return false
   }
 
   // Gate is enabled, need to disable bypassPermissions mode
@@ -1429,12 +1697,17 @@ export async function checkAndDisableBypassPermissions(
   )
 
   void gracefulShutdown(1, 'bypass_permissions_disabled')
+  return true
 }
 
 export function isDefaultPermissionModeAuto(): boolean {
   if (feature('TRANSCRIPT_CLASSIFIER')) {
-    const settings = getSettings_DEPRECATED() || {}
-    return settings.permissions?.defaultMode === 'auto'
+    const settingsWithSources = getSettingsWithSources()
+    return (
+      getEffectiveDefaultPermissionModeFromSettingsSources(
+        settingsWithSources.sources,
+      ) === 'auto'
+    )
   }
   return false
 }
@@ -1478,7 +1751,11 @@ export function prepareContextForPlanMode(
         prePlanMode: 'auto',
       }
     }
-    if (planAutoMode && currentMode !== 'bypassPermissions') {
+    if (
+      planAutoMode &&
+      currentMode !== 'bypassPermissions' &&
+      currentMode !== 'fullAccess'
+    ) {
       autoModeStateModule?.setAutoModeActive(true)
       return {
         ...stripDangerousPermissionsForAutoMode(context),
@@ -1507,7 +1784,10 @@ export function transitionPlanAutoMode(
   if (context.mode !== 'plan') return context
   // Mirror prepareContextForPlanMode's entry-time exclusion — never activate
   // auto mid-plan when the user entered from a dangerous mode.
-  if (context.prePlanMode === 'bypassPermissions') {
+  if (
+    context.prePlanMode === 'bypassPermissions' ||
+    context.prePlanMode === 'fullAccess'
+  ) {
     return context
   }
 

@@ -138,15 +138,19 @@ function createInProcessCanUseTool(
     toolUseID,
     forceDecision,
   ) => {
+    const shouldBypassForcedAsk =
+      forceDecision?.behavior === 'ask' &&
+      toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
     const result =
-      forceDecision ??
-      (await hasPermissionsToUseTool(
+      forceDecision !== undefined && !shouldBypassForcedAsk
+        ? forceDecision
+        : await hasPermissionsToUseTool(
         tool,
         input,
         toolUseContext,
         assistantMessage,
         toolUseID,
-      ))
+      )
 
     // Pass through allow/deny decisions directly
     if (result.behavior !== 'ask') {
@@ -1044,6 +1048,20 @@ export async function runInProcessTeammate(
       ? createContentReplacementState()
       : undefined
 
+    // Progress tracker spans the whole teammate lifetime (multiple prompts).
+    // Resetting per prompt iteration dropped prior prompts' output tokens and
+    // tool-use counts from `task.progress`, so the leader's pill + spinner
+    // aggregate read zero/low values between turns even after long sessions
+    // (#475). The Claude API returns `input_tokens` as cumulative for that
+    // request (includes prior history sent via `forkContextMessages`), so
+    // `latestInputTokens` already represents the running context cost — we
+    // just need `cumulativeOutputTokens` and `toolUseCount` to keep their
+    // running totals across iterations.
+    const tracker = createProgressTracker()
+    const resolveActivity = createActivityDescriptionResolver(
+      toolUseContext.options.tools,
+    )
+
     // Main teammate loop - runs until abort or shutdown approved
     while (!abortController.signal.aborted && !shouldExit) {
       logForDebugging(
@@ -1134,11 +1152,6 @@ export async function runInProcessTeammate(
       // This ensures the full conversation (user + assistant turns) is preserved
       allMessages.push(userMessage)
 
-      // Create fresh progress tracker for this prompt
-      const tracker = createProgressTracker()
-      const resolveActivity = createActivityDescriptionResolver(
-        toolUseContext.options.tools,
-      )
       const iterationMessages: Message[] = []
 
       // Read current permission mode from task state (may have been cycled by leader via Shift+Tab)

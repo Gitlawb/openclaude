@@ -1,4 +1,4 @@
-import type { AuthMode } from './descriptors.js'
+import type { AuthMode, PresetBadge } from './descriptors.js'
 import type { ProviderPresetManifestEntry } from './descriptors.js'
 import { routeForPreset } from './compatibility.js'
 import {
@@ -38,6 +38,7 @@ function readFirstEnvValue(
 export type ProviderPresetUiMetadata = {
   apiKey: string
   authMode: AuthMode
+  badge?: PresetBadge
   baseUrl: string
   credentialEnvVars: string[]
   description: string
@@ -83,6 +84,7 @@ export function getProviderPresetUiMetadata(
   return {
     apiKey: readFirstEnvValue(processEnv, credentialEnvVars),
     authMode: descriptor?.setup.authMode ?? 'api-key',
+    badge: presetMetadata.badge,
     baseUrl,
     credentialEnvVars,
     description: presetMetadata.description,

@@ -399,14 +399,18 @@ function getSourceForPath(path: string): SettingSource | undefined {
   const normalizedPath = platformPath.normalize(path)
 
   // Check if the path is inside the managed-settings.d/ drop-in directory
-  const dropInDir = dependencies.getManagedSettingsDropInDir()
+  const dropInDir = platformPath.normalize(
+    dependencies.getManagedSettingsDropInDir(),
+  )
   if (normalizedPath.startsWith(dropInDir + platformPath.sep)) {
     return 'policySettings'
   }
 
   return SETTING_SOURCES.find(
     source =>
-      dependencies.getSettingsFilePathForSource(source) === normalizedPath,
+      platformPath.normalize(
+        dependencies.getSettingsFilePathForSource(source) ?? '',
+      ) === normalizedPath,
   )
 }
 
