@@ -971,12 +971,41 @@ if (result?.success) {
     './dream.js',
   ])
 
+  // Stub markers are not byte-stable across build hosts. Locally Bun emits the
+  // relative import specifier (`./commands/fork/index.js`); on the Linux CI
+  // merge run it has emitted the same stubs as absolute source paths
+  // (`/home/runner/work/openclaude/openclaude/src/commands/fork/index.ts`).
+  // Diffing the raw text made CI fail on already-allowlisted stubs and report
+  // them as stale. Canonicalize both sides to a stable key — the basename
+  // without extension — so a stub matches in either form.
+  const canonicalStub = (marker: string): string =>
+    (marker.split(/[\\/]/).pop() ?? marker).replace(/\.(?:[cm]?[jt]sx?)$/, '')
+
+  const acceptableCanonical = new Set([...ACCEPTABLE_RUNTIME_STUBS].map(canonicalStub))
+  // The basename key is only safe while no two allowlist entries share one.
+  // If they ever do, one entry could silently cover an unrelated stub of the
+  // same basename — fail loudly so the key scheme is made more specific instead.
+  if (acceptableCanonical.size !== ACCEPTABLE_RUNTIME_STUBS.size) {
+    console.error(
+      '\n✗ Build guard: ACCEPTABLE_RUNTIME_STUBS has entries with a colliding basename — ' +
+        'the canonical-stub key can no longer tell them apart. Disambiguate the guard key.',
+    )
+    process.exitCode = 1
+  }
+
   const bundleText = await Bun.file('dist/cli.mjs').text()
-  const stubbed = new Set(
-    [...bundleText.matchAll(/\/\/\s*missing-module-stub:(\S+)/g)].map(m => m[1]),
-  )
-  const unexpected = [...stubbed].filter(s => !ACCEPTABLE_RUNTIME_STUBS.has(s)).sort()
-  const staleAllowlist = [...ACCEPTABLE_RUNTIME_STUBS].filter(s => !stubbed.has(s)).sort()
+  // canonical key -> raw marker text (kept for human-readable diagnostics)
+  const stubbed = new Map<string, string>()
+  for (const m of bundleText.matchAll(/\/\/\s*missing-module-stub:(\S+)/g)) {
+    stubbed.set(canonicalStub(m[1]), m[1])
+  }
+  const unexpected = [...stubbed]
+    .filter(([key]) => !acceptableCanonical.has(key))
+    .map(([, raw]) => raw)
+    .sort()
+  const staleAllowlist = [...ACCEPTABLE_RUNTIME_STUBS]
+    .filter(s => !stubbed.has(canonicalStub(s)))
+    .sort()
 
   if (unexpected.length > 0) {
     console.error(
