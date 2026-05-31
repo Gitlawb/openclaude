@@ -427,7 +427,9 @@ describe('Interrupt correction context injection (issue #1422)', () => {
 
   test('REPL snapshots ref into wasInterrupted before try block to prevent stale writes on throw', async () => {
     const content = await file('screens/REPL.tsx').text()
-    expect(content).toContain('const wasInterrupted = hadInterruptedTurnRef.current')
+    // shouldQuery gate ensures local/slash commands (shouldQuery=false) leave the
+    // flag intact for the next real model query.
+    expect(content).toContain('const wasInterrupted = shouldQuery && hadInterruptedTurnRef.current')
     // Reset must happen before try, not inside it
     const resetIdx = content.indexOf('hadInterruptedTurnRef.current = false')
     const tryIdx = content.indexOf('try {', content.indexOf('wasInterrupted'))

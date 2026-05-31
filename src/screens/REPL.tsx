@@ -3209,6 +3209,10 @@ export function REPL({
             // otherwise Up-arrow shows the restored text twice.
             removeLastFromHistory();
             restoreMessageSyncRef.current(lastUserMsg);
+            // The canceled turn was fully rewound, so there is no
+            // tool-call momentum to break. Clear the flag so the next
+            // real model query doesn't receive a spurious [INTERRUPTED].
+            hadInterruptedTurnRef.current = false;
           }
         }
       }
