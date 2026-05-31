@@ -41,6 +41,7 @@ const API_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
   mistral: 'Mistral',
   xai: 'xAI',
   'xiaomi-mimo': 'Xiaomi MiMo',
+  perplexity: 'Perplexity',
 };
 
 const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
@@ -335,7 +336,8 @@ export function buildAPIProviderProperties(): Property[] {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
     BNKR_API_KEY: process.env.BNKR_API_KEY,
-    MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
+    MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
+    PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
   };
   if (apiProvider !== 'firstParty') {
     const providerLabel = API_PROVIDER_LABELS[apiProvider];
@@ -445,6 +447,11 @@ export function buildAPIProviderProperties(): Property[] {
     pushRedactedProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
     const mistralModel = process.env.MISTRAL_MODEL;
     pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
+  } else if (apiProvider === 'perplexity') {
+    const perplexityBaseUrl = process.env.PERPLEXITY_BASE_URL || 'https://api.perplexity.ai';
+    pushRedactedProperty(properties, 'Perplexity base URL', perplexityBaseUrl, secretSource);
+    const perplexityModel = process.env.PERPLEXITY_MODEL || 'sonar-pro';
+    pushRedactedProperty(properties, 'Model', perplexityModel, secretSource);
   }
   const proxyUrl = getProxyUrl();
   if (proxyUrl) {

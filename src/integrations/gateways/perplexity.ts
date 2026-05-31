@@ -48,7 +48,6 @@ export default defineGateway({
       { id: 'perplexity-sonar-pro', apiName: 'sonar-pro', label: 'Sonar Pro', modelDescriptorId: 'sonar-pro' },
       { id: 'perplexity-sonar', apiName: 'sonar', label: 'Sonar', modelDescriptorId: 'sonar' },
       { id: 'perplexity-sonar-reasoning-pro', apiName: 'sonar-reasoning-pro', label: 'Sonar Reasoning Pro', modelDescriptorId: 'sonar-reasoning-pro' },
-      { id: 'perplexity-sonar-reasoning', apiName: 'sonar-reasoning', label: 'Sonar Reasoning', modelDescriptorId: 'sonar-reasoning' },
       { id: 'perplexity-sonar-deep-research', apiName: 'sonar-deep-research', label: 'Sonar Deep Research', modelDescriptorId: 'sonar-deep-research' },
     ],
   },

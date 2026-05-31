@@ -16,7 +16,6 @@ export default defineBrand({
     'sonar-pro',
     'sonar',
     'sonar-reasoning-pro',
-    'sonar-reasoning',
     'sonar-deep-research',
   ],
 })

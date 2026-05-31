@@ -1,0 +1,26 @@
+{
+  "input": [],
+  "output": [
+    {
+      "uuid": "UUID-0",
+      "requestId": "REQUEST_ID",
+      "timestamp": "2026-05-29T04:49:48.909Z",
+      "message": {
+        "id": "msg_fallback_test",
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+        "model": "claude-3-5-haiku-20241022",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "type": "assistant"
+    }
+  ]
+}

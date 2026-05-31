@@ -18,3 +18,4 @@ coverage/
 agent.log
 plan/
 temp_reference/
+graphify-out/
