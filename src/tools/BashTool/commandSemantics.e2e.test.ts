@@ -19,7 +19,7 @@ import { interpretCommandResult } from './commandSemantics.js'
 // the same platform the issue was reported on.
 function findTscBin(): string {
   const base = join(import.meta.dir, '../../../node_modules/.bin/tsc')
-  for (const p of [base, `${base}.bunx`, `${base}.cmd`, `${base}.exe`]) {
+  for (const p of [base, `${base}.exe`, `${base}.cmd`, `${base}.bunx`]) {
     if (existsSync(p)) return p
   }
   return base // hasBinary will return false → tests skip gracefully
