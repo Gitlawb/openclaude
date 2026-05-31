@@ -22,3 +22,26 @@ test('/dream command is present in the CLI bundle', () => {
     /missing-module-stub:.*commands\/dream\/dream\.js/,
   )
 })
+
+// Regression for the WebFetch SSRF guard. WebFetchTool passes the real
+// ssrfGuardedLookup (src/utils/hooks/ssrfGuard.ts) as its DNS `lookup`. A
+// string-literal import of that module inside
+// src/__tests__/security-hardening.test.ts previously registered the specifier
+// as missing, and the specifier-keyed resolver then replaced WebFetch's real
+// import with a noop in dist/cli.mjs — silently disabling SSRF protection. The
+// source-level test only reads src/tools/WebFetchTool/utils.ts, so it cannot
+// catch a bundle-only regression; assert against the shipped bundle instead.
+test('WebFetch binds the real ssrfGuardedLookup in the CLI bundle', () => {
+  if (!existsSync(DIST)) {
+    throw new Error(
+      'dist/cli.mjs not found — run `bun run build` before this test',
+    )
+  }
+
+  const bundle = readFileSync(DIST, 'utf-8')
+
+  // The real guard's distinctive blocked-address error must be bundled...
+  expect(bundle).toContain('private/link-local address')
+  // ...and ssrfGuard must not have been replaced by a missing-module stub.
+  expect(bundle).not.toMatch(/missing-module-stub:.*ssrfGuard/)
+})

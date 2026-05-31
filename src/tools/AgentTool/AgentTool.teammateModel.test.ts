@@ -4,16 +4,22 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import type { SettingsJson } from '../../utils/settings/types.js'
+import type { AgentDefinition } from './loadAgentsDir.js'
 
 type ModelAllowlistModule = typeof import('../../utils/model/modelAllowlist.js')
+type SettingsModule = typeof import('../../utils/settings/settings.js')
+type SpawnMultiAgentModule = typeof import('../shared/spawnMultiAgent.js')
 type AgentSwarmsEnabledModule =
   typeof import('../../utils/agentSwarmsEnabled.js')
-type SpawnMultiAgentModule = typeof import('../shared/spawnMultiAgent.js')
 type SpawnTeammateConfig = Parameters<SpawnMultiAgentModule['spawnTeammate']>[0]
 
 let originalModelAllowlistModule: ModelAllowlistModule | undefined
-let originalAgentSwarmsEnabledModule: AgentSwarmsEnabledModule | undefined
+let originalSettingsModule: SettingsModule | undefined
 let originalSpawnMultiAgentModule: SpawnMultiAgentModule | undefined
+let originalAgentSwarmsEnabledModule: AgentSwarmsEnabledModule | undefined
+let settingsForTest: SettingsJson = {}
+let allowedModelsForTest = new Set(['allowed-model'])
 
 const originalEnv = {
   CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:
@@ -27,6 +33,8 @@ beforeEach(async () => {
   )
   process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
   delete process.env.CLAUDE_CODE_SUBAGENT_MODEL
+  settingsForTest = {}
+  allowedModelsForTest = new Set(['allowed-model'])
 })
 
 afterEach(async () => {
@@ -37,6 +45,9 @@ afterEach(async () => {
         '../../utils/model/modelAllowlist.js',
         () => originalModelAllowlistModule!,
       )
+    }
+    if (originalSettingsModule) {
+      mock.module('../../utils/settings/settings.js', () => originalSettingsModule!)
     }
     if (originalSpawnMultiAgentModule) {
       mock.module(
@@ -52,6 +63,8 @@ afterEach(async () => {
     }
     restoreEnv('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS')
     restoreEnv('CLAUDE_CODE_SUBAGENT_MODEL')
+    settingsForTest = {}
+    allowedModelsForTest = new Set(['allowed-model'])
   } finally {
     releaseSharedMutationLock()
   }
@@ -72,9 +85,9 @@ async function importActualModelAllowlist(): Promise<ModelAllowlistModule> {
   )
 }
 
-async function importActualAgentSwarmsEnabled(): Promise<AgentSwarmsEnabledModule> {
+async function importActualSettings(): Promise<SettingsModule> {
   return import(
-    `../../utils/agentSwarmsEnabled.ts?agentToolActual=${Date.now()}-${Math.random()}`
+    `../../utils/settings/settings.ts?agentToolActual=${Date.now()}-${Math.random()}`
   )
 }
 
@@ -84,13 +97,20 @@ async function importActualSpawnMultiAgent(): Promise<SpawnMultiAgentModule> {
   )
 }
 
+async function importActualAgentSwarmsEnabled(): Promise<AgentSwarmsEnabledModule> {
+  return import(
+    `../../utils/agentSwarmsEnabled.ts?agentToolActual=${Date.now()}-${Math.random()}`
+  )
+}
+
 async function importAgentToolWithSpawnMock(): Promise<{
   AgentTool: typeof import('./AgentTool.js').AgentTool
   spawnTeammate: ReturnType<typeof mock>
 }> {
   originalModelAllowlistModule ??= await importActualModelAllowlist()
-  originalAgentSwarmsEnabledModule ??= await importActualAgentSwarmsEnabled()
+  originalSettingsModule ??= await importActualSettings()
   originalSpawnMultiAgentModule ??= await importActualSpawnMultiAgent()
+  originalAgentSwarmsEnabledModule ??= await importActualAgentSwarmsEnabled()
   const spawnTeammate = mock(async () => ({
     data: {
       teammate_id: 'teammate-1',
@@ -102,18 +122,17 @@ async function importAgentToolWithSpawnMock(): Promise<{
 
   mock.module('../../utils/model/modelAllowlist.js', () => ({
     ...originalModelAllowlistModule!,
-    isModelAllowed: (model: string) =>
-      model.trim().toLowerCase() === 'allowed-model',
+    isModelAllowed: (model: string) => allowedModelsForTest.has(model.trim()),
+  }))
+  mock.module('../../utils/settings/settings.js', () => ({
+    ...originalSettingsModule!,
+    getInitialSettings: () => settingsForTest,
+    getSettings_DEPRECATED: () => settingsForTest,
   }))
   mock.module('../shared/spawnMultiAgent.js', () => ({
     ...originalSpawnMultiAgentModule!,
     spawnTeammate,
   }))
-  // Pin isAgentSwarmsEnabled to true — a prior test's mock.module on
-  // growthbook.js may have left a stale binding in agentSwarmsEnabled.ts
-  // that returns false for the killswitch check. Cache-busting AgentTool.js
-  // doesn't help because agentSwarmsEnabled.ts is a transitive dep that
-  // keeps its already-loaded (mocked) growthbook import.
   mock.module('../../utils/agentSwarmsEnabled.js', () => ({
     ...originalAgentSwarmsEnabledModule!,
     isAgentSwarmsEnabled: () => true,
@@ -127,6 +146,7 @@ async function importAgentToolWithSpawnMock(): Promise<{
 
 function makeToolUseContext(options: {
   mainLoopModel?: string
+  activeAgents?: AgentDefinition[]
 } = {}): ToolUseContext {
   const appState = {
     toolPermissionContext: { mode: 'default' },
@@ -144,7 +164,10 @@ function makeToolUseContext(options: {
       mcpClients: [],
       mcpResources: {},
       isNonInteractiveSession: false,
-      agentDefinitions: { activeAgents: [], allAgents: [] },
+      agentDefinitions: {
+        activeAgents: options.activeAgents ?? [],
+        allAgents: options.activeAgents ?? [],
+      },
     },
     abortController: new AbortController(),
     readFileState: {},
@@ -165,13 +188,29 @@ function getSpawnConfig(
   return spawnTeammate.mock.calls[0]![0] as SpawnTeammateConfig
 }
 
+function createAgentDefinition(
+  agentType: string,
+  model?: string,
+): AgentDefinition {
+  return {
+    agentType,
+    color: 'blue',
+    source: 'projectSettings',
+    whenToUse: 'review code',
+    ...(model && { model }),
+    getSystemPrompt: () => 'review code',
+  } as unknown as AgentDefinition
+}
+
 function callTeammateAgentTool(
   AgentTool: typeof import('./AgentTool.js').AgentTool,
   input: {
     model?: string
+    subagent_type?: string
   } = {},
   contextOptions: {
     mainLoopModel?: string
+    activeAgents?: AgentDefinition[]
   } = {},
 ): ReturnType<typeof AgentTool.call> {
   return AgentTool.call(
@@ -205,6 +244,7 @@ test('trims an allowed custom model before spawning a teammate', async () => {
   await callTeammateAgentTool(AgentTool, { model: '  allowed-model  ' })
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('allowed-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(true)
 })
 
 test('resolves inherit before spawning a teammate', async () => {
@@ -217,6 +257,7 @@ test('resolves inherit before spawning a teammate', async () => {
   )
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('allowed-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(true)
 })
 
 test('leaves teammate default selection to spawn layer without a model override', async () => {
@@ -225,4 +266,146 @@ test('leaves teammate default selection to spawn layer without a model override'
   await callTeammateAgentTool(AgentTool)
 
   expect(getSpawnConfig(spawnTeammate).model).toBeUndefined()
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
+test('marks agent definition model fallbacks as non-tool-specified', async () => {
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+  const activeAgents = [createAgentDefinition('reviewer', 'allowed-model')]
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'reviewer' },
+    { activeAgents },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('allowed-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
+test('passes routed agentModels keys to teammate spawns by subagent type', async () => {
+  settingsForTest = {
+    agentModels: {
+      'deepseek-grunt': {
+        base_url: 'https://api.deepseek.com/v1',
+        api_key: 'sk-ds',
+      },
+    },
+    agentRouting: {
+      'general-purpose': 'deepseek-grunt',
+    },
+  } as unknown as SettingsJson
+  allowedModelsForTest = new Set(['deepseek-grunt'])
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'general-purpose' },
+    { activeAgents: [createAgentDefinition('general-purpose')] },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('deepseek-grunt')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
+test('uses default agentRouting only when no explicit teammate model is provided', async () => {
+  settingsForTest = {
+    agentModels: {
+      'gpt-worker': {
+        base_url: 'https://api.openai.com/v1',
+        api_key: 'sk-oai',
+      },
+    },
+    agentRouting: {
+      default: 'gpt-worker',
+    },
+  } as unknown as SettingsJson
+  allowedModelsForTest = new Set(['gpt-worker'])
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'unknown-worker' },
+    { activeAgents: [createAgentDefinition('unknown-worker')] },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('gpt-worker')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
+test('falls back to a configured agent definition model key after routing misses', async () => {
+  settingsForTest = {
+    agentModels: {
+      'deepseek-grunt': {
+        base_url: 'https://api.deepseek.com/v1',
+        api_key: 'sk-ds',
+      },
+    },
+    agentRouting: {},
+  } as unknown as SettingsJson
+  allowedModelsForTest = new Set(['deepseek-grunt'])
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'reviewer' },
+    { activeAgents: [createAgentDefinition('reviewer', 'deepseek-grunt')] },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('deepseek-grunt')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(false)
+})
+
+test('does not let non-configured explicit teammate models fall through to default routing', async () => {
+  settingsForTest = {
+    agentModels: {
+      'deepseek-grunt': {
+        base_url: 'https://api.deepseek.com/v1',
+        api_key: 'sk-ds',
+      },
+    },
+    agentRouting: {
+      default: 'deepseek-grunt',
+    },
+  } as unknown as SettingsJson
+  allowedModelsForTest = new Set(['custom-provider-model'])
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  await callTeammateAgentTool(
+    AgentTool,
+    {
+      model: 'custom-provider-model',
+      subagent_type: 'general-purpose',
+    },
+    { activeAgents: [createAgentDefinition('general-purpose')] },
+  )
+
+  expect(getSpawnConfig(spawnTeammate).model).toBe('custom-provider-model')
+  expect(getSpawnConfig(spawnTeammate).modelWasToolSpecified).toBe(true)
+})
+
+test('rejects disallowed routed provider models before spawning a teammate', async () => {
+  settingsForTest = {
+    agentModels: {
+      'deepseek-grunt': {
+        base_url: 'https://api.deepseek.com/v1',
+        api_key: 'sk-ds',
+      },
+    },
+    agentRouting: {
+      'general-purpose': 'deepseek-grunt',
+    },
+  } as unknown as SettingsJson
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  await expect(
+    callTeammateAgentTool(
+      AgentTool,
+      { subagent_type: 'general-purpose' },
+      { activeAgents: [createAgentDefinition('general-purpose')] },
+    ),
+  ).rejects.toThrow(
+    "Model 'deepseek-grunt' is not available. Your organization restricts model selection.",
+  )
+  expect(spawnTeammate).not.toHaveBeenCalled()
 })

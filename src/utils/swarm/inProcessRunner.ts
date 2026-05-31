@@ -489,6 +489,8 @@ export type InProcessRunnerConfig = {
   abortController: AbortController
   /** Optional model override for this teammate */
   model?: string
+  /** True when model came from an explicit Agent tool model argument. */
+  modelWasToolSpecified?: boolean
   /** Optional system prompt override for this teammate */
   systemPrompt?: string
   /** How to apply the system prompt: 'replace' or 'append' to default */
@@ -897,6 +899,7 @@ export async function runInProcessTeammate(
     toolUseContext,
     abortController,
     model,
+    modelWasToolSpecified,
     systemPrompt,
     systemPromptMode,
     allowedTools,
@@ -976,6 +979,7 @@ export async function runInProcessTeammate(
   // Resolve agent definition - use full system prompt with teammate addendum
   // IMPORTANT: Set permissionMode to 'default' so teammates always get full tool
   // access regardless of the leader's permission mode.
+  const fallbackModel = agentDefinition?.model ?? model
   const resolvedAgentDefinition: CustomAgentDefinition = {
     agentType: identity.agentName,
     whenToUse: `In-process teammate: ${identity.agentName}`,
@@ -1000,8 +1004,10 @@ export async function runInProcessTeammate(
     source: 'projectSettings',
     permissionMode: 'default',
     // Propagate model from custom agent definition so getAgentModel()
-    // can use it as a fallback when no tool-level model is specified
-    ...(agentDefinition?.model ? { model: agentDefinition.model } : {}),
+    // can use it as a fallback when no tool-level model is specified. If the
+    // spawn layer supplied a default teammate model, keep it as a fallback
+    // without treating it like an explicit Agent tool model override.
+    ...(fallbackModel ? { model: fallbackModel } : {}),
   }
 
   // All messages across all prompts
@@ -1208,7 +1214,10 @@ export async function runInProcessTeammate(
             forkContextMessages,
             querySource: 'agent:custom',
             override: { abortController: currentWorkAbortController },
-            model: model as ModelAlias | undefined,
+            model: modelWasToolSpecified
+              ? (model as ModelAlias | undefined)
+              : undefined,
+            agentName: identity.agentName,
             preserveToolUseResults: true,
             availableTools: toolUseContext.options.tools,
             allowedTools,

@@ -850,10 +850,10 @@ export const Fragment = null;
           'instances': 'new Map()',
           'selectableUserMessagesFilter': '() => true',
           'messagesAfterAreOnlySynthetic': '() => false',
-          'SandboxManager': 'class { static isSupportedPlatform = () => false; static create = noop; static Version = \'\'; }',
+          'SandboxManager': 'class { static isSupportedPlatform = () => false; static create = noop; static Version = \'\'; static annotateStderrWithSandboxFailures = (_command, stderr) => stderr; }',
           'SandboxRuntimeConfigSchema': '{ parse: noop }',
           'SandboxViolationStore': 'null',
-          'BaseSandboxManager': 'class { static isSupportedPlatform = () => false; }',
+          'BaseSandboxManager': 'class { static isSupportedPlatform = () => false; static annotateStderrWithSandboxFailures = (_command, stderr) => stderr; }',
           'ExportResultCode': '{ SUCCESS: 0, FAILED: 1 }',
           'linkifyUrlsInText': '(s) => s',
         }

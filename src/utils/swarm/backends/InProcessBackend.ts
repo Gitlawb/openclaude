@@ -122,6 +122,8 @@ export class InProcessBackend implements TeammateExecutor {
         toolUseContext: { ...this.context, messages: [] },
         abortController: result.abortController,
         model: config.model,
+        modelWasToolSpecified:
+          config.modelWasToolSpecified ?? config.model !== undefined,
         systemPrompt: config.systemPrompt,
         systemPromptMode: config.systemPromptMode,
         allowedTools: config.permissions,

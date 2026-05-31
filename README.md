@@ -65,10 +65,18 @@ OpenClaude is also mirrored to GitLawb:
 ### Install
 
 ```bash
-npm install -g @gitlawb/openclaude
+npm install -g @gitlawb/openclaude@latest
 ```
 
 If the install later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
+
+**Verify / troubleshoot installed version:**
+
+```bash
+openclaude --version
+npm view @gitlawb/openclaude dist-tags
+npm install -g @gitlawb/openclaude@latest
+```
 
 ### Start
 
@@ -207,6 +215,10 @@ Add to `~/.openclaude.json`:
 ```
 
 When no routing match is found, the global provider remains the fallback.
+
+You can also explicitly pass a `model` argument to the Agent tool that exactly matches a configured key in `agentModels` to override the provider for a single subagent request.
+
+> **Note:** `/provider` changes the global/parent provider for your current session. `agentModels` and `agentRouting` are specifically for configuring per-agent provider overrides while keeping the parent session unchanged.
 
 > **Note:** `api_key` values in `settings.json` are stored in plaintext. Keep this file private and do not commit it to version control.
 

@@ -127,6 +127,7 @@ export type SpawnTeammateConfig = {
   use_splitpane?: boolean
   plan_mode_required?: boolean
   model?: string
+  modelWasToolSpecified?: boolean
   agent_type?: string
   description?: string
   /** request_id of the API call whose response contained the tool_use that
@@ -144,6 +145,7 @@ type SpawnInput = {
   use_splitpane?: boolean
   plan_mode_required?: boolean
   model?: string
+  modelWasToolSpecified?: boolean
   agent_type?: string
   description?: string
   invokingRequestId?: string
@@ -916,6 +918,8 @@ async function handleSpawnInProcess(
 
   // Resolve model: 'inherit' → leader's model; undefined → default Opus
   const model = resolveTeammateModel(input.model, getAppState().mainLoopModel)
+  const modelWasToolSpecified =
+    input.modelWasToolSpecified ?? input.model !== undefined
 
   if (!name || !prompt) {
     throw new Error('name and prompt are required for spawn operation')
@@ -992,6 +996,7 @@ async function handleSpawnInProcess(
       prompt,
       description: input.description,
       model,
+      modelWasToolSpecified,
       agentDefinition,
       teammateContext: result.teammateContext,
       // Strip messages: the teammate never reads toolUseContext.messages

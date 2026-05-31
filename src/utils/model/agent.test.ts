@@ -517,3 +517,70 @@ describe('getAgentModel provider-aware fallback', () => {
     })
   })
 })
+
+describe('getAgentModelOptions', () => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/model/agent.test.ts')
+  })
+
+  afterEach(() => {
+    releaseSharedMutationLock()
+  })
+
+  test('returns default options when settings are missing', async () => {
+    const { getAgentModelOptions } = await importAgentModule()
+    const options = getAgentModelOptions(null)
+    expect(options.length).toBe(4)
+    expect(options.map(o => o.value)).toEqual(['sonnet', 'opus', 'haiku', 'inherit'])
+  })
+
+  test('appends configured models from settings', async () => {
+    const { getAgentModelOptions } = await importAgentModule()
+    const options = getAgentModelOptions({
+      agentModels: {
+        'deepseek-chat': { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds' },
+        'gpt-4o': { base_url: 'https://api.openai.com/v1', api_key: 'sk-oai' },
+      },
+    } as any)
+
+    expect(options.length).toBe(6)
+    expect(options[4]?.value).toBe('deepseek-chat')
+    expect(options[5]?.value).toBe('gpt-4o')
+    expect(options[4]?.label).toBe('deepseek-chat')
+    expect(options[5]?.description).toBe('Configured agent model')
+  })
+
+  test('deduplicates keys if configured models match built-in aliases', async () => {
+    const { getAgentModelOptions } = await importAgentModule()
+    const options = getAgentModelOptions({
+      agentModels: {
+        'sonnet': { base_url: 'https://api.custom.com/v1', api_key: 'sk-123' },
+        'deepseek-chat': { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds' },
+      },
+    } as any)
+
+    expect(options.length).toBe(5)
+    // 'sonnet' should not be duplicated
+    expect(options.filter(o => o.value === 'sonnet').length).toBe(1)
+    expect(options[4]?.value).toBe('deepseek-chat')
+  })
+
+  test('does not expose configured provider credentials in labels', async () => {
+    const { getAgentModelOptions } = await importAgentModule()
+    const options = getAgentModelOptions({
+      agentModels: {
+        'deepseek-chat': {
+          base_url: 'https://api.deepseek.com/v1',
+          api_key: 'sk-secret-test-key',
+        },
+      },
+    } as any)
+
+    const displayText = options
+      .map(option => `${option.label} ${option.description}`)
+      .join('\n')
+
+    expect(displayText).not.toContain('sk-secret-test-key')
+    expect(displayText).not.toContain('https://api.deepseek.com/v1')
+  })
+})

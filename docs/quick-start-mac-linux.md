@@ -18,7 +18,7 @@ npm --version
 ## 2. Install OpenClaude
 
 ```bash
-npm install -g @gitlawb/openclaude
+npm install -g @gitlawb/openclaude@latest
 ```
 
 ## 3. Pick One Provider
