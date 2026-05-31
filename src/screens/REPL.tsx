@@ -2200,8 +2200,16 @@ export function REPL({
     if (feature('PROACTIVE') || feature('KAIROS')) {
       proactiveModule?.pauseProactive();
     }
+    const wasQueryActive = queryGuard.isActive;
     queryGuard.forceEnd();
     skipIdleCheckRef.current = false;
+
+    // Record user-cancel synchronously so the next onQuery sees it
+    // immediately, even if the aborted turn's finally fires as a microtask
+    // after onQuery has already started and snapshotted the flag.
+    if (wasQueryActive) {
+      hadInterruptedTurnRef.current = true;
+    }
 
     // Preserve partially-streamed text so the user can read what was
     // generated before pressing Esc. Pushed before resetLoadingState clears
@@ -2995,11 +3003,12 @@ export function REPL({
       });
       return;
     }
-    // Snapshot and clear the interrupt flag atomically before entering the
-    // try block — prevents a throw from leaving a stale true that bleeds
-    // into the query after next.
-    const wasInterrupted = hadInterruptedTurnRef.current;
-    hadInterruptedTurnRef.current = false;
+    // Snapshot and clear the interrupt flag only for model queries — local
+    // and slash commands (shouldQuery=false) must leave the flag so the next
+    // real model query still sees it. Clear before the try block so a throw
+    // can't leave stale true bleeding into the query after next.
+    const wasInterrupted = shouldQuery && hadInterruptedTurnRef.current;
+    if (wasInterrupted) hadInterruptedTurnRef.current = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3167,10 +3176,11 @@ export function REPL({
         setAbortController(null);
       }
 
-      // Mark that the next query should inject an [INTERRUPTED] correction context.
-      // Guard with !queryGuard.isActive: in the cancel+resubmit race the new
-      // query has already started, so setting the ref here would corrupt the
-      // query after that one instead.
+      // Belt-and-suspenders for edge cases (e.g. direct abort('user-cancel')
+      // outside onCancel). The primary path is onCancel() setting the ref
+      // synchronously above. Guard with !queryGuard.isActive so the
+      // cancel+resubmit race (new query already started) doesn't set the flag
+      // after the new query has already consumed it.
       if (abortController.signal.reason === 'user-cancel' && !queryGuard.isActive) {
         hadInterruptedTurnRef.current = true;
       }
