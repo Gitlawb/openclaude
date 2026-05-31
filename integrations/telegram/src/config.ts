@@ -10,11 +10,18 @@ function env(key: string, fallback?: string): string {
 
 export function loadConfig(): BotConfig {
   const botToken = env("BOT_TOKEN");
-  const allowedUsers = env("ALLOWED_USERS", "")
+  const allowedUsersRaw = env("ALLOWED_USERS", "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
     .map(Number);
+  if (allowedUsersRaw.length === 0) {
+    throw new Error(
+      "ALLOWED_USERS is empty or missing. Refusing to start without an explicit allow-list. " +
+      "Set ALLOWED_USERS to a comma-separated list of Telegram user IDs."
+    );
+  }
+  const allowedUsers = allowedUsersRaw;
   const maxSessions = Number(env("MAX_SESSIONS", "10"));
   const sessionTimeout = Number(env("SESSION_TIMEOUT", "30"));
   const workDir = resolve(env("WORK_DIR", "~").replace(/^~/, process.env.HOME ?? "."));

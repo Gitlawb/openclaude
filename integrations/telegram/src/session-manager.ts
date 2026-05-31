@@ -147,11 +147,12 @@ export class SessionManager {
     };
     ctx.messages.push(userMsg);
 
-    // Build query options
+    // Build query options — pass canUseTool for interactive Telegram
+    // approval. Without it, SDK denies all tool uses by default.
     const opts: QueryOptions = {
       cwd: ctx.workDir,
       model: ctx.model,
-      permissionMode: "auto-accept",
+      ...(canUseTool ? { canUseTool } : { permissionMode: "auto-accept" }),
     };
 
     // Pass conversation history as the prompt
@@ -160,11 +161,6 @@ export class SessionManager {
       prompt: this.createHistoryStream(ctx.messages),
       options: opts,
     });
-
-    // Handle permission requests via respondToPermission
-    if (canUseTool) {
-      this.handlePermissions(query, canUseTool);
-    }
 
     return this.wrapStream(topicId, query);
   }
@@ -181,26 +177,6 @@ export class SessionManager {
         yield msg as SDKUserMessage;
       }
     }
-  }
-
-  /**
-   * Listen for permission requests from the query and respond.
-   */
-  private handlePermissions(
-    _query: Query,
-    _canUseTool: (
-      name: string,
-      input: unknown,
-      options?: { toolUseID?: string }
-    ) => Promise<{
-      behavior: "allow" | "deny";
-      message?: string;
-      updatedInput?: unknown;
-    }>
-  ): void {
-    // Permission handling via Query.respondToPermission
-    // SDK emits permission_request messages through the async iterator
-    // Interactive approval is handled by permissions.ts callback
   }
 
   private async *wrapStream(

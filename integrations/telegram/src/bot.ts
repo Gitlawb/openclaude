@@ -2,7 +2,7 @@ import { Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import { SessionManager } from "./session-manager.js";
 import { loadConfig, validatePath } from "./config.js";
 import type { BotConfig } from "./types.js";
@@ -10,18 +10,26 @@ import { buildInteractiveCallback } from "./permissions.js";
 import { sendLongMessage, escapeMarkdownV2, splitMarkdown } from "./message-handler.js";
 import { mapSDKError } from "./errors.js";
 
+/**
+ * Build a session key that includes message_thread_id for forum topic
+ * isolation. Without this, all topics in a supergroup share one session.
+ */
+function getTopicId(ctx: any): string {
+  const threadId = ctx.message?.message_thread_id;
+  return threadId
+    ? `${ctx.message.chat.id}:${threadId}`
+    : String(ctx.message.chat.id);
+}
+
 export function createBot(config: BotConfig): Telegraf {
   const bot = new Telegraf(config.botToken);
   const sessionManager = new SessionManager(config);
 
-  // Auth middleware: reject unauthorized users (empty list = allow all)
+  // Auth middleware: reject unauthorized users (empty list = deny all)
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     if (!userId) return;
-    if (
-      config.allowedUsers.length > 0 &&
-      !config.allowedUsers.includes(userId)
-    ) {
+    if (!config.allowedUsers.includes(userId)) {
       return; // silently ignore unauthorized
     }
     return next();
@@ -73,7 +81,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /new - start fresh session
   bot.command("new", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const userId = ctx.from.id;
     sessionManager.destroyContext(topicId);
     sessionManager.getOrCreateContext(topicId, userId);
@@ -82,7 +90,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /kill - destroy session
   bot.command("kill", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     if (sessionManager.destroyContext(topicId)) {
       await ctx.reply("Session destroyed.");
     } else {
@@ -153,7 +161,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /cd - change working directory
   bot.command("cd", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const args = ctx.message.text.split(/\s+/).slice(1).join(" ").trim();
     if (!args) {
       await ctx.reply("Usage: /cd <path>");
@@ -172,7 +180,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /model - switch model
   bot.command("model", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const modelName = ctx.message.text.split(/\s+/).slice(1).join(" ").trim();
     if (!modelName) {
       await ctx.reply("Usage: /model <model-name>");
@@ -186,7 +194,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /status - show current session info
   bot.command("status", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const topic = sessionManager.listTopics().find(t => t.topicId === topicId);
     if (!topic) {
       await ctx.reply("No active session. Send a message to start one.");
@@ -205,7 +213,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /context - show recent conversation
   bot.command("context", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const topic = sessionManager.listTopics().find(t => t.topicId === topicId);
     if (!topic) {
       await ctx.reply("No active session.");
@@ -216,7 +224,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /compact - compact conversation history
   bot.command("compact", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     await ctx.reply("🔄 Compacting conversation history...");
     // Send a special message that triggers summarization
     try {
@@ -243,7 +251,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /undo - remove last user+assistant exchange
   bot.command("undo", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const removed = sessionManager.undoLast(topicId);
     if (removed) {
       await ctx.reply("↩️ Last exchange removed.");
@@ -254,7 +262,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /config - show configuration
   bot.command("config", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const topic = sessionManager.listTopics().find(t => t.topicId === topicId);
     await ctx.reply([
       "⚙️ Configuration",
@@ -269,7 +277,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // /token - show token usage
   bot.command("token", async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const topic = sessionManager.listTopics().find(t => t.topicId === topicId);
     if (!topic) {
       await ctx.reply("No active session.");
@@ -299,7 +307,7 @@ export function createBot(config: BotConfig): Telegraf {
       return;
     }
     // Route to OpenClade via message
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/mcp ${args.join(" ")}`);
@@ -317,7 +325,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -338,7 +346,7 @@ export function createBot(config: BotConfig): Telegraf {
       ].join("\n"));
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/plugin ${args.join(" ")}`);
@@ -356,7 +364,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -377,7 +385,7 @@ export function createBot(config: BotConfig): Telegraf {
       ].join("\n"));
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/provider ${args.join(" ")}`);
@@ -395,7 +403,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -416,7 +424,7 @@ export function createBot(config: BotConfig): Telegraf {
       ].join("\n"));
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/skill ${args.join(" ")}`);
@@ -434,7 +442,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -454,7 +462,7 @@ export function createBot(config: BotConfig): Telegraf {
       ].join("\n"));
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/hook ${args.join(" ")}`);
@@ -472,7 +480,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -493,7 +501,7 @@ export function createBot(config: BotConfig): Telegraf {
       ].join("\n"));
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/worktree ${args.join(" ")}`);
@@ -511,7 +519,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -524,7 +532,7 @@ export function createBot(config: BotConfig): Telegraf {
       await ctx.reply("Usage: /exec <command>\nExample: /exec ls -la");
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `Run this command: ${cmd}`);
@@ -542,7 +550,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -563,7 +571,7 @@ export function createBot(config: BotConfig): Telegraf {
       ].join("\n"));
       return;
     }
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
       const stream = await sessionManager.sendMessage(topicId, `/file ${args.join(" ")}`);
@@ -581,7 +589,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, String(ctx.message.chat.id), response || "No response.");
+      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -589,7 +597,7 @@ export function createBot(config: BotConfig): Telegraf {
 
   // Text message handler: route to session manager
   bot.on(message("text"), async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const userId = ctx.from.id;
     const text = ctx.message.text;
 
@@ -650,15 +658,26 @@ export function createBot(config: BotConfig): Telegraf {
 
   // Document handler: download file to workDir
   bot.on(message("document"), async (ctx) => {
-    const topicId = String(ctx.message.chat.id);
+    const topicId = getTopicId(ctx);
     const userId = ctx.from.id;
     const doc = ctx.message.document;
     const topic = sessionManager.getOrCreateContext(topicId, userId);
 
     try {
       const fileLink = await ctx.telegram.getFileLink(doc.file_id);
-      const fileName = doc.file_name ?? "uploaded_file";
+      // Sanitize: use basename to strip path separators/traversal,
+      // reject absolute names, verify final path stays under workDir.
+      const rawName = doc.file_name ?? "uploaded_file";
+      const fileName = basename(rawName);
+      if (!fileName || fileName === "." || fileName === "..") {
+        await ctx.reply("Invalid file name.");
+        return;
+      }
       const filePath = resolve(topic.workDir, fileName);
+      if (!filePath.startsWith(resolve(topic.workDir) + "/") && filePath !== resolve(topic.workDir, fileName)) {
+        await ctx.reply("File path rejected: would escape work directory.");
+        return;
+      }
 
       const response = await fetch(fileLink.href);
       if (!response.body) throw new Error("Failed to download file");

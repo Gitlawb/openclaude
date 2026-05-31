@@ -40,9 +40,9 @@ Uses the stable v1 API (`queryAsync()` from `@gitlawb/openclaude/sdk`) with conv
 
 #### Scope
 
-- Standalone Node.js service in `packages/telegram-bot/` (or standalone repo)
-- Dependencies: `telegraf`, `@gitlawb/openclaude`, `better-sqlite3`, `p-queue`
-- Configuration via environment variables
+- Integration module in `integrations/telegram/`
+- Dependencies: `telegraf`, `@gitlawb/openclaude/sdk`, `better-sqlite3`
+- Configuration via environment variables (BOT_TOKEN, ALLOWED_USERS, WORK_DIR, etc.)
 
 #### Commands
 
@@ -63,6 +63,4 @@ Uses the stable v1 API (`queryAsync()` from `@gitlawb/openclaude/sdk`) with conv
 
 #### Questions
 
-1. Would this be accepted as an upstream feature in the main repo, or should it live as a separate package?
-2. Should it use the stable v1 `queryAsync()` API or the v2 `unstable_v2_*` surface?
-3. Any preference on directory structure (`packages/telegram-bot/` vs standalone)?
+1. Should it use the stable v1 `queryAsync()` API or the v2 `unstable_v2_*` surface?
