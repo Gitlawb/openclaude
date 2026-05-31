@@ -957,7 +957,6 @@ if (result?.success) {
     '../services/compact/cachedMCConfig.js',
     './MonitorMcpDetailDialog.js',
     './UserForkBoilerplateMessage.js',
-    './commands/force-snip.js',
     './commands/fork/index.js',
     './dream.js',
   ])
