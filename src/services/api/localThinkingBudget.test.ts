@@ -117,6 +117,31 @@ describe('shouldApplyLocalThinkingBudget', () => {
     expect(shouldApplyLocalThinkingBudget(cfg, 'https://api.corp.example/v1')).toBe(true)
     expect(shouldApplyLocalThinkingBudget(cfg, 'https://api.openai.com/v1')).toBe(false)
   })
+
+  test('backend set + non-local URL + no endpoint returns false (warning fires once)', () => {
+    _resetWarningsForTest()
+    // Returns false on first call (warning emitted internally)
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://mamachine:8080/v1')).toBe(false)
+    // Returns false on second call (warning deduplicated by module flag)
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://mamachine:8080/v1')).toBe(false)
+    // After reset the warning flag is cleared
+    _resetWarningsForTest()
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://mamachine:8080/v1')).toBe(false)
+  })
+
+  test('invalid endpoint URL (no scheme) returns false', () => {
+    _resetWarningsForTest()
+    const cfg = resolveLocalThinkingConfig({
+      enabled: true,
+      backend: 'llama.cpp',
+      endpoint: 'mamachine:8080',
+    })
+    expect(shouldApplyLocalThinkingBudget(cfg, 'http://mamachine:8080/v1')).toBe(false)
+    // Deduplicated on second call
+    expect(shouldApplyLocalThinkingBudget(cfg, 'http://mamachine:8080/v1')).toBe(false)
+    _resetWarningsForTest()
+    expect(shouldApplyLocalThinkingBudget(cfg, 'http://mamachine:8080/v1')).toBe(false)
+  })
 })
 
 describe('resolveLocalBackend', () => {

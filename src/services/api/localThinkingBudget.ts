@@ -203,17 +203,42 @@ export function shouldApplyLocalThinkingBudget(
     try {
       return new URL(config.endpoint).origin === new URL(baseUrl).origin
     } catch {
+      if (!warnedInvalidEndpoint) {
+        warnedInvalidEndpoint = true
+        logForDebugging(
+          `[localThinkingBudget] endpoint "${config.endpoint}" is not a valid URL — ` +
+            'include a scheme (e.g. "http://mamachine:8080/v1"). Skipping.',
+          { level: 'warn' },
+        )
+      }
       return false
     }
+  }
+  // backend set but URL is non-local and no endpoint configured — warn once so
+  // users upgrading from the old "backend bypasses URL check" behaviour know
+  // they need to add endpoint to their config.
+  if (config.backend !== undefined && !warnedMissingEndpoint) {
+    warnedMissingEndpoint = true
+    logForDebugging(
+      '[localThinkingBudget] backend is set but the active URL is not a local ' +
+        'address and localThinkingBudget.endpoint is not configured. For LAN or ' +
+        'split-horizon DNS endpoints add endpoint: "<base URL>" to your ' +
+        'localThinkingBudget config. Skipping.',
+      { level: 'warn' },
+    )
   }
   return false
 }
 
 let warnedMissingBackend = false
+let warnedMissingEndpoint = false
+let warnedInvalidEndpoint = false
 
 /** Reset module-level warning state. Test use only. */
 export function _resetWarningsForTest(): void {
   warnedMissingBackend = false
+  warnedMissingEndpoint = false
+  warnedInvalidEndpoint = false
 }
 
 /**
