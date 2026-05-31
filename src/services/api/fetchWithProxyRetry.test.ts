@@ -162,3 +162,36 @@ test('fetchWithProxyRetry passes proxy option and drops scoped dispatcher when U
   // the scoped dispatcher must be dropped — proxy tunnel handles DNS
   expect((capturedInit as CapturedInit).dispatcher).toBeUndefined()
 })
+
+test('fetchWithProxyRetry uses proxyDecisionUrl for NO_PROXY matching when request URL is an IPv4-rewritten URL', async () => {
+  // Regression for: Bun IPv4 pre-resolution rewrites the transport URL from
+  // https://opengateway.gitlawb.com/... to https://<ipv4>/..., but
+  // NO_PROXY=opengateway.gitlawb.com should still bypass the proxy.
+  // Without proxyDecisionUrl, shouldBypassProxy sees the IP and fails to
+  // match NO_PROXY, so the request is incorrectly sent through the proxy.
+  process.env.HTTPS_PROXY = 'http://127.0.0.1:15236'
+  process.env.NO_PROXY = 'opengateway.gitlawb.com'
+
+  let capturedInit: RequestInit | undefined
+  globalThis.fetch = (async (_input, init) => {
+    capturedInit = init
+    return new Response('ok')
+  }) as FetchType
+
+  const fakeDispatcher = { fake: true } as unknown as import('undici').Dispatcher
+
+  // Simulate Bun IPv4 rewrite: the actual fetch URL is an IP address,
+  // but proxyDecisionUrl carries the original hostname for NO_PROXY matching.
+  await fetchWithProxyRetry('https://192.0.2.1/v1/chat/completions', undefined, {
+    dispatcher: fakeDispatcher,
+    proxyDecisionUrl: 'https://opengateway.gitlawb.com/v1/chat/completions',
+  })
+
+  type CapturedInit = RequestInit & { dispatcher?: unknown; proxy?: string }
+  // The scoped dispatcher must be applied — NO_PROXY matched the original hostname
+  expect((capturedInit as CapturedInit).dispatcher).toBe(fakeDispatcher)
+  // The proxy option must NOT be present — the request goes direct
+  expect((capturedInit as CapturedInit).proxy).toBeUndefined()
+
+  delete process.env.NO_PROXY
+})

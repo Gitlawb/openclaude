@@ -2855,7 +2855,7 @@ class OpenAIShimMessages {
         response = await fetchWithProxyRetry(
           transportUrl,
           buildFetchInit(),
-          { dispatcher: scopedDnsDispatcher },
+          { dispatcher: scopedDnsDispatcher, proxyDecisionUrl: requestUrl },
         )
       } catch (error) {
         const isAbortError =
@@ -2950,7 +2950,7 @@ class OpenAIShimMessages {
               headers,
               body: stableStringifyJson(responsesBody),
               signal: options?.signal,
-            }, { dispatcher: scopedDnsDispatcher })
+            }, { dispatcher: scopedDnsDispatcher, proxyDecisionUrl: responsesUrl })
           } catch (error) {
             throwClassifiedTransportError(error, responsesUrl)
           }

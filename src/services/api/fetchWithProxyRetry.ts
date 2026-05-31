@@ -26,6 +26,13 @@ export async function fetchWithProxyRetry(
      * active — proxy environments let the proxy resolve hostnames.
      */
     dispatcher?: undici.Dispatcher
+    /**
+     * The logical/provider URL to use for NO_PROXY matching instead of the
+     * actual request URL. Required when the request URL has been rewritten
+     * (e.g. Bun's IPv4 DNS pre-resolution replaces the hostname with an IP
+     * address, which would defeat hostname-based NO_PROXY rules).
+     */
+    proxyDecisionUrl?: string
   },
 ): Promise<Response> {
   const maxAttempts = Math.max(1, options?.maxAttempts ?? 2)
@@ -47,8 +54,13 @@ export async function fetchWithProxyRetry(
       // - If no proxy is configured, or this URL is bypassed by NO_PROXY (i.e.
       //   the request goes direct), we apply the scoped dispatcher. It already
       //   merges getTLSConnectOptions, so mTLS/custom CA are preserved too.
+      //
+      // proxyDecisionUrl: When the request URL has been rewritten (e.g. Bun
+      // IPv4 pre-resolution replaces the hostname with an IP), use the
+      // original logical URL so NO_PROXY hostname matching still works.
       const requestUrl = input instanceof Request ? input.url : String(input)
-      const proxyIsActive = Boolean(getProxyUrl()) && !shouldBypassProxy(requestUrl)
+      const urlForBypass = options?.proxyDecisionUrl ?? requestUrl
+      const proxyIsActive = Boolean(getProxyUrl()) && !shouldBypassProxy(urlForBypass)
       const scopedDispatcher =
         !proxyIsActive && options?.dispatcher
           ? { dispatcher: options.dispatcher }
