@@ -253,7 +253,8 @@ export function createBot(config: BotConfig): Telegraf {
     await ctx.reply("🔄 Compacting conversation history...");
     // Send a special message that triggers summarization
     try {
-      const stream = await sessionManager.sendMessage(topicId, "/compact");
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, "/compact", canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -335,7 +336,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/mcp ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/mcp ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -374,7 +376,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/plugin ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/plugin ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -413,7 +416,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/provider ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/provider ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -452,7 +456,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/skill ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/skill ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -490,7 +495,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/hook ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/hook ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -529,7 +535,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/worktree ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/worktree ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -560,7 +567,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `Run this command: ${cmd}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `Run this command: ${cmd}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
@@ -599,7 +607,8 @@ export function createBot(config: BotConfig): Telegraf {
     const topicId = getTopicId(ctx);
     sessionManager.getOrCreateContext(topicId, ctx.from.id);
     try {
-      const stream = await sessionManager.sendMessage(topicId, `/file ${args.join(" ")}`);
+      const canUseTool = buildInteractiveCallback(bot, topicId);
+      const stream = await sessionManager.sendMessage(topicId, `/file ${args.join(" ")}`, canUseTool);
       let response = "";
       for await (const msg of stream) {
         if (msg.type === "assistant") {
