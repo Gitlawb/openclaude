@@ -616,13 +616,27 @@ describe('Codex request translation', () => {
   test('converts plain string user message into Codex input_text chunk type', () => {
     const items = convertAnthropicMessagesToResponsesInput([
       { role: 'user', content: 'hello' },
-    ], true) // isCodex = true
+    ], false) // forceTextChunks = false
 
     expect(items).toEqual([
       {
         type: 'message',
         role: 'user',
         content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ])
+  })
+
+  test('converts plain string user message into standard text chunk type when forceTextChunks=true', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      { role: 'user', content: 'hello' },
+    ], true)
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
       },
     ])
   })

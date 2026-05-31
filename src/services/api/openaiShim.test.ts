@@ -273,6 +273,64 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
     {
       type: 'message',
       role: 'user',
+      content: [{ type: 'input_text', text: 'hello' }],
+    },
+  ])
+})
+
+test('uses OpenAI-compatible responses endpoint with text chunk types when OPENAI_API_FORMAT=responses_compat', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('http://example.test/v1/responses')
+  expect(capturedBody?.model).toBe('gpt-5.4')
+  expect(capturedBody?.instructions).toBe('test system')
+  expect(capturedBody?.max_output_tokens).toBe(64)
+  expect(capturedBody?.store).toBe(false)
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
       content: [{ type: 'text', text: 'hello' }],
     },
   ])
