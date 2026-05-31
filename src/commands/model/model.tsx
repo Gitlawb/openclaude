@@ -532,13 +532,21 @@ function ModelPickerWrapper({
         },
       )
 
+      const discoveredRouteOptions = buildRouteCatalogModelOptions(
+        discoveryContext.routeLabel,
+        result?.models ?? [],
+        discoveryContext.routeDefaultModel,
+      )
+      // Apply the same allowlist filter used at initial load so models blocked
+      // by availableModels don't slip back in after a refresh. Profile-only
+      // models added by mergeActiveProfileModelOptions are not filtered here
+      // (same as the initial-load path at line ~250).
+      const allowedRouteOptions = discoveredRouteOptions.filter(o =>
+        typeof o.value === 'string' ? isModelAllowed(o.value) : true,
+      )
       const nextOptions = mergeActiveProfileModelOptions(
         discoveryContext.routeId,
-        buildRouteCatalogModelOptions(
-          discoveryContext.routeLabel,
-          result?.models ?? [],
-          discoveryContext.routeDefaultModel,
-        ),
+        allowedRouteOptions,
       )
       const changed = !haveSameModelOptions(optionsOverride ?? [], nextOptions)
 
