@@ -758,24 +758,34 @@ export const SettingsSchema = lazySchema(() =>
                 .describe(
                   'Thinking-token budget on turns whose last action was a ' +
                     'routine tool (LS/Glob/Grep or a mechanical Bash command). ' +
-                    '0 = suppress thinking entirely. Default 0.',
+                    '0 = suppress thinking entirely. Default 0. ' +
+                    'All backends honour 0 (suppress) vs non-zero (enable); ' +
+                    'only llama.cpp enforces the numeric cap.',
                 ),
               normalTurn: z
                 .number()
                 .optional()
                 .describe(
-                  'Thinking-token budget on regular turns. Default 1024.',
+                  'Thinking-token budget on regular turns. Default 1024. ' +
+                    'llama.cpp: caps thinking to this many tokens. ' +
+                    'vLLM / Ollama: any non-zero value enables thinking (boolean on/off only).',
                 ),
               complexTurn: z
                 .number()
                 .optional()
                 .describe(
                   'Thinking-token budget on turns matching complexKeywords. ' +
-                    '-1 = unlimited. Default -1.',
+                    '-1 = unlimited. Default -1. ' +
+                    'llama.cpp: passes -1 (unlimited). ' +
+                    'vLLM / Ollama: any non-zero value enables thinking (boolean on/off only).',
                 ),
             })
             .optional()
-            .describe('Per-turn-category thinking-token budgets.'),
+            .describe(
+              'Per-turn-category thinking-token budgets. ' +
+                'Numeric precision (e.g. normalTurn: 1024) is enforced only by llama.cpp. ' +
+                'vLLM and Ollama treat any non-zero value as "enable thinking" and 0 as "suppress".',
+            ),
           complexKeywords: z
             .array(z.string())
             .optional()

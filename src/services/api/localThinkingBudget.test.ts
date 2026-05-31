@@ -170,6 +170,35 @@ describe('isMechanicalBashCommand', () => {
     expect(isMechanicalBashCommand('cat file.ts')).toBe(false)
   })
 
+  // not mechanical — env-wrapped non-mechanical commands
+  test.each([
+    'env CI=1 npm test',
+    'env RUFF_CACHE_DIR=. ruff check .',
+    'CI=1 bun test',
+    'NODE_ENV=test jest',
+  ])('not mechanical (env-wrapped runner): %s', cmd => {
+    expect(isMechanicalBashCommand(cmd)).toBe(false)
+  })
+
+  // mechanical — env-wrapped mechanical commands still qualify
+  test.each([
+    'env HOME=/tmp ls',
+    'PATH=/usr/bin which node',
+  ])('mechanical (env-wrapped shell op): %s', cmd => {
+    expect(isMechanicalBashCommand(cmd)).toBe(true)
+  })
+
+  // not mechanical — --oneline with patch-producing flags
+  test.each([
+    'git log --oneline -p',
+    'git log --oneline --patch',
+    'git diff --stat -p',
+    'git show --stat --patch',
+    'git show HEAD --stat -p',
+  ])('not mechanical (patch-producing flags): %s', cmd => {
+    expect(isMechanicalBashCommand(cmd)).toBe(false)
+  })
+
   // edge cases
   test('empty command → not mechanical', () => {
     expect(isMechanicalBashCommand('')).toBe(false)

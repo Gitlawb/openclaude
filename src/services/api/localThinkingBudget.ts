@@ -42,10 +42,44 @@ const MECHANICAL_GIT_SUBCOMMANDS = /^git\s+(status|branch|stash\s+list|remote|ta
 
 /**
  * Simple shell commands whose output is predictably short or empty.
- * cat is excluded — it behaves like Read and may return complex file content.
+ * cat and env are excluded: cat behaves like Read; env wraps other commands
+ * and must be unwrapped to inspect the real command.
  */
 const MECHANICAL_SHELL_COMMANDS =
-  /^(ls|ll|la|pwd|which|whoami|date|echo|env|printenv|dirname|basename|mkdir|touch|uname|hostname)\b/
+  /^(ls|ll|la|pwd|which|whoami|date|echo|printenv|dirname|basename|mkdir|touch|uname|hostname)\b/
+
+/**
+ * Strip leading `env [flags] [VAR=val ...] cmd` or bare `VAR=val ... cmd`
+ * prefixes and return the underlying command. This unwrapping is necessary to
+ * correctly classify commands like `env CI=1 npm test` (test runner, not
+ * mechanical) vs `env PATH=... ls` (still mechanical after unwrapping).
+ */
+function stripEnvPrefix(command: string): string {
+  const words = command.trim().split(/\s+/)
+  let i = 0
+  if (words[i] === 'env') {
+    i++
+    // skip env flags (-i, -u NAME, --) and VAR=val assignments
+    while (i < words.length) {
+      const w = words[i]!
+      if (w === '--') {
+        i++
+        break
+      }
+      if (w.startsWith('-') || w.includes('=')) {
+        i++
+      } else {
+        break
+      }
+    }
+    return words.slice(i).join(' ')
+  }
+  // Bare leading variable assignments: VAR=val VAR2=val2 ... cmd
+  while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) {
+    i++
+  }
+  return i > 0 ? words.slice(i).join(' ') : command
+}
 
 /**
  * Return true when a Bash command is mechanical — its result is predictably
@@ -60,16 +94,27 @@ export function isMechanicalBashCommand(command: string): boolean {
   // Multi-command shells are too ambiguous — conservatively not mechanical.
   if (/&&|\|\||;/.test(trimmed)) return false
 
-  // Check only the primary command (before any pipe).
-  const primary = trimmed.split('|')[0]!.trim()
+  // Check only the primary command (before any pipe), after stripping env/VAR= prefixes.
+  const primary = stripEnvPrefix(trimmed.split('|')[0]!.trim())
+  if (!primary) return false
 
   if (MECHANICAL_GIT_SUBCOMMANDS.test(primary)) return true
 
-  // git log is mechanical only with --oneline (short output); full log is not.
-  if (/^git\s+log\b/.test(primary) && /--oneline\b/.test(primary)) return true
+  // git log is mechanical only with --oneline but NOT with patch-producing flags.
+  if (
+    /^git\s+log\b/.test(primary) &&
+    /--oneline\b/.test(primary) &&
+    !/(^|\s)(-p|--patch)\b/.test(primary)
+  )
+    return true
 
-  // git diff/show are mechanical only with --stat (summary, no patch body).
-  if (/^git\s+(diff|show)\b/.test(primary) && /--stat\b/.test(primary)) return true
+  // git diff/show are mechanical only with --stat but NOT with patch-producing flags.
+  if (
+    /^git\s+(diff|show)\b/.test(primary) &&
+    /--stat\b/.test(primary) &&
+    !/(^|\s)(-p|--patch)\b/.test(primary)
+  )
+    return true
 
   if (MECHANICAL_SHELL_COMMANDS.test(primary)) return true
 
