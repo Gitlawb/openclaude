@@ -83,6 +83,7 @@ import {
 } from '../../utils/sessionStorage.js'
 import { sleep } from '../../utils/sleep.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
+import { parseUserSpecifiedModel } from '../../utils/model/model.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js'
@@ -1156,8 +1157,10 @@ async function streamCompactSummary({
   // 3P default: true — see comment at the other tengu_compact_cache_prefix read above.
   // Disabled when compactModel overrides mainLoopModel: different model = different
   // cache key, so the forked-agent cache-sharing path would be a guaranteed miss.
-  const compactModel =
-    getGlobalConfig().compactModel ?? context.options.mainLoopModel
+  const rawCompactModel = getGlobalConfig().compactModel
+  const compactModel = rawCompactModel
+    ? parseUserSpecifiedModel(rawCompactModel)
+    : context.options.mainLoopModel
   const promptCacheSharingEnabled =
     compactModel === context.options.mainLoopModel &&
     getFeatureValue_CACHED_MAY_BE_STALE('tengu_compact_cache_prefix', true)

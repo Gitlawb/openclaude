@@ -207,7 +207,7 @@ export const ConfigTool = buildTool({
           success: true,
           operation: 'set',
           setting,
-          value: null,
+          newValue: null,
         },
       }
     }
