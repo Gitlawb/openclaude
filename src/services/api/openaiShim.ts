@@ -1773,7 +1773,7 @@ async function* openaiStreamToAnthropic(
             delta: { stop_reason: stopReason, stop_sequence: null },
             ...(finalUsage ? { usage: finalUsage } : {}),
           }
-          if (finalUsage) {
+          if (chunkUsage) {
             hasEmittedFinalUsage = true
           }
         }

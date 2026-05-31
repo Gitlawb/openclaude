@@ -944,29 +944,146 @@ test('preserves usage from early stream chunk when finish_reason chunk has no us
   expect(usageEvent?.usage?.output_tokens).toBe(11)
 })
 
-test('does not emit a second message_delta when lastSeenUsage triggers hasEmittedFinalUsage', async () => {
-  // When usage arrives in an early chunk, lastSeenUsage is set and the stop
-  // message_delta uses it (hasEmittedFinalUsage = true). If a trailing
-  // empty-choices chunk also happens to carry usage (or lastSeenUsage is set),
-  // the guard `!hasEmittedFinalUsage` must prevent a duplicate message_delta.
+test('trailing empty-choices chunk fires when stop chunk used lastSeenUsage fallback', async () => {
+  // Regression test: previously the stop chunk with lastSeenUsage incorrectly set
+  // hasEmittedFinalUsage = true, suppressing the trailing chunk. Now only a stop
+  // chunk with real chunkUsage should set hasEmittedFinalUsage.
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       // Early chunk with usage
       {
-        id: 'chatcmpl-no-double',
+        id: 'chatcmpl-trailing-fires',
         object: 'chat.completion.chunk',
         model: 'fake-model',
         choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
         usage: { prompt_tokens: 55, completion_tokens: 9, total_tokens: 64 },
       },
-      // Stop chunk — no usage
+      // Stop chunk — no chunkUsage, will use lastSeenUsage fallback
+      {
+        id: 'chatcmpl-trailing-fires',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+      // Trailing empty-choices chunk with real definitive counts
+      {
+        id: 'chatcmpl-trailing-fires',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [],
+        usage: { prompt_tokens: 55, completion_tokens: 9, total_tokens: 64 },
+      },
+    ])
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 32,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const messageDeltaEvents = events.filter(e => e.type === 'message_delta') as Array<{
+    usage?: { input_tokens?: number; output_tokens?: number }
+  }>
+  // Two message_delta events: stop chunk (lastSeenUsage fallback) + trailing chunk (real counts).
+  expect(messageDeltaEvents).toHaveLength(2)
+  // The last (trailing) message_delta carries the definitive final counts.
+  const lastDelta = messageDeltaEvents[messageDeltaEvents.length - 1]
+  expect(lastDelta.usage?.input_tokens).toBe(55)
+  expect(lastDelta.usage?.output_tokens).toBe(9)
+})
+
+test('trailing empty-choices chunk with different real usage supersedes lastSeenUsage fallback', async () => {
+  // Confirms the trailing chunk's values are used as the definitive answer when
+  // the stop chunk only had provisional lastSeenUsage (e.g. completion_tokens grew).
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      // Early chunk with provisional usage
+      {
+        id: 'chatcmpl-trailing-real',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      },
+      // Stop chunk — no chunkUsage, uses lastSeenUsage (10/5) as fallback
+      {
+        id: 'chatcmpl-trailing-real',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+      // Trailing empty-choices chunk with REAL definitive counts (completion grew to 20)
+      {
+        id: 'chatcmpl-trailing-real',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      },
+    ])
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const messageDeltaEvents = events.filter(e => e.type === 'message_delta') as Array<{
+    usage?: { input_tokens?: number; output_tokens?: number }
+  }>
+
+  // Two message_delta events: stop chunk (fallback 10/5) + trailing chunk (real 10/20).
+  expect(messageDeltaEvents).toHaveLength(2)
+  // The last message_delta carries the definitive final counts from the trailing chunk.
+  const lastDelta = messageDeltaEvents[messageDeltaEvents.length - 1]
+  expect(lastDelta.usage?.input_tokens).toBe(10)
+  expect(lastDelta.usage?.output_tokens).toBe(20)
+})
+
+test('does not emit a second message_delta when stop chunk has real chunkUsage', async () => {
+  // When the stop chunk itself carries chunkUsage, hasEmittedFinalUsage is set to true
+  // and any subsequent trailing empty-choices chunk must be suppressed.
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-no-double',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
+      },
+      // Stop chunk WITH real chunkUsage — hasEmittedFinalUsage should be set
       {
         id: 'chatcmpl-no-double',
         object: 'chat.completion.chunk',
         model: 'fake-model',
         choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 55, completion_tokens: 9, total_tokens: 64 },
       },
-      // Trailing empty-choices chunk — would trigger fallback if not guarded
+      // Trailing empty-choices chunk — must be suppressed (stop chunk had real usage)
       {
         id: 'chatcmpl-no-double',
         object: 'chat.completion.chunk',
@@ -994,12 +1111,15 @@ test('does not emit a second message_delta when lastSeenUsage triggers hasEmitte
     events.push(event)
   }
 
-  const messageDeltaEvents = events.filter(e => e.type === 'message_delta')
-  // Only one message_delta should be emitted — the one from the stop chunk.
+  const messageDeltaEvents = events.filter(e => e.type === 'message_delta') as Array<{
+    usage?: { input_tokens?: number; output_tokens?: number }
+  }>
+
+  // Only one message_delta: the stop chunk had real chunkUsage, so hasEmittedFinalUsage
+  // is set and the trailing chunk is correctly suppressed.
   expect(messageDeltaEvents).toHaveLength(1)
-  const delta = messageDeltaEvents[0] as { usage?: { input_tokens?: number; output_tokens?: number } }
-  expect(delta.usage?.input_tokens).toBe(55)
-  expect(delta.usage?.output_tokens).toBe(9)
+  expect(messageDeltaEvents[0].usage?.input_tokens).toBe(55)
+  expect(messageDeltaEvents[0].usage?.output_tokens).toBe(9)
 })
 
 test('uses max_tokens instead of max_completion_tokens for local providers', async () => {
