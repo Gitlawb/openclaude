@@ -28,13 +28,15 @@ const featureFlags: Record<string, boolean> = {
   AGENT_TRIGGERS: false,          // Scheduled remote agent triggers
   ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
   CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
-  COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
+  COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata (source not fully mirrored)
   UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
   BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
   WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
   CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
   COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
   MCP_SKILLS: true,               // Dynamic MCP skill discovery via skill:// resources
+  WORKFLOW_SCRIPTS: false,        // Workflow automation scripts (source not fully mirrored)
+  HISTORY_SNIP: true,             // History snipping for context management
 
   // ── Enabled: upstream defaults ──────────────────────────────────────
   COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
