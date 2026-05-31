@@ -246,12 +246,15 @@ async function loadDescriptorDiscoveryContext(
       staticEntries,
       routeDefaultModel,
     )
+    const allowedRouteOptions = routeOptions.filter(o =>
+      typeof o.value === 'string' ? isModelAllowed(o.value) : true
+    )
 
     return {
       kind: 'descriptor',
       autoRefresh: false,
       canRefresh,
-      optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
+      optionsOverride: mergeActiveProfileModelOptions(routeId, allowedRouteOptions),
       routeId,
       routeDefaultModel,
       routeLabel,
@@ -293,13 +296,16 @@ async function loadDescriptorDiscoveryContext(
     mergedEntries,
     routeDefaultModel,
   )
+  const allowedRouteOptions = routeOptions.filter(o =>
+    typeof o.value === 'string' ? isModelAllowed(o.value) : true
+  )
 
   return {
     kind: 'descriptor',
     autoRefresh,
     canRefresh,
     discoveryState,
-    optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
+    optionsOverride: mergeActiveProfileModelOptions(routeId, allowedRouteOptions),
     routeId,
     routeDefaultModel,
     routeLabel,
@@ -439,6 +445,11 @@ function ModelPickerWrapper({
   }
 
   const handleSelect = (model: string | null, effort: EffortLevel | undefined) => {
+    if (model && !isModelAllowed(model)) {
+      onDone(`Model '${model}' is not available. Your organization restricts model selection.`, { display: 'system' })
+      return
+    }
+
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

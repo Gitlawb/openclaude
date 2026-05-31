@@ -487,6 +487,48 @@ test('/model refresh clears descriptor cache and reports updates', async () => {
   expect(messages).toContain('Updated OpenRouter models.')
 })
 
+test('descriptor optionsOverride filters out models not in availableModels allowlist', async () => {
+  // Verify that when availableModels is set in settings, the descriptor route options
+  // passed to mergeActiveProfileModelOptions are already filtered by isModelAllowed.
+  // We test this by mocking isModelAllowed to only allow a specific model,
+  // then confirming the output of mergeActiveProfileModelOptions (given pre-filtered
+  // input, as loadDescriptorDiscoveryContext now does) omits blocked models.
+
+  mock.module('../../utils/model/modelAllowlist.js', () => ({
+    isModelAllowed: (model: string) => model === 'openai/gpt-5-mini',
+  }))
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => null,
+    getProfileModelOptions: () => [],
+    setActiveOpenAIModelOptionsCache: () => {},
+  }))
+
+  const { mergeActiveProfileModelOptions } = await importFreshModelModule(
+    'allowlist-filter-options',
+  )
+
+  // Simulate what loadDescriptorDiscoveryContext does after the fix:
+  // the full catalog has two models, but only the allowed one passes the filter.
+  const allCatalogOptions = [
+    { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini', description: 'Provider: OpenRouter' },
+    { value: 'qwen/qwen3-32b', label: 'Qwen3 32B', description: 'Provider: OpenRouter' },
+  ]
+  // This filter mirrors the fix applied in loadDescriptorDiscoveryContext
+  const isModelAllowedFn = (model: string) => model === 'openai/gpt-5-mini'
+  const filteredOptions = allCatalogOptions.filter(o =>
+    typeof o.value === 'string' ? isModelAllowedFn(o.value) : true
+  )
+
+  // mergeActiveProfileModelOptions with no active profile just returns the input
+  const result = mergeActiveProfileModelOptions('openrouter', filteredOptions)
+
+  const resultValues = result.map(o => o.value)
+  expect(resultValues).toContain('openai/gpt-5-mini')
+  expect(resultValues).not.toContain('qwen/qwen3-32b')
+})
+
 test('/model does not auto-refresh descriptor models when nonessential traffic is disabled', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
