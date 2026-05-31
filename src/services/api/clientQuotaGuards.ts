@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
+import { access, mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
@@ -153,6 +153,20 @@ function defaultRpdState(utcDay: string): RpdState {
 }
 
 async function loadRpdState(path: string, utcDay: string): Promise<RpdState> {
+  const backupPath = `${path}.bak`
+
+  // Recover from an interrupted Windows replace: if canonical is missing but
+  // backup exists, restore it before proceeding.
+  try {
+    await access(path)
+  } catch {
+    try {
+      await rename(backupPath, path)
+    } catch {
+      // No backup either — fresh state
+    }
+  }
+
   let raw: string
   try {
     raw = await readFile(path, 'utf8')
@@ -203,41 +217,50 @@ async function loadRpdState(path: string, utcDay: string): Promise<RpdState> {
 async function saveRpdState(path: string, state: RpdState): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`
+  const backupPath = `${path}.bak`
+
   await writeFile(tempPath, JSON.stringify(state), {
     encoding: 'utf8',
     mode: 0o600,
   })
 
+  // Attempt atomic rename (works on POSIX; fails on Windows if destination exists)
   try {
     await rename(tempPath, path)
+    // Clean up any leftover backup from a previous interrupted replace
+    await unlink(backupPath).catch(() => undefined)
+    return
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
-    if (code === 'EEXIST' || code === 'EPERM') {
-      // Windows: rename fails if destination exists.
-      // Use backup strategy: move existing state aside first,
-      // then rename temp into place, then remove backup.
-      // This ensures the state path is never missing on failure.
-      const backupPath = `${path}.bak`
-      try {
-        await rename(path, backupPath)
-        try {
-          await rename(tempPath, path)
-          await unlink(backupPath).catch(() => undefined)
-        } catch (renameError) {
-          // Second rename failed — restore backup so state is never missing
-          await rename(backupPath, path).catch(() => undefined)
-          await unlink(tempPath).catch(() => undefined)
-          throw renameError
-        }
-      } catch (backupError) {
-        await unlink(tempPath).catch(() => undefined)
-        throw backupError
-      }
-    } else {
+    if (code !== 'EEXIST' && code !== 'EPERM') {
       await unlink(tempPath).catch(() => undefined)
       throw error
     }
   }
+
+  // Windows fallback: use a three-file rotation so canonical path is never absent
+  // Step 1: install the new state at a staging path (already done — tempPath)
+  // Step 2: move canonical -> backup (backup now holds last known-good state)
+  // Step 3: move temp -> canonical (canonical is restored atomically)
+  // Step 4: remove backup (cleanup)
+  // If we crash between steps 2 and 3, loadRpdState recovers from backup.
+  try {
+    await rename(path, backupPath)
+  } catch {
+    // canonical didn't exist; nothing to back up
+  }
+
+  try {
+    await rename(tempPath, path)
+  } catch (renameError) {
+    // Rename failed after backup — restore backup to canonical immediately
+    await rename(backupPath, path).catch(() => undefined)
+    await unlink(tempPath).catch(() => undefined)
+    throw renameError
+  }
+
+  // Success — remove backup
+  await unlink(backupPath).catch(() => undefined)
 }
 
 function toRpdPersistenceFailureError(statePath: string, error: unknown): Error {
