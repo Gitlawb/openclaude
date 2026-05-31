@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Telegraf } from "telegraf";
 import { InlineKeyboardButton } from "telegraf/types";
 
@@ -21,16 +22,21 @@ export function buildAutoApproveCallback(): CanUseToolCallback {
 /**
  * Interactive callback that sends an inline keyboard to the user via Telegram
  * and waits for Approve/Deny. Times out after 60s (denies by default).
+ *
+ * Uses per-request nonces in callback_data and bot.action() to prevent
+ * cross-topic approval hijacking and handler leaks.
  */
 export function buildInteractiveCallback(
   bot: Telegraf,
-  topicId: string
+  topicId: string,
+  allowedUsers: number[],
 ): CanUseToolCallback {
   return async (toolName, input) => {
+    const nonce = randomUUID().slice(0, 8);
     const buttons: InlineKeyboardButton[][] = [
       [
-        { text: "Approve", callback_data: "perm:approve" },
-        { text: "Deny", callback_data: "perm:deny" },
+        { text: "Approve", callback_data: `perm:approve:${nonce}` },
+        { text: "Deny", callback_data: `perm:deny:${nonce}` },
       ],
     ];
 
@@ -71,19 +77,26 @@ export function buildInteractiveCallback(
         }
       }, 60_000);
 
-      bot.on("callback_query", (ctx: any) => {
+      const actionRegex = new RegExp(`^perm:(approve|deny):${nonce}$`);
+      bot.action(actionRegex, (ctx: any) => {
         if (settled) return;
-        const data = ctx.callbackQuery?.data as string | undefined;
-        if (data === "perm:approve" || data === "perm:deny") {
-          settled = true;
-          clearTimeout(timeout);
-          resolve(data);
-          ctx.answerCbQuery().catch(() => {});
+
+        // Verify the user is authorized
+        const userId = ctx.from?.id;
+        if (!allowedUsers.includes(userId)) {
+          ctx.answerCbQuery("Not authorized").catch(() => {});
+          return;
         }
+
+        settled = true;
+        clearTimeout(timeout);
+        const data = ctx.callbackQuery?.data as string;
+        resolve(data);
+        ctx.answerCbQuery().catch(() => {});
       });
     });
 
-    if (result === "perm:approve") {
+    if (result === `perm:approve:${nonce}`) {
       return { behavior: "allow", updatedInput: input };
     }
 

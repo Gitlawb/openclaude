@@ -56,7 +56,7 @@ Uses the stable v1 `queryAsync()` API with conversation history replayed on each
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BOT_TOKEN` | required | Telegram bot token |
-| `ALLOWED_USERS` | empty (all) | Comma-separated Telegram user IDs |
+| `ALLOWED_USERS` | required | Comma-separated Telegram user IDs (bot refuses to start without this) |
 | `MAX_SESSIONS` | `10` | Max concurrent sessions |
 | `SESSION_TIMEOUT` | `30` | Session timeout (seconds) |
 | `WORK_DIR` | `~` | Default working directory |

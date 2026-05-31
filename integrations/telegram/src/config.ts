@@ -1,4 +1,4 @@
-import { resolve, isAbsolute } from "node:path";
+import { resolve, isAbsolute, relative } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import type { BotConfig } from "./types.js";
 
@@ -37,8 +37,8 @@ export function loadConfig(): BotConfig {
 export function validatePath(target: string, workDir: string): string {
   const resolved = isAbsolute(target) ? resolve(target) : resolve(workDir, target);
 
-  const boundary = workDir.endsWith("/") ? workDir : workDir + "/";
-  if (resolved !== workDir && !resolved.startsWith(boundary)) {
+  const rel = relative(workDir, resolved);
+  if (rel.startsWith('..') || isAbsolute(rel)) {
     throw new Error(`Path traversal blocked: ${target} is outside work directory`);
   }
 
