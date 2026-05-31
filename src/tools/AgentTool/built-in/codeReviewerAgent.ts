@@ -63,6 +63,13 @@ export const CODE_REVIEWER_AGENT: BuiltInAgentDefinition = {
   agentType: 'code-reviewer',
   whenToUse:
     'Independent code reviewer for changes, diffs, and pull requests. Provides balanced critique across correctness, security, performance, maintainability, and design. Use after completing a coding task or when asked to review specific changes. Invoke with subagent_type: "code-reviewer".',
+  // Explicit read-only allow-list. resolveAgentTools() resolves ONLY the tools
+  // named here, so write-capable tools (Bash/PowerShell, Edit/Write/Notebook,
+  // Agent) and any user-configured write-capable mcp__* server tools can never
+  // be handed to this agent — an omitted `tools` list would wildcard them in.
+  tools: [FILE_READ_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME],
+  // Defense-in-depth: also deny mutation tools by name so the read-only
+  // contract holds even if the allow-list above is later widened.
   disallowedTools: [
     AGENT_TOOL_NAME,
     ...SHELL_TOOL_NAMES,

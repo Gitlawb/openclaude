@@ -53,6 +53,16 @@ describe('code-reviewer built-in agent', () => {
     expect(agent.whenToUse.length).toBeGreaterThan(0)
   })
 
+  test('uses an explicit read-only allow-list', () => {
+    // An explicit `tools` list means resolveAgentTools() resolves ONLY these
+    // tools — write-capable mcp__* server tools can never be wildcarded in.
+    const tools = agent.tools ?? []
+    expect(tools).toEqual(['Read', 'Glob', 'Grep'])
+    expect(tools).not.toContain('Bash')
+    expect(tools).not.toContain('Edit')
+    expect(tools).not.toContain('Write')
+  })
+
   test('disallows mutation tools', () => {
     const disallowed = agent.disallowedTools ?? []
     expect(disallowed).toContain('Agent')
