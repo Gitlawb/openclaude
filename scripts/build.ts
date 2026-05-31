@@ -941,16 +941,26 @@ if (result?.success && sdkResult?.success) {
 // path runs. SnipBoundaryMessage shipped exactly this way (PR #1407): the build
 // passed, smoke passed, unit tests passed, and the UI crashed on the first snip.
 //
-// Because feature-flag DCE removes disabled branches before bundling, every
-// `missing-module-stub:` marker left in dist/cli.mjs is reachable in the shipped
-// build. Fail on any that is not explicitly grandfathered below.
+// This guard is a COARSE TRIPWIRE, not proof of reachability. A
+// `missing-module-stub:` marker in dist/cli.mjs does NOT by itself prove the
+// stub is reachable or invoked: the scanner keys missing modules by specifier
+// string, so a missing specifier seen in one importer (including a test file)
+// can leave a marker even when a different importer resolves the real module of
+// the same name, and a marker can also sit on a path that never actually runs.
+// So treat a flagged stub as "inspect this", not "confirmed runtime crash".
+// What the guard reliably catches is a NEW stub appearing where none was
+// expected — the regression class above — which is worth a human look before it
+// ships. Fail on any marker that is not explicitly grandfathered below.
 if (result?.success) {
-  // Pre-existing stubs grandfathered when this guard was introduced. Each ships
-  // today behind an enabled flag and is a latent crash/degrade-on-use that
-  // predates this guard, tracked separately. Do NOT add entries here to silence
-  // the guard for new code — add the real source module, or gate the path so it
-  // is not reachable when the module is absent. An entry here is a known debt,
-  // not a blessing that the stub is safe.
+  // Pre-existing stubs grandfathered when this guard was introduced. Each is a
+  // marker the scanner emitted before this guard existed; some sit behind an
+  // enabled flag and are latent degrade-on-use debt, others may be scanner
+  // artifacts (see the specifier-string caveat above) — the list is a baseline
+  // to detect new regressions, not an assertion that every entry is a live
+  // crash. Do NOT add entries here to silence the guard for new code — add the
+  // real source module, or gate the path so it is not reachable when the module
+  // is absent. An entry here is a known item to revisit, not a blessing that the
+  // stub is safe.
   const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
     '../../tools/VerifyPlanExecutionTool/constants.js',
     '../../utils/hooks/ssrfGuard.js',
@@ -970,15 +980,17 @@ if (result?.success) {
 
   if (unexpected.length > 0) {
     console.error(
-      '\n✗ Build guard: enabled-feature import(s) resolved to a missing-module stub:',
+      '\n✗ Build guard: new missing-module stub(s) in the CLI bundle (inspect before shipping):',
     )
     for (const s of unexpected) console.error(`    ${s}`)
     console.error(
-      '  A feature flag made this require live but its source module is absent, so it was\n' +
-        '  stubbed to a noop default export (named exports become undefined and crash on first\n' +
-        '  use). Add the real source module, or gate the path so it is unreachable when the\n' +
-        '  module is missing. If the stub is genuinely never invoked, add it to\n' +
-        '  ACCEPTABLE_RUNTIME_STUBS in scripts/build.ts with justification.',
+      '  An unresolved relative import was stubbed to a noop default export. If a feature flag\n' +
+        '  made this require live but its source module is absent, named exports become undefined\n' +
+        '  and crash on first use — add the real source module, or gate the path so it is\n' +
+        '  unreachable when the module is missing. If instead this is a scanner artifact (a\n' +
+        '  same-named specifier missing in one importer while the real module resolves in another,\n' +
+        '  or a path that never runs), confirm that and add it to ACCEPTABLE_RUNTIME_STUBS in\n' +
+        '  scripts/build.ts with justification.',
     )
     process.exitCode = 1
   } else {
