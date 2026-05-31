@@ -181,7 +181,7 @@ import { deserializeMessages } from '../utils/conversationRecovery.js';
 import { extractReadFilesFromMessages, extractBashToolsFromMessages } from '../utils/queryHelpers.js';
 import { resetMicrocompactState } from '../services/compact/microCompact.js';
 import { runPostCompactCleanup } from '../services/compact/postCompactCleanup.js';
-import { applyToolResultReplacementsToMessages, provisionContentReplacementState, reconstructContentReplacementState, type ContentReplacementRecord } from '../utils/toolResultStorage.js';
+import { applyToolResultReplacementsToMessages, provisionContentReplacementState, pruneContentReplacementState, reconstructContentReplacementState, type ContentReplacementRecord } from '../utils/toolResultStorage.js';
 import { partialCompactConversation } from '../services/compact/compact.js';
 import type { LogOption } from '../types/logs.js';
 import type { AgentColorName } from '../tools/AgentTool/agentColorManager.js';
@@ -2734,6 +2734,20 @@ export function REPL({
         } else {
           setMessages(() => [newMessage]);
         }
+        // Prune stale entries from ContentReplacementState to prevent unbounded
+        // memory growth. After compaction, pre-compact messages are dropped from
+        // the live store, but seenIds/replacements retain every tool_use_id ever
+        // seen — UUIDs that are never looked up again. In long sessions with many
+        // compaction cycles (e.g. 3+ hours, issue #1258) these accumulate into
+        // tens of thousands of entries, each replacement value ~2 KB of text.
+        // messagesRef.current is updated synchronously by the setMessages wrapper
+        // above, so it already reflects the post-compact surviving messages.
+        if (contentReplacementStateRef.current) {
+          pruneContentReplacementState(
+            contentReplacementStateRef.current,
+            messagesRef.current,
+          );
+        }
         // Bump conversationId so Messages.tsx row keys change and
         // stale memoized rows remount with post-compact content.
         setConversationId(randomUUID());
@@ -2874,6 +2888,15 @@ export function REPL({
         setConversationId(randomUUID());
         if (feature('PROACTIVE') || feature('KAIROS')) {
           proactiveModule?.setContextBlocked(false);
+        }
+        // Prune stale entries from ContentReplacementState (same reason as the
+        // auto-compact handler above — seenIds/replacements grow unboundedly
+        // without pruning after compaction, contributing to #1258 OOM).
+        if (contentReplacementStateRef.current) {
+          pruneContentReplacementState(
+            contentReplacementStateRef.current,
+            messagesRef.current,
+          );
         }
       }
       resetLoadingState();

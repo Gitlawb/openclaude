@@ -397,6 +397,53 @@ export function createContentReplacementState(): ContentReplacementState {
 }
 
 /**
+ * Prune stale entries from a ContentReplacementState after compaction.
+ *
+ * After auto-compact or /compact, pre-compaction messages are dropped from
+ * the live message store. The seenIds Set and replacements Map continue to
+ * hold entries for every tool_use_id from those dropped messages — UUIDs
+ * that will never be looked up again. In a long-running session with many
+ * compaction cycles, these accumulate unboundedly, contributing to heap
+ * growth (each replacement value is ~2 KB of preview text).
+ *
+ * This function evicts every entry whose tool_use_id is not present in
+ * the surviving post-compact messages, resetting the maps to only the
+ * IDs that are still relevant. It mutates the state in place to match
+ * the call convention used by enforceToolResultBudget (see comment on
+ * that function's @param state).
+ *
+ * Call this immediately after the message store is pruned to the
+ * post-compact slice (i.e. right after isCompactBoundaryMessage fires
+ * in the REPL message handler, and after mutableMessages.splice in the
+ * SDK/QueryEngine compact_boundary case).
+ */
+export function pruneContentReplacementState(
+  state: ContentReplacementState,
+  survivingMessages: Message[],
+): void {
+  // Collect all tool_use_ids still present in the surviving messages.
+  const surviving = new Set(
+    collectCandidatesByMessage(survivingMessages)
+      .flat()
+      .map(c => c.toolUseId),
+  )
+
+  // Evict seenIds entries that no longer exist in the message store.
+  for (const id of state.seenIds) {
+    if (!surviving.has(id)) {
+      state.seenIds.delete(id)
+    }
+  }
+
+  // Evict replacements entries (typically larger: UUID → ~2 KB preview).
+  for (const id of state.replacements.keys()) {
+    if (!surviving.has(id)) {
+      state.replacements.delete(id)
+    }
+  }
+}
+
+/**
  * Clone replacement state for a cache-sharing fork (e.g. agentSummary).
  * The fork needs state identical to the source at fork time so
  * enforceToolResultBudget makes the same choices → same wire prefix →
