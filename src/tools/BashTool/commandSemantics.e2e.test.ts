@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from 'bun:test'
 import { spawnSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { interpretCommandResult } from './commandSemantics.js'
@@ -14,10 +14,17 @@ import { interpretCommandResult } from './commandSemantics.js'
 // Each suite is skipped when its binary is unavailable.
 // =============================================================================
 
-const TSC_BIN = join(
-  import.meta.dir,
-  '../../../node_modules/.bin/tsc',
-)
+// Resolve tsc shim cross-platform: Bun on Windows installs .bunx/.cmd, not
+// a bare extensionless script. Try each candidate so the e2e suite runs on
+// the same platform the issue was reported on.
+function findTscBin(): string {
+  const base = join(import.meta.dir, '../../../node_modules/.bin/tsc')
+  for (const p of [base, `${base}.bunx`, `${base}.cmd`, `${base}.exe`]) {
+    if (existsSync(p)) return p
+  }
+  return base // hasBinary will return false → tests skip gracefully
+}
+const TSC_BIN = findTscBin()
 
 function hasBinary(cmd: string, args: string[]): boolean {
   try {

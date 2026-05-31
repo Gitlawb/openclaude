@@ -478,5 +478,31 @@ describe('interpretCommandResult', () => {
       const result = interpretCommandResult("'./node_modules/.bin/ruff' check app.py", 1, '', '')
       expect(result.isError).toBe(false)
     })
+
+    // env builtin prefix: `env [flags] [VAR=value...] command`
+    test('env VAR=value pytest exit 1 = test failures (not a crash)', () => {
+      const result = interpretCommandResult('env PYTHONPATH=. pytest tests/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('env VAR=value ruff exit 1 = findings (not a crash)', () => {
+      const result = interpretCommandResult('env RUFF_CACHE_DIR=. ruff check app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('env -u FLAG ruff exit 1 = findings (value-flag skipped)', () => {
+      const result = interpretCommandResult('env -u HOME ruff check app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('env -i pytest exit 1 = test failures (plain flag skipped)', () => {
+      const result = interpretCommandResult('env -i pytest tests/', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
+
+    test('env VAR=value uvx ruff exit 1 = findings (runner unwrapping still works)', () => {
+      const result = interpretCommandResult('env RUFF_CACHE_DIR=. uvx ruff check app.py', 1, '', '')
+      expect(result.isError).toBe(false)
+    })
   })
 })

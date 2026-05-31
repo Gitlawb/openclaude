@@ -252,6 +252,25 @@ function extractBaseCommand(command: string): string {
     return first
   }
 
+  // `env [flags] [VAR=value...] command args` — skip env, its flags/assignments,
+  // then recurse so that nested runners (e.g. `env CACHE=. uvx ruff check .`)
+  // continue through the PACKAGE_RUNNERS path and resolve to the inner tool.
+  if (first === 'env') {
+    // env value-flags whose next token is the flag's argument, not a command
+    const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string'])
+    for (let i = firstCmdIdx + 1; i < words.length; i++) {
+      const w = words[i]
+      if (ENV_VALUE_FLAGS.has(w)) { i++; continue }
+      if (w.startsWith('-')) continue    // other env flags (-i, --ignore-environment, …)
+      if (w.includes('=')) continue      // VAR=value assignment
+      if (w === '-') continue            // env - clears environment
+      // Recurse on the remaining words so PACKAGE_RUNNERS / MODULE_RUNNERS
+      // and subcommand-aware logic all apply to the inner command.
+      return extractBaseCommand(words.slice(i).join(' '))
+    }
+    return first
+  }
+
   // Package runners: skip the runner, value-flags and their argument, plain
   // flags, and a `run` subcommand, then take the first real argument as the
   // tool being executed.
