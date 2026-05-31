@@ -6,17 +6,24 @@ import {
   setClientType,
   setMainLoopModelOverride,
 } from '../bootstrap/state.js'
-import {
-  getAttributionTexts,
-  getDefaultCommitCoAuthorEmail,
-  getDefaultCommitCoAuthorName,
-  getEnhancedPRAttribution,
-} from './attribution.js'
+import * as actualModel from './model/model.js'
+import * as actualProviders from './model/providers.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
+
+let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
+let getDefaultCommitCoAuthorEmail: (typeof import('./attribution.js'))[
+  'getDefaultCommitCoAuthorEmail'
+]
+let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
+  'getDefaultCommitCoAuthorName'
+]
+let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
+  'getEnhancedPRAttribution'
+]
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -77,7 +84,7 @@ function restoreEnv(): void {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
@@ -115,6 +122,23 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   delete process.env.SESSION_INGRESS_URL
   delete process.env.USER_TYPE
+
+  mock.module('./model/model.js', () => ({
+    ...actualModel,
+    getMainLoopModel: () => process.env.OPENAI_MODEL ?? 'gpt-5.5',
+  }))
+  mock.module('./model/providers.js', () => ({
+    ...actualProviders,
+    getAPIProvider: () => 'openai',
+  }))
+
+  const attribution = await import(
+    `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
+  )
+  getAttributionTexts = attribution.getAttributionTexts
+  getDefaultCommitCoAuthorEmail = attribution.getDefaultCommitCoAuthorEmail
+  getDefaultCommitCoAuthorName = attribution.getDefaultCommitCoAuthorName
+  getEnhancedPRAttribution = attribution.getEnhancedPRAttribution
 })
 
 afterEach(() => {
@@ -123,6 +147,8 @@ afterEach(() => {
   resetSettingsCache()
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
+  mock.module('./model/model.js', () => actualModel)
+  mock.module('./model/providers.js', () => actualProviders)
   restoreEnv()
 })
 
