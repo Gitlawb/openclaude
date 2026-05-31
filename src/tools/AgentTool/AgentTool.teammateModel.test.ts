@@ -10,11 +10,14 @@ import type { AgentDefinition } from './loadAgentsDir.js'
 type ModelAllowlistModule = typeof import('../../utils/model/modelAllowlist.js')
 type SettingsModule = typeof import('../../utils/settings/settings.js')
 type SpawnMultiAgentModule = typeof import('../shared/spawnMultiAgent.js')
+type AgentSwarmsEnabledModule =
+  typeof import('../../utils/agentSwarmsEnabled.js')
 type SpawnTeammateConfig = Parameters<SpawnMultiAgentModule['spawnTeammate']>[0]
 
 let originalModelAllowlistModule: ModelAllowlistModule | undefined
 let originalSettingsModule: SettingsModule | undefined
 let originalSpawnMultiAgentModule: SpawnMultiAgentModule | undefined
+let originalAgentSwarmsEnabledModule: AgentSwarmsEnabledModule | undefined
 let settingsForTest: SettingsJson = {}
 let allowedModelsForTest = new Set(['allowed-model'])
 
@@ -50,6 +53,12 @@ afterEach(async () => {
       mock.module(
         '../shared/spawnMultiAgent.js',
         () => originalSpawnMultiAgentModule!,
+      )
+    }
+    if (originalAgentSwarmsEnabledModule) {
+      mock.module(
+        '../../utils/agentSwarmsEnabled.js',
+        () => originalAgentSwarmsEnabledModule!,
       )
     }
     restoreEnv('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS')
@@ -88,6 +97,12 @@ async function importActualSpawnMultiAgent(): Promise<SpawnMultiAgentModule> {
   )
 }
 
+async function importActualAgentSwarmsEnabled(): Promise<AgentSwarmsEnabledModule> {
+  return import(
+    `../../utils/agentSwarmsEnabled.ts?agentToolActual=${Date.now()}-${Math.random()}`
+  )
+}
+
 async function importAgentToolWithSpawnMock(): Promise<{
   AgentTool: typeof import('./AgentTool.js').AgentTool
   spawnTeammate: ReturnType<typeof mock>
@@ -95,6 +110,7 @@ async function importAgentToolWithSpawnMock(): Promise<{
   originalModelAllowlistModule ??= await importActualModelAllowlist()
   originalSettingsModule ??= await importActualSettings()
   originalSpawnMultiAgentModule ??= await importActualSpawnMultiAgent()
+  originalAgentSwarmsEnabledModule ??= await importActualAgentSwarmsEnabled()
   const spawnTeammate = mock(async () => ({
     data: {
       teammate_id: 'teammate-1',
@@ -116,6 +132,10 @@ async function importAgentToolWithSpawnMock(): Promise<{
   mock.module('../shared/spawnMultiAgent.js', () => ({
     ...originalSpawnMultiAgentModule!,
     spawnTeammate,
+  }))
+  mock.module('../../utils/agentSwarmsEnabled.js', () => ({
+    ...originalAgentSwarmsEnabledModule!,
+    isAgentSwarmsEnabled: () => true,
   }))
 
   const { AgentTool } = await import(

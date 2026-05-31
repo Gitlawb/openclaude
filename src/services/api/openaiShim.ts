@@ -1010,6 +1010,246 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
  */
+/**
+ * Passthrough for Anthropic Messages API SSE streams.
+ * The response events are already in AnthropicStreamEvent format —
+ * we just parse the SSE frames and yield them directly.
+ */
+async function* anthropicSsePassthrough(
+  response: Response,
+  _model: string,
+  signal?: AbortSignal,
+): AsyncGenerator<AnthropicStreamEvent> {
+  const reader = response.body?.getReader()
+  if (!reader) return
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  // Read helper that properly cleans up abort listeners (mirrors codexShim.ts pattern).
+  function readWithAbort(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    if (!signal) return reader.read()
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
+      signal.addEventListener('abort', onAbort, { once: true })
+      reader.read().then(
+        result => { signal.removeEventListener('abort', onAbort); resolve(result) },
+        err => { signal.removeEventListener('abort', onAbort); reject(err) },
+      )
+    })
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await readWithAbort()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() ?? ''
+
+      for (const chunk of chunks) {
+        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
+        if (lines.length === 0) continue
+
+        const dataLines = lines.filter(l => l.startsWith('data: '))
+        if (dataLines.length === 0) continue
+
+        const rawData = dataLines.map(l => l.slice(6)).join('\n')
+        if (rawData === '[DONE]') return
+
+        try {
+          const parsed = JSON.parse(rawData) as AnthropicStreamEvent
+          if (parsed && typeof parsed === 'object' && 'type' in parsed) {
+            yield parsed
+          }
+        } catch {
+          // skip malformed frames
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+/**
+ * Transforms Google AI SDK SSE stream into Anthropic-format stream events.
+ * Google AI SDK yields frames with { candidates: [{ content: { role, parts } }] }.
+ */
+async function* geminiSseToAnthropic(
+  response: Response,
+  model: string,
+  signal?: AbortSignal,
+): AsyncGenerator<AnthropicStreamEvent> {
+  const reader = response.body?.getReader()
+  if (!reader) return
+  const decoder = new TextDecoder()
+  let buffer = ''
+  const messageId = makeMessageId()
+  let contentBlockIndex = 0
+  let hasEmittedStart = false
+  let hasEmittedTextStart = false
+  let hasEmittedCurrentTool = false
+  let usage: Partial<AnthropicUsage> | undefined
+  let finishReason: string | undefined
+
+  function readWithAbort(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    if (!signal) return reader.read()
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
+      signal.addEventListener('abort', onAbort, { once: true })
+      reader.read().then(
+        result => { signal.removeEventListener('abort', onAbort); resolve(result) },
+        err => { signal.removeEventListener('abort', onAbort); reject(err) },
+      )
+    })
+  }
+
+  function mapFinishReason(reason: string | undefined, hasToolUse: boolean): string {
+    if (hasToolUse) return 'tool_use'
+    if (reason === 'MAX_TOKENS') return 'max_tokens'
+    return 'end_turn'
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await readWithAbort()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const chunks = buffer.split('\n\n')
+      buffer = chunks.pop() ?? ''
+
+      for (const chunk of chunks) {
+        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
+        const dataLines = lines.filter(l => l.startsWith('data: '))
+        if (dataLines.length === 0) continue
+
+        const rawData = dataLines.map(l => l.slice(6)).join('\n')
+        if (rawData === '[DONE]') {
+          if (hasEmittedTextStart || hasEmittedCurrentTool) {
+            yield { type: 'content_block_stop', index: contentBlockIndex }
+          }
+          yield {
+            type: 'message_delta',
+            delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
+            usage: usage ?? {},
+          }
+          yield { type: 'message_stop' }
+          return
+        }
+
+        let parsed: Record<string, unknown>
+        try {
+          parsed = JSON.parse(rawData) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        if (!hasEmittedStart) {
+          yield {
+            type: 'message_start',
+            message: {
+              id: messageId,
+              type: 'message',
+              role: 'assistant',
+              content: [],
+              model,
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 0, output_tokens: 0 },
+            },
+          }
+          hasEmittedStart = true
+        }
+
+        if (parsed.usageMetadata && typeof parsed.usageMetadata === 'object') {
+          const um = parsed.usageMetadata as Record<string, number>
+          usage = buildAnthropicUsageFromRawUsage({
+            input_tokens: um.promptTokenCount ?? 0,
+            output_tokens: (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0),
+          })
+        }
+
+        const candidates = parsed.candidates as Array<Record<string, unknown>> | undefined
+        if (!candidates || candidates.length === 0) continue
+        const candidate = candidates[0]
+
+        if (typeof candidate.finishReason === 'string') {
+          finishReason = candidate.finishReason
+        }
+
+        const content = candidate.content as { role?: string; parts?: Array<Record<string, unknown>> } | undefined
+        if (!content || !content.parts) continue
+
+        for (const part of content.parts) {
+          const text = part.text as string | undefined
+          const fc = part.functionCall as { name?: string; args?: unknown } | undefined
+
+          if (text) {
+            if (hasEmittedCurrentTool) {
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+              hasEmittedCurrentTool = false
+            }
+            if (!hasEmittedTextStart) {
+              yield {
+                type: 'content_block_start',
+                index: contentBlockIndex,
+                content_block: { type: 'text', text: '' },
+              }
+              hasEmittedTextStart = true
+            }
+            yield {
+              type: 'content_block_delta',
+              index: contentBlockIndex,
+              delta: { type: 'text_delta', text },
+            }
+          } else if (fc?.name) {
+            if (hasEmittedTextStart) {
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+              hasEmittedTextStart = false
+            }
+            const toolId = `toolu_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`
+            yield {
+              type: 'content_block_start',
+              index: contentBlockIndex,
+              content_block: {
+                type: 'tool_use',
+                id: toolId,
+                name: fc.name,
+                input: {},
+              },
+            }
+            hasEmittedCurrentTool = true
+            yield {
+              type: 'content_block_delta',
+              index: contentBlockIndex,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {}),
+              },
+            }
+          }
+        }
+      }
+    }
+
+    if (hasEmittedTextStart || hasEmittedCurrentTool) {
+      yield { type: 'content_block_stop', index: contentBlockIndex }
+    }
+    yield {
+      type: 'message_delta',
+      delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
+      usage: usage ?? {},
+    }
+    yield { type: 'message_stop' }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
@@ -1606,6 +1846,8 @@ class OpenAIShimMessages {
 
       if (params.stream) {
         const isResponsesStream = response.url?.includes('/responses')
+        const isMessagesStream = response.url?.includes('/messages')
+        const isGeminiStream = response.url?.includes('/models/gemini-')
         return new OpenAIShimStream(
           (
             request.transport === 'codex_responses' ||
@@ -1613,7 +1855,11 @@ class OpenAIShimMessages {
             isResponsesStream
           )
             ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
-            : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+            : isMessagesStream
+              ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
+              : isGeminiStream
+                ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
+                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
         )
       }
 
@@ -1626,6 +1872,8 @@ class OpenAIShimMessages {
       }
 
       const isResponsesNonStream = response.url?.includes('/responses')
+      const isMessagesNonStream = response.url?.includes('/messages')
+      const isGeminiNonStream = response.url?.includes('/models/gemini-')
       if (
         request.transport === 'responses' ||
         isResponsesNonStream ||
@@ -1645,6 +1893,24 @@ class OpenAIShimMessages {
             )
           }
           return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+        }
+      }
+
+      // Anthropic Messages API response — already in Anthropic format,
+      // pass through directly without conversion.
+      if (isMessagesNonStream) {
+        const contentType = response.headers.get('content-type') ?? ''
+        if (contentType.includes('application/json')) {
+          return await response.json() as Record<string, unknown>
+        }
+      }
+
+      // Google AI SDK response — convert to Anthropic format
+      if (isGeminiNonStream) {
+        const contentType = response.headers.get('content-type') ?? ''
+        if (contentType.includes('application/json')) {
+          const parsed = await response.json() as Record<string, unknown>
+          return self._convertGeminiToAnthropicResponse(parsed, request.resolvedModel)
         }
       }
 
@@ -1785,6 +2051,18 @@ class OpenAIShimMessages {
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
+    // When endpointPath is overridden, the body format must match the target
+    // API contract rather than request.transport from providerConfig.
+    // - /responses         → OpenAI Responses API (input, max_output_tokens, instructions)
+    // - /messages          → Anthropic Messages API (system, max_tokens, content blocks)
+    // - /models/gemini-*   → Google AI SDK (contents, systemInstruction, generationConfig)
+    const effectiveTransport = shimConfig.endpointPath === '/responses'
+      ? 'responses'
+      : shimConfig.endpointPath === '/messages'
+        ? 'anthropic_messages'
+        : shimConfig.endpointPath?.startsWith('/models/gemini-')
+          ? 'gemini'
+          : request.transport
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
@@ -1968,6 +2246,155 @@ class OpenAIShimMessages {
       return responsesBody
     }
 
+    // Anthropic Messages API body — used when endpointPath is /messages.
+    // params.messages, params.tools, etc. are already in Anthropic format
+    // (they originate from the Anthropic SDK). We pass them through directly,
+    // only adding the top-level system (as string or content-block array)
+    // and max_tokens.
+    let omitAnthropicTools = false
+    const buildAnthropicMessagesBody = (): Record<string, unknown> => {
+      const anthropicBody: Record<string, unknown> = {
+        model: request.resolvedModel,
+        messages: params.messages,
+        max_tokens: params.max_tokens,
+        stream: params.stream ?? false,
+      }
+
+      // Pass system through in native format. The Anthropic Messages API
+      // accepts either a string or an array of content blocks (with optional
+      // cache_control markers). Only filter the billing header block.
+      if (Array.isArray(params.system)) {
+        const filtered = (params.system as Array<{ type?: string; text?: string }>)
+          .filter(block => !(block.type === 'text' && (block.text ?? '').startsWith('x-anthropic-billing-header')))
+        if (filtered.length > 0) anthropicBody.system = filtered
+      } else if (params.system) {
+        const text = typeof params.system === 'string' ? params.system : String(params.system)
+        if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
+      }
+
+      if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
+        anthropicBody.tools = params.tools
+      }
+      if (params.tool_choice) {
+        anthropicBody.tool_choice = params.tool_choice
+      }
+
+      return anthropicBody
+    }
+
+    // Google AI SDK body — used when endpointPath is /models/gemini-*.
+    // Converts Anthropic-format params to Google AI SDK format.
+    let omitGeminiTools = false
+    const buildGeminiBody = (): Record<string, unknown> => {
+      const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
+
+      // Build a lookup from tool_use_id → function name so tool_result
+      // blocks can emit the correct functionResponse.name (Gemini requires
+      // the function name, not the Anthropic tool_use_id).
+      const toolUseIdToName = new Map<string, string>()
+      const messages = params.messages as Array<{
+        role?: string
+        content?: unknown
+      }>
+      for (const msg of messages) {
+        if (!Array.isArray(msg.content)) continue
+        for (const block of msg.content as Array<{ type?: string; id?: string; name?: string }>) {
+          if (block.type === 'tool_use' && block.id && block.name) {
+            toolUseIdToName.set(block.id, block.name)
+          }
+        }
+      }
+
+      for (const msg of messages) {
+        const role = msg.role === 'assistant' ? 'model' : 'user'
+        const parts: Array<Record<string, unknown>> = []
+
+        if (typeof msg.content === 'string') {
+          parts.push({ text: msg.content })
+        } else if (Array.isArray(msg.content)) {
+          for (const block of msg.content as Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
+            if (block.type === 'text' && block.text) {
+              parts.push({ text: block.text })
+            } else if (block.type === 'tool_use' && block.id && block.name) {
+              parts.push({
+                functionCall: {
+                  name: block.name,
+                  args: block.input ?? {},
+                },
+              })
+            } else if (block.type === 'tool_result' && block.tool_use_id) {
+              const funcName = toolUseIdToName.get(block.tool_use_id) ?? block.tool_use_id
+              let resultContent = typeof block.content === 'string'
+                ? block.content
+                : Array.isArray(block.content)
+                  ? (block.content as Array<{ type?: string; text?: string }>)
+                    .filter(b => b.type === 'text')
+                    .map(b => b.text ?? '')
+                    .join('\n')
+                  : ''
+              if (block.is_error) {
+                resultContent = `Error: ${resultContent}`
+              }
+              parts.push({
+                functionResponse: {
+                  name: funcName,
+                  response: {
+                    name: funcName,
+                    content: resultContent,
+                  },
+                },
+              })
+            }
+          }
+        }
+
+        if (parts.length > 0) {
+          contents.push({ role, parts })
+        }
+      }
+
+      const geminiBody: Record<string, unknown> = { contents }
+
+      // System instruction
+      const systemText = convertSystemPrompt(params.system)
+      if (systemText) {
+        geminiBody.systemInstruction = { parts: [{ text: systemText }] }
+      }
+
+      // Generation config
+      const genConfig: Record<string, unknown> = {}
+      if (params.max_tokens !== undefined) {
+        genConfig.maxOutputTokens = params.max_tokens
+      } else if (maxTokensValue !== undefined) {
+        genConfig.maxOutputTokens = maxTokensValue
+      } else if (maxCompletionTokensValue !== undefined) {
+        genConfig.maxOutputTokens = maxCompletionTokensValue
+      }
+      if (params.temperature !== undefined) genConfig.temperature = params.temperature
+      if (params.top_p !== undefined) genConfig.topP = params.top_p
+      if (Object.keys(genConfig).length > 0) {
+        geminiBody.generationConfig = genConfig
+      }
+
+      // Tools — convert Anthropic tool format to Google functionDeclarations
+      if (!omitGeminiTools && params.tools && params.tools.length > 0) {
+        const functionDeclarations = (params.tools as Array<{
+          name?: string
+          description?: string
+          input_schema?: Record<string, unknown>
+        }>).map(tool => ({
+          name: tool.name ?? '',
+          description: tool.description ?? '',
+          ...(tool.input_schema ? { parameters: tool.input_schema } : {}),
+        }))
+        if (functionDeclarations.length > 0) {
+          geminiBody.tools = [{ functionDeclarations }]
+        }
+      }
+
+      return geminiBody
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
@@ -2104,10 +2531,14 @@ class OpenAIShimMessages {
       ? getLocalProviderRetryBaseUrls(request.baseUrl)
       : []
 
-    const buildRequestUrl = (baseUrl: string): string =>
-      request.transport === 'responses'
+    const buildRequestUrl = (baseUrl: string): string => {
+      if (shimConfig.endpointPath) {
+        return `${baseUrl}${shimConfig.endpointPath}`
+      }
+      return request.transport === 'responses'
         ? `${baseUrl}/responses`
         : buildChatCompletionsUrl(baseUrl)
+    }
 
     let activeBaseUrl = request.baseUrl
     let requestUrl = buildRequestUrl(activeBaseUrl)
@@ -2149,7 +2580,10 @@ class OpenAIShimMessages {
     // `JSON.stringify` fast path when the fast-path config opts out.
     const serializeBody = (): string => {
       const payload =
-        request.transport === 'responses' ? buildResponsesBody() : body
+        effectiveTransport === 'responses' ? buildResponsesBody()
+          : effectiveTransport === 'anthropic_messages' ? buildAnthropicMessagesBody()
+          : effectiveTransport === 'gemini' ? buildGeminiBody()
+          : body
       return fastPath.skipStableStringify
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
@@ -2380,7 +2814,7 @@ class OpenAIShimMessages {
       }
 
       const hasToolsPayload =
-        request.transport === 'responses'
+        effectiveTransport === 'responses' || effectiveTransport === 'anthropic_messages' || effectiveTransport === 'gemini'
           ? Array.isArray(params.tools) && params.tools.length > 0
           : Array.isArray(body.tools) && body.tools.length > 0
 
@@ -2396,6 +2830,8 @@ class OpenAIShimMessages {
         delete body.tools
         delete body.tool_choice
         omitResponsesTools = true
+        omitAnthropicTools = true
+        omitGeminiTools = true
         refreshSerializedBody()
 
         logForDebugging(
@@ -2576,6 +3012,60 @@ class OpenAIShimMessages {
       usage: buildAnthropicUsageFromRawUsage(
         data.usage as unknown as Record<string, unknown> | undefined,
       ),
+    }
+  }
+
+  private _convertGeminiToAnthropicResponse(
+    data: Record<string, unknown>,
+    model: string,
+  ) {
+    const content: Array<Record<string, unknown>> = []
+    let hasToolUse = false
+    const candidates = data.candidates as Array<Record<string, unknown>> | undefined
+    const candidate = candidates?.[0]
+    const candidateContent = candidate?.content as { parts?: Array<Record<string, unknown>> } | undefined
+
+    if (candidateContent?.parts) {
+      for (const part of candidateContent.parts) {
+        const text = part.text as string | undefined
+        if (text) {
+          content.push({ type: 'text', text })
+        }
+        const fc = part.functionCall as { name?: string; args?: unknown } | undefined
+        if (fc?.name) {
+          hasToolUse = true
+          content.push({
+            type: 'tool_use',
+            id: `toolu_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
+            name: fc.name,
+            input: fc.args ?? {},
+          })
+        }
+      }
+    }
+
+    const stopReason =
+      hasToolUse
+        ? 'tool_use'
+        : candidate?.finishReason === 'MAX_TOKENS'
+          ? 'max_tokens'
+          : 'end_turn'
+
+    const usageMetadata = data.usageMetadata as Record<string, number> | undefined
+    const usage = buildAnthropicUsageFromRawUsage({
+      input_tokens: usageMetadata?.promptTokenCount ?? 0,
+      output_tokens: (usageMetadata?.candidatesTokenCount ?? 0) + (usageMetadata?.thoughtsTokenCount ?? 0),
+    } as unknown as Record<string, unknown>)
+
+    return {
+      id: makeMessageId(),
+      type: 'message',
+      role: 'assistant',
+      content,
+      model,
+      stop_reason: stopReason,
+      stop_sequence: null,
+      usage,
     }
   }
 }

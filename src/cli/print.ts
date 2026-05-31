@@ -174,12 +174,11 @@ import {
   getFastModeState,
 } from 'src/utils/fastMode.js'
 import {
-  isAutoModeGateEnabled,
-  getAutoModeUnavailableNotification,
-  getAutoModeUnavailableReason,
-  isBypassPermissionsModeDisabled,
-  transitionPermissionMode,
+  applyPermissionModeChange,
+  getPermissionModeChangeRequestDecision,
 } from 'src/utils/permissions/permissionSetup.js'
+import { requestPermissionModeChange } from 'src/utils/permissions/permissionModeChange.js'
+import { permissionModeFromString } from 'src/utils/permissions/PermissionMode.js'
 import {
   tryGenerateSuggestion,
   logSuggestionOutcome,
@@ -685,6 +684,7 @@ export async function runHeadless(
     turnInterruptionState,
     agentSetting: resumedAgentSetting,
   } = await loadInitialMessages(setAppState, {
+    getAppState,
     continue: options.continue,
     teleport: options.teleport,
     resume: options.resume,
@@ -1064,6 +1064,7 @@ function runHeadlessStreaming(
       newMode === 'default' ||
       newMode === 'acceptEdits' ||
       newMode === 'bypassPermissions' ||
+      newMode === 'fullAccess' ||
       newMode === 'plan' ||
       newMode === (feature('TRANSCRIPT_CLASSIFIER') && 'auto') ||
       newMode === 'dontAsk'
@@ -2914,14 +2915,15 @@ function runHeadlessStreaming(
           }
         } else if (message.request.subtype === 'set_permission_mode') {
           const m = message.request // for typescript (TODO: use readonly types to avoid this)
+          const nextToolPermissionContext = await handleSetPermissionMode(
+            m,
+            message.request_id,
+            getAppState().toolPermissionContext,
+            output,
+          )
           setAppState(prev => ({
             ...prev,
-            toolPermissionContext: handleSetPermissionMode(
-              m,
-              message.request_id,
-              prev.toolPermissionContext,
-              output,
-            ),
+            toolPermissionContext: nextToolPermissionContext,
             isUltraplanMode: m.ultraplan ?? prev.isUltraplanMode,
           }))
           // handleSetPermissionMode sends the control_response; the
@@ -4154,15 +4156,19 @@ export function createCanUseToolWithPermissionPrompt(
     toolUseId,
     forceDecision,
   ) => {
+    const shouldBypassForcedAsk =
+      forceDecision?.behavior === 'ask' &&
+      toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
     const mainPermissionResult =
-      forceDecision ??
-      (await hasPermissionsToUseTool(
+      forceDecision !== undefined && !shouldBypassForcedAsk
+        ? forceDecision
+        : await hasPermissionsToUseTool(
         tool,
         input,
         toolUseContext,
         assistantMessage,
         toolUseId,
-      ))
+      )
 
     // If the tool is allowed or denied, return the result
     if (
@@ -4278,15 +4284,20 @@ export function getCanUseToolFn(
       assistantMessage,
       toolUseId,
       forceDecision,
-    ) =>
-      forceDecision ??
-      (await hasPermissionsToUseTool(
+    ) => {
+      const shouldBypassForcedAsk =
+        forceDecision?.behavior === 'ask' &&
+        toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
+      return forceDecision !== undefined && !shouldBypassForcedAsk
+        ? forceDecision
+        : await hasPermissionsToUseTool(
         tool,
         input,
         toolUseContext,
         assistantMessage,
         toolUseId,
-      ))
+      )
+    }
   }
   // Lazy lookup: MCP connects are per-server incremental in print mode, so
   // the tool may not be in appState yet at init time. Resolve on first call
@@ -4562,55 +4573,37 @@ async function handleRewindFiles(
   return { canRewind: true }
 }
 
-function handleSetPermissionMode(
+async function handleSetPermissionMode(
   request: { mode: InternalPermissionMode },
   requestId: string,
   toolPermissionContext: ToolPermissionContext,
   output: Stream<StdoutMessage>,
-): ToolPermissionContext {
-  // Check if trying to switch to bypassPermissions mode
-  if (request.mode === 'bypassPermissions') {
-    if (isBypassPermissionsModeDisabled()) {
-      output.enqueue({
-        type: 'control_response',
-        response: {
-          subtype: 'error',
-          request_id: requestId,
-          error:
-            'Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration',
-        },
-      })
-      return toolPermissionContext
-    }
-    if (!toolPermissionContext.isBypassPermissionsModeAvailable) {
-      output.enqueue({
-        type: 'control_response',
-        response: {
-          subtype: 'error',
-          request_id: requestId,
-          error:
-            'Cannot set permission mode to bypassPermissions. Enable it with --allow-dangerously-skip-permissions or set permissions.allowBypassPermissionsMode in settings.json',
-        },
-      })
-      return toolPermissionContext
-    }
-  }
+): Promise<ToolPermissionContext> {
+  let nextToolPermissionContext = toolPermissionContext
+  let blockedError: string | undefined
 
-  // Check if trying to switch to auto mode without the classifier gate
-  if (
-    feature('TRANSCRIPT_CLASSIFIER') &&
-    request.mode === 'auto' &&
-    !isAutoModeGateEnabled()
-  ) {
-    const reason = getAutoModeUnavailableReason()
+  const result = await requestPermissionModeChange({
+    mode: request.mode,
+    toolPermissionContext,
+    allowDangerousModeConfirmation: false,
+    onApply: () => {
+      nextToolPermissionContext = applyPermissionModeChange(
+        toolPermissionContext,
+        request.mode,
+      )
+    },
+    onBlocked: error => {
+      blockedError = error
+    },
+  })
+
+  if (result.status !== 'applied') {
     output.enqueue({
       type: 'control_response',
       response: {
         subtype: 'error',
         request_id: requestId,
-        error: reason
-          ? `Cannot set permission mode to auto: ${getAutoModeUnavailableNotification(reason)}`
-          : 'Cannot set permission mode to auto',
+        error: blockedError ?? `Cannot set permission mode to ${request.mode}`,
       },
     })
     return toolPermissionContext
@@ -4628,13 +4621,38 @@ function handleSetPermissionMode(
     },
   })
 
+  return nextToolPermissionContext
+}
+
+async function sanitizeResumedExternalMetadata(
+  metadata: SessionExternalMetadata,
+  toolPermissionContext: ToolPermissionContext,
+): Promise<SessionExternalMetadata> {
+  if (typeof metadata.permission_mode !== 'string') {
+    return metadata
+  }
+
+  const resumedMode = permissionModeFromString(metadata.permission_mode)
+  if (resumedMode !== 'bypassPermissions' && resumedMode !== 'fullAccess') {
+    return metadata
+  }
+
+  const modeDecision = await getPermissionModeChangeRequestDecision({
+    mode: resumedMode,
+    toolPermissionContext,
+  })
+  if (modeDecision.status !== 'blocked') {
+    return metadata
+  }
+
+  logForDebugging(
+    `Discarding resumed dangerous permission mode ${resumedMode}: ${modeDecision.error}`,
+    { level: 'warn' },
+  )
+  notifySessionMetadataChanged({ permission_mode: 'default' })
   return {
-    ...transitionPermissionMode(
-      toolPermissionContext.mode,
-      request.mode,
-      toolPermissionContext,
-    ),
-    mode: request.mode,
+    ...metadata,
+    permission_mode: 'default',
   }
 }
 
@@ -4890,6 +4908,7 @@ type LoadInitialMessagesResult = {
 async function loadInitialMessages(
   setAppState: (f: (prev: AppState) => AppState) => void,
   options: {
+    getAppState: () => AppState
     continue: boolean | undefined
     teleport: string | true | null | undefined
     resume: string | boolean | undefined
@@ -5051,7 +5070,11 @@ async function loadInitialMessages(
           options.restoredWorkerState,
         ])
         if (metadata) {
-          setAppState(externalMetadataToAppState(metadata))
+          const sanitizedMetadata = await sanitizeResumedExternalMetadata(
+            metadata,
+            options.getAppState().toolPermissionContext,
+          )
+          setAppState(externalMetadataToAppState(sanitizedMetadata))
           if (typeof metadata.model === 'string') {
             setMainLoopModelOverride(metadata.model)
           }

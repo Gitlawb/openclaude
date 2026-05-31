@@ -1,20 +1,16 @@
 import React from 'react'
+import { useAppState } from 'src/state/AppState.js'
 import { getOriginalCwd } from '../../../bootstrap/state.js'
 import { Box, Text } from '../../../ink.js'
-import { sanitizeToolNameForAnalytics } from '../../../services/analytics/metadata.js'
-import type { PermissionUpdate } from '../../../utils/permissions/PermissionUpdateSchema.js'
 import { shouldShowAlwaysAllowOptions } from '../../../utils/permissions/permissionsLoader.js'
-import { usePermissionRequestLogging } from '../hooks.js'
-import { PermissionDialog } from '../PermissionDialog.js'
 import {
   PermissionPrompt,
   type PermissionPromptOption,
 } from '../PermissionPrompt.js'
 import type { PermissionRequestProps } from '../PermissionRequest.js'
-import { PermissionRuleExplanation } from '../PermissionRuleExplanation.js'
-import { logUnaryPermissionEvent } from '../utils.js'
+import { createSimplePermissionHandlers } from '../simplePermissionActions.js'
 
-type OptionValue = 'yes' | 'yes-dont-ask-again' | 'no'
+type OptionValue = 'yes' | 'yes-dont-ask-again' | 'yes-full-access' | 'no'
 
 export function MonitorPermissionRequest({
   toolUseConfirm,
@@ -22,70 +18,59 @@ export function MonitorPermissionRequest({
   onReject,
   workerBadge,
 }: PermissionRequestProps) {
+  const isDangerousModeAvailable = useAppState(
+    s => s?.toolPermissionContext?.isBypassPermissionsModeAvailable ?? false,
+  )
   const { command, description } = toolUseConfirm.input as {
     command?: string
     description?: string
   }
 
-  usePermissionRequestLogging(toolUseConfirm, {
-    completion_type: 'tool_use_single',
-    language_name: 'none',
-  })
-
-  const handleSelect = (
-    value: OptionValue,
-    feedback?: string,
-  ) => {
-    switch (value) {
-      case 'yes': {
-        logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'accept')
-        toolUseConfirm.onAllow(toolUseConfirm.input, [], feedback)
-        onDone()
-        break
-      }
-      case 'yes-dont-ask-again': {
-        logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'accept')
+  const { onSelect, onCancel } = createSimplePermissionHandlers(
+    toolUseConfirm,
+    { onDone, onReject },
+    {
+      yes: {
+        behavior: 'allow',
+        includeFeedback: true,
+      },
+      'yes-dont-ask-again': () => {
         // Save the rule under 'Bash' toolName because checkPermissions
         // delegates to bashToolHasPermission which matches rules against
         // BashTool. Using 'Monitor' here would create a rule that's never
         // checked. Command-specific prefix (like BashTool's shellRuleMatching).
         const cmdForRule = command?.trim() || ''
         const prefix = cmdForRule.split(/\s+/).slice(0, 2).join(' ')
-        const permissionUpdates: PermissionUpdate[] = prefix
-          ? [
-              {
-                type: 'addRules',
-                rules: [{ toolName: 'Bash', ruleContent: `${prefix}:*` }],
-                behavior: 'allow',
-                destination: 'localSettings',
-              },
-            ]
-          : []
-        toolUseConfirm.onAllow(toolUseConfirm.input, permissionUpdates)
-        onDone()
-        break
-      }
-      case 'no': {
-        logUnaryPermissionEvent(
-          'tool_use_single',
-          toolUseConfirm,
-          'reject',
-          !!feedback?.trim(),
-        )
-        toolUseConfirm.onReject(feedback)
-        onReject()
-        onDone()
-        break
-      }
-    }
-  }
-
-  const handleCancel = () => {
-    logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'reject')
-    toolUseConfirm.onReject()
-    onReject()
-    onDone()
-  }
+        return {
+          behavior: 'allow' as const,
+          updates: prefix
+            ? [
+                {
+                  type: 'addRules',
+                  rules: [{ toolName: 'Bash', ruleContent: `${prefix}:*` }],
+                  behavior: 'allow',
+                  destination: 'localSettings',
+                },
+              ]
+            : [],
+        }
+      },
+      'yes-full-access': {
+        behavior: 'allow',
+        updates: [
+          {
+            type: 'setMode',
+            mode: 'fullAccess',
+            destination: 'session',
+          },
+        ],
+      },
+      no: {
+        behavior: 'reject',
+        includeFeedback: true,
+      },
+    },
+  )
 
   const showAlwaysAllow = shouldShowAlwaysAllowOptions()
   const originalCwd = getOriginalCwd()
@@ -109,6 +94,17 @@ export function MonitorPermissionRequest({
       ),
       value: 'yes-dont-ask-again',
     })
+    if (isDangerousModeAvailable) {
+      options.push({
+        label: (
+          <Text color="error">
+            Yes, and enable Full Access for this session
+          </Text>
+        ),
+        value: 'yes-full-access',
+        dangerousMode: 'fullAccess',
+      })
+    }
   }
 
   options.push({
@@ -117,33 +113,22 @@ export function MonitorPermissionRequest({
     feedbackConfig: { type: 'reject' },
   })
 
-  const toolAnalyticsContext = {
-    toolName: sanitizeToolNameForAnalytics(toolUseConfirm.tool.name),
-    isMcp: toolUseConfirm.tool.isMcp ?? false,
-  }
-
   return (
-    <PermissionDialog title="Monitor" workerBadge={workerBadge}>
-      <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Text>
-          Monitor({command ?? ''})
-        </Text>
-        {description ? (
-          <Text dimColor>{description}</Text>
-        ) : null}
-      </Box>
-      <Box flexDirection="column">
-        <PermissionRuleExplanation
-          permissionResult={toolUseConfirm.permissionResult}
-          toolType="tool"
-        />
-        <PermissionPrompt
-          options={options}
-          onSelect={handleSelect}
-          onCancel={handleCancel}
-          toolAnalyticsContext={toolAnalyticsContext}
-        />
-      </Box>
-    </PermissionDialog>
+    <PermissionPrompt
+      toolUseConfirm={toolUseConfirm}
+      workerBadge={workerBadge}
+      title="Monitor"
+      header={
+        <Box flexDirection="column" paddingX={2} paddingY={1}>
+          <Text>
+            Monitor({command ?? ''})
+          </Text>
+          {description ? <Text dimColor>{description}</Text> : null}
+        </Box>
+      }
+      options={options}
+      onSelect={onSelect}
+      onCancel={onCancel}
+    />
   )
 }

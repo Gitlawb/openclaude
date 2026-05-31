@@ -336,12 +336,20 @@ export const PermissionResultSchema = lazySchema(() =>
 
 export const PermissionModeSchema = lazySchema(() =>
   z
-    .enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'])
+    .enum([
+      'default',
+      'acceptEdits',
+      'bypassPermissions',
+      'fullAccess',
+      'plan',
+      'dontAsk',
+    ])
     .describe(
       'Permission mode for controlling how tool executions are handled. ' +
         "'default' - Standard behavior, prompts for dangerous operations. " +
         "'acceptEdits' - Auto-accept file edit operations. " +
-        "'bypassPermissions' - Bypass all permission checks (requires allowDangerouslySkipPermissions). " +
+        "'bypassPermissions' - Bypass normal permission prompts while preserving hard safety checks (requires allowDangerouslySkipPermissions). " +
+        "'fullAccess' - Bypass normal permission prompts and hard safety-check prompts (requires allowDangerouslySkipPermissions). " +
         "'plan' - Planning mode, no actual tool execution. " +
         "'dontAsk' - Don't prompt for permissions, deny if not pre-approved.",
     ),

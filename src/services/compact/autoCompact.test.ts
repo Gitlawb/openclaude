@@ -1,12 +1,44 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from 'bun:test'
 
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import type { Message } from '../../types/message.js'
+import * as realConfig from '../../utils/config.js'
 
-async function importAutoCompact() {
+const USER_ABORT_MESSAGE = 'API Error: Request was aborted.'
+
+type ImportAutoCompactOptions = {
+  compactConversation?: ReturnType<typeof mock>
+  trySessionMemoryCompaction?: ReturnType<typeof mock>
+}
+
+async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
   mock.restore()
+  mock.module('../../utils/config.js', () => ({
+    ...realConfig,
+    getGlobalConfig: () => ({ autoCompactEnabled: true }),
+  }))
+  if (options.compactConversation) {
+    mock.module('./compact.js', () => ({
+      ERROR_MESSAGE_USER_ABORT: USER_ABORT_MESSAGE,
+      buildPostCompactMessages: mock(() => []),
+      compactConversation: options.compactConversation,
+    }))
+  }
+  if (options.trySessionMemoryCompaction) {
+    mock.module('./sessionMemoryCompact.js', () => ({
+      trySessionMemoryCompaction: options.trySessionMemoryCompaction,
+    }))
+  }
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./autoCompact.ts?test=${nonce}`)
 }
@@ -39,6 +71,12 @@ const SAVED_ENV = {
     process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
   CLAUDE_CODE_MAX_OUTPUT_TOKENS:
     process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
+    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
+  OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS:
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+  DISABLE_COMPACT: process.env.DISABLE_COMPACT,
+  DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
 }
 
 function restoreEnv(): void {
@@ -53,15 +91,69 @@ function restoreEnv(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/autoCompact.test.ts')
+  delete process.env.DISABLE_COMPACT
+  delete process.env.DISABLE_AUTO_COMPACT
+  delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 })
 
 afterEach(() => {
   try {
+    mock.restore()
     restoreEnv()
   } finally {
     releaseSharedMutationLock()
   }
 })
+
+function userMessage(content: string): Message {
+  return {
+    type: 'user',
+    message: { role: 'user', content },
+    uuid: `test-${Math.random()}`,
+    timestamp: new Date().toISOString(),
+  }
+}
+
+function overThresholdMessages(): Message[] {
+  return [userMessage('x'.repeat(100_000))]
+}
+
+function underThresholdMessages(): Message[] {
+  return [userMessage('small conversation')]
+}
+
+function toolUseContext() {
+  return {
+    agentId: undefined,
+    options: {
+      mainLoopModel: 'claude-sonnet-4',
+    },
+  } as never
+}
+
+function cacheSafeParams(messages: Message[]) {
+  const context = toolUseContext()
+  return {
+    systemPrompt: [],
+    userContext: {},
+    systemContext: {},
+    toolUseContext: context,
+    forkContextMessages: messages,
+  } as never
+}
+
+function compactResult() {
+  return {
+    summaryMessages: [userMessage('summary')],
+    attachments: [],
+    hookResults: [],
+    preCompactTokenCount: 10_000,
+    postCompactTokenCount: 100,
+    truePostCompactTokenCount: 100,
+  } as never
+}
 
 describe('getEffectiveContextWindowSize', () => {
   test('returns positive value for known models with large context windows', async () => {
@@ -151,5 +243,514 @@ describe('getAutoCompactThreshold', () => {
     } finally {
       restoreEnv()
     }
+  })
+})
+
+describe('getAutoCompactFailureCooldownMs', () => {
+  test('uses valid positive integer override', async () => {
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = ' 5000 '
+    const { getAutoCompactFailureCooldownMs } = await importAutoCompact()
+
+    expect(getAutoCompactFailureCooldownMs()).toBe(5000)
+  })
+
+  test('ignores partial or invalid override values', async () => {
+    const {
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+      getAutoCompactFailureCooldownMs,
+    } = await importAutoCompact()
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000ms'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '-1'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '1.5'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '1e3'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '0x10'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '0b10'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '+5'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5.0'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+  })
+})
+
+describe('resolveAutoCompactCircuitBreakerState', () => {
+  test('skips compaction while cooldown is active', async () => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
+
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          nextRetryAtMs: 10_000,
+        },
+        nowMs: 9_000,
+        cooldownMs: 5_000,
+      }),
+    ).toEqual({
+      action: 'skip',
+      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      nextRetryAtMs: 10_000,
+      circuitBreakerActive: true,
+    })
+  })
+
+  test('allows exactly one half-open retry after cooldown expires', async () => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
+
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          nextRetryAtMs: 10_000,
+        },
+        nowMs: 10_001,
+        cooldownMs: 5_000,
+      }),
+    ).toEqual({
+      action: 'allow',
+      effectiveConsecutiveFailures:
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      wasHalfOpen: true,
+    })
+  })
+
+  test('derives active cooldown from failure time when retry time is absent', async () => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
+
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          lastFailureAtMs: 5_000,
+        },
+        nowMs: 11_000,
+        cooldownMs: 7_000,
+      }),
+    ).toEqual({
+      action: 'skip',
+      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      nextRetryAtMs: 12_000,
+      circuitBreakerActive: true,
+    })
+  })
+
+  test.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])(
+    'derives active cooldown from failure time when retry time is %s',
+    async (_label, nextRetryAtMs) => {
+      const {
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        resolveAutoCompactCircuitBreakerState,
+      } = await importAutoCompact()
+
+      expect(
+        resolveAutoCompactCircuitBreakerState({
+          tracking: {
+            consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+            nextRetryAtMs,
+            lastFailureAtMs: 5_000,
+          },
+          nowMs: 11_000,
+          cooldownMs: 7_000,
+        }),
+      ).toEqual({
+        action: 'skip',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: 12_000,
+        circuitBreakerActive: true,
+      })
+    },
+  )
+
+  test('uses explicit retry time before deriving cooldown from failure time', async () => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
+
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          nextRetryAtMs: 10_000,
+          lastFailureAtMs: 50_000,
+        },
+        nowMs: 10_001,
+        cooldownMs: 7_000,
+      }),
+    ).toEqual({
+      action: 'allow',
+      effectiveConsecutiveFailures:
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      wasHalfOpen: true,
+    })
+  })
+
+  test('allows half-open retry after derived cooldown expires', async () => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
+
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          lastFailureAtMs: 5_000,
+        },
+        nowMs: 10_001,
+        cooldownMs: 5_000,
+      }),
+    ).toEqual({
+      action: 'allow',
+      effectiveConsecutiveFailures:
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      wasHalfOpen: true,
+    })
+  })
+})
+
+describe('autoCompactIfNeeded circuit breaker', () => {
+  beforeEach(() => {
+    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
+  })
+
+  test('trips after three non-user failures and records a retry time', async () => {
+    const compactConversation = mock(async () => {
+      throw new Error('provider down')
+    })
+    const trySessionMemoryCompaction = mock(async () => null)
+    const {
+      autoCompactIfNeeded,
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = overThresholdMessages()
+    let tracking: {
+      compacted: boolean
+      turnCounter: number
+      turnId: string
+      consecutiveFailures?: number
+    } = {
+      compacted: false,
+      turnCounter: 0,
+      turnId: 'turn',
+    }
+    let result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      tracking,
+    )
+    expect(result.consecutiveFailures).toBe(1)
+    expect(result.nextRetryAtMs).toBeUndefined()
+
+    tracking = { ...tracking, consecutiveFailures: result.consecutiveFailures }
+    result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      tracking,
+    )
+    expect(result.consecutiveFailures).toBe(2)
+    expect(result.nextRetryAtMs).toBeUndefined()
+
+    tracking = { ...tracking, consecutiveFailures: result.consecutiveFailures }
+    result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      tracking,
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(3)
+    expect(result.consecutiveFailures).toBe(
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    )
+    expect(result.nextRetryAtMs).toBeGreaterThan(Date.now())
+    expect(result.circuitBreakerTripped).toBe(true)
+  })
+
+  test('active cooldown skips compaction attempts', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const {
+      autoCompactIfNeeded,
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+      },
+    )
+
+    expect(compactConversation).not.toHaveBeenCalled()
+    expect(result.wasCompacted).toBe(false)
+    expect(result.circuitBreakerActive).toBe(true)
+    expect(result.nextRetryAtMs).toBeGreaterThan(Date.now())
+  })
+
+  test('expired cooldown allows a half-open compaction attempt', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const {
+      autoCompactIfNeeded,
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() - 1,
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(true)
+    expect(result.consecutiveFailures).toBe(0)
+    expect(result.nextRetryAtMs).toBeUndefined()
+  })
+
+  test('half-open failure immediately re-trips instead of growing unbounded', async () => {
+    const compactConversation = mock(async () => {
+      throw new Error('still broken')
+    })
+    const trySessionMemoryCompaction = mock(async () => null)
+    const {
+      autoCompactIfNeeded,
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() - 1,
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.consecutiveFailures).toBe(
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    )
+    expect(result.nextRetryAtMs).toBeGreaterThan(Date.now())
+    expect(result.circuitBreakerTripped).toBe(true)
+  })
+
+  test('failed compaction cooldown starts at failure time, not attempt start', async () => {
+    let nowMs = 100_000
+    const originalDateNow = Date.now
+    Date.now = mock(() => nowMs) as never
+    try {
+      const compactConversation = mock(async () => {
+        nowMs = 106_000
+        throw new Error('slow provider failure')
+      })
+      const trySessionMemoryCompaction = mock(async () => null)
+      const { autoCompactIfNeeded } = await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        {
+          compacted: false,
+          turnCounter: 0,
+          turnId: 'turn',
+          consecutiveFailures: 2,
+        },
+      )
+
+      expect(result.lastFailureAtMs).toBe(106_000)
+      expect(result.nextRetryAtMs).toBe(111_000)
+    } finally {
+      Date.now = originalDateNow
+    }
+  })
+
+  test('user abort does not increment failures or trip cooldown', async () => {
+    const compactConversation = mock(async () => {
+      throw new Error(USER_ABORT_MESSAGE)
+    })
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: 2,
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.consecutiveFailures).toBe(2)
+    expect(result.nextRetryAtMs).toBeUndefined()
+    expect(result.circuitBreakerTripped).toBe(false)
+  })
+
+  test('user abort during half-open retry clears expired cooldown without retripping', async () => {
+    const compactConversation = mock(async () => {
+      throw new Error(USER_ABORT_MESSAGE)
+    })
+    const trySessionMemoryCompaction = mock(async () => null)
+    const {
+      autoCompactIfNeeded,
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() - 1,
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.consecutiveFailures).toBe(
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+    )
+    expect(result.nextRetryAtMs).toBeUndefined()
+    expect(result.circuitBreakerActive).toBe(false)
+    expect(result.circuitBreakerTripped).toBe(false)
+  })
+
+  test('below-threshold conversations clear stale breaker state', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const {
+      autoCompactIfNeeded,
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = underThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+      },
+    )
+
+    expect(compactConversation).not.toHaveBeenCalled()
+    expect(result.wasCompacted).toBe(false)
+    expect(result.circuitBreakerActive).toBe(false)
+    expect(result.consecutiveFailures).toBe(0)
+    expect(result.nextRetryAtMs).toBeUndefined()
   })
 })

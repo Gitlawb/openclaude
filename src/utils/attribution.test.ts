@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import {
   getClientType,
   getMainLoopModelOverride,
+  resetStateForTests,
   setClientType,
   setMainLoopModelOverride,
 } from '../bootstrap/state.js'
@@ -77,6 +78,8 @@ function restoreEnv(): void {
 }
 
 beforeEach(() => {
+  mock.restore()
+  resetStateForTests()
   resetSettingsCache()
   setClientType('cli')
   setMainLoopModelOverride(undefined)
@@ -115,6 +118,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  mock.restore()
+  resetStateForTests()
   resetSettingsCache()
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)

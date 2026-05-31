@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import figures from 'figures'
 import type { StatusNoticeContext } from './statusNoticeDefinitions.js'
-import { getActiveNotices } from './statusNoticeDefinitions.js'
+import {
+  getActiveNotices,
+  statusNoticeDefinitions,
+} from './statusNoticeDefinitions.js'
+import { renderToString } from './staticRender.js'
 
 // Regression coverage for issue #244 — the two safety-related status notices
 // that warn 3P users when they are running without the AI classifier or with
@@ -19,6 +24,15 @@ function buildContext(
 
 function activeIds(ctx: StatusNoticeContext): string[] {
   return getActiveNotices(ctx).map(n => n.id)
+}
+
+async function renderNoticePlainText(
+  id: string,
+  ctx: StatusNoticeContext,
+): Promise<string> {
+  const notice = statusNoticeDefinitions.find(n => n.id === id)
+  expect(notice).toBeDefined()
+  return renderToString(notice!.render(ctx), 80)
 }
 
 const SAVED_ARGV = process.argv
@@ -137,5 +151,46 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     expect(activeIds(buildContext({ permissionMode: 'default' }))).not.toContain(
       'dangerously-skip-permissions-no-sandbox',
     )
+  })
+})
+
+describe('safety notice rendering', () => {
+  test('separates warning icons from the notice text', async () => {
+    const ctx = buildContext({
+      permissionMode: 'bypassPermissions',
+      mainLoopModel: 'llama3.1',
+    })
+
+    const thirdPartyNotice = await renderNoticePlainText(
+      'third-party-permissive-mode',
+      ctx,
+    )
+    const dangerouslySkipNotice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      ctx,
+    )
+
+    expect(thirdPartyNotice).toContain(`${figures.warning} bypassPermissions`)
+    expect(thirdPartyNotice).not.toContain(
+      `${figures.warning}bypassPermissions`,
+    )
+    expect(dangerouslySkipNotice).toContain(
+      `${figures.warning} --dangerously-skip-permissions`,
+    )
+    expect(dangerouslySkipNotice).not.toContain(
+      `${figures.warning}--dangerously-skip-permissions`,
+    )
+    expect(
+      thirdPartyNotice
+        .split('\n')
+        .slice(1)
+        .every(line => line.startsWith('  ')),
+    ).toBe(true)
+    expect(
+      dangerouslySkipNotice
+        .split('\n')
+        .slice(1)
+        .every(line => line.startsWith('  ')),
+    ).toBe(true)
   })
 })

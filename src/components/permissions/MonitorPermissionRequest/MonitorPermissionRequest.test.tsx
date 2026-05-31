@@ -315,7 +315,7 @@ async function renderMonitorPermission(
   })
 
   root.render(
-    <AppStateProvider>
+    <AppStateProvider initialState={getDefaultAppState()}>
       <TestKeybindingProvider>
         <MonitorPermissionRequest
           toolUseConfirm={toolUseConfirm}
@@ -400,6 +400,7 @@ describe('MonitorPermissionRequest', () => {
             destination: 'localSettings',
           },
         ],
+        undefined,
       )
       expect(toolUseConfirm.onReject).not.toHaveBeenCalled()
     } finally {
