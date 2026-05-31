@@ -94,23 +94,26 @@ export function escapeMarkdownV2(text: string): string {
 
 /**
  * Send a message to a Telegram chat with typing indicator and rate limiting.
+ * @param threadId Optional message_thread_id for forum topic replies.
  */
 export async function sendMessage(
   bot: Telegraf,
   chatId: string,
   text: string,
-  parseMode: "MarkdownV2" | "HTML" = "MarkdownV2"
+  parseMode: "MarkdownV2" | "HTML" = "MarkdownV2",
+  threadId?: number,
 ): Promise<void> {
   const queue = getTopicQueue(chatId);
 
   await queue.add(async () => {
-    // Start typing indicator
     const typingInterval = setInterval(() => {
-      bot.telegram.sendChatAction(chatId, "typing").catch(() => {});
+      bot.telegram.sendChatAction(chatId, "typing", threadId ? { message_thread_id: threadId } : undefined).catch(() => {});
     }, TYPING_INTERVAL_MS);
 
     try {
-      await bot.telegram.sendMessage(chatId, text, { parse_mode: parseMode });
+      const opts: any = { parse_mode: parseMode };
+      if (threadId) opts.message_thread_id = threadId;
+      await bot.telegram.sendMessage(chatId, text, opts);
     } finally {
       clearInterval(typingInterval);
     }
@@ -120,23 +123,26 @@ export async function sendMessage(
 /**
  * Send a potentially long message, splitting if necessary.
  * Defaults to plain text (no parse mode) for AI responses.
+ * @param threadId Optional message_thread_id for forum topic replies.
  */
 export async function sendLongMessage(
   bot: Telegraf,
   chatId: string,
   text: string,
-  parseMode?: "MarkdownV2" | "HTML"
+  parseMode?: "MarkdownV2" | "HTML",
+  threadId?: number,
 ): Promise<void> {
   const chunks = splitMarkdown(text);
   const queue = getTopicQueue(chatId);
   for (const chunk of chunks) {
     await queue.add(async () => {
       const typingInterval = setInterval(() => {
-        bot.telegram.sendChatAction(chatId, "typing").catch(() => {});
+        bot.telegram.sendChatAction(chatId, "typing", threadId ? { message_thread_id: threadId } : undefined).catch(() => {});
       }, TYPING_INTERVAL_MS);
       try {
         const opts: any = {};
         if (parseMode) opts.parse_mode = parseMode;
+        if (threadId) opts.message_thread_id = threadId;
         await bot.telegram.sendMessage(chatId, chunk, opts);
       } finally {
         clearInterval(typingInterval);

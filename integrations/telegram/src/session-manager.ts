@@ -152,7 +152,7 @@ export class SessionManager {
     const opts: QueryOptions = {
       cwd: ctx.workDir,
       model: ctx.model,
-      ...(canUseTool ? { canUseTool } : { permissionMode: "auto-accept" }),
+      ...(canUseTool ? { canUseTool } : {}),
     };
 
     // Pass conversation history as the prompt

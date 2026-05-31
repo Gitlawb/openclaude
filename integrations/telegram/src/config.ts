@@ -37,7 +37,8 @@ export function loadConfig(): BotConfig {
 export function validatePath(target: string, workDir: string): string {
   const resolved = isAbsolute(target) ? resolve(target) : resolve(workDir, target);
 
-  if (!resolved.startsWith(workDir)) {
+  const boundary = workDir.endsWith("/") ? workDir : workDir + "/";
+  if (resolved !== workDir && !resolved.startsWith(boundary)) {
     throw new Error(`Path traversal blocked: ${target} is outside work directory`);
   }
 

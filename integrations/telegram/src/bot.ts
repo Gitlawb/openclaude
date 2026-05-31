@@ -21,6 +21,31 @@ function getTopicId(ctx: any): string {
     : String(ctx.message.chat.id);
 }
 
+/**
+ * Parse a composite topicId back into the real chat_id and optional
+ * message_thread_id for Telegram API calls.  Forum topics encode as
+ * "<chatId>:<threadId>" — the API still needs them as separate fields.
+ */
+export function parseTopicId(topicId: string): { chatId: string; threadId?: number } {
+  const sep = topicId.lastIndexOf(":");
+  if (sep > 0) {
+    const threadId = Number(topicId.slice(sep + 1));
+    if (Number.isFinite(threadId)) {
+      return { chatId: topicId.slice(0, sep), threadId };
+    }
+  }
+  return { chatId: topicId };
+}
+
+/**
+ * Convenience wrapper: parses composite topicId and forwards to sendLongMessage
+ * with the correct chat_id and message_thread_id for Telegram API calls.
+ */
+async function replyToTopic(bot: Telegraf, topicId: string, text: string, parseMode?: "MarkdownV2" | "HTML"): Promise<void> {
+  const { chatId, threadId } = parseTopicId(topicId);
+  await sendLongMessage(bot, chatId, text, parseMode, threadId);
+}
+
 export function createBot(config: BotConfig): Telegraf {
   const bot = new Telegraf(config.botToken);
   const sessionManager = new SessionManager(config);
@@ -325,7 +350,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -364,7 +389,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -403,7 +428,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -442,7 +467,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -480,7 +505,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -519,7 +544,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -550,7 +575,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -589,7 +614,7 @@ export function createBot(config: BotConfig): Telegraf {
         }
         if (msg.type === "result") break;
       }
-      await sendLongMessage(bot, getTopicId(ctx), response || "No response.");
+      await replyToTopic(bot, getTopicId(ctx), response || "No response.");
     } catch (err) {
       await ctx.reply(mapSDKError(err));
     }
@@ -647,7 +672,7 @@ export function createBot(config: BotConfig): Telegraf {
       }
 
       if (response) {
-        await sendLongMessage(bot, topicId, response);
+        await replyToTopic(bot, topicId, response);
       } else {
         await ctx.reply("No response received.");
       }

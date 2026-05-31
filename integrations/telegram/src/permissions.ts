@@ -38,13 +38,28 @@ export function buildInteractiveCallback(
       ? `\n\`\`\`json\n${JSON.stringify(input, null, 2).slice(0, 500)}\n\`\`\``
       : "";
 
-    await bot.telegram.sendMessage(
-      topicId,
-      `*Tool Request*\n\`${toolName}\`${inputPreview}`,
-      {
-        parse_mode: "MarkdownV2",
-        reply_markup: { inline_keyboard: buttons },
+    // Parse composite topicId: forum topics encode as "<chatId>:<threadId>"
+    const sep = topicId.lastIndexOf(":");
+    let chatId = topicId;
+    let threadId: number | undefined;
+    if (sep > 0) {
+      const parsed = Number(topicId.slice(sep + 1));
+      if (Number.isFinite(parsed)) {
+        chatId = topicId.slice(0, sep);
+        threadId = parsed;
       }
+    }
+
+    const sendOpts: any = {
+      parse_mode: "MarkdownV2",
+      reply_markup: { inline_keyboard: buttons },
+    };
+    if (threadId) sendOpts.message_thread_id = threadId;
+
+    await bot.telegram.sendMessage(
+      chatId,
+      `*Tool Request*\n\`${toolName}\`${inputPreview}`,
+      sendOpts,
     );
 
     const result = await new Promise<string>((resolve) => {
