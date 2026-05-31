@@ -1,7 +1,7 @@
 import { disableKeepAlive, getProxyFetchOptions } from '../../utils/proxy.js'
 
 const RETRYABLE_FETCH_ERROR_PATTERN =
-  /socket connection was closed unexpectedly|ECONNRESET|EPIPE|socket hang up|Connection reset by peer|fetch failed|cooked/i
+  /socket connection was closed unexpectedly|ECONNRESET|EPIPE|socket hang up|Connection reset by peer|fetch failed/i
 
 export function isRetryableFetchError(error: unknown): boolean {
   if (!(error instanceof Error)) {

@@ -91,14 +91,6 @@ test('fetchWithProxyRetry does not retry non-network errors', async () => {
   expect(attempts).toBe(1)
 })
 
-test('isRetryableFetchError matches Bun "socket is cooked" failures', () => {
-  expect(
-    isRetryableFetchError(
-      new Error('TypeError: The socket is cooked'),
-    ),
-  ).toBe(true)
-})
-
 test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 response', async () => {
   const calls: Array<RequestInit | undefined> = []
   
