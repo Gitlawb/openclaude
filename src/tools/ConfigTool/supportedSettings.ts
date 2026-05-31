@@ -27,6 +27,8 @@ type SettingConfig = {
   validateOnWrite?: (v: unknown) => Promise<{ valid: boolean; error?: string }>
   /** Format value when reading/getting for display */
   formatOnRead?: (v: unknown) => unknown
+  /** Whether setting value "default" should delete the key and restore the default */
+  clearable?: boolean
 }
 
 export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
@@ -62,8 +64,9 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
   compactModel: {
     source: 'global',
     type: 'string',
-    description: 'Model used for compaction (defaults to main model)',
+    description: 'Model used for compaction (defaults to main model); set "default" to clear',
     validateOnWrite: async (v: unknown) => validateModel(v as string),
+    clearable: true,
   },
   autoMemoryEnabled: {
     source: 'settings',

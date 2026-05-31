@@ -179,6 +179,39 @@ export const ConfigTool = buildTool({
       }
     }
 
+    // Handle "default" for clearable settings — delete the key to restore the built-in default.
+    if (
+      config.clearable &&
+      typeof value === 'string' &&
+      value.toLowerCase().trim() === 'default'
+    ) {
+      const key = path[0]
+      if (!key) {
+        return {
+          data: {
+            success: false,
+            operation: 'set',
+            setting,
+            error: 'Invalid setting path',
+          },
+        }
+      }
+      saveGlobalConfig(prev => {
+        if (!(key in prev)) return prev
+        const next = { ...prev }
+        delete (next as Record<string, unknown>)[key]
+        return next
+      })
+      return {
+        data: {
+          success: true,
+          operation: 'set',
+          setting,
+          value: null,
+        },
+      }
+    }
+
     let finalValue: unknown = value
 
     // Coerce and validate boolean values

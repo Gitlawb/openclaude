@@ -1265,10 +1265,10 @@ async function streamCompactSummary({
       let response: AssistantMessage | undefined
       context.setResponseLength?.(() => 0)
 
-      // Check if tool search is enabled using the main loop's tools list.
+      // Check if tool search is enabled using the model that will actually compact.
       // context.options.tools includes MCP tools merged via useMergedTools.
       const useToolSearch = await isToolSearchEnabled(
-        context.options.mainLoopModel,
+        compactModel,
         context.options.tools,
         async () => appState.toolPermissionContext,
         context.options.agentDefinitions.activeAgents,
