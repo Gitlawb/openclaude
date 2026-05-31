@@ -22,9 +22,3 @@ __pycache__/
 .pytest_cache/
 agent.log
 plan/
-.tmp
-.tmp-*
-temp_reference/
-
-# openlore analysis artifacts
-.openlore/
