@@ -22,6 +22,7 @@ export type TurnType = 'afterRoutineTool' | 'normalTurn' | 'complexTurn'
 
 export type LocalThinkingConfig = {
   backend?: LocalBackend
+  endpoint?: string
   budgetTokens: Record<TurnType, number>
   complexKeywords: string[]
   maxRoutineResultTokens?: number
@@ -169,6 +170,7 @@ export function resolveLocalThinkingConfig(
   const b = config.budgetTokens ?? {}
   return {
     backend: config.backend,
+    endpoint: config.endpoint,
     budgetTokens: {
       afterRoutineTool: b.afterRoutineTool ?? DEFAULT_BUDGET_TOKENS.afterRoutineTool,
       normalTurn: b.normalTurn ?? DEFAULT_BUDGET_TOKENS.normalTurn,
@@ -185,18 +187,26 @@ export function resolveLocalThinkingConfig(
 /**
  * Decide whether the local thinking budget applies to this request.
  *
- * An explicit `backend` is a deliberate "this is a local backend" opt-in, so it
- * bypasses URL-based auto-detection — covering LAN endpoints that don't classify
- * as local (bare hostnames like "mamachine", internal split-horizon DNS like
- * "api.corp.example"). Without an explicit backend we fall back to detecting
- * local endpoints by URL (Ollama on a loopback / RFC1918 / .local host).
+ * Local URLs (loopback / RFC1918 / .local) are always accepted. For non-local
+ * URLs (LAN bare hostnames, split-horizon DNS) the caller must set `endpoint`
+ * in the config to anchor the opt-in to a specific origin — this prevents the
+ * backend-specific field injection from leaking to cloud/OpenAI-compatible
+ * profiles when the user switches away from their local inference endpoint.
  */
 export function shouldApplyLocalThinkingBudget(
   config: LocalThinkingConfig | null,
   baseUrl: string | undefined,
 ): boolean {
   if (!config) return false
-  return config.backend !== undefined || isLocalProviderUrl(baseUrl)
+  if (isLocalProviderUrl(baseUrl)) return true
+  if (config.endpoint && baseUrl) {
+    try {
+      return new URL(config.endpoint).origin === new URL(baseUrl).origin
+    } catch {
+      return false
+    }
+  }
+  return false
 }
 
 let warnedMissingBackend = false

@@ -750,6 +750,16 @@ export const SettingsSchema = lazySchema(() =>
                 'vLLM (they share localhost ports). When omitted, Ollama is ' +
                 'auto-detected; otherwise the feature no-ops with a warning.',
             ),
+          endpoint: z
+            .string()
+            .optional()
+            .describe(
+              'Base URL of the local inference endpoint. Required when the ' +
+                'endpoint is not auto-detected as local (e.g. bare hostnames ' +
+                'like "http://mamachine:8080/v1" or split-horizon DNS). ' +
+                'Anchors the backend opt-in to this specific origin so it ' +
+                'does not apply to other profiles after an endpoint switch.',
+            ),
           budgetTokens: z
             .object({
               afterRoutineTool: z

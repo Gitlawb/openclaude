@@ -67,26 +67,55 @@ describe('resolveLocalThinkingConfig', () => {
 describe('shouldApplyLocalThinkingBudget', () => {
   const withBackend = resolveLocalThinkingConfig({ enabled: true, backend: 'llama.cpp' })
   const noBackend = resolveLocalThinkingConfig({ enabled: true })
+  const withEndpoint = resolveLocalThinkingConfig({
+    enabled: true,
+    backend: 'llama.cpp',
+    endpoint: 'http://mamachine:8080/v1',
+  })
 
   test('returns false when config is null', () => {
     expect(shouldApplyLocalThinkingBudget(null, 'http://localhost:8080/v1')).toBe(false)
   })
 
-  test('explicit backend opts in regardless of URL (bare hostname)', () => {
-    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://mamachine:8080/v1')).toBe(true)
-  })
-
-  test('explicit backend opts in for public-looking split-horizon DNS', () => {
-    expect(shouldApplyLocalThinkingBudget(withBackend, 'https://api.macompanie.pro/v1')).toBe(true)
-  })
-
-  test('no explicit backend falls back to URL detection: local URL passes', () => {
+  test('local URL always applies (loopback)', () => {
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://localhost:8080/v1')).toBe(true)
     expect(shouldApplyLocalThinkingBudget(noBackend, 'http://127.0.0.1:11434/v1')).toBe(true)
   })
 
-  test('no explicit backend + non-local URL does not apply', () => {
+  test('local URL always applies (RFC1918)', () => {
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://192.168.1.10:8080/v1')).toBe(true)
+  })
+
+  test('explicit endpoint matches active baseUrl (bare hostname)', () => {
+    expect(shouldApplyLocalThinkingBudget(withEndpoint, 'http://mamachine:8080/v1')).toBe(true)
+  })
+
+  test('explicit endpoint + different active baseUrl does not apply', () => {
+    expect(shouldApplyLocalThinkingBudget(withEndpoint, 'https://api.openai.com/v1')).toBe(false)
+    expect(
+      shouldApplyLocalThinkingBudget(withEndpoint, 'https://api.macompanie.pro/v1'),
+    ).toBe(false)
+  })
+
+  test('backend only (no endpoint) + non-local URL does not apply', () => {
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'http://mamachine:8080/v1')).toBe(false)
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'https://api.macompanie.pro/v1')).toBe(false)
+    expect(shouldApplyLocalThinkingBudget(withBackend, 'https://api.openai.com/v1')).toBe(false)
+  })
+
+  test('no backend + non-local URL does not apply', () => {
     expect(shouldApplyLocalThinkingBudget(noBackend, 'http://mamachine:8080/v1')).toBe(false)
     expect(shouldApplyLocalThinkingBudget(noBackend, 'https://api.macompanie.pro/v1')).toBe(false)
+  })
+
+  test('split-horizon DNS with matching endpoint applies', () => {
+    const cfg = resolveLocalThinkingConfig({
+      enabled: true,
+      backend: 'vllm',
+      endpoint: 'https://api.corp.example/v1',
+    })
+    expect(shouldApplyLocalThinkingBudget(cfg, 'https://api.corp.example/v1')).toBe(true)
+    expect(shouldApplyLocalThinkingBudget(cfg, 'https://api.openai.com/v1')).toBe(false)
   })
 })
 
