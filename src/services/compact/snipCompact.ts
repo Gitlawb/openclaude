@@ -116,19 +116,61 @@ export function snipCompactIfNeeded(
     }
   }
 
+  // A tool_use block can leave the live context cleanly only if its whole turn
+  // goes with it: either the assistant message is explicitly snipped, or every
+  // tool_use in that assistant turn has its result snipped (so the assistant is
+  // dropped as a paired half). Otherwise the assistant survives and the block
+  // would be orphaned. We track the safely-removable tool_use ids so we can
+  // refuse to snip a tool-result user message that would orphan a surviving
+  // assistant tool_use — block-level surgery on the survivor would not replay
+  // (projectSnippedView drops whole UUIDs, not blocks), so an unclean snip is
+  // treated as a no-op instead.
+  const safeToolUseIds = new Set<string>()
+  for (const msg of messages) {
+    if (msg?.type !== 'assistant') continue
+    const blocks = msg?.message?.content
+    if (!Array.isArray(blocks)) continue
+    const toolUses = (blocks as any[]).filter(b => b?.type === 'tool_use')
+    if (toolUses.length === 0) continue
+    const droppable =
+      uuidsToRemove.has(msg?.uuid) ||
+      toolUses.every((t: any) => snippedResultToolUseIds.has(t?.id))
+    if (droppable) {
+      for (const t of toolUses) if (t?.id) safeToolUseIds.add(t.id as string)
+    }
+  }
+
   let tokensFreed = 0
   const surviving: any[] = []
-  // Messages dropped as the other half of a snipped tool interaction (paired
-  // tool-result users, or paired assistant tool-uses). They leave the live
-  // context here, so they must also be recorded in the boundary's removedUuids —
-  // otherwise replay (projectSnippedView / loadTranscriptFile) only drops the
-  // explicitly-marked messages and resurrects the orphaned half on --resume.
-  const removedPairedUuids = new Set<UUID>()
+  // UUIDs actually removed from the live context: explicitly-snipped messages
+  // that were cleanly removable, plus the paired half of each snipped tool
+  // interaction (paired tool-result users, or paired assistant tool-uses). They
+  // leave the live context here, so they must also be recorded in the boundary's
+  // removedUuids — otherwise replay (projectSnippedView / loadTranscriptFile)
+  // only drops the explicitly-marked messages and resurrects the orphaned half
+  // on --resume.
+  const removedUuids = new Set<UUID>()
 
   for (const msg of messages) {
     // Drop snipped messages
     if (uuidsToRemove.has(msg?.uuid)) {
+      // Refuse to snip a tool-result user message when any of its results pairs
+      // to a tool_use that would survive (its assistant turn is not fully
+      // removed). Removing it would leave the assistant holding an orphaned
+      // tool_use, which the next API-prep pass repairs with a synthetic
+      // placeholder, so the snip would not actually take effect. Keep it.
+      if (msg?.type === 'user' && Array.isArray(msg?.message?.content)) {
+        const results = (msg.message.content as any[]).filter(b => b?.type === 'tool_result')
+        if (
+          results.length > 0 &&
+          !results.every((r: any) => safeToolUseIds.has(r?.tool_use_id))
+        ) {
+          surviving.push(msg)
+          continue
+        }
+      }
       tokensFreed += estimateTokens(msg)
+      if (msg?.uuid) removedUuids.add(msg.uuid as UUID)
       continue
     }
     // Drop user messages whose content is entirely tool results for snipped tool calls
@@ -139,7 +181,7 @@ export function snipCompactIfNeeded(
         results.every((r: any) => snippedToolUseIds.has(r?.tool_use_id))
       ) {
         tokensFreed += estimateTokens(msg)
-        if (msg?.uuid) removedPairedUuids.add(msg.uuid as UUID)
+        if (msg?.uuid) removedUuids.add(msg.uuid as UUID)
         continue
       }
     }
@@ -153,11 +195,17 @@ export function snipCompactIfNeeded(
         toolUses.every((t: any) => snippedResultToolUseIds.has(t?.id))
       ) {
         tokensFreed += estimateTokens(msg)
-        if (msg?.uuid) removedPairedUuids.add(msg.uuid as UUID)
+        if (msg?.uuid) removedUuids.add(msg.uuid as UUID)
         continue
       }
     }
     surviving.push(msg)
+  }
+
+  // If nothing was cleanly removable, the snip is a no-op — emit no boundary so
+  // replay and the live store stay identical.
+  if (removedUuids.size === 0) {
+    return { messages, tokensFreed: 0 }
   }
 
   const boundaryMessage = {
@@ -169,10 +217,10 @@ export function snipCompactIfNeeded(
     uuid: randomUUID() as UUID,
     level: 'info' as const,
     snipMetadata: {
-      // Every UUID removed from the live context: explicitly-snipped messages
-      // plus the paired half of each snipped tool interaction. Replay must drop
-      // the same set.
-      removedUuids: [...uuidsToRemove, ...removedPairedUuids] as UUID[],
+      // Every UUID removed from the live context: cleanly-removable explicitly-
+      // snipped messages plus the paired half of each snipped tool interaction.
+      // Replay must drop the same set.
+      removedUuids: [...removedUuids] as UUID[],
     },
   }
 

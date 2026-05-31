@@ -168,11 +168,16 @@ describe('snipCompactIfNeeded', () => {
     expect(removed).toContain(assistantUuid)
   })
 
-  test('keeps an assistant message when only some of its tool results are snipped', () => {
+  test('does not snip a tool result when its paired assistant tool_use would survive', () => {
     // An assistant turn with two tool calls whose results land in two separate
-    // user messages: snipping one result must NOT drop the assistant (that would
-    // orphan the other, un-snipped result). Mirrors the .every() safety of the
-    // assistant->user direction.
+    // user messages: snipping only one result cannot cleanly remove the tool
+    // interaction. The assistant's other tool call still has a live result, so
+    // the assistant must stay; but dropping just resultA would leave the assistant
+    // holding tu-A with no matching result, which the next API-prep pass "repairs"
+    // with a synthetic placeholder (so the snip never actually takes effect).
+    // Block-level surgery on the assistant would not survive --resume replay
+    // (projectSnippedView drops whole UUIDs, not blocks). So this is a no-op:
+    // resultA is kept and nothing is recorded as snipped.
     const assistantUuid = 'aaaa0070-0000-0000-0000-000000000070'
     const resultAUuid = 'bbbb0071-0000-0000-0000-000000000071'
     const resultBUuid = 'cccc0072-0000-0000-0000-000000000072'
@@ -196,9 +201,12 @@ describe('snipCompactIfNeeded', () => {
     const messages = [assistantMsg, resultA, resultB]
     markForSnip([deriveShortMessageId(resultAUuid)], messages)
     const result = snipCompactIfNeeded(messages)
+    // Nothing is removed: the interaction can't be cleanly snipped.
     expect(result.messages.map((m: any) => m.uuid)).toContain(assistantUuid)
     expect(result.messages.map((m: any) => m.uuid)).toContain(resultBUuid)
-    expect(result.messages.map((m: any) => m.uuid)).not.toContain(resultAUuid)
+    expect(result.messages.map((m: any) => m.uuid)).toContain(resultAUuid)
+    expect(result.tokensFreed).toBe(0)
+    expect(result.boundaryMessage).toBeUndefined()
   })
 
   test('pending snips are scoped per conversation by resolved UUID', () => {
