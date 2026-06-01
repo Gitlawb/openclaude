@@ -225,6 +225,7 @@ function logManagedSettings(): void {
     }
   } catch {
     // Silently ignore errors - this is just for analytics
+    logForDebugging('[main] logManagedSettings failed', { level: 'debug' })
   }
 }
 
@@ -267,6 +268,7 @@ if ("external" !== 'ant' && isBeingDebugged()) {
   // Use process.exit directly here since we're in the top-level code before imports
   // and gracefulShutdown is not yet available
   // eslint-disable-next-line custom-rules/no-top-level-side-effects
+  process.stderr.write('[openclaude] Debugger detected. Attaching a debugger is not supported in external builds. Exiting.\n')
   process.exit(1);
 }
 
@@ -346,8 +348,12 @@ function runMigrations(): void {
     });
   }
   // Async migration - fire and forget since it's non-blocking
-  migrateChangelogFromConfig().catch(() => {
-    // Silently ignore migration errors - will retry on next startup
+  migrateChangelogFromConfig().catch(error => {
+    logError(
+      new Error('Changelog migration failed; will retry on next startup', {
+        cause: error,
+      }),
+    )
   });
 }
 
@@ -364,7 +370,7 @@ function prefetchSystemContextIfSafe(): void {
   // execution is considered trusted (as documented in help text)
   if (isNonInteractiveSession) {
     logForDiagnosticsNoPII('info', 'prefetch_system_context_non_interactive');
-    void getSystemContext();
+    void getSystemContext().catch(logError);
     return;
   }
 
@@ -372,7 +378,7 @@ function prefetchSystemContextIfSafe(): void {
   const hasTrust = checkHasTrustDialogAccepted();
   if (hasTrust) {
     logForDiagnosticsNoPII('info', 'prefetch_system_context_has_trust');
-    void getSystemContext();
+    void getSystemContext().catch(logError);
   } else {
     logForDiagnosticsNoPII('info', 'prefetch_system_context_skipped_no_trust');
   }
@@ -1904,7 +1910,7 @@ async function run(): Promise<CommanderCommand> {
       // a cache hit. The microtask from await getIsGit() drains at the
       // getCommands Promise.all await below. Trust is implicit in -p mode
       // (same gate as prefetchSystemContextIfSafe).
-      void getSystemContext();
+      void getSystemContext().catch(logError);
       // Kick getUserContext now too — its first await (fs.readFile in
       // getMemoryFiles) yields naturally, so the CLAUDE.md directory walk
       // runs during the ~280ms overlap window before the context
