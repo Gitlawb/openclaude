@@ -5,7 +5,7 @@ export default defineVendor({
   label: 'MiniMax',
   classification: 'native',
   defaultBaseUrl: 'https://api.minimax.io/anthropic',
-  defaultModel: 'MiniMax-M2.7',
+  defaultModel: 'MiniMax-M3',
   requiredEnvVars: ['MINIMAX_API_KEY'],
   setup: {
     requiresAuth: true,

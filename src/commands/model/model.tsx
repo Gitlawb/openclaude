@@ -19,6 +19,7 @@ import {
 } from '../../integrations/discoveryService.js'
 import {
   getRouteDescriptor,
+  isNativeVendorCatalogRoute,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -134,6 +135,26 @@ export function mergeActiveProfileModelOptions(
   const profileOptions = getProfileModelOptions(activeProfile)
   if (profileOptions.length === 0) {
     return routeOptions
+  }
+
+  // Native vendor routes ship a complete curated catalog, so show every
+  // catalogued model (e.g. all MiniMax models including M3) rather than
+  // collapsing to the single model pinned in the profile. Any profile-only
+  // models not present in the catalog are appended so custom entries survive.
+  if (isNativeVendorCatalogRoute(routeId)) {
+    const catalogKeys = new Set(
+      routeOptions.flatMap(option =>
+        typeof option.value === 'string'
+          ? [option.value.trim().toLowerCase()]
+          : [],
+      ),
+    )
+    const extraProfileModels = profileOptions.filter(option => {
+      const value =
+        typeof option.value === 'string' ? option.value.trim().toLowerCase() : ''
+      return value !== '' && !catalogKeys.has(value)
+    })
+    return [...routeOptions, ...extraProfileModels]
   }
 
   const routeOptionsByValue = new Map(

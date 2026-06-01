@@ -5,14 +5,18 @@
 
 import type { ModelOption } from './modelOptions.js'
 import { getAPIProvider } from './providers.js'
+import { getMiniMaxBaseUrlOverride } from '../../integrations/routeMetadata.js'
 import { isEnvTruthy } from '../envUtils.js'
 
 export function isMiniMaxProvider(): boolean {
   if (isEnvTruthy(process.env.MINIMAX_API_KEY)) {
     return true
   }
-  const baseUrl = process.env.OPENAI_BASE_URL ?? ''
-  if (baseUrl.includes('minimax')) {
+  // MiniMax runs over the anthropic-proxy transport, so the active base URL can
+  // arrive via ANTHROPIC_BASE_URL (not just OPENAI_BASE_URL). Reuse the shared
+  // host matcher so the model picker recognises every configured MiniMax base
+  // URL even when MINIMAX_API_KEY isn't exported into the environment.
+  if (getMiniMaxBaseUrlOverride(process.env) !== undefined) {
     return true
   }
   return getAPIProvider() === 'minimax'

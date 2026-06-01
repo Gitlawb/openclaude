@@ -344,6 +344,47 @@ test('descriptor model options omit route defaults outside active profile models
   ])
 })
 
+test('native vendor routes show the full catalog regardless of the profile model', async () => {
+  const activeProfile = {
+    id: 'minimax-profile',
+    name: 'MiniMax',
+    provider: 'minimax',
+    baseUrl: 'https://api.minimax.io/anthropic',
+    model: 'MiniMax-M2.7',
+    apiKey: 'sk-minimax',
+  }
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+    getProfileModelOptions: () => [
+      {
+        value: 'MiniMax-M2.7',
+        label: 'MiniMax-M2.7',
+        description: 'Provider: MiniMax',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  }))
+
+  const { mergeActiveProfileModelOptions } =
+    await importFreshModelModule('native-vendor-full-catalog')
+
+  const routeOptions = [
+    { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: '256K context' },
+    { value: 'MiniMax-M3', label: 'MiniMax M3', description: '1M context' },
+  ]
+
+  const merged = mergeActiveProfileModelOptions('minimax', routeOptions)
+  const values = merged.map(option => option.value)
+
+  // The whole catalog stays selectable — not just the profile's pinned model.
+  expect(values).toContain('MiniMax-M2.7')
+  expect(values).toContain('MiniMax-M3')
+})
+
 test('descriptor model options skip saved profile models for env-selected routes', async () => {
   const savedProfile = {
     id: 'mistral-profile',
