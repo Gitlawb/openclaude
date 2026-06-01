@@ -2730,11 +2730,19 @@ class OpenAIShimMessages {
         // stream_options: { include_usage: true } and can be extracted from the stream.
         if (!params.stream) {
           try {
-            const clone = response.clone()
-            const data = await clone.json()
+            const bodyText = await response.text()
+            // Recreate the response immediately after reading the body, before
+            // JSON.parse — if parsing fails, downstream code can still read the
+            // body from the fresh Response instead of hitting "Body already used".
+            response = new Response(bodyText, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+            })
+            const data = JSON.parse(bodyText)
             tokensIn = data.usage?.prompt_tokens ?? 0
             tokensOut = data.usage?.completion_tokens ?? 0
-          } catch { /* ignore */ }
+          } catch { /* ignore — response is already recreated with the body intact */ }
         }
         logApiCallEnd(correlationId, startTime, request.resolvedModel, 'success', tokensIn, tokensOut, false)
         return response
