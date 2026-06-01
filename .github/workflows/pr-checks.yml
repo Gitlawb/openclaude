@@ -39,11 +39,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Smoke check
-        run: bun run smoke
-
-      - name: Full unit test suite
-        run: bun test --max-concurrency=1
+      - name: Smoke and full unit test suite
+        run: bun run check
 
       - name: Install Python test dependencies
         run: python -m pip install -r python/requirements.txt
@@ -52,7 +49,10 @@ jobs:
         run: python -m pytest -q python/tests
 
       - name: Suspicious PR intent scan
-        run: bun run security:pr-scan -- --base ${{ github.event.pull_request.base.sha || 'origin/main' }}
+        env:
+          PR_SCAN_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/main' }}
+          PR_SCAN_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'HEAD' }}
+        run: bun run security:pr-scan -- --base "$PR_SCAN_BASE" --head "$PR_SCAN_HEAD"
       - name: Provider tests
         run: bun run test:provider
 
