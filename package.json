@@ -166,6 +166,7 @@
     "access": "public"
   },
   "overrides": {
-    "lodash-es": "4.18.1"
+    "lodash-es": "4.18.1",
+    "google-auth-library": "^10.6.2"
   }
 }
