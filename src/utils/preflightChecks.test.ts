@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from 'bun:test'
+import axios from 'axios'
 import React from 'react'
 
 import {
@@ -28,6 +29,7 @@ type TestStdin = PassThrough & {
 }
 
 const originalProcessExit = process.exit
+const originalAxiosGet = axios.get
 
 function createTestStreams(): {
   stdout: PassThrough
@@ -100,6 +102,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     process.exit = originalProcessExit
+    axios.get = originalAxiosGet
     jest.restoreAllMocks()
     jest.useRealTimers()
     mock.restore()
@@ -111,18 +114,13 @@ afterEach(() => {
 describe('checkEndpoints (preflight)', () => {
   test('passes a bounded timeout to axios so a hung probe cannot freeze onboarding (#1017)', async () => {
     const calls: Array<{ url: string; options: { timeout?: number } }> = []
-    mock.module('axios', () => ({
-      default: {
-        get: async (
-          url: string,
-          options: { timeout?: number } = {},
-        ): Promise<{ status: number }> => {
-          calls.push({ url, options })
-          return { status: 200 }
-        },
-        isAxiosError: () => false,
-      },
-    }))
+    axios.get = mock(async (
+      url: string,
+      options: { timeout?: number } = {},
+    ): Promise<{ status: number }> => {
+      calls.push({ url, options })
+      return { status: 200 }
+    }) as typeof axios.get
 
     const { checkEndpoints, PREFLIGHT_REQUEST_TIMEOUT_MS } = await import(
       './preflightChecks.js'
@@ -140,18 +138,13 @@ describe('checkEndpoints (preflight)', () => {
   })
 
   test('returns a failure result (instead of throwing or hanging) when axios rejects with ECONNABORTED', async () => {
-    mock.module('axios', () => ({
-      default: {
-        get: async (): Promise<never> => {
-          const err = new Error('timeout of 5000ms exceeded') as Error & {
-            code?: string
-          }
-          err.code = 'ECONNABORTED'
-          throw err
-        },
-        isAxiosError: () => false,
-      },
-    }))
+    axios.get = mock(async (): Promise<never> => {
+      const err = new Error('timeout of 5000ms exceeded') as Error & {
+        code?: string
+      }
+      err.code = 'ECONNABORTED'
+      throw err
+    }) as typeof axios.get
 
     const { checkEndpoints } = await import('./preflightChecks.js')
 
@@ -163,12 +156,9 @@ describe('checkEndpoints (preflight)', () => {
   })
 
   test('returns success when all probes return 200', async () => {
-    mock.module('axios', () => ({
-      default: {
-        get: async (): Promise<{ status: number }> => ({ status: 200 }),
-        isAxiosError: () => false,
-      },
-    }))
+    axios.get = mock(async (): Promise<{ status: number }> => ({
+      status: 200,
+    })) as typeof axios.get
 
     const { checkEndpoints } = await import('./preflightChecks.js')
 
@@ -190,19 +180,14 @@ describe('checkEndpoints (preflight)', () => {
     mock.module('../hooks/useTimeout.js', () => ({
       useTimeout: () => false,
     }))
-    mock.module('axios', () => ({
-      default: {
-        get: async (): Promise<never> => {
-          probeCalls++
-          const err = new Error('timeout of 5000ms exceeded') as Error & {
-            code?: string
-          }
-          err.code = 'ECONNABORTED'
-          throw err
-        },
-        isAxiosError: () => false,
-      },
-    }))
+    axios.get = mock(async (): Promise<never> => {
+      probeCalls++
+      const err = new Error('timeout of 5000ms exceeded') as Error & {
+        code?: string
+      }
+      err.code = 'ECONNABORTED'
+      throw err
+    }) as typeof axios.get
 
     const { createRoot } = await import('../ink.js')
     const { PreflightStep, PREFLIGHT_ERROR_HOLD_MS } = await import(
