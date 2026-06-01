@@ -94,12 +94,27 @@ export async function findSuitableShell(): Promise<string> {
   const isEnvShellSupported =
     env_shell && (env_shell.includes('bash') || env_shell.includes('zsh'))
   const preferBash = env_shell?.includes('bash')
+  const isWindows = process.platform === 'win32'
 
   // Try to locate shells using which (uses Bun.which when available)
   const [zshPath, bashPath] = await Promise.all([which('zsh'), which('bash')])
 
-  // Populate shell paths from which results and fallback locations
-  const shellPaths = ['/bin', '/usr/bin', '/usr/local/bin', '/opt/homebrew/bin']
+  // Populate shell paths from which results and fallback locations. On Windows,
+  // prefer Git Bash over the Windows/WSL bash launcher, which can exist even
+  // when WSL cannot start a shell in the current environment.
+  const shellPaths =
+    isWindows
+      ? [
+          'C:/Program Files/Git/bin',
+          'C:/Program Files/Git/usr/bin',
+          'C:/Program Files (x86)/Git/bin',
+          'C:/Program Files (x86)/Git/usr/bin',
+          '/bin',
+          '/usr/bin',
+          '/usr/local/bin',
+          '/opt/homebrew/bin',
+        ]
+      : ['/bin', '/usr/bin', '/usr/local/bin', '/opt/homebrew/bin']
 
   // Order shells based on user preference
   const shellOrder = preferBash ? ['bash', 'zsh'] : ['zsh', 'bash']
@@ -110,7 +125,13 @@ export async function findSuitableShell(): Promise<string> {
   // Add discovered paths to the beginning of our search list
   // Put the user's preferred shell type first
   if (preferBash) {
-    if (bashPath) supportedShells.unshift(bashPath)
+    if (bashPath) {
+      if (isWindows) {
+        supportedShells.push(bashPath)
+      } else {
+        supportedShells.unshift(bashPath)
+      }
+    }
     if (zshPath) supportedShells.push(zshPath)
   } else {
     if (zshPath) supportedShells.unshift(zshPath)

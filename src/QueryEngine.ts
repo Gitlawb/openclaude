@@ -34,6 +34,7 @@ import { loadMemoryPrompt } from './memdir/memdir.js'
 import { hasAutoMemPathOverride } from './memdir/paths.js'
 import { query } from './query.js'
 import { categorizeRetryableAPIError } from './services/api/errors.js'
+import type { AutoCompactTrackingState } from './services/compact/autoCompact.js'
 import type { MCPServerConnection } from './services/mcp/types.js'
 import type { AppState } from './state/AppState.js'
 import { type Tools, type ToolUseContext, toolMatchesName } from './Tool.js'
@@ -62,7 +63,11 @@ import {
 import { headlessProfilerCheckpoint } from './utils/headlessProfiler.js'
 import { registerStructuredOutputEnforcement } from './utils/hooks/hookHelpers.js'
 import { getInMemoryErrors } from './utils/log.js'
-import { countToolCalls, SYNTHETIC_MESSAGES } from './utils/messages.js'
+import {
+  countToolCalls,
+  isCompactBoundaryMessage,
+  SYNTHETIC_MESSAGES,
+} from './utils/messages.js'
 import {
   getMainLoopModel,
   parseUserSpecifiedModel,
@@ -187,6 +192,7 @@ export class QueryEngine {
   private totalUsage: NonNullableUsage
   private hasHandledOrphanedPermission = false
   private readFileState: FileStateCache
+  private autoCompactTracking: AutoCompactTrackingState | undefined
   // Turn-scoped skill discovery tracking (feeds was_discovered on
   // tengu_skill_tool_invocation). Must persist across the two
   // processUserInputContext rebuilds inside submitMessage, but is cleared
@@ -427,6 +433,9 @@ export class QueryEngine {
 
     // Push new messages, including user input and any attachments
     this.mutableMessages.push(...messagesFromUserInput)
+    if (messagesFromUserInput.some(isCompactBoundaryMessage)) {
+      this.autoCompactTracking = undefined
+    }
 
     // Update params to reflect updates from processing /slash commands
     const messages = [...this.mutableMessages]
@@ -681,6 +690,10 @@ export class QueryEngine {
       querySource: 'sdk',
       maxTurns,
       taskBudget,
+      autoCompactTracking: this.autoCompactTracking,
+      onAutoCompactTrackingChange: tracking => {
+        this.autoCompactTracking = tracking
+      },
     })) {
       // Record assistant, user, and compact boundary messages
       if (

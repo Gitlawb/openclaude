@@ -32,7 +32,6 @@ const originalProviderEnv = Object.fromEntries(
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
 
-
 function id(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 }
@@ -85,7 +84,9 @@ afterEach(async () => {
         process.env[key] = value
       }
     }
-    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+    await Promise.all(
+      tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
+    )
   } finally {
     releaseSharedMutationLock()
   }
@@ -172,10 +173,24 @@ test('deserializeMessages preserves thinking blocks for GitHub native Claude tra
   expect(content.some(block => block.type === 'thinking')).toBe(true)
 })
 
+test('deserializeMessages strips dangerous permission modes from rewindable user messages', async () => {
+  clearProviderEnv()
+  const { deserializeMessages } = await importFreshConversationRecovery()
+
+  const deserialized = deserializeMessages([
+    {
+      ...user(id(3), 'run it'),
+      permissionMode: 'fullAccess',
+    } as any,
+  ])
+
+  expect((deserialized[0] as any)?.permissionMode).toBeUndefined()
+})
+
 test('deserializeMessages preserves thinking blocks for DeepSeek 3P provider (#957)', async () => {
   // Regression: DeepSeek requires `reasoning_content` echoed back on assistant
   // messages in thinking mode. The shim reads the thinking block to populate
-  // that field — stripping it on resume left the shim with no source and the
+  // that field; stripping it on resume left the shim with no source and the
   // provider 400'd ("reasoning_content in the thinking mode must be passed
   // back"). preserveReasoningContent: true (from runtimeMetadata's DeepSeek
   // shim config inference) must opt the provider out of the 3P thinking strip.
@@ -206,7 +221,7 @@ test('deserializeMessages preserves thinking blocks for DeepSeek 3P provider (#9
 
 test('deserializeMessages still strips thinking blocks for generic OpenAI 3P (no preserveReasoningContent)', async () => {
   // Counter-test: providers that don't set preserveReasoningContent keep the
-  // original strip behaviour from #248 — thinking blocks were causing 400s
+  // original strip behaviour from #248; thinking blocks were causing 400s
   // there, and the fix for #957 must not regress that path.
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

@@ -904,6 +904,24 @@ export function hasSkipDangerousModePermissionPrompt(): boolean {
 }
 
 /**
+ * Returns true if any trusted settings source has accepted the full access
+ * mode dialog. This is intentionally separate from bypass permissions because
+ * fullAccess skips an additional hard safety-check layer.
+ */
+export function hasSkipFullAccessModePermissionPrompt(): boolean {
+  return !!(
+    getSettingsForSource('userSettings')
+      ?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('localSettings')
+      ?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('flagSettings')
+      ?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('policySettings')
+      ?.skipFullAccessModePermissionPrompt
+  )
+}
+
+/**
  * Returns true if any trusted settings source has enabled bypass permissions
  * mode availability. projectSettings is intentionally excluded — a malicious
  * project could otherwise enable bypass mode (security risk).

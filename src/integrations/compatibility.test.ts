@@ -41,6 +41,8 @@ const EXPECTED_PRESETS = [
   'bankr',
   'atomic-chat',
   'gitlawb-opengateway',
+  'opencode',
+  'opencode-go',
 ] as const satisfies readonly ProviderPreset[]
 
 describe('compatibility mappings', () => {

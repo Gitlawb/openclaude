@@ -130,6 +130,8 @@ const PRESET_ORDER = [
   'Moonshot AI - Kimi Code',
   'NVIDIA NIM',
   'OpenAI',
+  'OpenCode Go',
+  'OpenCode Zen',
   'OpenRouter',
   'Together AI',
   'Venice',
@@ -300,14 +302,18 @@ function mockProviderManagerDependencies(
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
     useCodexOAuthFlow?: (options: {
-      onAuthenticated: (tokens: {
-        accessToken: string
-        refreshToken: string
-        accountId?: string
-        idToken?: string
-        apiKey?: string
-      }, persistCredentials: (options?: { profileId?: string }) => void) =>
-        void | Promise<void>
+      onAuthenticated: (
+        tokens: {
+          accessToken: string
+          refreshToken: string
+          accountId?: string
+          idToken?: string
+          apiKey?: string
+        },
+        persistCredentials: (options?: {
+          profileId?: string
+        }) => { warning?: string } | void,
+      ) => void | Promise<void>
     }) => {
       state: 'starting' | 'waiting' | 'error'
       authUrl?: string
@@ -1487,6 +1493,96 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
       action: 'saved',
       message:
         'Codex OAuth configured. OpenClaude switched to it for this session.',
+    }),
+  )
+
+  await mounted.dispose()
+})
+
+test('ProviderManager first-run Codex OAuth surfaces credential storage warnings', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const onDone = mock(() => {})
+  const applySavedProfileToCurrentSession = mock(async () => null)
+  const persistCredentials = mock(() => ({
+    warning: 'Warning: Storing credentials in plaintext.',
+  }))
+  const setActiveProviderProfile = mock((profileId: string) => ({
+    id: profileId,
+    provider: 'openai',
+    name: 'Codex OAuth',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    model: 'codexplan',
+    apiKey: '',
+  }))
+  const addProviderProfile = mock((payload: {
+    provider: string
+    name: string
+    baseUrl: string
+    model: string
+    apiKey?: string
+  }) => ({
+    id: 'provider_codex_oauth',
+    provider: payload.provider,
+    name: payload.name,
+    baseUrl: payload.baseUrl,
+    model: payload.model,
+    apiKey: payload.apiKey,
+  }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+      applySavedProfileToCurrentSession,
+      setActiveProviderProfile,
+      useCodexOAuthFlow: ({ onAuthenticated }) => {
+        React.useEffect(() => {
+          void onAuthenticated({
+            accessToken: 'oauth-access-token',
+            refreshToken: 'oauth-refresh-token',
+            accountId: 'acct_oauth',
+          }, persistCredentials)
+        }, [onAuthenticated])
+
+        return {
+          state: 'waiting',
+          authUrl: 'https://chatgpt.com/codex',
+          browserOpened: true,
+        }
+      },
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => onDone.mock.calls.length > 0)
+
+  expect(persistCredentials).toHaveBeenCalledWith({
+    profileId: 'provider_codex_oauth',
+  })
+  expect(onDone).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'saved',
+      message:
+        'Codex OAuth configured. OpenClaude switched to it for this session with warnings: Warning: Storing credentials in plaintext.',
     }),
   )
 

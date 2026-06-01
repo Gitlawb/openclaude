@@ -326,6 +326,12 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
       }
     }
 
+    if (catalog.source === 'dynamic' && (catalog.models?.length ?? 0) > 0) {
+      errors.push(
+        `Dynamic catalog for route "${route.id}" must use source "hybrid" when declaring curated models`,
+      )
+    }
+
     // Multiple defaults check
     if (defaultCount > 1) {
       warnings.push(`Route "${route.id}" has ${defaultCount} default catalog entries`)

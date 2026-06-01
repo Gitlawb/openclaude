@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { hasProfileScope, isClaudeAISubscriber } from '../../utils/auth.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
+import { getAPIProvider } from '../../utils/model/providers.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
 import { getAuthHeaders, withOAuth401Retry } from '../../utils/http.js'
@@ -31,6 +32,11 @@ const DISK_CACHE_TTL_MS = 24 * 60 * 60 * 1000
  * This is wrapped by memoizeWithTTLAsync to add caching behavior
  */
 async function _fetchMetricsEnabled(): Promise<MetricsEnabledResponse> {
+  // Third-party providers should not call Anthropic's metrics endpoint.
+  if (getAPIProvider() !== 'firstParty') {
+    return { metrics_logging_enabled: false }
+  }
+
   const authResult = getAuthHeaders()
   if (authResult.error) {
     throw new Error(`Auth error: ${authResult.error}`)
@@ -126,6 +132,12 @@ async function refreshMetricsStatus(): Promise<MetricsStatus> {
  * an extra one during the 24h window is acceptable.
  */
 export async function checkMetricsEnabled(): Promise<MetricsStatus> {
+  // Third-party providers never use Anthropic metrics. Short-circuit before
+  // disk cache so a stale first-party `enabled: true` entry cannot leak.
+  if (getAPIProvider() !== 'firstParty') {
+    return { enabled: false, hasError: false }
+  }
+
   // Service key OAuth sessions lack user:profile scope → would 403.
   // API key users (non-subscribers) fall through and use x-api-key auth.
   // This check runs before the disk read so we never persist auth-state-derived
