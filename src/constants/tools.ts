@@ -32,6 +32,10 @@ import {
   CRON_DELETE_TOOL_NAME,
   CRON_LIST_TOOL_NAME,
 } from '../tools/ScheduleCronTool/prompt.js'
+import { TEST_RUNNER_TOOL_NAME } from '../tools/TestRunnerTool/constants.js'
+import { GIT_ANALYSIS_TOOL_NAME } from '../tools/GitAnalysisTool/constants.js'
+import { DEPENDENCY_TOOL_NAME } from '../tools/DependencyTool/constants.js'
+import { CODE_ANALYSIS_TOOL_NAME } from '../tools/CodeAnalysisTool/constants.js'
 
 export const ALL_AGENT_DISALLOWED_TOOLS = new Set([
   TASK_OUTPUT_TOOL_NAME,
@@ -66,6 +70,8 @@ export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
   TOOL_SEARCH_TOOL_NAME,
   ENTER_WORKTREE_TOOL_NAME,
   EXIT_WORKTREE_TOOL_NAME,
+  GIT_ANALYSIS_TOOL_NAME,
+  CODE_ANALYSIS_TOOL_NAME,
 ])
 /**
  * Tools allowed only for in-process teammates (not general async agents).

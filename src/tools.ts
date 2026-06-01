@@ -72,6 +72,10 @@ import { TaskCreateTool } from './tools/TaskCreateTool/TaskCreateTool.js'
 import { TaskGetTool } from './tools/TaskGetTool/TaskGetTool.js'
 import { TaskUpdateTool } from './tools/TaskUpdateTool/TaskUpdateTool.js'
 import { TaskListTool } from './tools/TaskListTool/TaskListTool.js'
+import { TestRunnerTool } from './tools/TestRunnerTool/TestRunnerTool.js'
+import { GitAnalysisTool } from './tools/GitAnalysisTool/GitAnalysisTool.js'
+import { DependencyTool } from './tools/DependencyTool/DependencyTool.js'
+import { CodeAnalysisTool } from './tools/CodeAnalysisTool/CodeAnalysisTool.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { isToolSearchEnabledOptimistic } from './utils/toolSearch.js'
 import { isTodoV2Enabled } from './utils/tasks.js'
@@ -210,11 +214,11 @@ export function getAllBaseTools(): Tools {
     ...(TerminalCaptureTool ? [TerminalCaptureTool] : []),
     LSPTool,
     ...(isWorktreeModeEnabled() ? [EnterWorktreeTool, ExitWorktreeTool] : []),
-    // Use filter(Boolean) to handle case where getter might return null/undefined
-    ...(getSendMessageTool() ? [getSendMessageTool()] : []),
+    // Cache getter results to avoid double-invocation of lazy require()
+    ...(() => { const smt = getSendMessageTool(); return smt ? [smt] : [] })(),
     ...(ListPeersTool ? [ListPeersTool] : []),
     ...(isAgentSwarmsEnabled()
-      ? [getTeamCreateTool(), getTeamDeleteTool()].filter(Boolean)
+      ? (() => { const tct = getTeamCreateTool(); const tdt = getTeamDeleteTool(); return [tct, tdt].filter(Boolean) })()
       : []),
     ...(VerifyPlanExecutionTool ? [VerifyPlanExecutionTool] : []),
     ...(process.env.USER_TYPE === 'ant' && REPLTool ? [REPLTool] : []),
@@ -224,10 +228,14 @@ export function getAllBaseTools(): Tools {
     ...(RemoteTriggerTool ? [RemoteTriggerTool] : []),
     ...(MonitorTool ? [MonitorTool] : []),
     BriefTool,
+    TestRunnerTool,
+    GitAnalysisTool,
+    DependencyTool,
+    CodeAnalysisTool,
     ...(SendUserFileTool ? [SendUserFileTool] : []),
     ...(PushNotificationTool ? [PushNotificationTool] : []),
     ...(SubscribePRTool ? [SubscribePRTool] : []),
-    ...(getPowerShellTool() ? [getPowerShellTool()] : []),
+    ...(() => { const pst = getPowerShellTool(); return pst ? [pst] : [] })(),
     ...(SnipTool ? [SnipTool] : []),
     ...(process.env.NODE_ENV === 'test' ? [TestingPermissionTool] : []),
     ListMcpResourcesTool,
@@ -382,5 +390,5 @@ export function getMergedTools(
   mcpTools: Tools,
 ): Tools {
   const builtInTools = getTools(permissionContext)
-  return [...builtInTools, ...mcpTools]
+  return uniqBy([...builtInTools, ...mcpTools], 'name')
 }
