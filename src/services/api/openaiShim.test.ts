@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
+import { _resetUndiciFetchForTesting } from './fetchWithProxyRetry.ts'
 
 type FetchType = typeof globalThis.fetch
 
@@ -171,17 +172,27 @@ beforeEach(async () => {
   delete process.env.BNKR_API_KEY
   delete process.env.BANKR_BASE_URL
   delete process.env.BANKR_MODEL
-  delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
   delete process.env.MIMO_API_KEY
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+
+  // Mock undici module so that when fetchWithProxyRetry requires it under Bun,
+  // it gets our capturing mock that delegates to globalThis.fetch.
+  mock.module('undici', () => ({
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ...require('undici'),
+    fetch: (input: string | URL | Request, init?: RequestInit) => globalThis.fetch(input, init),
+  }))
+  _resetUndiciFetchForTesting()
 })
 
 afterEach(() => {
   try {
+    mock.restore()
+    _resetUndiciFetchForTesting()
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
     restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
@@ -6258,16 +6269,11 @@ test('clearDnsDispatcherCache clears the internal agent cache without throwing',
   expect(() => clearDnsDispatcherCache()).not.toThrow()
 })
 
-test('dnsResultOrder: ipv4first rewrites fetch URL to IPv4 address under Bun', async () => {
-  // Regression test: Bun's fetch ignores undici dispatchers, so the scoped
-  // connect.lookup that forces IPv4 never runs under the Bun runtime. The
-  // fix pre-resolves the hostname to an IPv4 address via Bun.dns.lookup and
-  // rewrites the URL before calling fetch, adding a Host header for TLS SNI.
-  //
-  // This test verifies that:
-  // 1. The fetch URL uses an IPv4 address (not the original hostname)
-  // 2. A Host header is set to the original hostname for TLS SNI
-
+test('dnsResultOrder: ipv4first preserves original hostname in URL under Bun', async () => {
+  // Regression test: Bun's fetch ignores undici dispatchers. The fix resolves this
+  // by routing through undici.fetch when a dispatcher is active, preserving the
+  // original URL hostname so TLS SNI and certificate validation function correctly.
+  
   registerGateway({
     id: 'bun-ipv4-test',
     label: 'Bun IPv4 Test',
@@ -6292,11 +6298,9 @@ test('dnsResultOrder: ipv4first rewrites fetch URL to IPv4 address under Bun', a
   process.env.OPENAI_MODEL = 'test-model'
 
   let capturedUrl: string | undefined
-  let capturedHeaders: Record<string, string> | undefined
 
-  globalThis.fetch = (async (input, init) => {
+  globalThis.fetch = (async (input) => {
     capturedUrl = input instanceof Request ? input.url : String(input)
-    capturedHeaders = init?.headers as Record<string, string>
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-bun-ipv4',
@@ -6322,33 +6326,15 @@ test('dnsResultOrder: ipv4first rewrites fetch URL to IPv4 address under Bun', a
     stream: false,
   })
 
-  // Under Bun (which this test runner is), the URL should have been rewritten
-  // to use an IPv4 address instead of the original hostname, and a Host header
-  // should be present for TLS SNI.
   expect(capturedUrl).toBeDefined()
   const parsedUrl = new URL(capturedUrl!)
-
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(parsedUrl.hostname)) {
-    // Bun.dns.lookup succeeded: hostname was replaced with an IPv4 address.
-    // The Host header must be set to the original hostname for TLS SNI.
-    expect(capturedHeaders?.['Host']).toBe('bun-ipv4-test.example.com')
-  } else {
-    // Bun.dns.lookup failed to resolve (e.g. in CI with no network for that
-    // hostname). The URL should still be the original hostname — this is the
-    // graceful fallback. In production, if Bun.dns.lookup fails, Bun's
-    // default DNS resolution takes over (which may or may not try IPv4 first).
-    expect(parsedUrl.hostname).toBe('bun-ipv4-test.example.com')
-  }
+  // The URL must preserve the original hostname so TLS SNI verification works.
+  expect(parsedUrl.hostname).toBe('bun-ipv4-test.example.com')
 })
 
-test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification', async () => {
-  // 1. Mock Bun DNS to return a fake IPv4 address, triggering the rewrite
-  const originalBunDnsLookup = Bun.dns.lookup
-  const originalEnv = { ...process.env }
-  const originalFetch = globalThis.fetch
-
-  Bun.dns.lookup = async () => [{ address: '192.0.2.1', family: 4 }]
-
+test('IPv4 DNS forcing preserves the original hostname in the URL for TLS SNI and error classification', async () => {
+  // We mock fetch to intercept the request and return an Opengateway 401.
+  
   try {
     registerGateway({
       id: 'opengateway-test',
@@ -6373,15 +6359,10 @@ test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification
     process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
     process.env.OPENAI_MODEL = 'test-model'
 
-    // 2. Mock fetch to intercept the request and return an Opengateway 401
-    globalThis.fetch = (async (input, init) => {
-      const urlString = input instanceof Request ? input.url : String(input)
-      const headers = init?.headers as Record<string, string>
-      
-      // Assert the Transport URL was correctly rewritten to the IP
-      expect(urlString).toContain('192.0.2.1')
-      // Assert the Host header preserved the Logical URL
-      expect(headers['Host'] || headers['host']).toBe('opengateway.gitlawb.com')
+    let capturedUrl: string | undefined
+
+    globalThis.fetch = (async (input) => {
+      capturedUrl = input instanceof Request ? input.url : String(input)
       
       return new Response(JSON.stringify({ error: { message: 'api_key_required' } }), { 
         status: 401 
@@ -6390,7 +6371,6 @@ test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification
 
     const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
 
-    // 3. Execute the shim request 
     try {
       await client.beta.messages.create({
         model: 'test-model',
@@ -6400,15 +6380,14 @@ test('Bun IPv4 rewrite preserves the logical URL for HTTP failure classification
       })
       expect.unreachable()
     } catch (error: any) {
-      // 4. The critical assertion: Ensure the error message includes the 
-      // Opengateway-specific auth hint, proving classifyOpenAIHttpFailure 
-      // received the logical hostname, not the 192.0.2.1 IP address.
+      // Ensure the hostname was kept in the fetch URL (no rewrite to IP)
+      expect(capturedUrl).toContain('opengateway.gitlawb.com')
+      // Ensure the error message includes the Opengateway-specific auth hint,
+      // proving classifyOpenAIHttpFailure received the correct hostname.
       expect(error.message).toContain('https://gitlawb.com/opengateway/keys')
       expect(error.message).toContain('OPENGATEWAY_API_KEY')
     }
   } finally {
-    Bun.dns.lookup = originalBunDnsLookup
-    globalThis.fetch = originalFetch
     process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
     process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
     process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL

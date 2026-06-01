@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import { _resetKeepAliveForTesting } from '../../utils/proxy.js'
 import {
   fetchWithProxyRetry,
   isRetryableFetchError,
+  _resetUndiciFetchForTesting,
 } from './fetchWithProxyRetry.js'
 
 type FetchType = typeof globalThis.fetch
@@ -23,6 +24,42 @@ function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined
   }
 }
 
+/**
+ * Create a mock fetch that captures the URL and init args.
+ * Works whether the caller uses globalThis.fetch or undici.fetch,
+ * since under Bun + dispatcher, fetchWithProxyRetry routes through undici.
+ */
+function createCapturingFetch() {
+  let capturedUrl: string | undefined
+  let capturedInit: RequestInit | undefined
+
+  const mockFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    capturedUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    capturedInit = init
+    return new Response('ok')
+  }) as FetchType
+
+  // Reset the cached undici fetch reference so mock.module takes effect.
+  _resetUndiciFetchForTesting()
+
+  // Mock both globalThis.fetch and undici.fetch so the test captures
+  // regardless of which path fetchWithProxyRetry takes.
+  globalThis.fetch = mockFn
+
+  // Mock undici module so that when fetchWithProxyRetry requires it under Bun,
+  // it gets our capturing mock instead of the real undici fetch.
+  mock.module('undici', () => ({
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ...require('undici'),
+    fetch: mockFn,
+  }))
+
+  return {
+    get url() { return capturedUrl },
+    get init() { return capturedInit },
+  }
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('fetchWithProxyRetry.test.ts')
   process.env.HTTP_PROXY = 'http://127.0.0.1:15236'
@@ -32,6 +69,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    mock.restore()
     globalThis.fetch = originalFetch
     restoreEnv('HTTP_PROXY', originalEnv.HTTP_PROXY)
     restoreEnv('HTTPS_PROXY', originalEnv.HTTPS_PROXY)
@@ -116,12 +154,7 @@ test('fetchWithProxyRetry applies scoped dispatcher when target URL is in NO_PRO
   process.env.HTTPS_PROXY = 'http://127.0.0.1:15236'
   process.env.NO_PROXY = 'opengateway.gitlawb.com'
 
-  let capturedInit: RequestInit | undefined
-  globalThis.fetch = (async (_input, init) => {
-    capturedInit = init
-    return new Response('ok')
-  }) as FetchType
-
+  const captured = createCapturingFetch()
   const fakeDispatcher = { fake: true } as unknown as import('undici').Dispatcher
 
   await fetchWithProxyRetry('https://opengateway.gitlawb.com/v1/chat', undefined, {
@@ -130,9 +163,9 @@ test('fetchWithProxyRetry applies scoped dispatcher when target URL is in NO_PRO
 
   type CapturedInit = RequestInit & { dispatcher?: unknown; proxy?: string }
   // The scoped dispatcher should have been applied since the URL is bypassed by NO_PROXY
-  expect((capturedInit as CapturedInit).dispatcher).toBe(fakeDispatcher)
+  expect((captured.init as CapturedInit).dispatcher).toBe(fakeDispatcher)
   // The proxy option must NOT be present — bypassed requests must go direct
-  expect((capturedInit as CapturedInit).proxy).toBeUndefined()
+  expect((captured.init as CapturedInit).proxy).toBeUndefined()
 
   delete process.env.NO_PROXY
 })
@@ -163,35 +196,33 @@ test('fetchWithProxyRetry passes proxy option and drops scoped dispatcher when U
   expect((capturedInit as CapturedInit).dispatcher).toBeUndefined()
 })
 
-test('fetchWithProxyRetry uses proxyDecisionUrl for NO_PROXY matching when request URL is an IPv4-rewritten URL', async () => {
-  // Regression for: Bun IPv4 pre-resolution rewrites the transport URL from
-  // https://opengateway.gitlawb.com/... to https://<ipv4>/..., but
-  // NO_PROXY=opengateway.gitlawb.com should still bypass the proxy.
-  // Without proxyDecisionUrl, shouldBypassProxy sees the IP and fails to
-  // match NO_PROXY, so the request is incorrectly sent through the proxy.
+test('fetchWithProxyRetry preserves original hostname in URL for TLS SNI when dispatcher is used', async () => {
+  // Regression for TLS/SNI breakage: the old Bun path rewrote the URL from
+  // https://opengateway.gitlawb.com/... to https://<ipv4>/... which broke
+  // TLS certificate validation (SNI sent the IP, not the hostname).
+  // The fix keeps the original hostname URL and uses the dispatcher's
+  // custom DNS lookup to force IPv4 resolution at the transport layer.
   process.env.HTTPS_PROXY = 'http://127.0.0.1:15236'
   process.env.NO_PROXY = 'opengateway.gitlawb.com'
 
-  let capturedInit: RequestInit | undefined
-  globalThis.fetch = (async (_input, init) => {
-    capturedInit = init
-    return new Response('ok')
-  }) as FetchType
-
+  const captured = createCapturingFetch()
   const fakeDispatcher = { fake: true } as unknown as import('undici').Dispatcher
 
-  // Simulate Bun IPv4 rewrite: the actual fetch URL is an IP address,
-  // but proxyDecisionUrl carries the original hostname for NO_PROXY matching.
-  await fetchWithProxyRetry('https://192.0.2.1/v1/chat/completions', undefined, {
+  // Pass the original hostname URL — it should NOT be rewritten to an IP.
+  // The dispatcher handles IPv4 DNS resolution internally.
+  await fetchWithProxyRetry('https://opengateway.gitlawb.com/v1/chat/completions', undefined, {
     dispatcher: fakeDispatcher,
-    proxyDecisionUrl: 'https://opengateway.gitlawb.com/v1/chat/completions',
   })
 
+  // The URL must keep the original hostname — TLS SNI derives from the URL hostname,
+  // so rewriting to an IP would break certificate validation.
+  expect(captured.url).toBe('https://opengateway.gitlawb.com/v1/chat/completions')
+
   type CapturedInit = RequestInit & { dispatcher?: unknown; proxy?: string }
-  // The scoped dispatcher must be applied — NO_PROXY matched the original hostname
-  expect((capturedInit as CapturedInit).dispatcher).toBe(fakeDispatcher)
-  // The proxy option must NOT be present — the request goes direct
-  expect((capturedInit as CapturedInit).proxy).toBeUndefined()
+  // The scoped dispatcher must be applied — NO_PROXY matched the hostname
+  expect((captured.init as CapturedInit).dispatcher).toBe(fakeDispatcher)
+  // No proxy — bypassed by NO_PROXY
+  expect((captured.init as CapturedInit).proxy).toBeUndefined()
 
   delete process.env.NO_PROXY
 })
