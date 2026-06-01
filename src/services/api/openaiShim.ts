@@ -1162,8 +1162,13 @@ export function parseTextToolCalls(text: string): {
   const fencedRanges: Array<[number, number]> = []
 
   // Pass 1: fenced code blocks — regex is safe, ``` bounds the non-greedy match.
+  // Context guard: same heuristic as Pass 2 — if non-whitespace, non-`{` text
+  // immediately follows the closing fence, the model is explaining a format rather
+  // than calling a tool; skip to avoid false positives on fenced examples.
   for (const match of text.matchAll(FENCED_TOOL_CALL_RE)) {
     const raw = (match[1] ?? '').trim()
+    const after = text.slice(match.index! + match[0].length).trimStart()
+    if (after.length > 0 && !after.startsWith('{')) continue
     fencedRanges.push([match.index!, match.index! + match[0].length])
     if (raw) parseAndAdd(raw, results, seen)
   }

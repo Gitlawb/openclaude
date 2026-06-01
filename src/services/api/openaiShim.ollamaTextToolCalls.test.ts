@@ -125,6 +125,21 @@ describe('parseTextToolCalls', () => {
     expect(calls).toHaveLength(0)
   })
 
+  // P1 context guard — fenced block followed by explanatory prose must also be skipped
+  test('skips fenced JSON block immediately followed by explanatory text (P1 guard fenced)', () => {
+    const text =
+      'Here is the format to use:\n```json\n{"name":"Bash","arguments":{"command":"echo example"}}\n```\nDo not execute it yet.'
+    const { calls } = parseTextToolCalls(text)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('still parses fenced JSON block with nothing after the closing fence', () => {
+    const text = 'Running the command:\n```json\n{"name":"Bash","arguments":{"command":"ls"}}\n```'
+    const { calls } = parseTextToolCalls(text)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('Bash')
+  })
+
   test('still parses bare JSON with only trailing whitespace (no trailing context)', () => {
     const text = 'Running the command:\n{"name":"Bash","arguments":{"command":"ls"}}\n'
     const { calls } = parseTextToolCalls(text)
