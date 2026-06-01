@@ -236,11 +236,10 @@ export function convertAnthropicMessagesToResponsesInput(
     const role =
       rawRole === 'assistant' || rawRole === 'model' ? 'assistant' : 'user'
 
-    const content = Array.isArray(item.message?.content)
-      ? item.message.content
-      : Array.isArray(item.content)
-        ? item.content
-        : [{ type: 'text', text: item.content ?? '' }]
+    const contentRaw = item.message?.content ?? item.content
+    const content = Array.isArray(contentRaw)
+      ? contentRaw
+      : [{ type: 'text', text: String(contentRaw ?? '') }]
 
     if (role === 'user') {
       const toolResults = content.filter(

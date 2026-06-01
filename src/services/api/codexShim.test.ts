@@ -641,6 +641,22 @@ describe('Codex request translation', () => {
     ])
   })
 
+  test('preserves wrapped string message content', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        message: { role: 'user', content: 'hello' }
+      },
+    ])
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ])
+  })
+
   test('converts assistant tool use and user tool result into Responses items', () => {
     const items = convertAnthropicMessagesToResponsesInput([
       {

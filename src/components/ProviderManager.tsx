@@ -282,7 +282,7 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
     routeSupportsApiFormatSelection(routeId)
-      ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
+      ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
     routeSupportsAuthHeaders(routeId) && profile.authHeader
@@ -1473,10 +1473,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const requestedResponses =
-      supportsApiFormat && nextDraft.apiFormat === 'responses'
+      supportsApiFormat && (nextDraft.apiFormat === 'responses' || nextDraft.apiFormat === 'responses_compat')
     const shouldUseChatCompletions =
       !supportsApiFormat ||
-      nextDraft.apiFormat !== 'responses' ||
+      (nextDraft.apiFormat !== 'responses' && nextDraft.apiFormat !== 'responses_compat') ||
       !routeSupportsResponsesModel(routeId, nextDraft.model)
     const payload: ProviderProfileInput = {
       provider,
@@ -1484,7 +1484,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
+      apiFormat: shouldUseChatCompletions ? 'chat_completions' : (nextDraft.apiFormat as OpenAICompatibleApiFormat),
       authHeader:
         showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
@@ -1565,10 +1565,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'],
   ): ProviderDraft {
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const preferredResponsesMode = nextDraft.apiFormat === 'responses_compat' ? 'responses_compat' : 'responses'
     const apiFormat =
       routeSupportsApiFormatSelection(routeId) &&
       routeSupportsResponsesModel(routeId, nextDraft.model)
-        ? 'responses'
+        ? preferredResponsesMode
         : 'chat_completions'
 
     return {
@@ -1939,12 +1940,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 label: 'Responses',
                 description: 'Use /responses for providers that support the Responses API',
               },
+              {
+                value: 'responses_compat',
+                label: 'Responses (Compat)',
+                description: 'Use /responses with legacy text chunks for strict gateways',
+              },
             ]}
             defaultValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
             defaultFocusValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
