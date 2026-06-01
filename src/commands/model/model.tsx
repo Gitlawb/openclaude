@@ -156,6 +156,13 @@ export function mergeActiveProfileModelOptions(
     if (!value || seen.has(key)) {
       continue
     }
+    // Don't surface profile-configured models that are explicitly blocked by
+    // the availableModels allowlist. The catalog entries feeding routeOptions
+    // were already filtered upstream; without this guard, a blocked model
+    // absent from the filtered catalog would be re-added here from profileOptions.
+    if (!isModelAllowed(value)) {
+      continue
+    }
 
     seen.add(key)
     merged.push(option)
@@ -816,13 +823,20 @@ async function refreshModelsAndSummarize(): Promise<string> {
       ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
       forceRefresh: true,
     })
+    const discoveredRefreshOptions = buildRouteCatalogModelOptions(
+      discoveryContext.routeLabel,
+      result?.models ?? [],
+      discoveryContext.routeDefaultModel,
+    )
+    // Apply the same allowlist that filters initial load and interactive refresh
+    // so the "changed" comparison is apples-to-apples with the filtered
+    // discoveryContext.optionsOverride and blocked models don't count as a change.
+    const allowedRefreshOptions = discoveredRefreshOptions.filter(o =>
+      typeof o.value === 'string' ? isModelAllowed(o.value) : true,
+    )
     const nextOptions = mergeActiveProfileModelOptions(
       discoveryContext.routeId,
-      buildRouteCatalogModelOptions(
-        discoveryContext.routeLabel,
-        result?.models ?? [],
-        discoveryContext.routeDefaultModel,
-      ),
+      allowedRefreshOptions,
     )
     const changed = !haveSameModelOptions(
       discoveryContext.optionsOverride,
