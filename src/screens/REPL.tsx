@@ -1588,10 +1588,14 @@ export function REPL({
 
   // Aggregate tool result budget: per-conversation decision tracking.
   // When the GrowthBook flag is on, query.ts enforces the budget; when
-  // off (undefined), enforcement is skipped entirely. Stale entries after
-  // /clear or rewind are inert (tool_use_ids are UUIDs, stale keys are never
-  // looked up again). After compact, pruneContentReplacementState() evicts
-  // pre-compact entries so they don't accumulate across long sessions (#1258).
+  // off (undefined), enforcement is skipped entirely.
+  // IMPORTANT: This state MUST be cleared whenever the live message history is
+  // truncated. /clear resets it in clear.ts (slash-command path) and in the
+  // two REPL-owned clearConversation call sites below; rewind resets it in
+  // rewindConversationTo. Failing to reset causes stale seenIds/replacements
+  // to accumulate across sessions and grow the heap without bound (#1454).
+  // After compact, pruneContentReplacementState() evicts pre-compact entries
+  // so they don't grow across long sessions (#1258).
   //
   // Lazy init via useState initializer — useRef(expr) evaluates expr on every
   // render (React ignores it after first, but the computation still runs).

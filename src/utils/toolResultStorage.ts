@@ -380,12 +380,15 @@ export function isPersistError(
  *     byte-identical, cannot fail.
  *
  * Lifecycle: one instance per conversation thread, carried on ToolUseContext.
- * Main thread: REPL provisions once, never resets — stale entries after
- * /clear, rewind, resume, or compact are never looked up (tool_use_ids are
- * UUIDs) so they're harmless. Subagents: createSubagentContext clones the
- * parent's state by default (cache-sharing forks like agentSummary need
- * identical decisions), or resumeAgentBackground threads one reconstructed
- * from sidechain records.
+ * Main thread: REPL provisions once at startup or resume. It MUST be reset
+ * (seenIds and replacements cleared) whenever the live message history is
+ * truncated — /clear (clear.ts), rewind (REPL.tsx rewindConversationTo) — so
+ * that stale tool_use_id keys do not accumulate across sessions and grow the
+ * heap without bound. After compact, pruneContentReplacementState() evicts
+ * pre-compact entries that are no longer in the surviving message store
+ * (#1258, #1454). Subagents: createSubagentContext clones the parent's state
+ * by default (cache-sharing forks like agentSummary need identical decisions),
+ * or resumeAgentBackground threads one reconstructed from sidechain records.
  */
 export type ContentReplacementState = {
   seenIds: Set<string>
