@@ -1367,7 +1367,7 @@ async function* queryLoop(
             }),
           })
           yield createSystemMessage(
-            `Provider limited max_tokens to ${providerMaxTokensCap.toLocaleString('en-US')}; retrying with that cap.`,
+            `Provider maximum output tokens limit is ${providerMaxTokensCap.toLocaleString('en-US')}; retrying with that cap.`,
             'warning',
           )
           const next: State = {

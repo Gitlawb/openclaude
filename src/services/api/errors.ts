@@ -230,10 +230,6 @@ const PROVIDER_MAX_TOKENS_CAP_NUMBER =
 
 const PROVIDER_MAX_TOKENS_CAP_PATTERNS = [
   new RegExp(
-    `tokens?.{0,160}?can only afford\\s+${PROVIDER_MAX_TOKENS_CAP_NUMBER}(?![0-9,]|\\.[0-9])`,
-    'is',
-  ),
-  new RegExp(
     `\\bmax_(?:completion_)?tokens\\b.{0,240}?\\bmaximum\\s+(?:output|completion)\\s+tokens?\\b[^0-9]{0,80}${PROVIDER_MAX_TOKENS_CAP_NUMBER}(?![0-9,]|\\.[0-9])`,
     'is',
   ),
@@ -260,7 +256,10 @@ function parseSafePositiveInteger(raw: string): number | undefined {
 /**
  * Parses provider-returned output token caps from runtime request errors.
  * These are lower than static model metadata because gateways may account for
- * prompt size, credits, or route-specific output limits at request time.
+ * prompt size or route-specific output limits at request time.
+ *
+ * OpenRouter-style 402 affordability errors are intentionally excluded here.
+ * Those are adjusted inside withRetry so that path has one recovery owner.
  */
 export function parseProviderMaxTokensCap(
   rawMessage: string,

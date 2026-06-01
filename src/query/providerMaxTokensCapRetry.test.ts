@@ -78,7 +78,7 @@ function makeToolUseContext(tools: Tools = []): QueryParams['toolUseContext'] {
     setResponseLength: () => {},
     updateFileHistoryState: () => {},
     updateAttributionState: () => {},
-  } as QueryParams['toolUseContext']
+  } as unknown as QueryParams['toolUseContext']
 }
 
 function makeParams(
@@ -90,7 +90,7 @@ function makeParams(
     systemPrompt: asSystemPrompt([]),
     userContext: {},
     systemContext: {},
-    canUseTool: async () => ({ result: true }),
+    canUseTool: async () => ({ behavior: 'allow' }),
     toolUseContext: makeToolUseContext(tools),
     querySource: 'sdk',
     deps: {
@@ -101,7 +101,7 @@ function makeParams(
         consecutiveFailures: undefined,
       }),
       uuid: () => '00000000-0000-4000-8000-000000000000',
-    } as QueryDeps,
+    } as unknown as QueryDeps,
   }
 }
 
@@ -110,7 +110,9 @@ async function collect(
 ): Promise<Array<Awaited<ReturnType<ReturnType<typeof query>['next']>>['value']>> {
   const previousSimple = process.env.CLAUDE_CODE_SIMPLE
   process.env.CLAUDE_CODE_SIMPLE = '1'
-  const messages = []
+  const messages: Array<
+    Awaited<ReturnType<ReturnType<typeof query>['next']>>['value']
+  > = []
   try {
     for await (const message of query(params)) {
       messages.push(message)
@@ -125,7 +127,7 @@ async function collect(
   return messages
 }
 
-test('retries once with provider-capped max output tokens', async () => {
+test('retries once with provider maximum output token cap', async () => {
   const seenOverrides: Array<number | undefined> = []
   const callModel: QueryDeps['callModel'] = async function* ({ options }) {
     seenOverrides.push(options.maxOutputTokensOverride)
@@ -135,7 +137,7 @@ test('retries once with provider-capped max output tokens', async () => {
         APIError.generate(
           400,
           undefined,
-          'OpenAI API error 400: requested up to 32000 tokens, but can only afford 27342. [openai_category=unknown]',
+          'OpenAI API error 400: max_tokens exceeds maximum output tokens for this model: 27342. [openai_category=unknown]',
           new Headers(),
         ),
         'openrouter/model',
@@ -154,7 +156,7 @@ test('retries once with provider-capped max output tokens', async () => {
       message =>
         message?.type === 'system' &&
         message?.content?.includes(
-          'Provider limited max_tokens to 27,342; retrying with that cap.',
+          'Provider maximum output tokens limit is 27,342; retrying with that cap.',
         ),
     ),
   ).toBe(true)
@@ -167,7 +169,7 @@ test('retries once with provider-capped max output tokens', async () => {
   ).toBe(false)
 })
 
-test('keeps provider-capped max output tokens for follow-up calls after tool use', async () => {
+test('keeps provider maximum output token cap for follow-up calls after tool use', async () => {
   const seenOverrides: Array<number | undefined> = []
   const callModel: QueryDeps['callModel'] = async function* ({ options }) {
     seenOverrides.push(options.maxOutputTokensOverride)
@@ -177,7 +179,7 @@ test('keeps provider-capped max output tokens for follow-up calls after tool use
         APIError.generate(
           400,
           undefined,
-          'OpenAI API error 400: requested up to 32000 tokens, but can only afford 27342. [openai_category=unknown]',
+          'OpenAI API error 400: max_tokens exceeds maximum output tokens for this model: 27342. [openai_category=unknown]',
           new Headers(),
         ),
         'openrouter/model',
@@ -210,7 +212,7 @@ test('keeps provider-capped max output tokens for follow-up calls after tool use
       message =>
         message?.type === 'system' &&
         message?.content?.includes(
-          'Provider limited max_tokens to 27,342; retrying with that cap.',
+          'Provider maximum output tokens limit is 27,342; retrying with that cap.',
         ),
     ),
   ).toHaveLength(1)
@@ -232,7 +234,7 @@ test('does not loop if the reduced-cap retry fails', async () => {
       content: 'Provider max_tokens limit was lower than requested.',
       apiError: 'max_tokens_too_high',
       error: 'invalid_request',
-      errorDetails: `requested up to 32000 tokens, but can only afford ${cap}`,
+      errorDetails: `max_tokens exceeds maximum output tokens for this model: ${cap}`,
     })
   }
 
@@ -246,6 +248,40 @@ test('does not loop if the reduced-cap retry fails', async () => {
         message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
     ),
   ).toHaveLength(1)
+})
+
+test('does not retry OpenRouter affordability errors handled by withRetry', async () => {
+  const seenOverrides: Array<number | undefined> = []
+  const callModel: QueryDeps['callModel'] = async function* ({ options }) {
+    seenOverrides.push(options.maxOutputTokensOverride)
+    yield getAssistantMessageFromError(
+      APIError.generate(
+        402,
+        undefined,
+        'This request requires more credits, or fewer max_tokens. You requested up to 32000 tokens, but can only afford 27342.',
+        new Headers(),
+      ),
+      'openrouter/model',
+    )
+  }
+
+  const messages = await collect(makeParams(callModel))
+
+  expect(seenOverrides).toEqual([undefined])
+  expect(
+    messages.some(
+      message =>
+        message?.type === 'system' &&
+        message?.content?.includes('retrying with that cap'),
+    ),
+  ).toBe(false)
+  expect(
+    messages.some(
+      message =>
+        message?.type === 'assistant' &&
+        message?.message?.content?.[0]?.text?.includes('can only afford 27342'),
+    ),
+  ).toBe(true)
 })
 
 test('does not retry malformed provider cap errors', async () => {

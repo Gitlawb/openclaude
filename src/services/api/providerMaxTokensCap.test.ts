@@ -13,17 +13,17 @@ function textOf(message: ReturnType<typeof getAssistantMessageFromError>): strin
     : ''
 }
 
-test('parses OpenRouter-style max token affordability errors', () => {
+test('does not parse OpenRouter affordability errors owned by withRetry', () => {
   expect(
     parseProviderMaxTokensCap(
       'requested up to 32000 tokens, but can only afford 27342.',
     ),
-  ).toBe(27_342)
+  ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
       'requested up to 32,000 tokens, but can only afford 27,342',
     ),
-  ).toBe(27_342)
+  ).toBeUndefined()
 })
 
 test('parses provider maximum output token errors for max_tokens', () => {
@@ -56,27 +56,27 @@ test('does not parse malformed or unsafe provider caps', () => {
   ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
-      'requested up to 32000 tokens, but can only afford 0',
+      'max_tokens exceeds maximum output tokens for this model: 0',
     ),
   ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
-      'requested up to 32000 tokens, but can only afford 9007199254740992',
+      'max_tokens exceeds maximum output tokens for this model: 9007199254740992',
     ),
   ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
-      'requested up to 32000 tokens, but can only afford 27342.5',
+      'max_tokens exceeds maximum output tokens for this model: 27342.5',
     ),
   ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
-      'requested up to 32000 tokens, but can only afford 27342,',
+      'max_tokens exceeds maximum output tokens for this model: 27342,',
     ),
   ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
-      'requested up to 32000 tokens, but can only afford 27,34',
+      'max_tokens exceeds maximum output tokens for this model: 27,34',
     ),
   ).toBeUndefined()
 })
@@ -98,7 +98,7 @@ test('classifies provider max token cap errors for query recovery', () => {
   const error = APIError.generate(
     400,
     undefined,
-    'OpenAI API error 400: requested up to 32000 tokens, but can only afford 27342',
+    'OpenAI API error 400: max_tokens exceeds maximum output tokens for this model: 27342',
     new Headers(),
   )
 
@@ -107,15 +107,15 @@ test('classifies provider max token cap errors for query recovery', () => {
   expect(message.isApiErrorMessage).toBe(true)
   expect(message.apiError).toBe('max_tokens_too_high')
   expect(message.error).toBe('invalid_request')
-  expect(message.errorDetails).toContain('can only afford 27342')
+  expect(message.errorDetails).toContain('maximum output tokens')
   expect(textOf(message)).toContain('Provider max_tokens limit was lower than requested')
 })
 
-test('classifies marker-wrapped OpenAI-compatible provider cap errors before generic markers', () => {
+test('classifies marker-wrapped maximum output token errors before generic markers', () => {
   const error = APIError.generate(
     400,
     undefined,
-    'OpenAI API error 400: requested up to 32000 tokens, but can only afford 27342 [openai_category=unknown]',
+    'OpenAI API error 400: max_tokens exceeds maximum output tokens for this model: 27342 [openai_category=unknown]',
     new Headers(),
   )
 
@@ -124,4 +124,20 @@ test('classifies marker-wrapped OpenAI-compatible provider cap errors before gen
   expect(message.apiError).toBe('max_tokens_too_high')
   expect(message.error).toBe('invalid_request')
   expect(textOf(message)).not.toContain('openai_category=unknown')
+})
+
+test('does not classify OpenRouter affordability errors for query recovery', () => {
+  const error = APIError.generate(
+    402,
+    undefined,
+    'This request requires more credits, or fewer max_tokens. You requested up to 32000 tokens, but can only afford 27342.',
+    new Headers(),
+  )
+
+  const message = getAssistantMessageFromError(error, 'openrouter/model')
+
+  expect(message.apiError).not.toBe('max_tokens_too_high')
+  expect(message.error).toBe('unknown')
+  expect(textOf(message)).toContain('API Error')
+  expect(textOf(message)).toContain('can only afford 27342')
 })
