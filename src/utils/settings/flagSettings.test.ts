@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -26,7 +26,10 @@ let tempDir: string
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/settings/flagSettings.test.ts')
   mock.restore()
-  tempDir = mkdtempSync(join(tmpdir(), 'openclaude-flag-settings-'))
+  // realpathSync so the temp path matches what the settings loader stores:
+  // on macOS tmpdir() lives under /tmp, a symlink to /private/tmp, and the
+  // loader canonicalises the --settings path, which would otherwise mismatch.
+  tempDir = realpathSync(mkdtempSync(join(tmpdir(), 'openclaude-flag-settings-')))
   resetSettingsBootstrapState()
   setAllowedSettingSources(['flagSettings'])
 })

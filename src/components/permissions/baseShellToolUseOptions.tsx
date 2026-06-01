@@ -18,6 +18,7 @@ export type BaseShellToolUseOption =
   | 'yes-apply-suggestions'
   | 'yes-prefix-edited'
   | 'yes-full-access'
+  | 'no-with-reason'
   | 'no'
 
 function commandListDisplay(commands: string[]): ReactNode {
@@ -293,6 +294,14 @@ export function buildBaseShellToolUseOptions<T extends string>({
     }
   }
 
+  options.push({
+    type: 'input',
+    label: 'No, provide reason',
+    value: 'no-with-reason' as T,
+    placeholder: 'tell Claude what to do differently',
+    onChange: onRejectFeedbackChange,
+  })
+
   if (noInputMode) {
     options.push({
       type: 'input',
@@ -321,6 +330,7 @@ export function handleBaseShellSelection({
   rejectFeedback,
   yesFeedbackModeEntered,
   noFeedbackModeEntered,
+  noInputMode,
   editablePrefix,
   ruleToolName,
   toolAnalyticsName,
@@ -334,6 +344,7 @@ export function handleBaseShellSelection({
   rejectFeedback: string
   yesFeedbackModeEntered: boolean
   noFeedbackModeEntered: boolean
+  noInputMode: boolean
   editablePrefix?: string
   ruleToolName: string
   toolAnalyticsName: AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -408,8 +419,23 @@ export function handleBaseShellSelection({
       onDone()
       return
     }
-    case 'no': {
+    case 'no-with-reason': {
       const trimmedFeedback = rejectFeedback.trim()
+      if (!trimmedFeedback) {
+        return
+      }
+      logEvent('tengu_reject_submitted', {
+        toolName: toolAnalyticsName,
+        isMcp: toolUseConfirm.tool.isMcp ?? false,
+        has_instructions: !!trimmedFeedback,
+        instructions_length: trimmedFeedback.length,
+        entered_feedback_mode: true,
+      })
+      onReject(trimmedFeedback || undefined)
+      return
+    }
+    case 'no': {
+      const trimmedFeedback = noInputMode ? rejectFeedback.trim() : ''
       logEvent('tengu_reject_submitted', {
         toolName: toolAnalyticsName,
         isMcp: toolUseConfirm.tool.isMcp ?? false,

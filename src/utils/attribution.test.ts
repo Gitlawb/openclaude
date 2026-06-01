@@ -8,7 +8,11 @@ import {
 } from '../bootstrap/state.js'
 import * as actualModel from './model/model.js'
 import * as actualProviders from './model/providers.js'
-import { resetSettingsCache } from './settings/settingsCache.js'
+import * as actualSettings from './settings/settings.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
 
 let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
@@ -21,7 +25,7 @@ let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
 let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
   'getEnhancedPRAttribution'
 ]
-let settingsForTest: SettingsJson = {}
+let testSettings: SettingsJson = {}
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -69,7 +73,8 @@ const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
 function useSettings(settings: SettingsJson): void {
-  settingsForTest = settings
+  testSettings = settings
+  setSessionSettingsCache({ settings, errors: [] })
 }
 
 function restoreEnv(): void {
@@ -86,7 +91,7 @@ beforeEach(async () => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
-  settingsForTest = {}
+  testSettings = {}
   setClientType('cli')
   setMainLoopModelOverride(undefined)
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -130,13 +135,10 @@ beforeEach(async () => {
     ...actualProviders,
     getAPIProvider: () => 'openai',
   }))
-  const actualSettings = await import(
-    `./settings/settings.ts?attributionSettingsActual=${Date.now()}-${Math.random()}`
-  )
   mock.module('./settings/settings.js', () => ({
     ...actualSettings,
-    getInitialSettings: () => settingsForTest,
-    getSettings_DEPRECATED: () => settingsForTest,
+    getInitialSettings: () => testSettings,
+    getSettings_DEPRECATED: () => testSettings,
   }))
 
   const attribution = await import(
@@ -152,11 +154,12 @@ afterEach(() => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
-  settingsForTest = {}
+  testSettings = {}
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
   mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./settings/settings.js', () => actualSettings)
   restoreEnv()
 })
 

@@ -19,6 +19,7 @@ import {
 } from '../../integrations/discoveryService.js'
 import {
   getRouteDescriptor,
+  isNativeVendorCatalogRoute,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -207,12 +208,17 @@ function getProviderProfileModelPickerMode(): ProviderProfileModelPickerMode {
 
 export function resolveProviderProfileModelSurface(options: {
   activeProfile?: ProviderProfile | null
+  routeId?: string
   settingsMode?: ProviderProfileModelPickerMode
 }): ResolvedProviderProfileModelSurface {
   if (options.settingsMode === 'profile') {
     return 'profile'
   }
   if (options.settingsMode === 'provider') {
+    return 'provider'
+  }
+
+  if (options.routeId && isNativeVendorCatalogRoute(options.routeId)) {
     return 'provider'
   }
 
@@ -267,6 +273,7 @@ export function mergeActiveProfileModelOptions(
     options?.profileModelSurface ??
     resolveProviderProfileModelSurface({
       activeProfile,
+      routeId,
       settingsMode: getProviderProfileModelPickerMode(),
     })
   const merged =
@@ -371,6 +378,7 @@ async function loadDescriptorDiscoveryContext(
   const activeProfile = getActiveProviderProfile()
   const profileModelSurface = resolveProviderProfileModelSurface({
     activeProfile,
+    routeId,
     settingsMode: getProviderProfileModelPickerMode(),
   })
   const staticEntries = catalog.models ?? []
@@ -467,11 +475,12 @@ async function loadModelDiscoveryContext(): Promise<ModelDiscoveryContext | null
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
     const { baseUrl } = getOpenAIDiscoveryRequestOptions()
     const activeProfile = getActiveProviderProfile()
+    const legacyRouteId = routeId ?? 'custom'
     const profileModelSurface = resolveProviderProfileModelSurface({
       activeProfile,
+      routeId: legacyRouteId,
       settingsMode: getProviderProfileModelPickerMode(),
     })
-    const legacyRouteId = routeId ?? 'custom'
     return {
       kind: 'legacy-openai',
       autoRefresh: !isEssentialTrafficOnly(),

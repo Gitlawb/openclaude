@@ -5,14 +5,18 @@
 
 import type { ModelOption } from './modelOptions.js'
 import { getAPIProvider } from './providers.js'
+import { getMiniMaxBaseUrlOverride } from '../../integrations/routeMetadata.js'
 import { isEnvTruthy } from '../envUtils.js'
 
 export function isMiniMaxProvider(): boolean {
   if (isEnvTruthy(process.env.MINIMAX_API_KEY)) {
     return true
   }
-  const baseUrl = process.env.OPENAI_BASE_URL ?? ''
-  if (baseUrl.includes('minimax')) {
+  // MiniMax runs over the anthropic-proxy transport, so the active base URL can
+  // arrive via ANTHROPIC_BASE_URL (not just OPENAI_BASE_URL). Reuse the shared
+  // host matcher so the model picker recognises every configured MiniMax base
+  // URL even when MINIMAX_API_KEY isn't exported into the environment.
+  if (getMiniMaxBaseUrlOverride(process.env) !== undefined) {
     return true
   }
   return getAPIProvider() === 'minimax'
@@ -26,6 +30,7 @@ function getMiniMaxModels(): ModelOption[] {
     { value: 'MiniMax-M2.5', label: 'MiniMax M2.5', description: 'Flagship - 256K context - Vision/Function-calling' },
     { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: 'Flagship - 256K context - Chat/Code/Reasoning' },
     { value: 'MiniMax-M2.7-highspeed', label: 'MiniMax M2.7 Highspeed', description: 'Fast flagship - 256K context - Chat/Code/Reasoning' },
+    { value: 'MiniMax-M3', label: 'MiniMax M3', description: 'Next-gen - 1M context - Coding/Agentic/Reasoning' },
     { value: 'MiniMax-Text-01', label: 'MiniMax Text 01', description: 'Text-focused - 512K context - FREE' },
     { value: 'MiniMax-Text-01-Preview', label: 'MiniMax Text 01 Preview', description: 'Preview - 256K context - FREE' },
     { value: 'MiniMax-Vision-01', label: 'MiniMax Vision 01', description: 'Vision model - 32K context' },
