@@ -4,7 +4,7 @@ import {
   createUserMessage,
   deriveShortMessageId,
 } from './messages.js'
-import type { UserMessage } from '../query.js'
+import type { UserMessage } from '../types/message.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 
