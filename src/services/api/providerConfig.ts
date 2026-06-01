@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import { homedir } from 'node:os'
@@ -32,6 +32,19 @@ export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
+// Clear periodically to prevent unbounded growth in long sessions
+let warnedEnvResetTimer: ReturnType<typeof setTimeout> | null = null
+function warnOnceUndefinedEnv(name: string): boolean {
+  if (warnedUndefinedEnvNames.has(name)) return false
+  warnedUndefinedEnvNames.add(name)
+  if (!warnedEnvResetTimer) {
+    warnedEnvResetTimer = setTimeout(() => {
+      warnedUndefinedEnvNames.clear()
+      warnedEnvResetTimer = null
+    }, 60_000)
+  }
+  return true
+}
 
 function normalizeGitlawbOpengatewayBaseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl) return undefined
@@ -200,8 +213,7 @@ function asNamedEnvUrl(
   if (!trimmed) return undefined
 
   if (trimmed === 'undefined') {
-    if (!warnedUndefinedEnvNames.has(envName)) {
-      warnedUndefinedEnvNames.add(envName)
+    if (warnOnceUndefinedEnv(envName)) {
       logForDebugging(
         `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
         { level: 'warn' },
@@ -609,6 +621,55 @@ export function getGithubEndpointType(
   }
 }
 
+/**
+ * Validates that a URL is not targeting internal/metadata endpoints (SSRF protection).
+ * Returns the URL if valid, or undefined if it targets a blocked internal host.
+ */
+function validateUrlNotSSRF(urlString: string): string | undefined {
+  try {
+    const parsed = new URL(urlString)
+    const hostname = parsed.hostname.toLowerCase()
+
+    // Block cloud metadata endpoints
+    const blockedHosts = [
+      '169.254.169.254',  // AWS/GCP/Azure metadata
+      'fd00:ec2::254',    // AWS IPv6 metadata
+      'metadata.google.internal',  // GCP metadata
+      'metadata.go.internal',      // GCP metadata alias
+    ]
+    if (blockedHosts.includes(hostname)) {
+      logForDebugging(
+        `[provider-config] Blocked SSRF attempt to internal host: ${hostname}`,
+        { level: 'warn' },
+      )
+      return undefined
+    }
+
+    // Block private/loopback IPs (except localhost for local providers)
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '::1') {
+      const ipVersion = isIP(hostname)
+      if (ipVersion !== 0) {
+        // It's a raw IP address - check if it's private
+        const isPrivate = ipVersion === 4
+          ? /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname)
+          : hostname.startsWith('fc') || hostname.startsWith('fd')
+        if (isPrivate) {
+          logForDebugging(
+            `[provider-config] Blocked SSRF attempt to private IP: ${hostname}`,
+            { level: 'warn' },
+          )
+          return undefined
+        }
+      }
+    }
+
+    return urlString
+  } catch {
+    // If URL parsing fails, allow it through (will fail later with a clearer error)
+    return urlString
+  }
+}
+
 export function resolveProviderRequest(options?: {
   model?: string
   baseUrl?: string
@@ -695,6 +756,22 @@ export function resolveProviderRequest(options?: {
       : rawBaseUrl
   const finalBaseUrl = normalizeGitlawbOpengatewayBaseUrl(finalBaseUrlRaw)
 
+  // SSRF protection: reject user-configured URLs targeting internal/metadata endpoints.
+  // If the URL is blocked, fall back to the provider default so the request doesn't
+  // hit an internal service.
+  let safeBaseUrl = finalBaseUrl
+  if (finalBaseUrl) {
+    const validated = validateUrlNotSSRF(finalBaseUrl)
+    if (validated === undefined) {
+      // URL was blocked — fall back to the provider's default URL
+      safeBaseUrl = isMistralMode
+        ? DEFAULT_MISTRAL_BASE_URL
+        : isGeminiMode
+        ? DEFAULT_GEMINI_BASE_URL
+        : DEFAULT_OPENAI_BASE_URL
+    }
+  }
+
   const githubEndpointType = isGithubMode
     ? getGithubEndpointType(rawBaseUrl)
     : 'custom'
@@ -716,9 +793,9 @@ export function resolveProviderRequest(options?: {
     (() => {
       const runtimeShimContext = resolveOpenAIShimRuntimeContext({
         processEnv: process.env,
-        baseUrl: finalBaseUrl,
+        baseUrl: safeBaseUrl,
         model: descriptor.baseModel,
-        treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
+        treatAsLocal: safeBaseUrl ? isLocalProviderUrl(safeBaseUrl) : false,
       })
 
       return openAIShimSupportsApiFormatForModel(
@@ -728,7 +805,7 @@ export function resolveProviderRequest(options?: {
       )
     })()
   const transport: ProviderTransport =
-    shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
+    shouldUseCodexTransport(requestedModel, safeBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
       : requestedApiFormat === 'responses' && supportsRequestedApiFormat
@@ -754,7 +831,7 @@ export function resolveProviderRequest(options?: {
     requestedModel,
     resolvedModel,
     baseUrl:
-      (finalBaseUrl ??
+      (safeBaseUrl ??
         (isGithubCopilot && transport === 'codex_responses'
           ? GITHUB_COPILOT_BASE_URL
           : (isGithubMode
@@ -815,6 +892,19 @@ function loadCodexAuthJson(
 ): Record<string, unknown> | undefined {
   if (!existsSync(authPath)) return undefined
   try {
+    // Warn if auth file has overly permissive permissions (world-readable)
+    try {
+      const stats = statSync(authPath)
+      const mode = stats.mode & 0o777
+      if (mode & 0o004) {
+        logForDebugging(
+          `[provider-config] Warning: ${authPath} is world-readable (mode ${mode.toString(8)}). Consider restricting permissions with: chmod 600 ${authPath}`,
+          { level: 'warn' },
+        )
+      }
+    } catch {
+      // Permission check is advisory only — don't block on stat failures
+    }
     const raw = readFileSync(authPath, 'utf8')
     const parsed = JSON.parse(raw)
     return parsed && typeof parsed === 'object'
