@@ -20,7 +20,11 @@ mock.module('../services/analytics/growthbook.js', () => ({
 }))
 
 mock.module('../services/tokenEstimation.js', () => ({
-  roughTokenCountEstimation: () => tokenState.roughCount,
+  // Return tokenState.roughCount only when explicitly set high by a test (> 0).
+  // When roughCount is 0 (post-afterEach reset), return a small neutral value so
+  // this mock does not cause hybridContextStrategy or other test files to treat
+  // every message as oversized if the mock leaks past afterAll.
+  roughTokenCountEstimation: () => (tokenState.roughCount > 0 ? tokenState.roughCount : 100),
   countMessagesTokensWithAPI: async () => tokenState.apiReturn,
 }))
 
@@ -40,6 +44,11 @@ describe('mcpContentNeedsTruncation — SEC-04 fail-closed on null', () => {
   })
 
   afterEach(() => {
+    // Reset to 0 so that if the mock leaks to later files, roughTokenCountEstimation
+    // returns the neutral fallback (100) instead of 26000, which would break
+    // hybridContextStrategy and other token-sensitive test files.
+    tokenState.roughCount = 0
+    tokenState.apiReturn = null
     process.env.MAX_MCP_OUTPUT_TOKENS = ''
   })
 
@@ -68,10 +77,12 @@ describe('mcpContentNeedsTruncation — SEC-04 fail-closed on null', () => {
 
 describe('truncateMcpContent — SEC-05 budget invariant', () => {
   beforeEach(() => {
+    tokenState.roughCount = 26000
     process.env.MAX_MCP_OUTPUT_TOKENS = ''
   })
 
   afterEach(() => {
+    tokenState.roughCount = 0
     process.env.MAX_MCP_OUTPUT_TOKENS = ''
   })
 
