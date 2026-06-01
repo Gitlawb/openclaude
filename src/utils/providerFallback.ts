@@ -31,9 +31,10 @@ export type ProviderFallbackResolution = {
  * callers can simply ask `getProviderFallbackChain().length === 0` instead of
  * threading `undefined`.
  */
-export function getProviderFallbackChain(): string[] {
-  const settings = getSettings_DEPRECATED()
-  const chain = (settings as { providerFallbackChain?: unknown }).providerFallbackChain
+export function getProviderFallbackChain(
+  settings: { providerFallbackChain?: unknown } = getSettings_DEPRECATED(),
+): string[] {
+  const chain = settings.providerFallbackChain
   if (!Array.isArray(chain)) {
     return []
   }
@@ -92,6 +93,16 @@ export function resolveNextFallbackProvider(
  * Convenience: read both chain and current active profile from settings/state
  * and resolve in one call. Returns null when there's nothing to fall back to.
  */
-export function resolveNextFallbackProviderFromState(): ProviderFallbackResolution | null {
-  return resolveNextFallbackProvider(getActiveProviderProfile()?.id ?? null)
+export function resolveNextFallbackProviderFromState(
+  deps: {
+    activeProfileId?: string | null
+    chain?: string[]
+    profiles?: ProviderProfile[]
+  } = {},
+): ProviderFallbackResolution | null {
+  const activeProfileId =
+    deps.activeProfileId ?? getActiveProviderProfile()?.id ?? null
+  const chain = deps.chain ?? getProviderFallbackChain()
+  const profiles = deps.profiles ?? getProviderProfiles()
+  return resolveNextFallbackProvider(activeProfileId, chain, profiles)
 }
