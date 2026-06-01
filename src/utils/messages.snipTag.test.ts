@@ -12,6 +12,12 @@ function tagFor(uuid: string): string {
   return `[id:${deriveShortMessageId(uuid)}]`
 }
 
+function countTags(out: UserMessage): number {
+  const c = out.message.content
+  const s = typeof c === 'string' ? c : JSON.stringify(c)
+  return (s.match(/\[id:/g) || []).length
+}
+
 describe('appendMessageTagToUserMessage', () => {
   test('appends the tag to string content', () => {
     const msg = { ...createUserMessage({ content: 'hello' }), uuid: UUID }
@@ -60,5 +66,45 @@ describe('appendMessageTagToUserMessage', () => {
     }
     const out = appendMessageTagToUserMessage(msg as UserMessage)
     expect(out.message.content).toBe('meta')
+  })
+
+  // normalizeMessagesForAPI re-runs over messages carried forward as loop state
+  // (query.ts builds toolResults from its own normalized output), so a message
+  // can reach this function already tagged. Re-appending must not stack a second
+  // [id:] tag, or every prior tool result accumulates duplicates each turn.
+  test('is idempotent for string content', () => {
+    const msg = { ...createUserMessage({ content: 'hello' }), uuid: UUID }
+    const once = appendMessageTagToUserMessage(msg as UserMessage)
+    const twice = appendMessageTagToUserMessage(once as UserMessage)
+    expect(countTags(twice)).toBe(1)
+    expect(twice.message.content).toBe(once.message.content)
+  })
+
+  test('is idempotent for array text-block content', () => {
+    const msg = {
+      ...createUserMessage({ content: [{ type: 'text', text: 'first' }] }),
+      uuid: UUID,
+    }
+    const once = appendMessageTagToUserMessage(msg as UserMessage)
+    const twice = appendMessageTagToUserMessage(once as UserMessage)
+    expect(countTags(twice)).toBe(1)
+  })
+
+  test('is idempotent for pure tool_result content', () => {
+    const msg = {
+      ...createUserMessage({
+        content: [
+          { type: 'tool_result', tool_use_id: 'toolu_abc', content: 'big read' },
+        ],
+      }),
+      uuid: UUID,
+    }
+    const once = appendMessageTagToUserMessage(msg as UserMessage)
+    const twice = appendMessageTagToUserMessage(once as UserMessage)
+    expect(countTags(twice)).toBe(1)
+    const blocks = twice.message.content as any[]
+    // Exactly one added text block, and the tool_result is preserved.
+    expect(blocks.filter(b => b.type === 'text').length).toBe(1)
+    expect(blocks.some(b => b.type === 'tool_result')).toBe(true)
   })
 })

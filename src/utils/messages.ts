@@ -1632,9 +1632,30 @@ export function appendMessageTagToUserMessage(
     return message
   }
 
-  const tag = `\n[id:${deriveShortMessageId(message.uuid)}]`
+  const idToken = `[id:${deriveShortMessageId(message.uuid)}]`
+  const tag = `\n${idToken}`
 
   const content = message.message.content
+
+  // Idempotency: normalizeMessagesForAPI re-runs over messages that are carried
+  // forward as loop state (query.ts builds toolResults from this function's own
+  // normalized output, then re-normalizes that state next turn). Without this
+  // guard each pass stacks another [id:] tag on every prior tool result. The
+  // token is derived from this message's own uuid, so its presence means we
+  // already tagged it (string body, last text block, or the dedicated
+  // tool_result text block all embed the bare idToken). Leave it untouched.
+  const alreadyTagged =
+    typeof content === 'string'
+      ? content.includes(idToken)
+      : Array.isArray(content) &&
+        content.some(
+          block =>
+            block!.type === 'text' &&
+            (block as TextBlockParam).text.includes(idToken),
+        )
+  if (alreadyTagged) {
+    return message
+  }
 
   // Handle string content (most common for simple text input)
   if (typeof content === 'string') {
