@@ -1729,26 +1729,21 @@ async function* queryLoop(
 
       // Collect tool info for summary generation
       const toolUseIds = toolUseBlocks.map(block => block.id)
+
+      // Build a Map for O(1) tool result lookup instead of O(N*M) nested find()
+      const toolResultMap = new Map<string, ToolResultBlockParam>()
+      for (const result of toolResults) {
+        if (result.type === 'user' && Array.isArray(result.message.content)) {
+          for (const content of result.message.content) {
+            if (content.type === 'tool_result' && content.tool_use_id) {
+              toolResultMap.set(content.tool_use_id, content as ToolResultBlockParam)
+            }
+          }
+        }
+      }
+
       const toolInfoForSummary = toolUseBlocks.map(block => {
-        // Find the corresponding tool result
-        const toolResult = toolResults.find(
-          result =>
-            result.type === 'user' &&
-            Array.isArray(result.message.content) &&
-            result.message.content.some(
-              content =>
-                content.type === 'tool_result' &&
-                content.tool_use_id === block.id,
-            ),
-        )
-        const resultContent =
-          toolResult?.type === 'user' &&
-          Array.isArray(toolResult.message.content)
-            ? toolResult.message.content.find(
-                (c): c is ToolResultBlockParam =>
-                  c.type === 'tool_result' && c.tool_use_id === block.id,
-              )
-            : undefined
+        const resultContent = toolResultMap.get(block.id)
         return {
           name: block.name,
           input: block.input,

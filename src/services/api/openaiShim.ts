@@ -233,9 +233,9 @@ function redactUrlForDiagnostics(url: string): string {
     }
 
     const serialized = parsed.toString()
-    return redactSecretValueForDisplay(serialized, process.env as SecretValueSource) ?? serialized
+    return redactSecretValueForDisplay(serialized, process.env as SecretValueSource) ?? '[redacted]'
   } catch {
-    return redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? url
+    return redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? '[redacted]'
   }
 }
 
@@ -1468,7 +1468,7 @@ async function* openaiStreamToAnthropic(
           },
         }
         throw APIError.generate(
-          (response.status ?? 200) as number,
+          (response.status || 500) as number,
           errorPayload,
           message,
           response.headers as unknown as Headers,
@@ -2679,12 +2679,18 @@ class OpenAIShimMessages {
     }
 
     let response: Response | undefined
-    const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
-      : request.baseUrl.includes('minimax') ? 'minimax'
-      : request.baseUrl.includes('xiaomimimo') || request.baseUrl.includes('mimo-v2') ? 'xiaomi-mimo'
-      : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
-      : request.baseUrl.includes('anthropic') ? 'anthropic'
-      : 'openai'
+    let provider = 'openai'
+    try {
+      const parsedUrl = new URL(request.baseUrl)
+      const hostname = parsedUrl.hostname.toLowerCase()
+      if (hostname.includes('nvidia')) provider = 'nvidia-nim'
+      else if (hostname.includes('minimax')) provider = 'minimax'
+      else if (hostname.includes('xiaomimimo') || hostname.includes('mimo-v2')) provider = 'xiaomi-mimo'
+      else if (hostname === 'localhost' && (parsedUrl.port === '11434' || parsedUrl.port === '11435')) provider = 'ollama'
+      else if (hostname.includes('anthropic')) provider = 'anthropic'
+    } catch {
+      // Keep default 'openai' if URL parsing fails
+    }
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -2730,10 +2736,16 @@ class OpenAIShimMessages {
         // stream_options: { include_usage: true } and can be extracted from the stream.
         if (!params.stream) {
           try {
-            const clone = response.clone()
-            const data = await clone.json()
+            const bodyText = await response.text()
+            const data = JSON.parse(bodyText)
             tokensIn = data.usage?.prompt_tokens ?? 0
             tokensOut = data.usage?.completion_tokens ?? 0
+            // Recreate response with the consumed body so callers can still read it
+            response = new Response(bodyText, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+            })
           } catch { /* ignore */ }
         }
         logApiCallEnd(correlationId, startTime, request.resolvedModel, 'success', tokensIn, tokensOut, false)
