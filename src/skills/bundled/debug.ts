@@ -14,8 +14,14 @@ export function registerDebugSkill(): void {
     name: 'debug',
     description:
       process.env.USER_TYPE === 'ant'
-        ? 'Debug your current Claude Code session by reading the session debug log. Includes all event logging'
-        : 'Enable debug logging for this session and help diagnose issues',
+        ? {
+            en: 'Debug your current Claude Code session by reading the session debug log. Includes all event logging',
+            vi: 'Debug phiên Claude Code hiện tại bằng cách đọc debug log của phiên. Bao gồm toàn bộ event logging',
+          }
+        : {
+            en: 'Enable debug logging for this session and help diagnose issues',
+            vi: 'Bật debug logging cho phiên này và hỗ trợ chẩn đoán sự cố',
+          },
     allowedTools: ['Read', 'Grep', 'Glob'],
     argumentHint: '[issue description]',
     // disableModelInvocation so that the user has to explicitly request it in

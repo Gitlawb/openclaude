@@ -100,10 +100,14 @@ Examples:
 export function registerBatchSkill(): void {
   registerBundledSkill({
     name: 'batch',
-    description:
-      'Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.',
-    whenToUse:
-      'Use when the user wants to make a sweeping, mechanical change across many files (migrations, refactors, bulk renames) that can be decomposed into independent parallel units.',
+    description: {
+      en: 'Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.',
+      vi: 'Nghiên cứu và lập kế hoạch cho một thay đổi quy mô lớn, rồi thực thi song song trên 5–30 agent worktree cô lập, mỗi agent mở một PR.',
+    },
+    whenToUse: {
+      en: 'Use when the user wants to make a sweeping, mechanical change across many files (migrations, refactors, bulk renames) that can be decomposed into independent parallel units.',
+      vi: 'Dùng khi người dùng muốn thực hiện một thay đổi bao quát, cơ học trên nhiều file (migration, refactor, đổi tên hàng loạt) có thể chia thành các đơn vị song song độc lập.',
+    },
     argumentHint: '<instruction>',
     userInvocable: true,
     disableModelInvocation: true,

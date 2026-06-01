@@ -142,7 +142,12 @@ const commandDescVi: Record<string, string> = {
   'Complete a security review of the pending changes on the current branch': 'Hoàn thành đánh giá bảo mật cho các thay đổi đang chờ trên nhánh hiện tại',
   'Configure auto-fix: run lint/test after AI edits': 'Cấu hình tự động sửa: chạy lint/test sau khi AI chỉnh sửa',
   'Copy Claude': 'Sao chép Claude',
+  "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)": 'Sao chép phản hồi gần nhất của Claude vào clipboard (hoặc /copy N cho phản hồi thứ N gần nhất)',
   'Create verifier skill(s) for automated verification of code changes': 'Tạo skill xác minh để tự động kiểm tra thay đổi code',
+  'Enable Option+Enter key binding for newlines and visual bell': 'Bật phím tắt Option+Enter để xuống dòng và chuông trực quan',
+  'Install Shift+Enter key binding for newlines': 'Cài đặt phím tắt Shift+Enter để xuống dòng',
+  'Initialize a new project instruction file with codebase documentation': 'Khởi tạo file hướng dẫn dự án mới với tài liệu codebase',
+  'Initialize new project instruction file(s) and optional skills/hooks with codebase documentation': 'Khởi tạo file hướng dẫn dự án mới và các skill/hook tùy chọn với tài liệu codebase',
   'Generate your personalized animation': 'Tạo hoạt ảnh cá nhân hóa của bạn',
   'Inject bridge failure states for manual recovery testing': 'Chèn trạng thái lỗi bridge để kiểm thử khôi phục thủ công',
   'Print the version this session is running (not what autoupdate downloaded)': 'In phiên bản mà phiên này đang chạy (không phải phiên bản tự động cập nhật đã tải)',
@@ -150,6 +155,7 @@ const commandDescVi: Record<string, string> = {
   'Run memory consolidation — synthesize recent sessions into durable memories': 'Chạy hợp nhất bộ nhớ — tổng hợp các phiên gần đây thành bộ nhớ lâu dài',
   'Send identical requests to test prompt caching (results in debug log)': 'Gửi các yêu cầu giống hệt nhau để kiểm thử bộ nhớ đệm prompt (kết quả trong debug log)',
   'Set up OpenClaude': 'Thiết lập OpenClaude',
+  "Set up OpenClaude's status line UI": 'Thiết lập giao diện dòng trạng thái của OpenClaude',
   'Setup OpenClaude on the web (requires connecting your GitHub account)': 'Thiết lập OpenClaude trên web (yêu cầu kết nối tài khoản GitHub)',
   'Show OpenClaude status including version, model, account, API connectivity, and tool statuses': 'Hiển thị trạng thái OpenClaude bao gồm phiên bản, mô hình, tài khoản, kết nối API và trạng thái công cụ',
   'Show per-turn and session cache hit/miss stats (works across all providers)': 'Hiển thị thống kê cache hit/miss theo lượt và phiên (hoạt động trên tất cả nhà cung cấp)',
@@ -162,5 +168,23 @@ const commandDescVi: Record<string, string> = {
  */
 export function translateCommandDescription(englishDesc: string): string {
   if (detectLocale() !== 'vi') return englishDesc
+  const dynamic = translateDynamicCommandDescriptionVi(englishDesc)
+  if (dynamic) return dynamic
   return commandDescVi[englishDesc] ?? englishDesc
+}
+
+function translateDynamicCommandDescriptionVi(englishDesc: string): string | undefined {
+  const modelPrefix = 'Set the AI model for OpenClaude (currently '
+  if (englishDesc.startsWith(modelPrefix) && englishDesc.endsWith(')')) {
+    const current = englishDesc.slice(modelPrefix.length, -1)
+    return `Đặt mô hình AI cho OpenClaude (hiện tại: ${current})`
+  }
+
+  const logoPrefix = 'Change the startup logo color scheme (current: '
+  if (englishDesc.startsWith(logoPrefix) && englishDesc.endsWith(')')) {
+    const current = englishDesc.slice(logoPrefix.length, -1)
+    return `Đổi bảng màu logo khởi động (hiện tại: ${current})`
+  }
+
+  return undefined
 }

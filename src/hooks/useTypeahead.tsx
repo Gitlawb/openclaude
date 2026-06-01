@@ -1138,8 +1138,18 @@ export function useTypeahead({
     if (selectedSuggestion < 0 || suggestions.length === 0) return;
     const suggestion = suggestions[selectedSuggestion];
     if (suggestionType === 'command' && selectedSuggestion < suggestions.length) {
-      if (suggestion) {
-        applyCommandSuggestion(suggestion, true,
+      const exactCommandName = !input.includes(' ') && isCommandInput(input)
+        ? input.slice(1).toLowerCase().trim()
+        : '';
+      const exactCommand = exactCommandName
+        ? commands.find(cmd => getCommandName(cmd).toLowerCase() === exactCommandName)
+        : undefined;
+      const commandSuggestion = exactCommand
+        ? getCommandName(exactCommand)
+        : suggestion;
+
+      if (commandSuggestion) {
+        applyCommandSuggestion(commandSuggestion, true,
         // execute on return
         commands, onInputChange, setCursorOffset, onSubmit);
         debouncedFetchFileSuggestions.cancel();
