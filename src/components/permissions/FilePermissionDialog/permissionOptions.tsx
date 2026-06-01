@@ -52,6 +52,7 @@ export type PermissionOption = {
   type: 'accept-full-access';
 } | {
   type: 'reject';
+  withReason?: boolean;
 };
 export type PermissionOptionWithLabel = OptionWithDescription<string> & {
   option: PermissionOption;
@@ -166,7 +167,19 @@ export function getFilePermissionOptions({
     });
   }
 
-  // When in input mode, show input field for reject
+  options.push({
+    type: 'input',
+    label: 'No, provide reason',
+    value: 'no-with-reason',
+    placeholder: `tell ${PRODUCT_DISPLAY_NAME} what to do differently`,
+    onChange: onRejectFeedbackChange,
+    option: {
+      type: 'reject',
+      withReason: true
+    }
+  });
+
+  // When in input mode, keep supporting the existing Tab-to-amend flow.
   if (noInputMode && onRejectFeedbackChange) {
     options.push({
       type: 'input',
@@ -180,7 +193,6 @@ export function getFilePermissionOptions({
       }
     });
   } else {
-    // Not in input mode - simple option
     options.push({
       label: 'No',
       value: 'no',

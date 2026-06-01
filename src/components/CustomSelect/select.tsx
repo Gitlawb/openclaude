@@ -169,6 +169,12 @@ export type SelectProps<T> = {
   readonly onInputModeToggle?: (value: T) => void;
 
   /**
+   * Callback when an input option is submitted while empty.
+   * If omitted, empty input submission falls back to onCancel.
+   */
+  readonly onEmptyInputSubmit?: (value: T) => void;
+
+  /**
    * Callback to open external editor for editing input option values.
    * When provided, ctrl+g will trigger this callback in input options
    * with the current value and a setter function to update the internal state.
@@ -191,7 +197,7 @@ export type SelectProps<T> = {
   readonly onRemoveImage?: (id: number) => void;
 };
 export function Select(t0) {
-  const $ = _c(72);
+  const $ = _c(73);
   const {
     isDisabled: t1,
     hideIndexes: t2,
@@ -209,6 +215,7 @@ export function Select(t0) {
     onUpFromFirstItem,
     onDownFromLastItem,
     onInputModeToggle,
+    onEmptyInputSubmit,
     onOpenEditor,
     onImagePaste,
     pastedContents,
@@ -351,7 +358,7 @@ export function Select(t0) {
   let t15;
   let t16;
   let t17;
-  if ($[28] !== hideIndexes || $[29] !== highlightText || $[30] !== imagesSelected || $[31] !== inlineDescriptions || $[32] !== inputValues || $[33] !== isDisabled || $[34] !== layout || $[35] !== onCancel || $[36] !== onChange || $[37] !== onImagePaste || $[38] !== onOpenEditor || $[39] !== onRemoveImage || $[40] !== options.length || $[41] !== pastedContents || $[42] !== selectedImageIndex || $[43] !== state.focusedValue || $[44] !== state.options || $[45] !== state.value || $[46] !== state.visibleFromIndex || $[47] !== state.visibleOptions || $[48] !== state.visibleToIndex) {
+  if ($[28] !== hideIndexes || $[29] !== highlightText || $[30] !== imagesSelected || $[31] !== inlineDescriptions || $[32] !== inputValues || $[33] !== isDisabled || $[34] !== layout || $[35] !== onCancel || $[36] !== onChange || $[37] !== onImagePaste || $[38] !== onOpenEditor || $[39] !== onRemoveImage || $[40] !== options.length || $[41] !== pastedContents || $[42] !== selectedImageIndex || $[43] !== state.focusedValue || $[44] !== state.options || $[45] !== state.value || $[46] !== state.visibleFromIndex || $[47] !== state.visibleOptions || $[48] !== state.visibleToIndex || $[72] !== onEmptyInputSubmit) {
     t17 = Symbol.for("react.early_return_sentinel");
     bb0: {
       const styles = {
@@ -388,6 +395,8 @@ export function Select(t0) {
                 const hasImageAttachments = pastedContents && Object.values(pastedContents).some(_temp5);
                 if (value_0.trim() || hasImageAttachments || option_1.allowEmptySubmitToCancel) {
                   onChange?.(option_1.value);
+                } else if (onEmptyInputSubmit) {
+                  onEmptyInputSubmit(option_1.value);
                 } else {
                   onCancel?.();
                 }
@@ -436,6 +445,8 @@ export function Select(t0) {
                 const hasImageAttachments_0 = pastedContents && Object.values(pastedContents).some(_temp6);
                 if (value_2.trim() || hasImageAttachments_0 || option_2.allowEmptySubmitToCancel) {
                   onChange?.(option_2.value);
+                } else if (onEmptyInputSubmit) {
+                  onEmptyInputSubmit(option_2.value);
                 } else {
                   onCancel?.();
                 }
@@ -556,6 +567,8 @@ export function Select(t0) {
             const hasImageAttachments_1 = pastedContents && Object.values(pastedContents).some(_temp9);
             if (value_4.trim() || hasImageAttachments_1 || option_4.allowEmptySubmitToCancel) {
               onChange?.(option_4.value);
+            } else if (onEmptyInputSubmit) {
+              onEmptyInputSubmit(option_4.value);
             } else {
               onCancel?.();
             }
@@ -600,6 +613,7 @@ export function Select(t0) {
     $[46] = state.visibleFromIndex;
     $[47] = state.visibleOptions;
     $[48] = state.visibleToIndex;
+    $[72] = onEmptyInputSubmit;
     $[49] = T0;
     $[50] = t15;
     $[51] = t16;
