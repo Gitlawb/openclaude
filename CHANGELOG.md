@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/Gitlawb/openclaude/compare/v0.16.0...v0.16.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **ci:** build before unit tests in release workflow ([#1463](https://github.com/Gitlawb/openclaude/issues/1463)) ([d35d468](https://github.com/Gitlawb/openclaude/commit/d35d4687ad33388f87f43652919ce3ea96dd7435))
+
 ## [0.16.0](https://github.com/Gitlawb/openclaude/compare/v0.15.0...v0.16.0) (2026-05-31)
 
 
