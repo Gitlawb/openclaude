@@ -70,7 +70,7 @@ export function getFilePermissionOptions({
   filePath: string;
   toolPermissionContext: ToolPermissionContext;
   operationType?: FileOperationType;
-  onRejectFeedbackChange?: (value: string) => void;
+  onRejectFeedbackChange: (value: string) => void;
   onAcceptFeedbackChange?: (value: string) => void;
   yesInputMode?: boolean;
   noInputMode?: boolean;
