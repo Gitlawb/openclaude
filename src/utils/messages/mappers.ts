@@ -19,7 +19,7 @@ import type {
   Message,
 } from 'src/types/message.js'
 import type { DeepImmutable } from 'src/types/utils.js'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { createAssistantMessage } from '../messages.js'
 import { getPlan } from '../plans.js'
 

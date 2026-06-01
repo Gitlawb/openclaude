@@ -59,14 +59,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build
+        run: bun run build
+
       - name: Run unit tests
         run: bun test --max-concurrency=1
 
       - name: Smoke test
         run: bun run smoke
-
-      - name: Build
-        run: bun run build
 
       - name: Dry-run package
         run: npm pack --dry-run

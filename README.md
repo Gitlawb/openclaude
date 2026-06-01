@@ -68,6 +68,11 @@ OpenClaude is also mirrored to GitLawb:
 npm install -g @gitlawb/openclaude@latest
 ```
 
+If you're on Arch Linux, you can install OpenClaude from the community-maintained [AUR package](https://aur.archlinux.org/packages/openclaude):
+```bash
+paru -S openclaude
+```
+
 If the install later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
 
 **Verify / troubleshoot installed version:**
