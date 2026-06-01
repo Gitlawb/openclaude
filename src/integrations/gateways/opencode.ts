@@ -72,6 +72,7 @@ export default defineGateway({
       { id: 'qwen3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen3.6 Plus', modelDescriptorId: 'opencode-qwen3.6-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'qwen3.5-plus', apiName: 'qwen3.5-plus', label: 'Qwen3.5 Plus', modelDescriptorId: 'opencode-qwen3.5-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       // OpenAI-compatible — /zen/v1/chat/completions (default, no override needed)
+      { id: 'minimax-m3-free', apiName: 'minimax-m3-free', label: 'MiniMax M3 Free', modelDescriptorId: 'opencode-minimax-m3-free' },
       { id: 'minimax-m2.7', apiName: 'minimax-m2.7', label: 'MiniMax M2.7', modelDescriptorId: 'opencode-minimax-m2.7' },
       { id: 'minimax-m2.5', apiName: 'minimax-m2.5', label: 'MiniMax M2.5', modelDescriptorId: 'opencode-minimax-m2.5' },
       { id: 'glm-5.1', apiName: 'glm-5.1', label: 'GLM 5.1', modelDescriptorId: 'opencode-glm-5.1' },
