@@ -141,21 +141,7 @@ export function getAttributionTexts(): AttributionTexts {
     return { commit: '', pr: '' }
   }
 
-  // First-party unknown models may be unreleased Claude codenames. Other
-  // providers can safely use the configured public model string.
-  const model = getMainLoopModel()
-  const apiProvider = getAPIProvider()
-  const modelName = getDefaultCommitCoAuthorName({
-    model,
-    apiProvider,
-    isInternalRepo: isInternalModelRepoCached(),
-  })
-  const coAuthorEmail = getDefaultCommitCoAuthorEmail(apiProvider)
-  const defaultCommit = isEnvTruthy(
-    process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
-  )
-    ? ''
-    : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
+  const defaultCommit = ''
 
   return { commit: defaultCommit, pr: DEFAULT_PR_ATTRIBUTION }
 }

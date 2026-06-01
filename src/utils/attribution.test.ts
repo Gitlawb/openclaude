@@ -161,6 +161,7 @@ afterEach(() => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
+  testSettings = {}
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
@@ -273,7 +274,7 @@ describe('getAttributionTexts', () => {
     useSettings({ includeCoAuthoredBy: true })
 
     expect(getAttributionTexts()).toEqual({
-      commit: 'Co-Authored-By: OpenClaude (gpt-5.5) <openclaude@gitlawb.com>',
+      commit: '',
       pr: defaultPrAttribution,
     })
   })
