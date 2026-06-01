@@ -26,6 +26,7 @@ function getMiniMaxModels(): ModelOption[] {
     { value: 'MiniMax-M2.5', label: 'MiniMax M2.5', description: 'Flagship - 256K context - Vision/Function-calling' },
     { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: 'Flagship - 256K context - Chat/Code/Reasoning' },
     { value: 'MiniMax-M2.7-highspeed', label: 'MiniMax M2.7 Highspeed', description: 'Fast flagship - 256K context - Chat/Code/Reasoning' },
+    { value: 'MiniMax-M3', label: 'MiniMax M3', description: 'Next-gen - 1M context - Coding/Agentic/Reasoning' },
     { value: 'MiniMax-Text-01', label: 'MiniMax Text 01', description: 'Text-focused - 512K context - FREE' },
     { value: 'MiniMax-Text-01-Preview', label: 'MiniMax Text 01 Preview', description: 'Preview - 256K context - FREE' },
     { value: 'MiniMax-Vision-01', label: 'MiniMax Vision 01', description: 'Vision model - 32K context' },
