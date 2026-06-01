@@ -4,7 +4,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { buildInheritedEnvVars } from './spawnUtils.js'
+import { buildInheritedCliFlags, buildInheritedEnvVars } from './spawnUtils.js'
 
 const ORIGINAL_ENV = { ...process.env }
 
@@ -39,4 +39,12 @@ test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups
 
   expect(envVars).toContain('PATH=')
   expect(envVars).toContain('/custom/bin\\:/usr/bin')
+})
+
+test('buildInheritedCliFlags preserves fullAccess mode for spawned teammates', () => {
+  process.env.NODE_ENV = 'test'
+  const flags = buildInheritedCliFlags({ permissionMode: 'fullAccess' })
+
+  expect(flags).toContain('--permission-mode fullAccess')
+  expect(flags).not.toContain('--dangerously-skip-permissions')
 })

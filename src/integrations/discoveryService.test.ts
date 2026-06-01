@@ -14,6 +14,7 @@ const originalEnv = {
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -52,6 +53,7 @@ function restoreEnvValue(
 function clearProviderEnv(): void {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -81,6 +83,7 @@ afterEach(() => {
     restoreEnvValue('OPENROUTER_API_KEY')
     restoreEnvValue('OPENAI_BASE_URL')
     restoreEnvValue('OPENAI_API_BASE')
+    restoreEnvValue('OPENAI_API_KEY')
     restoreEnvValue('OPENAI_MODEL')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
     restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
@@ -202,7 +205,15 @@ describe('discoverModelsForRoute', () => {
     expect(second).toMatchObject({
       source: 'stale-cache',
       stale: true,
-      models: [{ id: 'llama3.1:8b', apiName: 'llama3.1:8b' }],
+      models: [
+        {
+          id: 'deepseek-v4-pro-cloud',
+          apiName: 'deepseek-v4-pro:cloud',
+          contextWindow: 1_048_576,
+          maxOutputTokens: 65_536,
+        },
+        { id: 'llama3.1:8b', apiName: 'llama3.1:8b' },
+      ],
     })
     expect(second?.error?.message).toContain('Discovery failed')
   })

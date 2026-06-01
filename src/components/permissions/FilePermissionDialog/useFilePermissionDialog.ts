@@ -6,7 +6,6 @@ import {
   logEvent,
 } from '../../../services/analytics/index.js'
 import { sanitizeToolNameForAnalytics } from '../../../services/analytics/metadata.js'
-import type { PermissionUpdate } from '../../../utils/permissions/PermissionUpdateSchema.js'
 import type { CompletionType } from '../../../utils/unaryLogging.js'
 import type { ToolUseConfirm } from '../PermissionRequest.js'
 import {
@@ -16,7 +15,7 @@ import {
   type PermissionOptionWithLabel,
 } from './permissionOptions.js'
 import {
-  PERMISSION_HANDLERS,
+  executeFilePermissionAction,
   type PermissionHandlerParams,
 } from './usePermissionHandler.js'
 
@@ -99,19 +98,8 @@ export function useFilePermissionDialog<T extends ToolInput>({
         languageName,
         operationType,
       }
-
-      // Override the input in toolUseConfirm to pass the parsed input
-      const originalOnAllow = toolUseConfirm.onAllow
-      toolUseConfirm.onAllow = (
-        _input: unknown,
-        permissionUpdates: PermissionUpdate[],
-        feedback?: string,
-      ) => {
-        originalOnAllow(input, permissionUpdates, feedback)
-      }
-
-      const handler = PERMISSION_HANDLERS[option.type]
-      handler(params, {
+      executeFilePermissionAction(option.type, params, {
+        input,
         feedback,
         hasFeedback: !!feedback,
         enteredFeedbackMode:

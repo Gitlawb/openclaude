@@ -12,6 +12,10 @@ import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js
 import { getAgentDescriptionsTotalTokens, AGENT_DESCRIPTIONS_THRESHOLD } from './statusNoticeHelpers.js';
 import { isSupportedJetBrainsTerminal, toIDEDisplayName, getTerminalIdeType } from './ide.js';
 import { isJetBrainsPluginInstalledCachedSync } from './jetbrains.js';
+import type { LocalModelContextWarning } from './statusNoticeLocalModel.js';
+import type { PermissionMode } from './permissions/PermissionMode.js';
+import { modelSupportsAutoMode } from './betas.js';
+import { getAPIProvider } from './model/providers.js';
 
 // Types
 export type StatusNoticeType = 'warning' | 'info';
@@ -19,6 +23,13 @@ export type StatusNoticeContext = {
   config: ReturnType<typeof getGlobalConfig>;
   agentDefinitions?: AgentDefinitionsResult;
   memoryFiles: MemoryFileInfo[];
+  isLocalModel?: boolean;
+  localModelContextLoad?: LocalModelContextWarning | null;
+  /** Active session permission mode. Used by the 3P-safety notices. */
+  permissionMode?: PermissionMode;
+  /** Current main-loop model id. Used by the 3P-safety notices to decide
+   * whether the AI classifier would actually run. */
+  mainLoopModel?: string;
 };
 export type StatusNoticeDefinition = {
   id: string;
@@ -27,25 +38,46 @@ export type StatusNoticeDefinition = {
   render: (context: StatusNoticeContext) => React.ReactNode;
 };
 
+function WarningNoticeRow({
+  children,
+  marginTop,
+}: {
+  children: React.ReactNode;
+  marginTop?: number;
+}): React.ReactNode {
+  return <Box flexDirection="row" marginTop={marginTop}>
+      <Box marginRight={1}>
+        <Text color="warning">{figures.warning}</Text>
+      </Box>
+      <Box flexDirection="column" flexShrink={1}>
+        {children}
+      </Box>
+    </Box>;
+}
+
 // Individual notice definitions
 const largeMemoryFilesNotice: StatusNoticeDefinition = {
   id: 'large-memory-files',
   type: 'warning',
-  isActive: ctx => getLargeMemoryFiles(ctx.memoryFiles).length > 0,
+  isActive: ctx => {
+    if (ctx.isLocalModel && ctx.localModelContextLoad) {
+      return false;
+    }
+    return getLargeMemoryFiles(ctx.memoryFiles).length > 0;
+  },
   render: ctx => {
     const largeMemoryFiles = getLargeMemoryFiles(ctx.memoryFiles);
     return <>
         {largeMemoryFiles.map(file => {
         const displayPath = file.path.startsWith(getCwd()) ? relative(getCwd(), file.path) : file.path;
-        return <Box key={file.path} flexDirection="row">
-              <Text color="warning">{figures.warning}</Text>
+        return <WarningNoticeRow key={file.path}>
               <Text color="warning">
                 Large <Text bold>{displayPath}</Text> will impact performance (
                 {formatNumber(file.content.length)} chars &gt;{' '}
                 {formatNumber(MAX_MEMORY_CHARACTER_COUNT)})
                 <Text dimColor> · /memory to edit</Text>
               </Text>
-            </Box>;
+            </WarningNoticeRow>;
       })}
       </>;
   }
@@ -59,14 +91,13 @@ const claudeAiSubscriberExternalTokenNotice: StatusNoticeDefinition = {
   },
   render: () => {
     const authTokenInfo = getAuthTokenSource();
-    return <Box flexDirection="row" marginTop={1}>
-        <Text color="warning">{figures.warning}</Text>
+    return <WarningNoticeRow marginTop={1}>
         <Text color="warning">
           Auth conflict: Using {authTokenInfo.source} instead of Claude account
           subscription token. Either unset {authTokenInfo.source}, or run
           `claude /logout`.
         </Text>
-      </Box>;
+      </WarningNoticeRow>;
   }
 };
 const apiKeyConflictNotice: StatusNoticeDefinition = {
@@ -86,13 +117,12 @@ const apiKeyConflictNotice: StatusNoticeDefinition = {
     } = getAnthropicApiKeyWithSource({
       skipRetrievingKeyFromApiKeyHelper: true
     });
-    return <Box flexDirection="row" marginTop={1}>
-        <Text color="warning">{figures.warning}</Text>
+    return <WarningNoticeRow marginTop={1}>
         <Text color="warning">
           Auth conflict: Using {apiKeySource} instead of Anthropic Console key.
           Either unset {apiKeySource}, or run `openclaude /logout`.
         </Text>
-      </Box>;
+      </WarningNoticeRow>;
   }
 };
 const bothAuthMethodsNotice: StatusNoticeDefinition = {
@@ -115,13 +145,12 @@ const bothAuthMethodsNotice: StatusNoticeDefinition = {
     });
     const authTokenInfo = getAuthTokenSource();
     return <Box flexDirection="column" marginTop={1}>
-        <Box flexDirection="row">
-          <Text color="warning">{figures.warning}</Text>
+        <WarningNoticeRow>
           <Text color="warning">
             Auth conflict: Both a token ({authTokenInfo.source}) and an API key
             ({apiKeySource}) are set. This may lead to unexpected behavior.
           </Text>
-        </Box>
+        </WarningNoticeRow>
         <Box flexDirection="column" marginLeft={3}>
           <Text color="warning">
             · Trying to use{' '}
@@ -141,20 +170,22 @@ const largeAgentDescriptionsNotice: StatusNoticeDefinition = {
   id: 'large-agent-descriptions',
   type: 'warning',
   isActive: context => {
+    if (context.isLocalModel && context.localModelContextLoad) {
+      return false;
+    }
     const totalTokens = getAgentDescriptionsTotalTokens(context.agentDefinitions);
     return totalTokens > AGENT_DESCRIPTIONS_THRESHOLD;
   },
   render: context => {
     const totalTokens = getAgentDescriptionsTotalTokens(context.agentDefinitions);
-    return <Box flexDirection="row">
-        <Text color="warning">{figures.warning}</Text>
+    return <WarningNoticeRow>
         <Text color="warning">
           Large cumulative agent descriptions will impact performance (~
           {formatNumber(totalTokens)} tokens &gt;{' '}
           {formatNumber(AGENT_DESCRIPTIONS_THRESHOLD)})
           <Text dimColor> · /agents to manage</Text>
         </Text>
-      </Box>;
+      </WarningNoticeRow>;
   }
 };
 const jetbrainsPluginNotice: StatusNoticeDefinition = {
@@ -187,9 +218,100 @@ const jetbrainsPluginNotice: StatusNoticeDefinition = {
       </Box>;
   }
 };
+const localModelContextLoadNotice: StatusNoticeDefinition = {
+  id: 'local-model-context-load',
+  type: 'warning',
+  isActive: context => context.localModelContextLoad != null,
+  render: context => {
+    const warning = context.localModelContextLoad
+    if (!warning) return null
+    return <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="row">
+          <Text color="warning">{figures.warning}</Text>
+          <Text color="warning">
+            Large context loaded for local model:
+          </Text>
+        </Box>
+        {warning.lines.map((line, i) => (
+          <Box key={i} flexDirection="row" marginLeft={3}>
+            <Text color="warning">{'\u2212'} {line}</Text>
+          </Box>
+        ))}
+        <Box flexDirection="row" marginLeft={3}>
+          <Text dimColor>Run /doctor for details or disable noisy plugins</Text>
+        </Box>
+      </Box>
+  }
+};
+
+// Permissive permission modes (acceptEdits, bypassPermissions, auto) suppress
+// the per-tool consent prompt that normally gives the user a moment to inspect
+// what the model is about to do. On first-party Claude, the AI safety
+// classifier (gated by `modelSupportsAutoMode`) is the backstop that catches
+// PI-driven dangerous calls in that consent-free path. For 3P providers the
+// classifier never runs (betas.ts:166), so users get the consent shortcut
+// without the safety net — silently. See issue #244 finding 1.
+const PERMISSIVE_MODES_REQUIRING_CLASSIFIER: ReadonlyArray<PermissionMode> = [
+  'acceptEdits',
+  'bypassPermissions',
+];
+const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
+  id: 'third-party-permissive-mode',
+  type: 'warning',
+  isActive: ctx => {
+    const mode = ctx.permissionMode;
+    if (!mode || !PERMISSIVE_MODES_REQUIRING_CLASSIFIER.includes(mode)) {
+      return false;
+    }
+    // If the active model supports the AI classifier the safety net is in place,
+    // so suppress the notice even on 3P. Treat unknown model as classifier-off.
+    if (ctx.mainLoopModel && modelSupportsAutoMode(ctx.mainLoopModel)) {
+      return false;
+    }
+    return getAPIProvider() !== 'firstParty';
+  },
+  render: ctx => {
+    const mode = ctx.permissionMode;
+    return <WarningNoticeRow>
+        <Text color="warning">
+          <Text bold>{mode}</Text> mode is active on a third-party provider.
+        </Text>
+        <Text dimColor>
+          Tool calls run without the AI safety classifier. Inspect tool calls manually,
+          especially when working with untrusted code.
+        </Text>
+      </WarningNoticeRow>;
+  }
+};
+// `--dangerously-skip-permissions` (a.k.a. bypassPermissions) auto-approves
+// every tool call. On first-party builds an employee-only sandbox check
+// (Docker/Bubblewrap + no internet) gates this flag; external users skip the
+// check entirely (setup.ts), so the flag is effectively "run any command with
+// no review". Warn loudly. Detection reads from process.argv so the notice
+// fires from the first frame, before any AppState mode change propagates.
+// See issue #244 finding 2.
+function hasDangerouslySkipPermissionsArg(): boolean {
+  return process.argv.includes('--dangerously-skip-permissions');
+}
+const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
+  id: 'dangerously-skip-permissions-no-sandbox',
+  type: 'warning',
+  isActive: ctx =>
+    hasDangerouslySkipPermissionsArg() ||
+    ctx.permissionMode === 'bypassPermissions',
+  render: () => <WarningNoticeRow>
+      <Text color="warning">
+        <Text bold>--dangerously-skip-permissions</Text> is active.
+      </Text>
+      <Text dimColor>
+        Every tool consent check is bypassed. Only use inside a sandbox with no internet access.
+        Restart without the flag to re-enable prompts.
+      </Text>
+    </WarningNoticeRow>
+};
 
 // All notice definitions
-export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice];
+export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, localModelContextLoadNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice, thirdPartyPermissiveModeNotice, dangerouslySkipPermissionsNotice];
 
 // Helper functions for external use
 export function getActiveNotices(context: StatusNoticeContext): StatusNoticeDefinition[] {

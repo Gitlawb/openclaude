@@ -90,3 +90,21 @@ test('fetchWithProxyRetry does not retry non-network errors', async () => {
   )
   expect(attempts).toBe(1)
 })
+
+test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 response', async () => {
+  const calls: Array<RequestInit | undefined> = []
+  
+  globalThis.fetch = (async (_input, init) => {
+    calls.push(init)
+    if (calls.length === 1) {
+      return new Response('Gateway Timeout', { status: 504 })
+    }
+    return new Response('ok')
+  }) as FetchType
+
+  const response = await fetchWithProxyRetry('https://example.com/search')
+  expect(response.status).toBe(200)
+  expect(calls).toHaveLength(2)
+  expect((calls[0] as RequestInit).keepalive).toBeUndefined()
+  expect((calls[1] as RequestInit).keepalive).toBe(false)
+})

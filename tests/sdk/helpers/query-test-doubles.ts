@@ -151,7 +151,8 @@ export function createMultiTurnConversation(
 }
 
 /**
- * Safely drains a query's async iterator, catching any abort errors.
+ * Safely drains a query's async iterator, catching only expected lifecycle
+ * abort errors.
  * Returns all collected SDKMessages.
  */
 export async function drainQuery(q: Query): Promise<unknown[]> {
@@ -160,10 +161,23 @@ export async function drainQuery(q: Query): Promise<unknown[]> {
     for await (const msg of q) {
       messages.push(msg)
     }
-  } catch {
-    // AbortError or similar — expected when interrupt/close is called
+  } catch (err) {
+    if (!isExpectedDrainAbort(err)) {
+      throw err
+    }
   }
   return messages
+}
+
+export function isExpectedDrainAbort(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const text = `${err.name}\n${err.message}`.toLowerCase()
+  return (
+    text.includes('abort') ||
+    text.includes('interrupt') ||
+    text.includes('cancel') ||
+    text.includes('closed')
+  )
 }
 
 /**
