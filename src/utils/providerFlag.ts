@@ -155,8 +155,24 @@ function getRouteDefaults(provider: string): {
   }
 }
 
+function normalizeBaseUrlEnv(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
+}
+
+function getConfiguredOpenAIBaseUrl(): string | undefined {
+  const baseUrl = normalizeBaseUrlEnv(process.env.OPENAI_BASE_URL)
+  if (baseUrl) {
+    return baseUrl
+  }
+
+  return normalizeBaseUrlEnv(process.env.OPENAI_API_BASE)
+}
+
 function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
-  const currentRouteId = resolveRouteIdFromBaseUrl(process.env.OPENAI_BASE_URL)
+  const currentRouteId = resolveRouteIdFromBaseUrl(
+    getConfiguredOpenAIBaseUrl(),
+  )
   if (!currentRouteId) {
     return false
   }
@@ -177,7 +193,7 @@ function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   }
 
   if (
-    !process.env.OPENAI_BASE_URL ||
+    !getConfiguredOpenAIBaseUrl() ||
     shouldReplaceStaleKnownBaseUrl(provider)
   ) {
     process.env.OPENAI_BASE_URL = normalizedBaseUrl

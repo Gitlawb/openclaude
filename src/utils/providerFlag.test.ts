@@ -259,6 +259,30 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('http://proxy.local:8080/v1')
   })
 
+  test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
+    process.env.OPENAI_API_BASE = 'http://proxy.local:8080/v1'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_BASE).toBe('http://proxy.local:8080/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
+  })
+
+  test('descriptor-backed provider selection ignores placeholder OPENAI_API_BASE alias values', () => {
+    process.env.OPENAI_API_BASE = 'undefined'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://opengateway.gitlawb.com/v1')
+    expect(process.env.OPENAI_API_BASE).toBe('undefined')
+  })
+
   test('gitlawb-opengateway explicit provider overrides stale generic base URL', () => {
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
     process.env.OPENAI_MODEL = 'gpt-5.5'

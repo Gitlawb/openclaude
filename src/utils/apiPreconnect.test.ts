@@ -3,6 +3,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as actualProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -17,6 +18,7 @@ function getMockApiProvider() {
 async function importFreshModule() {
   mock.restore()
   mock.module('./model/providers.js', () => ({
+    ...actualProviders,
     getAPIProvider: getMockApiProvider,
   }))
   return import(`./apiPreconnect.ts?ts=${Date.now()}-${Math.random()}`)
@@ -105,5 +107,13 @@ describe('preconnectAnthropicApi', () => {
     preconnectAnthropicApi()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps non-mocked provider exports available to neighboring imports', async () => {
+    await importFreshModule()
+
+    const providers = await import('./model/providers.js')
+
+    expect(typeof providers.isFirstPartyAnthropicBaseUrl).toBe('function')
   })
 })
