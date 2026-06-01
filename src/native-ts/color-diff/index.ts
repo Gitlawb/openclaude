@@ -428,7 +428,10 @@ function detectLanguage(
 
   // Filename-based lookup (handles Dockerfile, Makefile, CMakeLists.txt, etc.)
   const stem = base.split('.')[0] ?? ''
-  const byName = FILENAME_LANGS[base] ?? FILENAME_LANGS[stem]
+  // Guard against prototype-property keys (e.g. "constructor", "toString")
+  // when the filename or stem matches a built-in Object.prototype name.
+  const byName = (Object.hasOwn(FILENAME_LANGS, base) ? FILENAME_LANGS[base] : undefined)
+    ?? (Object.hasOwn(FILENAME_LANGS, stem) ? FILENAME_LANGS[stem] : undefined)
   if (byName && hljs().getLanguage(byName)) return byName
   if (ext) {
     const lang = hljs().getLanguage(ext)
