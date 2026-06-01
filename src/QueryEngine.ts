@@ -437,6 +437,10 @@ export class QueryEngine {
       this.autoCompactTracking = undefined
     }
 
+    // NOTE: Message-count and memory-pressure forceReason checks now live in
+    // src/query.ts (the shared query path used by both REPL and SDK), so they
+    // no longer need to be duplicated here in QueryEngine.
+
     // Update params to reflect updates from processing /slash commands
     const messages = [...this.mutableMessages]
 
