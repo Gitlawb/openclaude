@@ -8,10 +8,8 @@ import {
 } from '../bootstrap/state.js'
 import * as actualModel from './model/model.js'
 import * as actualProviders from './model/providers.js'
-import {
-  resetSettingsCache,
-  setSessionSettingsCache,
-} from './settings/settingsCache.js'
+import * as actualSettings from './settings/settings.js'
+import { resetSettingsCache } from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
 
 let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
@@ -70,8 +68,10 @@ const originalMainLoopModelOverride = getMainLoopModelOverride()
 const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
+let activeSettings: SettingsJson = {}
+
 function useSettings(settings: SettingsJson): void {
-  setSessionSettingsCache({ settings, errors: [] })
+  activeSettings = settings
 }
 
 function restoreEnv(): void {
@@ -86,6 +86,7 @@ function restoreEnv(): void {
 
 beforeEach(async () => {
   mock.restore()
+  activeSettings = {}
   resetStateForTests()
   resetSettingsCache()
   setClientType('cli')
@@ -131,6 +132,10 @@ beforeEach(async () => {
     ...actualProviders,
     getAPIProvider: () => 'openai',
   }))
+  mock.module('./settings/settings.js', () => ({
+    ...actualSettings,
+    getInitialSettings: () => activeSettings,
+  }))
 
   const attribution = await import(
     `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
@@ -143,6 +148,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   mock.restore()
+  activeSettings = {}
   resetStateForTests()
   resetSettingsCache()
   setClientType(originalClientType)
