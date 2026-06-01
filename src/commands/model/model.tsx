@@ -74,6 +74,7 @@ type ModelDiscoveryContext =
       autoRefresh: boolean
       canRefresh: boolean
       discoveryState?: ModelPickerDiscoveryState
+      preserveRouteOptions: boolean
       optionsOverride: ModelOption[]
       routeId: string
       routeDefaultModel?: string
@@ -114,6 +115,9 @@ function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolea
 export function mergeActiveProfileModelOptions(
   routeId: string,
   routeOptions: ModelOption[],
+  options?: {
+    preserveRouteOptions?: boolean
+  },
 ): ModelOption[] {
   const activeProfile = getActiveProviderProfile()
   if (!activeProfile) {
@@ -155,6 +159,19 @@ export function mergeActiveProfileModelOptions(
 
     seen.add(key)
     merged.push(routeOptionsByValue.get(key) ?? option)
+  }
+
+  if (options?.preserveRouteOptions) {
+    for (const option of routeOptions) {
+      const value = typeof option.value === 'string' ? option.value.trim() : ''
+      const key = value.toLowerCase()
+      if (!value || seen.has(key)) {
+        continue
+      }
+
+      seen.add(key)
+      merged.push(option)
+    }
   }
 
   return merged
@@ -247,6 +264,7 @@ async function loadDescriptorDiscoveryContext(
       kind: 'descriptor',
       autoRefresh: false,
       canRefresh,
+      preserveRouteOptions: false,
       optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
       routeId,
       routeDefaultModel,
@@ -295,7 +313,10 @@ async function loadDescriptorDiscoveryContext(
     autoRefresh,
     canRefresh,
     discoveryState,
-    optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
+    preserveRouteOptions: true,
+    optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions, {
+      preserveRouteOptions: true,
+    }),
     routeId,
     routeDefaultModel,
     routeLabel,
@@ -524,6 +545,9 @@ function ModelPickerWrapper({
           result?.models ?? [],
           discoveryContext.routeDefaultModel,
         ),
+        {
+          preserveRouteOptions: discoveryContext.preserveRouteOptions,
+        },
       )
       const changed = !haveSameModelOptions(optionsOverride ?? [], nextOptions)
 
@@ -800,6 +824,9 @@ async function refreshModelsAndSummarize(): Promise<string> {
         result?.models ?? [],
         discoveryContext.routeDefaultModel,
       ),
+      {
+        preserveRouteOptions: discoveryContext.preserveRouteOptions,
+      },
     )
     const changed = !haveSameModelOptions(
       discoveryContext.optionsOverride,

@@ -58,6 +58,36 @@ async function expectModelCommandDoesNotWaitForRefresh(
   return result
 }
 
+function mockProviderProfiles(
+  overrides: Partial<typeof import('../../utils/providerProfiles.js')> = {},
+): void {
+  const providerProfilesMock = {
+    addProviderProfile: () => null,
+    applyActiveProviderProfileFromConfig: () => undefined,
+    clearActiveOpenAIModelOptionsCache: () => {},
+    deleteProviderProfile: () => ({ removed: false }),
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => null,
+    getProfileModelOptions: () => [],
+    getProviderPresetDefaults: () => ({
+      provider: 'openai',
+      name: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-5',
+      requiresApiKey: true,
+    }),
+    getProviderProfiles: () => [],
+    setActiveOpenAIModelOptionsCache: () => {},
+    setActiveProviderProfile: () => null,
+    updateProviderProfile: () => null,
+  } satisfies Partial<typeof import('../../utils/providerProfiles.js')>
+
+  mock.module('../../utils/providerProfiles.js', () => ({
+    ...providerProfilesMock,
+    ...overrides,
+  }))
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('commands/model/model.test.tsx')
 })
@@ -168,12 +198,12 @@ test('opens the model picker without awaiting descriptor-backed route refresh', 
     ),
   }))
 
-  mock.module('../../utils/providerProfiles.js', () => ({
+  mockProviderProfiles({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => null,
     getProfileModelOptions: () => [],
     setActiveOpenAIModelOptionsCache: () => {},
-  }))
+  })
 
   const { call } = await importFreshModelModule('descriptor-refresh-open')
   await expectModelCommandDoesNotWaitForRefresh(call(() => {}, {} as never, ''))
@@ -235,7 +265,7 @@ test('descriptor model options include active profile configured models', async 
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
 
-  mock.module('../../utils/providerProfiles.js', () => ({
+  mockProviderProfiles({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => activeProfile,
     getProfileModelOptions: () => [
@@ -251,7 +281,7 @@ test('descriptor model options include active profile configured models', async 
       },
     ],
     setActiveOpenAIModelOptionsCache: () => {},
-  }))
+  })
 
   const { mergeActiveProfileModelOptions } =
     await importFreshModelModule('descriptor-profile-model-merge')
@@ -293,7 +323,7 @@ test('descriptor model options omit route defaults outside active profile models
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
 
-  mock.module('../../utils/providerProfiles.js', () => ({
+  mockProviderProfiles({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => activeProfile,
     getProfileModelOptions: () => [
@@ -309,7 +339,7 @@ test('descriptor model options omit route defaults outside active profile models
       },
     ],
     setActiveOpenAIModelOptionsCache: () => {},
-  }))
+  })
 
   const { mergeActiveProfileModelOptions } =
     await importFreshModelModule('descriptor-profile-model-filter')
@@ -344,6 +374,75 @@ test('descriptor model options omit route defaults outside active profile models
   ])
 })
 
+test('descriptor model options preserve discovered route models for discovery-backed active profiles', async () => {
+  const activeProfile = {
+    id: 'openrouter-profile',
+    name: 'OpenRouter',
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'openai/gpt-oss-120b:free',
+    apiKey: 'sk-openrouter',
+  }
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+
+  mockProviderProfiles({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+    getProfileModelOptions: () => [
+      {
+        value: 'openai/gpt-oss-120b:free',
+        label: 'openai/gpt-oss-120b:free',
+        description: 'Provider: OpenRouter',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  })
+
+  const { mergeActiveProfileModelOptions } =
+    await importFreshModelModule('descriptor-profile-model-discovery-merge')
+
+  expect(
+    mergeActiveProfileModelOptions(
+      'openrouter',
+      [
+        {
+          value: 'openai/gpt-oss-120b:free',
+          label: 'GPT OSS 120B Free',
+          description: 'Provider: OpenRouter',
+        },
+        {
+          value: 'openai/gpt-5',
+          label: 'GPT-5',
+          description: 'Provider: OpenRouter',
+        },
+        {
+          value: 'anthropic/claude-sonnet-4',
+          label: 'Claude Sonnet 4',
+          description: 'Provider: OpenRouter',
+        },
+      ],
+      { preserveRouteOptions: true },
+    ),
+  ).toEqual([
+    {
+      value: 'openai/gpt-oss-120b:free',
+      label: 'GPT OSS 120B Free',
+      description: 'Provider: OpenRouter',
+    },
+    {
+      value: 'openai/gpt-5',
+      label: 'GPT-5',
+      description: 'Provider: OpenRouter',
+    },
+    {
+      value: 'anthropic/claude-sonnet-4',
+      label: 'Claude Sonnet 4',
+      description: 'Provider: OpenRouter',
+    },
+  ])
+})
+
 test('descriptor model options skip saved profile models for env-selected routes', async () => {
   const savedProfile = {
     id: 'mistral-profile',
@@ -356,7 +455,7 @@ test('descriptor model options skip saved profile models for env-selected routes
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 
-  mock.module('../../utils/providerProfiles.js', () => ({
+  mockProviderProfiles({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => savedProfile,
     getProfileModelOptions: () => [
@@ -367,7 +466,7 @@ test('descriptor model options skip saved profile models for env-selected routes
       },
     ],
     setActiveOpenAIModelOptionsCache: () => {},
-  }))
+  })
 
   const { mergeActiveProfileModelOptions } =
     await importFreshModelModule('descriptor-profile-model-env-skip')
@@ -441,14 +540,15 @@ test('/model refresh clears descriptor cache and reports updates', async () => {
       error: null,
       source: 'network',
     })),
+    probeRouteReadiness: mock(async () => null),
   }))
 
-  mock.module('../../utils/providerProfiles.js', () => ({
+  mockProviderProfiles({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => null,
     getProfileModelOptions: () => [],
     setActiveOpenAIModelOptionsCache: () => {},
-  }))
+  })
 
   const messages: string[] = []
   const { call } = await importFreshModelModule(
@@ -472,6 +572,90 @@ test('/model refresh clears descriptor cache and reports updates', async () => {
   expect(isCacheStale).toHaveBeenCalledWith(expectedCacheKey, 86_400_000)
   expect(clearDiscoveryCache).toHaveBeenCalledWith(expectedCacheKey)
   expect(messages).toContain('Updated OpenRouter models.')
+})
+
+test('/model refresh reports discovered model changes for dynamic active profiles', async () => {
+  const activeProfile = {
+    id: 'lmstudio-profile',
+    name: 'LM Studio',
+    provider: 'lmstudio',
+    baseUrl: 'http://localhost:1234/v1',
+    model: 'local-model-a',
+    apiKey: '',
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+  process.env.OPENAI_MODEL = activeProfile.model
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  mock.module('../../integrations/discoveryCache.js', () => ({
+    clearDiscoveryCache: mock(async () => {}),
+    getCachedModels: mock(async () => ({
+      models: [{ id: 'profile-model', apiName: activeProfile.model }],
+      updatedAt: Date.now(),
+      error: null,
+    })),
+    isCacheStale: mock(async () => false),
+    parseDurationString: (value: number | string) =>
+      typeof value === 'number' ? value : 86_400_000,
+  }))
+
+  mock.module('../../integrations/discoveryService.js', () => ({
+    getDiscoveryCacheKey: (
+      routeId: string,
+      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
+    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+    discoverModelsForRoute: mock(async () => ({
+      routeId: 'lmstudio',
+      models: [
+        { id: 'profile-model', apiName: activeProfile.model },
+        { id: 'local-model-b', apiName: 'local-model-b' },
+      ],
+      stale: false,
+      error: null,
+      source: 'network',
+    })),
+    probeRouteReadiness: mock(async () => null),
+  }))
+
+  mockProviderProfiles({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+    getProfileModelOptions: () => [
+      {
+        value: activeProfile.model,
+        label: activeProfile.model,
+        description: 'Provider: LM Studio',
+      },
+    ],
+    setActiveOpenAIModelOptionsCache: () => {},
+  })
+
+  const messages: string[] = []
+  const { call } = await importFreshModelModule(
+    'descriptor-profile-refresh-manual',
+  )
+  await call(
+    (message?: string) => {
+      if (message) {
+        messages.push(message)
+      }
+    },
+    {} as never,
+    'refresh',
+  )
+
+  expect(messages).toContain('Updated LM Studio models.')
 })
 
 test('/model does not auto-refresh descriptor models when nonessential traffic is disabled', async () => {
@@ -509,12 +693,12 @@ test('/model does not auto-refresh descriptor models when nonessential traffic i
     discoverModelsForRoute,
   }))
 
-  mock.module('../../utils/providerProfiles.js', () => ({
+  mockProviderProfiles({
     getActiveOpenAIModelOptionsCache: () => [],
     getActiveProviderProfile: () => null,
     getProfileModelOptions: () => [],
     setActiveOpenAIModelOptionsCache: () => {},
-  }))
+  })
 
   const { call } = await importFreshModelModule('descriptor-privacy-open')
   const result = await call(() => {}, {} as never, '')
