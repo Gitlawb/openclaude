@@ -8,6 +8,8 @@ import {
   parseModelFlag,
   applyProviderFlag,
   applyProviderFlagFromArgs,
+  reapplyRememberedProviderFlag,
+  clearRememberedProviderFlagForTests,
   applyModelFlagFromArgs,
   VALID_PROVIDERS,
 } from './providerFlag.js'
@@ -73,6 +75,7 @@ const RESET_KEYS = [
 ] as const
 
 beforeEach(() => {
+  clearRememberedProviderFlagForTests()
   for (const key of RESET_KEYS) {
     delete process.env[key]
   }
@@ -80,6 +83,7 @@ beforeEach(() => {
 
 afterEach(() => {
   try {
+    clearRememberedProviderFlagForTests()
     for (const key of ENV_KEYS) {
       if (originalEnv[key] === undefined) {
         delete process.env[key]
@@ -585,6 +589,60 @@ describe('applyProviderFlagFromArgs', () => {
 
   test('returns undefined when --provider is absent', () => {
     expect(applyProviderFlagFromArgs(['--model', 'gpt-4o'])).toBeUndefined()
+  })
+
+  test('reapplies remembered gitlawb-opengateway after settings env restores stale OpenAI routing', () => {
+    const args = ['--provider', 'gitlawb-opengateway']
+    delete process.env.OPENGATEWAY_API_KEY
+    delete process.env.OPENAI_API_KEY
+
+    const earlyResult = applyProviderFlagFromArgs(args, {
+      rememberForSettingsEnv: true,
+    })
+    expect(earlyResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+
+    process.env.OPENGATEWAY_API_KEY = 'settings-ogw-key'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+    const lateResult = reapplyRememberedProviderFlag()
+
+    expect(lateResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
+    expect(process.env.OPENAI_API_KEY as string | undefined).toBe(
+      'settings-ogw-key',
+    )
+  })
+
+  test('remembered provider reapply preserves an explicit --model', () => {
+    const result = applyProviderFlagFromArgs(
+      [
+        '--print',
+        '--provider',
+        'gitlawb-opengateway',
+        '--model',
+        'custom-ogw-model',
+        'do not retain prompt text',
+      ],
+      { rememberForSettingsEnv: true },
+    )
+
+    expect(result?.error).toBeUndefined()
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'stale-openai-model'
+
+    const lateResult = reapplyRememberedProviderFlag()
+
+    expect(lateResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('custom-ogw-model')
   })
 })
 

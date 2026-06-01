@@ -65,6 +65,13 @@ export const VALID_PROVIDERS = buildValidProviders()
 
 export type ProviderFlagName = string
 
+let rememberedProviderFlag:
+  | {
+      provider: string
+      model?: string
+    }
+  | null = null
+
 /**
  * Extract the value of --provider from argv.
  * Returns null if the flag is absent or has no value.
@@ -83,10 +90,35 @@ export function parseProviderFlag(args: string[]): string | null {
  */
 export function applyProviderFlagFromArgs(
   args: string[],
+  options?: {
+    rememberForSettingsEnv?: boolean
+  },
 ): { error?: string } | undefined {
   const provider = parseProviderFlag(args)
   if (!provider) return undefined
-  return applyProviderFlag(provider, args)
+  const result = applyProviderFlag(provider, args)
+  if (!result.error && options?.rememberForSettingsEnv) {
+    const model = parseModelFlag(args)
+    rememberedProviderFlag = model ? { provider, model } : { provider }
+  }
+  return result
+}
+
+export function reapplyRememberedProviderFlag():
+  | { error?: string }
+  | undefined {
+  if (!rememberedProviderFlag) return undefined
+
+  const args = ['--provider', rememberedProviderFlag.provider]
+  if (rememberedProviderFlag.model) {
+    args.push('--model', rememberedProviderFlag.model)
+  }
+
+  return applyProviderFlag(rememberedProviderFlag.provider, args)
+}
+
+export function clearRememberedProviderFlagForTests(): void {
+  rememberedProviderFlag = null
 }
 
 /**
