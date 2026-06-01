@@ -260,10 +260,10 @@ export async function* query(
 > {
   const consumedCommandUuids: string[] = []
   const terminal = yield* queryLoop(params, consumedCommandUuids)
-  // Only reached if queryLoop returned normally. Skipped on throw (error
-  // propagates through yield*) and on .return() (Return completion closes
-  // both generators). This gives the same asymmetric started-without-completed
-  // signal as print.ts's drainCommandQueue when the turn fails.
+  // Only emit 'completed' on the successful path. On throw, yield* propagates
+  // the error and this line is skipped — preserving the "processing but not
+  // processed" state for failed turns. RemoteIO maps 'completed' to a delivery
+  // ACK, so emitting it on failure would incorrectly acknowledge unhandled prompts.
   for (const uuid of consumedCommandUuids) {
     notifyCommandLifecycle(uuid, 'completed')
   }
@@ -804,6 +804,10 @@ async function* queryLoop(
         try {
           let streamingFallbackOccured = false
           queryCheckpoint('query_api_streaming_start')
+          if (toolUseContext.abortController.signal.aborted) {
+            yield* yieldMissingToolResultBlocks(assistantMessages, 'Interrupted by user')
+            return { reason: 'aborted_streaming' }
+          }
           for await (const message of deps.callModel({
             messages: prependUserContext(messagesForQuery, userContext),
             systemPrompt: fullSystemPrompt,
@@ -1170,7 +1174,7 @@ async function* queryLoop(
         systemContext,
         toolUseContext,
         querySource,
-      )
+      ).catch(logError)
     }
 
     // We need to handle a streaming abort before anything else.
@@ -1563,9 +1567,9 @@ async function* queryLoop(
         continue
       }
 
-      if (feature('TOKEN_BUDGET')) {
+      if (feature('TOKEN_BUDGET') && budgetTracker) {
         const decision = checkTokenBudget(
-          budgetTracker!,
+          budgetTracker,
           toolUseContext.agentId,
           getCurrentTurnTokenBudget(),
           getTurnOutputTokens(),

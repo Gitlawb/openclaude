@@ -333,7 +333,10 @@ export async function getAnthropicClient({
   const ARGS = {
     defaultHeaders,
     maxRetries,
-    timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+    timeout: (() => {
+      const parsed = parseInt(process.env.API_TIMEOUT_MS || '', 10)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000
+    })(),
     dangerouslyAllowBrowser: true,
     fetchOptions: getProxyFetchOptions({
       forAnthropicAPI: true,

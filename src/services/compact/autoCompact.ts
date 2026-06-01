@@ -312,7 +312,7 @@ export async function shouldAutoCompact(
     }
   }
 
-  const tokenCount = tokenCountWithEstimation(messages) - snipTokensFreed
+  const tokenCount = Math.max(0, tokenCountWithEstimation(messages) - snipTokensFreed)
   const threshold = getAutoCompactThreshold(model)
   const effectiveWindow = getEffectiveContextWindowSize(model)
 

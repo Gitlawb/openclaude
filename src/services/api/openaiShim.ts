@@ -1434,6 +1434,9 @@ async function* openaiStreamToAnthropic(
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
+      if (buffer.length > 1_000_000) {
+        throw new Error('SSE buffer exceeded 1MB — possible missing newline delimiter from provider')
+      }
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
 

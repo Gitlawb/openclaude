@@ -538,7 +538,7 @@ export async function main() {
     if (process.argv.includes('-p') || process.argv.includes('--print')) {
       return;
     }
-    process.exit(0);
+    gracefulShutdown(0);
   });
   profileCheckpoint('main_warning_handler_initialized');
 
