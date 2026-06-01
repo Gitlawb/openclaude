@@ -71,6 +71,7 @@ function shouldUseIntegrationRuntimeLimits(
 
   return (
     transportKind === 'openai-compatible' ||
+    transportKind === 'anthropic-proxy' ||
     transportKind === 'local' ||
     transportKind === 'gemini-native'
   )

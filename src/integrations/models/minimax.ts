@@ -18,7 +18,7 @@ export default [
     classification: ['chat', 'reasoning', 'coding'],
     defaultModel: 'MiniMax-M2',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({
@@ -29,7 +29,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'MiniMax-M2.1',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({
@@ -40,7 +40,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'MiniMax-M2.1-highspeed',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({
@@ -51,7 +51,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'MiniMax-M2.5',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({
@@ -62,7 +62,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'MiniMax-M2.5-highspeed',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({
@@ -73,7 +73,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'MiniMax-M2.7',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({
@@ -84,7 +84,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'MiniMax-M2.7-highspeed',
     capabilities: minimaxM2Capabilities,
-    contextWindow: 204_800,
+    contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
   defineModel({

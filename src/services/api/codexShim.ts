@@ -791,7 +791,7 @@ export async function* codexStreamToAnthropic(
   const messageId = makeMessageId()
   const toolBlocksByItemId = new Map<
     string,
-    { index: number; toolUseId: string }
+    { index: number; toolUseId: string; emittedArgs: string }
   >()
   let activeTextBlockIndex: number | null = null
   const thinkFilter = createThinkTagFilter()
@@ -852,9 +852,12 @@ export async function* codexStreamToAnthropic(
         yield* closeActiveTextBlock()
         const blockIndex = nextContentBlockIndex++
         const toolUseId = item.call_id ?? item.id ?? `call_${blockIndex}`
+        const initialArgs =
+          typeof item.arguments === 'string' ? item.arguments : ''
         toolBlocksByItemId.set(String(item.id ?? toolUseId), {
           index: blockIndex,
           toolUseId,
+          emittedArgs: initialArgs,
         })
         sawToolUse = true
 
@@ -869,13 +872,13 @@ export async function* codexStreamToAnthropic(
           },
         }
 
-        if (item.arguments) {
+        if (initialArgs) {
           yield {
             type: 'content_block_delta',
             index: blockIndex,
             delta: {
               type: 'input_json_delta',
-              partial_json: item.arguments,
+              partial_json: initialArgs,
             },
           }
         }
@@ -911,13 +914,43 @@ export async function* codexStreamToAnthropic(
     if (event.event === 'response.function_call_arguments.delta') {
       const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
       if (toolBlock) {
-        yield {
-          type: 'content_block_delta',
-          index: toolBlock.index,
-          delta: {
-            type: 'input_json_delta',
-            partial_json: payload.delta ?? '',
-          },
+        const delta = typeof payload.delta === 'string' ? payload.delta : ''
+        if (delta) {
+          toolBlock.emittedArgs += delta
+          yield {
+            type: 'content_block_delta',
+            index: toolBlock.index,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: delta,
+            },
+          }
+        }
+      }
+      continue
+    }
+
+    // Some Codex Responses backends (codexspark / gpt-5.3-codex-spark) deliver
+    // the *complete* function-call arguments only via the terminal
+    // `response.function_call_arguments.done` event, with zero
+    // `response.function_call_arguments.delta` events in between. Without
+    // handling `done`, the tool block closed with `input: {}` and downstream
+    // tool validation failed with "required parameter X is missing" (#1259).
+    if (event.event === 'response.function_call_arguments.done') {
+      const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
+      if (toolBlock) {
+        const fullArgs =
+          typeof payload.arguments === 'string' ? payload.arguments : ''
+        if (fullArgs && !toolBlock.emittedArgs) {
+          toolBlock.emittedArgs = fullArgs
+          yield {
+            type: 'content_block_delta',
+            index: toolBlock.index,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: fullArgs,
+            },
+          }
         }
       }
       continue
@@ -928,6 +961,22 @@ export async function* codexStreamToAnthropic(
       if (item?.type === 'function_call') {
         const toolBlock = toolBlocksByItemId.get(String(item.id ?? ''))
         if (toolBlock) {
+          // Backstop for backends that skip the dedicated `function_call_arguments.done`
+          // event entirely and only put the full arguments on `output_item.done`.
+          // Same #1259 failure mode; trust whichever channel actually carried the data.
+          const finalArgs =
+            typeof item.arguments === 'string' ? item.arguments : ''
+          if (finalArgs && !toolBlock.emittedArgs) {
+            toolBlock.emittedArgs = finalArgs
+            yield {
+              type: 'content_block_delta',
+              index: toolBlock.index,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: finalArgs,
+              },
+            }
+          }
           yield {
             type: 'content_block_stop',
             index: toolBlock.index,

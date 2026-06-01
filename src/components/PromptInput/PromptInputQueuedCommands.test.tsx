@@ -5,6 +5,8 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 import { renderToString } from '../../utils/staticRender.js'
+import * as realCommandQueue from '../../hooks/useCommandQueue.js'
+import { AppStateProvider } from 'src/state/AppState.js'
 
 describe('PromptInputQueuedCommands', () => {
   beforeEach(async () => {
@@ -18,16 +20,12 @@ describe('PromptInputQueuedCommands', () => {
       ],
     }))
 
-    mock.module('src/state/AppState.js', () => ({
-      useAppState: (
-        selector: (state: { viewingAgentTaskId?: string; isBriefOnly: boolean }) => unknown,
-      ) => selector({ viewingAgentTaskId: undefined, isBriefOnly: false }),
-    }))
   })
 
   afterEach(() => {
     try {
       mock.restore()
+      mock.module('../../hooks/useCommandQueue.js', () => realCommandQueue)
     } finally {
       releaseSharedMutationLock()
     }
@@ -36,7 +34,12 @@ describe('PromptInputQueuedCommands', () => {
   it('shows a next-turn guidance banner for queued prompt messages', async () => {
     const { PromptInputQueuedCommands } = await import('./PromptInputQueuedCommands.js')
 
-    const output = await renderToString(<PromptInputQueuedCommands />, 100)
+    const output = await renderToString(
+      <AppStateProvider>
+        <PromptInputQueuedCommands />
+      </AppStateProvider>,
+      100,
+    )
 
     expect(output).toContain('1 message queued for next turn')
     expect(output).toContain('Use another library')

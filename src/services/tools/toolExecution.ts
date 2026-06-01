@@ -619,7 +619,22 @@ export function normalizeToolInputForValidation(
   tool: Pick<Tool, 'name'>,
   input: unknown,
 ): unknown {
-  if (tool.name !== ASK_USER_QUESTION_TOOL_NAME || !isRecord(input)) {
+  if (!isRecord(input)) {
+    return input
+  }
+
+  if (tool.name === FILE_READ_TOOL_NAME) {
+    // Codex strict tool schemas can emit placeholder pages: "" / null for
+    // non-PDF reads. Treat those the same as omission before zod validation.
+    const pages = input.pages
+    if (pages === null || (typeof pages === 'string' && pages.trim() === '')) {
+      const { pages: _pages, ...rest } = input
+      return rest
+    }
+    return input
+  }
+
+  if (tool.name !== ASK_USER_QUESTION_TOOL_NAME) {
     return input
   }
 

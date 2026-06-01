@@ -47,15 +47,10 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
 
-// Set max heap size for child processes.
-// Local runs get 8 GB so long agentic tasks (multi-file reads, large prompts,
-// tool-heavy loops) do not hit V8's ~2 GB default ceiling. Only raise the cap
-// when the user has not already set NODE_OPTIONS --max-old-space-size so we
-// do not override an intentionally lower or higher personal setting.
-// CCR (Claude Code Remote / container) environments are covered by the same
-// unconditional assignment — the previous CLAUDE_CODE_REMOTE guard was too
-// restrictive, preventing local users from benefiting from the raised limit.
-// Closes: Gitlawb/openclaude#402 — JavaScript heap OOM during large tasks.
+// Set max heap size for child processes. The current CLI process is already
+// running by this point; the package launcher raises its heap before importing
+// dist/cli.mjs. Keeping NODE_OPTIONS here preserves the larger cap for tools or
+// subprocesses spawned after startup without overriding user-provided limits.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level, custom-rules/safe-env-boolean-check
 if (!process.env.NODE_OPTIONS?.includes('--max-old-space-size')) {
   // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
@@ -133,6 +128,38 @@ async function main(): Promise<void> {
       )
     } else {
       applyProfileEnvToProcessEnv(process.env, startupEnv)
+    }
+  }
+
+  // Pane/window teammates are launched as fresh CLI processes. If the parent
+  // selected a configured agentModels key, apply that route before provider
+  // validation and --model env routing run in this child process.
+  {
+    const { eagerLoadSettingsFromArgs } = await import(
+      '../utils/settings/flagSettings.js'
+    )
+    const settingsLoadResult = eagerLoadSettingsFromArgs(args)
+    if (!settingsLoadResult.ok) {
+      if (settingsLoadResult.cause instanceof Error) {
+        const { logError } = await import('../utils/log.js')
+        logError(settingsLoadResult.cause)
+      }
+      const { default: chalk } = await import('chalk')
+      process.stderr.write(chalk.red(`${settingsLoadResult.message}\n`))
+      process.exit(1)
+    }
+
+    const {
+      applyAgentProviderOverrideToEnv,
+      resolveOutOfProcessTeammateProviderFromCliArgs,
+    } = await import('../services/api/agentRouting.js')
+    const { getInitialSettings } = await import('../utils/settings/settings.js')
+    const providerOverride = resolveOutOfProcessTeammateProviderFromCliArgs(
+      args,
+      getInitialSettings(),
+    )
+    if (providerOverride) {
+      applyAgentProviderOverrideToEnv(providerOverride)
     }
   }
 

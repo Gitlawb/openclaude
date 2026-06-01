@@ -24,14 +24,14 @@ import {
 // Works under Bun (native fetch respects keepalive:false for pooling).
 // Under Node/undici, keepalive is a no-op for pooling, but undici
 // naturally evicts dead sockets from the pool on ECONNRESET.
-let keepAliveDisabled = false
+let keepAliveDisabled = isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_KEEPALIVE)
 
 export function disableKeepAlive(): void {
   keepAliveDisabled = true
 }
 
 export function _resetKeepAliveForTesting(): void {
-  keepAliveDisabled = false
+  keepAliveDisabled = isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_KEEPALIVE)
 }
 
 /**

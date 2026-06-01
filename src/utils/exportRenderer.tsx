@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import stripAnsi from 'strip-ansi';
+import { stripVTControlCharacters as stripAnsi } from 'node:util';
 import { Messages } from '../components/Messages.js';
 import { KeybindingProvider } from '../keybindings/KeybindingContext.js';
 import { loadKeybindingsSyncWithWarnings } from '../keybindings/loadUserBindings.js';
@@ -25,6 +25,7 @@ import {
 } from '../constants/xml.js';
 import type { ExportFormat } from './exportFormats.js';
 import { renderToAnsiString } from './staticRender.js';
+import { unescapeXml } from './xml.js';
 
 /**
  * Minimal keybinding provider for static/headless renders.
@@ -641,11 +642,16 @@ function parseWrappedOutputPrefix(text: string): { output: TerminalOutput; rest:
     if (openTagEnd === -1) return null
     const closeIndex = text.indexOf(closeTag, openTagEnd + 1)
     if (closeIndex === -1) return null
+    const rawText = text.slice(openTagEnd + 1, closeIndex)
+    const decodedText =
+      tag === BASH_STDOUT_TAG || tag === BASH_STDERR_TAG
+        ? unescapeXml(rawText)
+        : rawText
     return {
       output: {
         source,
         stream,
-        text: text.slice(openTagEnd + 1, closeIndex),
+        text: decodedText,
       },
       rest: text.slice(closeIndex + closeTag.length),
     }

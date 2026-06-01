@@ -109,7 +109,8 @@ export type AppState = DeepImmutable<{
   footerSelection: FooterItem | null
   toolPermissionContext: ToolPermissionContext
   spinnerTip?: string
-  // Agent name from --agent CLI flag or settings (for logo display)
+  // Active main-thread agent name for this session. Initially sourced from
+  // --agent/settings; runtime menu changes update it alongside REPL state.
   agent: string | undefined
   // Assistant mode fully enabled (settings + GrowthBook gate + trust).
   // Single source of truth - computed once in main.tsx before option

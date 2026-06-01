@@ -18,9 +18,13 @@ npm --version
 ## 2. Install OpenClaude
 
 ```bash
-npm install -g @gitlawb/openclaude
+npm install -g @gitlawb/openclaude@latest
 ```
+On Arch Linux, you can alternatively install OpenClaude via the community-maintained [AUR package](https://aur.archlinux.org/packages/openclaude):
 
+```bash
+paru -S openclaude
+```
 ## 3. Pick One Provider
 
 ### Option A: OpenAI
@@ -128,14 +132,27 @@ Check the basics:
 
 ## 6. Updating OpenClaude
 
+**Via npm:**
 ```bash
 npm install -g @gitlawb/openclaude@latest
 ```
 
+**Via AUR:**
+```bash
+paru
+```
+*(Or use your preferred AUR helper like `yay -Syu`)*
+
 ## 7. Uninstalling OpenClaude
 
+**Via npm:**
 ```bash
 npm uninstall -g @gitlawb/openclaude
+```
+
+**Via AUR (Arch Linux):**
+```bash
+paru -Rns openclaude
 ```
 
 ## Need Advanced Setup?

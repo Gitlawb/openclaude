@@ -72,7 +72,6 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   'figures',
   'get-east-asian-width',
   'indent-string',
-  'strip-ansi',
   'supports-hyperlinks',
   'wrap-ansi',
   // Data formats
@@ -123,8 +122,6 @@ export const INTENTIONALLY_BUNDLED: string[] = [
     // gRPC (bundled into CLI, not external)
   '@grpc/grpc-js',
   '@grpc/proto-loader',
-  // Web scraping
-  '@mendable/firecrawl-js',
   // Language server protocol
   'vscode-languageserver-protocol',
   // File watching

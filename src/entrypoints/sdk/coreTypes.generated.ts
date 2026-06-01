@@ -220,7 +220,7 @@ export type PermissionUpdate = ({
   destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
 }) | ({
   type: "setMode"
-  mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
 }) | ({
   type: "addDirectories"
@@ -264,7 +264,7 @@ export type PermissionResult = ({
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "setMode"
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "addDirectories"
@@ -285,8 +285,8 @@ export type PermissionResult = ({
   decisionClassification?: "user_temporary" | "user_permanent" | "user_reject"
 })
 
-/** Permission mode for controlling how tool executions are handled. 'default' - Standard behavior, prompts for dangerous operations. 'acceptEdits' - Auto-accept file edit operations. 'bypassPermissions' - Bypass all permission checks (requires allowDangerouslySkipPermissions). 'plan' - Planning mode, no actual tool execution. 'dontAsk' - Don't prompt for permissions, deny if not pre-approved. */
-export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+/** Permission mode for controlling how tool executions are handled. 'default' - Standard behavior, prompts for dangerous operations. 'acceptEdits' - Auto-accept file edit operations. 'bypassPermissions' - Bypass normal permission prompts while preserving hard safety checks (requires allowDangerouslySkipPermissions). 'fullAccess' - Bypass normal permission prompts and hard safety-check prompts (requires allowDangerouslySkipPermissions). 'plan' - Planning mode, no actual tool execution. 'dontAsk' - Don't prompt for permissions, deny if not pre-approved. */
+export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
 
 export type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "Notification" | "UserPromptSubmit" | "SessionStart" | "SessionEnd" | "Stop" | "StopFailure" | "SubagentStart" | "SubagentStop" | "PreCompact" | "PostCompact" | "PermissionRequest" | "PermissionDenied" | "Setup" | "TeammateIdle" | "TaskCreated" | "TaskCompleted" | "Elicitation" | "ElicitationResult" | "ConfigChange" | "WorktreeCreate" | "WorktreeRemove" | "InstructionsLoaded" | "CwdChanged" | "FileChanged"
 
@@ -530,7 +530,7 @@ export type PermissionRequestHookInput = {
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "setMode"
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "addDirectories"
@@ -918,7 +918,7 @@ export type HookInput = ({
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "setMode"
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "addDirectories"
@@ -1164,7 +1164,7 @@ export type PermissionRequestHookSpecificOutput = {
       destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
     }) | ({
       type: "setMode"
-      mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+      mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
       destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
     }) | ({
       type: "addDirectories"
@@ -1283,7 +1283,7 @@ export type SyncHookJSONOutput = {
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "setMode"
-        mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+        mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "addDirectories"
@@ -1393,7 +1393,7 @@ export type HookJSONOutput = ({
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "setMode"
-        mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+        mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "addDirectories"
@@ -1535,7 +1535,7 @@ export type AgentDefinition = {
   background?: boolean
   memory?: "user" | "project" | "local"
   effort?: "low" | "medium" | "high" | "max" | number
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
 }
 
 /** Source for loading filesystem-based settings. 'user' - Global user settings (~/.claude/settings.json). 'project' - Project settings (.claude/settings.json). 'local' - Local settings (.claude/settings.local.json). */
@@ -1785,7 +1785,7 @@ export type SDKSystemMessage = {
     status: string
   }[]
   model: string
-  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   slash_commands: string[]
   output_style: string
   skills: string[]
@@ -1827,7 +1827,7 @@ export type SDKStatusMessage = {
   type: "system"
   subtype: "status"
   status: "compacting" | null
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   uuid: string
   session_id: string
 }
@@ -2142,7 +2142,7 @@ export type SDKMessage = ({
     status: string
   }[]
   model: string
-  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   slash_commands: string[]
   output_style: string
   skills: string[]
@@ -2178,7 +2178,7 @@ export type SDKMessage = ({
   type: "system"
   subtype: "status"
   status: "compacting" | null
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   uuid: string
   session_id: string
 }) | ({
