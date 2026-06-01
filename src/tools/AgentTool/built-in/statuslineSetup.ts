@@ -55,14 +55,19 @@ How to use the statusLine command:
        "total_input_tokens": number,       // Total input tokens used in session (cumulative)
        "total_output_tokens": number,      // Total output tokens used in session (cumulative)
        "context_window_size": number,      // Context window size for current model (e.g., 200000)
-       "current_usage": {                   // Token usage from last API call (null if no messages yet)
+       "current_usage": {                   // Token usage from last API call.
+                                            // null when: no messages yet, OR the active provider does not
+                                            // report token usage (e.g. providers that strip stream_options
+                                            // such as MiMo/OpenGateway).
          "input_tokens": number,           // Input tokens for current context
          "output_tokens": number,          // Output tokens generated
          "cache_creation_input_tokens": number,  // Tokens written to cache
          "cache_read_input_tokens": number       // Tokens read from cache
        } | null,
-       "used_percentage": number | null,      // Pre-calculated: % of context used (0-100), null if no messages yet
-       "remaining_percentage": number | null  // Pre-calculated: % of context remaining (0-100), null if no messages yet
+       "used_percentage": number | null,      // Pre-calculated: % of context used (0-100).
+                                              // null when: no messages yet, OR provider does not report usage.
+       "remaining_percentage": number | null  // Pre-calculated: % of context remaining (0-100).
+                                              // null when: no messages yet, OR provider does not report usage.
      },
      "rate_limits": {             // Optional: Claude.ai subscription usage limits. Only present for subscribers after first API response.
        "five_hour": {             // Optional: 5-hour session limit (may be absent)
