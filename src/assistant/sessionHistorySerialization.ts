@@ -23,6 +23,44 @@ function parseSerializedArrayContent(content: unknown): unknown {
   }
 }
 
+function getLegacyMessageRole(
+  event: Record<string, unknown>,
+): 'assistant' | 'user' | null {
+  if (event.type === 'assistant' || event.type === 'user') {
+    return event.type
+  }
+  if (
+    event.type === undefined &&
+    (event.role === 'assistant' || event.role === 'user')
+  ) {
+    return event.role
+  }
+  return null
+}
+
+function normalizeLegacyTopLevelMessage(event: Record<string, unknown>): void {
+  const role = getLegacyMessageRole(event)
+  if (!role) {
+    return
+  }
+
+  if (!isRecord(event.message) && 'content' in event) {
+    event.message = {
+      role,
+      content: event.content,
+    }
+  }
+
+  if (isRecord(event.message)) {
+    event.type = role
+    if (!('parent_tool_use_id' in event)) {
+      event.parent_tool_use_id = null
+    }
+    delete event.role
+    delete event.content
+  }
+}
+
 export function serializeToCacheMessage(
   events: readonly SDKMessage[],
 ): SDKMessageCacheRecord[] {
@@ -60,9 +98,12 @@ export function deserializeFromCacheMessage(
         ...message,
         content: parseSerializedArrayContent(message.content),
       }
-    } else if (record.contentIsArray) {
+    }
+    if (record.contentIsArray && 'content' in event) {
       event.content = parseSerializedArrayContent(event.content)
     }
+
+    normalizeLegacyTopLevelMessage(event)
 
     if (!('cachedAt' in record) && typeof event.timestamp === 'number') {
       delete event.timestamp

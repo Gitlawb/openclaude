@@ -193,27 +193,52 @@ describe('session history cache serialization', () => {
     expect(deserialized).toEqual(userMessage)
   })
 
-  test('parses legacy top-level cached array content', () => {
+  test('normalizes legacy top-level cached user and assistant content', () => {
     const legacyContent = [{ type: 'text', text: 'Hello' }]
-    const legacyRecord = {
-      type: 'assistant',
-      role: 'assistant',
-      content: JSON.stringify(legacyContent),
-      contentIsArray: true,
-      timestamp: 123456,
-      uuid: 'legacy-uuid',
-      session_id: 'session-1',
-    }
+    const legacyRecords = [
+      {
+        type: 'assistant',
+        role: 'assistant',
+        content: JSON.stringify(legacyContent),
+        contentIsArray: true,
+        timestamp: 123456,
+        uuid: 'legacy-assistant-uuid',
+        session_id: 'session-1',
+      },
+      {
+        type: 'user',
+        role: 'user',
+        content: 'Legacy hello',
+        contentIsArray: false,
+        timestamp: 123456,
+        uuid: 'legacy-user-uuid',
+        session_id: 'session-1',
+      },
+    ]
 
-    const [deserialized] = deserializeFromCacheMessage([legacyRecord])
-    const deserializedRecord = deserialized as unknown as Record<string, unknown>
+    const deserialized = deserializeFromCacheMessage(legacyRecords)
 
-    expect(deserializedRecord).toEqual({
-      type: 'assistant',
-      role: 'assistant',
-      content: legacyContent,
-      uuid: 'legacy-uuid',
-      session_id: 'session-1',
-    })
+    expect(deserialized).toEqual([
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: legacyContent,
+        },
+        parent_tool_use_id: null,
+        uuid: 'legacy-assistant-uuid',
+        session_id: 'session-1',
+      },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'Legacy hello',
+        },
+        parent_tool_use_id: null,
+        uuid: 'legacy-user-uuid',
+        session_id: 'session-1',
+      },
+    ])
   })
 })
