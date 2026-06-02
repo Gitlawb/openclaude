@@ -1,13 +1,26 @@
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
 
 export type SDKMessageCacheRecord = Record<string, unknown> & {
+  cachedAt?: number
   contentIsArray?: boolean
   message?: Record<string, unknown>
-  timestamp?: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseSerializedArrayContent(content: unknown): unknown {
+  if (typeof content !== 'string') {
+    return content
+  }
+
+  try {
+    const parsed = JSON.parse(content)
+    return Array.isArray(parsed) ? parsed : content
+  } catch {
+    return content
+  }
 }
 
 export function serializeToCacheMessage(
@@ -16,7 +29,7 @@ export function serializeToCacheMessage(
   return events.map(event => {
     const record: SDKMessageCacheRecord = {
       ...(event as unknown as Record<string, unknown>),
-      timestamp: Date.now(),
+      cachedAt: Date.now(),
     }
 
     if ('message' in event && isRecord(event.message)) {
@@ -39,21 +52,20 @@ export function deserializeFromCacheMessage(
 ): SDKMessage[] {
   return records.map(record => {
     const event = { ...record }
-    delete event.timestamp
+    delete event.cachedAt
 
     if (record.contentIsArray && isRecord(event.message)) {
       const message = event.message
-      const content = message.content
-      if (typeof content === 'string') {
-        try {
-          event.message = {
-            ...message,
-            content: JSON.parse(content),
-          }
-        } catch {
-          event.message = message
-        }
+      event.message = {
+        ...message,
+        content: parseSerializedArrayContent(message.content),
       }
+    } else if (record.contentIsArray) {
+      event.content = parseSerializedArrayContent(event.content)
+    }
+
+    if (!('cachedAt' in record) && typeof event.timestamp === 'number') {
+      delete event.timestamp
     }
 
     delete event.contentIsArray

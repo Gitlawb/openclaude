@@ -115,15 +115,15 @@ describe('session history cache serialization', () => {
 
     expect(serialized[0]).toEqual({
       ...resultMessage,
-      timestamp: expect.any(Number),
+      cachedAt: expect.any(Number),
     })
     expect(serialized[1]).toEqual({
       ...statusMessage,
-      timestamp: expect.any(Number),
+      cachedAt: expect.any(Number),
     })
     expect(serialized[2]).toEqual({
       ...toolProgressMessage,
-      timestamp: expect.any(Number),
+      cachedAt: expect.any(Number),
     })
 
     expect(deserializeFromCacheMessage(serialized)).toEqual([
@@ -168,5 +168,52 @@ describe('session history cache serialization', () => {
     const deserialized = deserializeFromCacheMessage(serialized)
 
     expect(deserialized).toEqual(messages)
+  })
+
+  test('preserves SDK user message timestamps across cache round trip', () => {
+    const userMessage = {
+      type: 'user',
+      message: {
+        role: 'user',
+        content: 'Hello with timestamp',
+      },
+      parent_tool_use_id: null,
+      timestamp: '2026-06-02T17:44:00.000Z',
+      uuid: 'timestamped-user-uuid',
+      session_id: 'session-1',
+    } satisfies SDKUserMessage
+
+    const [serialized] = serializeToCacheMessage([userMessage])
+
+    expect(serialized.timestamp).toBe(userMessage.timestamp)
+    expect(serialized.cachedAt).toEqual(expect.any(Number))
+
+    const [deserialized] = deserializeFromCacheMessage([serialized])
+
+    expect(deserialized).toEqual(userMessage)
+  })
+
+  test('parses legacy top-level cached array content', () => {
+    const legacyContent = [{ type: 'text', text: 'Hello' }]
+    const legacyRecord = {
+      type: 'assistant',
+      role: 'assistant',
+      content: JSON.stringify(legacyContent),
+      contentIsArray: true,
+      timestamp: 123456,
+      uuid: 'legacy-uuid',
+      session_id: 'session-1',
+    }
+
+    const [deserialized] = deserializeFromCacheMessage([legacyRecord])
+    const deserializedRecord = deserialized as unknown as Record<string, unknown>
+
+    expect(deserializedRecord).toEqual({
+      type: 'assistant',
+      role: 'assistant',
+      content: legacyContent,
+      uuid: 'legacy-uuid',
+      session_id: 'session-1',
+    })
   })
 })
