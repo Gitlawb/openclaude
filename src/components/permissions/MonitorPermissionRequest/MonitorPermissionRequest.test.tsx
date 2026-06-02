@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { getOriginalCwd, setOriginalCwd } from '../../../bootstrap/state.js'
 import { handleInteractivePermission } from '../../../hooks/toolPermission/handlers/interactiveHandler.js'
@@ -315,7 +315,7 @@ async function renderMonitorPermission(
   })
 
   root.render(
-    <AppStateProvider>
+    <AppStateProvider initialState={getDefaultAppState()}>
       <TestKeybindingProvider>
         <MonitorPermissionRequest
           toolUseConfirm={toolUseConfirm}
@@ -400,6 +400,7 @@ describe('MonitorPermissionRequest', () => {
             destination: 'localSettings',
           },
         ],
+        undefined,
       )
       expect(toolUseConfirm.onReject).not.toHaveBeenCalled()
     } finally {

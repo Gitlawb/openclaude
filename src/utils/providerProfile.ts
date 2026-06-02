@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
+  DEFAULT_OPENCODE_BASE_URL,
   isCodexBaseUrl,
   parseOpenAICompatibleApiFormat,
   resolveCodexApiCredentials,
@@ -44,7 +45,7 @@ export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
-export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
+export const DEFAULT_MISTRAL_MODEL = 'mistral-vibe-cli-latest'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -94,6 +95,7 @@ const PROFILE_ENV_KEYS = [
   'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'OPENCODE_API_KEY',
 ] as const
 
 export type CompatibilityProfileMode =
@@ -118,6 +120,7 @@ const SECRET_ENV_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'OPENCODE_API_KEY',
 ] as const
 
 export type ProviderProfile =
@@ -134,6 +137,7 @@ export type ProviderProfile =
   | 'bedrock'
   | 'vertex'
   | 'xai'
+  | 'opencode'
 
 export type ProfileEnv = {
   ANTHROPIC_BASE_URL?: string
@@ -175,6 +179,7 @@ export type ProfileEnv = {
   XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
+  OPENCODE_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -312,7 +317,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'github' ||
     value === 'bedrock' ||
     value === 'vertex' ||
-    value === 'xai'
+    value === 'xai' ||
+    value === 'opencode'
   )
 }
 
@@ -1404,6 +1410,28 @@ export async function buildLaunchEnv(options: {
       delete result.OPENAI_API_KEY
     }
     return result
+  }
+
+  if (options.profile === 'opencode') {
+    const opencodeKey =
+      sanitizeApiKey(processEnv.OPENCODE_API_KEY) ||
+      sanitizeApiKey(persistedEnv.OPENCODE_API_KEY)
+    const opencodeBaseUrl =
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) ||
+      sanitizeProviderConfigValue(persistedEnv.OPENAI_BASE_URL) ||
+      DEFAULT_OPENCODE_BASE_URL
+    const opencodeModel =
+      shellOpenAIModel || persistedOpenAIModel || 'gpt-5.4'
+
+    return buildCompatibilityProcessEnv({
+      processEnv,
+      compatibilityMode: 'openai',
+      profileEnv: {
+        OPENAI_BASE_URL: opencodeBaseUrl,
+        OPENAI_MODEL: opencodeModel,
+        ...(opencodeKey ? { OPENAI_API_KEY: opencodeKey } : {}),
+      },
+    })
   }
 
   if (options.profile === 'ollama') {

@@ -11,7 +11,7 @@ import { type AppState, useAppState, useAppStateStore, useSetAppState } from 'sr
 import type { FooterItem } from 'src/state/AppStateStore.js';
 import { getCwd } from 'src/utils/cwd.js';
 import { isQueuedCommandEditable, popAllEditable } from 'src/utils/messageQueueManager.js';
-import stripAnsi from 'strip-ansi';
+import { stripVTControlCharacters as stripAnsi } from 'node:util';
 import { companionReservedColumns } from '../../buddy/CompanionSprite.js';
 import { isBuddyEnabled } from '../../buddy/feature.js';
 import { findBuddyTriggerPositions, useBuddyNotification } from '../../buddy/useBuddyNotification.js';
@@ -104,6 +104,7 @@ import { getFastIconString } from '../FastIcon.js';
 import { GlobalSearchDialog } from '../GlobalSearchDialog.js';
 import { HistorySearchDialog } from '../HistorySearchDialog.js';
 import { ModelPicker } from '../ModelPicker.js';
+import { usePermissionModeChangeRequest } from '../permissions/usePermissionModeChangeRequest.js';
 import { QuickOpenDialog } from '../QuickOpenDialog.js';
 import TextInput from '../TextInput.js';
 import { ThinkingToggle } from '../ThinkingToggle.js';
@@ -177,7 +178,6 @@ type Props = {
   isSideQuestionVisible?: boolean;
   helpOpen: boolean;
   setHelpOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  hasSuppressedDialogs?: boolean;
   isLocalJSXCommandActive?: boolean;
   insertTextRef?: React.MutableRefObject<{
     insert: (text: string) => void;
@@ -232,7 +232,6 @@ function PromptInput({
   isSideQuestionVisible,
   helpOpen,
   setHelpOpen,
-  hasSuppressedDialogs,
   isLocalJSXCommandActive = false,
   insertTextRef,
   voiceInterimRange
@@ -424,6 +423,11 @@ function PromptInput({
   const [showAutoModeOptIn, setShowAutoModeOptIn] = useState(false);
   const [previousModeBeforeAuto, setPreviousModeBeforeAuto] = useState<PermissionMode | null>(null);
   const autoModeOptInTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const {
+    dangerousModeDialog,
+    isConfirmingDangerousMode,
+    requestPermissionModeChange
+  } = usePermissionModeChangeRequest();
 
   // Check if cursor is on the first line of input
   const isCursorOnFirstLine = useMemo(() => {
@@ -1445,6 +1449,35 @@ function PromptInput({
 
   // Handler for chat:cycleMode - cycle through permission modes
   const handleCycleMode = useCallback(() => {
+    const applyModeChange = (nextMode: PermissionMode, preparedContext: ToolPermissionContext) => {
+      logEvent('tengu_mode_cycle', {
+        to: nextMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+
+      if (nextMode === 'plan') {
+        saveGlobalConfig(current => ({
+          ...current,
+          lastPlanModeUse: Date.now()
+        }));
+      }
+
+      setAppState(prev => ({
+        ...prev,
+        toolPermissionContext: {
+          ...preparedContext,
+          mode: nextMode
+        }
+      }));
+      setToolPermissionContext({
+        ...preparedContext,
+        mode: nextMode
+      });
+      syncTeammateMode(nextMode, teamContext?.teamName);
+
+      if (helpOpen) {
+        setHelpOpen(false);
+      }
+    };
     // When viewing a teammate, cycle their mode instead of the leader's
     if (isAgentSwarmsEnabled() && viewedTeammate && viewingAgentTaskId) {
       const teammateContext: ToolPermissionContext = {
@@ -1453,38 +1486,76 @@ function PromptInput({
       };
       // Pass undefined for teamContext (unused but kept for API compatibility)
       const nextMode = getNextPermissionMode(teammateContext, undefined);
-      logEvent('tengu_mode_cycle', {
-        to: nextMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-      });
-      const teammateTaskId = viewingAgentTaskId;
-      setAppState(prev => {
-        const task = prev.tasks[teammateTaskId];
-        if (!task || task.type !== 'in_process_teammate') {
-          return prev;
-        }
-        if (task.permissionMode === nextMode) {
-          return prev;
-        }
-        return {
-          ...prev,
-          tasks: {
-            ...prev.tasks,
-            [teammateTaskId]: {
-              ...task,
-              permissionMode: nextMode
-            }
+      const applyTeammateModeChange = async () => {
+        logEvent('tengu_mode_cycle', {
+          to: nextMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+        });
+        const teammateTaskId = viewingAgentTaskId;
+        setAppState(prev => {
+          const task = prev.tasks[teammateTaskId];
+          if (!task || task.type !== 'in_process_teammate') {
+            return prev;
           }
-        };
+          if (task.permissionMode === nextMode) {
+            return prev;
+          }
+          return {
+            ...prev,
+            tasks: {
+              ...prev.tasks,
+              [teammateTaskId]: {
+                ...task,
+                permissionMode: nextMode
+              }
+            }
+          };
+        });
+        if (helpOpen) {
+          setHelpOpen(false);
+        }
+      };
+      void requestPermissionModeChange({
+        mode: nextMode,
+        toolPermissionContext: teammateContext,
+        onApply: () => {
+        void applyTeammateModeChange();
+        },
+        onBlocked: error => {
+          addNotification({
+            key: `permission-mode-cycle-${nextMode}`,
+            text: error,
+            color: 'warning',
+            priority: 'high'
+          });
+        }
       });
-      if (helpOpen) {
-        setHelpOpen(false);
-      }
       return;
     }
 
     // Compute the next mode without triggering side effects first
     logForDebugging(`[auto-mode] handleCycleMode: currentMode=${toolPermissionContext.mode} isAutoModeAvailable=${toolPermissionContext.isAutoModeAvailable} showAutoModeOptIn=${showAutoModeOptIn} timeoutPending=${!!autoModeOptInTimeoutRef.current}`);
     const nextMode = getNextPermissionMode(toolPermissionContext, teamContext);
+    if (nextMode === 'bypassPermissions' || nextMode === 'fullAccess') {
+      void requestPermissionModeChange({
+        mode: nextMode,
+        toolPermissionContext,
+        onApply: () => {
+          const {
+            context: preparedContext
+          } = cyclePermissionMode(toolPermissionContext, teamContext);
+          applyModeChange(nextMode, preparedContext);
+        },
+        onBlocked: error => {
+          addNotification({
+            key: `permission-mode-cycle-${nextMode}`,
+            text: error,
+            color: 'warning',
+            priority: 'high'
+          });
+        }
+      });
+      return;
+    }
 
     // Check if user is entering auto mode for the first time. Gated on the
     // persistent settings flag (hasAutoModeOptIn) rather than the broader
@@ -1555,42 +1626,8 @@ function PromptInput({
     const {
       context: preparedContext
     } = cyclePermissionMode(toolPermissionContext, teamContext);
-    logEvent('tengu_mode_cycle', {
-      to: nextMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-    });
-
-    // Track when user enters plan mode
-    if (nextMode === 'plan') {
-      saveGlobalConfig(current => ({
-        ...current,
-        lastPlanModeUse: Date.now()
-      }));
-    }
-
-    // Set the mode via setAppState directly because setToolPermissionContext
-    // intentionally preserves the existing mode (to prevent coordinator mode
-    // corruption from workers). Then call setToolPermissionContext to trigger
-    // recheck of queued permission prompts.
-    setAppState(prev => ({
-      ...prev,
-      toolPermissionContext: {
-        ...preparedContext,
-        mode: nextMode
-      }
-    }));
-    setToolPermissionContext({
-      ...preparedContext,
-      mode: nextMode
-    });
-
-    // If this is a teammate, update config.json so team lead sees the change
-    syncTeammateMode(nextMode, teamContext?.teamName);
-
-    // Close help tips if they're open when mode is cycled
-    if (helpOpen) {
-      setHelpOpen(false);
-    }
-  }, [toolPermissionContext, teamContext, viewingAgentTaskId, viewedTeammate, setAppState, setToolPermissionContext, helpOpen, showAutoModeOptIn]);
+    applyModeChange(nextMode, preparedContext);
+  }, [addNotification, helpOpen, requestPermissionModeChange, setAppState, setHelpOpen, setToolPermissionContext, showAutoModeOptIn, teamContext, toolPermissionContext, viewedTeammate, viewingAgentTaskId]);
 
   // Handler for auto mode opt-in dialog acceptance
   const handleAutoModeOptInAccept = useCallback(() => {
@@ -1706,7 +1743,7 @@ function PromptInput({
   }), [handleUndo, handleNewline, handleExternalEditor, handleStash, handleModelPicker, handleThinkingToggle, handleCycleMode, handleImagePaste]);
   useKeybindings(chatHandlers, {
     context: 'Chat',
-    isActive: !isModalOverlayActive
+    isActive: !isModalOverlayActive && !isConfirmingDangerousMode
   });
 
   // Shift+↑ enters message-actions cursor. Separate isActive so ctrl+r search
@@ -1897,13 +1934,13 @@ function PromptInput({
     }
   }, {
     context: 'Footer',
-    isActive: !!footerItemSelected && !isModalOverlayActive
+    isActive: !!footerItemSelected && !isModalOverlayActive && !isConfirmingDangerousMode
   });
   useInput((char, key) => {
     // Skip all input handling when a full-screen dialog is open. These dialogs
     // render via early return, but hooks run unconditionally — so without this
     // guard, Escape inside a dialog leaks to the double-press message-selector.
-    if (showTeamsDialog || showQuickOpen || showGlobalSearch || showHistoryPicker) {
+    if (showTeamsDialog || showQuickOpen || showGlobalSearch || showHistoryPicker || isConfirmingDangerousMode) {
       return;
     }
 
@@ -2205,6 +2242,9 @@ function PromptInput({
       selectFooterItem(null);
     }} />;
   }
+  if (dangerousModeDialog) {
+    return dangerousModeDialog;
+  }
   const baseProps: BaseTextInputProps = {
     multiline: true,
     onSubmit,
@@ -2279,9 +2319,6 @@ function PromptInput({
   const textInputElement = isVimModeEnabled() ? <VimTextInput {...baseProps} initialMode={vimMode} onModeChange={setVimMode} /> : <TextInput {...baseProps} />;
   return <Box flexDirection="column" marginTop={briefOwnsGap ? 0 : 1}>
       {!isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-      {hasSuppressedDialogs && <Box marginTop={1} marginLeft={2}>
-          <Text dimColor>Waiting for permission…</Text>
-        </Box>}
       <PromptInputStashNotice hasStash={stashedPrompt !== undefined} />
       {swarmBanner ? <>
           <Text color={swarmBanner.bgColor}>
@@ -2326,7 +2363,7 @@ function PromptInput({
     // bottom row. Keeping Notifications mounted prevents AutoUpdater's
     // initial-check effect from re-firing on every slash-completion
     // toggle (PR#22413).
-    <Box position="absolute" marginTop={briefOwnsGap ? -2 : -1} height={suggestions.length === 0 && !showAutoModeOptIn ? 1 : 0} width="100%" paddingLeft={2} paddingRight={1} flexDirection="column" justifyContent="flex-end" overflow="hidden">
+    <Box position="absolute" marginTop={briefOwnsGap ? -2 : -1} height={suggestions.length === 0 && !showAutoModeOptIn && !isConfirmingDangerousMode ? 1 : 0} width="100%" paddingLeft={2} paddingRight={1} flexDirection="column" justifyContent="flex-end" overflow="hidden">
           <Notifications apiKeyStatus={apiKeyStatus} autoUpdaterResult={autoUpdaterResult} debug={debug} isAutoUpdating={isAutoUpdating} verbose={verbose} messages={messages} onAutoUpdaterResult={onAutoUpdaterResult} onChangeIsUpdating={setIsAutoUpdating} ideSelection={ideSelection} mcpClients={mcpClients} isInputWrapped={isInputWrapped} />
         </Box> : null}
     </Box>;

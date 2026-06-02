@@ -382,6 +382,7 @@ export async function setup(
   // If permission mode is set to bypass, verify we're in a safe environment
   if (
     permissionMode === 'bypassPermissions' ||
+    permissionMode === 'fullAccess' ||
     allowDangerouslySkipPermissions
   ) {
     // Check if running as root/sudo on Unix-like systems

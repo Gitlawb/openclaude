@@ -3,8 +3,8 @@ import type {
   OpenAIShimTransportConfig,
 } from './descriptors.js'
 import {
-  getOpenAIContextWindow,
-  getOpenAIMaxOutputTokens,
+  getOpenAIContextWindowMatches,
+  getOpenAIMaxOutputTokenMatches,
 } from '../utils/model/openaiContextWindows.js'
 import { ensureIntegrationsLoaded } from './index.js'
 import {
@@ -341,20 +341,25 @@ export function resolveModelRuntimeLimits(options: {
   const modelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
     findModelDescriptorForApiName(routeId, options.model)
-  const externalContextWindow = getOpenAIContextWindow(options.model, runtimeEnv)
-  const externalMaxOutputTokens = getOpenAIMaxOutputTokens(
+  const externalContextWindow = getOpenAIContextWindowMatches(
+    options.model,
+    runtimeEnv,
+  )
+  const externalMaxOutputTokens = getOpenAIMaxOutputTokenMatches(
     options.model,
     runtimeEnv,
   )
 
   return {
     contextWindow:
-      externalContextWindow ??
+      externalContextWindow.exact ??
       catalogEntry?.contextWindow ??
+      externalContextWindow.prefix ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
-      externalMaxOutputTokens ??
+      externalMaxOutputTokens.exact ??
       catalogEntry?.maxOutputTokens ??
+      externalMaxOutputTokens.prefix ??
       modelDescriptor?.maxOutputTokens,
   }
 }

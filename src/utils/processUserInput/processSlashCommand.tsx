@@ -836,6 +836,18 @@ export async function processPromptSlashCommand(commandName: string, args: strin
   }
   return getMessagesForPromptSlashCommand(command, args, context, [], imageContentBlocks);
 }
+/**
+ * Decide what text (if any) to scan for @-mention / MCP-resource attachments
+ * when a prompt/skill command is invoked. Remote (MCP) skill bodies are
+ * untrusted: their markdown still reaches the model verbatim, but it must NOT
+ * be scanned for attachments — otherwise a skill:// resource could embed
+ * `@~/.ssh/config` (or an MCP resource ref) and have its contents read into the
+ * conversation with no tool permission prompt. Same threat class as the stripped
+ * hooks/allowed-tools on MCP skills. Returns null to skip scanning, else the text.
+ */
+export function attachmentScanInputForCommand(command: { loadedFrom?: string }, text: string): string | null {
+  return command.loadedFrom === 'mcp' ? null : text;
+}
 async function getMessagesForPromptSlashCommand(command: CommandBase & PromptCommand, args: string, context: ToolUseContext, precedingInputBlocks: ContentBlockParam[] = [], imageContentBlocks: ContentBlockParam[] = [], uuid?: string): Promise<SlashCommandResult> {
   // In coordinator mode (main thread only), skip loading the full skill content
   // and permissions. The coordinator only has Agent + TaskStop tools, so the
@@ -906,7 +918,14 @@ async function getMessagesForPromptSlashCommand(command: CommandBase & PromptCom
   // content itself from triggering discovery — it's meta-content, not user
   // intent, and a large SKILL.md (e.g. 110KB) would fire chunked AKI queries
   // adding seconds of latency to every skill invocation.
-  const attachmentMessages = await toArray(getAttachmentMessages(result.filter((block): block is TextBlockParam => block.type === 'text').map(block => block.text).join(' '), context, null, [],
+  //
+  // For remote (MCP) skills the body is untrusted, so attachmentScanInputForCommand
+  // returns null and skips @-mention/MCP-resource scanning entirely — otherwise a
+  // skill:// resource could embed `@~/.ssh/config` and have it read into context
+  // with no permission prompt. Thread-level attachments still flow (input=null only
+  // gates the user-input branch in getAttachments).
+  const attachmentScanInput = attachmentScanInputForCommand(command, result.filter((block): block is TextBlockParam => block.type === 'text').map(block => block.text).join(' '));
+  const attachmentMessages = await toArray(getAttachmentMessages(attachmentScanInput, context, null, [],
   // queuedCommands - handled by query.ts for mid-turn attachments
   context.messages, 'repl_main_thread', {
     skipSkillDiscovery: true

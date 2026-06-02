@@ -62,7 +62,7 @@ import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSessionIngressAuthToken } from './utils/sessionIngressAuth.js';
 import { settingsChangeDetector } from './utils/settings/changeDetector.js';
 import { skillChangeDetector } from './utils/skills/skillChangeDetector.js';
-import { jsonParse, writeFileSync_DEPRECATED } from './utils/slowOperations.js';
+import { jsonParse } from './utils/slowOperations.js';
 import { computeInitialTeamContext } from './utils/swarm/reconnection.js';
 import { initializeWarningHandler } from './utils/warningHandler.js';
 import { isWorktreeModeEnabled } from './utils/worktreeModeEnabled.js';
@@ -131,13 +131,12 @@ import { countFilesRoundedRg } from './utils/ripgrep.js';
 import { processSessionStartHooks, processSetupHooks } from './utils/sessionStart.js';
 import { cacheSessionTitle, getSessionIdFromLog, loadTranscriptFromFile, saveAgentSetting, saveMode, searchSessionsByCustomTitle, sessionIdExists } from './utils/sessionStorage.js';
 import { ensureMdmSettingsLoaded } from './utils/settings/mdm/settings.js';
+import { eagerLoadSettingsFromArgs } from './utils/settings/flagSettings.js';
 import { getInitialSettings, getManagedSettingsKeysForLogging, getSettingsForSource, getSettingsWithErrors } from './utils/settings/settings.js';
-import { resetSettingsCache } from './utils/settings/settingsCache.js';
 import type { ValidationError } from './utils/settings/validation.js';
 import { DEFAULT_TASKS_MODE_TASK_LIST_ID, TASK_STATUSES } from './utils/tasks.js';
 import { logPluginLoadErrors, logPluginsEnabledForSession } from './utils/telemetry/pluginTelemetry.js';
 import { logSkillsLoaded } from './utils/telemetry/skillLoadedEvent.js';
-import { generateTempFilePath } from './utils/tempfile.js';
 import { validateUuid } from './utils/uuid.js';
 // Plugin startup checks are now handled non-blockingly in REPL.tsx
 
@@ -153,13 +152,11 @@ import { getRelevantTips } from 'src/services/tips/tipRegistry.js';
 import { logContextMetrics } from 'src/utils/api.js';
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME, isClaudeInChromeMCPServer } from 'src/utils/claudeInChrome/common.js';
 import { registerCleanup } from 'src/utils/cleanupRegistry.js';
-import { eagerParseCliFlag } from 'src/utils/cliArgs.js';
 import { createEmptyAttributionState } from 'src/utils/commitAttribution.js';
 import { countConcurrentSessions, registerSession, updateSessionName } from 'src/utils/concurrentSessions.js';
 import { getCwd } from 'src/utils/cwd.js';
 import { logForDebugging, setHasFormattedOutput } from 'src/utils/debug.js';
 import { errorMessage, getErrnoCode, isENOENT, TeleportOperationError, toError } from 'src/utils/errors.js';
-import { getFsImplementation, safeResolvePath } from 'src/utils/fsOperations.js';
 import { isInteractiveSession } from 'src/utils/interactivity.js';
 import { gracefulShutdown, gracefulShutdownSync } from 'src/utils/gracefulShutdown.js';
 import { setAllHookEventsEnabled } from 'src/utils/hooks/hookEvents.js';
@@ -167,9 +164,8 @@ import { refreshModelCapabilities } from 'src/utils/model/modelCapabilities.js';
 import { peekForStdinData, writeToStderr } from 'src/utils/process.js';
 import { setCwd } from 'src/utils/Shell.js';
 import { type ProcessedResume, processResumedConversation } from 'src/utils/sessionRestore.js';
-import { parseSettingSourcesFlag } from 'src/utils/settings/constants.js';
 import { plural } from 'src/utils/stringUtils.js';
-import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setAllowedSettingSources, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setFlagSettingsPath, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
+import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionDangerousPermissionMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER') ? require('./utils/permissions/autoModeState.js') as typeof import('./utils/permissions/autoModeState.js') : null;
@@ -437,88 +433,19 @@ export function startDeferredPrefetches(): void {
     void import('./utils/eventLoopStallDetector.js').then(m => m.startEventLoopStallDetector());
   }
 }
-function loadSettingsFromFlag(settingsFile: string): void {
-  try {
-    const trimmedSettings = settingsFile.trim();
-    const looksLikeJson = trimmedSettings.startsWith('{') && trimmedSettings.endsWith('}');
-    let settingsPath: string;
-    if (looksLikeJson) {
-      // It's a JSON string - validate and create temp file
-      const parsedJson = safeParseJSON(trimmedSettings);
-      if (!parsedJson) {
-        process.stderr.write(chalk.red('Error: Invalid JSON provided to --settings\n'));
-        process.exit(1);
-      }
-
-      // Create a temporary file and write the JSON to it.
-      // Use a content-hash-based path instead of random UUID to avoid
-      // busting the Anthropic API prompt cache. The settings path ends up
-      // in the Bash tool's sandbox denyWithinAllow list, which is part of
-      // the tool description sent to the API. A random UUID per subprocess
-      // changes the tool description on every query() call, invalidating
-      // the cache prefix and causing a 12x input token cost penalty.
-      // The content hash ensures identical settings produce the same path
-      // across process boundaries (each SDK query() spawns a new process).
-      settingsPath = generateTempFilePath('claude-settings', '.json', {
-        contentHash: trimmedSettings
-      });
-      writeFileSync_DEPRECATED(settingsPath, trimmedSettings, 'utf8');
-    } else {
-      // It's a file path - resolve and validate by attempting to read
-      const {
-        resolvedPath: resolvedSettingsPath
-      } = safeResolvePath(getFsImplementation(), settingsFile);
-      try {
-        readFileSync(resolvedSettingsPath, 'utf8');
-      } catch (e) {
-        if (isENOENT(e)) {
-          process.stderr.write(chalk.red(`Error: Settings file not found: ${resolvedSettingsPath}\n`));
-          process.exit(1);
-        }
-        throw e;
-      }
-      settingsPath = resolvedSettingsPath;
-    }
-    setFlagSettingsPath(settingsPath);
-    resetSettingsCache();
-  } catch (error) {
-    if (error instanceof Error) {
-      logError(error);
-    }
-    process.stderr.write(chalk.red(`Error processing settings: ${errorMessage(error)}\n`));
-    process.exit(1);
-  }
-}
-function loadSettingSourcesFromFlag(settingSourcesArg: string): void {
-  try {
-    const sources = parseSettingSourcesFlag(settingSourcesArg);
-    setAllowedSettingSources(sources);
-    resetSettingsCache();
-  } catch (error) {
-    if (error instanceof Error) {
-      logError(error);
-    }
-    process.stderr.write(chalk.red(`Error processing --setting-sources: ${errorMessage(error)}\n`));
-    process.exit(1);
-  }
-}
-
 /**
  * Parse and load settings flags early, before init()
  * This ensures settings are filtered from the start of initialization
  */
 function eagerLoadSettings(): void {
   profileCheckpoint('eagerLoadSettings_start');
-  // Parse --settings flag early to ensure settings are loaded before init()
-  const settingsFile = eagerParseCliFlag('--settings');
-  if (settingsFile) {
-    loadSettingsFromFlag(settingsFile);
-  }
-
-  // Parse --setting-sources flag early to control which sources are loaded
-  const settingSourcesArg = eagerParseCliFlag('--setting-sources');
-  if (settingSourcesArg !== undefined) {
-    loadSettingSourcesFromFlag(settingSourcesArg);
+  const result = eagerLoadSettingsFromArgs();
+  if (!result.ok) {
+    if (result.cause instanceof Error) {
+      logError(result.cause);
+    }
+    process.stderr.write(chalk.red(`${result.message}\n`));
+    process.exit(1);
   }
   profileCheckpoint('eagerLoadSettings_end');
 }
@@ -922,7 +849,7 @@ async function run(): Promise<CommanderCommand> {
     // terminal shell integration may mirror the process name to the tab.
     // After init() so settings.json env can also gate this (gh-4765).
     if (!isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE)) {
-      process.title = 'claude';
+      process.title = 'openclaude';
     }
 
     // Attach logging sinks so subcommand handlers can use logEvent/logError.
@@ -1397,7 +1324,8 @@ async function run(): Promise<CommanderCommand> {
     });
 
     // Store session bypass permissions mode for trust dialog check
-    setSessionBypassPermissionsMode(permissionMode === 'bypassPermissions');
+    setSessionBypassPermissionsMode(permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess');
+    setSessionDangerousPermissionMode(permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess' ? permissionMode : null);
     if (feature('TRANSCRIPT_CLASSIFIER')) {
       // autoModeFlagCli is the "did the user intend auto this session" signal.
       // Set when: --enable-auto-mode, --permission-mode auto, resolved mode
@@ -2511,7 +2439,7 @@ async function run(): Promise<CommanderCommand> {
       githubActionInputs: process.env.GITHUB_ACTION_INPUTS,
       dangerouslySkipPermissionsPassed: dangerouslySkipPermissions ?? false,
       permissionMode,
-      modeIsBypass: permissionMode === 'bypassPermissions',
+      modeIsBypass: permissionMode === 'bypassPermissions' || permissionMode === 'fullAccess',
       allowDangerouslySkipPermissionsPassed: allowDangerouslySkipPermissions,
       systemPromptFlag: systemPrompt ? options.systemPromptFile ? 'file' : 'flag' : undefined,
       appendSystemPromptFlag: appendSystemPrompt ? options.appendSystemPromptFile ? 'file' : 'flag' : undefined,
@@ -2653,9 +2581,13 @@ async function run(): Promise<CommanderCommand> {
       const headlessStore = createStore(headlessInitialState, onChangeAppState);
 
       // Check if bypassPermissions should be disabled based on Statsig gate
-      // This runs in parallel to the code below, to avoid blocking the main loop.
-      if (toolPermissionContext.mode === 'bypassPermissions' || allowDangerouslySkipPermissions) {
-        void checkAndDisableBypassPermissions(toolPermissionContext);
+      // before any headless turn starts, so the authoritative org verdict
+      // cannot race the first unrestricted action.
+      if (toolPermissionContext.mode === 'bypassPermissions' || toolPermissionContext.mode === 'fullAccess' || allowDangerouslySkipPermissions) {
+        const bypassDisabled = await checkAndDisableBypassPermissions(toolPermissionContext);
+        if (bypassDisabled) {
+          return;
+        }
       }
 
       // Async check of auto mode gate — corrects state and disables auto if needed.

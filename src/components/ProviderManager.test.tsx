@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { createRoot } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
@@ -130,6 +130,8 @@ const PRESET_ORDER = [
   'Moonshot AI - Kimi Code',
   'NVIDIA NIM',
   'OpenAI',
+  'OpenCode Go',
+  'OpenCode Zen',
   'OpenRouter',
   'Together AI',
   'Venice',

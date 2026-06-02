@@ -7,10 +7,10 @@ import type {
   PermissionDecisionReason,
 } from './PermissionResult.js'
 import {
-  applyPermissionUpdates,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import { permissionUpdateSchema } from './PermissionUpdateSchema.js'
+import { applyPermissionUpdatesToLiveContext } from './permissionSetup.js'
 
 export const inputSchema = lazySchema(() =>
   z.object({
@@ -95,13 +95,18 @@ export function permissionPromptToolResultToPermissionDecision(
   if (result.behavior === 'allow') {
     const updatedPermissions = result.updatedPermissions
     if (updatedPermissions) {
-      toolUseContext.setAppState(prev => ({
-        ...prev,
-        toolPermissionContext: applyPermissionUpdates(
+      let updatedContext = toolUseContext.getAppState().toolPermissionContext
+      toolUseContext.setAppState(prev => {
+        updatedContext = applyPermissionUpdatesToLiveContext(
           prev.toolPermissionContext,
           updatedPermissions,
-        ),
-      }))
+        )
+        if (prev.toolPermissionContext === updatedContext) return prev
+        return {
+          ...prev,
+          toolPermissionContext: updatedContext,
+        }
+      })
       persistPermissionUpdates(updatedPermissions)
     }
     // Mobile clients responding from a push notification don't have the

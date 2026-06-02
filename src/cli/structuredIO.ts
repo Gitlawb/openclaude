@@ -42,9 +42,9 @@ import { notifyCommandLifecycle } from '../utils/commandLifecycle.js'
 import { normalizeControlMessageKeys } from '../utils/controlMessageCompat.js'
 import { executePermissionRequestHooks } from '../utils/hooks.js'
 import {
-  applyPermissionUpdates,
   persistPermissionUpdates,
 } from '../utils/permissions/PermissionUpdate.js'
+import { applyPermissionUpdatesToLiveContext } from '../utils/permissions/permissionSetup.js'
 import {
   notifySessionStateChanged,
   type RequiresActionDetails,
@@ -541,15 +541,19 @@ export class StructuredIO {
       toolUseID: string,
       forceDecision?: PermissionDecision,
     ): Promise<PermissionDecision> => {
+      const shouldBypassForcedAsk =
+        forceDecision?.behavior === 'ask' &&
+        toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
       const mainPermissionResult =
-        forceDecision ??
-        (await hasPermissionsToUseTool(
+        forceDecision !== undefined && !shouldBypassForcedAsk
+          ? forceDecision
+          : await hasPermissionsToUseTool(
           tool,
           input,
           toolUseContext,
           assistantMessage,
           toolUseID,
-        ))
+        )
       // If the tool is allowed or denied, return the result
       if (
         mainPermissionResult.behavior === 'allow' ||
@@ -818,17 +822,17 @@ async function executePermissionRequestHooksForSDK(
         // Apply permission updates if provided by hook ("always allow")
         const permissionUpdates = decision.updatedPermissions ?? []
         if (permissionUpdates.length > 0) {
-          persistPermissionUpdates(permissionUpdates)
-          const currentAppState = toolUseContext.getAppState()
-          const updatedContext = applyPermissionUpdates(
-            currentAppState.toolPermissionContext,
-            permissionUpdates,
-          )
+          let updatedContext = toolUseContext.getAppState().toolPermissionContext
           // Update permission context via setAppState
           toolUseContext.setAppState(prev => {
+            updatedContext = applyPermissionUpdatesToLiveContext(
+              prev.toolPermissionContext,
+              permissionUpdates,
+            )
             if (prev.toolPermissionContext === updatedContext) return prev
             return { ...prev, toolPermissionContext: updatedContext }
           })
+          persistPermissionUpdates(permissionUpdates)
         }
 
         return {

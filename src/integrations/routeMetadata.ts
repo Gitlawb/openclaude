@@ -144,6 +144,22 @@ export function getRouteDefaultModel(
   return defaultEntry?.apiName
 }
 
+/**
+ * True for native vendor routes (e.g. MiniMax, xAI) that ship a complete,
+ * curated static catalog. For these the catalog is authoritative, so the
+ * `/model` picker should surface every catalogued model — not collapse to the
+ * single model pinned in the active provider profile. Gateways, whose catalog
+ * is a user-curated subset, keep the profile model list as a whitelist.
+ */
+export function isNativeVendorCatalogRoute(routeId: string): boolean {
+  const vendor = getVendor(routeId)
+  return (
+    vendor?.classification === 'native' &&
+    vendor.catalog?.source === 'static' &&
+    (vendor.catalog?.models?.length ?? 0) > 0
+  )
+}
+
 function uniqueEnvVars(envVars: Iterable<string>): string[] {
   const seen = new Set<string>()
   const normalized: string[] = []

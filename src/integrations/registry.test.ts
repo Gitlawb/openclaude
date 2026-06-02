@@ -366,6 +366,26 @@ describe('validateIntegrationRegistry', () => {
     expect(result.warnings.some(w => w.includes('has no models and no discovery config'))).toBe(false)
   })
 
+  test('catches dynamic catalogs with curated models', () => {
+    registerGateway(
+      makeGateway('gw-dynamic-curated', {
+        catalog: {
+          source: 'dynamic',
+          discovery: { kind: 'openai-compatible' },
+          models: [{ id: 'curated-model', apiName: 'curated-model' }],
+        },
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors.some(e =>
+        e.includes('must use source "hybrid" when declaring curated models'),
+      ),
+    ).toBe(true)
+  })
+
   test('catches duplicate preset ids across routes', () => {
     registerVendor(
       makeVendor('vendor-one', {

@@ -3,7 +3,6 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import * as realProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -23,54 +22,42 @@ afterEach(() => {
     process.env = { ...originalEnv }
     globalThis.fetch = originalFetch
     mock.restore()
-    mock.module('./model/providers.js', () => realProviders)
   } finally {
     releaseSharedMutationLock()
   }
 })
 
 describe('preconnectAnthropicApi', () => {
+  // The provider is injected directly rather than mocking getAPIProvider():
+  // bun does not unregister mock.module() overrides, so a leaked providers.js
+  // mock from another test file (e.g. fastMode) would otherwise force
+  // getAPIProvider() to 'firstParty' here and break these assertions.
   test('does not fetch when OpenAI mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    mock.module('./model/providers.js', () => ({
-      ...realProviders,
-      getAPIProvider: () => 'openai',
-    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('openai')
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   test('does not fetch when Gemini mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
-    mock.module('./model/providers.js', () => ({
-      ...realProviders,
-      getAPIProvider: () => 'gemini',
-    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('gemini')
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   test('does not fetch when GitHub mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_GITHUB = '1'
-    mock.module('./model/providers.js', () => ({
-      ...realProviders,
-      getAPIProvider: () => 'github',
-    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('github')
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -79,9 +66,21 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
     delete process.env.CLAUDE_CODE_USE_GEMINI
     delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX
     delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.XAI_API_KEY
+    delete process.env.MINIMAX_API_KEY
+    delete process.env.VENICE_API_KEY
+    delete process.env.MIMO_API_KEY
+    delete process.env.NVIDIA_NIM
+    delete process.env.ANTHROPIC_BASE_URL
+    delete process.env.ANTHROPIC_API_KEY
     delete process.env.HTTPS_PROXY
     delete process.env.https_proxy
     delete process.env.HTTP_PROXY
@@ -90,15 +89,11 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_CLIENT_CERT
     delete process.env.CLAUDE_CODE_CLIENT_KEY
 
-    mock.module('./model/providers.js', () => ({
-      ...realProviders,
-      getAPIProvider: () => 'firstParty',
-    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('firstParty')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

@@ -129,7 +129,16 @@ async function importFreshProviderProfileModules() {
   const actualConfig = await import(`./config.js?ts=${Date.now()}-${Math.random()}`)
   mock.module('./config.js', () => ({
     ...actualConfig,
-    getGlobalConfig: () => mockConfigState,
+    // Spread the real config so the mock stays a COMPLETE GlobalConfig and only
+    // the provider-profile fields are overridden. bun's mock.restore() does NOT
+    // revert mock.module(), so this replacement leaks into later test files in
+    // the same process; returning a partial object (missing e.g.
+    // autoCompactEnabled) silently broke unrelated suites that read other config
+    // fields via getGlobalConfig().
+    getGlobalConfig: () => ({
+      ...actualConfig.getGlobalConfig(),
+      ...mockConfigState,
+    }),
     saveGlobalConfig: (
       updater: (current: MockConfigState) => MockConfigState,
     ) => {
@@ -1151,7 +1160,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
-  test('minimax preset defaults to MiniMax M2.7', async () => {
+  test('minimax preset defaults to MiniMax M3', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('minimax')
@@ -1159,7 +1168,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('minimax')
     expect(defaults.name).toBe('MiniMax')
     expect(defaults.baseUrl).toBe('https://api.minimax.io/anthropic')
-    expect(defaults.model).toBe('MiniMax-M2.7')
+    expect(defaults.model).toBe('MiniMax-M3')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
@@ -2127,4 +2136,11 @@ describe('setActiveProviderProfile model cache', () => {
       },
     ])
   })
+})
+
+test('DEFAULT_MISTRAL_MODEL matches the mistral gateway defaultModel', async () => {
+  const { DEFAULT_MISTRAL_MODEL } = await import('./providerProfile.js')
+  const { default: mistralGateway } = await import('../integrations/gateways/mistral.js')
+  expect(mistralGateway.defaultModel).toBeDefined()
+  expect(DEFAULT_MISTRAL_MODEL).toBe(mistralGateway.defaultModel!)
 })
