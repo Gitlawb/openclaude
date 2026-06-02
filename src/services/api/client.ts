@@ -15,7 +15,7 @@ import {
   standardEffortToOpenAI,
   type OpenAIEffortLevel,
 } from 'src/utils/effort.js'
-import { getUserAgent } from 'src/utils/http.js'
+import { getProviderApiUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
@@ -42,10 +42,13 @@ import {
   getXiaomiMimoBaseUrlOverride,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
+import { resolveProfileRoute } from '../../integrations/profileResolver.js'
 import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
 } from './authRouting.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from '../../utils/providerRouteEnv.js'
+import { getActiveProviderProfile } from '../../utils/providerProfiles.js'
 
 const importRuntimeModule = new Function(
   'specifier',
@@ -236,6 +239,24 @@ function applyXaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+function getActiveProviderRouteId(): string | undefined {
+  const providerFlagRouteId = process.env[PROVIDER_FLAG_ROUTE_ID_ENV]?.trim()
+  if (providerFlagRouteId) {
+    return providerFlagRouteId
+  }
+
+  const activeProfile = getActiveProviderProfile()
+  if (
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED !== '1' ||
+    !activeProfile ||
+    activeProfile.id !== process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  ) {
+    return undefined
+  }
+
+  return resolveProfileRoute(activeProfile.provider).routeId
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -262,10 +283,17 @@ export async function getAnthropicClient({
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
+  const shouldUseFirstPartyAuth =
+    shouldUseFirstPartyAnthropicAuth(providerOverride)
   const customHeaders = getCustomHeaders()
   const defaultHeaders: { [key: string]: string } = {
     'x-app': 'cli',
-    'User-Agent': getUserAgent(),
+    'User-Agent': getProviderApiUserAgent({
+      isFirstParty: shouldUseFirstPartyAuth,
+      providerRouteId: providerOverride
+        ? undefined
+        : getActiveProviderRouteId(),
+    }),
     'X-Claude-Code-Session-Id': getSessionId(),
     ...customHeaders,
     ...(containerId ? { 'x-claude-remote-container-id': containerId } : {}),
@@ -308,8 +336,6 @@ export async function getAnthropicClient({
     applyXaiEnvOnlyDefaults()
   }
 
-  const shouldUseFirstPartyAuth =
-    shouldUseFirstPartyAnthropicAuth(providerOverride)
   const useMiniMaxNativeProvider =
     useMiniMaxEnvOnlyProvider ||
     (getAPIProvider() === 'minimax' &&

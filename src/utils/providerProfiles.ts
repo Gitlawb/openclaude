@@ -44,6 +44,7 @@ import {
 } from '../integrations/index.js'
 import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from './providerRouteEnv.js'
 import {
   sanitizeProfileCustomHeaders,
   serializeProfileCustomHeaders,
@@ -569,6 +570,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   clearManagedProfileEnv(processEnv)
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
+  delete processEnv[PROVIDER_FLAG_ROUTE_ID_ENV]
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -700,6 +702,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
   clearProviderProfileEnvFromProcessEnv()
   Object.assign(process.env, nextEnv)
+  delete process.env[PROVIDER_FLAG_ROUTE_ID_ENV]
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 }
