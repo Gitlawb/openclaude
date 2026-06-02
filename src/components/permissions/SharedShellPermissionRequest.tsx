@@ -136,6 +136,11 @@ export function SharedShellPermissionRequest<T extends string>({
               onCancel={onCancel}
               onFocus={onFocus}
               onInputModeToggle={onInputModeToggle}
+              onEmptyInputSubmit={value => {
+                if (value !== 'no-with-reason') {
+                  onCancel()
+                }
+              }}
             />
           </Box>
           <Box justifyContent="space-between" marginTop={1}>

@@ -291,7 +291,7 @@ export function applyProviderFlag(
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
       process.env.ANTHROPIC_BASE_URL = defaultBaseUrl ?? 'https://api.minimax.io/anthropic'
-      process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M2.7'
+      process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M3'
       if (model) process.env.ANTHROPIC_MODEL = model
       if (process.env.MINIMAX_API_KEY && !process.env.ANTHROPIC_API_KEY) {
         process.env.ANTHROPIC_API_KEY = process.env.MINIMAX_API_KEY

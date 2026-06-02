@@ -8,6 +8,7 @@ import {
 } from '../bootstrap/state.js'
 import * as actualModel from './model/model.js'
 import * as actualProviders from './model/providers.js'
+import * as actualSettings from './settings/settings.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
@@ -24,6 +25,7 @@ let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
 let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
   'getEnhancedPRAttribution'
 ]
+let testSettings: SettingsJson = {}
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -71,6 +73,7 @@ const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
 function useSettings(settings: SettingsJson): void {
+  testSettings = settings
   setSessionSettingsCache({ settings, errors: [] })
 }
 
@@ -88,6 +91,7 @@ beforeEach(async () => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
+  testSettings = {}
   setClientType('cli')
   setMainLoopModelOverride(undefined)
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -131,6 +135,11 @@ beforeEach(async () => {
     ...actualProviders,
     getAPIProvider: () => 'openai',
   }))
+  mock.module('./settings/settings.js', () => ({
+    ...actualSettings,
+    getInitialSettings: () => testSettings,
+    getSettings_DEPRECATED: () => testSettings,
+  }))
 
   const attribution = await import(
     `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
@@ -149,6 +158,7 @@ afterEach(() => {
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
   mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./settings/settings.js', () => actualSettings)
   restoreEnv()
 })
 

@@ -190,7 +190,10 @@ export function FilePermissionDialog<T extends ToolInput = ToolInput>({
           if (selected) {
             // For reject option
             if (selected.option.type === 'reject') {
-              const trimmedFeedback = rejectFeedback.trim();
+              const trimmedFeedback = selected.option.withReason || noInputMode ? rejectFeedback.trim() : '';
+              if (selected.option.withReason && !trimmedFeedback) {
+                return;
+              }
               onChange(selected.option, trimmedFeedback || undefined);
               return;
             }
@@ -204,7 +207,13 @@ export function FilePermissionDialog<T extends ToolInput = ToolInput>({
           }
         }} onCancel={() => onChange({
           type: 'reject'
-        })} onFocus={value_0 => setFocusedOption(value_0)} onInputModeToggle={handleInputModeToggle} />
+        })} onFocus={value_0 => setFocusedOption(value_0)} onInputModeToggle={handleInputModeToggle} onEmptyInputSubmit={value_1 => {
+          if (value_1 !== 'no-with-reason') {
+            onChange({
+              type: 'reject'
+            });
+          }
+        }} />
         </Box>
       </PermissionScaffold>
       <Box paddingX={1} marginTop={1}>

@@ -28,35 +28,36 @@ afterEach(() => {
 })
 
 describe('preconnectAnthropicApi', () => {
+  // The provider is injected directly rather than mocking getAPIProvider():
+  // bun does not unregister mock.module() overrides, so a leaked providers.js
+  // mock from another test file (e.g. fastMode) would otherwise force
+  // getAPIProvider() to 'firstParty' here and break these assertions.
   test('does not fetch when OpenAI mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('openai')
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   test('does not fetch when Gemini mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('gemini')
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   test('does not fetch when GitHub mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_GITHUB = '1'
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('github')
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -92,7 +93,7 @@ describe('preconnectAnthropicApi', () => {
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
-    preconnectAnthropicApi()
+    preconnectAnthropicApi('firstParty')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
