@@ -362,3 +362,14 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
     expect(shouldRetry(err)).toBe(true)
   })
 })
+
+describe('persistent retry cap', () => {
+  test('PERSISTENT_MAX_ATTEMPTS caps unbounded retry loops', async () => {
+    const { _PERSISTENT_MAX_ATTEMPTS_FOR_TEST } =
+      await importFreshWithRetryModule()
+    // Cap should be finite and reasonable — prevents unbounded retry
+    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
+    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBeGreaterThan(0)
+    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBeLessThan(1000)
+  })
+})

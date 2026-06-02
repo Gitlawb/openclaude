@@ -248,10 +248,10 @@ describe('getAutoCompactThreshold', () => {
 
 describe('getAutoCompactFailureCooldownMs', () => {
   test('uses valid positive integer override', async () => {
-    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = ' 5000 '
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = ' 15000 '
     const { getAutoCompactFailureCooldownMs } = await importAutoCompact()
 
-    expect(getAutoCompactFailureCooldownMs()).toBe(5000)
+    expect(getAutoCompactFailureCooldownMs()).toBe(15000)
   })
 
   test('ignores partial or invalid override values', async () => {
@@ -271,6 +271,12 @@ describe('getAutoCompactFailureCooldownMs', () => {
     )
 
     process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '1.5'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+
+    // Values below 10_000ms minimum floor are rejected
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
     expect(getAutoCompactFailureCooldownMs()).toBe(
       AUTOCOMPACT_FAILURE_COOLDOWN_MS,
     )
@@ -453,7 +459,7 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
 describe('autoCompactIfNeeded circuit breaker', () => {
   beforeEach(() => {
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
-    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '15000'
   })
 
   test('trips after three non-user failures and records a retry time', async () => {
@@ -648,7 +654,7 @@ describe('autoCompactIfNeeded circuit breaker', () => {
       )
 
       expect(result.lastFailureAtMs).toBe(106_000)
-      expect(result.nextRetryAtMs).toBe(111_000)
+      expect(result.nextRetryAtMs).toBe(121_000)
     } finally {
       Date.now = originalDateNow
     }

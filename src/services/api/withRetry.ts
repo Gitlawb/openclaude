@@ -100,6 +100,8 @@ function shouldRetry529(querySource: QuerySource | undefined): boolean {
 const PERSISTENT_MAX_BACKOFF_MS = 5 * 60 * 1000
 const PERSISTENT_RESET_CAP_MS = 6 * 60 * 60 * 1000
 const HEARTBEAT_INTERVAL_MS = 30_000
+const PERSISTENT_MAX_ATTEMPTS = 100
+export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST }
 
 function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
@@ -391,6 +393,10 @@ export async function* withRetry<T>(
       const persistent =
         isPersistentRetryEnabled() && isTransientCapacityError(error)
       if (attempt > maxRetries && !persistent) {
+        throw new CannotRetryError(error, retryContext)
+      }
+      // Cap persistent retries to prevent unbounded loops (100 attempts * ~5min max backoff ≈ 8 hours)
+      if (persistent && persistentAttempt >= PERSISTENT_MAX_ATTEMPTS) {
         throw new CannotRetryError(error, retryContext)
       }
 

@@ -87,7 +87,7 @@ export function getAutoCompactFailureCooldownMs(): number {
   if (override) {
     const trimmed = override.trim()
     const parsed = Number(trimmed)
-    if (/^[1-9]\d*$/.test(trimmed) && Number.isSafeInteger(parsed)) {
+    if (/^[1-9]\d*$/.test(trimmed) && Number.isSafeInteger(parsed) && parsed >= 10_000) {
       return parsed
     }
   }
