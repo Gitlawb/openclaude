@@ -8,8 +8,12 @@ let contextBlocked = false
 let nextTickAt: number | null = null
 
 function notifyProactiveListeners(): void {
-  for (const listener of listeners) {
-    listener()
+  for (const listener of [...listeners]) {
+    try {
+      listener()
+    } catch {
+      // Listener failures must not prevent state transitions or later listeners.
+    }
   }
 }
 
@@ -37,6 +41,8 @@ export function getNextTickAt(): number | null {
 export function activateProactive(_source?: string): void {
   proactiveActive = true
   proactivePaused = false
+  contextBlocked = false
+  nextTickAt = null
   notifyProactiveListeners()
 }
 
