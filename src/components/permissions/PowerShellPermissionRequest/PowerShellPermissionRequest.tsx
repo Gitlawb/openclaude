@@ -131,7 +131,8 @@ export function PowerShellPermissionRequest(
       'yes-apply-suggestions': 2,
       'yes-prefix-edited': 2,
       'yes-full-access': 3,
-      no: 4,
+      'no-with-reason': 4,
+      no: 5,
     }
     logEvent('tengu_permission_request_option_selected', {
       option_index: optionIndex[value],
@@ -151,6 +152,7 @@ export function PowerShellPermissionRequest(
       rejectFeedback,
       yesFeedbackModeEntered,
       noFeedbackModeEntered,
+      noInputMode,
       editablePrefix,
       ruleToolName: PowerShellTool.name,
       toolAnalyticsName: toolNameForAnalytics,

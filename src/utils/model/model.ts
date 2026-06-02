@@ -390,9 +390,12 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4.3'
   }
-  // MiniMax provider: always use the configured MiniMax model
+  // MiniMax provider: always use the configured MiniMax model.
+  // Keep the env-only fallback aligned with the MiniMax descriptor default
+  // (MiniMax-M3) so a session with only MINIMAX_API_KEY / a MiniMax base URL
+  // defaults to the same model as --provider minimax and saved profiles.
   if (getAPIProvider() === 'minimax') {
-    return getMiniMaxModelEnv() || 'MiniMax-M2.7'
+    return getMiniMaxModelEnv() || 'MiniMax-M3'
   }
   // Xiaomi MiMo provider: always use the configured MiMo model
   if (getAPIProvider() === 'xiaomi-mimo') {

@@ -9,7 +9,10 @@ import {
 import * as actualModel from './model/model.js'
 import * as actualProviders from './model/providers.js'
 import * as actualSettings from './settings/settings.js'
-import { resetSettingsCache } from './settings/settingsCache.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
 
 let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
@@ -22,6 +25,7 @@ let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
 let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
   'getEnhancedPRAttribution'
 ]
+let testSettings: SettingsJson = {}
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -68,10 +72,9 @@ const originalMainLoopModelOverride = getMainLoopModelOverride()
 const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
-let activeSettings: SettingsJson = {}
-
 function useSettings(settings: SettingsJson): void {
-  activeSettings = settings
+  testSettings = settings
+  setSessionSettingsCache({ settings, errors: [] })
 }
 
 function restoreEnv(): void {
@@ -86,9 +89,9 @@ function restoreEnv(): void {
 
 beforeEach(async () => {
   mock.restore()
-  activeSettings = {}
   resetStateForTests()
   resetSettingsCache()
+  testSettings = {}
   setClientType('cli')
   setMainLoopModelOverride(undefined)
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -134,7 +137,8 @@ beforeEach(async () => {
   }))
   mock.module('./settings/settings.js', () => ({
     ...actualSettings,
-    getInitialSettings: () => activeSettings,
+    getInitialSettings: () => testSettings,
+    getSettings_DEPRECATED: () => testSettings,
   }))
 
   const attribution = await import(
@@ -148,13 +152,13 @@ beforeEach(async () => {
 
 afterEach(() => {
   mock.restore()
-  activeSettings = {}
   resetStateForTests()
   resetSettingsCache()
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
   mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./settings/settings.js', () => actualSettings)
   restoreEnv()
 })
 
