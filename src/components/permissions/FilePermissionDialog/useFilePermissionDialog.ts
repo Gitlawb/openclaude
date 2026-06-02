@@ -145,7 +145,14 @@ export function useFilePermissionDialog<T extends ToolInput>({
       if (value !== 'yes' && yesInputMode && !acceptFeedback.trim()) {
         setYesInputMode(false)
       }
-      if (value !== 'no' && noInputMode && !rejectFeedback.trim()) {
+      if (value === 'no-with-reason' && noInputMode) {
+        setNoInputMode(false)
+      }
+      if (
+        value !== 'no' &&
+        noInputMode &&
+        !rejectFeedback.trim()
+      ) {
         setNoInputMode(false)
       }
       setFocusedOption(value)
