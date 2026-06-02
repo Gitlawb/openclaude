@@ -91,7 +91,9 @@ async function main(): Promise<void> {
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
     const { applyProviderFlagFromArgs } = await import('../utils/providerFlag.js');
-    const result = applyProviderFlagFromArgs(args);
+    const result = applyProviderFlagFromArgs(args, {
+      rememberForSettingsEnv: true,
+    });
     if (result?.error) {
       // biome-ignore lint/suspicious/noConsole:: intentional error output
       console.error(`Error: ${result.error}`);

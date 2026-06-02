@@ -20,6 +20,7 @@ import {
   getGateway,
   getVendor,
   resolveProfileRoute,
+  resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
 
@@ -64,6 +65,13 @@ export const VALID_PROVIDERS = buildValidProviders()
 
 export type ProviderFlagName = string
 
+let rememberedProviderFlag:
+  | {
+      provider: string
+      model?: string
+    }
+  | null = null
+
 /**
  * Extract the value of --provider from argv.
  * Returns null if the flag is absent or has no value.
@@ -82,10 +90,35 @@ export function parseProviderFlag(args: string[]): string | null {
  */
 export function applyProviderFlagFromArgs(
   args: string[],
+  options?: {
+    rememberForSettingsEnv?: boolean
+  },
 ): { error?: string } | undefined {
   const provider = parseProviderFlag(args)
   if (!provider) return undefined
-  return applyProviderFlag(provider, args)
+  const result = applyProviderFlag(provider, args)
+  if (!result.error && options?.rememberForSettingsEnv) {
+    const model = parseModelFlag(args)
+    rememberedProviderFlag = model ? { provider, model } : { provider }
+  }
+  return result
+}
+
+export function reapplyRememberedProviderFlag():
+  | { error?: string }
+  | undefined {
+  if (!rememberedProviderFlag) return undefined
+
+  const args = ['--provider', rememberedProviderFlag.provider]
+  if (rememberedProviderFlag.model) {
+    args.push('--model', rememberedProviderFlag.model)
+  }
+
+  return applyProviderFlag(rememberedProviderFlag.provider, args)
+}
+
+export function clearRememberedProviderFlagForTests(): void {
+  rememberedProviderFlag = null
 }
 
 /**
@@ -119,6 +152,51 @@ function getRouteDefaults(provider: string): {
   return {
     defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
     defaultModel,
+  }
+}
+
+function normalizeBaseUrlEnv(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
+}
+
+function getConfiguredOpenAIBaseUrl(): string | undefined {
+  const baseUrl = normalizeBaseUrlEnv(process.env.OPENAI_BASE_URL)
+  if (baseUrl) {
+    return baseUrl
+  }
+
+  return normalizeBaseUrlEnv(process.env.OPENAI_API_BASE)
+}
+
+function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
+  const currentRouteId = resolveRouteIdFromBaseUrl(
+    getConfiguredOpenAIBaseUrl(),
+  )
+  if (!currentRouteId) {
+    return false
+  }
+
+  const targetRouteId = resolveProfileRoute(provider).routeId
+  return (
+    targetRouteId !== 'openai' &&
+    targetRouteId !== 'custom' &&
+    targetRouteId !== 'unknown-fallback' &&
+    currentRouteId !== targetRouteId
+  )
+}
+
+function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
+  const normalizedBaseUrl = baseUrl?.trim()
+  if (!normalizedBaseUrl) {
+    return
+  }
+
+  if (
+    !getConfiguredOpenAIBaseUrl() ||
+    shouldReplaceStaleKnownBaseUrl(provider)
+  ) {
+    process.env.OPENAI_BASE_URL = normalizedBaseUrl
   }
 }
 
@@ -168,8 +246,10 @@ export function applyModelFlagFromArgs(args: string[]): void {
 /**
  * Apply a provider name to process.env.
  * Sets the required CLAUDE_CODE_USE_* flag and any provider-specific
- * defaults (Ollama base URL, model routing). Does NOT overwrite values
- * that are already set — explicit env vars always win.
+ * defaults (Ollama base URL, model routing). Preserves explicit custom
+ * endpoint env vars for descriptor-backed defaults, while replacing stale
+ * known provider endpoints when the user explicitly chooses a different
+ * descriptor-backed provider.
  *
  * Returns { error } if the provider name is not recognized.
  */
@@ -183,6 +263,7 @@ export function applyProviderFlag(
     }
   }
 
+  const opengatewayApiKey = process.env.OPENGATEWAY_API_KEY?.trim()
   const copiedOpenAIKeyProvider =
     process.env.OPENAI_API_KEY !== undefined &&
     process.env.OPENAI_API_KEY === process.env.NVIDIA_API_KEY &&
@@ -203,7 +284,12 @@ export function applyProviderFlag(
               : process.env.OPENAI_API_KEY !== undefined &&
                   process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
                 ? 'minimax'
-                : null
+                : process.env.OPENAI_API_KEY !== undefined &&
+                    opengatewayApiKey !== undefined &&
+                    opengatewayApiKey.length > 0 &&
+                    process.env.OPENAI_API_KEY === opengatewayApiKey
+                  ? 'gitlawb-opengateway'
+                  : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -301,11 +387,26 @@ export function applyProviderFlag(
       }
       break
 
+    case 'gitlawb-opengateway':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      if (process.env.OPENGATEWAY_BASE_URL?.trim()) {
+        process.env.OPENAI_BASE_URL = process.env.OPENGATEWAY_BASE_URL.trim()
+      } else {
+        applyOpenAIBaseUrlDefault(
+          provider,
+          defaultBaseUrl ?? 'https://opengateway.gitlawb.com/v1',
+        )
+      }
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
+      if (model) process.env.OPENAI_MODEL = model
+      if (opengatewayApiKey) {
+        process.env.OPENAI_API_KEY = opengatewayApiKey
+      }
+      break
+
     default:
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      if (defaultBaseUrl) {
-        process.env.OPENAI_BASE_URL ??= defaultBaseUrl
-      }
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
       if (defaultModel) {
         process.env.OPENAI_MODEL ??= defaultModel
       }
