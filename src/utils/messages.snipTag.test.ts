@@ -3,10 +3,12 @@ import {
   appendMessageTagToUserMessage,
   createUserMessage,
   deriveShortMessageId,
+  mergeUserMessages,
 } from './messages.js'
 import type { UserMessage } from '../types/message.js'
 
 const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
+const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
 
 function tagFor(uuid: string): string {
   return `[id:${deriveShortMessageId(uuid)}]`
@@ -106,5 +108,37 @@ describe('appendMessageTagToUserMessage', () => {
     // Exactly one added text block, and the tool_result is preserved.
     expect(blocks.filter(b => b.type === 'text').length).toBe(1)
     expect(blocks.some(b => b.type === 'tool_result')).toBe(true)
+  })
+
+  // normalizeMessagesForAPI tags each user message BEFORE merging consecutive
+  // ones, so a parallel-tool turn's adjacent tool_result siblings each carry
+  // their own [id:] before mergeUserMessages folds them. The merge keeps only
+  // the first operand's uuid, so a single sibling's id would be exposed if we
+  // tagged after merging. snipCompactIfNeeded refuses to drop one result of such
+  // a turn (it would orphan the surviving tool_use), so the model must be able to
+  // name every sibling to remove the whole turn. This pins that the merge keeps
+  // every pre-merge [id:] tag.
+  test('merging tagged parallel tool-result siblings keeps every sibling id', () => {
+    const resultA = appendMessageTagToUserMessage({
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: 'tu-A', content: 'a' }],
+      }),
+      uuid: UUID,
+    } as UserMessage)
+    const resultB = appendMessageTagToUserMessage({
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: 'tu-B', content: 'b' }],
+      }),
+      uuid: UUID_B,
+    } as UserMessage)
+
+    const merged = mergeUserMessages(resultA, resultB)
+    const flattened = JSON.stringify(merged.message.content)
+    // Both siblings' ids survive the merge, so both are snippable.
+    expect(flattened).toContain(tagFor(UUID))
+    expect(flattened).toContain(tagFor(UUID_B))
+    // Both tool_result blocks are preserved for snip pairing.
+    const blocks = merged.message.content as any[]
+    expect(blocks.filter(b => b.type === 'tool_result').length).toBe(2)
   })
 })

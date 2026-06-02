@@ -2041,6 +2041,18 @@ export function normalizeMessagesForAPI(
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
 
+  // Whether to inject [id:] snip tags this pass. Gate must match
+  // SnipTool.isEnabled() and skip test mode — tags change message content
+  // hashes, breaking VCR fixture lookup. Computed once here so the pre-merge
+  // injection (in the user case) and the post-merge sweep below share it.
+  let injectSnipTags = false
+  if (feature('HISTORY_SNIP') && process.env.NODE_ENV !== 'test') {
+    const { isSnipRuntimeEnabled } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../services/compact/snipCompact.js') as typeof import('../services/compact/snipCompact.js')
+    injectSnipTags = isSnipRuntimeEnabled()
+  }
+
   // First, reorder attachments to bubble up until they hit a tool result or assistant message
   // Then strip virtual messages — they're display-only (e.g. REPL inner tool
   // calls) and must never reach the API.
@@ -2232,6 +2244,22 @@ export function normalizeMessagesForAPI(
             }
           }
 
+          // Inject the snip [id:] tag BEFORE merging consecutive user messages.
+          // A parallel-tool assistant turn yields several adjacent tool_result
+          // user messages; mergeUserMessages keeps only the first operand's uuid,
+          // so tagging only after the merge (the sweep below) would expose just
+          // one sibling's id. snipCompactIfNeeded refuses to drop a single result
+          // of such a turn (it would orphan the surviving tool_use), so the model
+          // needs every sibling's id to request the whole-turn removal the snip
+          // prompt tells it to make. Tagging each message here preserves all ids
+          // through the merge (joinTextAtSeam keeps both text blocks) and matches
+          // the live path, where each result is tagged individually at push time
+          // (query.ts). appendMessageTagToUserMessage is idempotent, so the
+          // post-merge sweep below is a no-op for messages already tagged here.
+          if (injectSnipTags) {
+            normalizedMessage = appendMessageTagToUserMessage(normalizedMessage)
+          }
+
           // If the last message is also a user message, merge them
           const lastMessage = last(result)
           if (lastMessage?.type === 'user') {
@@ -2393,23 +2421,18 @@ export function normalizeMessagesForAPI(
   // image-in-error tool_result 400s forever.
   const sanitized = sanitizeErrorToolResultContent(smooshed)
 
-  // Append message ID tags for snip tool visibility (after all merging,
-  // so tags always match the surviving message's messageId field).
-  // Skip in test mode — tags change message content hashes, breaking
-  // VCR fixture lookup. Gate must match SnipTool.isEnabled() — don't
-  // inject [id:] tags when the tool isn't available (confuses the model
-  // and wastes tokens on every non-meta user message for every ant).
-  if (feature('HISTORY_SNIP') && process.env.NODE_ENV !== 'test') {
-    const { isSnipRuntimeEnabled } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require('../services/compact/snipCompact.js') as typeof import('../services/compact/snipCompact.js')
-    if (isSnipRuntimeEnabled()) {
-      for (let i = 0; i < sanitized.length; i++) {
-        if (sanitized[i]!.type === 'user') {
-          sanitized[i] = appendMessageTagToUserMessage(
-            sanitized[i] as UserMessage,
-          )
-        }
+  // Post-merge sweep for snip [id:] tags. User messages folded in the loop above
+  // are already tagged pre-merge (so every parallel-tool sibling's id survives
+  // the merge); this catches user messages synthesized during normalization that
+  // never went through that path — local_command system messages and attachments
+  // promoted to user turns. appendMessageTagToUserMessage is idempotent, so it is
+  // a no-op for anything already tagged above.
+  if (injectSnipTags) {
+    for (let i = 0; i < sanitized.length; i++) {
+      if (sanitized[i]!.type === 'user') {
+        sanitized[i] = appendMessageTagToUserMessage(
+          sanitized[i] as UserMessage,
+        )
       }
     }
   }
