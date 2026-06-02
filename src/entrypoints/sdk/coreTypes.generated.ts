@@ -238,7 +238,7 @@ export type PermissionDecisionClassification = "user_temporary" | "user_permanen
 export type PermissionResult = ({
   behavior: "allow"
   updatedInput?: Record<string, unknown>
-  updatedPermissions?: ({
+  updatedPermissions?: (({
     type: "addRules"
     rules: {
       toolName: string
@@ -274,7 +274,7 @@ export type PermissionResult = ({
     type: "removeDirectories"
     directories: string[]
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-  })[]
+  }))[]
   toolUseID?: string
   decisionClassification?: "user_temporary" | "user_permanent" | "user_reject"
 }) | ({
@@ -504,7 +504,7 @@ export type PermissionRequestHookInput = {
   hook_event_name: "PermissionRequest"
   tool_name: string
   tool_input: unknown
-  permission_suggestions?: ({
+  permission_suggestions?: (({
     type: "addRules"
     rules: {
       toolName: string
@@ -540,7 +540,7 @@ export type PermissionRequestHookInput = {
     type: "removeDirectories"
     directories: string[]
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-  })[]
+  }))[]
 }
 
 export type SetupHookInput = {
@@ -892,7 +892,7 @@ export type HookInput = ({
   hook_event_name: "PermissionRequest"
   tool_name: string
   tool_input: unknown
-  permission_suggestions?: ({
+  permission_suggestions?: (({
     type: "addRules"
     rules: {
       toolName: string
@@ -928,7 +928,7 @@ export type HookInput = ({
     type: "removeDirectories"
     directories: string[]
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-  })[]
+  }))[]
 }) | ({
   session_id: string
   transcript_path: string
@@ -1138,7 +1138,7 @@ export type PermissionRequestHookSpecificOutput = {
   decision: ({
     behavior: "allow"
     updatedInput?: Record<string, unknown>
-    updatedPermissions?: ({
+    updatedPermissions?: (({
       type: "addRules"
       rules: {
         toolName: string
@@ -1174,7 +1174,7 @@ export type PermissionRequestHookSpecificOutput = {
       type: "removeDirectories"
       directories: string[]
       destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-    })[]
+    }))[]
   }) | ({
     behavior: "deny"
     message?: string
@@ -1257,7 +1257,7 @@ export type SyncHookJSONOutput = {
     decision: ({
       behavior: "allow"
       updatedInput?: Record<string, unknown>
-      updatedPermissions?: ({
+      updatedPermissions?: (({
         type: "addRules"
         rules: {
           toolName: string
@@ -1293,7 +1293,7 @@ export type SyncHookJSONOutput = {
         type: "removeDirectories"
         directories: string[]
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-      })[]
+      }))[]
     }) | ({
       behavior: "deny"
       message?: string
@@ -1367,7 +1367,7 @@ export type HookJSONOutput = ({
     decision: ({
       behavior: "allow"
       updatedInput?: Record<string, unknown>
-      updatedPermissions?: ({
+      updatedPermissions?: (({
         type: "addRules"
         rules: {
           toolName: string
@@ -1403,7 +1403,7 @@ export type HookJSONOutput = ({
         type: "removeDirectories"
         directories: string[]
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-      })[]
+      }))[]
     }) | ({
       behavior: "deny"
       message?: string
@@ -1470,7 +1470,7 @@ export type ModelInfo = {
   displayName: string
   description: string
   supportsEffort?: boolean
-  supportedEffortLevels?: "low" | "medium" | "high" | "max"[]
+  supportedEffortLevels?: ("low" | "medium" | "high" | "max")[]
   supportsAdaptiveThinking?: boolean
   supportsFastMode?: boolean
   supportsAutoMode?: boolean
@@ -1483,7 +1483,7 @@ export type AccountInfo = {
   subscriptionType?: string
   tokenSource?: string
   apiKeySource?: string
-  apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry"
+  apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry" | "openai" | "gemini" | "github" | "codex" | "nvidia-nim" | "minimax" | "mistral" | "xai" | "xiaomi-mimo"
 }
 
 export type AgentMcpServerSpec = string | (Record<string, ({
@@ -1511,7 +1511,7 @@ export type AgentDefinition = {
   disallowedTools?: string[]
   prompt: string
   model?: string
-  mcpServers?: string | (Record<string, ({
+  mcpServers?: (string | (Record<string, ({
     type?: "stdio"
     command: string
     args?: string[]
@@ -1527,7 +1527,7 @@ export type AgentDefinition = {
   }) | ({
     type: "sdk"
     name: string
-  })>)[]
+  })>))[]
   criticalSystemReminder_EXPERIMENTAL?: string
   skills?: string[]
   initialPrompt?: string

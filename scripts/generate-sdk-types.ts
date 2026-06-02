@@ -268,8 +268,10 @@ function convert(schema: any, depth = 0): string {
         .map(v => JSON.stringify(v))
         .join(' | ')
     }
-    case 'array':
-      return `${convert(def.element, depth)}[]`
+    case 'array': {
+      const element = convert(def.element, depth)
+      return `${needsArrayElementParens(element) ? `(${element})` : element}[]`
+    }
     case 'tuple': {
       const items = (def.items as any[]).map(t => convert(t, depth))
       return `[${items.join(', ')}]`
@@ -352,6 +354,10 @@ function isOptional(schema: any): boolean {
 
 function needsParens(ts: string): boolean {
   return ts.includes('\n') || ts.includes(' & ')
+}
+
+function needsArrayElementParens(ts: string): boolean {
+  return ts.includes(' | ') || ts.includes(' & ')
 }
 
 // ---------------------------------------------------------------------------
