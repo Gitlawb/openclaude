@@ -2212,7 +2212,7 @@ class OpenAIShimMessages {
           {
             type: 'message',
             role: 'user',
-            content: [{ type: 'text', text: '' }],
+            content: [{ type: effectiveTransport === 'responses_compat' ? 'text' : 'input_text', text: '' }],
           },
         ]
       }

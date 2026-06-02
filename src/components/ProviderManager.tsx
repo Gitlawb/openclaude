@@ -1531,7 +1531,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
     const adjustedApiFormat =
-      requestedResponses && saved.apiFormat !== 'responses'
+      requestedResponses && saved.apiFormat !== 'responses' && saved.apiFormat !== 'responses_compat'
     const routeLabel =
       getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
     const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)

@@ -336,6 +336,51 @@ test('uses OpenAI-compatible responses endpoint with text chunk types when OPENA
   ])
 })
 
+test('uses correct empty input fallback schema for standard responses and responses_compat', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({ 
+      id: 'resp-1', 
+      model: 'test', 
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] 
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  process.env.OPENAI_API_FORMAT = 'responses'
+  await client.beta.messages.create({
+    model: 'test',
+    max_tokens: 10,
+    messages: [{ role: 'user', content: [] }],
+  })
+
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: '' }],
+    },
+  ])
+
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+  await client.beta.messages.create({
+    model: 'test',
+    max_tokens: 10,
+    messages: [{ role: 'user', content: [] }],
+  })
+
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: '' }],
+    },
+  ])
+})
+
 test('strips store from strict OpenAI-compatible responses providers', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
   process.env.OPENAI_API_FORMAT = 'responses'
