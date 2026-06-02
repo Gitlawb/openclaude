@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import { _resetKeepAliveForTesting } from '../../utils/proxy.js'
@@ -6,6 +6,7 @@ import {
   fetchWithProxyRetry,
   isRetryableFetchError,
   _resetUndiciFetchForTesting,
+  _setUndiciFetchForTesting,
 } from './fetchWithProxyRetry.js'
 
 type FetchType = typeof globalThis.fetch
@@ -39,20 +40,11 @@ function createCapturingFetch() {
     return new Response('ok')
   }) as FetchType
 
-  // Reset the cached undici fetch reference so mock.module takes effect.
-  _resetUndiciFetchForTesting()
-
-  // Mock both globalThis.fetch and undici.fetch so the test captures
-  // regardless of which path fetchWithProxyRetry takes.
+  // Inject the mock directly into the module's cached reference.
+  // This avoids mock.module('undici', ...) which is a process-wide
+  // persistent replacement that can leak into neighbouring test files.
+  _setUndiciFetchForTesting(mockFn)
   globalThis.fetch = mockFn
-
-  // Mock undici module so that when fetchWithProxyRetry requires it under Bun,
-  // it gets our capturing mock instead of the real undici fetch.
-  mock.module('undici', () => ({
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ...require('undici'),
-    fetch: mockFn,
-  }))
 
   return {
     get url() { return capturedUrl },
@@ -69,7 +61,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    mock.restore()
+    _resetUndiciFetchForTesting()
     globalThis.fetch = originalFetch
     restoreEnv('HTTP_PROXY', originalEnv.HTTP_PROXY)
     restoreEnv('HTTPS_PROXY', originalEnv.HTTPS_PROXY)

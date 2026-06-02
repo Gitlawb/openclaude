@@ -37,6 +37,11 @@ export function _resetUndiciFetchForTesting(): void {
   _undiciFetch = undefined
 }
 
+/** @internal — test seam to inject a mock undici fetch without mock.module() */
+export function _setUndiciFetchForTesting(fn: typeof globalThis.fetch): void {
+  _undiciFetch = fn
+}
+
 export async function fetchWithProxyRetry(
   input: string | URL | Request,
   init?: RequestInit,
