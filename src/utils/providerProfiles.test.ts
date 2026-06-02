@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import type { ProviderProfile } from './config.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from './providerRouteEnv.js'
 
 async function importFreshProvidersModule() {
   return import(`./model/providers.ts?ts=${Date.now()}-${Math.random()}`)
@@ -17,6 +18,7 @@ const originalCwd = process.cwd()
 const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  PROVIDER_FLAG_ROUTE_ID_ENV,
   'CLAUDE_CONFIG_DIR',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
@@ -228,6 +230,19 @@ describe('applyProviderProfileToProcessEnv', () => {
       'provider_test',
     )
     expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('profile activation clears stale CLI provider route marker', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env[PROVIDER_FLAG_ROUTE_ID_ENV] = 'kimi-code'
+
+    applyProviderProfileToProcessEnv(buildProfile())
+
+    expect(process.env[PROVIDER_FLAG_ROUTE_ID_ENV]).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+      'provider_test',
+    )
   })
 
   test('mistral profile sets CLAUDE_CODE_USE_MISTRAL and clears openai flags', async () => {

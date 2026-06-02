@@ -11,6 +11,7 @@ import {
   applyModelFlagFromArgs,
   VALID_PROVIDERS,
 } from './providerFlag.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from './providerRouteEnv.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -19,6 +20,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
+  PROVIDER_FLAG_ROUTE_ID_ENV,
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
@@ -51,6 +53,7 @@ const RESET_KEYS = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
+  PROVIDER_FLAG_ROUTE_ID_ENV,
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
@@ -227,6 +230,7 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env[PROVIDER_FLAG_ROUTE_ID_ENV]).toBe('deepseek')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.deepseek.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro')
   })
@@ -236,6 +240,7 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env[PROVIDER_FLAG_ROUTE_ID_ENV]).toBe('openrouter')
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 

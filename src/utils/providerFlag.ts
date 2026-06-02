@@ -13,6 +13,7 @@
  */
 
 import '../integrations/index.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from './providerRouteEnv.js'
 import {
   ensureIntegrationsLoaded,
   getAllGateways,
@@ -63,6 +64,8 @@ function buildValidProviders(): string[] {
 export const VALID_PROVIDERS = buildValidProviders()
 
 export type ProviderFlagName = string
+
+export { PROVIDER_FLAG_ROUTE_ID_ENV } from './providerRouteEnv.js'
 
 /**
  * Extract the value of --provider from argv.
@@ -212,11 +215,13 @@ export function applyProviderFlag(
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.NVIDIA_NIM
+  delete process.env[PROVIDER_FLAG_ROUTE_ID_ENV]
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
   }
 
   const model = parseModelFlag(args)
+  const routeId = resolveProfileRoute(provider).routeId
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
 
   switch (provider) {
@@ -341,6 +346,10 @@ export function applyProviderFlag(
         process.env.OPENAI_API_KEY = process.env.VENICE_API_KEY
       }
       break
+  }
+
+  if (provider !== 'anthropic') {
+    process.env[PROVIDER_FLAG_ROUTE_ID_ENV] = routeId
   }
 
   return {}

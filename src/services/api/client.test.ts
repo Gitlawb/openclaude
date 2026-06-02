@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  applyProviderFlag,
+} from '../../utils/providerFlag.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from '../../utils/providerRouteEnv.js'
 import { getAnthropicClient } from './client.js'
 
 type FetchType = typeof globalThis.fetch
@@ -45,6 +49,7 @@ const originalEnv = {
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+  CLAUDE_CODE_PROVIDER_ROUTE_ID: process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -66,6 +71,7 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env[PROVIDER_FLAG_ROUTE_ID_ENV]
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL
@@ -116,6 +122,7 @@ beforeEach(async () => {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env[PROVIDER_FLAG_ROUTE_ID_ENV]
 })
 
 afterEach(() => {
@@ -157,6 +164,10 @@ afterEach(() => {
     restoreEnv(
       'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
       originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+    )
+    restoreEnv(
+      PROVIDER_FLAG_ROUTE_ID_ENV,
+      originalEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID,
     )
     globalThis.fetch = originalFetch
   } finally {
@@ -294,6 +305,123 @@ test('routes Gemini provider requests through the OpenAI-compatible shim', async
     role: 'assistant',
     model: 'gemini-2.0-flash',
   })
+})
+
+test('preserves Kimi Code compatibility user agent for CLI provider selection', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.OPENAI_API_KEY = 'kimi-test-key'
+  applyProviderFlag('kimi-code', [])
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-kimi',
+        model: 'kimi-for-coding',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'kimi ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'kimi-for-coding',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'kimi-for-coding',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('user-agent')).toContain('claude-cli/test-version')
+  expect(capturedHeaders?.get('user-agent')).not.toContain('openclaude-cli/')
+})
+
+test('keeps custom Kimi-compatible URLs on the OpenClaude user agent without explicit Kimi route selection', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env[PROVIDER_FLAG_ROUTE_ID_ENV]
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEY = 'custom-kimi-test-key'
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  process.env.OPENAI_MODEL = 'kimi-for-coding'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-custom-kimi',
+        model: 'kimi-for-coding',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'custom kimi ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'kimi-for-coding',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'kimi-for-coding',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('user-agent')).toStartWith('openclaude-cli/')
+  expect(capturedHeaders?.get('user-agent')).not.toStartWith('claude-cli/')
 })
 
 test('routes env-only MiniMax requests through the Anthropic-compatible API', async () => {

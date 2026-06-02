@@ -47,6 +47,7 @@ import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
 } from './authRouting.js'
+import { PROVIDER_FLAG_ROUTE_ID_ENV } from '../../utils/providerRouteEnv.js'
 import { getActiveProviderProfile } from '../../utils/providerProfiles.js'
 
 const importRuntimeModule = new Function(
@@ -238,13 +239,15 @@ function applyXaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
-function getAppliedProviderProfileRouteId(): string | undefined {
-  if (process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED !== '1') {
-    return undefined
+function getActiveProviderRouteId(): string | undefined {
+  const providerFlagRouteId = process.env[PROVIDER_FLAG_ROUTE_ID_ENV]?.trim()
+  if (providerFlagRouteId) {
+    return providerFlagRouteId
   }
 
   const activeProfile = getActiveProviderProfile()
   if (
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED !== '1' ||
     !activeProfile ||
     activeProfile.id !== process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
   ) {
@@ -289,7 +292,7 @@ export async function getAnthropicClient({
       isFirstParty: shouldUseFirstPartyAuth,
       providerRouteId: providerOverride
         ? undefined
-        : getAppliedProviderProfileRouteId(),
+        : getActiveProviderRouteId(),
     }),
     'X-Claude-Code-Session-Id': getSessionId(),
     ...customHeaders,
