@@ -726,6 +726,18 @@ function ModelPickerWrapper({
 
     try {
       const discoveredOptions = await discoverOpenAICompatibleModelOptions()
+      if (discoveredOptions.length === 0) {
+        setDiscoveryState(
+          legacyDiscoveryStateForOptions({
+            changed: false,
+            failed: true,
+            manual,
+            routeLabel: discoveryContext.routeLabel,
+          }),
+        )
+        return
+      }
+
       const currentRawOptions = getActiveOpenAIRouteModelOptionsCache()
       const activeProfile = getActiveProviderProfile()
       const profileApplied = Boolean(
@@ -748,16 +760,11 @@ function ModelPickerWrapper({
             ...discoveredOptions,
           ])
       const changed =
-        discoveredOptions.length > 0 &&
-        !haveSameModelOptions(
-          optionsOverride ?? currentRawOptions,
-          nextOptions,
-        )
+        !haveSameModelOptions(optionsOverride ?? currentRawOptions, nextOptions)
       const rawChanged =
-        discoveredOptions.length > 0 &&
         !haveSameModelOptions(currentRawOptions, discoveredOptions)
 
-      if (discoveredOptions.length > 0 && rawChanged) {
+      if (rawChanged) {
         setActiveOpenAIRouteModelOptionsCache(discoveredOptions)
         if (profileApplied) {
           setActiveOpenAIModelOptionsCache(discoveredOptions)
@@ -1034,6 +1041,15 @@ async function refreshModelsAndSummarize(): Promise<string> {
 
   try {
     const discoveredOptions = await discoverOpenAICompatibleModelOptions()
+    if (discoveredOptions.length === 0) {
+      return legacyDiscoveryStateForOptions({
+        changed: false,
+        failed: true,
+        manual: true,
+        routeLabel: discoveryContext.routeLabel,
+      }).message
+    }
+
     const currentRawOptions = getActiveOpenAIRouteModelOptionsCache()
     const activeProfile = getActiveProviderProfile()
     const profileApplied = Boolean(
@@ -1053,16 +1069,14 @@ async function refreshModelsAndSummarize(): Promise<string> {
           ...discoveredOptions,
         ])
     const changed =
-      discoveredOptions.length > 0 &&
       !haveSameModelOptions(
         discoveryContext.optionsOverride ?? currentRawOptions,
         nextOptions,
       )
     const rawChanged =
-      discoveredOptions.length > 0 &&
       !haveSameModelOptions(currentRawOptions, discoveredOptions)
 
-    if (discoveredOptions.length > 0 && rawChanged) {
+    if (rawChanged) {
       setActiveOpenAIRouteModelOptionsCache(discoveredOptions)
       if (profileApplied) {
         setActiveOpenAIModelOptionsCache(discoveredOptions)

@@ -1742,6 +1742,188 @@ test('/model legacy local OpenAI refresh compares allowlist-filtered options', a
   }
 })
 
+test('/model legacy local OpenAI refresh preserves cached options when discovery finds no models', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:7777/v1'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+  process.env.OPENAI_MODEL = 'route-model'
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  const cachedOptions = [
+    {
+      value: 'route-model',
+      label: 'Route Model',
+      description: 'Detected from route',
+    },
+    {
+      value: 'route-model-b',
+      label: 'Route Model B',
+      description: 'Detected from route',
+    },
+  ]
+  const scopedCache = await mockScopedLocalOpenAIModelCache(cachedOptions)
+  mockProviderProfiles()
+  mock.module('../../utils/model/openaiModelDiscovery.js', () => ({
+    discoverOpenAICompatibleModelOptions: mock(async () => []),
+  }))
+
+  const rendered = await renderModelCommandWithCapturedPicker(
+    'legacy-openai-empty-refresh',
+  )
+  try {
+    const expectedPickerOptions = [
+      expect.objectContaining({
+        value: null,
+        label: 'Default (recommended)',
+      }),
+      ...cachedOptions,
+    ]
+    expect(rendered.getCapturedProps().optionsOverride).toEqual(
+      expectedPickerOptions,
+    )
+
+    rendered.getCapturedProps().onRefresh?.()
+    await waitForCondition(() => {
+      const message = rendered.getCapturedProps().discoveryState?.message
+      return (
+        message !== undefined &&
+        message !== 'Refreshing Local OpenAI-compatible models…'
+      )
+    })
+
+    expect(rendered.getCapturedProps().discoveryState).toEqual({
+      message: 'Could not refresh Local OpenAI-compatible models.',
+      tone: 'warning',
+    })
+    expect(scopedCache.getState().additionalModelOptionsCache).toEqual(
+      cachedOptions,
+    )
+    expect(rendered.getCapturedProps().optionsOverride).toEqual(
+      expectedPickerOptions,
+    )
+  } finally {
+    rendered.instance.unmount()
+    rendered.stdout.end()
+  }
+})
+
+test('/model legacy local OpenAI refresh preserves cached provider options for active profiles when discovery finds no models', async () => {
+  useSettings({
+    providerProfileModelPickerMode: 'provider',
+  } as SettingsJson & {
+    providerProfileModelPickerMode: ProviderProfileModelPickerModeForTest
+  })
+  const activeProfile = {
+    id: 'custom-local-profile',
+    name: 'Custom Local',
+    provider: 'custom',
+    baseUrl: 'http://localhost:7777/v1',
+    model: 'profile-only-model, route-model',
+    apiKey: '',
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+  process.env.OPENAI_MODEL = 'route-model'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  const cachedOptions = [
+    {
+      value: 'route-model',
+      label: 'Route Model',
+      description: 'Detected from route',
+    },
+    {
+      value: 'route-model-b',
+      label: 'Route Model B',
+      description: 'Detected from route',
+    },
+  ]
+  const scopedCache = await mockScopedLocalOpenAIModelCache(cachedOptions)
+  mockProviderProfiles({
+    getActiveOpenAIModelOptionsCache: () => [
+      {
+        value: 'profile-only-model',
+        label: 'profile-only-model',
+        description: 'Provider: Custom Local',
+      },
+      ...cachedOptions,
+    ],
+    getActiveProviderProfile: () => activeProfile,
+  })
+  const discoverOpenAICompatibleModelOptions = mock(async () => [])
+  mock.module('../../utils/model/openaiModelDiscovery.js', () => ({
+    discoverOpenAICompatibleModelOptions,
+  }))
+
+  const rendered = await renderModelCommandWithCapturedPicker(
+    'legacy-openai-active-profile-empty-refresh',
+  )
+  try {
+    const expectedPickerOptions = [
+      ...cachedOptions,
+      {
+        value: 'profile-only-model',
+        label: 'profile-only-model',
+        description: 'Provider: Custom Local',
+      },
+    ]
+    expect(rendered.getCapturedProps().optionsOverride).toEqual(
+      expectedPickerOptions,
+    )
+
+    await waitForCondition(
+      () =>
+        discoverOpenAICompatibleModelOptions.mock.calls.length >= 1 &&
+        rendered.getCapturedProps().discoveryState?.message ===
+          'Could not refresh Local OpenAI-compatible models.',
+    )
+    expect(rendered.getCapturedProps().optionsOverride).toEqual(
+      expectedPickerOptions,
+    )
+
+    rendered.getCapturedProps().onRefresh?.()
+    await waitForCondition(
+      () =>
+        discoverOpenAICompatibleModelOptions.mock.calls.length >= 2 &&
+        rendered.getCapturedProps().discoveryState?.message ===
+          'Could not refresh Local OpenAI-compatible models.',
+    )
+
+    expect(rendered.getCapturedProps().discoveryState).toEqual({
+      message: 'Could not refresh Local OpenAI-compatible models.',
+      tone: 'warning',
+    })
+    expect(scopedCache.getState().additionalModelOptionsCache).toEqual(
+      cachedOptions,
+    )
+    expect(rendered.getCapturedProps().optionsOverride).toEqual(
+      expectedPickerOptions,
+    )
+  } finally {
+    rendered.instance.unmount()
+    rendered.stdout.end()
+  }
+})
+
 test('/model legacy provider mode keeps raw local cache before profile-only models', async () => {
   useSettings({
     providerProfileModelPickerMode: 'provider',
@@ -2237,6 +2419,57 @@ test('/model refresh compares already allowlist-filtered descriptor options', as
   )
 
   expect(messages).toContain('No changes found for LM Studio.')
+})
+
+test('/model refresh treats empty legacy OpenAI-compatible discovery as failed no-op', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:7777/v1'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+  process.env.OPENAI_MODEL = 'route-model'
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  const cachedOptions = [
+    {
+      value: 'route-model',
+      label: 'Route Model',
+      description: 'Detected from route',
+    },
+  ]
+  const scopedCache = await mockScopedLocalOpenAIModelCache(cachedOptions)
+  mockProviderProfiles()
+  mock.module('../../utils/model/openaiModelDiscovery.js', () => ({
+    discoverOpenAICompatibleModelOptions: mock(async () => []),
+  }))
+
+  const messages: string[] = []
+  const { call } = await importFreshModelModule(
+    'legacy-openai-empty-refresh-summary',
+  )
+  await call(
+    (message?: string) => {
+      if (message) {
+        messages.push(message)
+      }
+    },
+    {} as never,
+    'refresh',
+  )
+
+  expect(messages).toContain(
+    'Could not refresh Local OpenAI-compatible models.',
+  )
+  expect(scopedCache.getState().additionalModelOptionsCache).toEqual(
+    cachedOptions,
+  )
 })
 
 test('interactive model picker refresh keeps descriptor options allowlist-filtered', async () => {
