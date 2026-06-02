@@ -377,6 +377,27 @@ bun run dev:atomic-chat
 
 If no profile exists yet, `dev:profile` uses the same goal-aware defaults when picking the initial model.
 
+### Provider Profile Model Picker Mode
+
+When a saved provider profile is active, `/model` can either show the provider's
+catalog/discovered models or only the models explicitly listed in the profile.
+Configure this in `~/.openclaude.json`:
+
+```json
+{
+  "providerProfileModelPickerMode": "auto"
+}
+```
+
+Supported values:
+
+- `auto` (default): single-model profiles show the provider catalog; multi-model
+  profiles show the explicit profile list; native vendor routes keep their full
+  provider catalog.
+- `provider`: show the provider catalog/discovery list first and append
+  profile-only custom model IDs.
+- `profile`: show only explicitly configured profile models.
+
 Use `--provider ollama` when you want a local-only path. Auto mode falls back to OpenAI when no viable local chat model is installed.
 
 Use `--provider atomic-chat` when you want Atomic Chat as the local Apple Silicon provider.
