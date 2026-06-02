@@ -20,7 +20,7 @@ export default defineGateway({
   preset: {
     id: 'opencode',
     vendorId: 'openai',
-    description: 'OpenCode Zen — pay-as-you-go AI gateway (41 models)',
+    description: 'OpenCode Zen — pay-as-you-go AI gateway (42 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
   },
@@ -74,6 +74,7 @@ export default defineGateway({
       // OpenAI-compatible — /zen/v1/chat/completions (default, no override needed)
       { id: 'minimax-m2.7', apiName: 'minimax-m2.7', label: 'MiniMax M2.7', modelDescriptorId: 'opencode-minimax-m2.7' },
       { id: 'minimax-m2.5', apiName: 'minimax-m2.5', label: 'MiniMax M2.5', modelDescriptorId: 'opencode-minimax-m2.5' },
+      { id: 'minimax-m3-free', apiName: 'minimax-m3-free', label: 'MiniMax M3 Free', modelDescriptorId: 'opencode-minimax-m3-free' },
       { id: 'glm-5.1', apiName: 'glm-5.1', label: 'GLM 5.1', modelDescriptorId: 'opencode-glm-5.1' },
       { id: 'glm-5', apiName: 'glm-5', label: 'GLM 5', modelDescriptorId: 'opencode-glm-5' },
       { id: 'kimi-k2.5', apiName: 'kimi-k2.5', label: 'Kimi K2.5', modelDescriptorId: 'opencode-kimi-k2.5' },

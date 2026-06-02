@@ -609,6 +609,24 @@ export default [
     maxOutputTokens: 32_768,
   }),
   defineModel({
+    id: 'opencode-minimax-m3-free',
+    label: 'MiniMax M3 Free',
+
+    vendorId: 'openai',
+    classification: ['chat'],
+    defaultModel: 'opencode-minimax-m3-free',
+    capabilities: {
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: false,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 131_072,
+    maxOutputTokens: 32_768,
+  }),
+  defineModel({
     id: 'opencode-glm-5.1',
     label: 'GLM 5.1',
 

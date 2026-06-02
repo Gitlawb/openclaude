@@ -284,7 +284,7 @@ describe('OpenCode model catalog', () => {
 
   test('zen model count matches expected', () => {
     const models = getCatalogEntriesForRoute('opencode')
-    expect(models.length).toBe(41)
+    expect(models.length).toBe(42)
   })
 
   test('go model count matches expected', () => {
