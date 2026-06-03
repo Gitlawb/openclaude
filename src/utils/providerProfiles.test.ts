@@ -432,6 +432,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('openai responses_compat profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        apiFormat: 'responses_compat',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses_compat')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('custom OpenAI-compatible responses profile sets OPENAI_API_FORMAT', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
