@@ -1470,7 +1470,7 @@ export type ModelInfo = {
   displayName: string
   description: string
   supportsEffort?: boolean
-  supportedEffortLevels?: ("low" | "medium" | "high" | "max" | "xhigh")[]
+  supportedEffortLevels?: ("low" | "medium" | "high" | "xhigh" | "max")[]
   supportsAdaptiveThinking?: boolean
   supportsFastMode?: boolean
   supportsAutoMode?: boolean
