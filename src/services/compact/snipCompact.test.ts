@@ -168,6 +168,40 @@ describe('snipCompactIfNeeded', () => {
     expect(removed).toContain(assistantUuid)
   })
 
+  test('does not drop a mixed-content assistant turn (text + tool_use) when only its result is snipped', () => {
+    // An assistant turn that interleaves reasoning text with a tool_use is the
+    // common shape. Snipping its paired tool-result must NOT drop the whole
+    // assistant message, because that would silently delete the text block the
+    // model never asked to remove. The paired-drop only fires when the turn is
+    // entirely tool blocks; here it is not, so the snip is a clean no-op.
+    const assistantUuid = 'aaaa0080-0000-0000-0000-000000000080'
+    const toolResultUuid = 'bbbb0081-0000-0000-0000-000000000081'
+    const toolUseId = 'tu-080'
+    const assistantMsg = {
+      ...makeAssistant(assistantUuid),
+      message: {
+        content: [
+          { type: 'text', text: 'reasoning worth keeping' },
+          { type: 'tool_use', id: toolUseId, name: 'Read', input: {} },
+        ],
+      },
+    }
+    const toolResultMsg = {
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+      }),
+      uuid: toolResultUuid,
+    }
+    const messages = [assistantMsg, toolResultMsg, makeUser('survivor')]
+    markForSnip([deriveShortMessageId(toolResultUuid)], messages)
+    const result = snipCompactIfNeeded(messages)
+    // No-op: the mixed-content assistant (and its text) and the tool-result both survive.
+    expect(result.messages.map((m: any) => m.uuid)).toContain(assistantUuid)
+    expect(result.messages.map((m: any) => m.uuid)).toContain(toolResultUuid)
+    expect(result.tokensFreed).toBe(0)
+    expect(result.boundaryMessage).toBeUndefined()
+  })
+
   test('does not snip a tool result when its paired assistant tool_use would survive', () => {
     // An assistant turn with two tool calls whose results land in two separate
     // user messages: snipping only one result cannot cleanly remove the tool
@@ -237,6 +271,19 @@ describe('snipCompactIfNeeded', () => {
     expect(result.messages).toHaveLength(1)
     expect(result.tokensFreed).toBe(0)
     expect(result.boundaryMessage).toBeUndefined()
+  })
+})
+
+describe('markForSnip', () => {
+  test('returns only the UUIDs that resolved against the conversation', () => {
+    // The model can pass stale or hallucinated short IDs. markForSnip enqueues
+    // only IDs it can resolve, so its return value (which SnipTool reports as the
+    // queued count) must exclude the unresolved ones rather than echoing the raw
+    // request length.
+    const realUuid = 'a1b2c3d4-0000-0000-0000-0000000000aa'
+    const messages = [makeUser(realUuid)]
+    const matched = markForSnip([deriveShortMessageId(realUuid), 'xxxxxx'], messages)
+    expect(matched).toEqual([realUuid])
   })
 })
 

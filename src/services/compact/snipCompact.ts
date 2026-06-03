@@ -13,17 +13,26 @@ import { deriveShortMessageId } from '../../utils/messages.js'
 // Populated by SnipTool.call(); consumed by snipCompactIfNeeded().
 const pendingSnipUuids = new Set<UUID>()
 
-export function markForSnip(shortIds: string[], messages: any[]): void {
+// Returns the distinct UUIDs that actually resolved against this conversation
+// and were queued. Unresolvable short IDs (stale or hallucinated) are skipped,
+// so callers can report the genuinely-queued count rather than the raw request
+// length.
+export function markForSnip(shortIds: string[], messages: any[]): UUID[] {
   const shortIdToUuid = new Map<string, UUID>()
   for (const msg of messages) {
     if (msg?.uuid) {
       shortIdToUuid.set(deriveShortMessageId(msg.uuid as string), msg.uuid as UUID)
     }
   }
+  const matched = new Set<UUID>()
   for (const shortId of shortIds) {
     const uuid = shortIdToUuid.get(shortId)
-    if (uuid) pendingSnipUuids.add(uuid)
+    if (uuid) {
+      pendingSnipUuids.add(uuid)
+      matched.add(uuid)
+    }
   }
+  return [...matched]
 }
 
 export function isSnipRuntimeEnabled(): boolean {
@@ -132,9 +141,15 @@ export function snipCompactIfNeeded(
     if (!Array.isArray(blocks)) continue
     const toolUses = (blocks as any[]).filter(b => b?.type === 'tool_use')
     if (toolUses.length === 0) continue
+    // Only the paired-drop branch needs the whole turn to be tool blocks: an
+    // explicitly-snipped message (uuidsToRemove) is the model's deliberate choice
+    // and goes wholesale, but inferring a drop from the result side must not
+    // silently take any interleaved text with it.
+    const isPureToolUseTurn = toolUses.length === blocks.length
     const droppable =
       uuidsToRemove.has(msg?.uuid) ||
-      toolUses.every((t: any) => snippedResultToolUseIds.has(t?.id))
+      (isPureToolUseTurn &&
+        toolUses.every((t: any) => snippedResultToolUseIds.has(t?.id)))
     if (droppable) {
       for (const t of toolUses) if (t?.id) safeToolUseIds.add(t.id as string)
     }
@@ -175,9 +190,11 @@ export function snipCompactIfNeeded(
     }
     // Drop user messages whose content is entirely tool results for snipped tool calls
     if (msg?.type === 'user' && Array.isArray(msg?.message?.content)) {
-      const results = (msg.message.content as any[]).filter(b => b?.type === 'tool_result')
+      const blocks = msg.message.content as any[]
+      const results = blocks.filter(b => b?.type === 'tool_result')
       if (
         results.length > 0 &&
+        results.length === blocks.length &&
         results.every((r: any) => snippedToolUseIds.has(r?.tool_use_id))
       ) {
         tokensFreed += estimateTokens(msg)
@@ -189,9 +206,11 @@ export function snipCompactIfNeeded(
     // side. Mirrors the user-message .every() guard: if any tool_use in this
     // turn still has a surviving result, keep the message to avoid orphaning it.
     if (msg?.type === 'assistant' && Array.isArray(msg?.message?.content)) {
-      const toolUses = (msg.message.content as any[]).filter(b => b?.type === 'tool_use')
+      const blocks = msg.message.content as any[]
+      const toolUses = blocks.filter(b => b?.type === 'tool_use')
       if (
         toolUses.length > 0 &&
+        toolUses.length === blocks.length &&
         toolUses.every((t: any) => snippedResultToolUseIds.has(t?.id))
       ) {
         tokensFreed += estimateTokens(msg)

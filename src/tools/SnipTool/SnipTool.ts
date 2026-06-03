@@ -42,9 +42,11 @@ export const SnipTool = buildTool({
     const { markForSnip } =
       require('../../services/compact/snipCompact.js') as typeof import('../../services/compact/snipCompact.js')
     // Resolve short IDs → UUIDs against THIS conversation's messages so the
-    // pending removal is scoped to this session (see markForSnip).
-    markForSnip(input.message_ids, context.messages)
-    return { data: { sniped: input.message_ids.length } }
+    // pending removal is scoped to this session (see markForSnip). Report the
+    // count that actually resolved, not the raw request length: stale or
+    // unresolvable IDs are never queued, so echoing them would overstate the snip.
+    const queued = markForSnip(input.message_ids, context.messages)
+    return { data: { sniped: queued.length } }
   },
   renderToolUseMessage() {
     return null
