@@ -369,11 +369,11 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
 describe('persistent retry cap', () => {
   test('persistent retries stop after 100 retryable 429s', async () => {
     const retryModule = await importFreshWithRetryModule('firstParty')
-    const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST } = retryModule
+    const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, _setPersistentRetryOverrideForTest } = retryModule
 
     expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
 
-    retryModule._persistentRetryOverrideForTest = true
+    _setPersistentRetryOverrideForTest(true)
 
     const retryableRateLimit = makeError({ 'retry-after': '1' })
     const operation = mock(async () => {

@@ -107,7 +107,9 @@ export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST }
 // feature flag behavior intact while letting unit tests exercise the
 // persistent backoff and cap logic directly.
 let _persistentRetryOverrideForTest: boolean | undefined
-export { _persistentRetryOverrideForTest }
+export function _setPersistentRetryOverrideForTest(value: boolean | undefined): void {
+  _persistentRetryOverrideForTest = value
+}
 
 function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
