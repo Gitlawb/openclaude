@@ -47,6 +47,6 @@ export default [
   geminiModel('google/gemini-2.5-pro', 'Google Gemini 2.5 Pro', 65_536),
   geminiModel('google/gemini-2.0-flash', 'Google Gemini 2.0 Flash', 8_192),
 
-  gemmaModel('gemma-4-26b-a4b-it', 'Gemma 4 26B A4B', 262_144, 8_192),
-  gemmaModel('gemma-4-31b-it', 'Gemma 4 31B', 262_144, 8_192),
+  gemmaModel('gemma-4-26b-a4b-it', 'Gemma 4 26B A4B', 262_144, 65_536),
+  gemmaModel('gemma-4-31b-it', 'Gemma 4 31B', 262_144, 65_536),
 ]
