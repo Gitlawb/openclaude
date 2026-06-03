@@ -776,6 +776,9 @@ export async function main() {
       extractFlag('--model', {
         hasValue: true
       });
+      extractFlag('--fallback-model', {
+        hasValue: true
+      });
     }
     // After pre-extraction, any remaining dash-arg at [1] is either -h/--help
     // (commander handles) or an unknown-to-ssh flag (fall through to commander

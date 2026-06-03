@@ -95,14 +95,45 @@ describe('fallbackModel: background session path', () => {
   test('background queryParams object contains fallbackModel', () => {
     const source = readSource('REPL.tsx')
     // The background path (Ctrl+B) builds a `queryParams = { ... }` object
-    // that is spread into startBackgroundSession. The regex requires
-    // `queryParams` to appear before `fallbackModel`, so a regression
-    // that removes fallbackModel from the queryParams block (or the
-    // queryParams block itself) would fail this test. This is
-    // independent of the foreground `query({` check above — the two
-    // paths can no longer mask each other.
-    const match = source.match(/queryParams[\s\S]*?fallbackModel/)
-    expect(match).not.toBeNull()
+    // that is spread into startBackgroundSession.
+    //
+    // The previous regex `/queryParams[\s\S]*?fallbackModel/` was too
+    // loose: it would still match even after `fallbackModel` was removed
+    // from the queryParams object, because `fallbackModel` appears later
+    // in the file (e.g. in a useEffect dependency array). A naive
+    // bounded regex like `/queryParams\s*=\s*\{[^{}]*fallbackModel[^{}]*\}/`
+    // would also be wrong here — it can't tell the difference between
+    // a `}` that closes the queryParams object and a `}` that closes a
+    // nested object/array literal inside the body, so it would either
+    // under-match (if the body has nested braces) or stop at the first
+    // inner `}` and miss `fallbackModel` declared after it.
+    //
+    // The robust fix: walk the braces explicitly to find the matching
+    // `}` of the queryParams object literal. This is the same
+    // balanced-delimiter pattern used by the `launchResumeChooser` and
+    // `startBackgroundSession` call-slice checks elsewhere in this
+    // file, and it bounds the assertion to the body of THIS specific
+    // object — so a regression that drops `fallbackModel` from the
+    // queryParams block can no longer be masked by a later reference.
+    const assignMatch = source.match(/queryParams\s*:\s*\{/)
+    expect(assignMatch).not.toBeNull()
+    const openBraceIdx = assignMatch!.index! + assignMatch![0].length - 1
+    let depth = 0
+    let closeBraceIdx = -1
+    for (let i = openBraceIdx; i < source.length; i++) {
+      const ch = source[i]
+      if (ch === '{') depth++
+      else if (ch === '}') {
+        depth--
+        if (depth === 0) {
+          closeBraceIdx = i
+          break
+        }
+      }
+    }
+    expect(closeBraceIdx).toBeGreaterThan(openBraceIdx)
+    const objectBody = source.slice(openBraceIdx, closeBraceIdx + 1)
+    expect(objectBody).toContain('fallbackModel')
   })
 
   test('startBackgroundSession call spreads queryParams', () => {
