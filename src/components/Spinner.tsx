@@ -46,15 +46,6 @@ type Props = {
   pauseStartTimeRef: React.RefObject<number | null>;
   spinnerTip?: string;
   responseLengthRef: React.RefObject<number>;
-  apiMetricsRef?: React.RefObject<
-    Array<{
-      ttftMs: number;
-      firstTokenTime: number;
-      lastTokenTime: number;
-      responseLengthBaseline: number;
-      endResponseLength: number;
-    }>
-  >;
   overrideColor?: keyof Theme | null;
   overrideShimmerColor?: keyof Theme | null;
   overrideMessage?: string | null;
