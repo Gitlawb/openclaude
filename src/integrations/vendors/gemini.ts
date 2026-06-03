@@ -36,11 +36,8 @@ export default defineVendor({
     models: [
       { id: 'gemini-3-flash-preview', apiName: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
       { id: 'gemini-2.5-pro', apiName: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-      { id: 'gemma-4-e2b', apiName: 'gemma-4-e2b', label: 'Gemma 4 E2B' },
-      { id: 'gemma-4-e4b', apiName: 'gemma-4-e4b', label: 'Gemma 4 E4B' },
-      { id: 'gemma-4-12b', apiName: 'gemma-4-12b', label: 'Gemma 4 12B' },
-      { id: 'gemma-4-26b-a4b', apiName: 'gemma-4-26b-a4b', label: 'Gemma 4 26B A4B' },
-      { id: 'gemma-4-31b', apiName: 'gemma-4-31b', label: 'Gemma 4 31B' },
+      { id: 'gemma-4-26b-a4b-it', apiName: 'gemma-4-26b-a4b-it', label: 'Gemma 4 26B A4B' },
+      { id: 'gemma-4-31b-it', apiName: 'gemma-4-31b-it', label: 'Gemma 4 31B' },
     ],
   },
   usage: { supported: false },
