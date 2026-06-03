@@ -13,6 +13,7 @@ import {
   setSessionSettingsCache,
 } from '../../utils/settings/settingsCache.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
+import type { ModelSetting } from '../../utils/model/model.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 type SettingsModule = typeof import('../../utils/settings/settings.js')
@@ -2582,7 +2583,7 @@ test('interactive model picker rejects models blocked by availableModels before 
     ...getDefaultAppState(),
     mainLoopModel: 'allowed-model',
   }
-  let latestMainLoopModel = initialState.mainLoopModel
+  let latestMainLoopModel: ModelSetting = initialState.mainLoopModel
   const instance = await render(
     <AppStateProvider
       initialState={initialState}
