@@ -6,6 +6,7 @@ import type {
   SDKControlPermissionRequestSchema,
   SDKControlReloadPluginsResponseSchema,
 } from './controlSchemas.js'
+import type { SDKPartialAssistantMessageSchema } from './coreSchemas.js'
 
 /*
  * The control schema source does not yet cover every request subtype handled by
@@ -37,10 +38,6 @@ export type SDKControlResponse = any
 export type SDKControlCancelRequest = any
 export type StdinMessage = any
 export type StdoutMessage = any
-export type SDKPartialAssistantMessage = {
-  type: 'stream_event'
-  event: any
-  parent_tool_use_id: string | null
-  uuid: string
-  session_id: string
-}
+export type SDKPartialAssistantMessage = InferSchema<
+  typeof SDKPartialAssistantMessageSchema
+>

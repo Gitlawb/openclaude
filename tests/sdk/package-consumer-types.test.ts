@@ -212,8 +212,7 @@ describe('package consumer types', () => {
     writeFileSync(
       join(tmpDir, 'consumer.ts'),
       [
-        `import type { SDKControlInitializeResponse } from '../../src/entrypoints/sdk/controlTypes.js'`,
-        `import type { ModelInfo } from '../../src/entrypoints/sdk/coreTypes.generated.js'`,
+        `import type { SDKControlInitializeResponse, ModelInfo } from '@gitlawb/openclaude/sdk'`,
         ``,
         `const models: ModelInfo[] = [{`,
         `  value: 'claude-opus-4-6',`,
