@@ -72,7 +72,6 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   'figures',
   'get-east-asian-width',
   'indent-string',
-  'strip-ansi',
   'supports-hyperlinks',
   'wrap-ansi',
   // Data formats

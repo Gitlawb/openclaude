@@ -82,6 +82,8 @@ export type SDKSessionOptions = {
   model?: string
   /** Permission mode for tool access. */
   permissionMode?: QueryPermissionMode
+  /** Skip permission prompts entirely (dangerous). */
+  allowDangerouslySkipPermissions?: boolean
   /** AbortController to cancel the session. */
   abortController?: AbortController
   /**
@@ -256,6 +258,10 @@ class SDKSessionImpl implements SDKSession {
     const self = this
     const inner = runWithSdkContext(sdkContext, () => {
       return (async function* (): AsyncGenerator<SDKMessage> {
+        // Fast exit: if the caller's AbortController was already aborted
+        // before iteration starts, do not initialize or submit a turn.
+        if (self._abortController?.signal.aborted) return
+
         await init()
 
         // Load agent definitions once (not on every sendMessage call)
@@ -310,7 +316,9 @@ class SDKSessionImpl implements SDKSession {
         switchSession(self._sessionId as SessionId, self._sessionProjectDir)
 
         try {
+          if (self._abortController?.signal.aborted) return
           for await (const engineMsg of self.engine.submitMessage(content)) {
+            if (self._abortController?.signal.aborted) break
             yield engineMsg
             yield* self.drainTimeoutQueue()
             yield* self.drainAgentFailureQueue()
@@ -457,7 +465,13 @@ function createEngineFromOptions(
   initialMessages?: any[],
   sessionId?: string,
 ): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {
-  const { cwd, model, abortController, permissionMode } = options
+  const {
+    cwd,
+    model,
+    abortController,
+    permissionMode,
+    allowDangerouslySkipPermissions,
+  } = options
 
   if (!cwd) {
     throw new Error('SDKSessionOptions requires cwd')
@@ -471,6 +485,7 @@ function createEngineFromOptions(
   const permissionContext = buildPermissionContext({
     cwd,
     permissionMode,
+    allowDangerouslySkipPermissions,
     disallowedTools: options.disallowedTools,
   })
 

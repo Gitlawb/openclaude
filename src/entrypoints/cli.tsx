@@ -2,6 +2,7 @@ import { feature } from 'bun:bundle';
 import {
   applyProfileEnvToProcessEnv,
   buildStartupEnvFromProfile,
+  isDefaultStartupProviderEnv,
 } from '../utils/providerProfile.js'
 import {
   getProviderValidationError,
@@ -91,7 +92,9 @@ async function main(): Promise<void> {
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
     const { applyProviderFlagFromArgs } = await import('../utils/providerFlag.js');
-    const result = applyProviderFlagFromArgs(args);
+    const result = applyProviderFlagFromArgs(args, {
+      rememberForSettingsEnv: true,
+    });
     if (result?.error) {
       // biome-ignore lint/suspicious/noConsole:: intentional error output
       console.error(`Error: ${result.error}`);
@@ -122,12 +125,44 @@ async function main(): Promise<void> {
   })
   if (startupEnv !== process.env) {
     const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError) {
+    if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
       console.error(
         `Warning: ignoring saved provider profile. ${startupProfileError}`,
       )
     } else {
       applyProfileEnvToProcessEnv(process.env, startupEnv)
+    }
+  }
+
+  // Pane/window teammates are launched as fresh CLI processes. If the parent
+  // selected a configured agentModels key, apply that route before provider
+  // validation and --model env routing run in this child process.
+  {
+    const { eagerLoadSettingsFromArgs } = await import(
+      '../utils/settings/flagSettings.js'
+    )
+    const settingsLoadResult = eagerLoadSettingsFromArgs(args)
+    if (!settingsLoadResult.ok) {
+      if (settingsLoadResult.cause instanceof Error) {
+        const { logError } = await import('../utils/log.js')
+        logError(settingsLoadResult.cause)
+      }
+      const { default: chalk } = await import('chalk')
+      process.stderr.write(chalk.red(`${settingsLoadResult.message}\n`))
+      process.exit(1)
+    }
+
+    const {
+      applyAgentProviderOverrideToEnv,
+      resolveOutOfProcessTeammateProviderFromCliArgs,
+    } = await import('../services/api/agentRouting.js')
+    const { getInitialSettings } = await import('../utils/settings/settings.js')
+    const providerOverride = resolveOutOfProcessTeammateProviderFromCliArgs(
+      args,
+      getInitialSettings(),
+    )
+    if (providerOverride) {
+      applyAgentProviderOverrideToEnv(providerOverride)
     }
   }
 

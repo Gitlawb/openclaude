@@ -7,6 +7,8 @@ import type { MemoryFileInfo } from '../utils/claudemd.js';
 import { getMemoryFiles } from '../utils/claudemd.js';
 import { getGlobalConfig } from '../utils/config.js';
 import { getActiveNotices, type StatusNoticeContext } from '../utils/statusNoticeDefinitions.js';
+import { assembleToolPool } from '../tools.js';
+import { checkLocalModelContextLoad, isActiveProviderLocalModel, type LocalModelContextWarning } from '../utils/statusNoticeLocalModel.js';
 type Props = {
   agentDefinitions?: AgentDefinitionsResult;
 };
@@ -36,7 +38,12 @@ export function StatusNotices(t0) {
   const {
     agentDefinitions
   } = t0 === undefined ? {} : t0;
+  const mcpTools = useAppState(s => s.mcp.tools);
+  const toolPermissionContext = useAppState(s => s.toolPermissionContext);
+  const tools = React.useMemo(() => assembleToolPool(toolPermissionContext, mcpTools), [toolPermissionContext, mcpTools]);
   const [memoryFiles, setMemoryFiles] = React.useState(cachedMemoryFiles);
+  const [localModelContextLoad, setLocalModelContextLoad] = React.useState<LocalModelContextWarning | null | undefined>(undefined);
+  const isLocalModel = isActiveProviderLocalModel();
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = () => {
@@ -53,6 +60,30 @@ export function StatusNotices(t0) {
     t1 = $[0];
   }
   React.useEffect(t1, [t1]);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!isLocalModel) {
+      setLocalModelContextLoad(null);
+      return;
+    }
+    void checkLocalModelContextLoad(
+      tools,
+      agentDefinitions,
+      memoryFiles,
+      async () => toolPermissionContext,
+    ).then(warning => {
+      if (!cancelled) {
+        setLocalModelContextLoad(warning);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setLocalModelContextLoad(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentDefinitions, isLocalModel, memoryFiles, toolPermissionContext, tools]);
   const t2 = getGlobalConfig();
   const permissionMode = useAppState(s => s.toolPermissionContext.mode);
   const mainLoopModel = useAppState(s => s.mainLoopModel);
@@ -60,6 +91,8 @@ export function StatusNotices(t0) {
     config: t2,
     agentDefinitions,
     memoryFiles,
+    isLocalModel,
+    localModelContextLoad,
     permissionMode,
     mainLoopModel: mainLoopModel ?? undefined,
   };

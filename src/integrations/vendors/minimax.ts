@@ -5,7 +5,7 @@ export default defineVendor({
   label: 'MiniMax',
   classification: 'native',
   defaultBaseUrl: 'https://api.minimax.io/anthropic',
-  defaultModel: 'MiniMax-M2.7',
+  defaultModel: 'MiniMax-M3',
   requiredEnvVars: ['MINIMAX_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -40,6 +40,7 @@ export default defineVendor({
       { id: 'minimax-m2.5-highspeed', apiName: 'MiniMax-M2.5-highspeed', label: 'MiniMax M2.5 Highspeed', modelDescriptorId: 'minimax-m2.5-highspeed', contextWindow: 204_800 },
       { id: 'minimax-m2.7', apiName: 'MiniMax-M2.7', label: 'MiniMax M2.7', modelDescriptorId: 'minimax-m2.7', contextWindow: 204_800 },
       { id: 'minimax-m2.7-highspeed', apiName: 'MiniMax-M2.7-highspeed', label: 'MiniMax M2.7 Highspeed', modelDescriptorId: 'minimax-m2.7-highspeed', contextWindow: 204_800 },
+      { id: 'minimax-m3', apiName: 'MiniMax-M3', label: 'MiniMax M3', modelDescriptorId: 'minimax-m3', contextWindow: 1_048_576 },
       { id: 'minimax-text-01', apiName: 'MiniMax-Text-01', label: 'MiniMax Text 01', modelDescriptorId: 'minimax-text-01' },
       { id: 'minimax-text-01-preview', apiName: 'MiniMax-Text-01-Preview', label: 'MiniMax Text 01 Preview', modelDescriptorId: 'minimax-text-01-preview' },
       { id: 'minimax-vision-01', apiName: 'MiniMax-Vision-01', label: 'MiniMax Vision 01', modelDescriptorId: 'minimax-vision-01' },

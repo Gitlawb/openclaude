@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { normalize } from 'path'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -12,11 +13,11 @@ type SettingsChangeDetectorModule = typeof import('./changeDetector.js') & {
 }
 
 const pathsBySource: Record<SettingSource, string | null> = {
-  userSettings: '/tmp/openclaude/user/settings.json',
-  projectSettings: '/tmp/openclaude/project/.claude/settings.json',
-  localSettings: '/tmp/openclaude/project/.claude/settings.local.json',
+  userSettings: normalize('/tmp/openclaude/user/settings.json'),
+  projectSettings: normalize('/tmp/openclaude/project/.claude/settings.json'),
+  localSettings: normalize('/tmp/openclaude/project/.claude/settings.local.json'),
   flagSettings: null,
-  policySettings: '/tmp/openclaude/managed/managed-settings.json',
+  policySettings: normalize('/tmp/openclaude/managed/managed-settings.json'),
 }
 
 let resetSettingsCache = mock(() => {})
@@ -43,7 +44,7 @@ async function importFreshModule(): Promise<SettingsChangeDetectorModule> {
     consumeInternalWrite,
     executeConfigChangeHooks,
     getManagedSettingsDropInDir: () =>
-      '/tmp/openclaude/managed/managed-settings.d',
+      normalize('/tmp/openclaude/managed/managed-settings.d'),
     getSettingsFilePathForSource: (source: SettingSource) =>
       pathsBySource[source],
     hasBlockingResult: (results: { blocked: boolean }[]) =>

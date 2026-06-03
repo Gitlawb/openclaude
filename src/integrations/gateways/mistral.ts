@@ -14,7 +14,7 @@ export default defineGateway({
   label: 'Mistral AI',
   category: 'hosted',
   defaultBaseUrl: 'https://api.mistral.ai/v1',
-  defaultModel: 'devstral-latest',
+  defaultModel: 'mistral-vibe-cli-latest',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -47,7 +47,12 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
+      { id: 'mistral-vibe-cli', apiName: 'mistral-vibe-cli-latest', label: 'Vibe CLI Latest', modelDescriptorId: 'mistral-vibe-cli-latest' },
       { id: 'mistral-devstral', apiName: 'devstral-latest', label: 'Devstral Latest', modelDescriptorId: 'devstral-latest' },
+      { id: 'mistral-large', apiName: 'mistral-large-latest', label: 'Mistral Large Latest', modelDescriptorId: 'mistral-large-latest' },
+      { id: 'mistral-small', apiName: 'mistral-small-latest', label: 'Mistral Small Latest', modelDescriptorId: 'mistral-small-latest' },
+      { id: 'mistral-ministral-3b', apiName: 'ministral-3b-latest', label: 'Ministral 3B Latest', modelDescriptorId: 'ministral-3b-latest' },
+      { id: 'mistral-codestral', apiName: 'codestral-latest', label: 'Codestral Latest', modelDescriptorId: 'codestral' },
     ],
   },
   usage: { supported: false },

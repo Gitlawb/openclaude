@@ -156,6 +156,7 @@ import { validateImagesForAPI } from './imageValidation.js'
 import { safeParseJSON } from './json.js'
 import { logError, logMCPDebug } from './log.js'
 import { normalizeLegacyToolName } from './permissions/permissionRuleParser.js'
+import { isDangerousPermissionMode } from './permissions/PermissionMode.js'
 import {
   getPlanModeV2AgentCount,
   getPlanModeV2ExploreAgentCount,
@@ -501,6 +502,11 @@ export function createUserMessage({
   // Provenance of this message. undefined = human (keyboard).
   origin?: MessageOrigin
 }): UserMessage {
+  const rewindRestorablePermissionMode = isDangerousPermissionMode(
+    permissionMode,
+  )
+    ? undefined
+    : permissionMode
   const m: UserMessage = {
     type: 'user',
     message: {
@@ -518,7 +524,7 @@ export function createUserMessage({
     mcpMeta,
     imagePasteIds,
     sourceToolAssistantUUID,
-    permissionMode,
+    permissionMode: rewindRestorablePermissionMode,
     origin,
   }
   return m

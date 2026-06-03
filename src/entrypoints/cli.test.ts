@@ -67,3 +67,40 @@ describe('useMemoryUsage.ts — threshold constants (issue #402)', () => {
     expect(src).toContain('CRITICAL_MEMORY_THRESHOLD = 2.5 * 1024 * 1024 * 1024')
   })
 })
+
+describe('cli.tsx — --provider startup ordering', () => {
+  it('remembers --provider so settings.env reloads cannot clobber it', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+
+    const earlyProviderApplyIndex = src.indexOf('applyProviderFlagFromArgs(args')
+    const rememberOptionIndex = src.indexOf(
+      'rememberForSettingsEnv: true',
+      earlyProviderApplyIndex,
+    )
+    const settingsEnvApplyIndex = src.indexOf(
+      'applySafeConfigEnvironmentVariables()',
+    )
+
+    expect(earlyProviderApplyIndex).toBeGreaterThanOrEqual(0)
+    expect(rememberOptionIndex).toBeGreaterThan(earlyProviderApplyIndex)
+    expect(settingsEnvApplyIndex).toBeGreaterThan(earlyProviderApplyIndex)
+  })
+
+  it('reapplies remembered --provider after every managed settings env merge', async () => {
+    const src = await Bun.file(`${import.meta.dir}/../utils/managedEnv.ts`).text()
+    const safeApplyIndex = src.indexOf('export function applySafeConfigEnvironmentVariables')
+    const configApplyIndex = src.indexOf('export function applyConfigEnvironmentVariables')
+    const safeReapplyIndex = src.indexOf(
+      'reapplyRememberedProviderFlag()',
+      safeApplyIndex,
+    )
+    const configReapplyIndex = src.indexOf(
+      'reapplyRememberedProviderFlag()',
+      configApplyIndex,
+    )
+
+    expect(safeReapplyIndex).toBeGreaterThan(safeApplyIndex)
+    expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
+    expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
+  })
+})

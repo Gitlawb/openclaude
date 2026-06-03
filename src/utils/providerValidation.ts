@@ -528,11 +528,9 @@ export async function getProviderValidationError(
 
     // For other OpenAI-compatible providers, check if any of their specific
     // credential env vars are set before falling back to the generic error.
-    if (validationTarget?.kind === 'vendor' || validationTarget?.kind === 'gateway') {
-      const envVars = validationTarget.descriptor.setup?.credentialEnvVars ?? []
-      if (envVars.some(v => env[v])) {
-        return null
-      }
+    const envVars = validationTarget?.descriptor.setup?.credentialEnvVars ?? []
+    if (envVars.some(v => env[v])) {
+      return null
     }
 
     return getOpenAIMissingKeyMessage()

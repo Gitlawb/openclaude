@@ -1,20 +1,65 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { getClientType, setClientType } from '../bootstrap/state.js'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import {
-  getAttributionTexts,
-  getDefaultCommitCoAuthorEmail,
-  getDefaultCommitCoAuthorName,
-  getEnhancedPRAttribution,
-} from './attribution.js'
+  getClientType,
+  getMainLoopModelOverride,
+  resetStateForTests,
+  setClientType,
+  setMainLoopModelOverride,
+} from '../bootstrap/state.js'
+import * as actualModel from './model/model.js'
+import * as actualProviders from './model/providers.js'
+import * as actualSettings from './settings/settings.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from './settings/settingsCache.js'
 import type { SettingsJson } from './settings/types.js'
 
+let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
+let getDefaultCommitCoAuthorEmail: (typeof import('./attribution.js'))[
+  'getDefaultCommitCoAuthorEmail'
+]
+let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
+  'getDefaultCommitCoAuthorName'
+]
+let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
+  'getEnhancedPRAttribution'
+]
+let testSettings: SettingsJson = {}
+
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+  NVIDIA_NIM: process.env.NVIDIA_NIM,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_DEFAULT_OPUS_MODEL:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+  ANTHROPIC_DEFAULT_SONNET_MODEL:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  GEMINI_MODEL: process.env.GEMINI_MODEL,
+  MISTRAL_MODEL: process.env.MISTRAL_MODEL,
+  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
+  XAI_API_KEY: process.env.XAI_API_KEY,
+  VENICE_API_KEY: process.env.VENICE_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
+  BNKR_API_KEY: process.env.BNKR_API_KEY,
   OPENCLAUDE_DISABLE_CO_AUTHORED_BY:
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   CLAUDE_CODE_REMOTE_SESSION_ID: process.env.CLAUDE_CODE_REMOTE_SESSION_ID,
@@ -22,11 +67,13 @@ const originalEnv = {
   USER_TYPE: process.env.USER_TYPE,
 }
 const originalClientType = getClientType()
+const originalMainLoopModelOverride = getMainLoopModelOverride()
 
 const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
 function useSettings(settings: SettingsJson): void {
+  testSettings = settings
   setSessionSettingsCache({ settings, errors: [] })
 }
 
@@ -40,20 +87,78 @@ function restoreEnv(): void {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  mock.restore()
+  resetStateForTests()
   resetSettingsCache()
+  testSettings = {}
   setClientType('cli')
+  setMainLoopModelOverride(undefined)
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.NVIDIA_NIM
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_API_KEY
+  delete process.env.ANTHROPIC_MODEL
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  delete process.env.GEMINI_MODEL
+  delete process.env.MISTRAL_MODEL
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.NVIDIA_API_KEY
+  delete process.env.XAI_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.BNKR_API_KEY
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_MODEL = 'gpt-5.5'
+  setMainLoopModelOverride('gpt-5.5')
   delete process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY
   delete process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   delete process.env.SESSION_INGRESS_URL
   delete process.env.USER_TYPE
+
+  mock.module('./model/model.js', () => ({
+    ...actualModel,
+    getMainLoopModel: () => process.env.OPENAI_MODEL ?? 'gpt-5.5',
+  }))
+  mock.module('./model/providers.js', () => ({
+    ...actualProviders,
+    getAPIProvider: () => 'openai',
+  }))
+  mock.module('./settings/settings.js', () => ({
+    ...actualSettings,
+    getInitialSettings: () => testSettings,
+    getSettings_DEPRECATED: () => testSettings,
+  }))
+
+  const attribution = await import(
+    `./attribution.ts?attributionTest=${Date.now()}-${Math.random()}`
+  )
+  getAttributionTexts = attribution.getAttributionTexts
+  getDefaultCommitCoAuthorEmail = attribution.getDefaultCommitCoAuthorEmail
+  getDefaultCommitCoAuthorName = attribution.getDefaultCommitCoAuthorName
+  getEnhancedPRAttribution = attribution.getEnhancedPRAttribution
 })
 
 afterEach(() => {
+  mock.restore()
+  resetStateForTests()
   resetSettingsCache()
   setClientType(originalClientType)
+  setMainLoopModelOverride(originalMainLoopModelOverride)
+  mock.module('./model/model.js', () => actualModel)
+  mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./settings/settings.js', () => actualSettings)
   restoreEnv()
 })
 
