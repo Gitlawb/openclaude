@@ -335,7 +335,7 @@ export class QueryEngine {
 
     let processUserInputContext: ProcessUserInputContext = {
       messages: this.mutableMessages,
-      // Slash commands that mutate the message array (e.g. /force-snip)
+      // Slash commands that mutate the message array (e.g. /clear)
       // call setMessages(fn).  In interactive mode this writes back to
       // AppState; in print mode we write back to mutableMessages so the
       // rest of the query loop (push at :389, snapshot at :392) sees
