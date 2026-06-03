@@ -6,13 +6,12 @@ type ProvidersModule = typeof import('../../utils/model/providers.js')
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
   const headersObj = new Headers(headers)
-  return {
-    headers: headersObj,
-    status: 429,
-    message: 'rate limit exceeded',
-    name: 'APIError',
-    error: {},
-  } as unknown as APIError
+  return new APIError(
+    429,
+    { error: { type: 'rate_limit_error', message: 'rate limit exceeded' } },
+    'rate limit exceeded',
+    headersObj,
+  )
 }
 
 // Save/restore env vars between tests
@@ -26,6 +25,7 @@ const envKeys = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_UNATTENDED_RETRY',
   'CLAUDE_CODE_MAX_RETRIES',
   'OPENCLAUDE_MAX_RETRIES',
   'OPENCLAUDE_RETRY_DELAY_MS',
@@ -75,6 +75,9 @@ async function importFreshWithRetryModule(
 ) {
   mock.restore()
   originalProvidersModule ??= await importActualProviders()
+  mock.module('src/utils/sleep.js', () => ({
+    sleep: async () => undefined,
+  }))
   mock.module('src/utils/model/providers.js', () => ({
     ...originalProvidersModule!,
     getAPIProvider: () => provider,
@@ -364,12 +367,36 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
 })
 
 describe('persistent retry cap', () => {
-  test('PERSISTENT_MAX_ATTEMPTS caps unbounded retry loops', async () => {
-    const { _PERSISTENT_MAX_ATTEMPTS_FOR_TEST } =
-      await importFreshWithRetryModule()
-    // Cap should be finite and reasonable — prevents unbounded retry
+  test('persistent retries stop after 100 retryable 429s', async () => {
+    const {
+      CannotRetryError,
+      withRetry,
+      _PERSISTENT_MAX_ATTEMPTS_FOR_TEST,
+    } = await importFreshWithRetryModule('firstParty')
+
     expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
-    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBeGreaterThan(0)
-    expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBeLessThan(1000)
+
+    const retryableRateLimit = makeError({ 'retry-after': '1' })
+    const operation = mock(async () => {
+      throw retryableRateLimit
+    })
+
+    const runRetries = async () => {
+      for await (const _ of withRetry(
+        async () => ({} as never),
+      operation,
+      {
+        maxRetries: 0,
+        model: 'claude-sonnet-4-6',
+        persistentRetryOverride: true,
+        thinkingConfig: { type: 'disabled' },
+      },
+    )) {
+      void _
+    }
+    }
+
+    await expect(runRetries()).rejects.toBeInstanceOf(CannotRetryError)
+    expect(operation).toHaveBeenCalledTimes(101)
   })
 })

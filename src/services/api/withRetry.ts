@@ -148,6 +148,12 @@ interface RetryOptions {
   signal?: AbortSignal
   querySource?: QuerySource
   /**
+   * Test-only override for the persistent retry gate. Keeps the production
+   * feature flag behavior intact while letting unit tests exercise the
+   * persistent backoff and cap logic directly.
+   */
+  persistentRetryOverride?: boolean
+  /**
    * Pre-seed the consecutive 529 counter. Used when this retry loop is a
    * non-streaming fallback after a streaming 529 — the streaming 529 should
    * count toward MAX_529_RETRIES so total 529s-before-fallback is consistent
@@ -192,6 +198,8 @@ export async function* withRetry<T>(
   options: RetryOptions,
 ): AsyncGenerator<SystemAPIErrorMessage, T> {
   const maxRetries = getMaxRetries(options)
+  const persistentRetryEnabled =
+    options.persistentRetryOverride ?? isPersistentRetryEnabled()
   const retryContext: RetryContext = {
     model: options.model,
     thinkingConfig: options.thinkingConfig,
@@ -291,7 +299,7 @@ export async function* withRetry<T>(
       // keep-alive path instead of fast-mode cache-preservation anyway.
       if (
         wasFastModeActive &&
-        !isPersistentRetryEnabled() &&
+        !persistentRetryEnabled &&
         error instanceof APIError &&
         (error.status === 429 || is529Error(error))
       ) {
@@ -378,7 +386,7 @@ export async function* withRetry<T>(
           if (
             process.env.USER_TYPE === 'external' &&
             !process.env.IS_SANDBOX &&
-            !isPersistentRetryEnabled()
+            !persistentRetryEnabled
           ) {
             logEvent('tengu_api_custom_529_overloaded_error', {})
             throw new CannotRetryError(
@@ -390,8 +398,7 @@ export async function* withRetry<T>(
       }
 
       // Only retry if the error indicates we should
-      const persistent =
-        isPersistentRetryEnabled() && isTransientCapacityError(error)
+      const persistent = persistentRetryEnabled && isTransientCapacityError(error)
       if (attempt > maxRetries && !persistent) {
         throw new CannotRetryError(error, retryContext)
       }
@@ -405,7 +412,8 @@ export async function* withRetry<T>(
         handleAwsCredentialError(error) || handleGcpCredentialError(error)
       if (
         !handledCloudAuthError &&
-        (!(error instanceof APIError) || !shouldRetry(error))
+        (!(error instanceof APIError) ||
+          !shouldRetry(error, persistentRetryEnabled))
       ) {
         throw new CannotRetryError(error, retryContext)
       }
@@ -782,7 +790,7 @@ function handleGcpCredentialError(error: unknown): boolean {
   return false
 }
 
-function shouldRetry(error: APIError): boolean {
+function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean {
   // Never retry mock errors - they're from /mock-limits command for testing
   if (isMockRateLimitError(error)) {
     return false
@@ -790,7 +798,7 @@ function shouldRetry(error: APIError): boolean {
 
   // Persistent mode: 429/529 always retryable, bypass subscriber gates and
   // x-should-retry header.
-  if (isPersistentRetryEnabled() && isTransientCapacityError(error)) {
+  if (persistentRetryEnabled && isTransientCapacityError(error)) {
     return true
   }
 
