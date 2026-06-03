@@ -26,21 +26,33 @@ describe('proactive state', () => {
   })
 
   test('one failing listener does not block later listeners or state changes', () => {
-    let notified = false
-    unsubscribers.push(
-      subscribeToProactiveChanges(() => {
-        throw new Error('listener failed')
-      }),
-    )
-    unsubscribers.push(
-      subscribeToProactiveChanges(() => {
-        notified = true
-      }),
-    )
+    const consoleError = console.error
+    const consoleErrors: unknown[][] = []
+    console.error = (...args: unknown[]) => {
+      consoleErrors.push(args)
+    }
+    try {
+      let notified = false
+      unsubscribers.push(
+        subscribeToProactiveChanges(() => {
+          throw new Error('listener failed')
+        }),
+      )
+      unsubscribers.push(
+        subscribeToProactiveChanges(() => {
+          notified = true
+        }),
+      )
 
-    expect(() => activateProactive()).not.toThrow()
+      expect(() => activateProactive()).not.toThrow()
 
-    expect(notified).toBe(true)
-    expect(isProactivePaused()).toBe(false)
+      expect(notified).toBe(true)
+      expect(isProactivePaused()).toBe(false)
+      expect(consoleErrors).toEqual([
+        ['proactive listener error', expect.any(Error)],
+      ])
+    } finally {
+      console.error = consoleError
+    }
   })
 })

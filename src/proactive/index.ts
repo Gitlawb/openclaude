@@ -11,7 +11,8 @@ function notifyProactiveListeners(): void {
   for (const listener of [...listeners]) {
     try {
       listener()
-    } catch {
+    } catch (error) {
+      console.error('proactive listener error', error)
       // Listener failures must not prevent state transitions or later listeners.
     }
   }
