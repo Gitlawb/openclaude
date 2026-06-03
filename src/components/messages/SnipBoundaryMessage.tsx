@@ -7,7 +7,7 @@ import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js'
 export function SnipBoundaryMessage({
   message,
 }: {
-  message: { snipMetadata?: { removedUuids?: unknown[] } }
+  message: { snipMetadata?: { removedUuids?: string[] } }
 }) {
   const historyShortcut = useShortcutDisplay(
     'app:toggleTranscript',

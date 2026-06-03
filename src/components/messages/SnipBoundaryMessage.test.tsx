@@ -26,7 +26,7 @@ test('renders the snip notice with the removed-message count', async () => {
 
   const message = { snipMetadata: { removedUuids: ['a', 'b', 'c'] } }
   const instance = await render(
-    <SnipBoundaryMessage message={message as never} />,
+    <SnipBoundaryMessage message={message} />,
     stdout as unknown as NodeJS.WriteStream,
   )
   await new Promise(resolve => setTimeout(resolve, 20))
