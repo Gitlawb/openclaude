@@ -113,7 +113,17 @@ export function isOpenAIEffortLevel(value: string): value is OpenAIEffortLevel {
 
 export function modelUsesOpenAIEffort(model: string): boolean {
   const provider = getAPIProvider()
-  return provider === 'openai' || provider === 'codex'
+  if (provider !== 'openai' && provider !== 'codex') {
+    return false
+  }
+  // Native Claude/Gemini models on OpenCode use Anthropic/Google format
+  // even though the OpenCode shim is provider=openai. They should not be
+  // classified as OpenAI-style for effort routing.
+  const m = model.toLowerCase()
+  if (m.includes('claude-') || m.includes('gemini-')) {
+    return false
+  }
+  return true
 }
 
 export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIEffortLevel[] {

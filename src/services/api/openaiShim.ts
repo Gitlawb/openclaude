@@ -2290,7 +2290,9 @@ class OpenAIShimMessages {
         const effort = request.reasoning.effort === 'xhigh' ? 'max' : request.reasoning.effort
         const modelLower = request.resolvedModel.toLowerCase()
         const isAdaptive = modelLower.includes('opus-4-7') || modelLower.includes('opus-4-6') ||
+          modelLower.includes('opus-4-8') ||
           modelLower.includes('opus-4.6') || modelLower.includes('opus-4.7') ||
+          modelLower.includes('opus-4.8') ||
           modelLower.includes('sonnet-4-6') || modelLower.includes('sonnet-4.6')
         const isOpus45 = modelLower.includes('opus-4-5') || modelLower.includes('opus-4.5')
 

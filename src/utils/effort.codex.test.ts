@@ -211,3 +211,23 @@ test('xhigh clamps to high on non-supporting models so stale settings.json value
   // opus-4-8 supports xhigh — pass through
   expect(resolveAppliedEffort('claude-opus-4-8', 'xhigh')).toBe('xhigh')
 })
+
+test('modelUsesOpenAIEffort: Claude/Gemini are excluded even on the openai provider (OpenCode native route)', async () => {
+  const { modelUsesOpenAIEffort, getAvailableEffortLevels } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+  // Native Claude/Gemini on OpenCode use Anthropic/Google format, not OpenAI
+  expect(modelUsesOpenAIEffort('claude-opus-4-8')).toBe(false)
+  expect(modelUsesOpenAIEffort('claude-sonnet-4-6')).toBe(false)
+  expect(modelUsesOpenAIEffort('gemini-3-flash')).toBe(false)
+  // Real OpenAI-shaped models still classify as OpenAI
+  expect(modelUsesOpenAIEffort('gpt-5.4')).toBe(true)
+
+  // And the picker excludes xhigh for OpenCode Claude on openai provider
+  const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
+  // Standard branch: no OPENAI_EFFORT_LEVELS, just the supported standard levels
+  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+})

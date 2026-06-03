@@ -209,7 +209,7 @@ export OPENAI_MODEL=glm-5.1
 openclaude
 ```
 
-OpenCode Go is a $10/mo subscription for 12 open models (GLM, Kimi, DeepSeek,
+OpenCode Go is a $10/mo subscription for 13 open models (GLM, Kimi, DeepSeek,
 MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
 
 ### Gitlawb Opengateway
