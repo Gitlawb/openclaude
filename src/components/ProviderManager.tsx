@@ -1957,7 +1957,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
-            visibleOptionCount={2}
+            visibleOptionCount={3}
           />
         ) : (
           <Box flexDirection="row" gap={1}>
