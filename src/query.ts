@@ -11,6 +11,7 @@ import {
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   type AutoCompactTrackingState,
 } from './services/compact/autoCompact.js'
+import { consumeCompactionRequest } from './utils/memoryPressure.js'
 import { buildPostCompactMessages } from './services/compact/compact.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const reactiveCompact = feature('REACTIVE_COMPACT')
@@ -535,6 +536,32 @@ async function* queryLoop(
     const fullSystemPrompt = asSystemPrompt(
       appendSystemContext(asSystemPrompt(promptWithArc), systemContext),
     )
+
+    // Force compaction if memory pressure detected or message count exceeded.
+    // Sets forceReason on tracking so autoCompactIfNeeded bypasses the
+    // token-threshold check. Consumed once (one-shot) inside autocompact.
+    // Skip for compact/session_memory sources — those run inside an existing
+    // compaction and forcing would deadlock via recursive autocompaction.
+    const canForceCompact =
+      querySource !== 'compact' && querySource !== 'session_memory'
+    if (canForceCompact) {
+      const MAX_ACTIVE_MESSAGES = Number.parseInt(
+        process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES ?? '200',
+        10,
+      )
+      if (messagesForQuery.length > MAX_ACTIVE_MESSAGES) {
+        tracking = {
+          ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
+          forceReason: 'message-count',
+        }
+      }
+      if (consumeCompactionRequest()) {
+        tracking = {
+          ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
+          forceReason: tracking?.forceReason ?? 'memory-pressure',
+        }
+      }
+    }
 
     queryCheckpoint('query_autocompact_start')
     const {

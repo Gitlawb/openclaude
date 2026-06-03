@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import {
+  getAdditionalModelOptionsCacheScope,
   isCodexBaseUrl,
   parseOpenAICompatibleApiFormat,
 } from '../services/api/providerConfig.js'
@@ -858,56 +859,30 @@ export function persistActiveProviderProfileModel(
     return null
   }
 
-  // If the model is already part of the profile's model list, don't
-  // overwrite the field. This preserves comma-separated model lists like
-  // "glm-4.5, glm-4.7". Switching between models in the list is a
-  // session-level choice handled by mainLoopModelOverride, not a profile
-  // edit — the profile's model list should only change via explicit edit.
-  const existingModels = parseModelList(activeProfile.model)
-  if (existingModels.includes(nextModel)) {
-    return activeProfile
-  }
+  // Runtime model selection is a session-level choice handled by
+  // mainLoopModelOverride (see src/hooks/useMainLoopModel.ts), not a
+  // profile edit. Whether the chosen model is already part of the
+  // profile's list or not, do NOT mutate profile.model here:
+  //   - if it IS in the list, the list is already correct (no-op)
+  //   - if it ISN'T, the user picked an out-of-list model for the
+  //     session and the profile's list should only change via an
+  //     explicit provider edit, not by side-effect of /model.
+  // An earlier implementation prepended out-of-list models to the
+  // profile, which (a) contradicted this contract, (b) caused
+  // unbounded list growth on rotation, and (c) used a separator
+  // inferred from a single-character substring of the model field
+  // that broke on mixed-separator inputs.
+  return activeProfile
+}
 
-  saveGlobalConfig(current => {
-    const currentProfiles = getProviderProfiles(current)
-    const profileIndex = currentProfiles.findIndex(
-      profile => profile.id === activeProfile.id,
-    )
-
-    if (profileIndex < 0) {
-      return current
-    }
-
-    const currentProfile = currentProfiles[profileIndex]
-    if (currentProfile.model === nextModel) {
-      return current
-    }
-
-    const nextProfiles = [...currentProfiles]
-    nextProfiles[profileIndex] = {
-      ...currentProfile,
-      model: nextModel,
-    }
-
-    return {
-      ...current,
-      providerProfiles: nextProfiles,
-    }
-  })
-
-  const resolvedProfile = getActiveProviderProfile()
-  if (!resolvedProfile || resolvedProfile.id !== activeProfile.id) {
-    return null
-  }
-
-  if (
-    process.env[PROFILE_ENV_APPLIED_FLAG] === '1' &&
-    trimOrUndefined(process.env[PROFILE_ENV_APPLIED_ID]) === resolvedProfile.id
-  ) {
-    applyProviderProfileToProcessEnv(resolvedProfile)
-  }
-
-  return resolvedProfile
+export function getConfiguredProfileModelOptions(
+  profile: ProviderProfile,
+): ModelOption[] {
+  return parseModelList(profile.model).map(model => ({
+    value: model,
+    label: model,
+    description: `Provider: ${profile.name}`,
+  }))
 }
 
 /**
@@ -920,12 +895,7 @@ export function getProfileModelOptions(
   profile: ProviderProfile,
   config = getGlobalConfig(),
 ): ModelOption[] {
-  const configuredOptions = parseModelList(profile.model).map(model => ({
-    value: model,
-    label: model,
-    description: `Provider: ${profile.name}`,
-  }))
-
+  const configuredOptions = getConfiguredProfileModelOptions(profile)
   return mergeModelOptionsByValue(
     configuredOptions,
     getModelCacheByProfile(profile.id, config),
@@ -1345,6 +1315,32 @@ export function setActiveOpenAIModelOptionsCache(options: ModelOption[]): void {
       ...(current.openaiAdditionalModelOptionsCacheByProfile ?? {}),
       [activeProfile.id]: mergedOptions,
     },
+  }))
+}
+
+export function getActiveOpenAIRouteModelOptionsCache(
+  config = getGlobalConfig(),
+): ModelOption[] {
+  const activeScope = getAdditionalModelOptionsCacheScope()
+
+  return activeScope?.startsWith('openai:') &&
+    config.additionalModelOptionsCacheScope === activeScope
+    ? (config.additionalModelOptionsCache ?? [])
+    : []
+}
+
+export function setActiveOpenAIRouteModelOptionsCache(
+  options: ModelOption[],
+): void {
+  const activeScope = getAdditionalModelOptionsCacheScope()
+  if (!activeScope?.startsWith('openai:')) {
+    return
+  }
+
+  saveGlobalConfig(current => ({
+    ...current,
+    additionalModelOptionsCache: options,
+    additionalModelOptionsCacheScope: activeScope,
   }))
 }
 

@@ -160,7 +160,7 @@
     ]
   },
   "scripts": {
-    "test": "node --test ./src/*.test.js",
+    "test": "bun test src",
     "lint": "node scripts/lint.js",
     "package": "npx @vscode/vsce package --no-dependencies"
   },

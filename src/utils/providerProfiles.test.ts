@@ -1025,9 +1025,13 @@ describe('applyActiveProviderProfileFromConfig', () => {
 })
 
 describe('persistActiveProviderProfileModel', () => {
-  test('updates active profile model and current env for profile-managed sessions', async () => {
+  // The runtime active-model selection is owned by mainLoopModelOverride
+  // (set by onChangeAppState before this helper is called). This helper
+  // intentionally no longer mutates the profile's model list — see the
+  // docstring in providerProfiles.ts. Coverage below locks the no-op
+  // contract for both single- and multi-model profiles.
+  test('returns the active profile unchanged for a single-model profile', async () => {
     const {
-      applyProviderProfileToProcessEnv,
       getProviderProfiles,
       persistActiveProviderProfileModel,
     } = await importFreshProviderProfileModules()
@@ -1042,13 +1046,49 @@ describe('persistActiveProviderProfileModel', () => {
       providerProfiles: [activeProfile],
       activeProviderProfileId: activeProfile.id,
     }))
-    applyProviderProfileToProcessEnv(activeProfile)
 
     const updated = persistActiveProviderProfileModel('minimax-m2.5:cloud')
 
     expect(updated?.id).toBe(activeProfile.id)
-    expect(updated?.model).toBe('minimax-m2.5:cloud')
-    expect(process.env.OPENAI_MODEL).toBe('minimax-m2.5:cloud')
+    expect(updated?.model).toBe('kimi-k2.5:cloud')
+    const saved = getProviderProfiles().find(
+      (profile: ProviderProfile) => profile.id === activeProfile.id,
+    )
+    expect(saved?.model).toBe('kimi-k2.5:cloud')
+  })
+
+  test('does not mutate multi-model mistral profile when chosen model is out of list', async () => {
+    // Regression for #1360: the picker must never silently rewrite a
+    // provider's configured model list. The active model is a session-level
+    // choice handled by mainLoopModelOverride; the profile's model list
+    // only changes via an explicit provider edit. An earlier
+    // implementation prepended the chosen model to the list, which
+    // contradicted the documented contract and grew the list unboundedly
+    // on rotation.
+    const {
+      applyProviderProfileToProcessEnv,
+      getProviderProfiles,
+      persistActiveProviderProfileModel,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildMistralProfile({
+      id: 'saved_mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'devstral-latest; mistral-small-latest',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    }))
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    const updated = persistActiveProviderProfileModel('mistral-large-latest')
+
+    expect(updated?.id).toBe(activeProfile.id)
+    // The configured list is preserved verbatim regardless of the chosen
+    // model being in or out of the list.
+    expect(updated?.model).toBe('devstral-latest; mistral-small-latest')
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
       activeProfile.id,
     )
@@ -1056,17 +1096,20 @@ describe('persistActiveProviderProfileModel', () => {
     const saved = getProviderProfiles().find(
       (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
-    expect(saved?.model).toBe('minimax-m2.5:cloud')
+    expect(saved?.model).toBe('devstral-latest; mistral-small-latest')
   })
 
-  test('does not mutate process env when session is not profile-managed', async () => {
+  test('preserves comma-separated multi-model list when chosen model is already a member', async () => {
+    // Switching between models already in the list is a session-level
+    // choice. The list itself must be preserved exactly as configured.
     const {
       getProviderProfiles,
       persistActiveProviderProfileModel,
     } = await importFreshProviderProfileModules()
-    const activeProfile = buildProfile({
-      id: 'saved_openai',
-      model: 'kimi-k2.5:cloud',
+    const activeProfile = buildMistralProfile({
+      id: 'saved_mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'devstral-latest, mistral-small-latest, mistral-large-latest',
     })
 
     saveMockGlobalConfig(current => ({
@@ -1075,18 +1118,17 @@ describe('persistActiveProviderProfileModel', () => {
       activeProviderProfileId: activeProfile.id,
     }))
 
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_MODEL = 'cli-model'
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    const updated = persistActiveProviderProfileModel('mistral-small-latest')
 
-    persistActiveProviderProfileModel('minimax-m2.5:cloud')
-
-    expect(process.env.OPENAI_MODEL).toBe('cli-model')
+    expect(updated?.model).toBe(
+      'devstral-latest, mistral-small-latest, mistral-large-latest',
+    )
     const saved = getProviderProfiles().find(
       (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
-    expect(saved?.model).toBe('minimax-m2.5:cloud')
+    expect(saved?.model).toBe(
+      'devstral-latest, mistral-small-latest, mistral-large-latest',
+    )
   })
 })
 
@@ -1865,6 +1907,94 @@ describe('deleteProviderProfile', () => {
 })
 
 describe('getProfileModelOptions', () => {
+  test('getConfiguredProfileModelOptions ignores discovered cache entries', async () => {
+    const { getConfiguredProfileModelOptions } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      model: 'glm-4.7, glm-4.7-flash',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    expect(getConfiguredProfileModelOptions(profile)).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+    ])
+  })
+
+  test('route-scoped OpenAI cache ignores active profile cache entries', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:7777/v1'
+    process.env.OPENAI_MODEL = 'route-model'
+
+    const { getAdditionalModelOptionsCacheScope } = await import(
+      '../services/api/providerConfig.js'
+    )
+    const { getActiveOpenAIRouteModelOptionsCache } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      baseUrl: 'http://localhost:7777/v1',
+      model: 'profile-model',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      additionalModelOptionsCache: [
+        {
+          value: 'route-model',
+          label: 'Route Model',
+          description: 'Detected from route',
+        },
+      ],
+      additionalModelOptionsCacheScope:
+        getAdditionalModelOptionsCacheScope() ?? undefined,
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'profile-model',
+            label: 'profile-model',
+            description: 'Provider: Multi Provider',
+          },
+        ],
+      },
+    }
+
+    expect(getActiveOpenAIRouteModelOptionsCache()).toEqual([
+      {
+        value: 'route-model',
+        label: 'Route Model',
+        description: 'Detected from route',
+      },
+    ])
+  })
+
   test('generates options for multi-model profile', async () => {
     const { getProfileModelOptions } =
       await importFreshProviderProfileModules()

@@ -395,6 +395,16 @@ export const SettingsSchema = lazySchema(() =>
             'If undefined, all models are available. If empty array, only the default model is available. ' +
             'Typically set in managed settings by enterprise administrators.',
         ),
+      providerProfileModelPickerMode: z
+        .enum(['auto', 'profile', 'provider'])
+        .optional()
+        .catch(undefined)
+        .describe(
+          'Controls /model options when an active provider profile is applied. ' +
+            '"profile" shows only explicitly configured profile models; ' +
+            '"provider" shows the provider catalog/discovery list plus explicit profile-only custom models; ' +
+            '"auto" uses profile mode when the profile has multiple explicitly configured models, otherwise provider mode.',
+        ),
       modelOverrides: z
         .record(z.string(), z.string())
         .optional()

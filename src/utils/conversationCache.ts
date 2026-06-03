@@ -19,7 +19,7 @@ export interface ConversationCacheConfig {
 }
 
 export class ConversationCache {
-  private cache = new Map<string, CacheEntry<Message[]>>()
+  private cache = new Map<string, CacheEntry<CacheMessage[]>>()
   private accessOrder = new Map<string, number>()
   private evictions = 0
 
@@ -39,7 +39,7 @@ export class ConversationCache {
     return this.evictions
   }
 
-  set(key: string, messages: Message[]): void {
+  set(key: string, messages: CacheMessage[]): void {
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
       this.evictLRU()
     }
@@ -52,7 +52,7 @@ export class ConversationCache {
     this.accessOrder.set(key, this.accessOrder.size)
   }
 
-  get(key: string): Message[] | undefined {
+  get(key: string): CacheMessage[] | undefined {
     const entry = this.cache.get(key)
     if (!entry) return undefined
 
@@ -137,39 +137,8 @@ export class ConversationCache {
   }
 }
 
-export interface Message {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  /** True if original message content was a structured array, not a string */
-  contentIsArray?: boolean
-  tool_calls?: unknown[]
-  tool_use_id?: string
-  timestamp?: number
-  id?: string
-  type?: string
-  model?: string
-  created_at?: number
-  stop_reason?: string
-  usage?: unknown
-  is_development?: boolean
-  index?: number
-  uuid?: string
-  session_id?: string
-  parent_tool_use_id?: string | null
-  tool_use_result?: unknown
-  message?: unknown
-  subtype?: string
-  result?: string
-  event?: unknown
-  error?: string
-  errors?: string[]
-  status?: string | null
-  compact_metadata?: unknown
-  tool_name?: string
-  elapsed_time_seconds?: number
-}
-
-export type CacheMessage = Message
+export type CacheMessage = Record<string, unknown>
+export type Message = CacheMessage
 
 export interface SessionCacheMetadata {
   hasMore: boolean

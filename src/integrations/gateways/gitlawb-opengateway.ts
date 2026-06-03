@@ -31,6 +31,9 @@ export default defineGateway({
     openaiShim: {
       // Opengateway expects `Authorization: Bearer ogw_live_...`. Previous
       // `api-key` raw header was a leftover from the direct-Xiaomi era.
+      headers: {
+        'Accept-Encoding': 'identity',
+      },
       defaultAuthHeader: {
         name: 'authorization',
         scheme: 'bearer',
@@ -43,7 +46,7 @@ export default defineGateway({
   },
   preset: {
     id: 'gitlawb-opengateway',
-    description: 'Gitlawb Opengateway — free hosted Xiaomi MiMo + GMI Cloud partner models (API key required, mint at https://gitlawb.com/opengateway/keys)',
+    description: 'Gitlawb Opengateway - (API key required, signup at https://gitlawb.com/opengateway/keys)',
     apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
@@ -52,7 +55,7 @@ export default defineGateway({
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
     fallbackModel: 'mimo-v2.5-pro',
-    badge: { text: 'FREE', color: 'success' },
+    badge: { text: 'Recommended', color: 'success' },
   },
   catalog: {
     source: 'static',
