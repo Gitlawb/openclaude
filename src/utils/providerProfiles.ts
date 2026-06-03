@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import {
+  getAdditionalModelOptionsCacheScope,
   isCodexBaseUrl,
   parseOpenAICompatibleApiFormat,
 } from '../services/api/providerConfig.js'
@@ -874,6 +875,16 @@ export function persistActiveProviderProfileModel(
   return activeProfile
 }
 
+export function getConfiguredProfileModelOptions(
+  profile: ProviderProfile,
+): ModelOption[] {
+  return parseModelList(profile.model).map(model => ({
+    value: model,
+    label: model,
+    description: `Provider: ${profile.name}`,
+  }))
+}
+
 /**
  * Generate model options from a provider profile's model field.
  * Each parsed model becomes a separate option in the picker, then any
@@ -884,12 +895,7 @@ export function getProfileModelOptions(
   profile: ProviderProfile,
   config = getGlobalConfig(),
 ): ModelOption[] {
-  const configuredOptions = parseModelList(profile.model).map(model => ({
-    value: model,
-    label: model,
-    description: `Provider: ${profile.name}`,
-  }))
-
+  const configuredOptions = getConfiguredProfileModelOptions(profile)
   return mergeModelOptionsByValue(
     configuredOptions,
     getModelCacheByProfile(profile.id, config),
@@ -1309,6 +1315,32 @@ export function setActiveOpenAIModelOptionsCache(options: ModelOption[]): void {
       ...(current.openaiAdditionalModelOptionsCacheByProfile ?? {}),
       [activeProfile.id]: mergedOptions,
     },
+  }))
+}
+
+export function getActiveOpenAIRouteModelOptionsCache(
+  config = getGlobalConfig(),
+): ModelOption[] {
+  const activeScope = getAdditionalModelOptionsCacheScope()
+
+  return activeScope?.startsWith('openai:') &&
+    config.additionalModelOptionsCacheScope === activeScope
+    ? (config.additionalModelOptionsCache ?? [])
+    : []
+}
+
+export function setActiveOpenAIRouteModelOptionsCache(
+  options: ModelOption[],
+): void {
+  const activeScope = getAdditionalModelOptionsCacheScope()
+  if (!activeScope?.startsWith('openai:')) {
+    return
+  }
+
+  saveGlobalConfig(current => ({
+    ...current,
+    additionalModelOptionsCache: options,
+    additionalModelOptionsCacheScope: activeScope,
   }))
 }
 

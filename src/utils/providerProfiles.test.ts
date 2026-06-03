@@ -1907,6 +1907,94 @@ describe('deleteProviderProfile', () => {
 })
 
 describe('getProfileModelOptions', () => {
+  test('getConfiguredProfileModelOptions ignores discovered cache entries', async () => {
+    const { getConfiguredProfileModelOptions } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      model: 'glm-4.7, glm-4.7-flash',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    expect(getConfiguredProfileModelOptions(profile)).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+    ])
+  })
+
+  test('route-scoped OpenAI cache ignores active profile cache entries', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:7777/v1'
+    process.env.OPENAI_MODEL = 'route-model'
+
+    const { getAdditionalModelOptionsCacheScope } = await import(
+      '../services/api/providerConfig.js'
+    )
+    const { getActiveOpenAIRouteModelOptionsCache } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      baseUrl: 'http://localhost:7777/v1',
+      model: 'profile-model',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      additionalModelOptionsCache: [
+        {
+          value: 'route-model',
+          label: 'Route Model',
+          description: 'Detected from route',
+        },
+      ],
+      additionalModelOptionsCacheScope:
+        getAdditionalModelOptionsCacheScope() ?? undefined,
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'profile-model',
+            label: 'profile-model',
+            description: 'Provider: Multi Provider',
+          },
+        ],
+      },
+    }
+
+    expect(getActiveOpenAIRouteModelOptionsCache()).toEqual([
+      {
+        value: 'route-model',
+        label: 'Route Model',
+        description: 'Detected from route',
+      },
+    ])
+  })
+
   test('generates options for multi-model profile', async () => {
     const { getProfileModelOptions } =
       await importFreshProviderProfileModules()

@@ -2,6 +2,7 @@ import { feature } from 'bun:bundle';
 import {
   applyProfileEnvToProcessEnv,
   buildStartupEnvFromProfile,
+  isDefaultStartupProviderEnv,
 } from '../utils/providerProfile.js'
 import {
   getProviderValidationError,
@@ -124,7 +125,7 @@ async function main(): Promise<void> {
   })
   if (startupEnv !== process.env) {
     const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError) {
+    if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
       console.error(
         `Warning: ignoring saved provider profile. ${startupProfileError}`,
       )
