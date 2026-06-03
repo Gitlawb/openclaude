@@ -14,7 +14,8 @@ import type {
   SDKStatus,
   SDKUserMessageReplay,
 } from 'src/entrypoints/agentSdkTypes.js'
-import { PERMISSION_MODES } from './types/permissions.js'
+import { EXTERNAL_PERMISSION_MODES } from './types/permissions.js'
+import type { ExternalPermissionMode } from './types/permissions.js'
 import { accumulateUsage, updateUsage } from 'src/services/api/claude.js'
 import type { NonNullableUsage } from 'src/services/api/logging.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
@@ -549,7 +550,7 @@ export class QueryEngine {
       tools,
       mcpClients,
       model: mainLoopModel,
-      permissionMode: (PERMISSION_MODES.includes(initialAppState.toolPermissionContext.mode as PermissionMode)
+      permissionMode: (EXTERNAL_PERMISSION_MODES.includes(initialAppState.toolPermissionContext.mode as ExternalPermissionMode)
         ? initialAppState.toolPermissionContext.mode
         : 'default') as PermissionMode,
       commands,

@@ -103,6 +103,12 @@ const HEARTBEAT_INTERVAL_MS = 30_000
 const PERSISTENT_MAX_ATTEMPTS = 100
 export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST }
 
+// Test-only override for the persistent retry gate. Keeps the production
+// feature flag behavior intact while letting unit tests exercise the
+// persistent backoff and cap logic directly.
+let _persistentRetryOverrideForTest: boolean | undefined
+export { _persistentRetryOverrideForTest }
+
 function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
     ? isEnvTruthy(process.env.CLAUDE_CODE_UNATTENDED_RETRY)
@@ -147,12 +153,6 @@ interface RetryOptions {
   fastMode?: boolean
   signal?: AbortSignal
   querySource?: QuerySource
-  /**
-   * Test-only override for the persistent retry gate. Keeps the production
-   * feature flag behavior intact while letting unit tests exercise the
-   * persistent backoff and cap logic directly.
-   */
-  persistentRetryOverride?: boolean
   /**
    * Pre-seed the consecutive 529 counter. Used when this retry loop is a
    * non-streaming fallback after a streaming 529 — the streaming 529 should
@@ -199,7 +199,7 @@ export async function* withRetry<T>(
 ): AsyncGenerator<SystemAPIErrorMessage, T> {
   const maxRetries = getMaxRetries(options)
   const persistentRetryEnabled =
-    options.persistentRetryOverride ?? isPersistentRetryEnabled()
+    _persistentRetryOverrideForTest ?? isPersistentRetryEnabled()
   const retryContext: RetryContext = {
     model: options.model,
     thinkingConfig: options.thinkingConfig,
