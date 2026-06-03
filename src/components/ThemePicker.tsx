@@ -48,7 +48,7 @@ const DEMO_PATCH: StructuredPatchHunk = {
   lines: [
     ' function greet() {',
     '-  console.log("Hello, World!");',
-    '+  console.log("Hello, Claude!");',
+    '+  console.log("Hello, OpenClaude!");',
     ' }',
   ],
 }

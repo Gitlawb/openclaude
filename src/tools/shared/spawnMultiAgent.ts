@@ -3,7 +3,6 @@
  * Extracted from TeammateTool to allow reuse by AgentTool.
  */
 
-import React from 'react'
 import {
   getChromeFlagOverride,
   getFlagSettingsPath,
@@ -43,7 +42,6 @@ import {
   TEAMMATE_COMMAND_ENV_VAR,
   TMUX_COMMAND,
 } from '../../utils/swarm/constants.js'
-import { It2SetupPrompt } from '../../utils/swarm/It2SetupPrompt.js'
 import { startInProcessTeammate } from '../../utils/swarm/inProcessRunner.js'
 import {
   type InProcessSpawnConfig,
@@ -129,6 +127,7 @@ export type SpawnTeammateConfig = {
   use_splitpane?: boolean
   plan_mode_required?: boolean
   model?: string
+  modelWasToolSpecified?: boolean
   agent_type?: string
   description?: string
   /** request_id of the API call whose response contained the tool_use that
@@ -146,6 +145,7 @@ type SpawnInput = {
   use_splitpane?: boolean
   plan_mode_required?: boolean
   model?: string
+  modelWasToolSpecified?: boolean
   agent_type?: string
   description?: string
   invokingRequestId?: string
@@ -218,6 +218,8 @@ function buildInheritedCliFlags(options?: {
   // Plan mode takes precedence over bypass permissions for safety
   if (planModeRequired) {
     // Don't inherit bypass permissions when plan mode is required
+  } else if (permissionMode === 'fullAccess') {
+    flags.push('--permission-mode fullAccess')
   } else if (
     permissionMode === 'bypassPermissions' ||
     getSessionBypassPermissionsMode()
@@ -415,6 +417,13 @@ async function handleSpawnSplitPane(
   // If in iTerm2 but it2 isn't set up, prompt the user
   if (detectionResult.needsIt2Setup && context.setToolJSX) {
     const tmuxAvailable = await isTmuxAvailable()
+
+    // Lazy-import React and It2SetupPrompt — only needed for TUI setup prompt.
+    // This keeps the SDK bundle free of React static imports.
+    const [{ default: React }, { It2SetupPrompt }] = await Promise.all([
+      import('react'),
+      import('../../utils/swarm/It2SetupPrompt.js'),
+    ])
 
     // Show the setup prompt and wait for user decision
     const setupResult = await new Promise<
@@ -909,6 +918,8 @@ async function handleSpawnInProcess(
 
   // Resolve model: 'inherit' → leader's model; undefined → default Opus
   const model = resolveTeammateModel(input.model, getAppState().mainLoopModel)
+  const modelWasToolSpecified =
+    input.modelWasToolSpecified ?? input.model !== undefined
 
   if (!name || !prompt) {
     throw new Error('name and prompt are required for spawn operation')
@@ -985,6 +996,7 @@ async function handleSpawnInProcess(
       prompt,
       description: input.description,
       model,
+      modelWasToolSpecified,
       agentDefinition,
       teammateContext: result.teammateContext,
       // Strip messages: the teammate never reads toolUseContext.messages

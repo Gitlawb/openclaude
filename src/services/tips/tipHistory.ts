@@ -15,3 +15,24 @@ export function getSessionsSinceLastShown(tipId: string): number {
   if (!lastShown) return Infinity
   return config.numStartups - lastShown
 }
+
+export function recordSponsoredTipShown(): void {
+  const numStartups = getGlobalConfig().numStartups
+  saveGlobalConfig(c => {
+    const prev = c.sponsoredTipsHistory ?? { lastShownAt: 0, totalShown: 0 }
+    return {
+      ...c,
+      sponsoredTipsHistory: {
+        lastShownAt: numStartups,
+        totalShown: prev.totalShown + 1,
+      },
+    }
+  })
+}
+
+export function getSessionsSinceLastSponsored(): number {
+  const config = getGlobalConfig()
+  const lastShown = config.sponsoredTipsHistory?.lastShownAt
+  if (!lastShown) return Infinity
+  return config.numStartups - lastShown
+}

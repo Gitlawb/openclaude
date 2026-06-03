@@ -23,7 +23,6 @@ import { getSearchOrReadFromContent, getSearchReadSummaryText } from '../../util
 import { getDisplayPath } from '../../utils/file.js';
 import { formatDuration, formatNumber } from '../../utils/format.js';
 import { buildSubagentLookups, createAssistantMessage, EMPTY_LOOKUPS } from '../../utils/messages.js';
-import type { ModelAlias } from '../../utils/model/aliases.js';
 import { getMainLoopModel, parseUserSpecifiedModel, renderModelName } from '../../utils/model/model.js';
 import type { Theme, ThemeName } from '../../utils/theme.js';
 import type { outputSchema, Progress, RemoteLaunchedOutput } from './AgentTool.js';
@@ -424,7 +423,7 @@ export function renderToolUseTag(input: Partial<{
   description: string;
   prompt: string;
   subagent_type: string;
-  model?: ModelAlias;
+  model?: string;
 }>): React.ReactNode {
   const tags: React.ReactNode[] = [];
   if (input.model) {
@@ -530,7 +529,7 @@ export function renderToolUseProgressMessage(progressMessages: ProgressMessage<P
   // After grouping, displayedMessages can be empty when the only progress so
   // far is an assistant tool_use for a search/read op (grouped but not yet
   // counted, since counts increment on tool_result). Fall back to the
-  // initializing text so MessageResponse doesn't render a bare ⎿.
+  // initializing text so MessageResponse doesn't render a bare └.
   if (displayedMessages.length === 0 && !(isTranscriptMode && prompt)) {
     return <MessageResponse height={1}>
         <Text dimColor>{INITIALIZING_TEXT}</Text>

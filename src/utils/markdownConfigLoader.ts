@@ -9,6 +9,7 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { getProjectRoot } from '../bootstrap/state.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { logForDebugging } from './debug.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { isFsInaccessible } from './errors.js'
@@ -36,6 +37,67 @@ export const CLAUDE_CONFIG_DIRECTORIES = [
 ] as const
 
 export type ClaudeConfigDirectory = (typeof CLAUDE_CONFIG_DIRECTORIES)[number]
+
+const PROJECT_CONFIG_DIR_NAMES = ['.claude', '.openclaude'] as const
+
+// Concurrency cap for parallel readFile + parseFrontmatter when loading
+// commands/agents/skills/etc. With unbounded Promise.all, a directory holding
+// thousands of markdown files (e.g., an Obsidian vault symlinked into
+// ~/.openclaude/agents — see issue #769) opens that many fds and blocks the
+// event loop on parse work, freezing the REPL at startup. Batching keeps fd
+// pressure and CPU bursts bounded.
+const MARKDOWN_LOAD_BATCH_SIZE = 32
+
+// Max file size to ingest. Legitimate commands/agents/skills are small (a few
+// KB). Files larger than this are almost always vault notes or unrelated docs
+// that got dragged in via symlink — reading them all into memory causes the
+// same freeze (#769). Override with CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES.
+const DEFAULT_MAX_MARKDOWN_FILE_SIZE_BYTES = 256 * 1024
+
+function getMaxMarkdownFileSizeBytes(): number {
+  const raw = process.env.CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES
+  if (!raw) return DEFAULT_MAX_MARKDOWN_FILE_SIZE_BYTES
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MAX_MARKDOWN_FILE_SIZE_BYTES
+}
+
+export type OversizedMarkdownSkip = {
+  filePath: string
+  sizeBytes: number
+  maxBytes: number
+}
+
+// Track files skipped because they exceeded the size cap so the override is
+// discoverable without `/debug` — a silent skip would just look like "my
+// custom agent disappeared". First skip in a process also emits one stderr
+// warning naming the override env var. Keyed by filePath so subsequent loads
+// of the same file don't re-warn.
+const oversizedMarkdownSkips = new Map<string, OversizedMarkdownSkip>()
+let oversizedSkipStderrWarned = false
+
+export function getOversizedMarkdownSkips(): OversizedMarkdownSkip[] {
+  return Array.from(oversizedMarkdownSkips.values())
+}
+
+export function clearOversizedMarkdownSkipsForTesting(): void {
+  oversizedMarkdownSkips.clear()
+  oversizedSkipStderrWarned = false
+}
+
+function recordOversizedSkip(skip: OversizedMarkdownSkip): void {
+  if (oversizedMarkdownSkips.has(skip.filePath)) return
+  oversizedMarkdownSkips.set(skip.filePath, skip)
+  if (!oversizedSkipStderrWarned) {
+    oversizedSkipStderrWarned = true
+    process.stderr.write(
+      `openclaude: skipping oversized markdown config file ${skip.filePath} ` +
+        `(${skip.sizeBytes} bytes > ${skip.maxBytes} max). Set ` +
+        `CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES to raise the cap.\n`,
+    )
+  }
+}
 
 export type MarkdownFile = {
   filePath: string
@@ -250,18 +312,20 @@ export function getProjectDirsUpToHome(
       break
     }
 
-    const claudeSubdir = join(current, '.claude', subdir)
-    // Filter to existing dirs. This is a perf filter (avoids spawning
-    // ripgrep on non-existent dirs downstream) and the worktree fallback
-    // in loadMarkdownFilesForSubdir relies on it. statSync + explicit error
-    // handling instead of existsSync — re-throws unexpected errors rather
-    // than silently swallowing them. Downstream loadMarkdownFiles handles
-    // the TOCTOU window (dir disappearing before read) gracefully.
-    try {
-      statSync(claudeSubdir)
-      dirs.push(claudeSubdir)
-    } catch (e: unknown) {
-      if (!isFsInaccessible(e)) throw e
+    for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
+      const configSubdir = join(current, configDirName, subdir)
+      // Filter to existing dirs. This is a perf filter (avoids spawning
+      // ripgrep on non-existent dirs downstream) and the worktree fallback
+      // in loadMarkdownFilesForSubdir relies on it. statSync + explicit error
+      // handling instead of existsSync — re-throws unexpected errors rather
+      // than silently swallowing them. Downstream loadMarkdownFiles handles
+      // the TOCTOU window (dir disappearing before read) gracefully.
+      try {
+        statSync(configSubdir)
+        dirs.push(configSubdir)
+      } catch (e: unknown) {
+        if (!isFsInaccessible(e)) throw e
+      }
     }
 
     // Stop after processing the git root directory - this prevents commands from parent
@@ -320,16 +384,18 @@ export const loadMarkdownFilesForSubdir = memoize(
     const gitRoot = findGitRoot(cwd)
     const canonicalRoot = findCanonicalGitRoot(cwd)
     if (gitRoot && canonicalRoot && canonicalRoot !== gitRoot) {
-      const worktreeSubdir = normalizePathForComparison(
-        join(gitRoot, '.claude', subdir),
+      const worktreeSubdirs = PROJECT_CONFIG_DIR_NAMES.map(configDirName =>
+        normalizePathForComparison(join(gitRoot, configDirName, subdir)),
       )
-      const worktreeHasSubdir = projectDirs.some(
-        dir => normalizePathForComparison(dir) === worktreeSubdir,
+      const worktreeHasSubdir = projectDirs.some(dir =>
+        worktreeSubdirs.includes(normalizePathForComparison(dir)),
       )
       if (!worktreeHasSubdir) {
-        const mainClaudeSubdir = join(canonicalRoot, '.claude', subdir)
-        if (!projectDirs.includes(mainClaudeSubdir)) {
-          projectDirs.push(mainClaudeSubdir)
+        for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
+          const mainConfigSubdir = join(canonicalRoot, configDirName, subdir)
+          if (!projectDirs.includes(mainConfigSubdir)) {
+            projectDirs.push(mainConfigSubdir)
+          }
         }
       }
     }
@@ -556,7 +622,9 @@ async function loadMarkdownFiles(dir: string): Promise<
   //
   // Why both? Ripgrep has poor startup performance in native builds.
   const useNative = isEnvTruthy(process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH)
-  const signal = AbortSignal.timeout(3000)
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 3000,
+  })
   let files: string[]
   try {
     files = useNative
@@ -572,29 +640,58 @@ async function loadMarkdownFiles(dir: string): Promise<
     // ripGrep rejects on inaccessible target paths.
     if (isFsInaccessible(e)) return []
     throw e
+  } finally {
+    cleanup()
   }
 
-  const results = await Promise.all(
-    files.map(async filePath => {
-      try {
-        const rawContent = await readFile(filePath, { encoding: 'utf-8' })
-        const { frontmatter, content } = parseFrontmatter(rawContent, filePath)
+  const maxFileSize = getMaxMarkdownFileSizeBytes()
+  const results: ({
+    filePath: string
+    frontmatter: FrontmatterData
+    content: string
+  } | null)[] = []
 
-        return {
-          filePath,
-          frontmatter,
-          content,
+  // Batch reads to cap fd usage and event-loop blocking on huge directories
+  // (issue #769). Unbounded Promise.all on a multi-thousand-file vault freezes
+  // the REPL during startup; 32 at a time keeps progress streaming.
+  for (let i = 0; i < files.length; i += MARKDOWN_LOAD_BATCH_SIZE) {
+    const batch = files.slice(i, i + MARKDOWN_LOAD_BATCH_SIZE)
+    const batchResults = await Promise.all(
+      batch.map(async filePath => {
+        try {
+          const fileStat = await stat(filePath)
+          if (fileStat.size > maxFileSize) {
+            recordOversizedSkip({
+              filePath,
+              sizeBytes: fileStat.size,
+              maxBytes: maxFileSize,
+            })
+            logForDebugging(
+              `Skipping oversized markdown file ${filePath} (${fileStat.size} bytes > ${maxFileSize} max). Set CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES to override.`,
+              { level: 'warn' },
+            )
+            return null
+          }
+          const rawContent = await readFile(filePath, { encoding: 'utf-8' })
+          const { frontmatter, content } = parseFrontmatter(rawContent, filePath)
+
+          return {
+            filePath,
+            frontmatter,
+            content,
+          }
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error)
+          logForDebugging(
+            `Failed to read/parse markdown file:  ${filePath}: ${errorMessage}`,
+          )
+          return null
         }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error)
-        logForDebugging(
-          `Failed to read/parse markdown file:  ${filePath}: ${errorMessage}`,
-        )
-        return null
-      }
-    }),
-  )
+      }),
+    )
+    results.push(...batchResults)
+  }
 
   return results.filter(_ => _ !== null)
 }

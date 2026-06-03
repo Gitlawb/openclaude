@@ -14,6 +14,7 @@ describe('clearStartupProviderOverrides', () => {
           OPENAI_BASE_URL: 'https://api.minimax.io/v1',
           OPENAI_MODEL: 'minimax-m2.7',
           MINIMAX_API_KEY: 'sk-minimax',
+          VENICE_API_KEY: 'sk-venice',
           KEEP_ME: '1',
         },
       }),
@@ -21,7 +22,7 @@ describe('clearStartupProviderOverrides', () => {
 
     const error = clearStartupProviderOverrides({
       updateUserSettings,
-      saveConfig,
+      saveConfig: saveConfig as any,
     })
 
     expect(error).toBeNull()
@@ -33,9 +34,12 @@ describe('clearStartupProviderOverrides', () => {
           OPENAI_BASE_URL: undefined,
           OPENAI_MODEL: undefined,
           MINIMAX_API_KEY: undefined,
+          VENICE_API_KEY: undefined,
         }),
       }),
     )
-    expect(saveConfig.mock.results[0]?.value.env).toEqual({ KEEP_ME: '1' })
+    expect(
+      (saveConfig.mock.results[0]?.value as { env: Record<string, string> }).env,
+    ).toEqual({ KEEP_ME: '1' })
   })
 })

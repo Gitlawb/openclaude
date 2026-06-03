@@ -4,6 +4,7 @@ import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
 import type { CompactionResult } from '../services/compact/compact.js'
 import type { ScopedMcpServerConfig } from '../services/mcp/types.js'
 import type { ToolUseContext } from '../Tool.js'
+import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import type { EffortValue } from '../utils/effort.js'
 import type { IDEExtensionInstallationStatus, IdeType } from '../utils/ide.js'
 import type { SettingSource } from '../utils/settings/constants.js'
@@ -14,7 +15,7 @@ import type { Message } from './message.js'
 import type { PluginManifest } from './plugin.js'
 
 export type LocalCommandResult =
-  | { type: 'text'; value: string }
+  | { type: 'text'; value: string; display?: 'skip' }
   | {
       type: 'compact'
       compactionResult: CompactionResult
@@ -90,6 +91,7 @@ export type LocalJSXCommandContext = ToolUseContext & {
     config: Record<string, ScopedMcpServerConfig>,
   ) => void
   onInstallIDEExtension?: (ide: IdeType) => void
+  setActiveSessionAgent?: (agent: AgentDefinition) => void
   resume?: (
     sessionId: UUID,
     log: LogOption,
@@ -205,12 +207,29 @@ export type CommandBase = {
 export type Command = CommandBase &
   (PromptCommand | LocalCommand | LocalJSXCommand)
 
+/** Runtime guard for values that are allowed into command registries. */
+export function isCommand(value: unknown): value is Command {
+  if (typeof value !== 'object' || value === null) return false
+
+  const maybeCommand = value as {
+    name?: unknown
+    type?: unknown
+  }
+
+  return (
+    typeof maybeCommand.name === 'string' &&
+    (maybeCommand.type === 'prompt' ||
+      maybeCommand.type === 'local' ||
+      maybeCommand.type === 'local-jsx')
+  )
+}
+
 /** Resolves the user-visible name, falling back to `cmd.name` when not overridden. */
 export function getCommandName(cmd: CommandBase): string {
   return cmd.userFacingName?.() ?? cmd.name
 }
 
 /** Resolves whether the command is enabled, defaulting to true. */
-export function isCommandEnabled(cmd: CommandBase): boolean {
-  return cmd.isEnabled?.() ?? true
+export function isCommandEnabled(cmd: CommandBase | null | undefined): boolean {
+  return cmd?.isEnabled?.() ?? true
 }

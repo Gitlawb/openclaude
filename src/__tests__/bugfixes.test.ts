@@ -10,6 +10,12 @@
 
 import { describe, test, expect } from 'bun:test'
 import { resolve } from 'path'
+import {
+  clearRegisteredHooks,
+  registerHookCallbacks,
+} from '../bootstrap/state.js'
+import { getMatchingHooks } from '../utils/hooks.js'
+import type { PluginHookMatcher } from '../utils/settings/types.js'
 
 const SRC = resolve(import.meta.dir, '..')
 const file = (relative: string) => Bun.file(resolve(SRC, relative))
@@ -18,23 +24,30 @@ const file = (relative: string) => Bun.file(resolve(SRC, relative))
 // Fix 1: Gemini `store: false` rejection
 // ---------------------------------------------------------------------------
 describe('Gemini store field fix', () => {
-  test('isGeminiMode is imported and used in openaiShim', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+  test('descriptor-backed shim config strips store for Gemini and Mistral routes', async () => {
+    const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
+    const geminiDescriptor = await file('integrations/vendors/gemini.ts').text()
+    const mistralDescriptor = await file('integrations/gateways/mistral.ts').text()
 
-    // Verify the fix: store deletion should check for Gemini mode
-    expect(content).toContain('isGeminiMode()')
-    expect(content).toContain("mistral and gemini don't recognize body.store")
-    // Ensure the delete body.store is guarded for both Mistral and Gemini
-    expect(content).toMatch(/isMistral\s*\|\|\s*isGeminiMode\(\)/)
+    expect(runtimeMetadata).toContain('removeBodyFields')
+    expect(geminiDescriptor).toContain("removeBodyFields: ['store']")
+    expect(mistralDescriptor).toContain("removeBodyFields: ['store']")
   })
 
-  test('store: false is still set by default (OpenAI needs it)', async () => {
+  test('store: false is still set by default and only removed via shim config', async () => {
     const content = await file('services/api/openaiShim.ts').text()
 
-    // The body should still have store: false by default
     expect(content).toMatch(/store:\s*false/)
-    // But it should be deleted for non-OpenAI providers
-    expect(content).toMatch(/delete body\.store/)
+    expect(content).toContain('shimConfig.removeBodyFields')
+    expect(content).toContain('delete body[field]')
+  })
+
+  test('openaiShim does not keep a hardcoded descriptor route fallback list', async () => {
+    const content = await file('services/api/openaiShim.ts').text()
+
+    expect(content).not.toContain(
+      "['mistral', 'gemini', 'moonshot', 'deepseek', 'zai', 'kimi-code']",
+    )
   })
 })
 
@@ -73,30 +86,60 @@ describe('Session timeout fix', () => {
 // Fix 3: Agent loop continuation nudge
 // ---------------------------------------------------------------------------
 describe('Agent loop continuation nudge', () => {
-  test('query.ts has continuation signal detection', async () => {
+  test('continuation logic has been moved to utility', async () => {
     const content = await file('query.ts').text()
-
-    expect(content).toContain('continuationSignals')
-    expect(content).toContain('Continuation nudge triggered')
-    expect(content).toContain('continuation_nudge')
+    // query.ts should now call the utility
+    expect(content).toContain('analyzeContinuationIntent')
   })
 
-  test('continuation signals include tightened patterns', async () => {
-    const content = await file('query.ts').text()
+  test('continuation.ts has robust patterns', async () => {
+    const content = await file('utils/continuation.ts').text()
 
+    expect(content).toContain('CONTINUATION_SIGNALS')
+    expect(content).toContain('COMPLETION_MARKERS')
     // Should detect tightened patterns requiring explicit action verbs
     expect(content).toMatch(/so now \(i\|let me\|we\)/)
-    expect(content).toContain('completionMarkers')
-    expect(content).toContain('MAX_CONTINUATION_NUDGES')
-    // Verify the nudge counter guard exists
-    expect(content).toMatch(/continuationNudgeCount\s*<\s*MAX_CONTINUATION_NUDGES/)
+  })
+
+  test('analyzeContinuationIntent behavior follows project standards', async () => {
+    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+
+    // Transition intent detected (requires explicit action verb or transition phrase)
+    expect(analyzeContinuationIntent("So now I will start task 2").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("I will now do the following").shouldNudge).toBe(true)
+    
+    // Completion marker suppresses nudge
+    expect(analyzeContinuationIntent("Task finished").shouldNudge).toBe(false)
+    
+    // Punctuation-less completion suppresses nudge (Reviewer Feedback)
+    expect(analyzeContinuationIntent("The analysis is complete and no code changes are needed here").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("I changed package.json and src/query.ts and added tests").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("Updated src/query.ts and added coverage in bugfixes.test.ts").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("This should be ready after the latest test updates").shouldNudge).toBe(false)
+
+    // Mixed Intent: Late continuation survives earlier completion (Reviewer Feedback)
+    expect(analyzeContinuationIntent("Task 1 is done. Let me update the status.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Task 1 finished. I will now run tests.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Analysis complete. Now I will edit src/query.ts").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("No issues in the first file. I will now inspect the next one.").shouldNudge).toBe(true)
+
+    // Structural truncation survives earlier completion (Reviewer Feedback)
+    expect(analyzeContinuationIntent("Setup is complete. Here is the code:\n```typescript\nfunction run() {").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Task complete. Please inspect (src/query.ts").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("The analysis is done and now I am editing files and").shouldNudge).toBe(true)
+
+    // Structural truncation detection (Supreme Logic)
+    expect(analyzeContinuationIntent("I am currently updating the following files and").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Please check the results in (src/query.ts").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("The plan is as follows:").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Here is the code:\n```typescript\nfunction test() {").shouldNudge).toBe(true)
   })
 
   test('nudge creates a meta user message to continue', async () => {
     const content = await file('query.ts').text()
 
     expect(content).toContain(
-      'Continue with the task. Use the appropriate tools to proceed.',
+      'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
     )
   })
 })
@@ -219,22 +262,74 @@ describe('MCP tool timeout fix', () => {
 // Cross-cutting: verify no regressions
 // ---------------------------------------------------------------------------
 describe('Regression checks', () => {
-  test('store field is still set for OpenAI (not deleted unconditionally)', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+  test('duplicate plugin hooks are deduplicated before execution', async () => {
+    clearRegisteredHooks()
 
-    // store: false should exist in body construction
-    expect(content).toMatch(/store:\s*false/)
-    // But delete body.store should be conditional (guarded by if)
-    const deleteLines = content.split('\n').filter(l => l.includes('delete body.store'))
-    expect(deleteLines.length).toBeGreaterThan(0)
-    // Verify the delete is inside a conditional block by checking surrounding context
-    for (const line of deleteLines) {
-      const trimmed = line.trim()
-      // Should be either inside an if block (indented delete) or a comment
-      expect(
-        trimmed.startsWith('delete') && !trimmed.includes('// unconditional'),
-      ).toBe(true)
+    const hookA: PluginHookMatcher = {
+      pluginId: 'claude-mem@thedotmack',
+      pluginName: 'claude-mem',
+      pluginRoot: '/plugins/claude-mem-a',
+      matcher: 'startup',
+      hooks: [
+        {
+          async: true,
+          command: 'node hook.js',
+          statusMessage: 'warming cache',
+          type: 'command',
+        },
+      ],
     }
+    const hookB: PluginHookMatcher = {
+      pluginId: 'claude-mem@thedotmack',
+      pluginName: 'claude-mem',
+      pluginRoot: '/plugins/claude-mem-a',
+      matcher: 'startup',
+      hooks: [
+        {
+          command: 'node hook.js',
+          type: 'command',
+          statusMessage: 'warming cache',
+          async: true,
+        },
+      ],
+    }
+    const hookDifferentRoot: PluginHookMatcher = {
+      ...hookA,
+      pluginRoot: '/plugins/claude-mem-b',
+    }
+
+    try {
+      registerHookCallbacks({
+        SessionStart: [hookA, hookB, hookDifferentRoot],
+      })
+
+      const matched = await getMatchingHooks(
+        undefined,
+        'test-session',
+        'SessionStart',
+        {
+          hook_event_name: 'SessionStart',
+          source: 'startup',
+        } as never,
+      )
+
+      expect(matched).toHaveLength(2)
+      expect(matched.map(hook => hook.pluginRoot)).toEqual([
+        '/plugins/claude-mem-a',
+        '/plugins/claude-mem-b',
+      ])
+    } finally {
+      clearRegisteredHooks()
+    }
+  })
+
+  test('store field remains opt-out by per-route config rather than unconditional deletion', async () => {
+    const openaiShim = await file('services/api/openaiShim.ts').text()
+    const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
+
+    expect(openaiShim).toMatch(/store:\s*false/)
+    expect(openaiShim).toContain('for (const field of shimConfig.removeBodyFields ?? [])')
+    expect(runtimeMetadata).toContain('mergeRemoveBodyFields')
   })
 })
 
@@ -286,5 +381,32 @@ describe('Context overflow 500 fix', () => {
     expect(content).toContain('Safety net: when auto-compact')
     expect(content).toContain('circuit breaker has tripped')
     expect(content).toContain('automatic compaction has failed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix N: Project-scope MCP servers from .mcp.json not detected for 3P providers (issue #696)
+// ---------------------------------------------------------------------------
+describe('Project-scope MCP approval — third-party providers (issue #696)', () => {
+  test('handleMcpjsonServerApprovals is NOT gated behind usesAnthropicSetup', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+
+    // The call site for handleMcpjsonServerApprovals must not sit inside an
+    // `if (usesAnthropicSetup) { ... }` block, or third-party providers will
+    // never get the dialog and project-scope .mcp.json servers will be silently
+    // dropped from /mcp listings (issue #696).
+    const approvalCallIdx = content.indexOf('await handleMcpjsonServerApprovals(root)')
+    expect(approvalCallIdx).toBeGreaterThan(-1)
+
+    // Look at the 800 chars BEFORE the call site for any `if (usesAnthropicSetup)`
+    // block that would still be open. Pick a window that's definitely inside the
+    // showSetupScreens function but not in earlier dialogs.
+    const before = content.slice(Math.max(0, approvalCallIdx - 800), approvalCallIdx)
+    expect(before).not.toMatch(/if\s*\(\s*usesAnthropicSetup\s*\)\s*{[^}]*$/)
+  })
+
+  test('issue #696 is referenced from the comment so future readers can find context', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+    expect(content).toContain('#696')
   })
 })

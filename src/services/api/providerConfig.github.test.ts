@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import {
   DEFAULT_GITHUB_MODELS_API_MODEL,
@@ -6,13 +7,36 @@ import {
   resolveProviderRequest,
 } from './providerConfig.js'
 
-const originalUseGithub = process.env.CLAUDE_CODE_USE_GITHUB
+const ENV_KEYS = [
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_OPENAI',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'OPENAI_API_FORMAT',
+] as const
+
+const originalEnv: Record<string, string | undefined> = {}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('providerConfig.github.test.ts')
+  for (const key of ENV_KEYS) {
+    originalEnv[key] = process.env[key]
+    delete process.env[key]
+  }
+})
 
 afterEach(() => {
-  if (originalUseGithub === undefined) {
-    delete process.env.CLAUDE_CODE_USE_GITHUB
-  } else {
-    process.env.CLAUDE_CODE_USE_GITHUB = originalUseGithub
+  try {
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 

@@ -1,6 +1,12 @@
 import axios from 'axios'
 import isEqual from 'lodash-es/isEqual.js'
 import {
+  discoverModelsForRoute,
+  resolveDiscoveryRouteIdFromBaseUrl,
+} from '../../integrations/discoveryService.js'
+import { getGateway, getVendor } from '../../integrations/index.js'
+import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
+import {
   getAnthropicApiKey,
   getClaudeAIOAuthTokens,
   hasProfileScope,
@@ -20,6 +26,7 @@ import {
   listOpenAICompatibleModels,
 } from '../../utils/providerDiscovery.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
+import { parseCustomHeadersEnv } from '../../utils/providerCustomHeaders.js'
 import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
@@ -136,23 +143,49 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
 }
 
 async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | null> {
+  if (isEssentialTrafficOnly()) {
+    logForDebugging('[Bootstrap] Skipped local model discovery: Nonessential traffic disabled')
+    return null
+  }
+
   const scope = getAdditionalModelOptionsCacheScope()
   if (!scope?.startsWith('openai:')) {
     return null
   }
 
   const { baseUrl } = resolveProviderRequest()
-  const models = await listOpenAICompatibleModels({
+  const routeId = resolveDiscoveryRouteIdFromBaseUrl(baseUrl)
+  const routeLabel =
+    (routeId
+      ? getGateway(routeId)?.label ?? getVendor(routeId)?.label
+      : undefined) ?? getLocalOpenAICompatibleProviderLabel(baseUrl)
+  const apiKey = resolveRouteCredentialValue({
+    routeId: routeId ?? 'custom',
     baseUrl,
-    apiKey: process.env.OPENAI_API_KEY,
+    processEnv: process.env,
   })
+
+  const discovered = routeId
+    ? await discoverModelsForRoute(routeId, {
+        baseUrl,
+        apiKey,
+        headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
+      })
+    : null
+  const models =
+    (discovered && discovered.source !== 'error'
+      ? discovered.models.map(model => model.apiName)
+      : null) ??
+    (await listOpenAICompatibleModels({
+      baseUrl,
+      apiKey,
+      headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
+    }))
 
   if (models === null) {
     logForDebugging('[Bootstrap] Local OpenAI model discovery failed')
     return null
   }
-
-  const providerLabel = getLocalOpenAICompatibleProviderLabel(baseUrl)
 
   return {
     clientData: getGlobalConfig().clientDataCache ?? null,
@@ -160,7 +193,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     additionalModelOptions: models.map(model => ({
       value: model,
       label: model,
-      description: `Detected from ${providerLabel}`,
+      description: `Detected from ${routeLabel}`,
     })),
   }
 }

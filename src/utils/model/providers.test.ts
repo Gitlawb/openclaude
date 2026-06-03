@@ -1,4 +1,9 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -7,23 +12,40 @@ const originalEnv = {
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
   CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+  NVIDIA_NIM: process.env.NVIDIA_NIM,
+  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  VENICE_API_KEY: process.env.VENICE_API_KEY,
+  MIMO_API_KEY: process.env.MIMO_API_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
 }
 
+function restoreEnv(key: keyof typeof originalEnv): void {
+  if (originalEnv[key] === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = originalEnv[key]
+  }
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/providers.test.ts')
+})
+
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
-  process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
-  process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
-  process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
-  process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
-  process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+  try {
+    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+      restoreEnv(key)
+    }
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function importFreshProvidersModule() {
@@ -37,10 +59,18 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.NVIDIA_NIM
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
   delete process.env.XAI_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.OPENAI_API_KEY
 }
 
 test('first-party provider keeps Anthropic account setup flow enabled', () => {
@@ -82,6 +112,42 @@ test('GEMINI takes precedence over GitHub when both are set', async () => {
   expect(getAPIProvider()).toBe('gemini')
 })
 
+test('GEMINI takes precedence over NVIDIA_NIM when both flags are set', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.NVIDIA_NIM = '1'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('gemini')
+})
+
+test('Foundry takes precedence over Gemini when both flags are set', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('foundry')
+})
+
+test('GEMINI takes precedence over env-only MiniMax API keys', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('gemini')
+})
+
+test('OPENAI takes precedence over env-only MiniMax API keys', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('openai')
+})
+
 test('explicit local openai-compatible base URLs stay on the openai provider', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -112,6 +178,25 @@ test('XAI_API_KEY resolves to the xai provider', async () => {
   expect(getAPIProvider()).toBe('xai')
 })
 
+test('env-only XAI_API_KEY resolves to the xai provider', async () => {
+  clearProviderEnv()
+  process.env.XAI_API_KEY = 'xai-test-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('xai')
+})
+
+test('conflicting OpenAI base prevents env-only xAI provider label', async () => {
+  clearProviderEnv()
+  process.env.XAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('firstParty')
+  expect(usesAnthropicAccountFlow()).toBe(true)
+})
+
 test('official OpenAI base URLs now keep provider detection on openai for aliases', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -120,6 +205,58 @@ test('official OpenAI base URLs now keep provider detection on openai for aliase
 
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('openai')
+})
+
+test('descriptor-backed MiniMax routes keep the legacy minimax provider category', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.minimax.chat/v1'
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+})
+
+test('env-only MiniMax API key resolves to the minimax provider', async () => {
+  clearProviderEnv()
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+})
+
+test('Anthropic-compatible MiniMax profile resolves to the minimax provider', async () => {
+  clearProviderEnv()
+  process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  process.env.ANTHROPIC_API_KEY = 'minimax-key'
+  process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+  expect(usesAnthropicAccountFlow()).toBe(false)
+})
+
+test('conflicting OpenAI base prevents env-only MiniMax provider label', async () => {
+  clearProviderEnv()
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('firstParty')
+  expect(usesAnthropicAccountFlow()).toBe(true)
+})
+
+test('NVIDIA_NIM env preserves the legacy nvidia-nim provider category for custom endpoints', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.NVIDIA_NIM = '1'
+  process.env.OPENAI_BASE_URL = 'https://nim.example.com/v1'
+  process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('nvidia-nim')
 })
 
 // isGithubNativeAnthropicMode

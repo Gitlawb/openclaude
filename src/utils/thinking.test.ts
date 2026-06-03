@@ -1,12 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { resetSettingsCache } from './settings/settingsCache.js'
-
-mock.module('./model/providers.js', () => ({
-  getAPIProvider: () =>
-    process.env.CLAUDE_CODE_USE_OPENAI === '1' ? 'openai' : 'firstParty',
-}))
-
-const { modelSupportsThinking } = await import('./thinking.js')
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -28,12 +25,14 @@ const ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  'CLAUDE_CODE_DISABLE_THINKING',
   'USER_TYPE',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/thinking.test.ts')
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
@@ -42,20 +41,39 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    mock.restore()
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
+    resetSettingsCache()
+  } finally {
+    releaseSharedMutationLock()
   }
-  resetSettingsCache()
 })
 
+async function importFreshThinkingModule() {
+  mock.restore()
+  const originalProviders = await import('./model/providers.js')
+  mock.module('./model/providers.js', () => {
+    return {
+      ...originalProviders,
+      getAPIProvider: () => 'openai',
+    }
+  })
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./thinking.js?ts=${nonce}`)
+}
+
 describe('modelSupportsThinking — Z.AI GLM', () => {
-  test('enables thinking for exact GLM models on api.z.ai', () => {
+  test('enables thinking for exact GLM models on api.z.ai', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
     expect(modelSupportsThinking('GLM-5-Turbo')).toBe(true)
@@ -63,26 +81,29 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     expect(modelSupportsThinking('GLM-4.5-Air')).toBe(true)
   })
 
-  test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', () => {
+  test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-5.1')).toBe(false)
     expect(modelSupportsThinking('GLM-5.1')).toBe(false)
   })
 
-  test('does not match unrelated GLM-looking model names', () => {
+  test('does not match unrelated GLM-looking model names', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-50')).toBe(false)
   })
 
-  test('does not reuse stale capability overrides after env changes', () => {
+  test('does not reuse stale capability overrides after env changes', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'GLM-5.1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES = ''
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(false)
 
@@ -91,5 +112,18 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
+  })
+})
+
+describe('shouldUseThinkingForModel — Ollama', () => {
+  test('does not use thinking for Ollama models when app-level thinking is enabled', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    const { shouldUseThinkingForModel } = await importFreshThinkingModule()
+    const enabledThinking = { type: 'enabled' as const, budgetTokens: 1024 }
+
+    expect(shouldUseThinkingForModel('llama3.1:8b', enabledThinking)).toBe(false)
+    // Covers catalog-missing local names that would otherwise match Claude 4 heuristics.
+    expect(shouldUseThinkingForModel('claude-sonnet-4-local', enabledThinking)).toBe(false)
   })
 })

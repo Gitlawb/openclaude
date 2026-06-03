@@ -2,6 +2,7 @@ import figures from 'figures'
 import * as React from 'react'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import { Box, Text } from '../ink.js'
+import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
 import type { ProviderProfile } from '../utils/config.js'
@@ -10,13 +11,39 @@ import {
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import {
+  parseProfileCustomHeadersInput,
+  serializeProfileCustomHeaders,
+} from '../utils/providerCustomHeaders.js'
 import { getPrimaryModel, hasMultipleModels, parseModelList } from '../utils/providerModels.js'
 import {
   applySavedProfileToCurrentSession,
   buildCodexOAuthProfileEnv,
+  buildXaiOAuthProfileEnv,
   clearPersistedCodexOAuthProfile,
+  clearPersistedXaiOAuthProfile,
   createProfileFile,
 } from '../utils/providerProfile.js'
+import {
+  clearXaiCredentials,
+  readXaiCredentialsAsync,
+} from '../utils/xaiCredentials.js'
+import {
+  getProviderPresetUiMetadata,
+  getRouteProviderTypeLabel,
+  getRouteDescriptor,
+  ORDERED_PROVIDER_PRESETS,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
+  routeSupportsCustomHeaders,
+  routeShowsAuthHeader,
+  routeShowsAuthHeaderValue,
+  routeShowsCustomHeaders,
+  resolveProfileRoute,
+  resolveRouteIdFromBaseUrl,
+} from '../integrations/index.js'
+import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
+import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
   applyActiveProviderProfileFromConfig,
@@ -37,8 +64,6 @@ import {
   readGithubModelsTokenAsync,
 } from '../utils/githubModelsCredentials.js'
 import {
-  probeAtomicChatReadiness,
-  probeOllamaGenerationReadiness,
   type AtomicChatReadiness,
   type OllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
@@ -56,6 +81,7 @@ import {
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
+import { useXaiOAuthFlow } from './useXaiOAuthFlow.js'
 
 export type ProviderManagerResult = {
   action: 'saved' | 'cancelled' | 'activated'
@@ -76,10 +102,18 @@ type Screen =
   | 'select-ollama-model'
   | 'select-atomic-chat-model'
   | 'codex-oauth'
+  | 'xai-oauth'
   | 'form'
+  | 'preset-model'
+  | 'preset-api-key'
   | 'select-active'
   | 'select-edit'
   | 'select-delete'
+
+type CodexOAuthPersistenceResult = { warning?: string }
+type PersistCodexOAuthCredentials = (options?: {
+  profileId?: string
+}) => CodexOAuthPersistenceResult | void
 
 type DraftField =
   | 'name'
@@ -89,6 +123,7 @@ type DraftField =
   | 'apiFormat'
   | 'authHeader'
   | 'authHeaderValue'
+  | 'customHeaders'
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -165,6 +200,13 @@ const FORM_STEPS: Array<{
     helpText: 'Optional. Press Enter with empty value to skip.',
     optional: true,
   },
+  {
+    key: 'customHeaders',
+    label: 'Custom headers',
+    placeholder: 'e.g. X-Trace: enabled; X-Team: devtools',
+    helpText: 'Optional. Extra non-auth request headers for providers that support them.',
+    optional: true,
+  },
 ]
 
 const GITHUB_PROVIDER_ID = '__github_models__'
@@ -173,6 +215,9 @@ const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
 const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
+const XAI_OAUTH_PROVIDER_NAME = 'xAI OAuth'
+const XAI_OAUTH_PROVIDER_MODEL = 'grok-4.3'
+const XAI_OAUTH_PROVIDER_BASE_URL = 'https://api.x.ai/v1'
 
 type GithubCredentialSource = 'stored' | 'env' | 'none'
 
@@ -185,7 +230,29 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     apiFormat: profile.apiFormat ?? 'chat_completions',
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
+    customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
   }
+}
+
+function getPresetLabel(preset: ProviderPreset, label: string, metadata?: { badge?: { text: string; color?: string } }): React.ReactNode {
+  if (metadata?.badge) {
+    if (metadata.badge.text.toLowerCase() === 'recommended') {
+      return (
+        <Text>
+          <Text>{label} </Text>
+          <Text color={metadata.badge.color ?? 'success'} bold>★ Recommended</Text>
+        </Text>
+      )
+    }
+
+    return (
+      <Text>
+        <Text>{label} </Text>
+        <Text color={metadata.badge.color ?? 'green'} bold>[{metadata.badge.text}]</Text>
+      </Text>
+    )
+  }
+  return label
 }
 
 function presetToDraft(preset: ProviderPreset): ProviderDraft {
@@ -198,25 +265,36 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     apiFormat: 'chat_completions',
     authHeader: '',
     authHeaderValue: '',
+    customHeaders: '',
   }
+}
+
+function isSetupPlaceholder(value: string): boolean {
+  return /\bYOUR[-_\s]/i.test(value) || /<[^>]+>/.test(value)
+}
+
+function canUseStreamlinedPresetFlow(draft: ProviderDraft): boolean {
+  // Descriptor placeholder defaults mean the endpoint/model are user-specific,
+  // so those presets still need the full setup form.
+  return !isSetupPlaceholder(draft.baseUrl) && !isSetupPlaceholder(draft.model)
 }
 
 function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   const activeSuffix = isActive ? ' (active)' : ''
   const keyInfo = profile.apiKey ? 'key set' : 'no key'
-  const providerKind =
-    profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'
+  const routeId = resolveProfileRoute(profile.provider).routeId
+  const providerKind = getRouteProviderTypeLabel(routeId)
   const models = parseModelList(profile.model)
   const modelDisplay =
     models.length <= 3
       ? models.join(', ')
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
-    profile.provider === 'openai'
+    routeSupportsApiFormatSelection(routeId)
       ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
-    profile.provider === 'openai' && profile.authHeader
+    routeSupportsAuthHeaders(routeId) && profile.authHeader
       ? ` · ${profile.authHeader} auth`
       : ''
   return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
@@ -229,6 +307,37 @@ function getGithubCredentialSourceFromEnv(
     return 'env'
   }
   return 'none'
+}
+
+function resolveProviderEditorRouteId(
+  provider: ProviderProfile['provider'],
+  baseUrl?: string,
+): string {
+  const route = resolveProfileRoute(provider).routeId
+  if (route !== 'openai') {
+    return route
+  }
+
+  return resolveRouteIdFromBaseUrl(baseUrl) ?? route
+}
+
+function routeSupportsResponsesModel(routeId: string, model: string): boolean {
+  return openAIShimSupportsApiFormatForModel(
+    getRouteDescriptor(routeId)?.transportConfig.openaiShim,
+    'responses',
+    getPrimaryModel(model),
+  )
+}
+
+function getResponsesApiModelSetLabel(routeId: string): string {
+  const prefixes =
+    getRouteDescriptor(routeId)?.transportConfig.openaiShim
+      ?.responsesApiModelPrefixes
+  if (!prefixes || prefixes.length === 0) {
+    return "this provider's configured model set"
+  }
+
+  return `${prefixes.join(', ')} models`
 }
 
 async function resolveGithubCredentialSource(
@@ -336,29 +445,192 @@ function isCodexOAuthProfile(
   return Boolean(profile && profileId && profile.id === profileId)
 }
 
+function findXaiOAuthProfile(
+  profiles: ProviderProfile[],
+  profileId?: string,
+): ProviderProfile | undefined {
+  if (!profileId) return undefined
+  return profiles.find(profile => profile.id === profileId)
+}
+
+function isXaiOAuthProfile(
+  profile: ProviderProfile | null | undefined,
+  profileId?: string,
+): boolean {
+  return Boolean(profile && profileId && profile.id === profileId)
+}
+
+function XaiOAuthSetup({
+  onBack,
+  onConfigured,
+}: {
+  onBack: () => void
+  onConfigured: (
+    tokens: {
+      accessToken: string
+      refreshToken: string
+      idToken?: string
+      accountId?: string
+      email?: string
+      displayName?: string
+      tokenEndpoint: string
+      expiresAt?: number
+    },
+    persistCredentials: () => void,
+  ) => void | Promise<void>
+}): React.ReactNode {
+  const handleAuthenticated = React.useCallback(
+    async (tokens: Parameters<typeof onConfigured>[0], persist: () => void) => {
+      await onConfigured(tokens, persist)
+    },
+    [onConfigured],
+  )
+  useKeybinding('confirm:no', onBack)
+
+  const status = useXaiOAuthFlow({
+    onAuthenticated: handleAuthenticated,
+  })
+
+  if (status.state === 'error') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="error" bold>
+          xAI OAuth failed
+        </Text>
+        <Text>{status.message}</Text>
+        <Text dimColor>Press Enter or Esc to go back.</Text>
+        <Select
+          options={[
+            {
+              value: 'back',
+              label: 'Back',
+              description: 'Return to provider presets',
+            },
+          ]}
+          onChange={onBack}
+          onCancel={onBack}
+          visibleOptionCount={1}
+        />
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text color="remember" bold>
+        xAI OAuth (Grok)
+      </Text>
+      <Text>
+        Sign in with your xAI account in the browser. OpenClaude will store
+        the resulting OAuth credentials securely and switch this session to
+        Grok when setup completes.
+      </Text>
+      <Text dimColor>
+        The xAI consent screen may label the app "Grok Build" — that's
+        expected. OpenClaude uses xAI's shared OAuth client.
+      </Text>
+      {status.state === 'starting' ? (
+        <Text dimColor>
+          Starting local callback on 127.0.0.1:56121 and preparing your
+          browser…
+        </Text>
+      ) : status.browserOpened === false ? (
+        <>
+          <Text color="warning">
+            Browser did not open automatically. Visit this URL to continue:
+          </Text>
+          <Text>{status.authUrl}</Text>
+        </>
+      ) : status.browserOpened === true ? (
+        <>
+          <Text dimColor>
+            Browser opened. Finish the xAI sign-in there and this setup will
+            complete automatically.
+          </Text>
+          <Text>{status.authUrl}</Text>
+        </>
+      ) : (
+        <Text dimColor>Opening your browser…</Text>
+      )}
+      {status.state === 'waiting' ? (
+        <>
+          <Text dimColor>
+            If xAI shows "Could not establish connection", paste the code
+            below and press Enter:
+          </Text>
+          <XaiManualCodeInput onSubmit={status.submitManualCode} />
+        </>
+      ) : null}
+      <Text dimColor>Press Esc to cancel and go back.</Text>
+    </Box>
+  )
+}
+
+function XaiManualCodeInput({
+  onSubmit,
+}: {
+  onSubmit: (code: string) => void
+}): React.ReactNode {
+  const [value, setValue] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  const { columns: terminalColumns } = useTerminalSize()
+  const inputColumns = Math.max(20, Math.min(80, terminalColumns - 8))
+  return (
+    <Box>
+      <Text>Code › </Text>
+      <TextInput
+        value={value}
+        onChange={setValue}
+        cursorOffset={cursorOffset}
+        onChangeCursorOffset={setCursorOffset}
+        columns={inputColumns}
+        onSubmit={submitted => {
+          const trimmed = submitted.trim()
+          if (trimmed) onSubmit(trimmed)
+        }}
+        mask="*"
+        // The parent `XaiOAuthSetup` owns Esc via `useKeybinding('confirm:no')`.
+        // Without this flag, BaseTextInput's child-effect Esc handler runs
+        // before the parent keybinding, triggering the "press Esc again to
+        // clear" double-press flow and swallowing the cancel.
+        disableEscapeDoublePress
+      />
+    </Box>
+  )
+}
+
 function CodexOAuthSetup({
   onBack,
   onConfigured,
 }: {
   onBack: () => void
-  onConfigured: (tokens: {
-    accessToken: string
-    refreshToken: string
-    accountId?: string
-    idToken?: string
-    apiKey?: string
-  }, persistCredentials: (options?: { profileId?: string }) => void) => void | Promise<void>
+  onConfigured: (
+    tokens: {
+      accessToken: string
+      refreshToken: string
+      accountId?: string
+      idToken?: string
+      apiKey?: string
+    },
+    persistCredentials: PersistCodexOAuthCredentials,
+  ) => void | Promise<void>
 }): React.ReactNode {
-  const handleAuthenticated = React.useCallback(async (tokens: {
-    accessToken: string
-    refreshToken: string
-    accountId?: string
-    idToken?: string
-    apiKey?: string
-  }, persistCredentials: (options?: { profileId?: string }) => void) => {
-    await onConfigured(tokens, persistCredentials)
-  }, [onConfigured])
-  useKeybinding('confirm:no', onBack, [onBack])
+  const handleAuthenticated = React.useCallback(
+    async (
+      tokens: {
+        accessToken: string
+        refreshToken: string
+        accountId?: string
+        idToken?: string
+        apiKey?: string
+      },
+      persistCredentials: PersistCodexOAuthCredentials,
+    ) => {
+      await onConfigured(tokens, persistCredentials)
+    },
+    [onConfigured],
+  )
+  useKeybinding('confirm:no', onBack)
 
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
@@ -424,6 +696,8 @@ function CodexOAuthSetup({
 }
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
+  const { columns: terminalColumns } = useTerminalSize()
+  const inputColumns = Math.max(20, Math.min(80, terminalColumns - 4))
   const setAppState = useSetAppState()
   const initialGithubCredentialSource = getGithubCredentialSourceFromEnv()
   const initialIsGithubActive = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -456,6 +730,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [draft, setDraft] = React.useState<ProviderDraft>(() =>
     presetToDraft('ollama'),
   )
+  const [presetRequiresApiKey, setPresetRequiresApiKey] = React.useState(false)
   const [formStepIndex, setFormStepIndex] = React.useState(0)
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
@@ -465,6 +740,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     React.useState(false)
   const [storedCodexOAuthProfileId, setStoredCodexOAuthProfileId] =
     React.useState<string | undefined>()
+  const [hasStoredXaiOAuthCredentials, setHasStoredXaiOAuthCredentials] =
+    React.useState(false)
+  const [storedXaiOAuthProfileId, setStoredXaiOAuthProfileId] =
+    React.useState<string | undefined>()
+  const xaiRefreshEpochRef = React.useRef(0)
   const [ollamaSelection, setOllamaSelection] = React.useState<OllamaSelectionState>({
     state: 'idle',
   })
@@ -499,15 +779,28 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }, [])
 
   const formSteps = React.useMemo(
-    () =>
-      draftProvider === 'openai'
-        ? FORM_STEPS
-        : FORM_STEPS.filter(step =>
-            step.key !== 'apiFormat' &&
-            step.key !== 'authHeader' &&
-            step.key !== 'authHeaderValue'
-          ),
-    [draftProvider],
+    () => {
+      const routeId = resolveProviderEditorRouteId(draftProvider, draft.baseUrl)
+      const showsAuthHeader = routeShowsAuthHeader(routeId)
+      const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
+      const showsCustomHeaders = routeShowsCustomHeaders(routeId)
+      return FORM_STEPS.filter(step => {
+        if (step.key === 'apiFormat') {
+          return routeSupportsApiFormatSelection(routeId)
+        }
+        if (step.key === 'authHeader') {
+          return showsAuthHeader
+        }
+        if (step.key === 'authHeaderValue') {
+          return showsAuthHeaderValue
+        }
+        if (step.key === 'customHeaders') {
+          return showsCustomHeaders
+        }
+        return true
+      })
+    },
+    [draft.baseUrl, draftProvider],
   )
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
@@ -552,13 +845,27 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             },
           ]
         : []),
+      ...(hasStoredXaiOAuthCredentials
+        ? [
+            {
+              value: 'logout-xai-oauth',
+              label: 'Log out xAI OAuth',
+              description: 'Clear securely stored xAI OAuth credentials',
+            },
+          ]
+        : []),
       {
         value: 'done',
         label: 'Done',
         description: 'Return to chat',
       },
     ],
-    [hasSelectableProviders, hasProfiles, hasStoredCodexOAuthCredentials],
+    [
+      hasSelectableProviders,
+      hasProfiles,
+      hasStoredCodexOAuthCredentials,
+      hasStoredXaiOAuthCredentials,
+    ],
   )
 
   const refreshGithubProviderState = React.useCallback((): void => {
@@ -617,15 +924,49 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })()
   }, [])
 
+  const refreshXaiOAuthCredentialState = React.useCallback((): void => {
+    if (isBareMode()) {
+      xaiRefreshEpochRef.current += 1
+      setHasStoredXaiOAuthCredentials(false)
+      setStoredXaiOAuthProfileId(undefined)
+      return
+    }
+
+    const refreshEpoch = ++xaiRefreshEpochRef.current
+    void (async () => {
+      const credentials = await readXaiCredentialsAsync()
+      if (refreshEpoch !== xaiRefreshEpochRef.current) {
+        return
+      }
+
+      setHasStoredXaiOAuthCredentials(
+        Boolean(credentials?.accessToken && credentials?.refreshToken),
+      )
+      // xAI credentials don't carry a profile id; resolve it by finding the
+      // active OAuth-flavored xAI profile (env marker XAI_CREDENTIAL_SOURCE).
+      const profiles = getProviderProfiles()
+      const oauthProfile = profiles.find(
+        p => p.provider === 'xai' && p.name === XAI_OAUTH_PROVIDER_NAME,
+      )
+      setStoredXaiOAuthProfileId(oauthProfile?.id)
+    })()
+  }, [])
+
   React.useEffect(() => {
     refreshGithubProviderState()
     refreshCodexOAuthCredentialState()
+    refreshXaiOAuthCredentialState()
 
     return () => {
       githubRefreshEpochRef.current += 1
       codexRefreshEpochRef.current += 1
+      xaiRefreshEpochRef.current += 1
     }
-  }, [refreshCodexOAuthCredentialState, refreshGithubProviderState])
+  }, [
+    refreshCodexOAuthCredentialState,
+    refreshGithubProviderState,
+    refreshXaiOAuthCredentialState,
+  ])
 
   React.useEffect(() => {
     if (screen !== 'select-ollama-model') {
@@ -636,9 +977,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setOllamaSelection({ state: 'loading' })
 
     void (async () => {
-      const readiness = await probeOllamaGenerationReadiness({
+      const readiness = await probeRouteReadiness('ollama', {
         baseUrl: draft.baseUrl,
       })
+      if (!readiness) {
+        if (!cancelled) {
+          setOllamaSelection({
+            state: 'unavailable',
+            message: `Could not load the Ollama readiness probe for ${redactUrlForDisplay(draft.baseUrl)}. Enter the endpoint manually.`,
+          })
+        }
+        return
+      }
+
       if (readiness.state !== 'ready') {
         if (!cancelled) {
           setOllamaSelection({
@@ -678,9 +1029,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAtomicChatSelection({ state: 'loading' })
 
     void (async () => {
-      const readiness = await probeAtomicChatReadiness({
+      const readiness = await probeRouteReadiness('atomic-chat', {
         baseUrl: draft.baseUrl,
       })
+      if (!readiness) {
+        if (!cancelled) {
+          setAtomicChatSelection({
+            state: 'unavailable',
+            message: `Could not load the Atomic Chat readiness probe for ${redactUrlForDisplay(draft.baseUrl)}. Enter the endpoint manually.`,
+          })
+        }
+        return
+      }
+
       if (readiness.state !== 'ready') {
         if (!cancelled) {
           setAtomicChatSelection({
@@ -730,7 +1091,28 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return clearStartupProviderOverrides()
   }
 
+  function formatWarningsForMessage(warnings: string[]): string {
+    const joined = warnings.join('; ')
+    return /[.!?]$/.test(joined.trim()) ? joined : `${joined}.`
+  }
+
   function buildCodexOAuthActivationMessage(options: {
+    prefix: string
+    activationWarning: string | null
+    warnings: string[]
+  }): string {
+    if (options.activationWarning) {
+      return `${options.prefix}. Saved for next startup. Warning: ${formatWarningsForMessage(options.warnings)}`
+    }
+
+    if (options.warnings.length > 0) {
+      return `${options.prefix}. OpenClaude switched to it for this session with warnings: ${formatWarningsForMessage(options.warnings)}`
+    }
+
+    return `${options.prefix}. OpenClaude switched to it for this session.`
+  }
+
+  function buildXaiOAuthActivationMessage(options: {
     prefix: string
     activationWarning: string | null
     warnings: string[]
@@ -738,12 +1120,23 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (options.activationWarning) {
       return `${options.prefix}. Saved for next startup. Warning: ${options.warnings.join('; ')}.`
     }
-
     if (options.warnings.length > 0) {
       return `${options.prefix}. OpenClaude switched to it for this session with warnings: ${options.warnings.join('; ')}.`
     }
-
     return `${options.prefix}. OpenClaude switched to it for this session.`
+  }
+
+  async function activateXaiOAuthSession(options?: {
+    model?: string
+  }): Promise<string | null> {
+    const stored = await readXaiCredentialsAsync()
+    if (!stored?.accessToken || !stored?.refreshToken) {
+      return 'stored xAI OAuth credentials could not be loaded'
+    }
+    const env = buildXaiOAuthProfileEnv({ model: options?.model })
+    return applySavedProfileToCurrentSession({
+      profileFile: createProfileFile('xai', env),
+    })
   }
 
   async function activateCodexOAuthSession(tokens?: {
@@ -851,9 +1244,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         active,
         storedCodexOAuthProfileId,
       )
-      const activationWarning = isActiveCodexOAuth
+      const isActiveXaiOAuth = isXaiOAuthProfile(
+        active,
+        storedXaiOAuthProfileId,
+      )
+      const codexActivationWarning = isActiveCodexOAuth
         ? await activateCodexOAuthSession()
         : null
+      const xaiActivationWarning = isActiveXaiOAuth
+        ? await activateXaiOAuthSession({ model: newModel })
+        : null
+      const activationWarning = codexActivationWarning ?? xaiActivationWarning
 
       refreshProfiles()
       const activationMessage = isActiveCodexOAuth
@@ -867,9 +1268,20 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 : null,
             ].filter((warning): warning is string => Boolean(warning)),
           })
-        : settingsOverrideError
-          ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-          : `Active provider: ${active.name}`
+        : isActiveXaiOAuth
+          ? buildXaiOAuthActivationMessage({
+              prefix: `Active provider: ${active.name}`,
+              activationWarning,
+              warnings: [
+                activationWarning,
+                settingsOverrideError
+                  ? `could not clear startup provider override (${settingsOverrideError})`
+                  : null,
+              ].filter((warning): warning is string => Boolean(warning)),
+            })
+          : settingsOverrideError
+            ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Active provider: ${active.name}`
       setStatusMessage(activationMessage)
       setIsActivating(false)
       onDone({
@@ -896,7 +1308,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function closeWithCancelled(message: string): void {
-    onDone({ action: 'cancelled', message })
+    onDone({
+      action: 'cancelled',
+      message:
+        message === 'Provider manager closed' && statusMessage
+          ? statusMessage
+          : message,
+    })
   }
 
   function activateGithubProvider(): string | null {
@@ -988,6 +1406,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function startCreateFromPreset(preset: ProviderPreset): void {
     const defaults = getProviderPresetDefaults(preset)
+    const provider = defaults.provider ?? 'openai'
     const nextDraft = {
       name: defaults.name,
       baseUrl: defaults.baseUrl,
@@ -996,10 +1415,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       apiFormat: 'chat_completions',
       authHeader: '',
       authHeaderValue: '',
+      customHeaders: '',
     }
     setEditingProfileId(null)
-    setDraftProvider(defaults.provider ?? 'openai')
+    setDraftProvider(provider)
     setDraft(nextDraft)
+    setPresetRequiresApiKey(defaults.requiresApiKey)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
@@ -1016,7 +1437,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    setScreen('form')
+    if (preset === 'custom' || !canUseStreamlinedPresetFlow(nextDraft)) {
+      setScreen('form')
+      return
+    }
+
+    setCursorOffset(nextDraft.model.length)
+    setScreen('preset-model')
   }
 
   function startEditProfile(profileId: string): void {
@@ -1029,39 +1456,65 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setEditingProfileId(profileId)
     setDraftProvider(existing.provider ?? 'openai')
     setDraft(nextDraft)
+    setPresetRequiresApiKey(false)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
     setScreen('form')
   }
 
-  function persistDraft(nextDraft: ProviderDraft = draft): void {
+  function persistDraft(
+    nextDraft: ProviderDraft = draft,
+    provider: ProviderProfile['provider'] = draftProvider,
+    profileId: string | null = editingProfileId,
+  ): void {
+    const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
+    const showsAuthHeader = routeShowsAuthHeader(routeId)
+    const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
+    const showsCustomHeaders = routeShowsCustomHeaders(routeId)
+    const parsedCustomHeaders = parseProfileCustomHeadersInput(
+      showsCustomHeaders ? nextDraft.customHeaders : '',
+    )
+    if (parsedCustomHeaders.error) {
+      setErrorMessage(parsedCustomHeaders.error)
+      return
+    }
+
+    const requestedResponses =
+      supportsApiFormat && nextDraft.apiFormat === 'responses'
+    const shouldUseChatCompletions =
+      !supportsApiFormat ||
+      nextDraft.apiFormat !== 'responses' ||
+      !routeSupportsResponsesModel(routeId, nextDraft.model)
     const payload: ProviderProfileInput = {
-      provider: draftProvider,
+      provider,
       name: nextDraft.name,
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat:
-        draftProvider === 'openai' && nextDraft.apiFormat === 'responses'
-          ? 'responses'
-          : 'chat_completions',
+      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
       authHeader:
-        draftProvider === 'openai' && nextDraft.authHeader
+        showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
           : undefined,
       authScheme:
-        draftProvider === 'openai' && nextDraft.authHeader
+        showsAuthHeader && nextDraft.authHeader
           ? (nextDraft.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
           : undefined,
       authHeaderValue:
-        draftProvider === 'openai' && nextDraft.authHeaderValue
+        showsAuthHeaderValue && nextDraft.authHeaderValue
           ? nextDraft.authHeaderValue
+          : undefined,
+      customHeaders:
+        showsCustomHeaders &&
+        Object.keys(parsedCustomHeaders.headers).length > 0
+          ? parsedCustomHeaders.headers
           : undefined,
     }
 
-    const saved = editingProfileId
-      ? updateProviderProfile(editingProfileId, payload)
+    const saved = profileId
+      ? updateProviderProfile(profileId, payload)
       : addProviderProfile(payload, { makeActive: true })
 
     if (!saved) {
@@ -1083,20 +1536,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     refreshProfiles()
     const successMessage =
-      editingProfileId
+      profileId
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
+    const adjustedApiFormat =
+      requestedResponses && saved.apiFormat !== 'responses'
+    const routeLabel =
+      getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
+    const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
+    const apiFormatMessage = adjustedApiFormat
+      ? `. ${routeLabel} only supports the Responses API for ${responseModelSetLabel}, so this profile was saved using Chat Completions.`
+      : ''
+    const finalSuccessMessage = `${successMessage}${apiFormatMessage}`
     setStatusMessage(
       settingsOverrideError
-        ? `${successMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-        : successMessage,
+        ? `${finalSuccessMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+        : finalSuccessMessage,
     )
 
     if (mode === 'first-run') {
       onDone({
         action: 'saved',
         activeProfileId: saved.id,
-        message: `Provider configured: ${saved.name}`,
+        message: `Provider configured: ${saved.name}${apiFormatMessage}`,
       })
       return
     }
@@ -1105,6 +1567,23 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setFormStepIndex(0)
     setErrorMessage(undefined)
     returnToMenu()
+  }
+
+  function applyPresetApiFormat(
+    nextDraft: ProviderDraft,
+    provider: ProviderProfile['provider'],
+  ): ProviderDraft {
+    const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const apiFormat =
+      routeSupportsApiFormatSelection(routeId) &&
+      routeSupportsResponsesModel(routeId, nextDraft.model)
+        ? 'responses'
+        : 'chat_completions'
+
+    return {
+      ...nextDraft,
+      apiFormat,
+    }
   }
 
   function renderAtomicChatSelection(): React.ReactNode {
@@ -1315,143 +1794,88 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isActive: screen === 'form',
   })
 
+  function handleBackFromPresetModel(): void {
+    setErrorMessage(undefined)
+    setScreen('select-preset')
+  }
+
+  useKeybinding('confirm:no', handleBackFromPresetModel, {
+    context: 'Settings',
+    isActive: screen === 'preset-model',
+  })
+
+  function handleBackFromPresetApiKey(): void {
+    setErrorMessage(undefined)
+    setCursorOffset(draft.model.length)
+    setScreen('preset-model')
+  }
+
+  useKeybinding('confirm:no', handleBackFromPresetApiKey, {
+    context: 'Settings',
+    isActive: screen === 'preset-api-key',
+  })
+
+  // xAI OAuth setup renders a TextInput for the manual-code recovery
+  // path, which registers its own useInput listener. The child-component
+  // useKeybinding inside XaiOAuthSetup ends up racing the input handler
+  // and can lose. Register Esc at the top level — same pattern that
+  // makes Esc work on preset-api-key (which also has a TextInput).
+  function handleBackFromXaiOAuth(): void {
+    setErrorMessage(undefined)
+    setScreen('select-preset')
+  }
+
+  useKeybinding('confirm:no', handleBackFromXaiOAuth, {
+    context: 'Settings',
+    isActive: screen === 'xai-oauth',
+  })
+
   function renderPresetSelection(): React.ReactNode {
     const canUseCodexOAuth = !isBareMode()
-    // Providers sorted alphabetically by label. `Custom` is pinned to the end
-    // because it's the catch-all / escape hatch — users scanning the list
-    // should always find known providers first. `Skip for now` (first-run
-    // only) comes last, after Custom.
-    const options = [
-      {
-        value: 'dashscope-intl',
-        label: 'Alibaba Coding Plan',
-        description: 'Alibaba DashScope International endpoint',
-      },
-      {
-        value: 'dashscope-cn',
-        label: 'Alibaba Coding Plan (China)',
-        description: 'Alibaba DashScope China endpoint',
-      },
-      {
-        value: 'anthropic',
-        label: 'Anthropic',
-        description: 'Native Claude API (x-api-key auth)',
-      },
-      {
-        value: 'atomic-chat',
-        label: 'Atomic Chat',
-        description: 'Local Model Provider',
-      },
-      {
-        value: 'azure-openai',
-        label: 'Azure OpenAI',
-        description: 'Azure OpenAI endpoint (model=deployment name)',
-      },
-      {
-        value: 'bankr',
-        label: 'Bankr',
-        description: 'Bankr LLM Gateway (OpenAI-compatible)',
-      },
-      ...(canUseCodexOAuth
-        ? [
-            {
-              value: 'codex-oauth',
-              label: 'Codex OAuth',
-              description:
-                'Sign in with ChatGPT in your browser and store Codex credentials securely',
-            },
-          ]
-        : []),
-      {
-        value: 'deepseek',
-        label: 'DeepSeek',
-        description: 'DeepSeek OpenAI-compatible endpoint',
-      },
-      {
-        value: 'gemini',
-        label: 'Google Gemini',
-        description: 'Gemini OpenAI-compatible endpoint',
-      },
-      {
-        value: 'groq',
-        label: 'Groq',
-        description: 'Groq OpenAI-compatible endpoint',
-      },
-      {
-        value: 'lmstudio',
-        label: 'LM Studio',
-        description: 'Local LM Studio endpoint',
-      },
-      {
-        value: 'minimax',
-        label: 'MiniMax',
-        description: 'MiniMax API endpoint',
-      },
-      {
-        value: 'mistral',
-        label: 'Mistral',
-        description: 'Mistral OpenAI-compatible endpoint',
-      },
-      {
-        value: 'moonshotai',
-        label: 'Moonshot AI - API',
-        description: 'Moonshot AI - API endpoint',
-      },
-      {
-        value: 'kimi-code',
-        label: 'Moonshot AI - Kimi Code',
-        description: 'Moonshot AI - Kimi Code Subscription endpoint',
-      },
-      {
-        value: 'nvidia-nim',
-        label: 'NVIDIA NIM',
-        description: 'NVIDIA NIM endpoint',
-      },
-      {
-        value: 'ollama',
-        label: 'Ollama',
-        description: 'Local or remote Ollama endpoint',
-      },
-      {
-        value: 'openai',
-        label: 'OpenAI',
-        description: 'OpenAI API with API key',
-      },
-      {
-        value: 'openrouter',
-        label: 'OpenRouter',
-        description: 'OpenRouter OpenAI-compatible endpoint',
-      },
-      {
-        value: 'together',
-        label: 'Together AI',
-        description: 'Together chat/completions endpoint',
-      },
-      {
-        value: 'xai',
-        label: 'xAI',
-        description: 'xAI Grok OpenAI-compatible endpoint',
-      },
-      {
-        value: 'zai',
-        label: 'Z.AI - GLM Coding Plan',
-        description: 'Z.AI GLM coding subscription endpoint',
-      },
-      {
-        value: 'custom',
-        label: 'Custom',
-        description: 'Any OpenAI-compatible provider',
-      },
-      ...(mode === 'first-run'
-        ? [
-            {
-              value: 'skip',
-              label: 'Skip for now',
-              description: 'Continue with current defaults',
-            },
-          ]
-        : []),
-    ]
+    const canUseXaiOAuth = !isBareMode()
+    const options: OptionWithDescription<string>[] = ORDERED_PROVIDER_PRESETS.map(preset => {
+      const metadata = getProviderPresetUiMetadata(preset)
+      return {
+        value: preset,
+        label: getPresetLabel(preset, metadata.label, { badge: metadata.badge }),
+        description: metadata.description,
+      }
+    })
+
+    if (canUseCodexOAuth) {
+      // Insert after DeepSeek so Codex OAuth keeps its established position
+      // in the picker even with Gitlawb Opengateway pinned at the top.
+      options.splice(7, 0, {
+        value: 'codex-oauth',
+        label: (
+          <Text>
+            <Text>Codex OAuth </Text>
+            <Text color="success" bold>★ Recommended</Text>
+          </Text>
+        ),
+        description:
+          'Sign in with ChatGPT in your browser and store Codex credentials securely',
+      })
+    }
+
+    if (canUseXaiOAuth) {
+      // Place xAI OAuth directly under Codex OAuth so both browser-sign-in
+      // options group together visually.
+      options.splice(canUseCodexOAuth ? 8 : 7, 0, {
+        value: 'xai-oauth',
+        label: 'xAI OAuth (Grok)',
+        description:
+          'Sign in with your xAI account in the browser and store credentials securely',
+      })
+    }
+
+    if (mode === 'first-run') {
+      options.push({
+        value: 'skip',
+        label: 'Skip for now',
+        description: 'Continue with current defaults',
+      })
+    }
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -1459,7 +1883,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           {mode === 'first-run' ? 'Set up provider' : 'Choose provider preset'}
         </Text>
         <Text dimColor>
-          Pick a preset, then confirm base URL, model, and API key.
+          Pick a preset, then complete the details it needs.
         </Text>
         <Select
           options={options}
@@ -1470,6 +1894,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
             if (value === 'codex-oauth') {
               setScreen('codex-oauth')
+              return
+            }
+            if (value === 'xai-oauth') {
+              setScreen('xai-oauth')
               return
             }
             startCreateFromPreset(value as ProviderPreset)
@@ -1496,10 +1924,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>{currentStep.helpText}</Text>
         <Text dimColor>
           Provider type:{' '}
-          {draftProvider === 'anthropic'
-            ? 'Anthropic native API'
-            : 'OpenAI-compatible API'}
+          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
         </Text>
+        {routeSupportsCustomHeaders(resolveProfileRoute(draftProvider).routeId) ? (
+          <Text dimColor>
+            Advanced: this provider supports custom request headers when you
+            need them.
+          </Text>
+        ) : null}
         <Text dimColor>
           Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
         </Text>
@@ -1523,7 +1955,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             defaultFocusValue={
               currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
-            onChange={value => handleFormSubmit(value)}
+            onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
             visibleOptionCount={2}
           />
@@ -1548,7 +1980,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                   ? '*'
                   : undefined
               }
-              columns={80}
+              columns={inputColumns}
               cursorOffset={cursorOffset}
               onChangeCursorOffset={setCursorOffset}
             />
@@ -1557,6 +1989,136 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         {errorMessage && <Text color="error">{errorMessage}</Text>}
         <Text dimColor>
           Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderPresetModel(): React.ReactNode {
+    const needsApiKey = presetRequiresApiKey && !draft.apiKey.trim()
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Create provider profile
+        </Text>
+        <Text dimColor>
+          Choose the default model for {draft.name}. Endpoint and advanced
+          details are already configured by the preset.
+        </Text>
+        <Text dimColor>
+          Provider type:{' '}
+          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
+        </Text>
+        <Text dimColor>
+          Step 1 of {needsApiKey ? 2 : 1}: Default model
+        </Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={draft.model}
+            onChange={value =>
+              setDraft(prev => ({
+                ...prev,
+                model: value,
+              }))
+            }
+            onSubmit={value => {
+              const model = value.trim()
+              if (!model) {
+                setErrorMessage('Default model is required.')
+                return
+              }
+
+              const nextDraft = applyPresetApiFormat(
+                {
+                  ...draft,
+                  model,
+                },
+                draftProvider,
+              )
+              setDraft(nextDraft)
+              setErrorMessage(undefined)
+
+              if (needsApiKey) {
+                setCursorOffset(0)
+                setScreen('preset-api-key')
+                return
+              }
+
+              persistDraft(nextDraft, draftProvider, null)
+            }}
+            focus={true}
+            showCursor={true}
+            placeholder={`Enter model${figures.ellipsis}`}
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderPresetApiKey(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Create provider profile
+        </Text>
+        <Text dimColor>
+          Enter the API key for {draft.name}. Other preset details are already
+          configured.
+        </Text>
+        <Text dimColor>
+          Provider type:{' '}
+          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
+        </Text>
+        <Text dimColor>Step 2 of 2: API key</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={draft.apiKey}
+            onChange={value =>
+              setDraft(prev => ({
+                ...prev,
+                apiKey: value,
+              }))
+            }
+            onSubmit={value => {
+              const apiKey = value.trim()
+              if (!apiKey) {
+                setErrorMessage(`API key is required for ${draft.name}.`)
+                return
+              }
+
+              const nextDraft = applyPresetApiFormat(
+                {
+                  ...draft,
+                  apiKey,
+                },
+                draftProvider,
+              )
+              setDraft(nextDraft)
+              setErrorMessage(undefined)
+              persistDraft(nextDraft, draftProvider, null)
+            }}
+            focus={true}
+            showCursor={true}
+            placeholder={`Enter API key${figures.ellipsis}`}
+            mask="*"
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to save. Press Esc to go back.
         </Text>
       </Box>
     )
@@ -1666,6 +2228,47 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 )
                 break
               }
+              case 'logout-xai-oauth': {
+                const cleared = clearXaiCredentials()
+                if (!cleared.success) {
+                  setErrorMessage(
+                    cleared.warning ??
+                      'Could not clear xAI OAuth credentials.',
+                  )
+                  break
+                }
+
+                setHasStoredXaiOAuthCredentials(false)
+                setStoredXaiOAuthProfileId(undefined)
+                const xaiProfile = findXaiOAuthProfile(
+                  getProviderProfiles(),
+                  storedXaiOAuthProfileId,
+                )
+                let settingsOverrideError: string | null = null
+                if (xaiProfile) {
+                  const result = deleteProviderProfile(xaiProfile.id)
+                  if (!result.removed) {
+                    setErrorMessage(
+                      'xAI OAuth credentials were cleared, but the xAI profile could not be removed.',
+                    )
+                    refreshProfiles()
+                    break
+                  }
+
+                  clearPersistedXaiOAuthProfile()
+                  settingsOverrideError = result.activeProfileId
+                    ? clearStartupProviderOverrideFromUserSettings()
+                    : null
+                }
+
+                refreshProfiles()
+                setStatusMessage(
+                  settingsOverrideError
+                    ? `xAI OAuth logged out. Warning: could not clear startup provider override (${settingsOverrideError}).`
+                    : 'xAI OAuth logged out.',
+                )
+                break
+              }
               default:
                 closeWithCancelled('Provider manager closed')
                 break
@@ -1692,7 +2295,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         profile.id === activeProfileId
           ? `${profile.name} (active)`
           : profile.name,
-      description: `${profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'} · ${profile.baseUrl} · ${profile.model}`,
+      description: `${getRouteProviderTypeLabel(resolveProfileRoute(profile.provider).routeId)} · ${profile.baseUrl} · ${profile.model}`,
     }))
 
     if (includeGithub && githubProviderAvailable) {
@@ -1755,6 +2358,95 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     case 'select-atomic-chat-model':
       content = renderAtomicChatSelection()
       break
+    case 'xai-oauth':
+      content = (
+        <XaiOAuthSetup
+          onBack={() => setScreen('select-preset')}
+          onConfigured={async (tokens, persistCredentials) => {
+            const payload: ProviderProfileInput = {
+              provider: 'xai',
+              name: XAI_OAUTH_PROVIDER_NAME,
+              baseUrl: XAI_OAUTH_PROVIDER_BASE_URL,
+              model: XAI_OAUTH_PROVIDER_MODEL,
+              apiKey: '',
+            }
+
+            const existing = findXaiOAuthProfile(
+              getProviderProfiles(),
+              storedXaiOAuthProfileId,
+            )
+            const saved = existing
+              ? updateProviderProfile(existing.id, payload)
+              : addProviderProfile(payload, { makeActive: false })
+
+            if (!saved) {
+              setErrorMessage(
+                'xAI OAuth login finished, but the provider profile could not be saved.',
+              )
+              returnToMenu()
+              return
+            }
+
+            const active =
+              activeProfileId === saved.id
+                ? saved
+                : setActiveProviderProfile(saved.id)
+
+            if (!active) {
+              setErrorMessage(
+                'xAI OAuth login finished, but the provider could not be set as the startup provider.',
+              )
+              returnToMenu()
+              return
+            }
+
+            persistCredentials()
+            const settingsOverrideError =
+              clearStartupProviderOverrideFromUserSettings()
+            const activationWarning = await activateXaiOAuthSession({
+              model: saved.model,
+            })
+            // Update the running session's model — otherwise the next
+            // request keeps hitting the previous provider's model name
+            // (e.g. kimi-k2.6) and gets a 400 "Model not found" against
+            // api.x.ai. Mirrors the activateSelectedProvider /
+            // saveAndCloseProvider flows.
+            setAppState(prev => ({
+              ...prev,
+              mainLoopModel: getPrimaryModel(saved.model),
+              mainLoopModelForSession: null,
+            }))
+            setHasStoredXaiOAuthCredentials(true)
+            setStoredXaiOAuthProfileId(saved.id)
+            refreshProfiles()
+            const warnings = [
+              activationWarning,
+              settingsOverrideError
+                ? `could not clear startup provider override (${settingsOverrideError})`
+                : null,
+            ].filter((warning): warning is string => Boolean(warning))
+            const message = buildXaiOAuthActivationMessage({
+              prefix: 'xAI OAuth configured',
+              activationWarning,
+              warnings,
+            })
+
+            if (mode === 'first-run') {
+              onDone({
+                action: 'saved',
+                activeProfileId: active.id,
+                message,
+              })
+              return
+            }
+
+            setStatusMessage(message)
+            setErrorMessage(undefined)
+            returnToMenu()
+          }}
+        />
+      )
+      break
     case 'codex-oauth':
       content = (
         <CodexOAuthSetup
@@ -1774,7 +2466,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             )
             const saved = existing
               ? updateProviderProfile(existing.id, payload)
-              : addProviderProfile(payload, { makeActive: true })
+              : addProviderProfile(payload, { makeActive: false })
 
             if (!saved) {
               setErrorMessage(
@@ -1785,9 +2477,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
 
             const active =
-              existing && activeProfileId !== saved.id
-                ? setActiveProviderProfile(saved.id)
-                : saved
+              activeProfileId === saved.id
+                ? saved
+                : setActiveProviderProfile(saved.id)
             if (!active) {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider could not be set as the startup provider.',
@@ -1796,7 +2488,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            persistCredentials({ profileId: saved.id })
+            const persistenceResult = persistCredentials({
+              profileId: saved.id,
+            })
+            const storageWarning =
+              persistenceResult && typeof persistenceResult === 'object'
+                ? persistenceResult.warning
+                : null
             const settingsOverrideError =
               clearStartupProviderOverrideFromUserSettings()
             const activationWarning = await activateCodexOAuthSession(tokens)
@@ -1804,6 +2502,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             setStoredCodexOAuthProfileId(saved.id)
             refreshProfiles()
             const warnings = [
+              storageWarning,
               activationWarning,
               settingsOverrideError
                 ? `could not clear startup provider override (${settingsOverrideError})`
@@ -1833,6 +2532,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       break
     case 'form':
       content = renderForm()
+      break
+    case 'preset-model':
+      content = renderPresetModel()
+      break
+    case 'preset-api-key':
+      content = renderPresetApiKey()
       break
     case 'select-active':
       content = renderProfileSelection(
@@ -1875,6 +2580,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               profiles,
               storedCodexOAuthProfileId,
             )?.id === profileId
+          const deletedXaiOAuthProfile =
+            findXaiOAuthProfile(
+              profiles,
+              storedXaiOAuthProfileId,
+            )?.id === profileId
           const result = deleteProviderProfile(profileId)
           if (!result.removed) {
             setErrorMessage('Could not delete provider.')
@@ -1890,6 +2600,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 setStoredCodexOAuthProfileId(undefined)
               }
               clearPersistedCodexOAuthProfile()
+            }
+            if (deletedXaiOAuthProfile) {
+              const cleared = clearXaiCredentials()
+              if (!cleared.success) {
+                setErrorMessage(
+                  cleared.warning ??
+                    'Provider deleted, but xAI OAuth credentials could not be cleared.',
+                )
+              } else {
+                setStoredXaiOAuthProfileId(undefined)
+                setHasStoredXaiOAuthCredentials(false)
+              }
+              clearPersistedXaiOAuthProfile()
             }
             const settingsOverrideError = result.activeProfileId
               ? clearStartupProviderOverrideFromUserSettings()

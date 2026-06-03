@@ -59,21 +59,28 @@ const PERMISSION_MODE_CONFIG: Partial<
   acceptEdits: {
     title: 'Accept edits',
     shortTitle: 'Accept',
-    symbol: '⏵⏵',
+    symbol: '▶▶',
     color: 'autoAccept',
     external: 'acceptEdits',
   },
   bypassPermissions: {
     title: 'Bypass Permissions',
     shortTitle: 'Bypass',
-    symbol: '⏵⏵',
+    symbol: '▶▶',
     color: 'error',
     external: 'bypassPermissions',
+  },
+  fullAccess: {
+    title: 'Full Access',
+    shortTitle: 'Full',
+    symbol: '▶▶',
+    color: 'error',
+    external: 'fullAccess',
   },
   dontAsk: {
     title: "Don't Ask",
     shortTitle: 'DontAsk',
-    symbol: '⏵⏵',
+    symbol: '▶▶',
     color: 'error',
     external: 'dontAsk',
   },
@@ -82,7 +89,7 @@ const PERMISSION_MODE_CONFIG: Partial<
         auto: {
           title: 'Auto mode',
           shortTitle: 'Auto',
-          symbol: '⏵⏵',
+          symbol: '▶▶',
           color: 'warning' as ModeColorKey,
           external: 'default' as ExternalPermissionMode,
         },
@@ -126,6 +133,12 @@ export function permissionModeTitle(mode: PermissionMode): string {
 
 export function isDefaultMode(mode: PermissionMode | undefined): boolean {
   return mode === 'default' || mode === undefined
+}
+
+export function isDangerousPermissionMode(
+  mode: PermissionMode | undefined,
+): mode is 'bypassPermissions' | 'fullAccess' {
+  return mode === 'bypassPermissions' || mode === 'fullAccess'
 }
 
 export function permissionModeShortTitle(mode: PermissionMode): string {

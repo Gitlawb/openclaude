@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import {
   getGeminiProjectIdHint,
   mayHaveGeminiAdcCredentials,
@@ -28,19 +32,27 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/geminiAuth.test.ts')
+})
+
 afterEach(() => {
-  restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
-  restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
-  restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
-  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
-  restoreEnv(
-    'GOOGLE_APPLICATION_CREDENTIALS',
-    originalEnv.GOOGLE_APPLICATION_CREDENTIALS,
-  )
-  restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
-  restoreEnv('GCLOUD_PROJECT', originalEnv.GCLOUD_PROJECT)
-  restoreEnv('GOOGLE_PROJECT_ID', originalEnv.GOOGLE_PROJECT_ID)
-  restoreEnv('APPDATA', originalEnv.APPDATA)
+  try {
+    restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
+    restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
+    restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
+    restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
+    restoreEnv(
+      'GOOGLE_APPLICATION_CREDENTIALS',
+      originalEnv.GOOGLE_APPLICATION_CREDENTIALS,
+    )
+    restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
+    restoreEnv('GCLOUD_PROJECT', originalEnv.GCLOUD_PROJECT)
+    restoreEnv('GOOGLE_PROJECT_ID', originalEnv.GOOGLE_PROJECT_ID)
+    restoreEnv('APPDATA', originalEnv.APPDATA)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('resolveGeminiCredential', () => {

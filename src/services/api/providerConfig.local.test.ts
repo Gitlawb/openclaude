@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import {
   getAdditionalModelOptionsCacheScope,
@@ -11,6 +12,11 @@ import {
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
+  OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
+  OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
+  ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
 }
@@ -23,11 +29,24 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('providerConfig.local.test.ts')
+})
+
 afterEach(() => {
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+  try {
+    restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+    restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+    restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
+    restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
+    restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('treats localhost endpoints as local', () => {
@@ -67,9 +86,9 @@ test('creates a cache scope for local openai-compatible providers', () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:1234/v1'
   process.env.OPENAI_MODEL = 'llama-3.2-3b-instruct'
 
-  expect(getAdditionalModelOptionsCacheScope()).toBe(
-    'openai:http://localhost:1234/v1',
-  )
+  expect(getAdditionalModelOptionsCacheScope()?.startsWith(
+    'openai:http://localhost:1234/v1:',
+  )).toBe(true)
 })
 
 test('keeps codex alias models on chat completions for local openai-compatible providers', () => {
@@ -83,9 +102,43 @@ test('keeps codex alias models on chat completions for local openai-compatible p
     resolvedModel: 'gpt-5.4',
     baseUrl: 'http://127.0.0.1:8080/v1',
   })
-  expect(getAdditionalModelOptionsCacheScope()).toBe(
-    'openai:http://127.0.0.1:8080/v1',
-  )
+  expect(getAdditionalModelOptionsCacheScope()?.startsWith(
+    'openai:http://127.0.0.1:8080/v1:',
+  )).toBe(true)
+})
+
+test('normalizes legacy Gitlawb Opengateway provider-prefixed base URLs to the smart route', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+  process.env.OPENAI_MODEL = 'zai-org/GLM-5.1-FP8'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    requestedModel: 'zai-org/GLM-5.1-FP8',
+    resolvedModel: 'zai-org/GLM-5.1-FP8',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+  })
+})
+
+test('partitions local openai-compatible model cache scope by credentials and headers', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:1234/v1'
+  process.env.OPENAI_MODEL = 'llama-3.2-3b-instruct'
+  process.env.OPENAI_API_KEY = 'first-key'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Route: first'
+
+  const firstScope = getAdditionalModelOptionsCacheScope()
+
+  process.env.OPENAI_API_KEY = 'second-key'
+  const secondScope = getAdditionalModelOptionsCacheScope()
+
+  process.env.OPENAI_API_KEY = 'first-key'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Route: second'
+  const thirdScope = getAdditionalModelOptionsCacheScope()
+
+  expect(firstScope).not.toBe(secondScope)
+  expect(firstScope).not.toBe(thirdScope)
+  expect(firstScope?.startsWith('openai:http://localhost:1234/v1:')).toBe(true)
 })
 
 test('uses responses transport when OpenAI-compatible API format requests responses', () => {
@@ -99,6 +152,34 @@ test('uses responses transport when OpenAI-compatible API format requests respon
     requestedModel: 'gpt-5.4',
     resolvedModel: 'gpt-5.4',
     baseUrl: 'https://api.openai.com/v1',
+  })
+})
+
+test('uses responses transport for Hicap gpt models when requested', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('falls back to chat completions for non-gpt Hicap models when responses is requested', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'claude-opus-4.7'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    requestedModel: 'claude-opus-4.7',
+    resolvedModel: 'claude-opus-4.7',
+    baseUrl: 'https://api.hicap.ai/v1',
   })
 })
 

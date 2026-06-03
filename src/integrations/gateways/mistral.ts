@@ -1,0 +1,59 @@
+import { defineGateway } from '../define.js'
+
+/**
+ * Mistral has dedicated runtime provider behavior that is not yet fully
+ * normalized. It currently routes through the OpenAI shim but with
+ * provider-specific handling. Do not collapse into generic openai-compatible
+ * without preserving the existing Mistral-specific branches.
+ *
+ * @see src/utils/model/providers.ts — getAPIProvider() returns 'mistral'
+ * @see src/services/api/openaiShim.ts — Mistral-specific shim branches
+ */
+export default defineGateway({
+  id: 'mistral',
+  label: 'Mistral AI',
+  category: 'hosted',
+  defaultBaseUrl: 'https://api.mistral.ai/v1',
+  defaultModel: 'mistral-vibe-cli-latest',
+  supportsModelRouting: true,
+  setup: {
+    requiresAuth: true,
+    authMode: 'api-key',
+    credentialEnvVars: ['MISTRAL_API_KEY'],
+  },
+  transportConfig: {
+    kind: 'openai-compatible',
+    openaiShim: {
+      supportsAuthHeaders: true,
+      maxTokensField: 'max_tokens',
+      removeBodyFields: ['store'],
+    },
+  },
+  preset: {
+    id: 'mistral',
+    description: 'Mistral OpenAI-compatible endpoint',
+    apiKeyEnvVars: ['MISTRAL_API_KEY'],
+    vendorId: 'openai',
+  },
+  validation: {
+    kind: 'credential-env',
+    routing: {
+      enablementEnvVar: 'CLAUDE_CODE_USE_MISTRAL',
+    },
+    credentialEnvVars: ['MISTRAL_API_KEY'],
+    missingCredentialMessage:
+      'MISTRAL_API_KEY is required when CLAUDE_CODE_USE_MISTRAL=1.',
+  },
+  catalog: {
+    source: 'static',
+    models: [
+      { id: 'mistral-vibe-cli', apiName: 'mistral-vibe-cli-latest', label: 'Vibe CLI Latest', modelDescriptorId: 'mistral-vibe-cli-latest' },
+      { id: 'mistral-devstral', apiName: 'devstral-latest', label: 'Devstral Latest', modelDescriptorId: 'devstral-latest' },
+      { id: 'mistral-large', apiName: 'mistral-large-latest', label: 'Mistral Large Latest', modelDescriptorId: 'mistral-large-latest' },
+      { id: 'mistral-small', apiName: 'mistral-small-latest', label: 'Mistral Small Latest', modelDescriptorId: 'mistral-small-latest' },
+      { id: 'mistral-ministral-3b', apiName: 'ministral-3b-latest', label: 'Ministral 3B Latest', modelDescriptorId: 'ministral-3b-latest' },
+      { id: 'mistral-codestral', apiName: 'codestral-latest', label: 'Codestral Latest', modelDescriptorId: 'codestral' },
+    ],
+  },
+  usage: { supported: false },
+})

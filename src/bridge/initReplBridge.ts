@@ -30,6 +30,7 @@ import {
   getClaudeAIOAuthTokens,
   handleOAuth401Error,
 } from '../utils/auth.js'
+import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logForDebugging } from '../utils/debug.js'
 import { stripDisplayTagsAllowEmpty } from '../utils/displayTags.js'
@@ -80,7 +81,10 @@ export type InitBridgeOptions = {
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
   onSetPermissionMode?: (
     mode: PermissionMode,
-  ) => { ok: true } | { ok: false; error: string }
+  ) =>
+    | { ok: true }
+    | { ok: false; error: string }
+    | Promise<{ ok: true } | { ok: false; error: string }>
   onStateChange?: (state: BridgeState, detail?: string) => void
   initialMessages?: Message[]
   // Explicit session name from `/remote-control <name>`. When set, overrides
@@ -333,8 +337,11 @@ export async function initReplBridge(
   const generateAndPatch = (input: string, bridgeSessionId: string): void => {
     const gen = ++genSeq
     const atCount = userMessageCount
-    void generateSessionTitle(input, AbortSignal.timeout(15_000)).then(
-      generated => {
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: 15_000,
+    })
+    void generateSessionTitle(input, signal)
+      .then(generated => {
         if (
           generated &&
           gen === genSeq &&
@@ -343,8 +350,8 @@ export async function initReplBridge(
         ) {
           patch(generated, bridgeSessionId, atCount)
         }
-      },
-    )
+      })
+      .finally(cleanup)
   }
   const onUserMessage = (text: string, bridgeSessionId: string): boolean => {
     if (hasExplicitTitle || getCurrentSessionTitle(getSessionId())) {

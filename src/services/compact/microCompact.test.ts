@@ -124,4 +124,54 @@ describe('microCompact MCP tool compaction', () => {
     expect(result).toBeDefined()
     expect(result.messages.length).toBe(messages.length)
   })
+
+  test('time-based microcompact clears native toolUseResult for old compacted results', async () => {
+    const { maybeTimeBasedMicrocompact, TIME_BASED_MC_CLEARED_MESSAGE } =
+      await import('./microCompact.js')
+    const oldAssistant = {
+      ...assistantWithToolUse('Read', 'tool-read-old'),
+      timestamp: new Date(Date.now() - 120 * 60_000).toISOString(),
+    }
+    const oldResult = createUserMessage({
+      content: [
+        {
+          type: 'tool_result' as const,
+          tool_use_id: 'tool-read-old',
+          content: 'old file content',
+        },
+      ],
+      toolUseResult: { content: 'old file content' },
+    })
+    const recentAssistant = {
+      ...assistantWithToolUse('Read', 'tool-read-recent'),
+      timestamp: new Date(Date.now() - 120 * 60_000).toISOString(),
+    }
+    const recentResult = createUserMessage({
+      content: [
+        {
+          type: 'tool_result' as const,
+          tool_use_id: 'tool-read-recent',
+          content: 'recent file content',
+        },
+      ],
+      toolUseResult: { content: 'recent file content' },
+    })
+
+    const result = maybeTimeBasedMicrocompact(
+      [oldAssistant, oldResult, recentAssistant, recentResult],
+      'repl_main_thread',
+      { enabled: true, gapThresholdMinutes: 60, keepRecent: 1 },
+    )
+
+    expect(result).not.toBeNull()
+    const compactedOld = result!.messages[1]!
+    const keptRecent = result!.messages[3]!
+    expect(
+      (compactedOld.message.content as Array<{ content: string }>)[0]!.content,
+    ).toBe(TIME_BASED_MC_CLEARED_MESSAGE)
+    expect(compactedOld.toolUseResult).toBeUndefined()
+    expect(keptRecent.toolUseResult).toEqual({
+      content: 'recent file content',
+    })
+  })
 })

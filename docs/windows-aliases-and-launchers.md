@@ -8,23 +8,24 @@ After setup, you can use short commands like `oc`, `oc-init`, `oc-local`, and `o
 
 Run this once in PowerShell:
 
+This resolves the alias helper script from the global npm installation path instead of relying on a local source checkout.
+
 ```powershell
-$repo = "C:\Users\Window\Documents\CFGit\openclaude"
-$aliases = Join-Path $repo "scripts\windows\openclaude-aliases.ps1"
+$packageRoot = Join-Path (npm root -g) "@gitlawb/openclaude"
+$aliases = Join-Path $packageRoot "scripts\windows\openclaude-aliases.ps1"
 
 if (-not (Test-Path $aliases)) {
-  throw "Alias script not found at $aliases"
+  throw "Alias script not found at $aliases. Update or reinstall @gitlawb/openclaude."
 }
 
 if (-not (Test-Path $PROFILE)) {
   New-Item -ItemType File -Path $PROFILE -Force | Out-Null
 }
 
-$marker = "# OpenClaude aliases"
-$line = ". `"$aliases`""
-$profileContent = Get-Content $PROFILE -Raw
-if ($profileContent -notmatch [regex]::Escape($line)) {
-  Add-Content -Path $PROFILE -Value "`n$marker`n$line`n"
+$profileLine = ". `"$aliases`""
+
+if (-not (Select-String -Path $PROFILE -Pattern ([regex]::Escape($profileLine)) -Quiet)) {
+  Add-Content -Path $PROFILE -Value "`n$profileLine"
 }
 
 . $aliases

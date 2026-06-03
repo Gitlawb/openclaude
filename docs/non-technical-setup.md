@@ -78,12 +78,29 @@ At that point, you can ask it to:
 Cause:
 
 - npm installed the package, but your terminal has not refreshed yet
+- on Windows, npm's global bin folder may not be in your user `Path`
 
 Fix:
 
 1. Close the terminal
 2. Open a new terminal
 3. Run `openclaude` again
+
+On Windows PowerShell, if that still does not work, add npm's global bin folder
+to your user `Path`, then open a new PowerShell window:
+
+```powershell
+$npmPrefix = npm config get prefix
+$currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+if (($currentUserPath -split ';') -notcontains $npmPrefix) {
+    [Environment]::SetEnvironmentVariable(
+        "Path",
+        "$currentUserPath;$npmPrefix",
+        "User"
+    )
+}
+```
 
 ### Invalid API key
 
@@ -114,3 +131,4 @@ Fix:
 If you want source builds, advanced provider profiles, diagnostics, or Bun-based workflows, use:
 
 - [Advanced Setup](advanced-setup.md)
+  This is also where to find Codex, Gemini, Mistral, LiteLLM, and profile-launcher setup.

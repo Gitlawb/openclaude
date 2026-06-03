@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import type { PermissionUpdate } from '../../types/permissions.js'
 import { formatFileSize } from '../../utils/format.js'
@@ -22,12 +23,15 @@ import {
 } from './utils.js'
 
 function isFirecrawlEnabled(): boolean {
-  return Boolean(process.env.FIRECRAWL_API_KEY)
+  return Boolean(process.env.FIRECRAWL_API_KEY) || Boolean(process.env.FIRECRAWL_API_URL)
 }
 
 async function scrapeWithFirecrawl(url: string): Promise<{ markdown: string; bytes: number }> {
   const { FirecrawlClient } = await import('@mendable/firecrawl-js')
-  const app = new FirecrawlClient({ apiKey: process.env.FIRECRAWL_API_KEY! })
+  const app = new FirecrawlClient({
+    apiKey: process.env.FIRECRAWL_API_KEY,
+    apiUrl: process.env.FIRECRAWL_API_URL,
+  })
   const result = await app.scrape(url, { formats: ['markdown'] })
   const markdown = (result as { markdown?: string }).markdown ?? ''
   return { markdown, bytes: Buffer.byteLength(markdown) }
@@ -85,9 +89,9 @@ export const WebFetchTool = buildTool({
     const { url } = input as { url: string }
     try {
       const hostname = new URL(url).hostname
-      return `Claude wants to fetch content from ${hostname}`
+      return `${PRODUCT_DISPLAY_NAME} wants to fetch content from ${hostname}`
     } catch {
-      return `Claude wants to fetch content from this URL`
+      return `${PRODUCT_DISPLAY_NAME} wants to fetch content from this URL`
     }
   },
   userFacingName() {
@@ -159,7 +163,7 @@ export const WebFetchTool = buildTool({
     if (askRule) {
       return {
         behavior: 'ask',
-        message: `Claude requested permissions to use ${WebFetchTool.name}, but you haven't granted it yet.`,
+        message: `${PRODUCT_DISPLAY_NAME} requested permissions to use ${WebFetchTool.name}, but you haven't granted it yet.`,
         decisionReason: {
           type: 'rule',
           rule: askRule,
@@ -186,7 +190,7 @@ export const WebFetchTool = buildTool({
 
     return {
       behavior: 'ask',
-      message: `Claude requested permissions to use ${WebFetchTool.name}, but you haven't granted it yet.`,
+      message: `${PRODUCT_DISPLAY_NAME} requested permissions to use ${WebFetchTool.name}, but you haven't granted it yet.`,
       suggestions: buildSuggestions(ruleContent),
     }
   },

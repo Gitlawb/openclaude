@@ -1,9 +1,11 @@
 /**
  * LSP Plugin Recommendation Utility
  *
- * Scans installed marketplaces for LSP plugins and recommends plugins
- * based on file extensions, but ONLY when the LSP binary is already
- * installed on the system.
+ * Scans installed marketplaces for LSP plugins.
+ *
+ * Passive recommendations only return plugins whose language-server binary is
+ * already installed. Explicit setup flows can request broader candidates,
+ * including installed plugins and missing-binary candidates.
  *
  * Limitation: Can only detect LSP plugins that declare their servers
  * inline in the marketplace entry. Plugins with separate .lsp.json files
@@ -35,6 +37,17 @@ export type LspPluginRecommendation = {
   isOfficial: boolean // From official marketplace?
   extensions: string[] // File extensions this plugin supports
   command: string // LSP server command (e.g., "typescript-language-server")
+}
+
+export type LspPluginCandidate = LspPluginRecommendation & {
+  binaryInstalled: boolean
+  installed: boolean
+}
+
+export type ListLspPluginCandidatesOptions = {
+  extensions?: string[]
+  includeInstalled?: boolean
+  includeMissingBinaries?: boolean
 }
 
 // Maximum number of times user can ignore recommendations before we stop showing
@@ -205,6 +218,75 @@ async function getLspPluginsFromMarketplaces(): Promise<
   return result
 }
 
+function normalizeExtension(ext: string): string {
+  const trimmed = ext.trim().toLowerCase()
+  if (!trimmed) return ''
+  return trimmed.startsWith('.') ? trimmed : `.${trimmed}`
+}
+
+function sortCandidates(
+  a: Pick<LspPluginCandidate, 'isOfficial'>,
+  b: Pick<LspPluginCandidate, 'isOfficial'>,
+): number {
+  if (a.isOfficial && !b.isOfficial) return -1
+  if (!a.isOfficial && b.isOfficial) return 1
+  return 0
+}
+
+/**
+ * List LSP plugin candidates from configured marketplaces.
+ *
+ * Unlike passive recommendations, this API is for explicit user-facing flows
+ * such as /lsp recommend. It can include installed plugins and plugins whose
+ * language-server binary is not yet present so the UI can explain next steps.
+ */
+export async function listLspPluginCandidates(
+  options: ListLspPluginCandidatesOptions = {},
+): Promise<LspPluginCandidate[]> {
+  const requestedExtensions =
+    options.extensions && options.extensions.length > 0
+      ? new Set(options.extensions.map(normalizeExtension).filter(Boolean))
+      : undefined
+  const includeInstalled = options.includeInstalled === true
+  const includeMissingBinaries = options.includeMissingBinaries === true
+
+  const allLspPlugins = await getLspPluginsFromMarketplaces()
+  const candidates: LspPluginCandidate[] = []
+
+  for (const [pluginId, info] of allLspPlugins) {
+    if (
+      requestedExtensions &&
+      !Array.from(requestedExtensions).some(ext => info.extensions.has(ext))
+    ) {
+      continue
+    }
+
+    const installed = isPluginInstalled(pluginId)
+    if (installed && !includeInstalled) {
+      continue
+    }
+
+    const binaryInstalled = await isBinaryInstalled(info.command)
+    if (!binaryInstalled && !includeMissingBinaries) {
+      continue
+    }
+
+    candidates.push({
+      pluginId,
+      pluginName: info.entry.name,
+      marketplaceName: info.marketplaceName,
+      description: info.entry.description,
+      isOfficial: info.isOfficial,
+      extensions: Array.from(info.extensions).sort(),
+      command: info.command,
+      binaryInstalled,
+      installed,
+    })
+  }
+
+  return candidates.sort(sortCandidates)
+}
+
 /**
  * Find matching LSP plugins for a file path.
  *
@@ -237,75 +319,31 @@ export async function getMatchingLspPlugins(
 
   logForDebugging(`[lspRecommendation] Looking for LSP plugins for ${ext}`)
 
-  // Get all LSP plugins from marketplaces
-  const allLspPlugins = await getLspPluginsFromMarketplaces()
-
   // Get config for filtering
   const config = getGlobalConfig()
   const neverPlugins = config.lspRecommendationNeverPlugins ?? []
+  const candidates = await listLspPluginCandidates({ extensions: [ext] })
 
-  // Filter to matching plugins
-  const matchingPlugins: Array<{ info: LspPluginInfo; pluginId: string }> = []
-
-  for (const [pluginId, info] of allLspPlugins) {
-    // Check extension match
-    if (!info.extensions.has(ext)) {
-      continue
-    }
-
-    // Filter: not in "never" list
-    if (neverPlugins.includes(pluginId)) {
+  return candidates
+    .filter(candidate => {
+      if (neverPlugins.includes(candidate.pluginId)) {
+        logForDebugging(
+          `[lspRecommendation] Skipping ${candidate.pluginId} (in never suggest list)`,
+        )
+        return false
+      }
       logForDebugging(
-        `[lspRecommendation] Skipping ${pluginId} (in never suggest list)`,
+        `[lspRecommendation] Binary '${candidate.command}' found for ${candidate.pluginId}`,
       )
-      continue
-    }
-
-    // Filter: not already installed
-    if (isPluginInstalled(pluginId)) {
-      logForDebugging(
-        `[lspRecommendation] Skipping ${pluginId} (already installed)`,
-      )
-      continue
-    }
-
-    matchingPlugins.push({ info, pluginId })
-  }
-
-  // Filter: binary must be installed (async check)
-  const pluginsWithBinary: Array<{ info: LspPluginInfo; pluginId: string }> = []
-
-  for (const { info, pluginId } of matchingPlugins) {
-    const binaryExists = await isBinaryInstalled(info.command)
-    if (binaryExists) {
-      pluginsWithBinary.push({ info, pluginId })
-      logForDebugging(
-        `[lspRecommendation] Binary '${info.command}' found for ${pluginId}`,
-      )
-    } else {
-      logForDebugging(
-        `[lspRecommendation] Skipping ${pluginId} (binary '${info.command}' not found)`,
-      )
-    }
-  }
-
-  // Sort: official marketplaces first
-  pluginsWithBinary.sort((a, b) => {
-    if (a.info.isOfficial && !b.info.isOfficial) return -1
-    if (!a.info.isOfficial && b.info.isOfficial) return 1
-    return 0
-  })
-
-  // Convert to recommendations
-  return pluginsWithBinary.map(({ info, pluginId }) => ({
-    pluginId,
-    pluginName: info.entry.name,
-    marketplaceName: info.marketplaceName,
-    description: info.entry.description,
-    isOfficial: info.isOfficial,
-    extensions: Array.from(info.extensions),
-    command: info.command,
-  }))
+      return true
+    })
+    .map(
+      ({
+        binaryInstalled: _binaryInstalled,
+        installed: _installed,
+        ...recommendation
+      }) => recommendation,
+    )
 }
 
 /**

@@ -211,7 +211,14 @@ describe('SDK Zod schemas (type generation source)', () => {
 
   test('PermissionModeSchema accepts valid modes', () => {
     const schema = PermissionModeSchema()
-    const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']
+    const modes = [
+      'default',
+      'acceptEdits',
+      'bypassPermissions',
+      'fullAccess',
+      'plan',
+      'dontAsk',
+    ]
     for (const mode of modes) {
       expect(schema.safeParse(mode).success).toBe(true)
     }

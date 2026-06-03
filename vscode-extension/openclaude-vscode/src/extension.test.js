@@ -1,6 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mock } = require('bun:test');
+const {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} = require('../../../src/entrypoints/sdk/shared.js');
+
+test.beforeEach(async () => {
+  const result = await acquireEnvMutex();
+  if (!result.acquired) {
+    throw new Error('Timed out acquiring shared test mutation lock for vscode extension test');
+  }
+});
+
+test.afterEach(() => {
+  try {
+    mock.restore();
+  } finally {
+    releaseEnvMutex();
+  }
+});
 
 function createStatus(overrides = {}) {
   return {

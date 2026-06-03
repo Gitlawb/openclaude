@@ -221,3 +221,31 @@ export function createContentSummary(content: ContentBlockParam[]): string {
 
   return `MCP Result: ${summary.join(', ')}${parts.length > 0 ? '\n\n' + parts.join('\n\n') : ''}`
 }
+
+/**
+ * Select the best failure body for a non-zero-exit Bash command (#1231).
+ *
+ * Sources, in order of preference:
+ *   1. `accumulatedOutput` — the truncating accumulator's view after stripping
+ *      the synthetic "Exit code N" marker. Non-empty when the success-path
+ *      stdout was appended into the accumulator.
+ *   2. `resultStdout` — `ExecResult.stdout` from the shell runner.
+ *   3. `progressFullOutput` — the most recent `fullOutput` value yielded by
+ *      the streaming generator. Recovers stdout when the shell runner
+ *      streamed output through progress callbacks but the final result-slot
+ *      stdout was left empty (e.g. flush-after-result race, exit before EOF,
+ *      output persisted to a file path).
+ *
+ * Returns the first source whose trimmed length is non-zero, falling back to
+ * `''` when all three sources are empty.
+ */
+export function selectFailureOutput(
+  accumulatedOutput: string,
+  resultStdout: string | undefined,
+  progressFullOutput: string,
+): string {
+  if (accumulatedOutput.trim() !== '') return accumulatedOutput
+  if (resultStdout && resultStdout.trim() !== '') return resultStdout
+  if (progressFullOutput.trim() !== '') return progressFullOutput
+  return ''
+}

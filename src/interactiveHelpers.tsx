@@ -26,10 +26,11 @@ import { type FpsMetrics, FpsTracker } from './utils/fpsTracker.js';
 import { updateGithubRepoPathMapping } from './utils/githubRepoPathMapping.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
 import { usesAnthropicAccountFlow } from './utils/model/providers.js';
+import { showDangerousModePromptIfNeeded } from './utils/permissions/dangerousModePromptFlow.js';
 import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
-import { hasAutoModeOptIn, hasSkipDangerousModePermissionPrompt } from './utils/settings/settings.js';
+import { hasAutoModeOptIn } from './utils/settings/settings.js';
 export function completeOnboarding(): void {
   saveGlobalConfig(current => ({
     ...current,
@@ -158,24 +159,25 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     // Now that trust is established, prefetch system context if it wasn't already
     void getSystemContext();
 
-    // Skip MCP approval dialogs for third-party providers (no interactive auth prompts)
-    if (usesAnthropicSetup) {
-      // If settings are valid, check for any mcp.json servers that need approval
-      const {
-        errors: allErrors
-      } = getSettingsWithAllErrors();
-      if (allErrors.length === 0) {
-        await handleMcpjsonServerApprovals(root);
-      }
+    // MCP approval and external-includes warnings are about workspace
+    // trust, not about Anthropic auth. They must run for all providers
+    // — including third-party — otherwise project-scoped .mcp.json
+    // servers never get the approval that writes
+    // enableAllProjectMcpServers / enabledMcpjsonServers into
+    // settings.local.json, and the servers are silently dropped from
+    // /mcp and `mcp list` (issue #696).
+    const { errors: allErrors } = getSettingsWithAllErrors();
+    if (allErrors.length === 0) {
+      await handleMcpjsonServerApprovals(root);
+    }
 
-      // Check for claude.md includes that need approval
-      if (await shouldShowClaudeMdExternalIncludesWarning()) {
-        const externalIncludes = getExternalClaudeMdIncludes(await getMemoryFiles(true));
-        const {
-          ClaudeMdExternalIncludesDialog
-        } = await import('./components/ClaudeMdExternalIncludesDialog.js');
-        await showSetupDialog(root, done => <ClaudeMdExternalIncludesDialog onDone={done} isStandaloneDialog externalIncludes={externalIncludes} />);
-      }
+    // Check for claude.md includes that need approval
+    if (await shouldShowClaudeMdExternalIncludesWarning()) {
+      const externalIncludes = getExternalClaudeMdIncludes(await getMemoryFiles(true));
+      const {
+        ClaudeMdExternalIncludesDialog
+      } = await import('./components/ClaudeMdExternalIncludesDialog.js');
+      await showSetupDialog(root, done => <ClaudeMdExternalIncludesDialog onDone={done} isStandaloneDialog externalIncludes={externalIncludes} />);
     }
   }
 
@@ -212,7 +214,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   // Check for custom API key
   // On homespace, ANTHROPIC_API_KEY is preserved in process.env for child
   // processes but ignored by Claude Code itself (see auth.ts).
-  if (process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace()) {
+  if (usesAnthropicSetup && process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace()) {
     const customApiKeyTruncated = normalizeApiKeyForConfig(process.env.ANTHROPIC_API_KEY);
     const keyStatus = getCustomApiKeyStatus(customApiKeyTruncated);
     if (keyStatus === 'new') {
@@ -224,12 +226,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       });
     }
   }
-  if ((permissionMode === 'bypassPermissions' || allowDangerouslySkipPermissions) && !hasSkipDangerousModePermissionPrompt()) {
-    const {
-      BypassPermissionsModeDialog
-    } = await import('./components/BypassPermissionsModeDialog.js');
-    await showSetupDialog(root, done => <BypassPermissionsModeDialog onAccept={done} />);
-  }
+  await showDangerousModePromptIfNeeded(root, permissionMode, allowDangerouslySkipPermissions, showSetupDialog);
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Only show the opt-in dialog if auto mode actually resolved — if the
     // gate denied it (org not allowlisted, settings disabled), showing

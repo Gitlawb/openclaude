@@ -10,12 +10,19 @@ import { getSSLErrorHint } from '../services/api/errorUtils.js';
 import { getUserAgent } from './http.js';
 import { logError } from './log.js';
 import { getAPIProvider } from './model/providers.js';
+
+// Bound the connectivity probe so blocked networks cannot freeze onboarding.
+export const PREFLIGHT_REQUEST_TIMEOUT_MS = 5000;
+
+// Failed connectivity should be readable, but it should not block onboarding.
+export const PREFLIGHT_ERROR_HOLD_MS = 4000;
+
 export interface PreflightCheckResult {
   success: boolean;
   error?: string;
   sslHint?: string;
 }
-async function checkEndpoints(): Promise<PreflightCheckResult> {
+export async function checkEndpoints(): Promise<PreflightCheckResult> {
   try {
     const oauthConfig = getOauthConfig();
     const tokenUrl = new URL(oauthConfig.TOKEN_URL);
@@ -25,7 +32,8 @@ async function checkEndpoints(): Promise<PreflightCheckResult> {
         const response = await axios.get(url, {
           headers: {
             'User-Agent': getUserAgent()
-          }
+          },
+          timeout: PREFLIGHT_REQUEST_TIMEOUT_MS
         });
         if (response.status !== 200) {
           const hostname = new URL(url).hostname;
@@ -109,11 +117,9 @@ export function PreflightStep(t0) {
     t3 = () => {
       if (result?.success) {
         onSuccess();
-      } else {
-        if (result && !result.success) {
-          const timer = setTimeout(_temp, 100);
-          return () => clearTimeout(timer);
-        }
+      } else if (result && !result.success) {
+        const timer = setTimeout(onSuccess, PREFLIGHT_ERROR_HOLD_MS);
+        return () => clearTimeout(timer);
       }
     };
     t4 = [result, onSuccess];
@@ -128,7 +134,7 @@ export function PreflightStep(t0) {
   useEffect(t3, t4);
   let t5;
   if ($[6] !== isChecking || $[7] !== result || $[8] !== showSpinner) {
-    t5 = isChecking && showSpinner ? <Box paddingLeft={1}><Spinner /><Text>Checking connectivity...</Text></Box> : !result?.success && !isChecking && <Box flexDirection="column" gap={1}><Text color="error">Unable to connect to Anthropic services</Text><Text color="error">{result?.error}</Text>{result?.sslHint ? <Box flexDirection="column" gap={1}><Text>{result.sslHint}</Text><Text color="suggestion">See https://code.claude.com/docs/en/network-config</Text></Box> : <Box flexDirection="column" gap={1}><Text>Please check your internet connection and network settings.</Text>{getAPIProvider() === 'firstParty' && <Text>Note: Claude Code might not be available in your country. Check supported countries at{" "}<Text color="suggestion">https://anthropic.com/supported-countries</Text></Text>}</Box>}</Box>;
+    t5 = isChecking && showSpinner ? <Box paddingLeft={1}><Spinner /><Text>Checking connectivity...</Text></Box> : !result?.success && !isChecking && <Box flexDirection="column" gap={1}><Text color="error">Unable to connect to Anthropic services</Text><Text color="error">{result?.error}</Text>{result?.sslHint ? <Box flexDirection="column" gap={1}><Text>{result.sslHint}</Text><Text color="suggestion">See https://code.claude.com/docs/en/network-config</Text></Box> : <Box flexDirection="column" gap={1}><Text>Please check your internet connection and network settings.</Text>{getAPIProvider() === 'firstParty' && <Text>Note: Claude Code might not be available in your country. Check supported countries at{" "}<Text color="suggestion">https://anthropic.com/supported-countries</Text></Text>}</Box>}<Text dimColor>Continuing: you can configure a non-Anthropic provider later with /provider.</Text></Box>;
     $[6] = isChecking;
     $[7] = result;
     $[8] = showSpinner;
@@ -145,7 +151,4 @@ export function PreflightStep(t0) {
     t6 = $[11];
   }
   return t6;
-}
-function _temp() {
-  return process.exit(1);
 }

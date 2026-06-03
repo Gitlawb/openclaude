@@ -183,6 +183,7 @@ export type KeyParseState = {
   mode: 'NORMAL' | 'IN_PASTE'
   incomplete: string
   pasteBuffer: string
+  utf8Incomplete?: Buffer
   // Internal tokenizer instance
   _tokenizer?: Tokenizer
 }
@@ -193,21 +194,84 @@ export const INITIAL_STATE: KeyParseState = {
   pasteBuffer: '',
 }
 
-function inputToString(input: Buffer | string): string {
-  if (Buffer.isBuffer(input)) {
-    if (input[0]! > 127 && input[1] === undefined) {
-      ;(input[0] as unknown as number) -= 128
-      return '\x1b' + String(input)
-    } else {
-      return String(input)
-    }
-  } else if (input !== undefined && typeof input !== 'string') {
-    return String(input)
-  } else if (!input) {
-    return ''
-  } else {
-    return input
+function utf8SequenceLength(byte: number): number {
+  if ((byte & 0x80) === 0) return 1
+  if ((byte & 0xe0) === 0xc0) return 2
+  if ((byte & 0xf0) === 0xe0) return 3
+  if ((byte & 0xf8) === 0xf0) return 4
+  return 0
+}
+
+function splitCompleteUtf8(input: Buffer): {
+  complete: Buffer
+  incomplete: Buffer | undefined
+} {
+  if (input.length === 0) {
+    return { complete: input, incomplete: undefined }
   }
+
+  let sequenceStart = input.length - 1
+  while (
+    sequenceStart >= 0 &&
+    (input[sequenceStart]! & 0xc0) === 0x80
+  ) {
+    sequenceStart--
+  }
+
+  if (sequenceStart < 0) {
+    return { complete: Buffer.alloc(0), incomplete: input }
+  }
+
+  const expectedLength = utf8SequenceLength(input[sequenceStart]!)
+  if (
+    expectedLength > 1 &&
+    input.length - sequenceStart < expectedLength
+  ) {
+    return {
+      complete: input.subarray(0, sequenceStart),
+      incomplete: input.subarray(sequenceStart),
+    }
+  }
+
+  return { complete: input, incomplete: undefined }
+}
+
+function inputToString(
+  input: Buffer | string,
+  pendingUtf8?: Buffer,
+): { value: string; pendingUtf8?: Buffer } {
+  if (Buffer.isBuffer(input)) {
+    const combined = pendingUtf8
+      ? Buffer.concat([pendingUtf8, input])
+      : input
+    const { complete, incomplete } = splitCompleteUtf8(combined)
+
+    if (complete.length === 0) {
+      return { value: '', pendingUtf8: incomplete }
+    }
+
+    return { value: String(complete), pendingUtf8: incomplete }
+  } else if (input !== undefined && typeof input !== 'string') {
+    return { value: String(input) }
+  } else if (!input) {
+    return { value: '' }
+  } else {
+    return { value: input }
+  }
+}
+
+function flushPendingUtf8(pendingUtf8?: Buffer): string {
+  if (!pendingUtf8 || pendingUtf8.length === 0) {
+    return ''
+  }
+
+  // Preserve the legacy 8-bit meta-key fallback when a lone high-bit byte
+  // really was a complete keypress rather than a split UTF-8 character.
+  if (pendingUtf8.length === 1 && pendingUtf8[0]! > 127) {
+    return '\x1b' + String.fromCharCode(pendingUtf8[0]! - 128)
+  }
+
+  return String(pendingUtf8)
 }
 
 export function parseMultipleKeypresses(
@@ -215,13 +279,18 @@ export function parseMultipleKeypresses(
   input: Buffer | string | null = '',
 ): [ParsedInput[], KeyParseState] {
   const isFlush = input === null
-  const inputString = isFlush ? '' : inputToString(input)
+  const converted = isFlush
+    ? { value: flushPendingUtf8(prevState.utf8Incomplete) }
+    : inputToString(input, prevState.utf8Incomplete)
+  const inputString = converted.value
 
   // Get or create tokenizer
   const tokenizer = prevState._tokenizer ?? createTokenizer({ x10Mouse: true })
 
   // Tokenize the input
-  const tokens = isFlush ? tokenizer.flush() : tokenizer.feed(inputString)
+  const tokens = isFlush
+    ? [...(inputString ? tokenizer.feed(inputString) : []), ...tokenizer.flush()]
+    : tokenizer.feed(inputString)
 
   // Convert tokens to parsed keys, handling paste mode
   const keys: ParsedInput[] = []
@@ -290,11 +359,16 @@ export function parseMultipleKeypresses(
     pasteBuffer = ''
   }
 
+  const tokenizerIncomplete = tokenizer.buffer()
+
   // Build new state
   const newState: KeyParseState = {
     mode: inPaste ? 'IN_PASTE' : 'NORMAL',
-    incomplete: tokenizer.buffer(),
+    incomplete: converted.pendingUtf8
+      ? tokenizerIncomplete || '<pending-utf8>'
+      : tokenizerIncomplete,
     pasteBuffer,
+    utf8Incomplete: isFlush ? undefined : converted.pendingUtf8,
     _tokenizer: tokenizer,
   }
 

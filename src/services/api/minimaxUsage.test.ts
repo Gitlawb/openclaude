@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { resolve } from 'node:path'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
 import {
   buildMiniMaxUsageRows,
@@ -9,6 +10,14 @@ import {
 
 const fixture = (name: string) =>
   Bun.file(resolve(import.meta.dir, '__fixtures__', name))
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('minimaxUsage.test.ts')
+})
+
+afterEach(() => {
+  releaseSharedMutationLock()
+})
 
 describe('normalizeMiniMaxUsagePayload', () => {
   test('normalizes interval and weekly quota payloads', () => {

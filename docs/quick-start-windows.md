@@ -18,7 +18,7 @@ npm --version
 ## 2. Install OpenClaude
 
 ```powershell
-npm install -g @gitlawb/openclaude
+npm install -g @gitlawb/openclaude@latest
 ```
 
 ## 3. Pick One Provider
@@ -103,6 +103,23 @@ Close PowerShell, open a new one, and try again:
 openclaude
 ```
 
+If PowerShell still says `openclaude` is not recognized, npm's global bin
+folder may be missing from your user `Path`. Add it, then open a new
+PowerShell window:
+
+```powershell
+$npmPrefix = npm config get prefix
+$currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+if (($currentUserPath -split ';') -notcontains $npmPrefix) {
+    [Environment]::SetEnvironmentVariable(
+        "Path",
+        "$currentUserPath;$npmPrefix",
+        "User"
+    )
+}
+```
+
 ## 5. If Your Provider Fails
 
 Check the basics:
@@ -138,9 +155,13 @@ npm install -g @gitlawb/openclaude@latest
 npm uninstall -g @gitlawb/openclaude
 ```
 
+
 ## Need Advanced Setup?
 
-Use:
+For advanced provider setup, custom endpoints, environment variables, and enterprise launch workflows, see the advanced setup guide:
 
-- [Advanced Setup](advanced-setup.md)
-- [Windows Power Aliases and Launchers](windows-aliases-and-launchers.md)
+- [Advanced setup](advanced-setup.md)
+
+For Windows helper aliases and launcher shortcuts such as `oc`, `oc-init`, `oc-local`, `oc-provider`, and `oc-check`, see:
+
+- [Windows aliases and launchers](windows-aliases-and-launchers.md)

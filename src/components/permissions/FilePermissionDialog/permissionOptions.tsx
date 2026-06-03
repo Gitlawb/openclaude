@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import { basename, join, sep } from 'path';
 import React, { type ReactNode } from 'react';
 import { getOriginalCwd } from '../../../bootstrap/state.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { Text } from '../../../ink.js';
 import { getShortcutDisplay } from '../../../keybindings/shortcutFormat.js';
 import type { ToolPermissionContext } from '../../../Tool.js';
@@ -27,16 +28,20 @@ export function isInClaudeFolder(filePath: string): boolean {
 }
 
 /**
- * Check if a path is within the global ~/.claude/ folder.
+ * Check if a path is within the global ~/.openclaude/ folder, or the legacy
+ * ~/.claude/ folder during migration.
  * This is used to determine whether to show the special ".claude folder" permission option
  * for files in the user's home directory.
  */
 export function isInGlobalClaudeFolder(filePath: string): boolean {
   const absolutePath = expandPath(filePath);
-  const globalClaudeFolderPath = join(homedir(), '.claude');
   const normalizedAbsolutePath = normalizeCaseForComparison(absolutePath);
-  const normalizedGlobalClaudeFolderPath = normalizeCaseForComparison(globalClaudeFolderPath);
-  return normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + sep.toLowerCase()) || normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + '/');
+  const globalClaudeFolderPaths = [join(homedir(), '.openclaude'), join(homedir(), '.claude')];
+
+  return globalClaudeFolderPaths.some(globalClaudeFolderPath => {
+    const normalizedGlobalClaudeFolderPath = normalizeCaseForComparison(globalClaudeFolderPath);
+    return normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + sep.toLowerCase()) || normalizedAbsolutePath.startsWith(normalizedGlobalClaudeFolderPath + '/');
+  });
 }
 export type PermissionOption = {
   type: 'accept-once';
@@ -44,7 +49,10 @@ export type PermissionOption = {
   type: 'accept-session';
   scope?: 'claude-folder' | 'global-claude-folder';
 } | {
+  type: 'accept-full-access';
+} | {
   type: 'reject';
+  withReason?: boolean;
 };
 export type PermissionOptionWithLabel = OptionWithDescription<string> & {
   option: PermissionOption;
@@ -62,7 +70,7 @@ export function getFilePermissionOptions({
   filePath: string;
   toolPermissionContext: ToolPermissionContext;
   operationType?: FileOperationType;
-  onRejectFeedbackChange?: (value: string) => void;
+  onRejectFeedbackChange: (value: string) => void;
   onAcceptFeedbackChange?: (value: string) => void;
   yesInputMode?: boolean;
   noInputMode?: boolean;
@@ -76,7 +84,7 @@ export function getFilePermissionOptions({
       type: 'input',
       label: 'Yes',
       value: 'yes',
-      placeholder: 'and tell Claude what to do next',
+      placeholder: `and tell ${PRODUCT_DISPLAY_NAME} what to do next`,
       onChange: onAcceptFeedbackChange,
       allowEmptySubmitToCancel: true,
       option: {
@@ -93,6 +101,7 @@ export function getFilePermissionOptions({
     });
   }
   const inAllowedPath = pathInAllowedWorkingPath(filePath, toolPermissionContext);
+  const showFullAccessOption = toolPermissionContext.isBypassPermissionsModeAvailable;
 
   // Check if this is a .claude/ folder path (project or global)
   const inClaudeFolder = isInClaudeFolder(filePath);
@@ -104,7 +113,7 @@ export function getFilePermissionOptions({
   // persisted permission rules.
   if ((inClaudeFolder || inGlobalClaudeFolder) && operationType !== 'read') {
     options.push({
-      label: 'Yes, and allow Claude to edit its own settings for this session',
+      label: `Yes, and allow ${PRODUCT_DISPLAY_NAME} to edit its own settings for this session`,
       value: 'yes-claude-folder',
       option: {
         type: 'accept-session',
@@ -148,14 +157,35 @@ export function getFilePermissionOptions({
       }
     });
   }
+  if (showFullAccessOption) {
+    options.push({
+      label: <Text color="error">Yes, and enable Full Access for this session</Text>,
+      value: 'yes-full-access',
+      option: {
+        type: 'accept-full-access'
+      }
+    });
+  }
 
-  // When in input mode, show input field for reject
+  options.push({
+    type: 'input',
+    label: 'No, provide reason',
+    value: 'no-with-reason',
+    placeholder: `tell ${PRODUCT_DISPLAY_NAME} what to do differently`,
+    onChange: onRejectFeedbackChange,
+    option: {
+      type: 'reject',
+      withReason: true
+    }
+  });
+
+  // When in input mode, keep supporting the existing Tab-to-amend flow.
   if (noInputMode && onRejectFeedbackChange) {
     options.push({
       type: 'input',
       label: 'No',
       value: 'no',
-      placeholder: 'and tell Claude what to do differently',
+      placeholder: `and tell ${PRODUCT_DISPLAY_NAME} what to do differently`,
       onChange: onRejectFeedbackChange,
       allowEmptySubmitToCancel: true,
       option: {
@@ -163,7 +193,6 @@ export function getFilePermissionOptions({
       }
     });
   } else {
-    // Not in input mode - simple option
     options.push({
       label: 'No',
       value: 'no',

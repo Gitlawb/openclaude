@@ -2,6 +2,7 @@ import type {
   BetaContentBlock,
   BetaWebSearchTool20250305,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { PRODUCT_DISPLAY_NAME } from 'src/constants/product.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
 
@@ -113,6 +114,32 @@ function formatProviderOutput(po: ProviderOutput, query: string): Output {
     query,
     results,
     durationSeconds: po.durationSeconds,
+  }
+}
+
+function buildEmptyAdapterResultHint(provider: string, providerName: string): string {
+  return (
+    `No results from "${providerName}" search backend for provider "${provider}". ` +
+    `The default DuckDuckGo backend is rate-limited from many networks (datacenter IPs, VPNs, repeated requests) and returns 0 results when blocked. ` +
+    `For reliable web search on this provider, set one of: ` +
+    `FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, JINA_API_KEY, BING_API_KEY, MOJEEK_API_KEY, LINKUP_API_KEY, YOU_API_KEY — ` +
+    `or switch to an Anthropic / Vertex / Foundry provider that supports the native web_search tool.`
+  )
+}
+
+function formatProviderOutputWithEmptyHint(
+  po: ProviderOutput,
+  query: string,
+  provider: string,
+): Output {
+  const base = formatProviderOutput(po, query)
+  // Replace the "No results found." placeholder with a diagnostic hint when
+  // we know the next layer (native Anthropic web_search) will also produce
+  // 0 silently for this provider. Hits-present case is unchanged.
+  if (po.hits.length > 0) return base
+  return {
+    ...base,
+    results: [buildEmptyAdapterResultHint(provider, po.providerName)],
   }
 }
 
@@ -324,8 +351,33 @@ function makeOutputFromCodexWebSearchResponse(
   }
 }
 
+/**
+ * Build the user-facing error thrown when the adapter path (DDG / Firecrawl /
+ * Tavily / etc.) fails in auto mode and the current provider has NO native
+ * web-search fallback (openai-shim providers like moonshot/minimax/nvidia-nim/
+ * github copilot). Without this, the only signal would be a `console.error`
+ * the user never sees, and the eventual native call silently returns
+ * "Did 0 searches" — issue #994.
+ *
+ * The embedded `errMsg` carries the underlying adapter failure (rate-limit,
+ * timeout, 5xx, etc.) so the user can act on it instead of guessing.
+ */
+function buildAdapterUnavailableError(
+  provider: string,
+  errMsg: string,
+): string {
+  return (
+    `Web search is unavailable for provider "${provider}". ` +
+    `The search adapter failed (${errMsg}). ` +
+    `Try switching to a provider with built-in web search (e.g. Anthropic, Codex) or try again later.`
+  )
+}
+
 export const __test = {
   makeOutputFromCodexWebSearchResponse,
+  buildEmptyAdapterResultHint,
+  formatProviderOutputWithEmptyHint,
+  buildAdapterUnavailableError,
 }
 
 async function runCodexWebSearch(
@@ -528,7 +580,7 @@ export const WebSearchTool = buildTool({
   maxResultSizeChars: 100_000,
   shouldDefer: true,
   async description(input) {
-    return `Claude wants to search the web for: ${input.query}`
+    return `${PRODUCT_DISPLAY_NAME} wants to search the web for: ${input.query}`
   },
   userFacingName() {
     return 'Web Search'
@@ -663,7 +715,24 @@ export const WebSearchTool = buildTool({
         if (isExplicitAdapter || providerOutput.hits.length > 0) {
           return { data: formatProviderOutput(providerOutput, input.query) }
         }
-        // Auto mode with 0 hits: fall through to native
+        // Auto mode with 0 hits: only fall through to native when a real
+        // native fallback exists. For openai-shim providers (minimax,
+        // moonshot, nvidia-nim, github copilot, etc.) the native path
+        // silently returns "Did 0 searches" because those providers do
+        // not support Anthropic's web_search_20250305 tool — same root
+        // cause as the catch branch below. Surface the empty result with
+        // an actionable note so users see why nothing came back.
+        if (!hasNativeSearchFallback()) {
+          return {
+            data: formatProviderOutputWithEmptyHint(
+              providerOutput,
+              input.query,
+              getAPIProvider(),
+            ),
+          }
+        }
+        // Auto mode + 0 hits + native fallback available: fall through to
+        // native (Anthropic/Vertex/Foundry/Codex) and let it try.
       } catch (err) {
         // Explicit adapter: throw the real error (no silent native fallback)
         if (isExplicitAdapter) throw err
@@ -675,12 +744,14 @@ export const WebSearchTool = buildTool({
         if (!hasNativeSearchFallback()) {
           const provider = getAPIProvider()
           const errMsg = err instanceof Error ? err.message : String(err)
-          throw new Error(
-            `Web search is unavailable for provider "${provider}". ` +
-              `The search adapter failed (${errMsg}). ` +
-              `Try switching to a provider with built-in web search (e.g. Anthropic, Codex) or try again later.`,
-          )
+          throw new Error(buildAdapterUnavailableError(provider, errMsg))
         }
+        // This branch is only reachable if a future provider-selection change
+        // both invokes the adapter AND has a native fallback ready. Today,
+        // `shouldUseAdapterProvider()` returns false whenever
+        // `hasNativeSearchFallback()` returns true (auto mode prefers native
+        // for firstParty/vertex/foundry/Codex), so this path is intentionally
+        // a no-op pass-through: silent log + fall through to native below.
         console.error(
           `[web-search] Adapter failed, falling through to native: ${err}`,
         )
@@ -689,9 +760,11 @@ export const WebSearchTool = buildTool({
 
     // --- Codex / OpenAI Responses path ---
     if (isCodexResponsesWebSearchEnabled()) {
-      return {
-        data: await runCodexWebSearch(input, context.abortController.signal),
-      }
+      const codexData = await runCodexWebSearch(
+        input,
+        context.abortController.signal,
+      )
+      return { data: codexData }
     }
 
     // --- Native Anthropic path (firstParty / vertex / foundry) ---
