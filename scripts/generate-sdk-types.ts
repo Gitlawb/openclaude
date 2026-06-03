@@ -268,8 +268,13 @@ function convert(schema: any, depth = 0): string {
         .map(v => JSON.stringify(v))
         .join(' | ')
     }
-    case 'array':
-      return `${convert(def.element, depth)}[]`
+    case 'array': {
+      const el = convert(def.element, depth)
+      // Wrap unions/intersections in parens so `[]` binds the whole type,
+      // not just the last member: `("a" | "b")[]` vs `"a" | "b[]"`.
+      const wrapped = el.includes(' | ') || el.includes(' & ') ? `(${el})` : el
+      return `${wrapped}[]`
+    }
     case 'tuple': {
       const items = (def.items as any[]).map(t => convert(t, depth))
       return `[${items.join(', ')}]`

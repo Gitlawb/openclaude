@@ -126,7 +126,7 @@ export function modelUsesOpenAIEffort(model: string): boolean {
   return true
 }
 
-export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIEffortLevel[] {
+export function getAvailableEffortLevels(model: string): EffortLevel[] {
   if (!modelSupportsEffort(model)) {
     return []
   }
@@ -140,7 +140,7 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIE
     m.includes('gemini-3')
   ) && getAPIProvider() === 'openai'
   if (modelUsesOpenAIEffort(model) && !isOpenCodeNativeFormat) {
-    return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
+    return [...OPENAI_EFFORT_LEVELS] as EffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
   if (modelSupportsXHighEffort(model)) {
