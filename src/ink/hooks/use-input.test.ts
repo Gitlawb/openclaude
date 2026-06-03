@@ -1,116 +1,166 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'bun:test'
+import { PassThrough } from 'node:stream'
 
-// Hoist the mock so it's available before module load
-const mockSetRawMode = vi.fn()
-const mockEventEmitter = { on: vi.fn(), removeListener: vi.fn(), emit: vi.fn() }
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { createElement } from 'react'
 
-vi.mock('./use-stdin.js', () => ({
-  default: () => ({
-    setRawMode: mockSetRawMode,
+import { EventEmitter } from '../events/emitter.js'
+import StdinContext, { type Props } from '../components/StdinContext.js'
+import { createRoot, type Root } from '../root.js'
+import useInput from './use-input.js'
+
+// The hook reads its stdin handle from StdinContext, so we inject a fake
+// context value instead of mocking the module. A module-level mock.module()
+// would leak into every subsequent test file in the same `bun test` process
+// (use-stdin would stay replaced), silently breaking input handling in
+// unrelated component tests — so we deliberately avoid it here.
+function createStdinContextValue(setRawMode: (value: boolean) => void): Props {
+  return {
+    stdin: process.stdin,
+    setRawMode,
+    isRawModeSupported: true,
     internal_exitOnCtrlC: false,
-    internal_eventEmitter: mockEventEmitter,
-  }),
-}))
+    internal_eventEmitter: new EventEmitter(),
+    internal_querier: null,
+  }
+}
 
-// Dynamic import after mock is registered
-const { renderHook, act } = await import('@testing-library/react-hooks')
-const useInput = (await import('./use-input.js')).default
+function createTestStdout(): NodeJS.WriteStream {
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 80
+  return stdout as unknown as NodeJS.WriteStream
+}
+
+// A probe that mounts the hook under test, with isActive driven by props so we
+// can exercise the mount / re-render / unmount transitions.
+function Probe({ isActive }: { isActive?: boolean }): null {
+  useInput(() => {}, { isActive })
+  return null
+}
+
+// Renders the probe inside an injected StdinContext so the hook's setRawMode
+// calls land on our spy. The deferred raw-mode reset uses a real setTimeout(0),
+// so tests await `tick()` to let it fire rather than using fake timers.
+async function renderProbe(
+  setRawMode: (value: boolean) => void,
+  initial: { isActive?: boolean } = {},
+): Promise<{
+  rerender: (props: { isActive?: boolean }) => void
+  unmount: () => void
+}> {
+  const stdout = createTestStdout()
+  const root: Root = await createRoot({ stdout, patchConsole: false })
+  const contextValue = createStdinContextValue(setRawMode)
+
+  const draw = (props: { isActive?: boolean }) =>
+    root.render(
+      createElement(
+        StdinContext.Provider,
+        { value: contextValue },
+        createElement(Probe, props),
+      ),
+    )
+
+  draw(initial)
+
+  return {
+    rerender: draw,
+    unmount: () => root.unmount(),
+  }
+}
+
+function tick(): Promise<void> {
+  return Bun.sleep(5)
+}
 
 describe('useInput — raw mode lifecycle', () => {
+  let setRawMode: ReturnType<typeof mock>
+
   beforeEach(() => {
-    vi.useFakeTimers()
-    mockSetRawMode.mockClear()
+    setRawMode = mock((_value: boolean) => {})
   })
 
   afterEach(() => {
-    vi.useRealTimers()
+    mock.restore()
   })
 
-  it('enables raw mode on mount when isActive is true (default)', () => {
-    const handler = vi.fn()
-    renderHook(() => useInput(handler))
-
-    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+  test('enables raw mode on mount when isActive is true (default)', async () => {
+    const probe = await renderProbe(setRawMode)
+    try {
+      expect(setRawMode).toHaveBeenCalledWith(true)
+    } finally {
+      probe.unmount()
+    }
   })
 
-  it('does NOT enable raw mode when isActive is false', () => {
-    const handler = vi.fn()
-    renderHook(() => useInput(handler, { isActive: false }))
-
-    expect(mockSetRawMode).not.toHaveBeenCalled()
+  test('does NOT enable raw mode when isActive is false', async () => {
+    const probe = await renderProbe(setRawMode, { isActive: false })
+    try {
+      expect(setRawMode).not.toHaveBeenCalled()
+    } finally {
+      probe.unmount()
+    }
   })
 
-  it('defers setRawMode(false) on unmount — fires after one tick', () => {
-    const handler = vi.fn()
-    const { unmount } = renderHook(() => useInput(handler))
+  test('defers setRawMode(false) on unmount — fires after one tick', async () => {
+    const probe = await renderProbe(setRawMode)
 
-    unmount()
+    probe.unmount()
 
-    // Immediately after unmount, setRawMode(false) has NOT yet fired
-    expect(mockSetRawMode).toHaveBeenCalledTimes(1) // only the initial true
-    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+    // Immediately after unmount, setRawMode(false) has NOT yet fired.
+    expect(setRawMode).toHaveBeenCalledTimes(1) // only the initial true
+    expect(setRawMode).toHaveBeenCalledWith(true)
 
-    // Advance timers — the deferred reset fires
-    vi.advanceTimersByTime(1)
+    // Let the deferred reset fire.
+    await tick()
 
-    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
-    expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
+    expect(setRawMode).toHaveBeenCalledTimes(2)
+    expect(setRawMode).toHaveBeenLastCalledWith(false)
   })
 
-  it('cancels deferred reset on isActive false→true transition (MCP re-render churn)', () => {
-    const handler = vi.fn()
-    const { rerender, unmount } = renderHook(
-      ({ isActive }: { isActive: boolean }) => useInput(handler, { isActive }),
-      { initialProps: { isActive: true } },
-    )
+  test('cancels deferred reset on isActive false→true transition (MCP re-render churn)', async () => {
+    const probe = await renderProbe(setRawMode, { isActive: true })
 
-    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
-    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+    expect(setRawMode).toHaveBeenCalledTimes(1)
+    expect(setRawMode).toHaveBeenCalledWith(true)
 
-    // Toggle to inactive — effect cleanup schedules deferred reset
-    rerender({ isActive: false })
+    // Toggle to inactive — effect cleanup schedules the deferred reset.
+    probe.rerender({ isActive: false })
 
-    // Cleanup ran: timer scheduled but hasn't fired yet
-    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
+    // Cleanup ran: timer scheduled but hasn't fired yet.
+    expect(setRawMode).toHaveBeenCalledTimes(1)
 
-    // Toggle back to active before timer fires — setup cancels pending reset
-    rerender({ isActive: true })
+    // Toggle back to active before the timer fires — setup cancels the pending
+    // reset and does NOT call setRawMode(true) again, because the counter was
+    // never decremented by the deferred reset.
+    probe.rerender({ isActive: true })
 
-    // Setup cleared the pending timer but did NOT call setRawMode(true)
-    // because the counter was never decremented by the deferred reset.
-    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
-    expect(mockSetRawMode).toHaveBeenLastCalledWith(true)
+    expect(setRawMode).toHaveBeenCalledTimes(1)
+    expect(setRawMode).toHaveBeenLastCalledWith(true)
 
-    // Advance timers — the cancelled reset should NOT fire
-    vi.advanceTimersByTime(100)
+    // The cancelled reset must not fire.
+    await tick()
+    expect(setRawMode).toHaveBeenCalledTimes(1)
 
-    // Still only 1 call (no setRawMode(false), no redundant setRawMode(true))
-    expect(mockSetRawMode).toHaveBeenCalledTimes(1)
+    // Final unmount fires the deferred reset.
+    probe.unmount()
+    await tick()
 
-    // Clean up: final unmount fires the deferred reset
-    unmount()
-    vi.advanceTimersByTime(1)
-
-    expect(mockSetRawMode).toHaveBeenCalledTimes(2)
-    expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
+    expect(setRawMode).toHaveBeenCalledTimes(2)
+    expect(setRawMode).toHaveBeenLastCalledWith(false)
   })
 
-  it('handles isActive true → false transition: disables raw mode', () => {
-    const handler = vi.fn()
-    const { rerender } = renderHook(
-      ({ isActive }) => useInput(handler, { isActive }),
-      { initialProps: { isActive: true } },
-    )
+  test('handles isActive true → false transition: disables raw mode', async () => {
+    const probe = await renderProbe(setRawMode, { isActive: true })
 
-    expect(mockSetRawMode).toHaveBeenCalledWith(true)
+    expect(setRawMode).toHaveBeenCalledWith(true)
 
-    // Transition to inactive
-    rerender({ isActive: false })
+    // Transition to inactive — the cleanup from the isActive=true run schedules
+    // a deferred reset.
+    probe.rerender({ isActive: false })
+    await tick()
 
-    // The effect cleanup from the previous isActive=true run
-    // schedules a deferred reset
-    vi.advanceTimersByTime(1)
+    expect(setRawMode).toHaveBeenLastCalledWith(false)
 
-    expect(mockSetRawMode).toHaveBeenLastCalledWith(false)
+    probe.unmount()
   })
 })
