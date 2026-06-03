@@ -23,6 +23,20 @@ function geminiModel(id: string, label: string, maxOutputTokens: number) {
   })
 }
 
+function gemmaModel(id: string, label: string, contextWindow: number, maxOutputTokens: number) {
+  return defineModel({
+    id,
+    label,
+    brandId: 'gemini',
+    vendorId: 'gemini',
+    classification: ['chat', 'reasoning', 'coding'],
+    defaultModel: id,
+    capabilities: geminiCapabilities,
+    contextWindow,
+    maxOutputTokens,
+  })
+}
+
 export default [
   geminiModel('gemini-3.1-flash-lite-preview', 'Gemini 3.1 Flash Lite Preview', 65_536),
   geminiModel('gemini-3.1-pro', 'Gemini 3.1 Pro', 65_536),
@@ -32,4 +46,10 @@ export default [
   geminiModel('google/gemini-3.1-flash-lite-preview', 'Google Gemini 3.1 Flash Lite Preview', 65_536),
   geminiModel('google/gemini-2.5-pro', 'Google Gemini 2.5 Pro', 65_536),
   geminiModel('google/gemini-2.0-flash', 'Google Gemini 2.0 Flash', 8_192),
+
+  gemmaModel('gemma-4-e2b', 'Gemma 4 E2B', 131_072, 8_192),
+  gemmaModel('gemma-4-e4b', 'Gemma 4 E4B', 131_072, 8_192),
+  gemmaModel('gemma-4-12b', 'Gemma 4 12B', 262_144, 8_192),
+  gemmaModel('gemma-4-26b-a4b', 'Gemma 4 26B A4B', 262_144, 8_192),
+  gemmaModel('gemma-4-31b', 'Gemma 4 31B', 262_144, 8_192),
 ]
