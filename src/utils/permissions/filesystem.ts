@@ -10,6 +10,7 @@ import {
   CLAUDE_FOLDER_PERMISSION_PATTERN,
   FILE_EDIT_TOOL_NAME,
   GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
+  LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
 } from 'src/tools/FileEditTool/constants.js'
 import type { z } from 'zod/v4'
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
@@ -95,8 +96,10 @@ export function normalizeCaseForComparison(path: string): string {
 }
 
 /**
- * If filePath is inside a .claude/skills/{name}/ directory (project or global),
- * return the skill name and a session-allow pattern scoped to just that skill.
+ * If filePath is inside a .claude/skills/{name}/ directory (project) or
+ * .openclaude/skills/{name}/ directory (global), plus the legacy global
+ * .claude/skills path, return the skill name and a session-allow pattern
+ * scoped to just that skill.
  * Used to offer a narrower "allow edits to this skill only" option in the
  * permission dialog and SDK suggestions, so iterating on one skill doesn't
  * require granting session access to all of .claude/ (settings.json, hooks/, etc.).
@@ -111,6 +114,10 @@ export function getClaudeSkillScope(
     {
       dir: expandPath(join(getOriginalCwd(), '.claude', 'skills')),
       prefix: '/.claude/skills/',
+    },
+    {
+      dir: expandPath(join(homedir(), '.openclaude', 'skills')),
+      prefix: '~/.openclaude/skills/',
     },
     {
       dir: expandPath(join(homedir(), '.claude', 'skills')),
@@ -431,6 +438,24 @@ function isScratchpadPath(absolutePath: string): boolean {
   return (
     normalizedPath === scratchpadDir ||
     normalizedPath.startsWith(scratchpadDir + sep)
+  )
+}
+
+function pathsEqualForPermission(a: string, b: string): boolean {
+  return normalizeCaseForComparison(normalize(a)) ===
+    normalizeCaseForComparison(normalize(b))
+}
+
+export function isOpenClaudeCommitMessagePath(absolutePath: string): boolean {
+  const expectedPath = join(getOriginalCwd(), '.git', 'OPENCLAUDE_COMMIT_MSG')
+  const expectedForms = getPathsForPermissionCheck(expectedPath)
+  const targetForms = getPathsForPermissionCheck(absolutePath)
+
+  return (
+    targetForms.length > 0 &&
+    targetForms.every(target =>
+      expectedForms.some(expected => pathsEqualForPermission(target, expected)),
+    )
   )
 }
 
@@ -1255,6 +1280,7 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   const internalEditResult = checkEditableInternalPath(
     absolutePathForEdit,
     input,
+    toolPermissionContext,
   )
   if (internalEditResult.behavior !== 'passthrough') {
     return internalEditResult
@@ -1282,19 +1308,23 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
     'allow',
   )
   if (claudeFolderAllowRule) {
-    // Check if this rule is scoped under .claude/ (project or global).
-    // Accepts both the broad patterns ('/.claude/**', '~/.claude/**') and
-    // narrowed ones like '/.claude/skills/my-skill/**' so users can grant
+    // Check if this rule is scoped under a Claude config folder.
+    // Accepts broad project/global patterns ('/.claude/**',
+    // '~/.openclaude/**', and legacy '~/.claude/**') plus narrowed skill
+    // patterns like '~/.openclaude/skills/my-skill/**' so users can grant
     // session access to a single skill without also exposing settings.json
     // or hooks/. The rule already matched the path via matchingRuleForInput;
     // this is an additional scope check. Reject '..' to prevent a rule like
-    // '/.claude/../**' from leaking this bypass outside .claude/.
+    // '/.claude/../**' from leaking this bypass outside the config folder.
     const ruleContent = claudeFolderAllowRule.ruleValue.ruleContent
     if (
       ruleContent &&
       (ruleContent.startsWith(CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2)) ||
         ruleContent.startsWith(
           GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
+        ) ||
+        ruleContent.startsWith(
+          LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
         )) &&
       !ruleContent.includes('..') &&
       ruleContent.endsWith('/**')
@@ -1490,6 +1520,7 @@ export function generateSuggestions(
 export function checkEditableInternalPath(
   absolutePath: string,
   input: { [key: string]: unknown },
+  toolPermissionContext?: ToolPermissionContext,
 ): PermissionResult {
   // SECURITY: Normalize path to prevent traversal bypasses via .. segments
   // This is defense-in-depth; individual helper functions also normalize
@@ -1608,6 +1639,24 @@ export function checkEditableInternalPath(
       decisionReason: {
         type: 'other',
         reason: 'Preview launch config is allowed for writing',
+      },
+    }
+  }
+
+  // /commit uses this project-local file to pass multi-line commit messages
+  // safely through shells on Windows. It is data-only and intentionally scoped
+  // to one exact file; other .git/ paths still go through safety checks.
+  if (
+    (toolPermissionContext?.mode === 'bypassPermissions' ||
+      toolPermissionContext?.mode === 'fullAccess') &&
+    isOpenClaudeCommitMessagePath(normalizedPath)
+  ) {
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      decisionReason: {
+        type: 'other',
+        reason: 'OpenClaude commit message file is allowed for writing',
       },
     }
   }

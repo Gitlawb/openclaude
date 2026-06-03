@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { getCommandQueue, resetCommandQueue } from './messageQueueManager.js'
 
 describe('handlePromptSubmit', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/handlePromptSubmit.test.ts')
     resetCommandQueue()
     mock.module('src/services/analytics/index.js', () => ({
       logEvent: () => {},
@@ -10,8 +15,12 @@ describe('handlePromptSubmit', () => {
   })
 
   afterEach(() => {
-    resetCommandQueue()
-    mock.restore()
+    try {
+      resetCommandQueue()
+      mock.restore()
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   it('queues prompt submissions during generation without interrupting the current turn', async () => {

@@ -8,6 +8,7 @@
 import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
 import {
   getRouteLabel,
+  isMiniMaxBaseUrl,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
@@ -161,7 +162,8 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
-  return { name: 'Anthropic', model: resolvedModel, baseUrl, isLocal }
+  const name = isMiniMaxBaseUrl(baseUrl) ? 'MiniMax' : 'Anthropic'
+  return { name, model: resolvedModel, baseUrl, isLocal }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ import {
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { getCachedXiaomiMimoModelOptions, isXiaomiMimoProvider } from './xiaomi-mimoModels.js'
 import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
@@ -441,6 +442,16 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const minimaxModels = getCachedMiniMaxModelOptions()
     if (minimaxModels.length > 0) {
       return [defaultOption, ...minimaxModels]
+    }
+    return [defaultOption]
+  }
+
+  // When using Xiaomi MiMo, show models from the MiMo catalog
+  if (isXiaomiMimoProvider()) {
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const xiaomiMimoModels = getCachedXiaomiMimoModelOptions()
+    if (xiaomiMimoModels.length > 0) {
+      return [defaultOption, ...xiaomiMimoModels]
     }
     return [defaultOption]
   }

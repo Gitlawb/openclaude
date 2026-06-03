@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { randomUUID } from 'crypto'
 import { rmSync } from 'fs'
 import {
@@ -6,38 +6,100 @@ import {
   unstable_v2_resumeSession,
   unstable_v2_prompt,
 } from '../../src/entrypoints/sdk/index.js'
-import { getSessionProjectDir } from '../../src/bootstrap/state.js'
+import {
+  getCwdState,
+  getOriginalCwd,
+  getSessionId,
+  getSessionProjectDir,
+  setCwdState,
+  setOriginalCwd,
+  switchSession,
+} from '../../src/bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
+import { clearAgentDefinitionsCache } from '../../src/tools/AgentTool/loadAgentsDir.js'
+import type { SessionId } from '../../src/entrypoints/agentSdkTypes.js'
 import {
   drainQuery,
   withTempDir,
   createSessionJsonl,
   createMinimalConversation,
   createMultiTurnConversation,
+  isExpectedDrainAbort,
   UUID_REGEX,
 } from './helpers/query-test-doubles.js'
 
 // sendMessage drains trigger init(), which checks auth. Stub it for CI.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
+const DISABLE_BUILTIN_AGENTS_KEY = 'CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS'
 let savedApiKey: string | undefined
-
-beforeAll(() => {
-  savedApiKey = process.env[AUTH_KEY]
-  if (!savedApiKey) process.env[AUTH_KEY] = 'sk-test-v2-lifecycle-stub'
-})
-
-afterAll(() => {
-  if (savedApiKey === undefined) delete process.env[AUTH_KEY]
-  else process.env[AUTH_KEY] = savedApiKey
-})
+let savedDisableBuiltinAgents: string | undefined
+let hadSavedMacro = false
+let savedMacro: unknown
+let originalSessionId: SessionId
+let originalSessionProjectDir: string | null
+let originalCwd: string
+let originalOriginalCwd: string
 
 // Collect temp dirs for cleanup
 const tempDirs: string[] = []
 
+beforeAll(async () => {
+  await acquireSharedMutationLock('sdk-v2-lifecycle')
+  savedApiKey = process.env[AUTH_KEY]
+  savedDisableBuiltinAgents = process.env[DISABLE_BUILTIN_AGENTS_KEY]
+  hadSavedMacro = Object.hasOwn(globalThis, 'MACRO')
+  savedMacro = (globalThis as Record<string, unknown>).MACRO
+  if (!savedApiKey) process.env[AUTH_KEY] = 'sk-test-v2-lifecycle-stub'
+  process.env[DISABLE_BUILTIN_AGENTS_KEY] = '1'
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    VERSION: '0.0.0-test',
+    DISPLAY_VERSION: '0.0.0-test',
+    BUILD_TIME: 'test',
+    ISSUES_EXPLAINER: 'test',
+    PACKAGE_URL: 'test',
+    NATIVE_PACKAGE_URL: undefined,
+  }
+  clearAgentDefinitionsCache()
+})
+
+afterAll(() => {
+  try {
+    if (savedApiKey === undefined) delete process.env[AUTH_KEY]
+    else process.env[AUTH_KEY] = savedApiKey
+    if (savedDisableBuiltinAgents === undefined) {
+      delete process.env[DISABLE_BUILTIN_AGENTS_KEY]
+    } else {
+      process.env[DISABLE_BUILTIN_AGENTS_KEY] = savedDisableBuiltinAgents
+    }
+    if (hadSavedMacro) {
+      ;(globalThis as Record<string, unknown>).MACRO = savedMacro
+    } else {
+      delete (globalThis as Record<string, unknown>).MACRO
+    }
+    clearAgentDefinitionsCache()
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
+
 afterEach(() => {
+  switchSession(originalSessionId, originalSessionProjectDir)
+  setCwdState(originalCwd)
+  setOriginalCwd(originalOriginalCwd)
   for (const dir of tempDirs) {
     try { rmSync(dir, { recursive: true, force: true }) } catch {}
   }
   tempDirs.length = 0
+})
+
+beforeEach(() => {
+  originalSessionId = getSessionId()
+  originalSessionProjectDir = getSessionProjectDir()
+  originalCwd = getCwdState()
+  originalOriginalCwd = getOriginalCwd()
 })
 
 describe('V2: session creation', () => {
@@ -88,16 +150,20 @@ describe('V2: session interrupt', () => {
       abortController: ac,
     })
     ac.abort()
-    let caught = false
+    const messages: unknown[] = []
+    let caught: unknown = null
     try {
-      for await (const _ of session.sendMessage('test')) {
-        // drain
+      for await (const msg of session.sendMessage('test')) {
+        messages.push(msg)
       }
-    } catch {
-      caught = true
+    } catch (err) {
+      caught = err
     }
-    // Either completes with no messages or throws — both are acceptable
-    expect(true).toBe(true)
+    if (caught) {
+      expect(isExpectedDrainAbort(caught)).toBe(true)
+    } else {
+      expect(messages.length).toBe(0)
+    }
   }, 10_000)
 })
 

@@ -23,12 +23,25 @@ export async function fetchWithProxyRetry(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await fetch(input, {
+      const response = await fetch(input, {
         ...init,
         ...getProxyFetchOptions({
           forAnthropicAPI: options?.forAnthropicAPI,
         }),
       })
+
+      // If an upstream proxy or local NAT silently dropped the keep-alive socket,
+      // it might result in a 502/504 response instead of a hard network exception.
+      // We automatically disable keep-alive and retry to force a clean handshake.
+      if (
+        (response.status === 502 || response.status === 504) &&
+        attempt < maxAttempts
+      ) {
+        disableKeepAlive()
+        continue
+      }
+
+      return response
     } catch (error) {
       lastError = error
       if (attempt >= maxAttempts || !isRetryableFetchError(error)) {

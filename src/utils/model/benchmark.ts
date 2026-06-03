@@ -6,6 +6,7 @@
  */
 
 import { getAPIProvider } from './providers.js'
+import { createCombinedAbortSignal } from '../combinedAbortSignal.js'
 
 export interface BenchmarkResult {
   model: string
@@ -33,8 +34,8 @@ function getBenchmarkEndpoint(): string | null {
   if (provider === 'openai' || provider === 'firstParty') {
     return `${baseUrl || 'https://api.openai.com/v1'}/chat/completions`
   }
-  // NVIDIA NIM or MiniMax via OPENAI_BASE_URL
-  if (baseUrl?.includes('nvidia') || baseUrl?.includes('minimax')) {
+  // NVIDIA NIM via OPENAI_BASE_URL
+  if (baseUrl?.includes('nvidia')) {
     return `${baseUrl}/chat/completions`
   }
   return null
@@ -69,6 +70,9 @@ export async function benchmarkModel(
   let totalTokens = 0
   let firstTokenMs: number | null = null
 
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: TIMEOUT_MS,
+  })
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -82,7 +86,7 @@ export async function benchmarkModel(
         max_tokens: MAX_TOKENS,
         stream: true,
       }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal,
     })
 
     if (!response.ok) {
@@ -163,6 +167,8 @@ export async function benchmarkModel(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     }
+  } finally {
+    cleanup()
   }
 }
 

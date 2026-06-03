@@ -60,6 +60,18 @@ test('classifies generic 404 responses as endpoint_not_found', () => {
   expect(failure.hint).toContain('/v1')
 })
 
+test('classifies 404 with images as vision_not_supported', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 404,
+    body: 'Not Found',
+    hasImages: true,
+  })
+
+  expect(failure.category).toBe('vision_not_supported')
+  expect(failure.retryable).toBe(false)
+  expect(failure.hint).toContain('image')
+})
+
 test('classifies context-overflow responses', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 500,
@@ -68,6 +80,29 @@ test('classifies context-overflow responses', () => {
 
   expect(failure.category).toBe('context_overflow')
   expect(failure.retryable).toBe(false)
+})
+
+test('401 "token expired" surfaces a re-auth hint, not the generic API-key hint (issue #1042)', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 401,
+    body: 'IDE token expired: unauthorized: token expired',
+  })
+
+  expect(failure.category).toBe('auth_invalid')
+  expect(failure.hint).toContain('/onboard-github')
+  expect(failure.hint).toContain('/login')
+  expect(failure.hint).not.toContain('API key')
+})
+
+test('401 without expired-token signal keeps the generic API-key hint', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 401,
+    body: 'invalid_api_key: incorrect API key provided',
+  })
+
+  expect(failure.category).toBe('auth_invalid')
+  expect(failure.hint).toContain('API key')
+  expect(failure.hint).not.toContain('/onboard-github')
 })
 
 test('classifies tool compatibility failures', () => {

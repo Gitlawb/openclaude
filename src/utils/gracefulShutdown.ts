@@ -30,13 +30,13 @@ import {
   wrapForMultiplexer,
 } from '../ink/termio/osc.js'
 import { shutdownDatadog } from '../services/analytics/datadog.js'
-import { shutdown1PEventLogging } from '../services/analytics/firstPartyEventLogger.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../services/analytics/index.js'
 import type { AppState } from '../state/AppState.js'
 import { runCleanupFunctions } from './cleanupRegistry.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -479,14 +479,19 @@ export async function gracefulShutdown(
   // Execute SessionEnd hooks. Bound both the per-hook default timeout and the
   // overall execution via a single budget (CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS,
   // default 1.5s). hook.timeout in settings is respected up to this cap.
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: sessionEndTimeoutMs,
+  })
   try {
     await executeSessionEndHooks(reason, {
       ...options,
-      signal: AbortSignal.timeout(sessionEndTimeoutMs),
+      signal,
       timeoutMs: sessionEndTimeoutMs,
     })
   } catch {
     // Ignore SessionEnd hook exceptions (including AbortError on timeout)
+  } finally {
+    cleanup()
   }
 
   // Log startup perf before analytics shutdown flushes/cancels timers
@@ -513,7 +518,7 @@ export async function gracefulShutdown(
   // Lost analytics on slow networks are acceptable; a hanging exit is not.
   try {
     await Promise.race([
-      Promise.all([shutdown1PEventLogging(), shutdownDatadog()]),
+      shutdownDatadog(),
       sleep(500),
     ])
   } catch {

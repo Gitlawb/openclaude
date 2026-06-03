@@ -1,6 +1,6 @@
 // src/integrations/registry.test.ts
 
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { ensureIntegrationsLoaded } from './index.js'
 import {
   _clearRegistryForTesting,
@@ -22,14 +22,23 @@ import {
   registerVendor,
   validateIntegrationRegistry,
 } from './registry.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('integrations/registry.test.ts')
   _clearRegistryForTesting()
 })
 
-afterAll(() => {
-  _clearRegistryForTesting()
-  ensureIntegrationsLoaded()
+afterEach(() => {
+  try {
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -355,6 +364,26 @@ describe('validateIntegrationRegistry', () => {
     )
     const result = validateIntegrationRegistry()
     expect(result.warnings.some(w => w.includes('has no models and no discovery config'))).toBe(false)
+  })
+
+  test('catches dynamic catalogs with curated models', () => {
+    registerGateway(
+      makeGateway('gw-dynamic-curated', {
+        catalog: {
+          source: 'dynamic',
+          discovery: { kind: 'openai-compatible' },
+          models: [{ id: 'curated-model', apiName: 'curated-model' }],
+        },
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors.some(e =>
+        e.includes('must use source "hybrid" when declaring curated models'),
+      ),
+    ).toBe(true)
   })
 
   test('catches duplicate preset ids across routes', () => {

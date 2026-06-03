@@ -827,9 +827,12 @@ export function getInitialSettings(): SettingsJson {
 }
 
 /**
- * @deprecated Use getInitialSettings() instead. This alias exists for backwards compatibility.
+ * @deprecated Use getInitialSettings() instead. Keep this as a function
+ * declaration so cyclic test-only module graphs never observe it in TDZ.
  */
-export const getSettings_DEPRECATED = getInitialSettings
+export function getSettings_DEPRECATED(): SettingsJson {
+  return getInitialSettings()
+}
 
 export type SettingsWithSources = {
   effective: SettingsJson
@@ -897,6 +900,24 @@ export function hasSkipDangerousModePermissionPrompt(): boolean {
     getSettingsForSource('localSettings')?.skipDangerousModePermissionPrompt ||
     getSettingsForSource('flagSettings')?.skipDangerousModePermissionPrompt ||
     getSettingsForSource('policySettings')?.skipDangerousModePermissionPrompt
+  )
+}
+
+/**
+ * Returns true if any trusted settings source has accepted the full access
+ * mode dialog. This is intentionally separate from bypass permissions because
+ * fullAccess skips an additional hard safety-check layer.
+ */
+export function hasSkipFullAccessModePermissionPrompt(): boolean {
+  return !!(
+    getSettingsForSource('userSettings')
+      ?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('localSettings')
+      ?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('flagSettings')
+      ?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('policySettings')
+      ?.skipFullAccessModePermissionPrompt
   )
 }
 

@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
+  DEFAULT_OPENCODE_BASE_URL,
   isCodexBaseUrl,
   parseOpenAICompatibleApiFormat,
   resolveCodexApiCredentials,
@@ -22,6 +23,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  normalizeXiaomiMimoBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
   maskSecretForDisplay,
@@ -43,7 +45,9 @@ export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
-export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
+export const DEFAULT_MISTRAL_MODEL = 'mistral-vibe-cli-latest'
+export const DEFAULT_STARTUP_PROVIDER_ENV_VAR =
+  'CLAUDE_CODE_DEFAULT_STARTUP_PROVIDER'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -90,7 +94,11 @@ const PROFILE_ENV_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
+  'OPENCODE_API_KEY',
+  DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
 
 export type CompatibilityProfileMode =
@@ -114,6 +122,8 @@ const SECRET_ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
+  'OPENCODE_API_KEY',
 ] as const
 
 export type ProviderProfile =
@@ -130,6 +140,7 @@ export type ProviderProfile =
   | 'bedrock'
   | 'vertex'
   | 'xai'
+  | 'opencode'
 
 export type ProfileEnv = {
   ANTHROPIC_BASE_URL?: string
@@ -168,7 +179,10 @@ export type ProfileEnv = {
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
   XAI_API_KEY?: string
+  XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
+  MIMO_API_KEY?: string
+  OPENCODE_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -180,6 +194,7 @@ export type ProfileFile = {
 type SecretValueSource = Partial<
   Record<
     | 'OPENAI_API_KEY'
+    | 'ANTHROPIC_API_KEY'
     | 'OPENAI_AUTH_HEADER_VALUE'
     | 'CODEX_API_KEY'
     | 'GEMINI_API_KEY'
@@ -189,18 +204,20 @@ type SecretValueSource = Partial<
     | 'MISTRAL_API_KEY'
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
-    | 'VENICE_API_KEY',
+    | 'VENICE_API_KEY'
+    | 'MIMO_API_KEY',
     string | undefined
   >
 >
 
-type ProfileFileLocation = {
+export type ProfileFileLocation = {
+  configDir?: string
   cwd?: string
   filePath?: string
 }
 
-export function getDefaultProfileFilePath(): string {
-  return join(getClaudeConfigHomeDir(), PROFILE_FILE_NAME)
+export function getDefaultProfileFilePath(configDir?: string): string {
+  return join(configDir ?? getClaudeConfigHomeDir(), PROFILE_FILE_NAME)
 }
 
 function resolveLegacyProfileFilePath(cwd = process.cwd()): string {
@@ -212,16 +229,16 @@ function resolveProfileFilePath(options?: ProfileFileLocation): string {
     return options.filePath
   }
 
-  if (options?.cwd) {
+  if (options?.cwd && !options?.configDir) {
     return resolveLegacyProfileFilePath(options.cwd)
   }
 
-  return getDefaultProfileFilePath()
+  return getDefaultProfileFilePath(options?.configDir)
 }
 
 function resolveProfileFileReadPaths(options?: ProfileFileLocation): string[] {
   const primary = resolveProfileFilePath(options)
-  if (options?.filePath || options?.cwd) {
+  if (options?.filePath || (options?.cwd && !options?.configDir)) {
     return [primary]
   }
 
@@ -229,17 +246,17 @@ function resolveProfileFileReadPaths(options?: ProfileFileLocation): string[] {
     return [primary]
   }
 
-  const legacy = resolveLegacyProfileFilePath()
+  const legacy = resolveLegacyProfileFilePath(options?.cwd)
   return legacy === primary ? [primary] : [primary, legacy]
 }
 
 function resolveProfileFileCleanupPaths(options?: ProfileFileLocation): string[] {
   const primary = resolveProfileFilePath(options)
-  if (options?.filePath || options?.cwd) {
+  if (options?.filePath || (options?.cwd && !options?.configDir)) {
     return [primary]
   }
 
-  const legacy = resolveLegacyProfileFilePath()
+  const legacy = resolveLegacyProfileFilePath(options?.cwd)
   return legacy === primary ? [primary] : [primary, legacy]
 }
 
@@ -303,7 +320,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'github' ||
     value === 'bedrock' ||
     value === 'vertex' ||
-    value === 'xai'
+    value === 'xai' ||
+    value === 'opencode'
   )
 }
 
@@ -440,22 +458,29 @@ export function buildMiniMaxProfileEnv(options: {
   if (!defaultBaseUrl || !defaultModel) {
     throw new Error('MiniMax route defaults are missing from integration metadata.')
   }
-  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
+  const secretSource: SecretValueSource = {
+    ANTHROPIC_API_KEY: key,
+    MINIMAX_API_KEY: key,
+    OPENAI_API_KEY: key,
+  }
 
   return {
-    OPENAI_BASE_URL:
+    ANTHROPIC_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, secretSource) ||
       defaultBaseUrl,
-    OPENAI_MODEL:
+    ANTHROPIC_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model, secretSource),
       ) ||
       normalizeProfileModel(
-        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+        sanitizeProviderConfigValue(
+          processEnv.ANTHROPIC_MODEL ?? processEnv.OPENAI_MODEL,
+          secretSource,
+        ),
       ) ||
       defaultModel,
-    OPENAI_API_KEY: key,
+    ANTHROPIC_API_KEY: key,
     MINIMAX_API_KEY: key,
     MINIMAX_BASE_URL: defaultBaseUrl,
     MINIMAX_MODEL: defaultModel,
@@ -499,6 +524,50 @@ export function buildVeniceProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     VENICE_API_KEY: key,
+  }
+}
+
+export function buildXiaomiMimoProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.MIMO_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('xiaomi-mimo')
+  const defaultModel = getRouteDefaultModel('xiaomi-mimo')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Xiaomi MiMo route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    MIMO_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      normalizeXiaomiMimoBaseUrl(
+        sanitizeProviderConfigValue(options.baseUrl, secretSource),
+      ) ||
+      normalizeXiaomiMimoBaseUrl(
+        sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource),
+      ) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    MIMO_API_KEY: key,
   }
 }
 
@@ -811,6 +880,10 @@ export function buildCompatibilityProcessEnv(options: {
   return env
 }
 
+export function isDefaultStartupProviderEnv(env: NodeJS.ProcessEnv): boolean {
+  return env[DEFAULT_STARTUP_PROVIDER_ENV_VAR] === 'gitlawb-opengateway'
+}
+
 export function buildCodexOAuthProfileEnv(
   tokens: {
     accessToken: string
@@ -871,6 +944,43 @@ export function clearPersistedCodexOAuthProfile(
   return removedPath
 }
 
+const XAI_OAUTH_DEFAULT_BASE_URL = 'https://api.x.ai/v1'
+
+export function buildXaiOAuthProfileEnv(options: {
+  model?: string
+}): ProfileEnv {
+  return {
+    OPENAI_BASE_URL: XAI_OAUTH_DEFAULT_BASE_URL,
+    OPENAI_MODEL: options.model ?? 'grok-4.3',
+    XAI_CREDENTIAL_SOURCE: 'oauth',
+  }
+}
+
+export function isPersistedXaiOAuthProfile(
+  persisted: ProfileFile | null,
+): boolean {
+  return (
+    persisted?.profile === 'xai' &&
+    persisted.env.XAI_CREDENTIAL_SOURCE === 'oauth'
+  )
+}
+
+export function clearPersistedXaiOAuthProfile(
+  options?: ProfileFileLocation,
+): string | null {
+  let removedPath: string | null = null
+
+  for (const filePath of resolveProfileFileCleanupPaths(options)) {
+    const persisted = readProfileFile(filePath)
+    if (isPersistedXaiOAuthProfile(persisted)) {
+      rmSync(filePath, { force: true })
+      removedPath ??= filePath
+    }
+  }
+
+  return removedPath
+}
+
 export function loadProfileFile(options?: ProfileFileLocation): ProfileFile | null {
   for (const filePath of resolveProfileFileReadPaths(options)) {
     const profile = readProfileFile(filePath)
@@ -897,13 +1007,12 @@ export function saveProfileFile(
 
 export function deleteProfileFile(options?: ProfileFileLocation): string {
   const filePath = resolveProfileFilePath(options)
-  rmSync(filePath, { force: true })
-  if (!options?.filePath && !options?.cwd) {
-    const legacyPath = resolveLegacyProfileFilePath()
-    if (legacyPath !== filePath) {
-      rmSync(legacyPath, { force: true })
-    }
+  const cleanupPaths = new Set(resolveProfileFileCleanupPaths(options))
+
+  for (const cleanupPath of cleanupPaths) {
+    rmSync(cleanupPath, { force: true })
   }
+
   return filePath
 }
 
@@ -920,6 +1029,61 @@ export function hasExplicitProviderSelection(
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
+function hasConcreteProviderSelection(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1') {
+    return true
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
+    return (
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) !== undefined ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_API_BASE) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL),
+      ) !== undefined
+    )
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
+    return (
+      sanitizeProviderConfigValue(processEnv.GEMINI_BASE_URL) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.GEMINI_MODEL),
+      ) !== undefined ||
+      sanitizeApiKey(processEnv.GEMINI_API_KEY) !== undefined ||
+      sanitizeApiKey(processEnv.GOOGLE_API_KEY) !== undefined
+    )
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return (
+      sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL),
+      ) !== undefined ||
+      sanitizeApiKey(processEnv.MISTRAL_API_KEY) !== undefined
+    )
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    return (
+      sanitizeApiKey(processEnv.GITHUB_TOKEN) !== undefined ||
+      sanitizeApiKey(processEnv.GH_TOKEN) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL),
+      ) !== undefined
+    )
+  }
+
+  return (
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
@@ -1198,27 +1362,82 @@ export async function buildLaunchEnv(options: {
   }
 
   if (options.profile === 'xai') {
-    const xaiKey =
-      sanitizeApiKey(processEnv.XAI_API_KEY) ||
-      sanitizeApiKey(persistedEnv.XAI_API_KEY) ||
-      sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
-      sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
+    // For OAuth-tagged profiles, do not fall back to OPENAI_API_KEY /
+    // persisted OPENAI_API_KEY. The user's shell OpenAI key is for
+    // api.openai.com — sending it as a bearer to api.x.ai/v1 just
+    // returns 401 (or worse, leaks the OpenAI key to xAI). When the
+    // saved profile is OAuth, only an explicit XAI_API_KEY can
+    // override; otherwise leave the env keyless and let openaiShim
+    // resolve the stored OAuth access token at request time.
+    const isOAuthProfile = persistedEnv.XAI_CREDENTIAL_SOURCE === 'oauth'
+    const xaiKey = isOAuthProfile
+      ? sanitizeApiKey(processEnv.XAI_API_KEY) ||
+        sanitizeApiKey(persistedEnv.XAI_API_KEY)
+      : sanitizeApiKey(processEnv.XAI_API_KEY) ||
+        sanitizeApiKey(persistedEnv.XAI_API_KEY) ||
+        sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
+        sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
 
     const env = buildXaiProfileEnv({
       model: shellOpenAIModel || persistedOpenAIModel,
       baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
       apiKey: xaiKey,
-      processEnv,
+      // Scrub OPENAI_API_KEY before buildXaiProfileEnv reads processEnv
+      // so it can't be re-introduced via the internal fallback inside
+      // that helper. The shell key still survives in the wider
+      // processEnv copy returned by buildCompatibilityProcessEnv, but
+      // it won't be promoted into XAI_API_KEY / OPENAI_API_KEY for
+      // this profile's env.
+      processEnv: isOAuthProfile
+        ? { ...processEnv, OPENAI_API_KEY: undefined, XAI_API_KEY: undefined }
+        : processEnv,
     })
     const customHeaders = shellCustomHeaders || persistedCustomHeaders
     if (customHeaders) {
       env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
     }
+    // Preserve the OAuth credential-source marker so startup validation
+    // accepts an xAI OAuth profile (no XAI_API_KEY needed; openaiShim
+    // resolves the stored access token at request time).
+    if (!env.XAI_API_KEY && isOAuthProfile) {
+      env.XAI_CREDENTIAL_SOURCE = 'oauth'
+    }
+
+    // For OAuth profiles, also clear any ambient OPENAI_API_KEY from
+    // the returned compatibility env. openaiShim's resolver checks
+    // process.env.OPENAI_API_KEY before falling back to the stored
+    // OAuth token; leaving the shell key there would short-circuit
+    // OAuth and send the wrong bearer to api.x.ai/v1.
+    const result = buildCompatibilityProcessEnv({
+      processEnv,
+      compatibilityMode: 'openai',
+      profileEnv: env,
+    })
+    if (isOAuthProfile && !env.XAI_API_KEY) {
+      delete result.OPENAI_API_KEY
+    }
+    return result
+  }
+
+  if (options.profile === 'opencode') {
+    const opencodeKey =
+      sanitizeApiKey(processEnv.OPENCODE_API_KEY) ||
+      sanitizeApiKey(persistedEnv.OPENCODE_API_KEY)
+    const opencodeBaseUrl =
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) ||
+      sanitizeProviderConfigValue(persistedEnv.OPENAI_BASE_URL) ||
+      DEFAULT_OPENCODE_BASE_URL
+    const opencodeModel =
+      shellOpenAIModel || persistedOpenAIModel || 'gpt-5.4'
 
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
-      profileEnv: env,
+      profileEnv: {
+        OPENAI_BASE_URL: opencodeBaseUrl,
+        OPENAI_MODEL: opencodeModel,
+        ...(opencodeKey ? { OPENAI_API_KEY: opencodeKey } : {}),
+      },
     })
   }
 
@@ -1374,14 +1593,18 @@ export async function buildStartupEnvFromProfile(options?: {
   persisted?: ProfileFile | null
   goal?: RecommendationGoal
   processEnv?: NodeJS.ProcessEnv
+  hasConfiguredProviderProfile?: boolean
   getOllamaChatBaseUrl?: (baseUrl?: string) => string
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options?.processEnv ?? process.env
-  const persisted = options?.persisted ?? loadProfileFile()
+  const persisted =
+    options && 'persisted' in options ? options.persisted : loadProfileFile()
 
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const hasConfiguredProviderProfile =
+    options?.hasConfiguredProviderProfile ?? false
 
   // The single-profile file in the user config directory is a
   // first-run / fallback mechanism. The newer plural provider-profile
@@ -1399,31 +1622,37 @@ export async function buildStartupEnvFromProfile(options?: {
     return processEnv
   }
 
+  // If startup already has a concrete provider selection and the modern
+  // plural-profile system is configured, keep trusting that selection.
+  // This prevents the legacy single-profile file from becoming a silent
+  // third precedence layer when `/provider` profiles or explicit env/flags
+  // already chose a provider before startup fallback runs.
+  if (
+    hasConfiguredProviderProfile &&
+    hasConcreteProviderSelection(processEnv)
+  ) {
+    return processEnv
+  }
+
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return processEnv
   }
 
   if (!persisted) {
-    // No saved profile — default to Codex OAuth / GPT 5.5.
-    // If Codex credentials are available (OAuth or existing), use Codex.
-    // Otherwise inject the Codex env defaults so the provider picker
-    // shows GPT 5.5 as the default model when the user lands on it.
-    const codexEnv = buildCodexProfileEnv({})
-    if (codexEnv) {
-      return buildCompatibilityProcessEnv({
-        processEnv,
-        compatibilityMode: 'openai',
-        profileEnv: codexEnv,
-      })
-    }
-    return buildCompatibilityProcessEnv({
+    // No saved profile — default to Gitlawb Opengateway.
+    const env = buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
-        OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
-        OPENAI_MODEL: 'codexplan',
+        OPENAI_BASE_URL:
+          getRouteDefaultBaseUrl('gitlawb-opengateway') ??
+          'https://opengateway.gitlawb.com/v1',
+        OPENAI_MODEL:
+          getRouteDefaultModel('gitlawb-opengateway') ?? 'mimo-v2.5-pro',
       },
     })
+    env[DEFAULT_STARTUP_PROVIDER_ENV_VAR] = 'gitlawb-opengateway'
+    return env
   }
 
   return buildLaunchEnv({

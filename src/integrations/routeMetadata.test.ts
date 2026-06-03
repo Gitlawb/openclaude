@@ -48,6 +48,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'VENICE_API_KEY',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('xiaomi-mimo')).toEqual([
+    'MIMO_API_KEY',
+    'OPENAI_API_KEY',
+  ])
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -70,10 +74,36 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
 })
 
+test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe('https://api.xiaomimimo.com/v1')
+  expect(getRouteDefaultModel('xiaomi-mimo')).toBe('mimo-v2.5-pro')
+  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1')).toBe('xiaomi-mimo')
+  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1/chat/completions')).toBe('xiaomi-mimo')
+  expect(resolveRouteIdFromBaseUrl('https://api.mimo-v2.com/v1')).toBe('xiaomi-mimo')
+})
+
+test('resolveActiveRouteIdFromEnv treats Xiaomi MiMo credential-only env as Xiaomi MiMo', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      MIMO_API_KEY: 'mimo-key',
+    }),
+  ).toBe('xiaomi-mimo')
+})
+
 test('resolveActiveRouteIdFromEnv treats MiniMax credential-only env as MiniMax', () => {
   expect(
     resolveActiveRouteIdFromEnv({
       MINIMAX_API_KEY: 'minimax-key',
+    }),
+  ).toBe('minimax')
+})
+
+test('resolveActiveRouteIdFromEnv treats Anthropic-compatible MiniMax profile env as MiniMax', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      ANTHROPIC_BASE_URL: 'https://api.minimax.io/anthropic',
+      ANTHROPIC_API_KEY: 'minimax-key',
+      ANTHROPIC_MODEL: 'MiniMax-M2.7',
     }),
   ).toBe('minimax')
 })
@@ -100,6 +130,30 @@ test('resolveActiveRouteIdFromEnv prefers xAI when env-only keys compete', () =>
       MINIMAX_API_KEY: 'minimax-key',
     }),
   ).toBe('xai')
+})
+
+test('resolveActiveRouteIdFromEnv lets explicit MiniMax model beat ambient OpenAI-compatible env', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'openai-key',
+      XAI_API_KEY: 'xai-key',
+      MINIMAX_API_KEY: 'minimax-key',
+      OPENAI_MODEL: 'MiniMax-M2.7',
+    }),
+  ).toBe('minimax')
+})
+
+test('resolveActiveRouteIdFromEnv does not use MiniMax when OpenAI base conflicts', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'openai-key',
+      MINIMAX_API_KEY: 'minimax-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'MiniMax-M2.7',
+    }),
+  ).toBe('openai')
 })
 
 test('resolveActiveRouteIdFromEnv keeps xAI primary base over stale API base', () => {
@@ -129,6 +183,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
+  ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(
   'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',

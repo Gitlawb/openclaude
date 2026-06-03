@@ -27,9 +27,32 @@ import {
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
+export const DEFAULT_OPENCODE_BASE_URL = 'https://opencode.ai/zen/v1'
+export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
+
+function normalizeGitlawbOpengatewayBaseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return undefined
+  try {
+    const parsed = new URL(baseUrl)
+    const hostname = parsed.hostname.toLowerCase()
+    if (hostname !== 'opengateway.gitlawb.com' && hostname !== 'opengateway.fly.dev') {
+      return baseUrl
+    }
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase()
+    if (path === '/v1/xiaomi-mimo' || path === '/v1/gmi-cloud') {
+      parsed.pathname = '/v1'
+      parsed.search = ''
+      parsed.hash = ''
+      return parsed.toString().replace(/\/+$/, '')
+    }
+  } catch {
+    return baseUrl
+  }
+  return baseUrl
+}
 
 const CODEX_ALIAS_MODELS: Record<
   string,
@@ -438,7 +461,8 @@ function normalizePathWithV1(pathname: string): string {
   return `${trimmed}/v1`
 }
 
-function isLikelyOllamaEndpoint(baseUrl: string): boolean {
+export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
   try {
     const parsed = new URL(baseUrl)
     const hostname = parsed.hostname.toLowerCase()
@@ -665,10 +689,11 @@ export function resolveProviderRequest(options?: {
   const isCodexAliasModel =
     isOpenAICodexShortcutAlias(requestedModel) || requestedMatchesEnvCodexShortcut
   const hasUserSetBaseUrl = rawBaseUrl && rawBaseUrl !== DEFAULT_OPENAI_BASE_URL
-  const finalBaseUrl =
+  const finalBaseUrlRaw =
     !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
+  const finalBaseUrl = normalizeGitlawbOpengatewayBaseUrl(finalBaseUrlRaw)
 
   const githubEndpointType = isGithubMode
     ? getGithubEndpointType(rawBaseUrl)

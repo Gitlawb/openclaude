@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream'
 
 import { expect, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { createRoot } from '../ink.js'
 import { AppStateProvider } from '../state/AppState.js'
@@ -72,6 +72,24 @@ function createTestStreams(): {
     stdin,
     getOutput: () => output,
   }
+}
+
+async function waitForOutput(
+  getOutput: () => string,
+  predicate: (output: string) => boolean,
+  timeoutMs = 2500,
+): Promise<string> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const output = stripAnsi(extractLastFrame(getOutput()))
+    if (predicate(output)) {
+      return output
+    }
+    await Bun.sleep(10)
+  }
+
+  throw new Error('Timed out waiting for TextInput test output')
 }
 
 function DelayedControlledTextInput(): React.ReactNode {
@@ -173,6 +191,130 @@ function DelayedControlledVimTextInput(): React.ReactNode {
   )
 }
 
+// Regression for #1179: parent strips the leading `!` after entering bash
+// mode (numerically: input stays "", cursor stays 0). The local mirror in
+// useTextInput must resync to the parent state even though the prop values
+// didn't change since lastSeen, otherwise the next keystroke lands beside the
+// stale `!` and the buffer shows `!g`, `g!`, or similar instead of `g`.
+function BashModeStrippingTextInput(): React.ReactNode {
+  const [value, setValue] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  return (
+    <AppStateProvider>
+      <TextInput
+        value={value}
+        onChange={nextValue => {
+          // Mimic PromptInput.onChange: when leading `!` arrives at start,
+          // strip it back to the empty buffer (mode switches in real code).
+          if (nextValue.startsWith('!')) {
+            setValue(nextValue.slice(1))
+            setCursorOffset(nextValue.length - 1)
+            return
+          }
+          setValue(nextValue)
+        }}
+        onSubmit={() => {}}
+        placeholder="Type here..."
+        columns={60}
+        cursorOffset={cursorOffset}
+        onChangeCursorOffset={setCursorOffset}
+        focus
+        showCursor
+        multiline
+      />
+    </AppStateProvider>
+  )
+}
+
+test('TextInput resyncs local mirror after parent strips bash-mode `!` from empty input', async () => {
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  root.render(<BashModeStrippingTextInput />)
+
+  await Bun.sleep(50)
+  stdin.write('!')
+  await Bun.sleep(25)
+  stdin.write('g')
+  await Bun.sleep(25)
+  stdin.write('i')
+  await Bun.sleep(25)
+  stdin.write('t')
+  await Bun.sleep(25)
+
+  const output = stripAnsi(extractLastFrame(getOutput()))
+
+  root.unmount()
+  stdin.end()
+  stdout.end()
+  await Bun.sleep(25)
+
+  expect(output).toContain('git')
+  expect(output).not.toContain('!git')
+  expect(output).not.toContain('git!')
+  expect(output).not.toContain('!')
+})
+
+// Regression: when the buffer is non-empty and the cursor is at offset 0,
+// typing `!` must prepend `!` to the buffer rather than emit a bare `!`
+// onChange (which would clobber the buffer to "").
+function PrependBangTextInput(): React.ReactNode {
+  const [value, setValue] = React.useState('git status')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  return (
+    <AppStateProvider>
+      <TextInput
+        value={value}
+        onChange={nextValue => {
+          if (nextValue.startsWith('!')) {
+            setValue(nextValue.slice(1))
+            setCursorOffset(0)
+            return
+          }
+          setValue(nextValue)
+        }}
+        onSubmit={() => {}}
+        placeholder="Type here..."
+        columns={60}
+        cursorOffset={cursorOffset}
+        onChangeCursorOffset={setCursorOffset}
+        focus
+        showCursor
+        multiline
+      />
+    </AppStateProvider>
+  )
+}
+
+test('TextInput prepends `!` to existing buffer when cursor is at offset 0', async () => {
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  root.render(<PrependBangTextInput />)
+
+  await Bun.sleep(50)
+  stdin.write('!')
+  await Bun.sleep(25)
+
+  const output = stripAnsi(extractLastFrame(getOutput()))
+
+  root.unmount()
+  stdin.end()
+  stdout.end()
+  await Bun.sleep(25)
+
+  expect(output).toContain('git status')
+  expect(output).not.toMatch(/^!\s*$/m)
+})
+
 test('TextInput renders typed characters before delayed parent value commits', async () => {
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
@@ -183,18 +325,18 @@ test('TextInput renders typed characters before delayed parent value commits', a
 
   root.render(<DelayedControlledTextInput />)
 
-  await Bun.sleep(50)
+  await waitForOutput(getOutput, output => output.includes('Type here...'))
   stdin.write('a')
-  await Bun.sleep(25)
   stdin.write('b')
-  await Bun.sleep(25)
 
-  const output = stripAnsi(extractLastFrame(getOutput()))
+  const output = await waitForOutput(
+    getOutput,
+    frame => frame.includes('ab') && !frame.includes('Type here...'),
+  )
 
   root.unmount()
   stdin.end()
   stdout.end()
-  await Bun.sleep(25)
 
   expect(output).toContain('ab')
   expect(output).not.toContain('Type here...')
@@ -217,22 +359,20 @@ test('VimTextInput preserves rapid typed characters before delayed parent value 
 
   root.render(<DelayedControlledVimTextInput />)
 
-  await Bun.sleep(50)
+  await waitForOutput(getOutput, output => output.includes('Type here...'))
   stdin.write('a')
-  await Bun.sleep(25)
   stdin.write('s')
-  await Bun.sleep(25)
   stdin.write('d')
-  await Bun.sleep(25)
   stdin.write('f')
-  await Bun.sleep(25)
 
-  const output = stripAnsi(extractLastFrame(getOutput()))
+  const output = await waitForOutput(
+    getOutput,
+    frame => frame.includes('asdf') && !frame.includes('Type here...'),
+  )
 
   root.unmount()
   stdin.end()
   stdout.end()
-  await Bun.sleep(25)
 
   expect(output).toContain('asdf')
   expect(output).not.toContain('Type here...')

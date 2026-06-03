@@ -218,6 +218,7 @@ function buildPresetManifestEntry(
     modelEnvVars: preset.modelEnvVars,
     fallbackBaseUrl: preset.fallbackBaseUrl,
     fallbackModel: preset.fallbackModel,
+    badge: preset.badge,
   }
 }
 
@@ -230,6 +231,15 @@ function compareProviderPresetEntries(
 
   if (leftPreset === rightPreset) {
     return 0
+  }
+
+  // Pin Gitlawb Opengateway first so the startup-default provider is also
+  // the first guided setup option when users need to add an API key.
+  if (leftPreset === 'gitlawb-opengateway') {
+    return -1
+  }
+  if (rightPreset === 'gitlawb-opengateway') {
+    return 1
   }
 
   if (leftPreset === 'anthropic') {

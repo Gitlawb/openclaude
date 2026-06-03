@@ -1,7 +1,10 @@
+import type { SettingsJson } from '../settings/types.js'
+import { getInitialSettings } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { capitalize } from '../stringUtils.js'
-import { MODEL_ALIASES, type ModelAlias } from './aliases.js'
+import { MODEL_ALIASES } from './aliases.js'
 import { applyBedrockRegionPrefix, getBedrockRegionPrefix } from './bedrock.js'
+import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
   getRuntimeMainLoopModel,
@@ -13,7 +16,7 @@ export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
 export type AgentModelAlias = (typeof AGENT_MODEL_OPTIONS)[number]
 
 export type AgentModelOption = {
-  value: AgentModelAlias
+  value: AgentModelAlias | (string & {})
   label: string
   description: string
 }
@@ -37,7 +40,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -67,12 +70,26 @@ export function getAgentModel(
   }
 
   // Prioritize tool-specified model if provided
-  if (toolSpecifiedModel) {
-    if (aliasMatchesParentTier(toolSpecifiedModel, parentModel)) {
+  const trimmedToolSpecifiedModel = toolSpecifiedModel?.trim()
+  if (trimmedToolSpecifiedModel) {
+    if (trimmedToolSpecifiedModel.toLowerCase() === 'inherit') {
+      return getRuntimeMainLoopModel({
+        permissionMode: permissionMode ?? 'default',
+        mainLoopModel: parentModel,
+        exceeds200kTokens: false,
+      })
+    }
+    if (aliasMatchesParentTier(trimmedToolSpecifiedModel, parentModel)) {
+      assertToolSpecifiedModelAllowed(trimmedToolSpecifiedModel, parentModel)
       return parentModel
     }
-    const model = parseUserSpecifiedModel(toolSpecifiedModel)
-    return applyParentRegionPrefix(model, toolSpecifiedModel)
+    const model = parseUserSpecifiedModel(trimmedToolSpecifiedModel)
+    const effectiveModel = applyParentRegionPrefix(
+      model,
+      trimmedToolSpecifiedModel,
+    )
+    assertToolSpecifiedModelAllowed(trimmedToolSpecifiedModel, effectiveModel)
+    return effectiveModel
   }
 
   const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
@@ -141,6 +158,21 @@ function aliasMatchesParentTier(alias: string, parentModel: string): boolean {
   }
 }
 
+function assertToolSpecifiedModelAllowed(
+  requestedModel: string,
+  effectiveModel: string,
+): void {
+  if (
+    isModelAllowed(requestedModel) ||
+    (effectiveModel !== requestedModel && isModelAllowed(effectiveModel))
+  ) {
+    return
+  }
+  throw new Error(
+    `Model '${requestedModel}' is not available. Your organization restricts model selection.`,
+  )
+}
+
 /**
  * Check if the current provider is Claude-native (has guaranteed haiku/sonnet models).
  * Claude-native providers: Bedrock, Vertex, Foundry, official Anthropic API.
@@ -164,11 +196,10 @@ export function getAgentModelDisplay(model: string | undefined): string {
   return capitalize(model)
 }
 
-/**
- * Get available model options for agents
- */
-export function getAgentModelOptions(): AgentModelOption[] {
-  return [
+export function getAgentModelOptions(
+  settings: SettingsJson | null = getInitialSettings(),
+): AgentModelOption[] {
+  const baseOptions: AgentModelOption[] = [
     {
       value: 'sonnet',
       label: 'Sonnet',
@@ -190,4 +221,19 @@ export function getAgentModelOptions(): AgentModelOption[] {
       description: 'Use the same model as the main conversation',
     },
   ]
+
+  if (settings?.agentModels) {
+    const configuredKeys = Object.keys(settings.agentModels)
+    for (const key of configuredKeys) {
+      if (!baseOptions.some(opt => opt.value === key)) {
+        baseOptions.push({
+          value: key,
+          label: key,
+          description: 'Configured agent model',
+        })
+      }
+    }
+  }
+
+  return baseOptions
 }

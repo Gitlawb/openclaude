@@ -1,6 +1,11 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import axios from 'axios'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
+const originalAxiosGet = axios.get
 const originalEnv = {
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
     process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
@@ -17,15 +22,24 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/model/openaiModelDiscovery.test.ts')
+})
+
 afterEach(() => {
-  mock.restore()
-  restoreEnv(
-    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
-    originalEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
-  )
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  try {
+    mock.restore()
+    axios.get = originalAxiosGet
+    restoreEnv(
+      'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+      originalEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+    )
+    restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+    restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('skips legacy OpenAI-compatible model discovery when nonessential traffic is disabled', async () => {

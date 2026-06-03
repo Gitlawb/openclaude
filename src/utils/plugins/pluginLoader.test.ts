@@ -1,23 +1,36 @@
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { setInlinePlugins } from '../../bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
 import {
   clearPluginCache,
   createPluginFromPath,
+  mergeHooksSettings,
   mergePluginSources,
   resolveExistingPluginComponentPath,
   resolvePluginComponentPath,
 } from './pluginLoader.js'
 import { clearPluginSkillsCache, getPluginSkills } from './loadPluginCommands.js'
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/plugins/pluginLoader.test.ts')
+})
+
 afterEach(() => {
-  setInlinePlugins([])
-  clearPluginCache('pluginLoader.test cleanup')
-  clearPluginSkillsCache()
+  try {
+    setInlinePlugins([])
+    clearPluginCache('pluginLoader.test cleanup')
+    clearPluginSkillsCache()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 function marketplacePlugin(
@@ -84,6 +97,55 @@ describe('mergePluginSources', () => {
       source: legacy.source,
       plugin: legacy.name,
     })
+  })
+})
+
+describe('mergeHooksSettings', () => {
+  // Regression for #1055: the marketplace-supplement path previously used
+  // object spread, which replaced the entire per-event matcher array from
+  // plugin.json with the marketplace entry's array. mergeHooksSettings is
+  // the helper that must be used at that call site; this test locks in
+  // the concat-not-replace contract the call site depends on.
+  test('concatenates per-event matcher arrays instead of replacing them', () => {
+    const base = {
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'A' }] }],
+    } as never
+    const additional = {
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'B' }] }],
+    } as never
+
+    const merged = mergeHooksSettings(base, additional) as never as {
+      PreToolUse: Array<{ hooks: Array<{ command: string }> }>
+    }
+
+    expect(merged.PreToolUse).toHaveLength(2)
+    expect(merged.PreToolUse[0].hooks[0].command).toBe('A')
+    expect(merged.PreToolUse[1].hooks[0].command).toBe('B')
+  })
+
+  test('keeps disjoint events from both inputs', () => {
+    const base = {
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'pre' }] }],
+    } as never
+    const additional = {
+      PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'post' }] }],
+    } as never
+
+    const merged = mergeHooksSettings(base, additional) as never as {
+      PreToolUse: unknown[]
+      PostToolUse: unknown[]
+    }
+
+    expect(merged.PreToolUse).toHaveLength(1)
+    expect(merged.PostToolUse).toHaveLength(1)
+  })
+
+  test('returns additional unchanged when base is undefined', () => {
+    const additional = {
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'X' }] }],
+    } as never
+
+    expect(mergeHooksSettings(undefined, additional)).toBe(additional)
   })
 })
 

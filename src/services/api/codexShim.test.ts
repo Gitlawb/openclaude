@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import {
   codexStreamToAnthropic,
   convertAnthropicMessagesToResponsesInput,
@@ -19,22 +20,30 @@ const originalEnv = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('codexShim.test.ts')
+})
+
 afterEach(() => {
-  if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
-  else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+  try {
+    if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
+    else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
 
-  if (originalEnv.OPENAI_API_BASE === undefined) delete process.env.OPENAI_API_BASE
-  else process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
+    if (originalEnv.OPENAI_API_BASE === undefined) delete process.env.OPENAI_API_BASE
+    else process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
 
-  if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
-  else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+    if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
+    else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
 
-  if (originalEnv.OPENAI_MODEL === undefined) delete process.env.OPENAI_MODEL
-  else process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
+    if (originalEnv.OPENAI_MODEL === undefined) delete process.env.OPENAI_MODEL
+    else process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
 
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop()
-    if (dir) rmSync(dir, { recursive: true, force: true })
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop()
+      if (dir) rmSync(dir, { recursive: true, force: true })
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
@@ -1005,6 +1014,98 @@ describe('Codex request translation', () => {
     expect(textDeltas.join('')).toBe(
       'I should note that the user role requires a briefly concise friendly response format.',
     )
+  })
+
+  // Regression for #1259 — codexspark / gpt-5.3-codex-spark backend delivers
+  // complete function-call arguments only via the terminal `done` event with
+  // zero `delta` events in between. Without handling either `done` variant,
+  // the Anthropic tool_use block closed with `input: {}` and Glob/Bash/etc.
+  // failed validation with "required parameter X is missing".
+  async function collectToolArgs(responseText: string): Promise<string> {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(responseText))
+        controller.close()
+      },
+    })
+
+    const argsParts: string[] = []
+    for await (const event of codexStreamToAnthropic(
+      new Response(stream),
+      'gpt-5.3-codex-spark',
+    )) {
+      const delta = (event as {
+        delta?: { type?: string; partial_json?: string }
+      }).delta
+      if (
+        delta?.type === 'input_json_delta' &&
+        typeof delta.partial_json === 'string'
+      ) {
+        argsParts.push(delta.partial_json)
+      }
+    }
+    return argsParts.join('')
+  }
+
+  test('Codex stream: tool args delivered only via function_call_arguments.done (#1259)', async () => {
+    const args = '{"path":"./openclaude-codex-repro","pattern":"**/*.md"}'
+    const responseText = [
+      'event: response.output_item.added',
+      `data: {"type":"response.output_item.added","item":{"id":"fc_1","call_id":"call_1","type":"function_call","name":"Glob","arguments":""},"output_index":0,"sequence_number":0}`,
+      '',
+      'event: response.function_call_arguments.done',
+      `data: {"type":"response.function_call_arguments.done","item_id":"fc_1","arguments":${JSON.stringify(args)},"output_index":0,"sequence_number":1}`,
+      '',
+      'event: response.output_item.done',
+      `data: {"type":"response.output_item.done","item":{"id":"fc_1","call_id":"call_1","type":"function_call","name":"Glob","arguments":${JSON.stringify(args)}},"output_index":0,"sequence_number":2}`,
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-5.3-codex-spark","output":[],"usage":{"input_tokens":2,"output_tokens":3}},"sequence_number":3}',
+      '',
+    ].join('\n')
+
+    expect(await collectToolArgs(responseText)).toBe(args)
+  })
+
+  test('Codex stream: tool args fallback via output_item.done when no delta + no arguments.done', async () => {
+    const args = '{"command":"ls -la"}'
+    const responseText = [
+      'event: response.output_item.added',
+      `data: {"type":"response.output_item.added","item":{"id":"fc_1","call_id":"call_1","type":"function_call","name":"Bash","arguments":""},"output_index":0,"sequence_number":0}`,
+      '',
+      'event: response.output_item.done',
+      `data: {"type":"response.output_item.done","item":{"id":"fc_1","call_id":"call_1","type":"function_call","name":"Bash","arguments":${JSON.stringify(args)}},"output_index":0,"sequence_number":1}`,
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-5.3-codex-spark","output":[],"usage":{"input_tokens":2,"output_tokens":3}},"sequence_number":2}',
+      '',
+    ].join('\n')
+
+    expect(await collectToolArgs(responseText)).toBe(args)
+  })
+
+  test('Codex stream: delta path still works when present (no duplication on done)', async () => {
+    const args = '{"path":"./x","pattern":"**/*.ts"}'
+    const responseText = [
+      'event: response.output_item.added',
+      `data: {"type":"response.output_item.added","item":{"id":"fc_1","call_id":"call_1","type":"function_call","name":"Glob","arguments":""},"output_index":0,"sequence_number":0}`,
+      '',
+      'event: response.function_call_arguments.delta',
+      `data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":${JSON.stringify(args)},"output_index":0,"sequence_number":1}`,
+      '',
+      'event: response.function_call_arguments.done',
+      `data: {"type":"response.function_call_arguments.done","item_id":"fc_1","arguments":${JSON.stringify(args)},"output_index":0,"sequence_number":2}`,
+      '',
+      'event: response.output_item.done',
+      `data: {"type":"response.output_item.done","item":{"id":"fc_1","call_id":"call_1","type":"function_call","name":"Glob","arguments":${JSON.stringify(args)}},"output_index":0,"sequence_number":3}`,
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-5.3-codex-spark","output":[],"usage":{"input_tokens":2,"output_tokens":3}},"sequence_number":4}',
+      '',
+    ].join('\n')
+
+    // Delta wins; done branches must NOT re-emit and double the JSON.
+    expect(await collectToolArgs(responseText)).toBe(args)
   })
 })
 

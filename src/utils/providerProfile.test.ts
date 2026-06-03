@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import test, { afterEach, beforeEach } from 'node:test'
 
+import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import {
   applySavedProfileToCurrentSession,
@@ -18,6 +19,7 @@ import {
   createProfileFile,
   deleteProfileFile,
   getDefaultProfileFilePath,
+  isDefaultStartupProviderEnv,
   isPersistedCodexOAuthProfile,
   maskSecretForDisplay,
   loadProfileFile,
@@ -50,6 +52,14 @@ async function importFreshProviderProfileModule() {
 }
 
 const missingCodexAuthPath = join(tmpdir(), 'openclaude-missing-codex-auth.json')
+
+beforeEach(async () => {
+  await acquireEnvMutex()
+})
+
+afterEach(() => {
+  releaseEnvMutex()
+})
 
 test('matching persisted ollama env is reused for ollama launch', async () => {
   const env = await buildLaunchEnv({
@@ -230,6 +240,18 @@ test('openai launch ignores codex persisted transport hints', async () => {
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
   assert.equal(env.OPENAI_MODEL, 'gpt-5.5')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
+})
+
+test('buildStartupEnvFromProfile defaults fresh installs to Gitlawb Opengateway', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://opengateway.gitlawb.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'mimo-v2.5-pro')
+  assert.equal(isDefaultStartupProviderEnv(env), true)
 })
 
 test('openai launch preserves shell responses format and custom auth overrides', async () => {
@@ -476,6 +498,82 @@ test('codex profiles require a chatgpt account id', () => {
   assert.equal(env, null)
 })
 
+// Regression: a user with `OPENAI_API_KEY=sk-openai-…` in their shell
+// who signs into xAI OAuth previously had that generic OpenAI key
+// promoted into both OPENAI_API_KEY and XAI_API_KEY for the xAI
+// profile, dropping XAI_CREDENTIAL_SOURCE. openaiShim then sent the
+// OpenAI key as a Bearer to api.x.ai/v1 — wrong account, wrong key,
+// 401 (and leaks the OpenAI key to xAI). Marker-tagged xAI OAuth
+// profiles must ignore generic OpenAI credentials entirely.
+test('xai OAuth profile ignores ambient OPENAI_API_KEY and preserves marker', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.3',
+      XAI_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: 'sk-openai-shell-key',
+    },
+  })
+
+  // Marker survives so startup validation accepts the profile.
+  assert.equal(env.XAI_CREDENTIAL_SOURCE, 'oauth')
+  // OpenAI key is NOT promoted into the xAI bearer surface.
+  assert.equal(env.XAI_API_KEY, undefined)
+  // openaiShim short-circuits on OPENAI_API_KEY before checking the
+  // stored OAuth token, so it must also be cleared from the resulting
+  // process env (clearManagedProfileEnv + no promotion in profileEnv).
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  // Base URL and model still come through.
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.x.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'grok-4.3')
+})
+
+test('xai OAuth profile still honors an explicit XAI_API_KEY override', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.3',
+      XAI_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      XAI_API_KEY: 'xai-explicit-override',
+      OPENAI_API_KEY: 'sk-openai-shell-key',
+    },
+  })
+
+  // Explicit XAI_API_KEY wins; the OAuth marker drops because we have
+  // a concrete bearer to send.
+  assert.equal(env.XAI_API_KEY, 'xai-explicit-override')
+  assert.equal(env.OPENAI_API_KEY, 'xai-explicit-override')
+  assert.equal(env.XAI_CREDENTIAL_SOURCE, undefined)
+})
+
+test('xai non-OAuth profile (legacy api-key flow) still accepts OPENAI_API_KEY fallback', async () => {
+  // Backward-compat: an xAI profile saved before the OAuth flow existed
+  // (no XAI_CREDENTIAL_SOURCE marker) used to inherit OPENAI_API_KEY
+  // for one-off connections. Don't break that path.
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.3',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: 'xai-disguised-as-openai-key',
+    },
+  })
+
+  assert.equal(env.XAI_API_KEY, 'xai-disguised-as-openai-key')
+  assert.equal(env.OPENAI_API_KEY, 'xai-disguised-as-openai-key')
+})
+
 test('codex launch clears openai-compatible format and custom auth env', async () => {
   const env = await buildLaunchEnv({
     profile: 'codex',
@@ -603,13 +701,15 @@ test('saveProfileFile defaults to user config instead of the working directory',
       OPENAI_MODEL: 'gpt-4o',
     })
 
-    const filePath = saveProfileFile(persisted)
+    const filePath = saveProfileFile(persisted, { configDir })
 
     assert.equal(filePath, join(configDir, PROFILE_FILE_NAME))
-    assert.equal(getDefaultProfileFilePath(), join(configDir, PROFILE_FILE_NAME))
+    assert.equal(getDefaultProfileFilePath(configDir), join(configDir, PROFILE_FILE_NAME))
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
-    assert.equal(statSync(configDir).mode & 0o777, 0o700)
-    assert.deepEqual(loadProfileFile(), persisted)
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(configDir).mode & 0o777, 0o700)
+    }
+    assert.deepEqual(loadProfileFile({ configDir, cwd }), persisted)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -642,7 +742,7 @@ test('loadProfileFile keeps project-local files as a legacy fallback', () => {
       'utf8',
     )
 
-    assert.deepEqual(loadProfileFile(), legacyProfile)
+    assert.deepEqual(loadProfileFile({ configDir, cwd }), legacyProfile)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -676,7 +776,7 @@ test('loadProfileFile does not fall back when user config profile is invalid', (
       'utf8',
     )
 
-    assert.equal(loadProfileFile(), null)
+    assert.equal(loadProfileFile({ configDir, cwd }), null)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -719,6 +819,48 @@ test('deleteProfileFile clears the default profile and legacy workspace fallback
     assert.equal(existsSync(join(configDir, PROFILE_FILE_NAME)), false)
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
     assert.equal(loadProfileFile(), null)
+  } finally {
+    process.chdir(previousCwd)
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+    }
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(configDir, { recursive: true, force: true })
+  }
+})
+
+test('deleteProfileFile with configDir and cwd clears both user config and legacy fallback', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-delete-mixed-profile-'))
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-delete-mixed-config-profile-'))
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const previousCwd = process.cwd()
+
+  try {
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.chdir(cwd)
+
+    const configProfile = createProfileFile('openai', {
+      OPENAI_API_KEY: 'sk-test',
+    })
+    const legacyProfile = createProfileFile('ollama', {
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+      OPENAI_MODEL: 'llama3.1:8b',
+    })
+
+    saveProfileFile(configProfile, { configDir, cwd })
+    writeFileSync(
+      join(cwd, PROFILE_FILE_NAME),
+      JSON.stringify(legacyProfile, null, 2),
+      'utf8',
+    )
+
+    deleteProfileFile({ configDir, cwd })
+
+    assert.equal(existsSync(join(configDir, PROFILE_FILE_NAME)), false)
+    assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
+    assert.equal(loadProfileFile({ configDir, cwd }), null)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -801,7 +943,7 @@ test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profile
   }
 })
 
-test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', () => {
+test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-profile-'))
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-config-'))
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -811,27 +953,35 @@ test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profi
     process.env.CLAUDE_CONFIG_DIR = configDir
     process.chdir(cwd)
 
-    const oauthProfile = createProfileFile('codex', {
+    const {
+      PROFILE_FILE_NAME: freshProfileFileName,
+      clearPersistedCodexOAuthProfile: clearPersistedCodexOAuthProfileFresh,
+      createProfileFile: createProfileFileFresh,
+      loadProfileFile: loadProfileFileFresh,
+      saveProfileFile: saveProfileFileFresh,
+    } = await importFreshProviderProfileModule()
+
+    const oauthProfile = createProfileFileFresh('codex', {
       OPENAI_MODEL: 'codexplan',
       OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
       CHATGPT_ACCOUNT_ID: 'acct_oauth',
       CODEX_CREDENTIAL_SOURCE: 'oauth',
     })
 
-    saveProfileFile(oauthProfile)
+    saveProfileFileFresh(oauthProfile, { configDir })
     writeFileSync(
-      join(cwd, PROFILE_FILE_NAME),
+      join(cwd, freshProfileFileName),
       JSON.stringify(oauthProfile, null, 2),
       'utf8',
     )
 
     assert.equal(
-      clearPersistedCodexOAuthProfile(),
-      join(configDir, PROFILE_FILE_NAME),
+      clearPersistedCodexOAuthProfileFresh({ configDir, cwd }),
+      join(configDir, freshProfileFileName),
     )
-    assert.equal(existsSync(join(configDir, PROFILE_FILE_NAME)), false)
-    assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
-    assert.equal(loadProfileFile(), null)
+    assert.equal(existsSync(join(configDir, freshProfileFileName)), false)
+    assert.equal(existsSync(join(cwd, freshProfileFileName)), false)
+    assert.equal(loadProfileFileFresh({ configDir, cwd }), null)
   } finally {
     process.chdir(previousCwd)
     if (previousConfigDir === undefined) {
@@ -1125,6 +1275,29 @@ test('buildStartupEnvFromProfile preserves plural-profile env when the legacy fi
   assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, 'saved_moonshot')
 })
 
+test('buildStartupEnvFromProfile ignores the legacy file when a configured provider profile already selected a concrete env', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'https://api.moonshot.ai/v1',
+    OPENAI_MODEL: 'kimi-k2.6',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-stale',
+      OPENAI_MODEL: 'Meta-Llama-3.1-70B-Instruct',
+      OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.moonshot.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'kimi-k2.6')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile falls back to legacy file when plural system has not applied', async () => {
   // Counter-example: first-run user with only the legacy file (no plural
   // active profile yet). The legacy file is the correct source, so the
@@ -1146,6 +1319,48 @@ test('buildStartupEnvFromProfile falls back to legacy file when plural system ha
   assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+})
+
+test('buildStartupEnvFromProfile still falls back to the legacy file when configured profiles exist but startup env is incomplete', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+})
+
+test('buildStartupEnvFromProfile ignores falsey provider flags when deciding whether a configured profile already selected startup env', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '0',
+    OPENAI_BASE_URL: 'https://api.stale.example/v1',
+    OPENAI_MODEL: 'stale-model',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+    hasConfiguredProviderProfile: true,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
 })
 
 test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {

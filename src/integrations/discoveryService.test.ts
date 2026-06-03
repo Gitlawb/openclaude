@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { registerGateway } from './index.js'
+import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from './index.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -10,6 +14,7 @@ const originalEnv = {
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -48,6 +53,7 @@ function restoreEnvValue(
 function clearProviderEnv(): void {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -58,7 +64,8 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('discoveryService.test.ts')
   mock.restore()
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
@@ -68,22 +75,29 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  mock.restore()
-  globalThis.fetch = originalFetch
-  rmSync(tempDir, { recursive: true, force: true })
-  restoreEnvValue('CLAUDE_CONFIG_DIR')
-  restoreEnvValue('OPENROUTER_API_KEY')
-  restoreEnvValue('OPENAI_BASE_URL')
-  restoreEnvValue('OPENAI_API_BASE')
-  restoreEnvValue('OPENAI_MODEL')
-  restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
-  restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
-  restoreEnvValue('CLAUDE_CODE_USE_MISTRAL')
-  restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
-  restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
-  restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
-  restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
-  restoreEnvValue('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
+  try {
+    mock.restore()
+    globalThis.fetch = originalFetch
+    rmSync(tempDir, { recursive: true, force: true })
+    restoreEnvValue('CLAUDE_CONFIG_DIR')
+    restoreEnvValue('OPENROUTER_API_KEY')
+    restoreEnvValue('OPENAI_BASE_URL')
+    restoreEnvValue('OPENAI_API_BASE')
+    restoreEnvValue('OPENAI_API_KEY')
+    restoreEnvValue('OPENAI_MODEL')
+    restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
+    restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
+    restoreEnvValue('CLAUDE_CODE_USE_MISTRAL')
+    restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
+    restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
+    restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
+    restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
+    restoreEnvValue('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('discoverModelsForRoute', () => {
@@ -191,7 +205,15 @@ describe('discoverModelsForRoute', () => {
     expect(second).toMatchObject({
       source: 'stale-cache',
       stale: true,
-      models: [{ id: 'llama3.1:8b', apiName: 'llama3.1:8b' }],
+      models: [
+        {
+          id: 'deepseek-v4-pro-cloud',
+          apiName: 'deepseek-v4-pro:cloud',
+          contextWindow: 1_048_576,
+          maxOutputTokens: 65_536,
+        },
+        { id: 'llama3.1:8b', apiName: 'llama3.1:8b' },
+      ],
     })
     expect(second?.error?.message).toContain('Discovery failed')
   })
@@ -414,6 +436,66 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.routeId).toBe('lmstudio')
     expect(result?.source).toBe('network')
+  })
+
+  test('openai-compatible discovery applies mapModel to filter and shape raw entries', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    registerGateway({
+      id: 'mapmodel-test',
+      label: 'MapModel Test',
+      category: 'aggregating',
+      defaultBaseUrl: 'https://mapmodel-test.example/v1',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['MAPMODEL_TEST_API_KEY'],
+      },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'dynamic',
+        discovery: {
+          kind: 'openai-compatible',
+          mapModel(raw: unknown) {
+            const model = raw as { id?: string; active?: boolean; context_window?: number }
+            if (!model.id || model.active === false) return null
+            if (/(guard|whisper)/i.test(model.id)) return null
+            return {
+              id: model.id,
+              apiName: model.id,
+              label: model.id,
+              ...(model.context_window ? { contextWindow: model.context_window } : {}),
+            }
+          },
+        },
+        discoveryCacheTtl: '1d',
+      },
+    })
+
+    setMockFetch(mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'llama-3.3-70b', context_window: 131072 },
+              { id: 'whisper-large-v3' },
+              { id: 'llama-guard-3' },
+              { id: 'inactive-model', active: false },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    ) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('mapmodel-test', {
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    expect(result?.models).toEqual([
+      { id: 'llama-3.3-70b', apiName: 'llama-3.3-70b', label: 'llama-3.3-70b', contextWindow: 131072 },
+    ])
   })
 })
 

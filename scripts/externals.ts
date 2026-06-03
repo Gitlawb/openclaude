@@ -8,26 +8,6 @@
 
 // Packages that should be kept external in ALL bundles (CLI + SDK)
 export const COMMON_EXTERNALS: string[] = [
-  // OpenTelemetry — too many named exports to stub, kept external
-  '@opentelemetry/api',
-  '@opentelemetry/api-logs',
-  '@opentelemetry/core',
-  '@opentelemetry/exporter-trace-otlp-grpc',
-  '@opentelemetry/exporter-trace-otlp-http',
-  '@opentelemetry/exporter-trace-otlp-proto',
-  '@opentelemetry/exporter-logs-otlp-http',
-  '@opentelemetry/exporter-logs-otlp-proto',
-  '@opentelemetry/exporter-logs-otlp-grpc',
-  '@opentelemetry/exporter-metrics-otlp-proto',
-  '@opentelemetry/exporter-metrics-otlp-grpc',
-  '@opentelemetry/exporter-metrics-otlp-http',
-  '@opentelemetry/exporter-prometheus',
-  '@opentelemetry/resources',
-  '@opentelemetry/sdk-trace-base',
-  '@opentelemetry/sdk-trace-node',
-  '@opentelemetry/sdk-logs',
-  '@opentelemetry/sdk-metrics',
-  '@opentelemetry/semantic-conventions',
   // Native image processing
   'sharp',
   // Cloud provider SDKs
@@ -51,9 +31,20 @@ export const COMMON_EXTERNALS: string[] = [
 export const SDK_ONLY_EXTERNALS: string[] = [
   'react',
   'react-reconciler',
-  'ink',
   '@anthropic-ai/sdk',
   '@modelcontextprotocol/sdk',
+]
+
+// Packages kept external but NOT listed in package.json dependencies.
+// These are dynamically imported at runtime — they're optional and resolved
+// from transitive deps or installed by users who need that provider/protocol.
+export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
+  // Cloud provider SDKs (dynamically imported per-provider)
+  '@aws-sdk/client-bedrock',
+  '@aws-sdk/client-bedrock-runtime',
+  '@aws-sdk/client-sts',
+  '@aws-sdk/credential-providers',
+  '@azure/identity',
 ]
 
 // Computed full lists
@@ -63,6 +54,7 @@ export const SDK_EXTERNALS: string[] = [...COMMON_EXTERNALS, ...SDK_ONLY_EXTERNA
 // Packages intentionally bundled (not external, not flagged by validation)
 // These are small utilities that are fine to inline into the output bundle.
 export const INTENTIONALLY_BUNDLED: string[] = [
+  // Test utilities (bundled, not external)
   // Anthropic provider variants (bundled, not the main SDK)
   '@anthropic-ai/bedrock-sdk',
   '@anthropic-ai/foundry-sdk',
@@ -81,7 +73,6 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   'figures',
   'get-east-asian-width',
   'indent-string',
-  'strip-ansi',
   'supports-hyperlinks',
   'wrap-ansi',
   // Data formats
@@ -129,9 +120,7 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   '@modelcontextprotocol/sdk',
   // Schema validation
   'zod',
-  // Feature flags / analytics
-  '@growthbook/growthbook',
-  // gRPC (bundled into CLI, not external)
+    // gRPC (bundled into CLI, not external)
   '@grpc/grpc-js',
   '@grpc/proto-loader',
   // Web scraping

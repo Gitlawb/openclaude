@@ -3,8 +3,8 @@ import type {
   OpenAIShimTransportConfig,
 } from './descriptors.js'
 import {
-  getOpenAIContextWindow,
-  getOpenAIMaxOutputTokens,
+  getOpenAIContextWindowMatches,
+  getOpenAIMaxOutputTokenMatches,
 } from '../utils/model/openaiContextWindows.js'
 import { ensureIntegrationsLoaded } from './index.js'
 import {
@@ -142,7 +142,20 @@ function inferRemoteModelOpenAIShimConfig(
     return undefined
   }
 
-  if (normalizedModel.includes('deepseek')) {
+  if (normalizedModel.startsWith('mimo-v2')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      maxTokensField: 'max_completion_tokens',
+      removeBodyFields: ['store', 'stream_options'],
+    }
+  }
+
+  // Segment-boundary-aware matcher: avoids false-positives like "my-deepseek-rag"
+  // while still catching aggregator paths e.g. "openrouter/deepseek/deepseek-chat".
+  const segments = normalizedModel.split('/')
+  const hasDeepseek = segments.some(s => s.startsWith('deepseek'))
+  if (hasDeepseek) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
@@ -153,7 +166,10 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
-  if (normalizedModel.includes('kimi') || normalizedModel.includes('moonshot')) {
+   const hasKimiMoonshot = segments.some(
+     s => s.startsWith('kimi') || s.startsWith('moonshot'),
+   )
+   if (hasKimiMoonshot) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
@@ -332,20 +348,25 @@ export function resolveModelRuntimeLimits(options: {
   const modelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
     findModelDescriptorForApiName(routeId, options.model)
-  const externalContextWindow = getOpenAIContextWindow(options.model, runtimeEnv)
-  const externalMaxOutputTokens = getOpenAIMaxOutputTokens(
+  const externalContextWindow = getOpenAIContextWindowMatches(
+    options.model,
+    runtimeEnv,
+  )
+  const externalMaxOutputTokens = getOpenAIMaxOutputTokenMatches(
     options.model,
     runtimeEnv,
   )
 
   return {
     contextWindow:
-      externalContextWindow ??
+      externalContextWindow.exact ??
       catalogEntry?.contextWindow ??
+      externalContextWindow.prefix ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
-      externalMaxOutputTokens ??
+      externalMaxOutputTokens.exact ??
       catalogEntry?.maxOutputTokens ??
+      externalMaxOutputTokens.prefix ??
       modelDescriptor?.maxOutputTokens,
   }
 }

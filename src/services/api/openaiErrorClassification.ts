@@ -7,6 +7,7 @@ export type OpenAICompatibilityFailureCategory =
   | 'rate_limited'
   | 'model_not_found'
   | 'endpoint_not_found'
+  | 'vision_not_supported'
   | 'context_overflow'
   | 'tool_call_incompatible'
   | 'malformed_provider_response'
@@ -38,6 +39,7 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'rate_limited',
     'model_not_found',
     'endpoint_not_found',
+    'vision_not_supported',
     'context_overflow',
     'tool_call_incompatible',
     'malformed_provider_response',
@@ -264,19 +266,31 @@ export function classifyOpenAIHttpFailure(options: {
   status: number
   body: string
   url?: string
+  hasImages?: boolean
 }): OpenAICompatibilityFailure {
   const body = options.body ?? ''
   const hostname = options.url ? getHostname(options.url) : null
   const isLocalHost = isLocalhostLikeHostname(hostname)
 
   if (options.status === 401 || options.status === 403) {
+    // OAuth-issued tokens (GitHub Models via /onboard-github, Codex) expire
+    // and surface as 401 with a "token expired" body. The generic API-key
+    // hint sends users hunting for a key they never set — point them at the
+    // re-auth command instead. Issue #1042.
+    const lowerBody = body.toLowerCase()
+    const isExpiredOAuthToken =
+      lowerBody.includes('token expired') ||
+      lowerBody.includes('token has expired') ||
+      lowerBody.includes('token revoked')
     return {
       source: 'http',
       category: 'auth_invalid',
       retryable: false,
       status: options.status,
       message: body,
-      hint: 'Authentication failed. Verify API key, token source, and endpoint-specific auth headers.',
+      hint: isExpiredOAuthToken
+        ? 'OAuth token expired. Re-authenticate with /onboard-github (GitHub Models) or /login (Codex / Claude) and try again.'
+        : 'Authentication failed. Verify API key, token source, and endpoint-specific auth headers.',
     }
   }
 
@@ -299,6 +313,18 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'The selected model is not installed or not available on this endpoint.',
+    }
+  }
+
+  if (options.status === 404 && options.hasImages) {
+    return {
+      source: 'http',
+      category: 'vision_not_supported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      requestUrl: options.url,
+      hint: 'The provider returned 404 for a request containing images. The model may not support vision/image inputs.',
     }
   }
 

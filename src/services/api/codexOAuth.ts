@@ -10,11 +10,14 @@ import {
   CODEX_OAUTH_ORIGINATOR,
   CODEX_OAUTH_SCOPE,
   escapeHtml,
+  getCodexOAuthCallbackHost,
+  getCodexOAuthCallbackOrigin,
   exchangeCodexIdTokenForApiKey,
   getCodexOAuthCallbackPort,
   getCodexOAuthClientId,
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 
 type CodexOAuthTokenResponse = {
   id_token?: string
@@ -32,10 +35,13 @@ export type CodexOAuthTokens = {
 
 function buildCodexAuthorizeUrl(options: {
   port: number
+  host: string
   codeChallenge: string
   state: string
 }): string {
-  const redirectUri = `http://localhost:${options.port}/auth/callback`
+  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port, {
+    CODEX_OAUTH_CALLBACK_HOST: options.host,
+  } as NodeJS.ProcessEnv)}/auth/callback`
   const authUrl = new URL(`${CODEX_OAUTH_ISSUER}/oauth/authorize`)
 
   authUrl.searchParams.append('response_type', 'code')
@@ -116,9 +122,12 @@ async function exchangeAuthorizationCode(options: {
   authorizationCode: string
   codeVerifier: string
   port: number
+  host: string
   signal?: AbortSignal
 }): Promise<CodexOAuthTokens> {
-  const redirectUri = `http://localhost:${options.port}/auth/callback`
+  const redirectUri = `${getCodexOAuthCallbackOrigin(options.port, {
+    CODEX_OAUTH_CALLBACK_HOST: options.host,
+  } as NodeJS.ProcessEnv)}/auth/callback`
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: options.authorizationCode,
@@ -127,27 +136,34 @@ async function exchangeAuthorizationCode(options: {
     code_verifier: options.codeVerifier,
   })
 
-  const response = await fetch(`${CODEX_OAUTH_ISSUER}/oauth/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-    signal: options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)])
-      : AbortSignal.timeout(15_000),
+  const { signal, cleanup } = createCombinedAbortSignal(options.signal, {
+    timeoutMs: 15_000,
   })
+  let payload: CodexOAuthTokenResponse
+  try {
+    const response = await fetch(`${CODEX_OAUTH_ISSUER}/oauth/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+      signal,
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '')
-    throw new Error(
-      errorText.trim()
-        ? `Codex OAuth token exchange failed (${response.status}): ${errorText.trim()}`
-        : `Codex OAuth token exchange failed with status ${response.status}.`,
-    )
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '')
+      throw new Error(
+        errorText.trim()
+          ? `Codex OAuth token exchange failed (${response.status}): ${errorText.trim()}`
+          : `Codex OAuth token exchange failed with status ${response.status}.`,
+      )
+    }
+
+    payload = (await response.json()) as CodexOAuthTokenResponse
+  } finally {
+    cleanup()
   }
 
-  const payload = (await response.json()) as CodexOAuthTokenResponse
   const accessToken = asTrimmedString(payload.access_token)
   const refreshToken = asTrimmedString(payload.refresh_token)
   if (!accessToken || !refreshToken) {
@@ -171,10 +187,28 @@ async function exchangeAuthorizationCode(options: {
   }
 }
 
+type CodexOAuthServiceOptions = {
+  callbackPort?: number
+  callbackHost?: string
+  createAuthCodeListener?: (callbackPath: string) => CodexOAuthListener
+}
+
+type CodexOAuthListener = Pick<
+  AuthCodeListener,
+  | 'start'
+  | 'hasPendingResponse'
+  | 'waitForAuthorization'
+  | 'handleSuccessRedirect'
+  | 'handleErrorRedirect'
+  | 'cancelPendingAuthorization'
+>
+
 export class CodexOAuthService {
-  private authCodeListener: AuthCodeListener | null = null
+  private authCodeListener: CodexOAuthListener | null = null
   private port: number | null = null
   private tokenExchangeAbortController: AbortController | null = null
+
+  constructor(private readonly options: CodexOAuthServiceOptions = {}) {}
 
   private buildCancellationError(): Error {
     return new Error('Codex OAuth flow was cancelled.')
@@ -184,20 +218,26 @@ export class CodexOAuthService {
     authURLHandler: (authUrl: string) => Promise<void>,
   ): Promise<CodexOAuthTokens> {
     const codeVerifier = generateCodeVerifier()
-    const callbackPort = getCodexOAuthCallbackPort()
-    const authCodeListener = new AuthCodeListener('/auth/callback')
+    const callbackPort =
+      this.options.callbackPort ?? getCodexOAuthCallbackPort()
+    const callbackHost =
+      this.options.callbackHost ?? getCodexOAuthCallbackHost()
+    const authCodeListener =
+      this.options.createAuthCodeListener?.('/auth/callback') ??
+      new AuthCodeListener('/auth/callback')
 
     this.authCodeListener = authCodeListener
     this.port = null
 
     try {
-      const port = await authCodeListener.start(callbackPort)
+      const port = await authCodeListener.start(callbackPort, callbackHost)
       this.port = port
 
       const state = generateState()
       const codeChallenge = await generateCodeChallenge(codeVerifier)
       const authUrl = buildCodexAuthorizeUrl({
         port,
+        host: callbackHost,
         codeChallenge,
         state,
       })
@@ -219,6 +259,7 @@ export class CodexOAuthService {
             authorizationCode,
             codeVerifier,
             port,
+            host: callbackHost,
             signal: tokenExchangeAbortController.signal,
           })
         } finally {
@@ -278,7 +319,7 @@ export class CodexOAuthService {
         message.includes(String(callbackPort))
       ) {
         throw new Error(
-          `Codex OAuth needs localhost:${callbackPort} for its callback. Close any app already using that port and try again.`,
+          `Codex OAuth needs ${callbackHost}:${callbackPort} for its callback. Close any app already using that port and try again.`,
         )
       }
       throw error

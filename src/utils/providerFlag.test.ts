@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+import {
   parseProviderFlag,
   parseModelFlag,
   applyProviderFlag,
   applyProviderFlagFromArgs,
+  reapplyRememberedProviderFlag,
+  clearRememberedProviderFlagForTests,
   applyModelFlagFromArgs,
   VALID_PROVIDERS,
 } from './providerFlag.js'
@@ -16,6 +22,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
@@ -25,13 +32,17 @@ const ENV_KEYS = [
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
+  'OPENGATEWAY_API_KEY',
+  'OPENGATEWAY_BASE_URL',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/providerFlag.test.ts')
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
@@ -46,6 +57,7 @@ const RESET_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
@@ -55,23 +67,32 @@ const RESET_KEYS = [
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
+  'OPENGATEWAY_API_KEY',
+  'OPENGATEWAY_BASE_URL',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ] as const
 
 beforeEach(() => {
+  clearRememberedProviderFlagForTests()
   for (const key of RESET_KEYS) {
     delete process.env[key]
   }
 })
 
 afterEach(() => {
-  for (const key of ENV_KEYS) {
-    if (originalEnv[key] === undefined) {
-      delete process.env[key]
-    } else {
-      process.env[key] = originalEnv[key]
+  try {
+    clearRememberedProviderFlagForTests()
+    for (const key of ENV_KEYS) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalEnv[key]
+      }
     }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
@@ -122,6 +143,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('atomic-chat')
     expect(VALID_PROVIDERS).toContain('zai')
     expect(VALID_PROVIDERS).toContain('venice')
+    expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
   })
 })
 
@@ -227,6 +249,143 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 
+  test('descriptor-backed provider selection preserves custom OPENAI_BASE_URL', () => {
+    process.env.OPENAI_BASE_URL = 'http://proxy.local:8080/v1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://proxy.local:8080/v1')
+  })
+
+  test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
+    process.env.OPENAI_API_BASE = 'http://proxy.local:8080/v1'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_BASE).toBe('http://proxy.local:8080/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
+  })
+
+  test('descriptor-backed provider selection ignores placeholder OPENAI_API_BASE alias values', () => {
+    process.env.OPENAI_API_BASE = 'undefined'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://opengateway.gitlawb.com/v1')
+    expect(process.env.OPENAI_API_BASE).toBe('undefined')
+  })
+
+  test('gitlawb-opengateway explicit provider overrides stale generic base URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-5.5'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://opengateway.gitlawb.com/v1')
+    expect(process.env.OPENGATEWAY_API_KEY).toBe('fake-ogw-key')
+    expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
+  })
+
+  test('gitlawb-opengateway explicit provider respects OPENGATEWAY_BASE_URL override', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:8181/v1')
+  })
+
+  test('gitlawb-opengateway explicit provider preserves custom OPENAI_BASE_URL when no OPENGATEWAY_BASE_URL is set', () => {
+    process.env.OPENAI_BASE_URL = 'http://localhost:8181/v1'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:8181/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
+  })
+
+  test('gitlawb-opengateway explicit provider prefers OPENGATEWAY_API_KEY over generic OPENAI_API_KEY', () => {
+    process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+    process.env.OPENAI_API_KEY = 'fake-generic-openai-key'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:8181/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
+  })
+
+  test('gitlawb-opengateway explicit provider ignores blank OPENGATEWAY_API_KEY fallback', () => {
+    process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
+    process.env.OPENGATEWAY_API_KEY = '   '
+    process.env.OPENAI_API_KEY = 'fake-openai-fallback'
+
+    const result = applyProviderFlag('gitlawb-opengateway', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:8181/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('fake-openai-fallback')
+  })
+
+  test('gitlawb-opengateway trims scoped API key and clears the copied key when switching routes', () => {
+    process.env.OPENGATEWAY_API_KEY = ' fake-ogw-key '
+
+    const opengatewayResult = applyProviderFlag('gitlawb-opengateway', [])
+    expect(opengatewayResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
+
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENGATEWAY_API_KEY).toBe(' fake-ogw-key ')
+  })
+
+  test('clears OPENGATEWAY_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.OPENAI_API_KEY = 'fake-ogw-key'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENGATEWAY_API_KEY).toBe('fake-ogw-key')
+  })
+
+  test('descriptor-backed provider selection does not keep stale OpenGateway route', () => {
+    process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+    process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENGATEWAY_API_KEY).toBe('fake-ogw-key')
+  })
+
   test('clears stale NVIDIA_NIM marker when switching to another OpenAI-compatible route', () => {
     process.env.NVIDIA_NIM = '1'
 
@@ -269,6 +428,21 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 
+  test('clears MIMO_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.MIMO_API_KEY = 'mimo-live-key'
+
+    const mimoResult = applyProviderFlag('xiaomi-mimo', [])
+    expect(mimoResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('mimo-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
   test('clears XAI_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
     process.env.XAI_API_KEY = 'xai-live-key'
 
@@ -299,12 +473,19 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
 describe('applyProviderFlag - minimax', () => {
   test('preserves MiniMax default base URL and model semantics', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-5'
+
     const result = applyProviderFlag('minimax', [])
 
     expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
-    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+    expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M3')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
   })
 })
 
@@ -330,6 +511,26 @@ describe('applyProviderFlag - zai', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
     expect(process.env.OPENAI_MODEL).toBe('GLM-5.1')
+  })
+})
+
+describe('applyProviderFlag - xiaomi-mimo', () => {
+  test('sets Xiaomi MiMo OpenAI-compatible defaults and mirrors MIMO_API_KEY', () => {
+    process.env.MIMO_API_KEY = 'mimo-secret-key'
+
+    const result = applyProviderFlag('xiaomi-mimo', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('mimo-secret-key')
+  })
+
+  test('sets Xiaomi MiMo OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('xiaomi-mimo', ['--model', 'mimo-v2-flash'])
+
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2-flash')
   })
 })
 
@@ -412,6 +613,60 @@ describe('applyProviderFlagFromArgs', () => {
 
   test('returns undefined when --provider is absent', () => {
     expect(applyProviderFlagFromArgs(['--model', 'gpt-4o'])).toBeUndefined()
+  })
+
+  test('reapplies remembered gitlawb-opengateway after settings env restores stale OpenAI routing', () => {
+    const args = ['--provider', 'gitlawb-opengateway']
+    delete process.env.OPENGATEWAY_API_KEY
+    delete process.env.OPENAI_API_KEY
+
+    const earlyResult = applyProviderFlagFromArgs(args, {
+      rememberForSettingsEnv: true,
+    })
+    expect(earlyResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+
+    process.env.OPENGATEWAY_API_KEY = 'settings-ogw-key'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+    const lateResult = reapplyRememberedProviderFlag()
+
+    expect(lateResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
+    expect(process.env.OPENAI_API_KEY as string | undefined).toBe(
+      'settings-ogw-key',
+    )
+  })
+
+  test('remembered provider reapply preserves an explicit --model', () => {
+    const result = applyProviderFlagFromArgs(
+      [
+        '--print',
+        '--provider',
+        'gitlawb-opengateway',
+        '--model',
+        'custom-ogw-model',
+        'do not retain prompt text',
+      ],
+      { rememberForSettingsEnv: true },
+    )
+
+    expect(result?.error).toBeUndefined()
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'stale-openai-model'
+
+    const lateResult = reapplyRememberedProviderFlag()
+
+    expect(lateResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('custom-ogw-model')
   })
 })
 

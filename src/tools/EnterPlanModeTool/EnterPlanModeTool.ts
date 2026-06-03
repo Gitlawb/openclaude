@@ -1,14 +1,10 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
-import {
-  getAllowedChannels,
-  handlePlanModeTransition,
-} from '../../bootstrap/state.js'
+import { getAllowedChannels } from '../../bootstrap/state.js'
 import type { Tool } from '../../Tool.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
-import { applyPermissionUpdate } from '../../utils/permissions/PermissionUpdate.js'
-import { prepareContextForPlanMode } from '../../utils/permissions/permissionSetup.js'
+import { applyPermissionUpdateToLiveContext } from '../../utils/permissions/permissionSetup.js'
 import { isPlanModeInterviewPhaseEnabled } from '../../utils/planModeV2.js'
 import { ENTER_PLAN_MODE_TOOL_NAME } from './constants.js'
 import { getEnterPlanModeToolPrompt } from './prompt.js'
@@ -79,16 +75,12 @@ export const EnterPlanModeTool: Tool<InputSchema, Output> = buildTool({
       throw new Error('EnterPlanMode tool cannot be used in agent contexts')
     }
 
-    const appState = context.getAppState()
-    handlePlanModeTransition(appState.toolPermissionContext.mode, 'plan')
-
-    // Update the permission mode to 'plan'. prepareContextForPlanMode runs
-    // the classifier activation side effects when the user's defaultMode is
-    // 'auto' — see permissionSetup.ts for the full lifecycle.
+    // Route plan-mode entry through the shared live-context transition helper
+    // so plan/auto side effects stay aligned with the rest of the app.
     context.setAppState(prev => ({
       ...prev,
-      toolPermissionContext: applyPermissionUpdate(
-        prepareContextForPlanMode(prev.toolPermissionContext),
+      toolPermissionContext: applyPermissionUpdateToLiveContext(
+        prev.toolPermissionContext,
         { type: 'setMode', mode: 'plan', destination: 'session' },
       ),
     }))

@@ -34,6 +34,10 @@ export type ModelShortName = string
 export type ModelName = string
 export type ModelSetting = ModelName | ModelAlias | null
 
+function getMiniMaxModelEnv(): string | undefined {
+  return process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL
+}
+
 function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
@@ -70,7 +74,12 @@ export function getSmallFastModel(): ModelName {
   // MiniMax — OPENAI_MODEL carries the active MiniMax model; fall back to
   // the fastest tier (M2.5-highspeed) when missing.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
+    return getMiniMaxModelEnv() || 'MiniMax-M2.5-highspeed'
+  }
+  // Xiaomi MiMo — OPENAI_MODEL carries the active MiMo model; fall back to
+  // the fast tier when missing.
+  if (getAPIProvider() === 'xiaomi-mimo') {
+    return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
   // xAI — OPENAI_MODEL carries the active Grok model; fall back to grok-3.
   if (getAPIProvider() === 'xai') {
@@ -126,10 +135,12 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       provider === 'github' ||
       provider === 'nvidia-nim' ||
       provider === 'minimax' ||
+      provider === 'xiaomi-mimo' ||
       provider === 'xai'
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
+      (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
       (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       setting ||
@@ -199,7 +210,11 @@ export function getDefaultOpusModel(): ModelName {
   }
   // MiniMax — flagship tier for "opus"-equivalent.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+    return getMiniMaxModelEnv() || 'MiniMax-M2.7'
+  }
+  // Xiaomi MiMo — flagship tier for "opus"-equivalent.
+  if (getAPIProvider() === 'xiaomi-mimo') {
+    return process.env.OPENAI_MODEL || 'mimo-v2.5-pro'
   }
   // xAI — flagship Grok model for "opus"-equivalent.
   if (getAPIProvider() === 'xai') {
@@ -245,7 +260,11 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // MiniMax — mid tier for "sonnet"-equivalent.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.5'
+    return getMiniMaxModelEnv() || 'MiniMax-M2.5'
+  }
+  // Xiaomi MiMo — flagship model for "sonnet"-equivalent.
+  if (getAPIProvider() === 'xiaomi-mimo') {
+    return process.env.OPENAI_MODEL || 'mimo-v2.5-pro'
   }
   // xAI — flagship Grok model for "sonnet"-equivalent.
   if (getAPIProvider() === 'xai') {
@@ -289,7 +308,11 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // MiniMax — fastest tier for "haiku"-equivalent.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
+    return getMiniMaxModelEnv() || 'MiniMax-M2.5-highspeed'
+  }
+  // Xiaomi MiMo — fast tier for "haiku"-equivalent.
+  if (getAPIProvider() === 'xiaomi-mimo') {
+    return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
   // xAI — faster Grok model for "haiku"-equivalent.
   if (getAPIProvider() === 'xai') {
@@ -367,9 +390,16 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4.3'
   }
-  // MiniMax provider: always use the configured MiniMax model
+  // MiniMax provider: always use the configured MiniMax model.
+  // Keep the env-only fallback aligned with the MiniMax descriptor default
+  // (MiniMax-M3) so a session with only MINIMAX_API_KEY / a MiniMax base URL
+  // defaults to the same model as --provider minimax and saved profiles.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+    return getMiniMaxModelEnv() || 'MiniMax-M3'
+  }
+  // Xiaomi MiMo provider: always use the configured MiMo model
+  if (getAPIProvider() === 'xiaomi-mimo') {
+    return process.env.OPENAI_MODEL || 'mimo-v2.5-pro'
   }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
@@ -562,6 +592,7 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     getAPIProvider() === 'github' ||
     getAPIProvider() === 'xai' ||
     getAPIProvider() === 'minimax' ||
+    getAPIProvider() === 'xiaomi-mimo' ||
     getAPIProvider() === 'nvidia-nim' ||
     getAPIProvider() === 'mistral'
   ) {

@@ -27,16 +27,20 @@ type Props = {
   onExit: (result?: string, options?: {
     display?: CommandResultDisplay;
   }) => void;
+  onSetActiveAgent?: (agent: AgentDefinition) => void;
+  initialModeState?: ModeState;
 };
 export function AgentsMenu(t0) {
   const $ = _c(157);
   const {
     tools,
-    onExit
+    onExit,
+    onSetActiveAgent,
+    initialModeState
   } = t0;
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = {
+    t1 = initialModeState ?? {
       mode: "list-agents",
       source: "all"
     };
@@ -48,6 +52,7 @@ export function AgentsMenu(t0) {
   const agentDefinitions = useAppState(_temp);
   const mcpTools = useAppState(_temp2);
   const toolPermissionContext = useAppState(_temp3);
+  const activeAgentName = useAppState(s => s.agent);
   const setAppState = useSetAppState();
   const {
     allAgents,
@@ -250,18 +255,7 @@ export function AgentsMenu(t0) {
         } else {
           t17 = $[39];
         }
-        let t18;
-        if ($[40] !== changes || $[41] !== modeState.source || $[42] !== resolvedAgents || $[43] !== t15 || $[44] !== t16) {
-          t18 = <AgentsList source={modeState.source} agents={resolvedAgents} onBack={t15} onSelect={t16} onCreateNew={t17} changes={changes} />;
-          $[40] = changes;
-          $[41] = modeState.source;
-          $[42] = resolvedAgents;
-          $[43] = t15;
-          $[44] = t16;
-          $[45] = t18;
-        } else {
-          t18 = $[45];
-        }
+        const t18 = <AgentsList source={modeState.source} agents={resolvedAgents} onBack={t15} onSelect={t16} onCreateNew={t17} changes={changes} activeAgentName={activeAgentName} />;
         let t19;
         if ($[46] === Symbol.for("react.memo_cache_sentinel")) {
           t19 = <AgentNavigationFooter />;
@@ -326,93 +320,75 @@ export function AgentsMenu(t0) {
         const freshAgent_1 = t13;
         const agentToUse = freshAgent_1 || modeState.agent;
         const isEditable = agentToUse.source !== "built-in" && agentToUse.source !== "plugin" && agentToUse.source !== "flagSettings";
-        let t14;
-        if ($[60] === Symbol.for("react.memo_cache_sentinel")) {
-          t14 = {
-            label: "View agent",
-            value: "view"
-          };
-          $[60] = t14;
-        } else {
-          t14 = $[60];
-        }
-        let t15;
-        if ($[61] !== isEditable) {
-          t15 = isEditable ? [{
-            label: "Edit agent",
-            value: "edit"
-          }, {
-            label: "Delete agent",
-            value: "delete"
-          }] : [];
-          $[61] = isEditable;
-          $[62] = t15;
-        } else {
-          t15 = $[62];
-        }
-        let t16;
-        if ($[63] === Symbol.for("react.memo_cache_sentinel")) {
-          t16 = {
-            label: "Back",
-            value: "back"
-          };
-          $[63] = t16;
-        } else {
-          t16 = $[63];
-        }
-        let t17;
-        if ($[64] !== t15) {
-          t17 = [t14, ...t15, t16];
-          $[64] = t15;
-          $[65] = t17;
-        } else {
-          t17 = $[65];
-        }
-        const menuItems = t17;
-        let t18;
-        if ($[66] !== agentToUse || $[67] !== modeState) {
-          t18 = value_0 => {
-            bb129: switch (value_0) {
-              case "view":
-                {
-                  setModeState({
-                    mode: "view-agent",
-                    agent: agentToUse,
-                    previousMode: modeState.previousMode
-                  });
-                  break bb129;
-                }
-              case "edit":
-                {
-                  setModeState({
-                    mode: "edit-agent",
-                    agent: agentToUse,
-                    previousMode: modeState
-                  });
-                  break bb129;
-                }
-              case "delete":
-                {
-                  setModeState({
-                    mode: "delete-confirm",
-                    agent: agentToUse,
-                    previousMode: modeState
-                  });
-                  break bb129;
-                }
-              case "back":
-                {
-                  setModeState(modeState.previousMode);
-                }
-            }
-          };
-          $[66] = agentToUse;
-          $[67] = modeState;
-          $[68] = t18;
-        } else {
-          t18 = $[68];
-        }
-        const handleMenuSelect = t18;
+        const isActiveAgent = agentToUse.agentType === activeAgentName;
+        const sessionAgentToUse = agents.find(a_10 => a_10.agentType === agentToUse.agentType) ?? agentToUse;
+        const editableItems = isEditable ? [{
+          label: "Edit agent",
+          value: "edit"
+        }, {
+          label: "Delete agent",
+          value: "delete"
+        }] : [];
+        const activeAgentItems = isActiveAgent ? [{
+          label: "Active agent",
+          value: "active-agent",
+          disabled: true
+        }] : onSetActiveAgent ? [{
+          label: "Set as active agent",
+          value: "set-active"
+        }] : [];
+        const menuItems = [{
+          label: "View agent",
+          value: "view"
+        }, ...activeAgentItems, ...editableItems, {
+          label: "Back",
+          value: "back"
+        }];
+        const handleMenuSelect = value_0 => {
+          bb129: switch (value_0) {
+            case "view":
+              {
+                setModeState({
+                  mode: "view-agent",
+                  agent: agentToUse,
+                  previousMode: modeState.previousMode
+                });
+                break bb129;
+              }
+            case "set-active":
+              {
+                onSetActiveAgent?.(sessionAgentToUse);
+                setChanges(prev => [...prev, `Active session agent set to: ${chalk.bold(sessionAgentToUse.agentType)}`]);
+                setModeState({
+                  mode: "list-agents",
+                  source: "all"
+                });
+                break bb129;
+              }
+            case "edit":
+              {
+                setModeState({
+                  mode: "edit-agent",
+                  agent: agentToUse,
+                  previousMode: modeState
+                });
+                break bb129;
+              }
+            case "delete":
+              {
+                setModeState({
+                  mode: "delete-confirm",
+                  agent: agentToUse,
+                  previousMode: modeState
+                });
+                break bb129;
+              }
+            case "back":
+              {
+                setModeState(modeState.previousMode);
+              }
+          }
+        };
         let t19;
         if ($[69] !== modeState.previousMode) {
           t19 = () => setModeState(modeState.previousMode);
