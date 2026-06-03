@@ -5,7 +5,10 @@ import { Box, Text } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
-import type { ProviderProfile } from '../utils/config.js'
+import type {
+  OpenAICompatibleApiFormat,
+  ProviderProfile,
+} from '../utils/config.js'
 import {
   clearCodexCredentials,
   readCodexCredentialsAsync,

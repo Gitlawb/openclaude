@@ -46,6 +46,7 @@ export interface ShimCreateParams {
 type ResponsesInputPart =
   | { type: 'input_text'; text: string }
   | { type: 'output_text'; text: string }
+  | { type: 'text'; text: string }
   | { type: 'input_image'; image_url: string }
 
 type ResponsesInputItem =
@@ -213,7 +214,7 @@ function convertContentBlocksToResponsesParts(
         break
       default:
         if (typeof block?.text === 'string') {
-          parts.push({ type: textType, text: block.text } as ResponsesInputPart)
+          parts.push({ type: textType, text: block.text })
         }
     }
   }
