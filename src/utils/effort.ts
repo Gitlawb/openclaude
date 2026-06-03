@@ -86,6 +86,23 @@ export function modelSupportsMaxEffort(model: string): boolean {
   return false
 }
 
+// @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'xhigh' effort.
+// xhigh is reserved for OpenAI/Codex models and OpenCode Claude opus 4-7 / 4-8.
+// All other effort-supporting models reject xhigh at the API.
+export function modelSupportsXHighEffort(model: string): boolean {
+  const supported3P = get3PModelCapabilityOverride(model, 'xhigh_effort')
+  if (supported3P !== undefined) {
+    return supported3P
+  }
+  if (modelUsesOpenAIEffort(model)) {
+    return true
+  }
+  if (model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+    return true
+  }
+  return false
+}
+
 export function isEffortLevel(value: string): value is EffortLevel {
   return (EFFORT_LEVELS as readonly string[]).includes(value)
 }
@@ -116,7 +133,9 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIE
     return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
-  levels.push('xhigh')
+  if (modelSupportsXHighEffort(model)) {
+    levels.push('xhigh')
+  }
   if (modelSupportsMaxEffort(model)) {
     levels.push('max')
   }
@@ -246,6 +265,12 @@ export function resolveAppliedEffort(
     !modelSupportsMaxEffort(model) &&
     !modelUsesOpenAIEffort(model)
   ) {
+    return 'high'
+  }
+  // xhigh is reserved for OpenAI/Codex models and OpenCode opus-4-7/4-8.
+  // For all other models, downgrade to 'high' so a stale persisted setting
+  // doesn't surface as an API error.
+  if (resolved === 'xhigh' && !modelSupportsXHighEffort(model)) {
     return 'high'
   }
   return resolved

@@ -164,3 +164,50 @@ test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
 
   expect(resolveAppliedEffort('claude-sonnet-4-6', 'max')).toBe('high')
 })
+
+test('modelSupportsXHighEffort: opus-4-7 and opus-4-8 are allowed; other Claude models are not', async () => {
+  const { modelSupportsXHighEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  expect(modelSupportsXHighEffort('claude-opus-4-7')).toBe(true)
+  expect(modelSupportsXHighEffort('claude-opus-4-8')).toBe(true)
+  expect(modelSupportsXHighEffort('opencode-claude-opus-4-8')).toBe(true)
+  expect(modelSupportsXHighEffort('claude-opus-4-6')).toBe(false)
+  expect(modelSupportsXHighEffort('claude-sonnet-4-6')).toBe(false)
+  expect(modelSupportsXHighEffort('claude-sonnet-4-5')).toBe(false)
+  expect(modelSupportsXHighEffort('claude-haiku-4-5')).toBe(false)
+  expect(modelSupportsXHighEffort('claude-3-5-haiku')).toBe(false)
+})
+
+test('xhigh does not appear in available levels for non-supporting models', async () => {
+  const { getAvailableEffortLevels } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  // No xhigh, no max
+  expect(getAvailableEffortLevels('claude-sonnet-4-6')).toEqual([
+    'low',
+    'medium',
+    'high',
+  ])
+  expect(getAvailableEffortLevels('claude-haiku-4-5')).toEqual([])
+
+  // Has xhigh AND max (opus-4-8)
+  const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
+  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+})
+
+test('xhigh clamps to high on non-supporting models so stale settings.json values do not produce API errors', async () => {
+  const { resolveAppliedEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  // sonnet-4-6 supports effort but not xhigh — clamp
+  expect(resolveAppliedEffort('claude-sonnet-4-6', 'xhigh')).toBe('high')
+  // opus-4-8 supports xhigh — pass through
+  expect(resolveAppliedEffort('claude-opus-4-8', 'xhigh')).toBe('xhigh')
+})
