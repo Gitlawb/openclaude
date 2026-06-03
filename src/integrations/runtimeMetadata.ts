@@ -151,7 +151,11 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
-  if (normalizedModel.includes('deepseek')) {
+  // Segment-boundary-aware matcher: avoids false-positives like "my-deepseek-rag"
+  // while still catching aggregator paths e.g. "openrouter/deepseek/deepseek-chat".
+  const segments = normalizedModel.split('/')
+  const hasDeepseek = segments.some(s => s.startsWith('deepseek'))
+  if (hasDeepseek) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
@@ -162,7 +166,10 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
-  if (normalizedModel.includes('kimi') || normalizedModel.includes('moonshot')) {
+   const hasKimiMoonshot = segments.some(
+     s => s.startsWith('kimi') || s.startsWith('moonshot'),
+   )
+   if (hasKimiMoonshot) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,

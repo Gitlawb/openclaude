@@ -771,6 +771,89 @@ test('applies descriptor static headers before client and request headers', asyn
   expect(capturedHeaders?.get('x-override-header')).toBe('from-request')
 })
 
+test('opengateway sends Accept-Encoding: identity header on chat requests', async () => {
+  let capturedHeaders: Headers | undefined
+
+  registerGateway({
+    id: 'gitlawb-opengateway-test',
+    label: 'Gitlawb Opengateway',
+    category: 'aggregating',
+    defaultBaseUrl: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo',
+    defaultModel: 'mimo-v2.5-pro',
+    setup: {
+      requiresAuth: false,
+      authMode: 'none',
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        headers: {
+          'Accept-Encoding': 'identity',
+        },
+        defaultAuthHeader: {
+          name: 'api-key',
+          scheme: 'raw',
+        },
+        preserveReasoningContent: true,
+        requireReasoningContentOnAssistantMessages: true,
+        reasoningContentFallback: '',
+        maxTokensField: 'max_completion_tokens',
+        supportsApiFormatSelection: false,
+        supportsAuthHeaders: false,
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'mimo-v2.5-pro',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {},
+  )
+
+  expect(capturedHeaders?.get('Accept-Encoding')).toBe('identity')
+})
+
 test('strips Anthropic-specific headers on GitHub Codex transport requests', async () => {
   let capturedHeaders: Headers | undefined
 

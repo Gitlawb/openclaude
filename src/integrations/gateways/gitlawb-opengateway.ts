@@ -31,6 +31,9 @@ export default defineGateway({
     openaiShim: {
       // Opengateway expects `Authorization: Bearer ogw_live_...`. Previous
       // `api-key` raw header was a leftover from the direct-Xiaomi era.
+      headers: {
+        'Accept-Encoding': 'identity',
+      },
       defaultAuthHeader: {
         name: 'authorization',
         scheme: 'bearer',

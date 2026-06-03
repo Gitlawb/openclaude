@@ -154,6 +154,7 @@ afterEach(() => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
+  testSettings = {}
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
