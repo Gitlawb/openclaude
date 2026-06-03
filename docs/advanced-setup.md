@@ -217,12 +217,13 @@ MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_BASE_URL=https://opengateway.gitlawb.com/v1
-export OPENAI_API_KEY=anything
+export OPENGATEWAY_API_KEY=ogw_live_...
 export OPENAI_MODEL=mimo-v2.5-pro
 ```
 
-The Opengateway route is a smart gateway. Keep the base URL at `/v1` and switch
-models with `/model` or `OPENAI_MODEL`. Current partner models include:
+The Opengateway route is the fresh-install startup default and requires an API
+key from https://gitlawb.com/opengateway/keys. Keep the base URL at `/v1` and
+switch models with `/model` or `OPENAI_MODEL`. Current partner models include:
 
 - `mimo-v2.5-pro`
 - `google/gemini-3.1-flash-lite-preview`
@@ -376,6 +377,27 @@ bun run dev:atomic-chat
 `profile:recommend` ranks installed Ollama models for `latency`, `balanced`, or `coding`, and `profile:auto` can persist the recommendation directly.
 
 If no profile exists yet, `dev:profile` uses the same goal-aware defaults when picking the initial model.
+
+### Provider Profile Model Picker Mode
+
+When a saved provider profile is active, `/model` can either show the provider's
+catalog/discovered models or only the models explicitly listed in the profile.
+Configure this in `~/.openclaude.json`:
+
+```json
+{
+  "providerProfileModelPickerMode": "auto"
+}
+```
+
+Supported values:
+
+- `auto` (default): single-model profiles show the provider catalog; multi-model
+  profiles show the explicit profile list; native vendor routes keep their full
+  provider catalog.
+- `provider`: show the provider catalog/discovery list first and append
+  profile-only custom model IDs.
+- `profile`: show only explicitly configured profile models.
 
 Use `--provider ollama` when you want a local-only path. Auto mode falls back to OpenAI when no viable local chat model is installed.
 

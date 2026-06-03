@@ -161,7 +161,7 @@ Advanced and source-build guides:
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
-| Gitlawb Opengateway | `/provider` or zero-config fallback | Free smart gateway at `https://opengateway.gitlawb.com/v1`; routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
+| Gitlawb Opengateway | Startup default, `/provider`, or env vars | Smart gateway at `https://opengateway.gitlawb.com/v1`; requires an API key from https://gitlawb.com/opengateway/keys and routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
 | OpenCode Zen | `/provider` or env vars | Pay-as-you-go AI gateway (41 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/v1`; shared key with OpenCode Go |
 | OpenCode Go | `/provider` or env vars | $10/mo subscription for open models (12 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/go/v1`; shared key with OpenCode Zen |
 | Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://mimo.mi.com`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
@@ -186,7 +186,7 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Tool quality depends heavily on the selected model
 - Smaller local models can struggle with long multi-step tool flows
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
-- Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
+- Gitlawb Opengateway is the fresh-install startup default and requires an API key from https://gitlawb.com/opengateway/keys. It uses one OpenAI-compatible base URL; switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`, and do not pin the base URL to `/v1/xiaomi-mimo`.
 - Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
 
 For best results, use models with strong tool/function calling support.

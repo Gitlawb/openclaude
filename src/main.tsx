@@ -380,6 +380,29 @@ function prefetchSystemContextIfSafe(): void {
 }
 
 /**
+ * Start memory-pressure monitor + compaction trigger.
+ * Idempotent — startMemoryPressureMonitor early-returns if already running.
+ * Called from both headless (--print) and interactive REPL paths.
+ */
+function startMemoryMonitorIfNeeded(): void {
+  void Promise.all([
+    import('./utils/memoryPressure.js'),
+    import('./utils/memoryCompaction.js'),
+    import('./utils/concurrentSessions.js'),
+  ]).then(([pressure, compaction, sessions]) =>
+    sessions.calculatePerSessionMemoryBudget().then(budgetMB => {
+      pressure.startMemoryPressureMonitor({ perSessionBudgetMB: budgetMB })
+      compaction.createMemoryCompactionTrigger({
+        onCompact: () => {},
+        onPruneCache: () => {
+          pressure.pruneRegisteredCaches()
+        },
+      })
+    }),
+  );
+}
+
+/**
  * Start background prefetches and housekeeping that are NOT needed before first render.
  * These are deferred from setup() to reduce event loop contention and child process
  * spawning during the critical startup path.
@@ -2748,6 +2771,7 @@ async function run(): Promise<CommanderCommand> {
       if (!isBareMode()) {
         startDeferredPrefetches();
         void import('./utils/backgroundHousekeeping.js').then(m => m.startBackgroundHousekeeping());
+        startMemoryMonitorIfNeeded();
         if ("external" === 'ant') {
           void import('./utils/sdkHeapDumpMonitor.js').then(m => m.startSdkMemoryMonitor());
         }
@@ -2983,6 +3007,12 @@ async function run(): Promise<CommanderCommand> {
       void logStartupTelemetry();
       logSessionTelemetry();
     });
+
+    // Start memory-pressure monitor for interactive sessions.
+    // Idempotent — safe to call even if --print path already started it.
+    if (!isBareMode()) {
+      startMemoryMonitorIfNeeded();
+    }
 
     // Set up per-turn session environment data uploader (internal-only build).
     // Default-enabled for all ant users when working in an Anthropic-owned

@@ -19,6 +19,7 @@ import {
   createProfileFile,
   deleteProfileFile,
   getDefaultProfileFilePath,
+  isDefaultStartupProviderEnv,
   isPersistedCodexOAuthProfile,
   maskSecretForDisplay,
   loadProfileFile,
@@ -239,6 +240,18 @@ test('openai launch ignores codex persisted transport hints', async () => {
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
   assert.equal(env.OPENAI_MODEL, 'gpt-5.5')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
+})
+
+test('buildStartupEnvFromProfile defaults fresh installs to Gitlawb Opengateway', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://opengateway.gitlawb.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'mimo-v2.5-pro')
+  assert.equal(isDefaultStartupProviderEnv(env), true)
 })
 
 test('openai launch preserves shell responses format and custom auth overrides', async () => {

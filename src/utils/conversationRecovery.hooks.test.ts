@@ -18,6 +18,7 @@ const tempDirs: string[] = []
 const originalEnv = { ...process.env }
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
+let providerForTest: ReturnType<typeof realProviders.getAPIProvider> = 'firstParty'
 
 function id(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -52,9 +53,10 @@ async function writeJsonl(entry: unknown): Promise<string> {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/conversationRecovery.hooks.test.ts')
+  providerForTest = 'firstParty'
   mock.module('./model/providers.js', () => ({
     ...realProviders,
-    getAPIProvider: () => 'firstParty',
+    getAPIProvider: () => providerForTest,
   }))
 })
 
@@ -63,6 +65,7 @@ afterEach(async () => {
     mock.restore()
     mock.module('./model/providers.js', () => realProviders)
     mock.module('./sessionStart.js', () => realSessionStart)
+    providerForTest = 'firstParty'
     process.env = { ...originalEnv }
     await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
   } finally {
@@ -126,10 +129,10 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     user(id(13), 'follow up'),
   ]
 
-  mock.module('./model/providers.js', () => ({
-    ...realProviders,
-    getAPIProvider: () => 'openai',
-  }))
+  providerForTest = 'openai'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5-mini'
 
   const openaiModule = await import(`./conversationRecovery.ts?provider=openai-${Date.now()}`)
   const thirdParty = openaiModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
@@ -149,10 +152,6 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   ).not.toContain('only hidden reasoning')
 
   process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
-  mock.module('./model/providers.js', () => ({
-    ...realProviders,
-    getAPIProvider: () => 'openai',
-  }))
 
   const mimoModule = await import(`./conversationRecovery.ts?provider=mimo-${Date.now()}`)
   const mimo = mimoModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
@@ -173,10 +172,10 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   ).not.toContain('only hidden reasoning')
   delete process.env.OPENAI_MODEL
 
-  mock.module('./model/providers.js', () => ({
-    ...realProviders,
-    getAPIProvider: () => 'bedrock',
-  }))
+  providerForTest = 'bedrock'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
 
   const bedrockModule = await import(`./conversationRecovery.ts?provider=bedrock-${Date.now()}`)
   const anthropicCompatible = bedrockModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])

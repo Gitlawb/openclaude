@@ -46,6 +46,8 @@ export const DEFAULT_GEMINI_BASE_URL =
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_MISTRAL_MODEL = 'mistral-vibe-cli-latest'
+export const DEFAULT_STARTUP_PROVIDER_ENV_VAR =
+  'CLAUDE_CODE_DEFAULT_STARTUP_PROVIDER'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -96,6 +98,7 @@ const PROFILE_ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'OPENCODE_API_KEY',
+  DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
 
 export type CompatibilityProfileMode =
@@ -877,6 +880,10 @@ export function buildCompatibilityProcessEnv(options: {
   return env
 }
 
+export function isDefaultStartupProviderEnv(env: NodeJS.ProcessEnv): boolean {
+  return env[DEFAULT_STARTUP_PROVIDER_ENV_VAR] === 'gitlawb-opengateway'
+}
+
 export function buildCodexOAuthProfileEnv(
   tokens: {
     accessToken: string
@@ -1592,7 +1599,8 @@ export async function buildStartupEnvFromProfile(options?: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options?.processEnv ?? process.env
-  const persisted = options?.persisted ?? loadProfileFile()
+  const persisted =
+    options && 'persisted' in options ? options.persisted : loadProfileFile()
 
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
   const hasConfiguredProviderProfile =
@@ -1631,26 +1639,20 @@ export async function buildStartupEnvFromProfile(options?: {
   }
 
   if (!persisted) {
-    // No saved profile — default to Codex OAuth / GPT 5.5.
-    // If Codex credentials are available (OAuth or existing), use Codex.
-    // Otherwise inject the Codex env defaults so the provider picker
-    // shows GPT 5.5 as the default model when the user lands on it.
-    const codexEnv = buildCodexProfileEnv({})
-    if (codexEnv) {
-      return buildCompatibilityProcessEnv({
-        processEnv,
-        compatibilityMode: 'openai',
-        profileEnv: codexEnv,
-      })
-    }
-    return buildCompatibilityProcessEnv({
+    // No saved profile — default to Gitlawb Opengateway.
+    const env = buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
-        OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
-        OPENAI_MODEL: 'codexplan',
+        OPENAI_BASE_URL:
+          getRouteDefaultBaseUrl('gitlawb-opengateway') ??
+          'https://opengateway.gitlawb.com/v1',
+        OPENAI_MODEL:
+          getRouteDefaultModel('gitlawb-opengateway') ?? 'mimo-v2.5-pro',
       },
     })
+    env[DEFAULT_STARTUP_PROVIDER_ENV_VAR] = 'gitlawb-opengateway'
+    return env
   }
 
   return buildLaunchEnv({

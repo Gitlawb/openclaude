@@ -48,7 +48,7 @@ import { parseSedEditCommand } from './sedEditParser.js';
 import { shouldUseSandbox } from './shouldUseSandbox.js';
 import { BASH_TOOL_NAME } from './toolName.js';
 import { BackgroundHint, renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseQueuedMessage } from './UI.js';
-import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeShellImageOutput, stdErrAppendShellResetMessage, stripEmptyLines } from './utils.js';
+import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeShellImageOutput, selectFailureOutput, stdErrAppendShellResetMessage, stripEmptyLines } from './utils.js';
 const EOL = '\n';
 
 // Progress display constants
@@ -667,23 +667,32 @@ export const BashTool = buildTool({
 
       // Consume the generator and capture the return value
       let generatorResult;
+      // Capture the most recent `fullOutput` yielded by the streaming
+      // generator so we can fall back to it for failure messages when the
+      // final ExecResult.stdout slot ends up empty (#1231).
+      let lastProgressFullOutput = '';
       do {
         generatorResult = await commandGenerator.next();
-        if (!generatorResult.done && onProgress) {
+        if (!generatorResult.done) {
           const progress = generatorResult.value;
-          onProgress({
-            toolUseID: `bash-progress-${progressCounter++}`,
-            data: {
-              type: 'bash_progress',
-              output: progress.output,
-              fullOutput: progress.fullOutput,
-              elapsedTimeSeconds: progress.elapsedTimeSeconds,
-              totalLines: progress.totalLines,
-              totalBytes: progress.totalBytes,
-              taskId: progress.taskId,
-              timeoutMs: progress.timeoutMs
-            }
-          });
+          if (typeof progress.fullOutput === 'string' && progress.fullOutput.length > 0) {
+            lastProgressFullOutput = progress.fullOutput;
+          }
+          if (onProgress) {
+            onProgress({
+              toolUseID: `bash-progress-${progressCounter++}`,
+              data: {
+                type: 'bash_progress',
+                output: progress.output,
+                fullOutput: progress.fullOutput,
+                elapsedTimeSeconds: progress.elapsedTimeSeconds,
+                totalLines: progress.totalLines,
+                totalBytes: progress.totalBytes,
+                taskId: progress.taskId,
+                timeoutMs: progress.timeoutMs
+              }
+            });
+          }
         }
       } while (!generatorResult.done);
 
@@ -709,8 +718,30 @@ export const BashTool = buildTool({
         }
       }
 
-      // Annotate output with sandbox violations if any (stderr is in stdout)
-      const outputWithSbFailures = SandboxManager.annotateStderrWithSandboxFailures(input.command, result.stdout || '');
+      // Annotate output with sandbox violations if any (stderr is in stdout).
+      // Issue #1231: pick the best non-empty failure body across three
+      // sources, ordered by trust:
+      //   1. The accumulator (after stripping the synthetic "Exit code N"
+      //      marker we appended above) — mirrors the success-path stdout
+      //      that was appended at line 696 above.
+      //   2. result.stdout from the shell runner.
+      //   3. lastProgressFullOutput — the most recent fullOutput yielded by
+      //      the streaming generator. Recovers stdout when the shell runner
+      //      streamed every line through progress callbacks but the final
+      //      ExecResult.stdout slot was left empty (flush-after-result race,
+      //      exit before EOF, persisted to file path, etc.).
+      // Strip the trailing "Exit code N" so getErrorParts() doesn't
+      // duplicate it; ShellError carries the code separately.
+      const accumulatedOutput = stdoutAccumulator
+        .toString()
+        .replace(new RegExp(`\\nExit code ${result.code}$`), '')
+        .replace(new RegExp(`^Exit code ${result.code}$`), '');
+      const failureOutput = selectFailureOutput(
+        accumulatedOutput,
+        result.stdout,
+        lastProgressFullOutput,
+      );
+      const outputWithSbFailures = SandboxManager.annotateStderrWithSandboxFailures(input.command, failureOutput);
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }

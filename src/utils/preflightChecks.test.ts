@@ -8,6 +8,34 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+type AxiosModule = typeof import('axios')
+
+// Captured once (before any test mocks axios) and re-registered in afterEach.
+// bun's mock.restore() does not unregister mock.module() overrides, so without
+// this the partial axios stub below leaks into later test files — e.g. proxy
+// configuration's `axios.defaults.proxy = ...` throws because `defaults` is
+// missing, breaking tests/sdk/query-lifecycle.
+let originalAxiosModule: AxiosModule | undefined
+
+// Build a COMPLETE axios module stub. Including `defaults` and `interceptors`
+// keeps the stub harmless to consumers like proxy.ts's configureGlobalAgents()
+// (`axios.defaults.proxy = ...`, `axios.interceptors.request.eject(...)`) if it
+// ever leaks beyond this file, since bun does not unregister mock.module().
+function buildAxiosModuleStub(
+  get: (...args: unknown[]) => Promise<unknown>,
+): AxiosModule {
+  const instance = {
+    get,
+    isAxiosError: () => false,
+    defaults: {} as Record<string, unknown>,
+    interceptors: {
+      request: { use: () => 0, eject: () => {} },
+      response: { use: () => 0, eject: () => {} },
+    },
+  }
+  return { default: instance } as unknown as AxiosModule
+}
+
 // MACRO is normally substituted at build time. The test runs without the
 // bundler, so stub the build-time globals before importing the module under
 // test (which transitively imports utils/http.ts -> MACRO.VERSION).
@@ -95,6 +123,7 @@ async function waitForPreflightFailureEffect(
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/preflightChecks.test.ts')
+  originalAxiosModule ??= await import('axios')
 })
 
 afterEach(() => {
@@ -103,6 +132,11 @@ afterEach(() => {
     jest.restoreAllMocks()
     jest.useRealTimers()
     mock.restore()
+    // Re-register the genuine axios module so this file's partial stub does not
+    // leak into later test files.
+    if (originalAxiosModule) {
+      mock.module('axios', () => originalAxiosModule!)
+    }
   } finally {
     releaseSharedMutationLock()
   }
@@ -111,18 +145,14 @@ afterEach(() => {
 describe('checkEndpoints (preflight)', () => {
   test('passes a bounded timeout to axios so a hung probe cannot freeze onboarding (#1017)', async () => {
     const calls: Array<{ url: string; options: { timeout?: number } }> = []
-    mock.module('axios', () => ({
-      default: {
-        get: async (
-          url: string,
-          options: { timeout?: number } = {},
-        ): Promise<{ status: number }> => {
-          calls.push({ url, options })
-          return { status: 200 }
-        },
-        isAxiosError: () => false,
-      },
-    }))
+    mock.module('axios', () =>
+      buildAxiosModuleStub(async (...args: unknown[]) => {
+        const url = args[0] as string
+        const options = (args[1] as { timeout?: number }) ?? {}
+        calls.push({ url, options })
+        return { status: 200 }
+      }),
+    )
 
     const { checkEndpoints, PREFLIGHT_REQUEST_TIMEOUT_MS } = await import(
       './preflightChecks.js'
@@ -140,18 +170,15 @@ describe('checkEndpoints (preflight)', () => {
   })
 
   test('returns a failure result (instead of throwing or hanging) when axios rejects with ECONNABORTED', async () => {
-    mock.module('axios', () => ({
-      default: {
-        get: async (): Promise<never> => {
-          const err = new Error('timeout of 5000ms exceeded') as Error & {
-            code?: string
-          }
-          err.code = 'ECONNABORTED'
-          throw err
-        },
-        isAxiosError: () => false,
-      },
-    }))
+    mock.module('axios', () =>
+      buildAxiosModuleStub(async () => {
+        const err = new Error('timeout of 5000ms exceeded') as Error & {
+          code?: string
+        }
+        err.code = 'ECONNABORTED'
+        throw err
+      }),
+    )
 
     const { checkEndpoints } = await import('./preflightChecks.js')
 
@@ -163,12 +190,9 @@ describe('checkEndpoints (preflight)', () => {
   })
 
   test('returns success when all probes return 200', async () => {
-    mock.module('axios', () => ({
-      default: {
-        get: async (): Promise<{ status: number }> => ({ status: 200 }),
-        isAxiosError: () => false,
-      },
-    }))
+    mock.module('axios', () =>
+      buildAxiosModuleStub(async () => ({ status: 200 })),
+    )
 
     const { checkEndpoints } = await import('./preflightChecks.js')
 
@@ -190,19 +214,16 @@ describe('checkEndpoints (preflight)', () => {
     mock.module('../hooks/useTimeout.js', () => ({
       useTimeout: () => false,
     }))
-    mock.module('axios', () => ({
-      default: {
-        get: async (): Promise<never> => {
-          probeCalls++
-          const err = new Error('timeout of 5000ms exceeded') as Error & {
-            code?: string
-          }
-          err.code = 'ECONNABORTED'
-          throw err
-        },
-        isAxiosError: () => false,
-      },
-    }))
+    mock.module('axios', () =>
+      buildAxiosModuleStub(async () => {
+        probeCalls++
+        const err = new Error('timeout of 5000ms exceeded') as Error & {
+          code?: string
+        }
+        err.code = 'ECONNABORTED'
+        throw err
+      }),
+    )
 
     const { createRoot } = await import('../ink.js')
     const { PreflightStep, PREFLIGHT_ERROR_HOLD_MS } = await import(

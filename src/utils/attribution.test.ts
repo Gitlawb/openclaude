@@ -10,6 +10,7 @@ import * as actualModel from './model/model.js'
 import * as actualProviders from './model/providers.js'
 import {
   resetSettingsCache,
+  setSessionSettingsCache,
 } from './settings/settingsCache.js'
 import * as actualSettings from './settings/settings.js'
 import type { SettingsJson } from './settings/types.js'
@@ -24,6 +25,7 @@ let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
 let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
   'getEnhancedPRAttribution'
 ]
+let testSettings: SettingsJson = {}
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -70,10 +72,9 @@ const originalMainLoopModelOverride = getMainLoopModelOverride()
 const defaultPrAttribution =
   '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
 
-let settingsForTest: SettingsJson = {}
-
 function useSettings(settings: SettingsJson): void {
-  settingsForTest = settings
+  testSettings = settings
+  setSessionSettingsCache({ settings, errors: [] })
 }
 
 function restoreEnv(): void {
@@ -90,7 +91,7 @@ beforeEach(async () => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
-  settingsForTest = {}
+  testSettings = {}
   setClientType('cli')
   setMainLoopModelOverride(undefined)
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -139,8 +140,8 @@ beforeEach(async () => {
   // module or a nonced import creates a separate cache instance.
   mock.module('./settings/settings.js', () => ({
     ...actualSettings,
-    getInitialSettings: () => settingsForTest,
-    getSettings_DEPRECATED: () => settingsForTest,
+    getInitialSettings: () => testSettings,
+    getSettings_DEPRECATED: () => testSettings,
   }))
 
   const attribution = await import(
@@ -156,10 +157,12 @@ afterEach(() => {
   mock.restore()
   resetStateForTests()
   resetSettingsCache()
+  testSettings = {}
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
   mock.module('./model/providers.js', () => actualProviders)
+  mock.module('./settings/settings.js', () => actualSettings)
   restoreEnv()
 })
 

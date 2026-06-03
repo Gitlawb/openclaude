@@ -1,18 +1,22 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mock } from 'bun:test'
+import { expect, test } from 'bun:test'
 
+import { type ProviderProfile } from './config.js'
 import {
-  resetSettingsCache,
-  setSessionSettingsCache,
-} from './settings/settingsCache.js'
+  getProviderFallbackChain,
+  resolveNextFallbackProvider,
+  resolveNextFallbackProviderFromState,
+} from './providerFallback.js'
 
-import * as actualConfig from './config.js'
-import * as actualProviderProfiles from './providerProfiles.js'
-import * as actualSettings from './settings/settings.js'
+// This file intentionally avoids mock.module(). The functions under test take
+// their settings/profile inputs as injected parameters, so tests pass them
+// directly. bun does not unregister mock.module() overrides on mock.restore(),
+// so mocking shared singletons here used to leak into later test files
+// (attribution/preconnect/etc.). Dependency injection keeps these tests fully
+// self-contained.
 
 function buildProfile(
-  overrides: Partial<actualConfig.ProviderProfile> = {},
-): actualConfig.ProviderProfile {
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return {
     id: 'profile_x',
     name: 'X',
@@ -24,74 +28,36 @@ function buildProfile(
   }
 }
 
-async function importFreshProviderFallback(
-  profileMocks: Partial<typeof actualProviderProfiles>,
-  settingsOverride: Record<string, unknown> = {},
-) {
-  mock.restore()
-  mock.module('./providerProfiles.js', () => ({
-    ...actualProviderProfiles,
-    ...profileMocks,
-  }))
-  // Stub `getSettings_DEPRECATED` directly so the resolver sees the test's
-  // intended `providerFallbackChain` regardless of session-cache reset
-  // behavior under nonced re-imports. setSessionSettingsCache() works under
-  // bun locally but doesn't survive a fresh `import('?ts=...')` because the
-  // settings module loads its own cache instance on each fresh import.
-  mock.module('./settings/settings.js', () => ({
-    ...actualSettings,
-    getSettings_DEPRECATED: () => settingsOverride,
-    getInitialSettings: () => settingsOverride,
-  }))
-  const nonce = `${Date.now()}-${Math.random()}`
-  return import(`./providerFallback.js?ts=${nonce}`)
-}
-
-beforeEach(() => {
-  mock.restore()
-  setSessionSettingsCache({ settings: {}, errors: [] })
+test('getProviderFallbackChain: returns [] when unset', () => {
+  expect(getProviderFallbackChain({})).toEqual([])
 })
 
-afterEach(() => {
-  mock.restore()
-  resetSettingsCache()
+test('getProviderFallbackChain: returns configured ids', () => {
+  expect(
+    getProviderFallbackChain({
+      providerFallbackChain: ['profile_a', 'profile_b'],
+    }),
+  ).toEqual(['profile_a', 'profile_b'])
 })
 
-test('getProviderFallbackChain: returns [] when unset', async () => {
-  const { getProviderFallbackChain } = await importFreshProviderFallback({})
-  expect(getProviderFallbackChain()).toEqual([])
-})
-
-test('getProviderFallbackChain: returns configured ids', async () => {
-  const { getProviderFallbackChain } = await importFreshProviderFallback(
-    {},
-    { providerFallbackChain: ['profile_a', 'profile_b'] },
-  )
-  expect(getProviderFallbackChain()).toEqual(['profile_a', 'profile_b'])
-})
-
-test('getProviderFallbackChain: filters non-string + empty entries', async () => {
+test('getProviderFallbackChain: filters non-string + empty entries', () => {
   // Setting could be hand-edited to a malformed shape. Defensive filter keeps
   // the resolver from crashing on garbage without making it the source of a
   // hard error during a rate-limit recovery flow.
-  const { getProviderFallbackChain } = await importFreshProviderFallback(
-    {},
-    {
+  expect(
+    getProviderFallbackChain({
       providerFallbackChain: ['profile_a', '', null, 5, 'profile_b'],
-    },
-  )
-  expect(getProviderFallbackChain()).toEqual(['profile_a', 'profile_b'])
+    }),
+  ).toEqual(['profile_a', 'profile_b'])
 })
 
-test('resolveNextFallbackProvider: empty chain → null', async () => {
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
+test('resolveNextFallbackProvider: empty chain → null', () => {
   expect(resolveNextFallbackProvider('profile_a', [], [])).toBeNull()
 })
 
-test('resolveNextFallbackProvider: returns next after active', async () => {
+test('resolveNextFallbackProvider: returns next after active', () => {
   const a = buildProfile({ id: 'profile_a', name: 'A' })
   const b = buildProfile({ id: 'profile_b', name: 'B' })
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
 
   const result = resolveNextFallbackProvider(
     'profile_a',
@@ -103,13 +69,12 @@ test('resolveNextFallbackProvider: returns next after active', async () => {
   expect(result?.fromProfileId).toBe('profile_a')
 })
 
-test('resolveNextFallbackProvider: does not wrap when active is the last entry', async () => {
+test('resolveNextFallbackProvider: does not wrap when active is the last entry', () => {
   // Wrapping would let "everything rate-limited" cycle back to the first
   // profile that already failed and produce a churn loop. Exhaust silently
   // and let the caller surface the original error.
   const a = buildProfile({ id: 'profile_a' })
   const b = buildProfile({ id: 'profile_b' })
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
 
   const result = resolveNextFallbackProvider(
     'profile_b',
@@ -119,14 +84,13 @@ test('resolveNextFallbackProvider: does not wrap when active is the last entry',
   expect(result).toBeNull()
 })
 
-test('resolveNextFallbackProvider: active not in chain → starts from chain[0]', async () => {
+test('resolveNextFallbackProvider: active not in chain → starts from chain[0]', () => {
   // User landed on a non-chain profile via `/provider` ad-hoc — treat the
   // chain as an absolute priority list and start from the top instead of
   // refusing to do anything.
   const a = buildProfile({ id: 'profile_a' })
   const b = buildProfile({ id: 'profile_b' })
   const c = buildProfile({ id: 'profile_c' })
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
 
   const result = resolveNextFallbackProvider(
     'profile_c',
@@ -137,12 +101,11 @@ test('resolveNextFallbackProvider: active not in chain → starts from chain[0]'
   expect(result?.fromProfileId).toBe('profile_c')
 })
 
-test('resolveNextFallbackProvider: skips chain entries that no longer resolve to real profiles', async () => {
+test('resolveNextFallbackProvider: skips chain entries that no longer resolve to real profiles', () => {
   // Chain may reference a deleted profile id. Don't surface that as a hard
   // failure — keep advancing.
   const a = buildProfile({ id: 'profile_a' })
   const c = buildProfile({ id: 'profile_c' })
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
 
   const result = resolveNextFallbackProvider(
     'profile_a',
@@ -152,19 +115,17 @@ test('resolveNextFallbackProvider: skips chain entries that no longer resolve to
   expect(result?.nextProfileId).toBe('profile_c')
 })
 
-test('resolveNextFallbackProvider: null active + chain configured → chain[0]', async () => {
+test('resolveNextFallbackProvider: null active + chain configured → chain[0]', () => {
   // Edge case: pristine session with no active profile yet. The chain still
   // serves as a priority list so the first entry wins.
   const a = buildProfile({ id: 'profile_a' })
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
 
   const result = resolveNextFallbackProvider(null, ['profile_a'], [a])
   expect(result?.nextProfileId).toBe('profile_a')
   expect(result?.fromProfileId).toBeNull()
 })
 
-test('resolveNextFallbackProvider: every candidate missing → null', async () => {
-  const { resolveNextFallbackProvider } = await importFreshProviderFallback({})
+test('resolveNextFallbackProvider: every candidate missing → null', () => {
   const result = resolveNextFallbackProvider(
     'profile_a',
     ['profile_a', 'profile_b'],
@@ -173,19 +134,16 @@ test('resolveNextFallbackProvider: every candidate missing → null', async () =
   expect(result).toBeNull()
 })
 
-test('resolveNextFallbackProviderFromState: pulls chain + active from real settings/state', async () => {
+test('resolveNextFallbackProviderFromState: resolves from injected chain + active', () => {
   const a = buildProfile({ id: 'profile_a' })
   const b = buildProfile({ id: 'profile_b' })
-  const { resolveNextFallbackProviderFromState } =
-    await importFreshProviderFallback(
-      {
-        getProviderProfiles: () => [a, b],
-        getActiveProviderProfile: () => a,
-      },
-      { providerFallbackChain: ['profile_a', 'profile_b'] },
-    )
 
-  const result = resolveNextFallbackProviderFromState()
+  const result = resolveNextFallbackProviderFromState({
+    activeProfileId: 'profile_a',
+    chain: ['profile_a', 'profile_b'],
+    profiles: [a, b],
+  })
+
   expect(result?.nextProfileId).toBe('profile_b')
   expect(result?.fromProfileId).toBe('profile_a')
 })

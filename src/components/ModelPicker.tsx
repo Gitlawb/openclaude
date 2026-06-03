@@ -9,6 +9,7 @@ import { Box, Text } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
+import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
 import { getModelOptions, type ModelOption } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
@@ -99,7 +100,7 @@ export function ModelPicker(t0) {
   const modelOptions = optionsOverride ?? t3;
   let t4;
   bb0: {
-    if (initial !== null && !modelOptions.some(opt => opt.value === initial)) {
+    if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => opt.value === initial)) {
       let t5;
       if ($[4] !== initial) {
         t5 = modelDisplayString(initial);
@@ -243,6 +244,11 @@ export function ModelPicker(t0) {
   let t14;
   if ($[35] !== effort || $[36] !== hasToggledEffort || $[37] !== onSelect || $[38] !== setAppState || $[39] !== skipSettingsWrite) {
     t14 = function handleSelect(value_0) {
+      const selectedModel = resolveOptionModel(value_0);
+      if (value_0 !== NO_PREFERENCE && selectedModel && !isModelAllowed(selectedModel)) {
+        onSelect(value_0 === NO_PREFERENCE ? null : value_0, undefined);
+        return;
+      }
       logEvent("tengu_model_command_menu_effort", {
         effort: effort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
@@ -259,7 +265,6 @@ export function ModelPicker(t0) {
           effortValue: effortLevel
         }));
       }
-      const selectedModel = resolveOptionModel(value_0);
       const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? effort : undefined;
       if (value_0 === NO_PREFERENCE) {
         onSelect(null, selectedEffort);
