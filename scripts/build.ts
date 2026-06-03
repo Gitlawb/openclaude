@@ -964,7 +964,6 @@ if (result?.success) {
   // same shape canonicalStub() produces, so the allowlist reads as the key.
   const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
     'src/tools/VerifyPlanExecutionTool/constants',
-    'src/services/compact/cachedMCConfig',
     'src/components/tasks/MonitorMcpDetailDialog',
   ])
 
