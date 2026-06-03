@@ -16,6 +16,7 @@ export const EFFORT_LEVELS = [
   'medium',
   'high',
   'max',
+  'xhigh',
 ] as const satisfies readonly EffortLevel[]
 
 export const OPENAI_EFFORT_LEVELS = [
@@ -42,7 +43,7 @@ export function modelSupportsEffort(model: string): boolean {
     return true
   }
   // Supported by a subset of Claude 4 models
-  if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
+  if (m.includes('opus-4-6') || m.includes('opus-4-8') || m.includes('sonnet-4-6')) {
     return true
   }
   // OpenCode Claude models that support thinking via /messages endpoint
@@ -76,7 +77,7 @@ export function modelSupportsMaxEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7')) {
+  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
     return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
@@ -115,6 +116,7 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIE
     return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
+  levels.push('xhigh')
   if (modelSupportsMaxEffort(model)) {
     levels.push('max')
   }
@@ -128,8 +130,7 @@ export function getEffortLevelLabel(level: EffortLevel | OpenAIEffortLevel): str
 }
 
 export function openAIEffortToStandard(level: OpenAIEffortLevel): EffortLevel {
-  if (level === 'xhigh') return 'max'
-  return level
+  return level as EffortLevel
 }
 
 export function standardEffortToOpenAI(level: EffortLevel): OpenAIEffortLevel {
@@ -162,22 +163,22 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
 /**
  * Numeric values are model-default only and not persisted.
  * 'max' can now be persisted by all users.
- * OpenAI-shaped 'xhigh' is normalized to its EffortLevel equivalent ('max')
- * so any code path that leaks the OpenAI label still persists correctly.
+ * 'xhigh' is a first-class EffortLevel (supported by OpenCode Claude 4.7+)
+ * and is persisted as 'xhigh' — no normalization needed.
  * Write sites call this before saving to settings so the Zod schema
  * (which only accepts string levels) never rejects a write.
  */
 export function toPersistableEffort(
   value: EffortValue | undefined,
 ): EffortLevel | undefined {
-  if (value === 'low' || value === 'medium' || value === 'high') {
+  if (
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'max' ||
+    value === 'xhigh'
+  ) {
     return value
-  }
-  if (value === 'max') {
-    return value
-  }
-  if (value === 'xhigh') {
-    return 'max'
   }
   return undefined
 }
@@ -316,7 +317,7 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'max':
       return 'Maximum capability with deepest reasoning (Opus 4.6 only)'
     case 'xhigh':
-      return 'Extra high reasoning effort for complex tasks (OpenAI/Codex)'
+      return 'Extra high reasoning effort for complex tasks'
   }
 }
 

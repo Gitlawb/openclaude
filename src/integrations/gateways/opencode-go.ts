@@ -29,7 +29,7 @@ export default defineGateway({
   preset: {
     id: 'opencode-go',
     vendorId: 'openai',
-    description: 'OpenCode Go — $10/mo subscription for open models (12 models)',
+    description: 'OpenCode Go — $10/mo subscription for open models (13 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
   },
@@ -50,6 +50,7 @@ export default defineGateway({
       { id: 'opencode-go-minimax-m2.5', apiName: 'minimax-m2.5', label: 'MiniMax M2.5', modelDescriptorId: 'opencode-go-minimax-m2.5', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'opencode-go-qwen3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen3.6 Plus', modelDescriptorId: 'opencode-go-qwen3.6-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'opencode-go-qwen3.5-plus', apiName: 'qwen3.5-plus', label: 'Qwen3.5 Plus', modelDescriptorId: 'opencode-go-qwen3.5-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'opencode-go-minimax-m3', apiName: 'minimax-m3', label: 'MiniMax M3', modelDescriptorId: 'opencode-go-minimax-m3', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
     ],
   },
   usage: { supported: false },

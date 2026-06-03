@@ -284,12 +284,12 @@ describe('OpenCode model catalog', () => {
 
   test('zen model count matches expected', () => {
     const models = getCatalogEntriesForRoute('opencode')
-    expect(models.length).toBe(41)
+    expect(models.length).toBe(43)
   })
 
   test('go model count matches expected', () => {
     const models = getCatalogEntriesForRoute('opencode-go')
-    expect(models.length).toBe(12)
+    expect(models.length).toBe(13)
   })
 
   test('all zen gpt models have modelDescriptorId', () => {
