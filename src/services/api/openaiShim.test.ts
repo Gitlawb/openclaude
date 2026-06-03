@@ -3987,6 +3987,65 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
   ])
 })
 
+test('non-streaming: preserves response body when usage parsing fails', async () => {
+  const json = JSON as unknown as { parse: typeof JSON.parse }
+  const originalJSONParse = json.parse
+  let parseCalls = 0
+
+  json.parse = ((text: string, reviver?: Parameters<typeof JSON.parse>[1]) => {
+    parseCalls += 1
+    if (parseCalls === 1) {
+      throw new Error('simulated usage parse failure')
+    }
+    return originalJSONParse(text, reviver)
+  }) as typeof JSON.parse
+
+  try {
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-1',
+          model: 'glm-5',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'ok',
+              },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            total_tokens: 30,
+          },
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }) as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+    const result = (await client.beta.messages.create({
+      model: 'glm-5',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })) as { content: Array<Record<string, unknown>> }
+
+    expect(result.content).toEqual([{ type: 'text', text: 'ok' }])
+    expect(parseCalls).toBeGreaterThan(1)
+  } finally {
+    json.parse = originalJSONParse
+  }
+})
+
 test('non-streaming: strips <think> tag block from assistant content', async () => {
   globalThis.fetch = (async () => {
     return new Response(
