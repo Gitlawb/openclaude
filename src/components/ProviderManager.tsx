@@ -236,6 +236,15 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
 
 function getPresetLabel(preset: ProviderPreset, label: string, metadata?: { badge?: { text: string; color?: string } }): React.ReactNode {
   if (metadata?.badge) {
+    if (metadata.badge.text.toLowerCase() === 'recommended') {
+      return (
+        <Text>
+          <Text>{label} </Text>
+          <Text color={metadata.badge.color ?? 'success'} bold>★ Recommended</Text>
+        </Text>
+      )
+    }
+
     return (
       <Text>
         <Text>{label} </Text>

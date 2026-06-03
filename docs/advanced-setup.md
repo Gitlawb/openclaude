@@ -217,12 +217,13 @@ MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_BASE_URL=https://opengateway.gitlawb.com/v1
-export OPENAI_API_KEY=anything
+export OPENGATEWAY_API_KEY=ogw_live_...
 export OPENAI_MODEL=mimo-v2.5-pro
 ```
 
-The Opengateway route is a smart gateway. Keep the base URL at `/v1` and switch
-models with `/model` or `OPENAI_MODEL`. Current partner models include:
+The Opengateway route is the fresh-install startup default and requires an API
+key from https://gitlawb.com/opengateway/keys. Keep the base URL at `/v1` and
+switch models with `/model` or `OPENAI_MODEL`. Current partner models include:
 
 - `mimo-v2.5-pro`
 - `google/gemini-3.1-flash-lite-preview`
