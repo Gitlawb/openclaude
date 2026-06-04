@@ -32,6 +32,7 @@ import { getInitialSettings } from '../utils/settings/settings.js';
 import { BASH_MAX_OUTPUT_DEFAULT, BASH_MAX_OUTPUT_UPPER_LIMIT } from '../utils/shell/outputLimits.js';
 import { TASK_MAX_OUTPUT_DEFAULT, TASK_MAX_OUTPUT_UPPER_LIMIT } from '../utils/task/outputFormatting.js';
 import { getXDGStateHome } from '../utils/xdg.js';
+import { loadDoctorDiagnostic } from './doctorDiagnosticLoad.js';
 import { resolveDoctorDistTags } from './doctorDistTags.js';
 type Props = {
   onDone: (result?: string, options?: {
@@ -118,6 +119,7 @@ export function Doctor(t0: Props) {
     [toolPermissionContext, mcpTools],
   );
   const [diagnostic, setDiagnostic] = useState<DiagnosticInfo | null>(null);
+  const [diagnosticLoadFailed, setDiagnosticLoadFailed] = useState(false);
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
   const [contextWarnings, setContextWarnings] = useState<ContextWarnings | null>(null);
   const [versionLockInfo, setVersionLockInfo] = useState<VersionLockInfo | null>(null);
@@ -158,7 +160,10 @@ export function Doctor(t0: Props) {
   }
   const envValidationErrors = t4;
   useEffect(() => {
-    getDoctorDiagnostic().then(setDiagnostic);
+    void loadDoctorDiagnostic(
+      { getDoctorDiagnostic },
+      { setDiagnostic, setDiagnosticLoadFailed },
+    );
     (async () => {
       const userAgentsDir = join(getClaudeConfigHomeDir(), "agents");
       const projectAgentsDir = join(getOriginalCwd(), ".claude", "agents");
@@ -237,6 +242,9 @@ export function Doctor(t0: Props) {
     t9 = $[15];
   }
   useKeybindings(t8, t9);
+  if (diagnosticLoadFailed && !diagnostic) {
+    return <Pane><Text color="error">Failed to load installation status.</Text></Pane>;
+  }
   if (!diagnostic) {
     let t10;
     if ($[16] === Symbol.for("react.memo_cache_sentinel")) {

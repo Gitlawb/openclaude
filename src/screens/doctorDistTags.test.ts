@@ -75,14 +75,14 @@ test('falls back to empty dist tags when the selected version source fails', asy
   expect(getGcsDistTags).not.toHaveBeenCalled()
 })
 
-test('does not mask diagnostic failures before choosing a version source', async () => {
+test('falls back to empty dist tags when diagnostics fail before choosing a version source', async () => {
   getDoctorDiagnostic.mockImplementation(async () => {
     throw new Error('diagnostic unavailable')
   })
 
-  await expect(resolveDoctorDistTags(deps)).rejects.toThrow(
-    'diagnostic unavailable',
-  )
+  const distTags = await resolveDoctorDistTags(deps)
+
+  expect(distTags).toEqual({ latest: null, stable: null })
   expect(getNpmDistTags).not.toHaveBeenCalled()
   expect(getGcsDistTags).not.toHaveBeenCalled()
 })

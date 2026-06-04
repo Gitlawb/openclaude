@@ -17,11 +17,15 @@ const FAILED_DIST_TAGS: NpmDistTags = {
 export async function resolveDoctorDistTags(
   deps: DoctorDistTagsDependencies,
 ): Promise<NpmDistTags> {
-  const diag = await deps.getDoctorDiagnostic()
-  const fetchDistTags =
-    diag.installationType === 'native'
-      ? deps.getGcsDistTags
-      : deps.getNpmDistTags
+  try {
+    const diag = await deps.getDoctorDiagnostic()
+    const fetchDistTags =
+      diag.installationType === 'native'
+        ? deps.getGcsDistTags
+        : deps.getNpmDistTags
 
-  return fetchDistTags().catch(() => FAILED_DIST_TAGS)
+    return await fetchDistTags()
+  } catch {
+    return FAILED_DIST_TAGS
+  }
 }
