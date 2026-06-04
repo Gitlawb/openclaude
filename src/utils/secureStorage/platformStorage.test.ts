@@ -245,11 +245,38 @@ describe("Secure Storage Platform Implementations", () => {
       expect(mockExecaSync).toHaveBeenCalledTimes(1);
     });
 
+    test("read() parses string-array stdout from the DPAPI path", () => {
+      mockExecaSync.mockReturnValueOnce(
+        execaResult({ stdout: JSON.stringify(testData, null, 2).split("\n") }),
+      );
+
+      const result = windowsCredentialStorage.read();
+
+      expect(result).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(1);
+    });
+
     test("update() reports byte stderr when DPAPI write fails", () => {
       mockExecaSync.mockReturnValueOnce(
         execaResult({
           exitCode: 1,
           stderr: Buffer.from("dpapi failed", "utf8"),
+        }),
+      );
+
+      const result = windowsCredentialStorage.update(testData);
+
+      expect(result).toEqual({
+        success: false,
+        warning: "dpapi failed",
+      });
+    });
+
+    test("update() reports string-array stderr when DPAPI write fails", () => {
+      mockExecaSync.mockReturnValueOnce(
+        execaResult({
+          exitCode: 1,
+          stderr: ["dpapi failed", ""],
         }),
       );
 
