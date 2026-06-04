@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
+import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
+import type { UUID } from 'crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,11 +15,11 @@ const tempDirs: string[] = []
 const sessionId = '00000000-0000-4000-8000-000000000999'
 const ts = '2026-04-02T00:00:00.000Z'
 
-function id(n: number): string {
-  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+function id(n: number): UUID {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}` as UUID
 }
 
-function base(uuid: string, parentUuid: string | null) {
+function base(uuid: UUID, parentUuid: UUID | null) {
   return {
     uuid,
     parentUuid,
@@ -30,7 +32,11 @@ function base(uuid: string, parentUuid: string | null) {
   }
 }
 
-function user(uuid: string, parentUuid: string | null, content: string) {
+function user(
+  uuid: UUID,
+  parentUuid: UUID | null,
+  content: string | ToolResultBlockParam[],
+) {
   return {
     ...base(uuid, parentUuid),
     type: 'user',
@@ -42,7 +48,7 @@ function user(uuid: string, parentUuid: string | null, content: string) {
   }
 }
 
-function assistant(uuid: string, parentUuid: string | null, text: string) {
+function assistant(uuid: UUID, parentUuid: UUID | null, text: string) {
   return {
     ...base(uuid, parentUuid),
     type: 'assistant',
@@ -64,12 +70,12 @@ function assistant(uuid: string, parentUuid: string | null, text: string) {
 }
 
 function compactBoundary(
-  uuid: string,
-  parentUuid: string | null,
+  uuid: UUID,
+  parentUuid: UUID | null,
   preservedSegment: {
-    headUuid: string
-    anchorUuid: string
-    tailUuid: string
+    headUuid: UUID
+    anchorUuid: UUID
+    tailUuid: UUID
   },
 ) {
   return {
@@ -93,6 +99,23 @@ async function writeJsonl(entries: unknown[]): Promise<string> {
   const filePath = join(dir, 'session.jsonl')
   await writeFile(filePath, `${entries.map(e => JSON.stringify(e)).join('\n')}\n`)
   return filePath
+}
+
+function getToolResultContent(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+
+  const [block] = content
+  if (
+    typeof block !== 'object' ||
+    block === null ||
+    !('type' in block) ||
+    block.type !== 'tool_result' ||
+    !('content' in block)
+  ) {
+    return undefined
+  }
+
+  return typeof block.content === 'string' ? block.content : undefined
 }
 
 afterEach(async () => {
@@ -200,18 +223,14 @@ test('loadTranscriptFile fails closed when preserved-segment anchor is missing',
 })
 
 test('stripPersistedToolUseResultsFromJSONLBuffer drops raw toolUseResult while preserving persisted preview content', () => {
-  const persisted = user(id(31), null, 'placeholder')
-  persisted.message = {
-    role: 'user',
-    content: [
-      {
-        type: 'tool_result',
-        tool_use_id: 'tool-31',
-        is_error: false,
-        content: '<persisted-output>\nPreview text\n</persisted-output>',
-      },
-    ],
-  }
+  const persisted = user(id(31), null, [
+    {
+      type: 'tool_result',
+      tool_use_id: 'tool-31',
+      is_error: false,
+      content: '<persisted-output>\nPreview text\n</persisted-output>',
+    },
+  ])
   ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult = {
     stdout: 'x'.repeat(200_000),
     stderr: '',
@@ -224,24 +243,18 @@ test('stripPersistedToolUseResultsFromJSONLBuffer drops raw toolUseResult while 
   >
 
   expect(parsed?.toolUseResult).toBeUndefined()
-  expect(
-    (parsed?.message.content as Array<{ content: string }>)[0]?.content,
-  ).toContain('Preview text')
+  expect(getToolResultContent(parsed?.message.content)).toContain('Preview text')
 })
 
 test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript entries', async () => {
-  const persisted = user(id(41), null, 'placeholder')
-  persisted.message = {
-    role: 'user',
-    content: [
-      {
-        type: 'tool_result',
-        tool_use_id: 'tool-41',
-        is_error: false,
-        content: '<persisted-output>\nPreview text\n</persisted-output>',
-      },
-    ],
-  }
+  const persisted = user(id(41), null, [
+    {
+      type: 'tool_result',
+      tool_use_id: 'tool-41',
+      is_error: false,
+      content: '<persisted-output>\nPreview text\n</persisted-output>',
+    },
+  ])
   ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult = {
     stdout: 'y'.repeat(200_000),
     stderr: '',
@@ -255,7 +268,5 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
 
   expect(loaded).toBeDefined()
   expect(loaded?.toolUseResult).toBeUndefined()
-  expect(
-    (loaded?.message.content as Array<{ content: string }>)[0]?.content,
-  ).toContain('Preview text')
+  expect(getToolResultContent(loaded?.message.content)).toContain('Preview text')
 })
