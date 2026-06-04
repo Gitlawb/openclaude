@@ -368,12 +368,15 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
 
 describe('persistent retry cap', () => {
   test('persistent retries stop after 100 retryable 429s', async () => {
+    // Drive the real persistent retry gate — no runtime override. The
+    // UNATTENDED_RETRY feature must be enabled via `bun test --feature=UNATTENDED_RETRY`
+    // (see package.json), and the env var must be truthy, otherwise
+    // isPersistentRetryEnabled() returns false and the cap never triggers.
+    process.env.CLAUDE_CODE_UNATTENDED_RETRY = '1'
     const retryModule = await importFreshWithRetryModule('firstParty')
-    const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, _setPersistentRetryOverrideForTest } = retryModule
+    const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST } = retryModule
 
     expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
-
-    _setPersistentRetryOverrideForTest(true)
 
     const retryableRateLimit = makeError({ 'retry-after': '1' })
     const operation = mock(async () => {

@@ -101,15 +101,11 @@ const PERSISTENT_MAX_BACKOFF_MS = 5 * 60 * 1000
 const PERSISTENT_RESET_CAP_MS = 6 * 60 * 60 * 1000
 const HEARTBEAT_INTERVAL_MS = 30_000
 const PERSISTENT_MAX_ATTEMPTS = 100
+// Exposed for unit-test assertion only. The persistent retry cap itself is
+// driven by isPersistentRetryEnabled() — there is no runtime override seam
+// (tests must enable UNATTENDED_RETRY via `bun test --feature=UNATTENDED_RETRY`
+// and set CLAUDE_CODE_UNATTENDED_RETRY to exercise this path).
 export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST }
-
-// Test-only override for the persistent retry gate. Keeps the production
-// feature flag behavior intact while letting unit tests exercise the
-// persistent backoff and cap logic directly.
-let _persistentRetryOverrideForTest: boolean | undefined
-export function _setPersistentRetryOverrideForTest(value: boolean | undefined): void {
-  _persistentRetryOverrideForTest = value
-}
 
 function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
@@ -200,8 +196,7 @@ export async function* withRetry<T>(
   options: RetryOptions,
 ): AsyncGenerator<SystemAPIErrorMessage, T> {
   const maxRetries = getMaxRetries(options)
-  const persistentRetryEnabled =
-    _persistentRetryOverrideForTest ?? isPersistentRetryEnabled()
+  const persistentRetryEnabled = isPersistentRetryEnabled()
   const retryContext: RetryContext = {
     model: options.model,
     thinkingConfig: options.thinkingConfig,
