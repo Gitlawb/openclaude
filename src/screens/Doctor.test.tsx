@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
 import { createRoot } from '../ink.js'
@@ -11,6 +11,7 @@ import type {
   ParsedBinding,
   ParsedKeystroke,
 } from '../keybindings/types.js'
+import { Doctor } from './Doctor.js'
 import { AppStateProvider } from '../state/AppState.js'
 import type { NpmDistTags } from '../utils/autoUpdater.js'
 import type { DiagnosticInfo } from '../utils/doctorDiagnostic.js'
@@ -40,14 +41,14 @@ type TestKeybindingHandlerRegistration = {
   context: KeybindingContextName
   handler: () => void
 }
-
-type DoctorDiagnosticModule = typeof import('../utils/doctorDiagnostic.js')
-type AutoUpdaterModule = typeof import('../utils/autoUpdater.js')
-type PidLockModule = typeof import('../utils/nativeInstaller/pidLock.js')
-
-let actualDoctorDiagnosticModule: DoctorDiagnosticModule | undefined
-let actualAutoUpdaterModule: AutoUpdaterModule | undefined
-let actualPidLockModule: PidLockModule | undefined
+const doctorDeps = {
+  getDoctorDiagnostic,
+  getNpmDistTags,
+  getGcsDistTags,
+  isPidBasedLockingEnabled,
+  cleanupStaleLocks,
+  getAllLockInfo,
+} satisfies NonNullable<React.ComponentProps<typeof Doctor>['deps']>
 
 function makeDiagnostic(
   overrides: Partial<DiagnosticInfo> = {},
@@ -69,63 +70,6 @@ function makeDiagnostic(
     },
     ...overrides,
   }
-}
-
-async function importDoctor(): Promise<typeof import('./Doctor.js')> {
-  return import(`./Doctor.js?doctor-test-${Date.now()}-${Math.random()}`)
-}
-
-async function importActualModules(): Promise<void> {
-  actualDoctorDiagnosticModule ??= (await import(
-    `../utils/doctorDiagnostic.ts?doctor-actual-${Date.now()}-${Math.random()}`
-  )) as DoctorDiagnosticModule
-  actualAutoUpdaterModule ??= (await import(
-    `../utils/autoUpdater.ts?doctor-actual-${Date.now()}-${Math.random()}`
-  )) as AutoUpdaterModule
-  actualPidLockModule ??= (await import(
-    `../utils/nativeInstaller/pidLock.ts?doctor-actual-${Date.now()}-${Math.random()}`
-  )) as PidLockModule
-}
-
-function mockDoctorModulesForTest(): void {
-  if (!actualDoctorDiagnosticModule || !actualAutoUpdaterModule || !actualPidLockModule) {
-    throw new Error('Doctor test mocks must be initialized after actual modules')
-  }
-
-  mock.module('../utils/doctorDiagnostic.js', () => ({
-    ...actualDoctorDiagnosticModule,
-    getDoctorDiagnostic,
-  }))
-
-  mock.module('../utils/autoUpdater.js', () => ({
-    ...actualAutoUpdaterModule,
-    getGcsDistTags,
-    getNpmDistTags,
-  }))
-
-  mock.module('../utils/nativeInstaller/pidLock.js', () => ({
-    ...actualPidLockModule,
-    cleanupStaleLocks,
-    getAllLockInfo,
-    isPidBasedLockingEnabled,
-  }))
-}
-
-function restoreActualMockImplementations(): void {
-  if (!actualDoctorDiagnosticModule || !actualAutoUpdaterModule || !actualPidLockModule) {
-    return
-  }
-
-  getDoctorDiagnostic.mockImplementation(
-    actualDoctorDiagnosticModule.getDoctorDiagnostic,
-  )
-  getNpmDistTags.mockImplementation(actualAutoUpdaterModule.getNpmDistTags)
-  getGcsDistTags.mockImplementation(actualAutoUpdaterModule.getGcsDistTags)
-  isPidBasedLockingEnabled.mockImplementation(
-    actualPidLockModule.isPidBasedLockingEnabled,
-  )
-  cleanupStaleLocks.mockImplementation(actualPidLockModule.cleanupStaleLocks)
-  getAllLockInfo.mockImplementation(actualPidLockModule.getAllLockInfo)
 }
 
 function extractLastFrame(output: string): string {
@@ -239,7 +183,6 @@ async function waitForOutput(
 }
 
 beforeEach(async () => {
-  await importActualModules()
   getDoctorDiagnostic.mockImplementation(async () => makeDiagnostic())
   getNpmDistTags.mockImplementation(async () => ({
     latest: '9.9.9',
@@ -252,16 +195,9 @@ beforeEach(async () => {
   isPidBasedLockingEnabled.mockImplementation(() => false)
   cleanupStaleLocks.mockImplementation(() => 0)
   getAllLockInfo.mockImplementation(() => [])
-  mockDoctorModulesForTest()
-})
-
-afterEach(() => {
-  mock.restore()
-  restoreActualMockImplementations()
 })
 
 test('renders installation diagnostics and resolved dist tags', async () => {
-  const { Doctor } = await importDoctor()
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
     stdout: stdout as unknown as NodeJS.WriteStream,
@@ -273,7 +209,7 @@ test('renders installation diagnostics and resolved dist tags', async () => {
     root.render(
       <AppStateProvider>
         <TestKeybindingProvider>
-          <Doctor onDone={() => {}} />
+          <Doctor onDone={() => {}} deps={doctorDeps} />
         </TestKeybindingProvider>
       </AppStateProvider>,
     )
@@ -298,7 +234,6 @@ test('renders a version-fetch failure without blocking diagnostics', async () =>
     throw new Error('registry unavailable')
   })
 
-  const { Doctor } = await importDoctor()
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
     stdout: stdout as unknown as NodeJS.WriteStream,
@@ -310,7 +245,7 @@ test('renders a version-fetch failure without blocking diagnostics', async () =>
     root.render(
       <AppStateProvider>
         <TestKeybindingProvider>
-          <Doctor onDone={() => {}} />
+          <Doctor onDone={() => {}} deps={doctorDeps} />
         </TestKeybindingProvider>
       </AppStateProvider>,
     )
