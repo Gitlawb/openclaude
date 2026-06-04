@@ -14,7 +14,7 @@
  */
 
 import type { Command } from '../commands.js'
-import { localize } from '../skills/bundled/i18n.js'
+import { localize } from '../i18n/index.js'
 import type { BundledSkillDefinition } from '../skills/bundledSkills.js'
 import type { BuiltinPluginDefinition, LoadedPlugin } from '../types/plugin.js'
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
@@ -80,7 +80,7 @@ export function getBuiltinPlugins(): {
       name,
       manifest: {
         name,
-        description: localize(definition.description),
+        description: localize(definition.descriptionKey, definition.description),
         version: definition.version,
       },
       path: BUILTIN_MARKETPLACE_NAME, // sentinel — no filesystem path
@@ -135,14 +135,18 @@ function skillDefinitionToCommand(definition: BundledSkillDefinition): Command {
     type: 'prompt',
     name: definition.name,
     get description() {
-      return localize(definition.description)
+      return localize(definition.descriptionKey, definition.description)
     },
+    localizationKey: definition.descriptionKey,
     hasUserSpecifiedDescription: true,
     allowedTools: definition.allowedTools ?? [],
     argumentHint: definition.argumentHint,
     get whenToUse() {
-      return definition.whenToUse ? localize(definition.whenToUse) : undefined
+      return definition.whenToUse
+        ? localize(definition.whenToUseKey, definition.whenToUse)
+        : undefined
     },
+    whenToUseLocalizationKey: definition.whenToUseKey,
     model: definition.model,
     disableModelInvocation: definition.disableModelInvocation ?? false,
     userInvocable: definition.userInvocable ?? true,

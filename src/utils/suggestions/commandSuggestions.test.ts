@@ -1,15 +1,33 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import type { Command } from '../../types/command.js'
+import type { LocalizationKey } from '../../i18n/index.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../settings/settingsCache.js'
 import { generateCommandSuggestions } from './commandSuggestions.js'
 
 function promptCommand({
   name,
   getDescription,
   source = 'builtin',
+  kind,
+  pluginName,
+  localizationKey,
 }: {
   name: string
   getDescription: () => string
-  source?: 'builtin' | 'bundled'
+  source?:
+    | 'builtin'
+    | 'bundled'
+    | 'mcp'
+    | 'plugin'
+    | 'projectSettings'
+    | 'userSettings'
+    | 'policySettings'
+  kind?: 'workflow'
+  pluginName?: string
+  localizationKey?: LocalizationKey
 }): Command {
   return {
     type: 'prompt',
@@ -18,62 +36,138 @@ function promptCommand({
       return getDescription()
     },
     source,
+    kind,
+    localizationKey,
+    pluginInfo: pluginName
+      ? {
+          pluginManifest: {
+            name: pluginName,
+          },
+          repository: 'test',
+        }
+      : undefined,
     progressMessage: 'running',
     contentLength: 0,
     getPromptForCommand: async () => [],
   } as Command
 }
 
+function useLanguage(language?: string): void {
+  setSessionSettingsCache({
+    settings: language ? { language } : {},
+    errors: [],
+  })
+}
+
+afterEach(() => {
+  resetSettingsCache()
+})
+
 describe('generateCommandSuggestions localization', () => {
-  test('searches changed rendered prompt descriptions with a stable command array', () => {
-    let description = 'Review a pull request'
+  test('searches localized built-in descriptions with a stable command array', () => {
     const commands = [
       promptCommand({
         name: 'review',
-        getDescription: () => description,
+        source: 'builtin',
+        getDescription: () => 'Review a pull request',
+        localizationKey: 'commands.review.description',
       }),
     ]
 
+    useLanguage('english')
     expect(
       generateCommandSuggestions('/pull', commands).map(
         item => item.displayText,
       ),
     ).toContain('/review')
 
-    description = '\u0110\u00e1nh gi\u00e1 pull request'
+    useLanguage('vietnamese')
     const suggestions = generateCommandSuggestions('/\u0111\u00e1nh', commands)
 
     expect(suggestions[0]?.displayText).toBe('/review')
     expect(suggestions[0]?.description).toBe(
       '\u0110\u00e1nh gi\u00e1 pull request',
     )
+
+    useLanguage('english')
+    const englishSuggestions = generateCommandSuggestions('/pull', commands)
+    expect(englishSuggestions[0]?.displayText).toBe('/review')
+    expect(englishSuggestions[0]?.description).toBe('Review a pull request')
   })
 
-  test('searches changed bundled descriptions with a stable command array', () => {
-    let description =
-      'Run a prompt on a fixed interval or dynamically reschedule it.'
+  test('searches localized bundled descriptions with a stable command array', () => {
     const commands = [
       promptCommand({
         name: 'loop',
         source: 'bundled',
-        getDescription: () => description,
+        getDescription: () =>
+          'Run a prompt on a fixed interval or dynamically reschedule it.',
+        localizationKey: 'skills.loop.description',
       }),
     ]
 
+    useLanguage('english')
     expect(
       generateCommandSuggestions('/interval', commands).map(
         item => item.displayText,
       ),
     ).toContain('/loop')
 
-    description =
-      'Ch\u1ea1y m\u1ed9t prompt theo kho\u1ea3ng th\u1eddi gian c\u1ed1 \u0111\u1ecbnh.'
+    useLanguage('vietnamese')
     const suggestions = generateCommandSuggestions('/kho\u1ea3ng', commands)
     const loopSuggestion = suggestions.find(item => item.displayText === '/loop')
 
     expect(loopSuggestion).toBeDefined()
     expect(loopSuggestion?.description).toContain(
       'kho\u1ea3ng th\u1eddi gian',
+    )
+  })
+
+  test('does not index external English descriptions as Vietnamese text', () => {
+    const commands = [
+      promptCommand({
+        name: 'project-review',
+        source: 'projectSettings',
+        getDescription: () => 'Review a pull request',
+      }),
+      promptCommand({
+        name: 'plugin-review',
+        source: 'plugin',
+        getDescription: () => 'Review a pull request',
+        pluginName: 'MyPlugin',
+      }),
+      promptCommand({
+        name: 'workflow-review',
+        source: 'projectSettings',
+        kind: 'workflow',
+        getDescription: () => 'Review a pull request',
+      }),
+      promptCommand({
+        name: 'builtin-review',
+        source: 'builtin',
+        getDescription: () => 'Review a pull request',
+        localizationKey: 'commands.review.description',
+      }),
+    ]
+
+    useLanguage('vietnamese')
+    const vietnameseMatches = generateCommandSuggestions(
+      '/\u0111\u00e1nh',
+      commands,
+    ).map(item => item.displayText)
+
+    expect(vietnameseMatches).toContain('/builtin-review')
+    expect(vietnameseMatches).not.toContain('/project-review')
+    expect(vietnameseMatches).not.toContain('/plugin-review')
+    expect(vietnameseMatches).not.toContain('/workflow-review')
+
+    const pluginSuggestion = generateCommandSuggestions(
+      '/plugin-review',
+      commands,
+    ).find(item => item.displayText === '/plugin-review')
+
+    expect(pluginSuggestion?.description).toBe(
+      '(MyPlugin) Review a pull request',
     )
   })
 })

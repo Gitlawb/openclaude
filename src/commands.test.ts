@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+﻿import { afterEach, describe, expect, test } from 'bun:test'
 import {
   builtInCommandNames,
   formatDescriptionWithSource,
@@ -8,7 +8,11 @@ import { registerDebugSkill } from './skills/bundled/debug.js'
 import { registerLoopSkill } from './skills/bundled/loop.js'
 import { registerSimplifySkill } from './skills/bundled/simplify.js'
 import { registerUpdateConfigSkill } from './skills/bundled/updateConfig.js'
-import { clearBundledSkills, getBundledSkills } from './skills/bundledSkills.js'
+import {
+  clearBundledSkills,
+  getBundledSkills,
+  registerBundledSkill,
+} from './skills/bundledSkills.js'
 import { isCommand } from './types/command.js'
 import {
   resetSettingsCache,
@@ -100,6 +104,7 @@ describe('formatDescriptionWithSource', () => {
       type: 'prompt',
       source: 'builtin',
       description: 'Review a pull request',
+      localizationKey: 'commands.review.description',
     } as any
 
     useLanguage('english')
@@ -109,60 +114,106 @@ describe('formatDescriptionWithSource', () => {
     expect(formatDescriptionWithSource(command)).toBe('Đánh giá pull request')
   })
 
-  test('translates selected local command descriptions using the current language', () => {
-    const localCommand = (description: string) =>
+  test('falls back to English when an OpenClaude localization key is missing', () => {
+    const command = {
+      name: 'example',
+      type: 'prompt',
+      source: 'builtin',
+      description: 'English fallback description',
+      localizationKey: 'commands.example.missing.description',
+    } as any
+
+    useLanguage('vietnamese')
+    expect(formatDescriptionWithSource(command)).toBe(
+      'English fallback description',
+    )
+  })
+
+  test('does not translate project, policy, workflow, or user-authored descriptions', () => {
+    const description = 'Review a pull request'
+    const promptCommand = (source: string) =>
       ({
-        name: 'example',
-        type: 'local',
+        name: 'external-review',
+        type: 'prompt',
+        source,
         description,
       }) as any
 
     useLanguage('vietnamese')
-    expect(
-      formatDescriptionWithSource(
-        localCommand(
-          "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)",
-        ),
-      ),
-    ).toBe(
-      'Sao chép phản hồi gần nhất của Claude vào clipboard (hoặc /copy N cho phản hồi thứ N gần nhất)',
+
+    expect(formatDescriptionWithSource(promptCommand('projectSettings'))).toBe(
+      'Review a pull request (project)',
+    )
+    expect(formatDescriptionWithSource(promptCommand('userSettings'))).toBe(
+      'Review a pull request (user)',
+    )
+    expect(formatDescriptionWithSource(promptCommand('policySettings'))).toBe(
+      'Review a pull request (managed)',
+    )
+    expect(formatDescriptionWithSource(promptCommand('localSettings'))).toBe(
+      'Review a pull request (project, gitignored)',
+    )
+    expect(formatDescriptionWithSource(promptCommand('flagSettings'))).toBe(
+      'Review a pull request (cli flag)',
     )
     expect(
-      formatDescriptionWithSource(
-        localCommand('Set the AI model for OpenClaude (currently GPT-5)'),
-      ),
-    ).toBe('Đặt mô hình AI cho OpenClaude (hiện tại: GPT-5)')
-    expect(
-      formatDescriptionWithSource(
-        localCommand(
-          'Change the startup logo color scheme (current: Rainbow)',
-        ),
-      ),
-    ).toBe('Đổi bảng màu logo khởi động (hiện tại: Rainbow)')
-    expect(
-      formatDescriptionWithSource(
-        localCommand('Install Shift+Enter key binding for newlines'),
-      ),
-    ).toBe('Cài đặt phím tắt Shift+Enter để xuống dòng')
-    expect(
-      formatDescriptionWithSource(
-        localCommand(
-          'Initialize a new project instruction file with codebase documentation',
-        ),
-      ),
-    ).toBe('Khởi tạo file hướng dẫn dự án mới với tài liệu codebase')
-    expect(
-      formatDescriptionWithSource(
-        localCommand("Set up OpenClaude's status line UI"),
-      ),
-    ).toBe('Thiết lập giao diện dòng trạng thái của OpenClaude')
+      formatDescriptionWithSource({
+        ...promptCommand('projectSettings'),
+        kind: 'workflow',
+      }),
+    ).toBe('Review a pull request (workflow)')
+  })
+
+  test('does not translate plugin descriptions that match built-in English text', () => {
+    const command = {
+      name: 'external-review',
+      type: 'prompt',
+      source: 'plugin',
+      description: 'Review a pull request',
+      pluginInfo: {
+        pluginManifest: {
+          name: 'MyPlugin',
+        },
+      },
+    } as any
+
+    useLanguage('vietnamese')
+
+    expect(formatDescriptionWithSource(command)).toBe(
+      '(MyPlugin) Review a pull request',
+    )
+  })
+
+  test('does not translate non-prompt local descriptions without a localization key', () => {
+    const command = {
+      name: 'external-review',
+      type: 'local',
+      description: 'Review a pull request',
+    } as any
+
+    useLanguage('vietnamese')
+
+    expect(formatDescriptionWithSource(command)).toBe('Review a pull request')
+  })
+
+  test('translates non-prompt local descriptions only with an explicit localization key', () => {
+    const command = {
+      name: 'copy',
+      type: 'local',
+      description:
+        "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)",
+      localizationKey: 'commands.copy.description',
+    } as any
+
+    useLanguage('vietnamese')
+    expect(formatDescriptionWithSource(command)).toBe(
+      'Sao chép phản hồi gần nhất của Claude vào clipboard (hoặc /copy N cho phản hồi thứ N gần nhất)',
+    )
 
     useLanguage('english')
-    expect(
-      formatDescriptionWithSource(
-        localCommand('Set the AI model for OpenClaude (currently GPT-5)'),
-      ),
-    ).toBe('Set the AI model for OpenClaude (currently GPT-5)')
+    expect(formatDescriptionWithSource(command)).toBe(
+      "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)",
+    )
   })
 })
 
@@ -198,6 +249,9 @@ describe('bundled skill localization', () => {
     expect(loop).toBeDefined()
     expect(simplify).toBeDefined()
     expect(updateConfig).toBeDefined()
+    expect(batch!.localizationKey).toBe('skills.batch.description')
+    expect(loop!.localizationKey).toBe('skills.loop.description')
+    expect(loop!.whenToUseLocalizationKey).toBe('skills.loop.whenToUse')
 
     useLanguage('english')
     expect(batch!.description).toBe(
@@ -241,6 +295,27 @@ describe('bundled skill localization', () => {
     )
     expect(updateConfig!.description).toStartWith(
       'Use this skill to configure the Claude Code harness via settings.json.',
+    )
+  })
+
+  test('falls back to bundled skill English text when a localization key is missing', () => {
+    registerBundledSkill({
+      name: 'fallback-skill',
+      description: 'English-only bundled skill description',
+      descriptionKey: 'skills.fallback-skill.missing.description',
+      getPromptForCommand: async () => [],
+    })
+
+    const skill = getBundledSkills().find(
+      command => command.name === 'fallback-skill',
+    )
+
+    expect(skill).toBeDefined()
+
+    useLanguage('vietnamese')
+    expect(skill!.description).toBe('English-only bundled skill description')
+    expect(formatDescriptionWithSource(skill!)).toBe(
+      'English-only bundled skill description (bundled)',
     )
   })
 })

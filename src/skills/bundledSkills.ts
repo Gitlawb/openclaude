@@ -4,10 +4,10 @@ import { mkdir, open } from 'fs/promises'
 import { dirname, isAbsolute, join, normalize, sep as pathSep } from 'path'
 import type { ToolUseContext } from '../Tool.js'
 import type { Command } from '../types/command.js'
+import { localize, type LocalizationKey } from '../i18n/index.js'
 import { logForDebugging } from '../utils/debug.js'
 import { getBundledSkillsRoot } from '../utils/permissions/filesystem.js'
 import type { HooksSettings } from '../utils/settings/types.js'
-import { localize, type LocalizedText } from './bundled/i18n.js'
 
 /**
  * Definition for a bundled skill that ships with the CLI.
@@ -15,9 +15,11 @@ import { localize, type LocalizedText } from './bundled/i18n.js'
  */
 export type BundledSkillDefinition = {
   name: string
-  description: LocalizedText
+  description: string
+  descriptionKey?: LocalizationKey
   aliases?: string[]
-  whenToUse?: LocalizedText
+  whenToUse?: string
+  whenToUseKey?: LocalizationKey
   argumentHint?: string
   allowedTools?: string[]
   model?: string
@@ -77,15 +79,19 @@ export function registerBundledSkill(definition: BundledSkillDefinition): void {
     type: 'prompt',
     name: definition.name,
     get description() {
-      return localize(definition.description)
+      return localize(definition.descriptionKey, definition.description)
     },
+    localizationKey: definition.descriptionKey,
     aliases: definition.aliases,
     hasUserSpecifiedDescription: true,
     allowedTools: definition.allowedTools ?? [],
     argumentHint: definition.argumentHint,
     get whenToUse() {
-      return definition.whenToUse ? localize(definition.whenToUse) : undefined
+      return definition.whenToUse
+        ? localize(definition.whenToUseKey, definition.whenToUse)
+        : undefined
     },
+    whenToUseLocalizationKey: definition.whenToUseKey,
     model: definition.model,
     disableModelInvocation: definition.disableModelInvocation ?? false,
     userInvocable: definition.userInvocable ?? true,
