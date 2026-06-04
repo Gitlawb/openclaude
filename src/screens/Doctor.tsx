@@ -19,6 +19,7 @@ import { Box, Text } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState } from '../state/AppState.js';
 import { assembleToolPool } from '../tools.js';
+import type { Tools } from '../Tool.js';
 import { getPluginErrorMessage } from '../types/plugin.js';
 import { getGcsDistTags, getNpmDistTags, type NpmDistTags } from '../utils/autoUpdater.js';
 import { type ContextWarnings, checkContextWarnings } from '../utils/doctorContextWarnings.js';
@@ -56,7 +57,9 @@ type VersionLockInfo = {
   locksDir: string;
   staleLocksCleaned: number;
 };
-function DistTagsDisplay(t0) {
+function DistTagsDisplay(t0: {
+  promise: Promise<NpmDistTags>;
+}) {
   const $ = _c(8);
   const {
     promise
@@ -99,7 +102,7 @@ function DistTagsDisplay(t0) {
   }
   return t3;
 }
-export function Doctor(t0) {
+export function Doctor(t0: Props) {
   const $ = _c(88);
   const {
     onDone
@@ -109,14 +112,14 @@ export function Doctor(t0) {
   const toolPermissionContext = useAppState(_temp3);
   const pluginsErrors = useAppState(_temp4);
   useExitOnCtrlCDWithKeybindings();
-  const tools = useMemo(
+  const tools = useMemo<Tools>(
     () => assembleToolPool(toolPermissionContext, mcpTools || []),
     [toolPermissionContext, mcpTools],
   );
-  const [diagnostic, setDiagnostic] = useState(null);
-  const [agentInfo, setAgentInfo] = useState(null);
-  const [contextWarnings, setContextWarnings] = useState(null);
-  const [versionLockInfo, setVersionLockInfo] = useState(null);
+  const [diagnostic, setDiagnostic] = useState<DiagnosticInfo | null>(null);
+  const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
+  const [contextWarnings, setContextWarnings] = useState<ContextWarnings | null>(null);
+  const [versionLockInfo, setVersionLockInfo] = useState<VersionLockInfo | null>(null);
   const validationErrors = useSettingsErrors();
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
