@@ -49,6 +49,7 @@ import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeEnabled, getFastModeModel, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { getDefaultPermissionModeOptions } from '../../utils/permissions/defaultPermissionModeOptions.js';
+import { isAntEmployee } from '../../utils/buildConfig.js';
 type Props = {
   onClose: (result?: string, options?: {
     display?: CommandResultDisplay;
@@ -431,7 +432,7 @@ export function Config({
     }
   }] : []),
   // Speculation toggle (internal-only)
-  ...("external" === 'ant' ? [{
+  ...(isAntEmployee() ? [{
     id: 'speculationEnabled',
     label: 'Speculative execution',
     value: globalConfig.speculationEnabled ?? true,
