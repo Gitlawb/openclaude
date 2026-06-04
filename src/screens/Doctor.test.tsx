@@ -13,6 +13,7 @@ import {
 } from '../test/sharedMutationLock.js'
 import type { NpmDistTags } from '../utils/autoUpdater.js'
 import type { DiagnosticInfo } from '../utils/doctorDiagnostic.js'
+import type { LockInfo } from '../utils/nativeInstaller/pidLock.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -29,8 +30,8 @@ const getGcsDistTags = mock(async (): Promise<NpmDistTags> => ({
   stable: '6.6.6',
 }))
 const isPidBasedLockingEnabled = mock(() => false)
-const cleanupStaleLocks = mock(() => 0)
-const getAllLockInfo = mock(() => [])
+const cleanupStaleLocks = mock((_locksDir: string): number => 0)
+const getAllLockInfo = mock((_locksDir: string): LockInfo[] => [])
 
 type DoctorDiagnosticModule = typeof import('../utils/doctorDiagnostic.js')
 type AutoUpdaterModule = typeof import('../utils/autoUpdater.js')
@@ -79,32 +80,44 @@ async function importActualModules(): Promise<void> {
 }
 
 function mockDoctorModulesForTest(): void {
+  if (!actualDoctorDiagnosticModule || !actualAutoUpdaterModule || !actualPidLockModule) {
+    throw new Error('Doctor test mocks must be initialized after actual modules')
+  }
+
   mock.module('../utils/doctorDiagnostic.js', () => ({
+    ...actualDoctorDiagnosticModule,
     getDoctorDiagnostic,
   }))
 
   mock.module('../utils/autoUpdater.js', () => ({
+    ...actualAutoUpdaterModule,
     getGcsDistTags,
     getNpmDistTags,
   }))
 
   mock.module('../utils/nativeInstaller/pidLock.js', () => ({
+    ...actualPidLockModule,
     cleanupStaleLocks,
     getAllLockInfo,
     isPidBasedLockingEnabled,
   }))
 }
 
-function restoreActualModules(): void {
-  if (actualDoctorDiagnosticModule) {
-    mock.module('../utils/doctorDiagnostic.js', () => actualDoctorDiagnosticModule!)
+function restoreActualMockImplementations(): void {
+  if (!actualDoctorDiagnosticModule || !actualAutoUpdaterModule || !actualPidLockModule) {
+    return
   }
-  if (actualAutoUpdaterModule) {
-    mock.module('../utils/autoUpdater.js', () => actualAutoUpdaterModule!)
-  }
-  if (actualPidLockModule) {
-    mock.module('../utils/nativeInstaller/pidLock.js', () => actualPidLockModule!)
-  }
+
+  getDoctorDiagnostic.mockImplementation(
+    actualDoctorDiagnosticModule.getDoctorDiagnostic,
+  )
+  getNpmDistTags.mockImplementation(actualAutoUpdaterModule.getNpmDistTags)
+  getGcsDistTags.mockImplementation(actualAutoUpdaterModule.getGcsDistTags)
+  isPidBasedLockingEnabled.mockImplementation(
+    actualPidLockModule.isPidBasedLockingEnabled,
+  )
+  cleanupStaleLocks.mockImplementation(actualPidLockModule.cleanupStaleLocks)
+  getAllLockInfo.mockImplementation(actualPidLockModule.getAllLockInfo)
 }
 
 function extractLastFrame(output: string): string {
@@ -188,7 +201,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
-    restoreActualModules()
+    restoreActualMockImplementations()
   } finally {
     releaseSharedMutationLock()
   }
