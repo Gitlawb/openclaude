@@ -39,12 +39,18 @@ OpenClaude is also mirrored to GitLawb:
         <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="136">
       </a>
     </td>
+    <td align="center" width="150" height="80">
+      <a href="https://www.atlascloud.ai/">
+        <img src="docs/assets/atlas-cloud-banner.png" alt="Atlas Cloud logo" width="136">
+      </a>
+    </td>
   </tr>
   <tr>
     <td align="center"><a href="https://gitlawb.com"><strong>GitLawb</strong></a></td>
     <td align="center"><a href="https://bankr.bot"><strong>Bankr.bot</strong></a></td>
     <td align="center"><a href="https://atomic.chat/"><strong>Atomic Chat</strong></a></td>
     <td align="center"><a href="https://mimo.mi.com"><strong>Xiaomi MiMo</strong></a></td>
+    <td align="center"><a href="https://www.atlascloud.ai/"><strong>Atlas Cloud</strong></a></td>
   </tr>
 </table>
 
