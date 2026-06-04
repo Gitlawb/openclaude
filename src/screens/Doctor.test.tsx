@@ -7,10 +7,6 @@ import React from 'react'
 import { createRoot } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 import { AppStateProvider } from '../state/AppState.js'
-import {
-  acquireSharedMutationLock,
-  releaseSharedMutationLock,
-} from '../test/sharedMutationLock.js'
 import type { NpmDistTags } from '../utils/autoUpdater.js'
 import type { DiagnosticInfo } from '../utils/doctorDiagnostic.js'
 import type { LockInfo } from '../utils/nativeInstaller/pidLock.js'
@@ -181,7 +177,6 @@ async function waitForOutput(
 }
 
 beforeEach(async () => {
-  await acquireSharedMutationLock('screens/Doctor.test.tsx')
   await importActualModules()
   getDoctorDiagnostic.mockImplementation(async () => makeDiagnostic())
   getNpmDistTags.mockImplementation(async () => ({
@@ -199,12 +194,8 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
-  try {
-    mock.restore()
-    restoreActualMockImplementations()
-  } finally {
-    releaseSharedMutationLock()
-  }
+  mock.restore()
+  restoreActualMockImplementations()
 })
 
 test('renders installation diagnostics and resolved dist tags', async () => {
