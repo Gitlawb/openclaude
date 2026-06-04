@@ -20,7 +20,7 @@ import { getLogDisplayTitle } from '../utils/log.js';
 import { getFirstMeaningfulUserMessageTextContent, getSessionIdFromLog, isCustomTitleEnabled, saveCustomTitle } from '../utils/sessionStorage.js';
 import { getTheme } from '../utils/theme.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
-import { Select } from './CustomSelect/select.js';
+import { Select, type OptionWithDescription } from './CustomSelect/select.js';
 import { Byline } from './design-system/Byline.js';
 import { Divider } from './design-system/Divider.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
@@ -59,6 +59,21 @@ type LogTreeNode = TreeNode<{
   log: LogOption;
   indexInFiltered: number;
 }>;
+type ViewMode = 'list' | 'preview' | 'rename' | 'search';
+type DeepSearchResult = {
+  log: LogOption;
+  score?: number;
+  searchableText: string;
+};
+type DeepSearchResults = {
+  results: DeepSearchResult[];
+  query: string;
+};
+type FilteredLogState = {
+  filteredLogs: LogOption[];
+  snippets: Map<LogOption, Snippet>;
+};
+const EMPTY_AGENTIC_RESULTS: LogOption[] = [];
 function normalizeAndTruncateToWidth(text: string, maxWidth: number): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return truncateToWidth(normalized, maxWidth);
@@ -87,6 +102,9 @@ function formatSnippet({
   after
 }: Snippet, highlightColor: (text: string) => string): string {
   return chalk.dim(before) + highlightColor(match) + chalk.dim(after);
+}
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Search failed';
 }
 function extractSnippet(text: string, query: string, contextChars: number): Snippet | null {
   // Find exact query occurrence (case-insensitive).
@@ -140,7 +158,7 @@ function buildLogMetadata(log: LogOption, options?: {
   const projectSuffix = showProjectPath && log.projectPath ? ` · ${log.projectPath}` : '';
   return childPadding + baseMetadata + projectSuffix;
 }
-export function LogSelector(t0) {
+export function LogSelector(t0: LogSelectorProps) {
   const $ = _c(247);
   const {
     logs,
@@ -190,7 +208,7 @@ export function LogSelector(t0) {
   }
   const highlightColor = t5;
   const isAgenticSearchEnabled = false;
-  const [currentBranch, setCurrentBranch] = React.useState(null);
+  const [currentBranch, setCurrentBranch] = React.useState<string | null>(null);
   const [branchFilterEnabled, setBranchFilterEnabled] = React.useState(false);
   const [showAllWorktrees, setShowAllWorktrees] = React.useState(false);
   const [hasMultipleWorktrees, setHasMultipleWorktrees] = React.useState(false);
@@ -204,21 +222,21 @@ export function LogSelector(t0) {
   const currentCwd = t6;
   const [renameValue, setRenameValue] = React.useState("");
   const [renameCursorOffset, setRenameCursorOffset] = React.useState(0);
-  let t7;
+  let t7: Set<string>;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
     t7 = new Set();
     $[6] = t7;
   } else {
     t7 = $[6];
   }
-  const [expandedGroupSessionIds, setExpandedGroupSessionIds] = React.useState(t7);
-  const [focusedNode, setFocusedNode] = React.useState(null);
+  const [expandedGroupSessionIds, setExpandedGroupSessionIds] = React.useState<Set<string>>(t7);
+  const [focusedNode, setFocusedNode] = React.useState<LogTreeNode | null>(null);
   const [focusedIndex, setFocusedIndex] = React.useState(1);
-  const [viewMode, setViewMode] = React.useState("list");
-  const [previewLog, setPreviewLog] = React.useState(null);
-  const prevFocusedIdRef = React.useRef(null);
+  const [viewMode, setViewMode] = React.useState<ViewMode>("list");
+  const [previewLog, setPreviewLog] = React.useState<LogOption | null>(null);
+  const prevFocusedIdRef = React.useRef<string | null>(null);
   const [selectedTagIndex, setSelectedTagIndex] = React.useState(0);
-  let t8;
+  let t8: AgenticSearchState;
   if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
     t8 = {
       status: "idle"
@@ -227,9 +245,11 @@ export function LogSelector(t0) {
   } else {
     t8 = $[7];
   }
-  const [agenticSearchState, setAgenticSearchState] = React.useState(t8);
+  const [agenticSearchState, setAgenticSearchState] = React.useState<AgenticSearchState>(t8);
   const [isAgenticSearchOptionFocused, setIsAgenticSearchOptionFocused] = React.useState(false);
-  const agenticSearchAbortRef = React.useRef(null);
+  const agenticSearchAbortRef = React.useRef<AbortController | null>(null);
+  const agenticResults = agenticSearchState.status === "results" ? agenticSearchState.results : EMPTY_AGENTIC_RESULTS;
+  const agenticResultsQuery = agenticSearchState.status === "results" ? agenticSearchState.query : undefined;
   const t9 = viewMode === "search" && agenticSearchState.status !== "searching";
   let t10;
   let t11;
@@ -299,7 +319,7 @@ export function LogSelector(t0) {
     t16 = $[16];
   }
   React.useEffect(t15, t16);
-  const [deepSearchResults, setDeepSearchResults] = React.useState(null);
+  const [deepSearchResults, setDeepSearchResults] = React.useState<DeepSearchResults | null>(null);
   const [isSearching, setIsSearching] = React.useState(false);
   let t17;
   let t18;
@@ -318,7 +338,7 @@ export function LogSelector(t0) {
     t18 = $[18];
   }
   React.useEffect(t17, t18);
-  const searchableTextByLog = new Map(logs.map(_temp));
+  const searchableTextByLog = new Map<LogOption, string>(logs.map(_temp));
   let t19;
   t19 = null;
   let t20;
@@ -482,8 +502,8 @@ export function LogSelector(t0) {
     t26 = $[48];
   }
   React.useEffect(t25, t26);
-  let filtered_0;
-  let snippetMap;
+  let filtered_0: LogOption[];
+  let snippetMap: Map<LogOption, Snippet>;
   if ($[49] !== debouncedDeepSearchQuery || $[50] !== deepSearchResults || $[51] !== titleFilteredLogs) {
     snippetMap = new Map();
     filtered_0 = titleFilteredLogs;
@@ -535,7 +555,7 @@ export function LogSelector(t0) {
     filtered_0 = $[52];
     snippetMap = $[53];
   }
-  let t27;
+  let t27: FilteredLogState;
   if ($[62] !== filtered_0 || $[63] !== snippetMap) {
     t27 = {
       filteredLogs: filtered_0,
@@ -551,7 +571,7 @@ export function LogSelector(t0) {
     filteredLogs,
     snippets
   } = t27;
-  let t28;
+  let t28: LogOption[];
   bb1: {
     if (agenticSearchState.status === "results" && agenticSearchState.results.length > 0) {
       t28 = agenticSearchState.results;
@@ -561,7 +581,7 @@ export function LogSelector(t0) {
   }
   const displayedLogs = t28;
   const maxLabelWidth = Math.max(30, columns - 4);
-  let t29;
+  let t29: LogTreeNode[];
   bb2: {
     if (!isResumeWithRenameEnabled) {
       let t30;
@@ -650,7 +670,7 @@ export function LogSelector(t0) {
     t29 = t30;
   }
   const treeNodes = t29;
-  let t30;
+  let t30: OptionWithDescription<string>[];
   bb3: {
     if (isResumeWithRenameEnabled) {
       let t31;
@@ -789,7 +809,8 @@ export function LogSelector(t0) {
   let t35;
   if ($[94] !== logs || $[95] !== onAgenticSearch || $[96] !== searchQuery) {
     t35 = async () => {
-      if (!searchQuery.trim() || !onAgenticSearch || true) {
+      const runAgenticSearch = onAgenticSearch;
+      if (!searchQuery.trim() || !runAgenticSearch || !isAgenticSearchEnabled) {
         return;
       }
       agenticSearchAbortRef.current?.abort();
@@ -803,7 +824,7 @@ export function LogSelector(t0) {
       });
       ;
       try {
-        const results_0 = await onAgenticSearch(searchQuery, logs, abortController.signal);
+        const results_0 = await runAgenticSearch(searchQuery, logs, abortController.signal);
         if (abortController.signal.aborted) {
           return;
         }
@@ -817,13 +838,13 @@ export function LogSelector(t0) {
           results_count: results_0.length
         });
       } catch (t36) {
-        const error = t36;
+        const message = getErrorMessage(t36);
         if (abortController.signal.aborted) {
           return;
         }
         setAgenticSearchState({
           status: "error",
-          message: error instanceof Error ? error.message : "Search failed"
+          message
         });
         logEvent("tengu_agentic_search_error", {
           query_length: searchQuery.length
@@ -839,7 +860,7 @@ export function LogSelector(t0) {
   }
   const handleAgenticSearch = t35;
   let t36;
-  if ($[98] !== agenticSearchState.query || $[99] !== agenticSearchState.status || $[100] !== searchQuery) {
+  if ($[98] !== agenticResultsQuery || $[99] !== agenticSearchState.status || $[100] !== searchQuery) {
     t36 = () => {
       if (agenticSearchState.status !== "idle" && agenticSearchState.status !== "searching") {
         if (agenticSearchState.status === "results" && agenticSearchState.query !== searchQuery || agenticSearchState.status === "error") {
@@ -849,7 +870,7 @@ export function LogSelector(t0) {
         }
       }
     };
-    $[98] = agenticSearchState.query;
+    $[98] = agenticResultsQuery;
     $[99] = agenticSearchState.status;
     $[100] = searchQuery;
     $[101] = t36;
@@ -925,7 +946,7 @@ export function LogSelector(t0) {
   React.useEffect(t40, t41);
   let t42;
   if ($[116] !== displayedLogs) {
-    t42 = value => {
+    t42 = (value: string) => {
       const index_1 = parseInt(value, 10);
       const log_11 = displayedLogs[index_1];
       if (!log_11 || prevFocusedIdRef.current === index_1.toString()) {
@@ -950,7 +971,7 @@ export function LogSelector(t0) {
   const handleFlatOptionsSelectFocus = t42;
   let t43;
   if ($[118] !== displayedLogs) {
-    t43 = node => {
+    t43 = (node: LogTreeNode) => {
       setFocusedNode(node);
       const index_2 = displayedLogs.findIndex(log_12 => getSessionIdFromLog(log_12) === getSessionIdFromLog(node.value.log));
       if (index_2 >= 0) {
@@ -1314,18 +1335,18 @@ export function LogSelector(t0) {
     t65 = $[186];
   }
   let t66;
-  if ($[187] !== agenticSearchState.results || $[188] !== agenticSearchState.status) {
-    t66 = agenticSearchState.status === "results" && agenticSearchState.results.length > 0 && <Box paddingLeft={1} marginBottom={1} flexShrink={0}><Text dimColor={true} italic={true}>Claude found these results:</Text></Box>;
-    $[187] = agenticSearchState.results;
+  if ($[187] !== agenticResults || $[188] !== agenticSearchState.status) {
+    t66 = agenticSearchState.status === "results" && agenticResults.length > 0 && <Box paddingLeft={1} marginBottom={1} flexShrink={0}><Text dimColor={true} italic={true}>Claude found these results:</Text></Box>;
+    $[187] = agenticResults;
     $[188] = agenticSearchState.status;
     $[189] = t66;
   } else {
     t66 = $[189];
   }
   let t67;
-  if ($[190] !== agenticSearchState.results || $[191] !== agenticSearchState.status || $[192] !== filteredLogs) {
-    t67 = agenticSearchState.status === "results" && agenticSearchState.results.length === 0 && filteredLogs.length === 0 && <Box paddingLeft={1} marginBottom={1} flexShrink={0}><Text dimColor={true} italic={true}>No matching sessions found.</Text></Box>;
-    $[190] = agenticSearchState.results;
+  if ($[190] !== agenticResults || $[191] !== agenticSearchState.status || $[192] !== filteredLogs) {
+    t67 = agenticSearchState.status === "results" && agenticResults.length === 0 && filteredLogs.length === 0 && <Box paddingLeft={1} marginBottom={1} flexShrink={0}><Text dimColor={true} italic={true}>No matching sessions found.</Text></Box>;
+    $[190] = agenticResults;
     $[191] = agenticSearchState.status;
     $[192] = filteredLogs;
     $[193] = t67;
@@ -1451,10 +1472,10 @@ export function LogSelector(t0) {
  * Extracts searchable text content from a message.
  * Handles both string content and structured content blocks.
  */
-function _temp7(r_0) {
+function _temp7(r_0: DeepSearchResult): LogOption {
   return r_0.log;
 }
-function _temp6(log_6) {
+function _temp6(log_6: LogOption): string | undefined {
   return log_6.messages[0]?.uuid;
 }
 function _temp5(fuseIndex_0, debouncedDeepSearchQuery_0, setDeepSearchResults_0, setIsSearching_0) {
@@ -1482,7 +1503,7 @@ function _temp3(a, b) {
   }
   return (a.score ?? 1) - (b.score ?? 1);
 }
-function _temp2(log_1) {
+function _temp2(log_1: LogOption): boolean {
   const currentSessionId = getSessionId();
   const logSessionId = getSessionIdFromLog(log_1);
   const isCurrentSession = currentSessionId && logSessionId === currentSessionId;
@@ -1501,7 +1522,7 @@ function _temp2(log_1) {
   }
   return false;
 }
-function _temp(log) {
+function _temp(log: LogOption): [LogOption, string] {
   return [log, buildSearchableText(log)];
 }
 function extractSearchableText(message: SerializedMessage): string {
