@@ -42,6 +42,9 @@ type DoctorDependencies = {
   getDoctorDiagnostic: typeof getDoctorDiagnostic;
   getNpmDistTags: typeof getNpmDistTags;
   getGcsDistTags: typeof getGcsDistTags;
+  assembleToolPool: typeof assembleToolPool;
+  checkContextWarnings: typeof checkContextWarnings;
+  pathExists: typeof pathExists;
   isPidBasedLockingEnabled: typeof isPidBasedLockingEnabled;
   cleanupStaleLocks: typeof cleanupStaleLocks;
   getAllLockInfo: typeof getAllLockInfo;
@@ -50,6 +53,9 @@ const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
   getDoctorDiagnostic,
   getNpmDistTags,
   getGcsDistTags,
+  assembleToolPool,
+  checkContextWarnings,
+  pathExists,
   isPidBasedLockingEnabled,
   cleanupStaleLocks,
   getAllLockInfo,
@@ -132,8 +138,8 @@ export function Doctor(t0: Props) {
   const pluginsErrors = useAppState(_temp4);
   useExitOnCtrlCDWithKeybindings();
   const tools = useMemo<Tools>(
-    () => assembleToolPool(toolPermissionContext, mcpTools || []),
-    [toolPermissionContext, mcpTools],
+    () => deps.assembleToolPool(toolPermissionContext, mcpTools || []),
+    [deps, toolPermissionContext, mcpTools],
   );
   const [diagnostic, setDiagnostic] = useState<DiagnosticInfo | null>(null);
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
@@ -184,7 +190,7 @@ export function Doctor(t0: Props) {
         allAgents,
         failedFiles
       } = agentDefinitions;
-      const [userDirExists, projectDirExists] = await Promise.all([pathExists(userAgentsDir), pathExists(projectAgentsDir)]);
+      const [userDirExists, projectDirExists] = await Promise.all([deps.pathExists(userAgentsDir), deps.pathExists(projectAgentsDir)]);
       const agentInfoData = {
         activeAgents: activeAgents.map(_temp0),
         userAgentsDir,
@@ -194,7 +200,7 @@ export function Doctor(t0: Props) {
         failedFiles
       };
       setAgentInfo(agentInfoData);
-      const warnings = await checkContextWarnings(tools, {
+      const warnings = await deps.checkContextWarnings(tools, {
         activeAgents,
         allAgents,
         failedFiles
@@ -397,28 +403,15 @@ export function Doctor(t0: Props) {
     t27 = $[55];
   }
   let t28;
-  if ($[56] === Symbol.for("react.memo_cache_sentinel")) {
+  if ($[56] !== autoUpdatesChannel) {
     t28 = <Text>└ Auto-update channel: {autoUpdatesChannel}</Text>;
-    $[56] = t28;
+    $[56] = autoUpdatesChannel;
+    $[57] = t28;
   } else {
-    t28 = $[56];
+    t28 = $[57];
   }
-  let t29;
-  if ($[57] === Symbol.for("react.memo_cache_sentinel")) {
-    t29 = <Suspense fallback={null}><DistTagsDisplay promise={distTagsPromise} /></Suspense>;
-    $[57] = t29;
-  } else {
-    t29 = $[57];
-  }
-  let t30;
-  if ($[58] !== t26 || $[59] !== t27) {
-    t30 = <Box flexDirection="column">{t24}{t26}{t27}{t28}{t29}</Box>;
-    $[58] = t26;
-    $[59] = t27;
-    $[60] = t30;
-  } else {
-    t30 = $[60];
-  }
+  const t29 = <Suspense fallback={null}><DistTagsDisplay promise={distTagsPromise} /></Suspense>;
+  const t30 = <Box flexDirection="column">{t24}{t26}{t27}{t28}{t29}</Box>;
   let t31;
   let t32;
   let t33;

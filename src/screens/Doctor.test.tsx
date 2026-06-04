@@ -13,7 +13,9 @@ import type {
 } from '../keybindings/types.js'
 import { Doctor } from './Doctor.js'
 import { AppStateProvider } from '../state/AppState.js'
+import type { ToolPermissionContext, Tools } from '../Tool.js'
 import type { NpmDistTags } from '../utils/autoUpdater.js'
+import type { ContextWarnings } from '../utils/doctorContextWarnings.js'
 import type { DiagnosticInfo } from '../utils/doctorDiagnostic.js'
 import type { LockInfo } from '../utils/nativeInstaller/pidLock.js'
 
@@ -31,6 +33,13 @@ const getGcsDistTags = mock(async (): Promise<NpmDistTags> => ({
   latest: '7.7.7',
   stable: '6.6.6',
 }))
+const assembleToolPool = mock(
+  (_permissionContext: ToolPermissionContext, _mcpTools: Tools): Tools => [],
+)
+const checkContextWarnings = mock(
+  async (): Promise<ContextWarnings> => makeContextWarnings(),
+)
+const pathExists = mock(async (_path: string): Promise<boolean> => false)
 const isPidBasedLockingEnabled = mock(() => false)
 const cleanupStaleLocks = mock((_locksDir: string): number => 0)
 const getAllLockInfo = mock((_locksDir: string): LockInfo[] => [])
@@ -45,6 +54,9 @@ const doctorDeps = {
   getDoctorDiagnostic,
   getNpmDistTags,
   getGcsDistTags,
+  assembleToolPool,
+  checkContextWarnings,
+  pathExists,
   isPidBasedLockingEnabled,
   cleanupStaleLocks,
   getAllLockInfo,
@@ -69,6 +81,15 @@ function makeDiagnostic(
       systemPath: '/usr/bin/rg',
     },
     ...overrides,
+  }
+}
+
+function makeContextWarnings(): ContextWarnings {
+  return {
+    claudeMdWarning: null,
+    agentWarning: null,
+    mcpWarning: null,
+    unreachableRulesWarning: null,
   }
 }
 
@@ -182,6 +203,21 @@ async function waitForOutput(
   throw new Error('Timed out waiting for Doctor test output')
 }
 
+async function waitForMockCall(
+  mockFn: { mock: { calls: unknown[] } },
+  label: string,
+  timeoutMs = 1000,
+): Promise<void> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (mockFn.mock.calls.length > 0) return
+    await Bun.sleep(10)
+  }
+
+  throw new Error(`Timed out waiting for ${label}`)
+}
+
 beforeEach(async () => {
   getDoctorDiagnostic.mockImplementation(async () => makeDiagnostic())
   getNpmDistTags.mockImplementation(async () => ({
@@ -192,6 +228,9 @@ beforeEach(async () => {
     latest: '7.7.7',
     stable: '6.6.6',
   }))
+  assembleToolPool.mockImplementation(() => [])
+  checkContextWarnings.mockImplementation(async () => makeContextWarnings())
+  pathExists.mockImplementation(async () => false)
   isPidBasedLockingEnabled.mockImplementation(() => false)
   cleanupStaleLocks.mockImplementation(() => 0)
   getAllLockInfo.mockImplementation(() => [])
@@ -221,6 +260,9 @@ test('renders installation diagnostics and resolved dist tags', async () => {
     expect(output).toContain('Currently running: npm-global (1.2.3)')
     expect(output).toContain('Search: OK (/usr/bin/rg)')
     expect(output).toContain('Stable version: 8.8.8')
+    await waitForMockCall(checkContextWarnings, 'context warning check')
+    expect(assembleToolPool).toHaveBeenCalled()
+    expect(checkContextWarnings).toHaveBeenCalled()
   } finally {
     root.unmount()
     stdin.end()
