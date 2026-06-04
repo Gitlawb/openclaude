@@ -537,7 +537,24 @@ export function shouldAttemptLocalToollessRetry(options: {
     return false
   }
 
-  return isLikelyOllamaEndpoint(options.baseUrl)
+  // Ollama backends may return 400 errors containing tool-related keywords
+  // even when the underlying issue is transient (e.g. model loading, context
+  // overflow with large tool results). Stripping ALL tools on every such
+  // error silently breaks FileRead/Glob/Grep/etc for the entire conversation
+  // because the local fast path already disables strict-mode schemas.
+  // Only retry toolless when the user explicitly opts in via env var.
+  if (isLikelyOllamaEndpoint(options.baseUrl)) {
+    const fallbackEnabled = isEnvTruthy(process.env.OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS)
+    if (!fallbackEnabled) {
+      logForDebugging(
+        `[provider-config] Ollama toolless retry skipped (tool_call_incompatible error will not be retried without tools). Set OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS=1 to enable automatic toolless fallback for Ollama endpoints.`,
+        { level: 'warn' },
+      )
+    }
+    return fallbackEnabled
+  }
+
+  return false
 }
 
 export function isCodexBaseUrl(baseUrl: string | undefined): boolean {

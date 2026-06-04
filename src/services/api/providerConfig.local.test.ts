@@ -19,6 +19,7 @@ const originalEnv = {
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+  OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS: process.env.OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -44,6 +45,7 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+    restoreEnv('OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS', originalEnv.OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS)
   } finally {
     releaseSharedMutationLock()
   }
@@ -217,13 +219,13 @@ test('does not derive local retry base URLs for remote providers', () => {
   expect(getLocalProviderRetryBaseUrls('https://api.openai.com/v1')).toEqual([])
 })
 
-test('enables local toolless retry for likely Ollama endpoints with tools', () => {
+test('disables local toolless retry for Ollama endpoints by default (opt-in via env var)', () => {
   expect(
     shouldAttemptLocalToollessRetry({
       baseUrl: 'http://localhost:11434/v1',
       hasTools: true,
     }),
-  ).toBe(true)
+  ).toBe(false)
 })
 
 test('disables local toolless retry when no tools are present', () => {
@@ -233,6 +235,20 @@ test('disables local toolless retry when no tools are present', () => {
       hasTools: false,
     }),
   ).toBe(false)
+})
+
+test('enables local toolless retry for Ollama when OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS is set', () => {
+  process.env.OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS = '1'
+  try {
+    expect(
+      shouldAttemptLocalToollessRetry({
+        baseUrl: 'http://localhost:11434/v1',
+        hasTools: true,
+      }),
+    ).toBe(true)
+  } finally {
+    delete process.env.OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS
+  }
 })
 
 test('disables local toolless retry for non-Ollama local endpoints', () => {
