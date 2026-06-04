@@ -241,6 +241,23 @@ export function isCommandInput(input: string): boolean {
   return input.startsWith('/')
 }
 
+export function getCommandSuggestionForEnter(
+  input: string,
+  suggestion: SuggestionItem | undefined,
+  commands: Command[],
+): string | SuggestionItem | undefined {
+  const exactCommandName = !input.includes(' ') && isCommandInput(input)
+    ? input.slice(1).toLowerCase().trim()
+    : ''
+  const exactCommands = exactCommandName
+    ? commands.filter(cmd => getCommandName(cmd).toLowerCase() === exactCommandName)
+    : []
+
+  return exactCommands.length === 1
+    ? getCommandName(exactCommands[0]!)
+    : suggestion
+}
+
 /**
  * Checks if a command input has arguments
  * A command with just a trailing space is considered to have no arguments
@@ -570,7 +587,11 @@ export function applyCommandSuggestion(
   commands: Command[],
   onInputChange: (value: string) => void,
   setCursorOffset: (offset: number) => void,
-  onSubmit: (value: string, isSubmittingSlashCommand?: boolean) => void,
+  onSubmit: (
+    value: string,
+    isSubmittingSlashCommand?: boolean,
+    slashCommandOverride?: Command,
+  ) => void,
 ): void {
   // Extract command name and object from string or SuggestionItem metadata
   let commandName: string
@@ -597,7 +618,7 @@ export function applyCommandSuggestion(
       commandObj.type !== 'prompt' ||
       (commandObj.argNames ?? []).length === 0
     ) {
-      onSubmit(newInput, /* isSubmittingSlashCommand */ true)
+      onSubmit(newInput, /* isSubmittingSlashCommand */ true, commandObj)
     }
   }
 }

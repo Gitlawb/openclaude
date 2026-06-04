@@ -5,7 +5,11 @@ import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from '../settings/settingsCache.js'
-import { generateCommandSuggestions } from './commandSuggestions.js'
+import {
+  applyCommandSuggestion,
+  getCommandSuggestionForEnter,
+  generateCommandSuggestions,
+} from './commandSuggestions.js'
 
 function promptCommand({
   name,
@@ -168,6 +172,77 @@ describe('generateCommandSuggestions localization', () => {
 
     expect(pluginSuggestion?.description).toBe(
       '(MyPlugin) Review a pull request',
+    )
+  })
+
+  test('passes the selected duplicate command row as the slash command override', () => {
+    const builtinReview = promptCommand({
+      name: 'review',
+      source: 'builtin',
+      getDescription: () => 'Builtin review',
+    })
+    const projectReview = promptCommand({
+      name: 'review',
+      source: 'projectSettings',
+      getDescription: () => 'Project review',
+    })
+    const commands = [builtinReview, projectReview]
+    const projectSuggestion = generateCommandSuggestions('/review', commands).find(
+      item => item.metadata === projectReview,
+    )
+    let submittedValue: string | undefined
+    let submittedOverride: Command | undefined
+
+    expect(projectSuggestion).toBeDefined()
+    applyCommandSuggestion(
+      projectSuggestion!,
+      true,
+      commands,
+      value => {
+        submittedValue = value
+      },
+      () => {},
+      (value, _isSlashCommand, override) => {
+        submittedValue = value
+        submittedOverride = override
+      },
+    )
+
+    expect(submittedValue).toBe('/review ')
+    expect(submittedOverride).toBe(projectReview)
+  })
+
+  test('keeps the selected duplicate command row for exact-name Enter', () => {
+    const builtinReview = promptCommand({
+      name: 'review',
+      source: 'builtin',
+      getDescription: () => 'Builtin review',
+    })
+    const projectReview = promptCommand({
+      name: 'review',
+      source: 'projectSettings',
+      getDescription: () => 'Project review',
+    })
+    const commands = [builtinReview, projectReview]
+    const projectSuggestion = generateCommandSuggestions('/review', commands).find(
+      item => item.metadata === projectReview,
+    )
+
+    expect(
+      getCommandSuggestionForEnter('/review', projectSuggestion, commands),
+    ).toBe(projectSuggestion)
+  })
+
+  test('normalizes exact-name Enter when there is only one matching command', () => {
+    const review = promptCommand({
+      name: 'review',
+      source: 'builtin',
+      getDescription: () => 'Builtin review',
+    })
+    const suggestion = generateCommandSuggestions('/Review', [review])[0]
+
+    expect(getCommandSuggestionForEnter('/Review', suggestion, [review])).toBe(
+      'review',
     )
   })
 })

@@ -68,6 +68,9 @@ export const init = memoize(async (): Promise<void> => {
     // via BoringSSL, so this must happen before the first TLS handshake.
     applyExtraCACertsFromConfig()
 
+    // Re-validate values hydrated from trusted config before network setup.
+    validateEnvVars()
+
     logForDiagnosticsNoPII('info', 'init_safe_env_vars_applied', {
       duration_ms: Date.now() - envVarsStart,
     })

@@ -22,7 +22,7 @@ import { generateProgressiveArgumentHint, parseArguments } from '../utils/argume
 import { getShellCompletions, type ShellCompletionType } from '../utils/bash/shellCompletion.js';
 import { formatLogMetadata } from '../utils/format.js';
 import { getSessionIdFromLog, searchSessionsByCustomTitle } from '../utils/sessionStorage.js';
-import { applyCommandSuggestion, findMidInputSlashCommand, generateCommandSuggestions, getBestCommandMatch, isCommandInput } from '../utils/suggestions/commandSuggestions.js';
+import { applyCommandSuggestion, findMidInputSlashCommand, generateCommandSuggestions, getBestCommandMatch, getCommandSuggestionForEnter, isCommandInput } from '../utils/suggestions/commandSuggestions.js';
 import { getDirectoryCompletions, getPathCompletions, isPathLikeToken } from '../utils/suggestions/directoryCompletion.js';
 import { getShellHistoryCompletion } from '../utils/suggestions/shellHistoryCompletion.js';
 import { getSlackChannelSuggestions, hasSlackMcpServer } from '../utils/suggestions/slackChannelSuggestions.js';
@@ -80,7 +80,7 @@ function buildResumeInputFromSuggestion(suggestion: SuggestionItem): string {
 }
 type Props = {
   onInputChange: (value: string) => void;
-  onSubmit: (value: string, isSubmittingSlashCommand?: boolean) => void;
+  onSubmit: (value: string, isSubmittingSlashCommand?: boolean, slashCommandOverride?: Command) => void;
   setCursorOffset: (offset: number) => void;
   input: string;
   cursorOffset: number;
@@ -1138,15 +1138,7 @@ export function useTypeahead({
     if (selectedSuggestion < 0 || suggestions.length === 0) return;
     const suggestion = suggestions[selectedSuggestion];
     if (suggestionType === 'command' && selectedSuggestion < suggestions.length) {
-      const exactCommandName = !input.includes(' ') && isCommandInput(input)
-        ? input.slice(1).toLowerCase().trim()
-        : '';
-      const exactCommand = exactCommandName
-        ? commands.find(cmd => getCommandName(cmd).toLowerCase() === exactCommandName)
-        : undefined;
-      const commandSuggestion = exactCommand
-        ? getCommandName(exactCommand)
-        : suggestion;
+      const commandSuggestion = getCommandSuggestionForEnter(input, suggestion, commands);
 
       if (commandSuggestion) {
         applyCommandSuggestion(commandSuggestion, true,
