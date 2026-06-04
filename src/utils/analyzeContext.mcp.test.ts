@@ -1,9 +1,37 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Tool } from '../Tool.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../tools/ToolSearchTool/constants.js'
 import { countMcpToolTokens } from './analyzeContext.js'
 import { createRequestSizeReport } from './requestSizeBreakdown.js'
 import type { ContextData } from './analyzeContext.js'
+
+// `src/entrypoints/mcp.ts` sets CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=true as
+// a top-level side effect on import, and any test that imports mcp.test.ts (or
+// anything that transitively imports it) leaks that env var into the rest of
+// the process. The kill switch forces getToolSearchMode() to 'standard', which
+// makes isToolSearchEnabled() return false and breaks the deferred test below.
+// Clear it (and the other Tool-Search env vars) before each test so we observe
+// the production default — tool search enabled.
+const originalEnv = {
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS:
+    process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
+  ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH,
+}
+
+beforeEach(() => {
+  delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+  delete process.env.ENABLE_TOOL_SEARCH
+})
+
+afterEach(() => {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+})
 
 function makeMcpTool(name: string): Tool {
   return {
