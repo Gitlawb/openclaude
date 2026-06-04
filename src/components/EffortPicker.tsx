@@ -78,9 +78,9 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       }))
       onSelect(undefined)
     } else {
-      // Normalize OpenAI-shaped 'xhigh' to the standard EffortLevel ('max')
-      // so AppState + settings.json always hold a persistable value. The shim
-      // converts back to 'xhigh' at the request boundary.
+      // Normalize OpenAI-shaped effort to a standard EffortLevel for AppState
+      // and settings.json persistence. 'xhigh' passes through as-is; the shim
+      // converts it to 'max' at the Anthropic request boundary if needed.
       const effortLevel = isOpenAIEffortLevel(value)
         ? openAIEffortToStandard(value)
         : (value as EffortLevel)
