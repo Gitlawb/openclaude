@@ -21,11 +21,11 @@ export type SystemMessage = any
 export type SystemMessageLevel = any
 export type SystemAPIErrorMessage = any
 export type SystemApiMetricsMessage = any
-export type AttachmentMessage = any
-export type ProgressMessage = any
+export type AttachmentMessage<T = any> = any
+export type ProgressMessage<T = any> = any
 export type HookResultMessage = any
 export type NormalizedUserMessage = any
-export type NormalizedAssistantMessage = any
+export type NormalizedAssistantMessage<T = any> = any
 export type NormalizedMessage = any
 export type CollapsedReadSearchGroup = any
 export type CollapsibleMessage = any
