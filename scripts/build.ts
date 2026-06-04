@@ -75,6 +75,7 @@ const featureFlags: Record<string, boolean> = {
 // Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
 const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
 const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
+const isAntEmployeeCallRe = /(?<!\bfunction\s)isAntEmployee\(\)/g
 const featureFlagTransformedFiles = new Set<string>()
 
 const featureFlagPreprocessPlugin = {
@@ -85,13 +86,14 @@ const featureFlagPreprocessPlugin = {
       if (!normalizedPath.includes('/src/')) return null
 
       const raw = readFileSync(args.path, 'utf-8')
-      if (!raw.includes('feature(')) return null
+      if (!raw.includes('feature(') && !raw.includes('isAntEmployee()')) return null
 
       let contents = raw
       contents = contents.replace(featureImportRe, '')
       contents = contents.replace(featureCallRe, (_match, name) =>
         String((featureFlags as Record<string, boolean>)[name] ?? false),
       )
+      contents = contents.replace(isAntEmployeeCallRe, 'false')
 
       if (contents === raw) return null
 

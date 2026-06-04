@@ -12,7 +12,14 @@
  * user can activate internal-only features (commit attribution hooks,
  * system-prompt section clearing, dangerously-skip-permissions bypass, etc.)
  * by setting USER_TYPE in their shell environment.
+ *
+ * Exported as a const so bundlers can evaluate it at build time and
+ * eliminate dead branches (dynamic imports, etc.) that are gated behind
+ * this check.
  */
+export const IS_ANT_EMPLOYEE = false as const
+
+/** @deprecated Use IS_ANT_EMPLOYEE for build-time DCE; this function is kept for call-site convenience. */
 export function isAntEmployee(): boolean {
-  return false
+  return IS_ANT_EMPLOYEE
 }
