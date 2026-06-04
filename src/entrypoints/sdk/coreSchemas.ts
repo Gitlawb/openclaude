@@ -1174,7 +1174,7 @@ export const AgentDefinitionSchema = lazySchema(() =>
           "Scope for auto-loading agent memory files. 'user' - ~/.claude/agent-memory/<agentType>/, 'project' - .claude/agent-memory/<agentType>/, 'local' - .claude/agent-memory-local/<agentType>/",
         ),
       effort: z
-        .union([z.enum(['low', 'medium', 'high', 'max']), z.number().int()])
+        .union([z.enum(['low', 'medium', 'high', 'xhigh', 'max']), z.number().int()])
         .optional()
         .describe(
           'Reasoning effort level for this agent. Either a named level or an integer',
