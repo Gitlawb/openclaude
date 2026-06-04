@@ -1275,6 +1275,8 @@ test('/model applies auto provider surface for single-model static descriptor pr
       'mimo-v2-omni',
       'mimo-v2-flash',
       'google/gemini-3.1-flash-lite-preview',
+      'minimax/minimax-m3',
+      'qwen/qwen3.7-max',
     ])
   } finally {
     rendered.instance.unmount()

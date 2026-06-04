@@ -100,6 +100,18 @@ export default defineGateway({
         label: 'Gemini 3.1 Flash Lite Preview (via Opengateway)',
         modelDescriptorId: 'gemini-3.1-flash-lite-preview',
       },
+      {
+        id: 'opengateway-minimax-m3',
+        apiName: 'minimax/minimax-m3',
+        label: 'MiniMax M3 (via Opengateway)',
+        modelDescriptorId: 'minimax-m3',
+      },
+      {
+        id: 'opengateway-qwen3.7-max',
+        apiName: 'qwen/qwen3.7-max',
+        label: 'Qwen 3.7 Max (via Opengateway)',
+        modelDescriptorId: 'qwen3.7-max',
+      },
     ],
   },
   usage: { supported: false },
