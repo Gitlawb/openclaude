@@ -32,33 +32,11 @@ import { getInitialSettings } from '../utils/settings/settings.js';
 import { BASH_MAX_OUTPUT_DEFAULT, BASH_MAX_OUTPUT_UPPER_LIMIT } from '../utils/shell/outputLimits.js';
 import { TASK_MAX_OUTPUT_DEFAULT, TASK_MAX_OUTPUT_UPPER_LIMIT } from '../utils/task/outputFormatting.js';
 import { getXDGStateHome } from '../utils/xdg.js';
+import { resolveDoctorDistTags } from './doctorDistTags.js';
 type Props = {
   onDone: (result?: string, options?: {
     display?: CommandResultDisplay;
   }) => void;
-  deps?: DoctorDependencies;
-};
-type DoctorDependencies = {
-  getDoctorDiagnostic: typeof getDoctorDiagnostic;
-  getNpmDistTags: typeof getNpmDistTags;
-  getGcsDistTags: typeof getGcsDistTags;
-  assembleToolPool: typeof assembleToolPool;
-  checkContextWarnings: typeof checkContextWarnings;
-  pathExists: typeof pathExists;
-  isPidBasedLockingEnabled: typeof isPidBasedLockingEnabled;
-  cleanupStaleLocks: typeof cleanupStaleLocks;
-  getAllLockInfo: typeof getAllLockInfo;
-};
-const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
-  getDoctorDiagnostic,
-  getNpmDistTags,
-  getGcsDistTags,
-  assembleToolPool,
-  checkContextWarnings,
-  pathExists,
-  isPidBasedLockingEnabled,
-  cleanupStaleLocks,
-  getAllLockInfo,
 };
 type AgentInfo = {
   activeAgents: Array<{
@@ -128,28 +106,27 @@ function DistTagsDisplay(t0: {
 export function Doctor(t0: Props) {
   const $ = _c(88);
   const {
-    onDone,
-    deps: depsOverride
+    onDone
   } = t0;
-  const deps = depsOverride ?? DEFAULT_DOCTOR_DEPENDENCIES;
   const agentDefinitions = useAppState(_temp);
   const mcpTools = useAppState(_temp2);
   const toolPermissionContext = useAppState(_temp3);
   const pluginsErrors = useAppState(_temp4);
   useExitOnCtrlCDWithKeybindings();
   const tools = useMemo<Tools>(
-    () => deps.assembleToolPool(toolPermissionContext, mcpTools || []),
-    [deps, toolPermissionContext, mcpTools],
+    () => assembleToolPool(toolPermissionContext, mcpTools || []),
+    [toolPermissionContext, mcpTools],
   );
   const [diagnostic, setDiagnostic] = useState<DiagnosticInfo | null>(null);
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
   const [contextWarnings, setContextWarnings] = useState<ContextWarnings | null>(null);
   const [versionLockInfo, setVersionLockInfo] = useState<VersionLockInfo | null>(null);
   const validationErrors = useSettingsErrors();
-  const distTagsPromise = useMemo(() => deps.getDoctorDiagnostic().then(diag => {
-    const fetchDistTags = diag.installationType === "native" ? deps.getGcsDistTags : deps.getNpmDistTags;
-    return fetchDistTags().catch(_temp5);
-  }), [deps]);
+  const distTagsPromise = useMemo(() => resolveDoctorDistTags({
+    getDoctorDiagnostic,
+    getNpmDistTags,
+    getGcsDistTags
+  }), []);
   const autoUpdatesChannel = getInitialSettings()?.autoUpdatesChannel ?? "latest";
   let t3;
   if ($[3] !== validationErrors) {
@@ -181,7 +158,7 @@ export function Doctor(t0: Props) {
   }
   const envValidationErrors = t4;
   useEffect(() => {
-    deps.getDoctorDiagnostic().then(setDiagnostic);
+    getDoctorDiagnostic().then(setDiagnostic);
     (async () => {
       const userAgentsDir = join(getClaudeConfigHomeDir(), "agents");
       const projectAgentsDir = join(getOriginalCwd(), ".claude", "agents");
@@ -190,7 +167,7 @@ export function Doctor(t0: Props) {
         allAgents,
         failedFiles
       } = agentDefinitions;
-      const [userDirExists, projectDirExists] = await Promise.all([deps.pathExists(userAgentsDir), deps.pathExists(projectAgentsDir)]);
+      const [userDirExists, projectDirExists] = await Promise.all([pathExists(userAgentsDir), pathExists(projectAgentsDir)]);
       const agentInfoData = {
         activeAgents: activeAgents.map(_temp0),
         userAgentsDir,
@@ -200,16 +177,16 @@ export function Doctor(t0: Props) {
         failedFiles
       };
       setAgentInfo(agentInfoData);
-      const warnings = await deps.checkContextWarnings(tools, {
+      const warnings = await checkContextWarnings(tools, {
         activeAgents,
         allAgents,
         failedFiles
       }, async () => toolPermissionContext);
       setContextWarnings(warnings);
-      if (deps.isPidBasedLockingEnabled()) {
+      if (isPidBasedLockingEnabled()) {
         const locksDir = join(getXDGStateHome(), "claude", "locks");
-        const staleLocksCleaned = deps.cleanupStaleLocks(locksDir);
-        const locks = deps.getAllLockInfo(locksDir);
+        const staleLocksCleaned = cleanupStaleLocks(locksDir);
+        const locks = getAllLockInfo(locksDir);
         setVersionLockInfo({
           enabled: true,
           locks,
@@ -225,7 +202,7 @@ export function Doctor(t0: Props) {
         });
       }
     })();
-  }, [toolPermissionContext, tools, agentDefinitions, deps]);
+  }, [toolPermissionContext, tools, agentDefinitions]);
   let t7;
   if ($[11] !== onDone) {
     t7 = () => {
@@ -561,12 +538,6 @@ function _temp8(v) {
 }
 function _temp7(error) {
   return error.mcpErrorMetadata === undefined;
-}
-function _temp5() {
-  return {
-    latest: null,
-    stable: null
-  };
 }
 function _temp4(s_2) {
   return s_2.plugins.errors;
