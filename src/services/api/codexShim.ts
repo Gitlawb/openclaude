@@ -229,8 +229,8 @@ export function convertAnthropicMessagesToResponsesInput(
     content?: unknown
   }>,
   forceTextChunks = false,
-): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = []
+): ResponsesInputItem[] {
+  const items: ResponsesInputItem[] = []
 
   for (const item of compressedMessages) {
     const rawRole = item.message?.role ?? item.role
