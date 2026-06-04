@@ -204,7 +204,7 @@ import { checkOutTeleportedSessionBranch, processMessagesForTeleportResume, tele
 import { shouldEnableThinkingByDefault, type ThinkingConfig } from './utils/thinking.js';
 import { initUser, resetUserCache } from './utils/user.js';
 import { getTmuxInstallInstructions, isTmuxAvailable, parsePRReference } from './utils/worktree.js';
-import { isAntEmployee } from './utils/buildConfig.js';
+import { IS_ANT_EMPLOYEE, isAntEmployee } from './utils/buildConfig.js';
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 profileCheckpoint('main_tsx_imports_loaded');
@@ -453,7 +453,7 @@ export function startDeferredPrefetches(): void {
   }
 
   // Event loop stall detector — logs when the main thread is blocked >500ms
-  if (isAntEmployee()) {
+  if (IS_ANT_EMPLOYEE) {
     void import('./utils/eventLoopStallDetector.js').then(m => m.startEventLoopStallDetector());
   }
 }
@@ -2773,7 +2773,7 @@ async function run(): Promise<CommanderCommand> {
         startDeferredPrefetches();
         void import('./utils/backgroundHousekeeping.js').then(m => m.startBackgroundHousekeeping());
         startMemoryMonitorIfNeeded();
-        if (isAntEmployee()) {
+        if (IS_ANT_EMPLOYEE) {
           void import('./utils/sdkHeapDumpMonitor.js').then(m => m.startSdkMemoryMonitor());
         }
       }
@@ -3023,7 +3023,7 @@ async function run(): Promise<CommanderCommand> {
     //   - Runtime: uploader checks github.com/anthropics/* remote + gcloud auth.
     //   - Safety: CLAUDE_CODE_DISABLE_SESSION_DATA_UPLOAD=1 bypasses (tests set this).
     // Import is dynamic + async to avoid adding startup latency.
-    const sessionUploaderPromise = isAntEmployee() ? import('./utils/sessionDataUploader.js') : null;
+    const sessionUploaderPromise = IS_ANT_EMPLOYEE ? import('./utils/sessionDataUploader.js') : null;
 
     // Defer session uploader resolution to the onTurnComplete callback to avoid
     // adding a new top-level await in main.tsx (performance-critical path).
@@ -3542,7 +3542,7 @@ async function run(): Promise<CommanderCommand> {
           }
         }
       }
-      if (isAntEmployee()) {
+      if (IS_ANT_EMPLOYEE) {
         if (options.resume && typeof options.resume === 'string' && !maybeSessionId) {
           // Check for ccshare URL (e.g. https://go/ccshare/boris-20260311-211036)
           const {
@@ -4346,7 +4346,7 @@ async function run(): Promise<CommanderCommand> {
   });
 
   // claude up — run the project's CLAUDE.md "# claude up" setup instructions.
-  if (isAntEmployee()) {
+  if (IS_ANT_EMPLOYEE) {
     program.command('up').description('[internal-only] Initialize or upgrade the local dev environment using the "# claude up" section of the nearest CLAUDE.md').action(async () => {
       const {
         up
@@ -4357,7 +4357,7 @@ async function run(): Promise<CommanderCommand> {
 
   // claude rollback (internal-only)
   // Rolls back to previous releases
-  if (isAntEmployee()) {
+  if (IS_ANT_EMPLOYEE) {
     program.command('rollback [target]').description('[internal-only] Roll back to a previous release\n\nExamples:\n  claude rollback                                    Go 1 version back from current\n  claude rollback 3                                  Go 3 versions back from current\n  claude rollback 2.0.73-dev.20251217.t190658        Roll back to a specific version').option('-l, --list', 'List recent published versions with ages').option('--dry-run', 'Show what would be installed without installing').option('--safe', 'Roll back to the server-pinned safe version (set by oncall during incidents)').action(async (target?: string, options?: {
       list?: boolean;
       dryRun?: boolean;
@@ -4381,7 +4381,7 @@ async function run(): Promise<CommanderCommand> {
   });
 
   // internal-only commands
-  if (isAntEmployee()) {
+  if (IS_ANT_EMPLOYEE) {
     const validateLogId = (value: string) => {
       const maybeSessionId = validateUuid(value);
       if (maybeSessionId) return maybeSessionId;
@@ -4415,7 +4415,7 @@ Examples:
       } = await import('./cli/handlers/ant.js');
       await exportHandler(source, outputFile);
     });
-    if (isAntEmployee()) {
+    if (IS_ANT_EMPLOYEE) {
       const taskCmd = program.command('task').description('[internal-only] Manage task list tasks');
       taskCmd.command('create <subject>').description('Create a new task').option('-d, --description <text>', 'Task description').option('-l, --list <id>', 'Task list ID (defaults to "tasklist")').action(async (subject: string, opts: {
         description?: string;
