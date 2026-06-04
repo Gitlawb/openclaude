@@ -212,7 +212,7 @@ export function ModelPicker(t0) {
   }
   const handleFocus = t10;
   let t11;
-  if ($[28] !== focusedDefaultEffort || $[29] !== focusedSupportsEffort || $[30] !== focusedSupportsMax) {
+  if ($[28] !== focusedDefaultEffort || $[29] !== focusedSupportsEffort || $[30] !== focusedSupportsMax || $[31] !== focusedAvailableLevels) {
     t11 = direction => {
       if (!focusedSupportsEffort) {
         return;
@@ -223,9 +223,10 @@ export function ModelPicker(t0) {
     $[28] = focusedDefaultEffort;
     $[29] = focusedSupportsEffort;
     $[30] = focusedSupportsMax;
-    $[31] = t11;
+    $[31] = focusedAvailableLevels;
+    $[32] = t11;
   } else {
-    t11 = $[31];
+    t11 = $[32];
   }
   const handleCycleEffort = t11;
   const t12 = {
@@ -246,18 +247,22 @@ export function ModelPicker(t0) {
   }
   useKeybindings(t12, t13);
   let t14;
-  if ($[35] !== effort || $[36] !== hasToggledEffort || $[37] !== onSelect || $[38] !== setAppState || $[39] !== skipSettingsWrite) {
+  if ($[35] !== effort || $[36] !== hasToggledEffort || $[37] !== onSelect || $[38] !== setAppState || $[39] !== skipSettingsWrite || $[46] !== focusedAvailableLevels || $[47] !== focusedDefaultEffort) {
     t14 = function handleSelect(value_0) {
       const selectedModel = resolveOptionModel(value_0);
       if (value_0 !== NO_PREFERENCE && selectedModel && !isModelAllowed(selectedModel)) {
         onSelect(value_0 === NO_PREFERENCE ? null : value_0, undefined);
         return;
       }
+      // Clamp effort to a value in the focused model's available levels so
+      // emitted/persisted values are always valid for the picked model
+      // (e.g. toggled 'xhigh' then picked a model that doesn't support it).
+      const clampedEffort = focusedAvailableLevels.includes(effort) ? effort : focusedDefaultEffort;
       logEvent("tengu_model_command_menu_effort", {
-        effort: effort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+        effort: clampedEffort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
       if (!skipSettingsWrite) {
-        const effortLevel = resolvePickerEffortPersistence(effort, getDefaultEffortLevelForOption(value_0), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
+        const effortLevel = resolvePickerEffortPersistence(clampedEffort, getDefaultEffortLevelForOption(value_0), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
         const persistable = toPersistableEffort(effortLevel);
         if (persistable !== undefined) {
           updateSettingsForSource("userSettings", {
@@ -269,7 +274,7 @@ export function ModelPicker(t0) {
           effortValue: effortLevel
         }));
       }
-      const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? effort : undefined;
+      const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? clampedEffort : undefined;
       if (value_0 === NO_PREFERENCE) {
         onSelect(null, selectedEffort);
         return;
@@ -281,6 +286,8 @@ export function ModelPicker(t0) {
     $[37] = onSelect;
     $[38] = setAppState;
     $[39] = skipSettingsWrite;
+    $[46] = focusedAvailableLevels;
+    $[47] = focusedDefaultEffort;
     $[40] = t14;
   } else {
     t14 = $[40];
