@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
-import { saveGlobalConfig } from '../config.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import { getGlobalConfig, saveGlobalConfig } from '../config.js'
 
 async function importFreshModelModule() {
   mock.restore()
@@ -46,12 +50,14 @@ const SAVED_ENV = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
 }
+const savedModel = getGlobalConfig().model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {
@@ -61,7 +67,8 @@ function restoreEnv(key: keyof typeof SAVED_ENV): void {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('model/model.openai-shim-providers.test.ts')
   // Other test files (notably modelOptions.github.test.ts) install a
   // persistent mock.module for './providers.js' that overrides getAPIProvider
   // globally. Without mock.restore() here, those overrides bleed into this
@@ -76,6 +83,7 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.ANTHROPIC_MODEL
   delete process.env.MIMO_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_BASE_URL
@@ -88,14 +96,18 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  mock.restore()
-  for (const key of Object.keys(SAVED_ENV) as Array<keyof typeof SAVED_ENV>) {
-    restoreEnv(key)
+  try {
+    mock.restore()
+    for (const key of Object.keys(SAVED_ENV) as Array<keyof typeof SAVED_ENV>) {
+      restoreEnv(key)
+    }
+    saveGlobalConfig(current => ({
+      ...current,
+      model: savedModel,
+    }))
+  } finally {
+    releaseSharedMutationLock()
   }
-  saveGlobalConfig(current => ({
-    ...current,
-    model: undefined,
-  }))
 })
 
 test('codex provider reads OPENAI_MODEL, not stale settings.model', async () => {

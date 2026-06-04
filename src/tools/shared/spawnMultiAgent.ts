@@ -216,6 +216,8 @@ function buildInheritedCliFlags(options?: {
   // Plan mode takes precedence over bypass permissions for safety
   if (planModeRequired) {
     // Don't inherit bypass permissions when plan mode is required
+  } else if (permissionMode === 'fullAccess') {
+    flags.push('--permission-mode fullAccess')
   } else if (
     permissionMode === 'bypassPermissions' ||
     getSessionBypassPermissionsMode()

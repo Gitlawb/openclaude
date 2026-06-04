@@ -137,6 +137,7 @@ export function checkPermissionMode(
   // Skip bypass and dontAsk modes (handled elsewhere)
   if (
     toolPermissionContext.mode === 'bypassPermissions' ||
+    toolPermissionContext.mode === 'fullAccess' ||
     toolPermissionContext.mode === 'dontAsk'
   ) {
     return {

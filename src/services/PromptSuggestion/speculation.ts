@@ -471,6 +471,7 @@ export async function startSpeculation(
           const canAutoAcceptEdits =
             mode === 'acceptEdits' ||
             mode === 'bypassPermissions' ||
+            mode === 'fullAccess' ||
             (mode === 'plan' && isBypassPermissionsModeAvailable)
 
           if (!canAutoAcceptEdits) {

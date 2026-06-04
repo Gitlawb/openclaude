@@ -10,7 +10,7 @@ import {
 } from './knowledgeGraph.js'
 import { mkdtempSync, rmSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
 import { getFsImplementation } from './fsOperations.js'
@@ -126,9 +126,9 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     
     // 5. Verify the corrupted file was moved
     const { readdirSync } = await import('fs')
-    const projectsBaseDir = join(configDir, 'projects')
-    expect(existsSync(projectsBaseDir)).toBe(true)
-    // Search recursively for the corrupted file
+    const oramaDir = dirname(oramaPath)
+    expect(existsSync(oramaDir)).toBe(true)
+    // Search from the actual persistence directory for the corrupted file.
     const findCorrupted = (dir: string): boolean => {
       const entries = readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
@@ -140,7 +140,7 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
       }
       return false
     }
-    expect(findCorrupted(projectsBaseDir)).toBe(true)
+    expect(findCorrupted(oramaDir)).toBe(true)
   })
 
   it('maintains consistency between JSON and Orama', async () => {

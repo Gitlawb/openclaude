@@ -2,20 +2,43 @@ import { describe, test, expect, vi, beforeEach, afterEach, beforeAll, afterAll 
 import { unstable_v2_createSession } from '../../src/entrypoints/sdk/index.js'
 import { query } from '../../src/entrypoints/sdk/index.js'
 import type { MCPServerConnection } from '../../src/services/mcp/types.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../src/test/sharedMutationLock.js'
 
 // sendMessage drains trigger init(), which checks auth. Stub it for CI.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
-beforeAll(() => {
+beforeAll(async () => {
+  await acquireSharedMutationLock('tests/sdk/mcp-cleanup.test.ts')
   savedApiKey = process.env[AUTH_KEY]
   if (!savedApiKey) process.env[AUTH_KEY] = 'sk-test-mcp-cleanup-stub'
 })
 
 afterAll(() => {
-  if (savedApiKey === undefined) delete process.env[AUTH_KEY]
-  else process.env[AUTH_KEY] = savedApiKey
+  try {
+    if (savedApiKey === undefined) delete process.env[AUTH_KEY]
+    else process.env[AUTH_KEY] = savedApiKey
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
+
+async function waitForMockCall(
+  mockFn: ReturnType<typeof vi.fn>,
+  timeoutMs = 1000,
+): Promise<void> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (mockFn.mock.calls.length > 0) {
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  throw new Error('Timed out waiting for MCP cleanup mock call')
+}
 
 describe('MCP cleanup on session close', () => {
   test('session.close() disconnects MCP clients', async () => {
@@ -44,8 +67,7 @@ describe('MCP cleanup on session close', () => {
     // Close the session
     session.close()
 
-    // Verify MCP client cleanup was called (fire-and-forget, wait a bit)
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await waitForMockCall(mockCleanup)
     expect(mockCleanup).toHaveBeenCalled()
   })
 
@@ -74,8 +96,7 @@ describe('MCP cleanup on session close', () => {
     // Close should not throw despite MCP cleanup error
     expect(() => session.close()).not.toThrow()
 
-    // Verify cleanup was attempted even though it will reject
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await waitForMockCall(mockCleanup)
     expect(mockCleanup).toHaveBeenCalled()
   })
 
@@ -156,8 +177,7 @@ describe('MCP cleanup on query close', () => {
 
     q.close()
 
-    // Verify cleanup was called (fire-and-forget, wait a bit)
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await waitForMockCall(mockCleanup)
     expect(mockCleanup).toHaveBeenCalled()
   })
 
@@ -183,7 +203,7 @@ describe('MCP cleanup on query close', () => {
     }
 
     expect(() => q.close()).not.toThrow()
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await waitForMockCall(mockCleanup)
     expect(mockCleanup).toHaveBeenCalled()
   })
 

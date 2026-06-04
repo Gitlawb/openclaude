@@ -1,8 +1,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 const actualSettings = await import('../utils/settings/settings.js')
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
-beforeAll(() => {
+beforeAll(async () => {
+  await acquireSharedMutationLock('StartupScreen.test.ts')
   mock.module('../utils/settings/settings.js', () => ({
     ...actualSettings,
     getSettings_DEPRECATED: () => ({}),
@@ -10,12 +15,16 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  mock.restore()
+  try {
+    mock.restore()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 import stripAnsi from 'strip-ansi'
 import { detectProvider, printStartupScreen } from './StartupScreen.js'
-import { saveGlobalConfig } from '../utils/config.js'
+import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
@@ -43,12 +52,14 @@ const ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalIsTTY = process.stdout.isTTY
 const originalWrite = process.stdout.write
+const originalModel = getGlobalConfig().model
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {
@@ -66,7 +77,7 @@ afterEach(() => {
   resetSettingsCache()
   saveGlobalConfig(current => ({
     ...current,
-    model: undefined,
+    model: originalModel,
   }))
   ;(globalThis as Record<string, unknown>).MACRO = originalMacro
   Object.defineProperty(process.stdout, 'isTTY', {
@@ -255,6 +266,15 @@ describe('detectProvider — explicit dedicated-provider env flags', () => {
     process.env.MINIMAX_API_KEY = 'test-key'
     expect(detectProvider().name).toBe('MiniMax')
   })
+
+  test('Anthropic-compatible MiniMax profile is labeled MiniMax', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+    process.env.ANTHROPIC_MODEL = 'MiniMax-M2.7'
+
+    expect(detectProvider().name).toBe('MiniMax')
+    expect(detectProvider().baseUrl).toBe('https://api.minimax.io/anthropic')
+  })
 })
 
 // --- modelOverride from --model flag ---
@@ -267,6 +287,7 @@ describe('detectProvider — modelOverride from --model flag', () => {
   })
 
   test('modelOverride alias is resolved for Anthropic', () => {
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-4-6'
     const result = detectProvider('opus')
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('opus')

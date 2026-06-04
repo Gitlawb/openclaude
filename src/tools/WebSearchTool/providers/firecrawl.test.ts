@@ -1,4 +1,8 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
 
 import { firecrawlProvider } from './firecrawl.ts'
 
@@ -15,9 +19,17 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('WebSearchTool/providers/firecrawl.test.ts')
+})
+
 afterEach(() => {
-  restoreEnv('FIRECRAWL_API_KEY', originalEnv.FIRECRAWL_API_KEY)
-  restoreEnv('FIRECRAWL_API_URL', originalEnv.FIRECRAWL_API_URL)
+  try {
+    restoreEnv('FIRECRAWL_API_KEY', originalEnv.FIRECRAWL_API_KEY)
+    restoreEnv('FIRECRAWL_API_URL', originalEnv.FIRECRAWL_API_URL)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('firecrawlProvider isConfigured', () => {
@@ -28,7 +40,7 @@ describe('firecrawlProvider isConfigured', () => {
   })
 
   test('true when FIRECRAWL_API_URL is set only', () => {
-    process.env.FIRECRAWL_API_KEY = undefined
+    delete process.env.FIRECRAWL_API_KEY
     process.env.FIRECRAWL_API_URL = 'https://self-hosted.firecrawl.dev'
     expect(firecrawlProvider.isConfigured()).toBe(true)
   })

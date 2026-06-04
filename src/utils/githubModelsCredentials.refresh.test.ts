@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
+import * as realDeviceFlow from '../services/github/deviceFlow.js'
+import * as realSecureStorage from './secureStorage/index.js'
 
 async function importFreshModule() {
   mock.restore()
@@ -13,17 +19,25 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     GH_TOKEN: process.env.GH_TOKEN,
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/githubModelsCredentials.refresh.test.ts')
     mock.restore()
   })
 
   afterEach(() => {
-    for (const [k, v] of Object.entries(orig)) {
-      if (v === undefined) {
-        delete process.env[k as keyof typeof orig]
-      } else {
-        process.env[k as keyof typeof orig] = v
+    try {
+      mock.restore()
+      mock.module('./secureStorage/index.js', () => realSecureStorage)
+      mock.module('../services/github/deviceFlow.js', () => realDeviceFlow)
+      for (const [k, v] of Object.entries(orig)) {
+        if (v === undefined) {
+          delete process.env[k as keyof typeof orig]
+        } else {
+          process.env[k as keyof typeof orig] = v
+        }
       }
+    } finally {
+      releaseSharedMutationLock()
     }
   })
 
@@ -42,6 +56,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     }
 
     mock.module('./secureStorage/index.js', () => ({
+      ...realSecureStorage,
       getSecureStorage: () => ({
         read: () => store,
         update: (next: Record<string, unknown>) => {
@@ -52,6 +67,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     }))
 
     mock.module('../services/github/deviceFlow.js', () => ({
+      ...realDeviceFlow,
       DEFAULT_GITHUB_DEVICE_SCOPE: 'read:user',
       exchangeForCopilotToken: async () => ({
         token: `tid=fresh;exp=${futureExp};sku=free`,
@@ -90,6 +106,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     }))
 
     mock.module('./secureStorage/index.js', () => ({
+      ...realSecureStorage,
       getSecureStorage: () => ({
         read: () => ({
           githubModels: {
@@ -102,6 +119,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     }))
 
     mock.module('../services/github/deviceFlow.js', () => ({
+      ...realDeviceFlow,
       DEFAULT_GITHUB_DEVICE_SCOPE: 'read:user',
       exchangeForCopilotToken: exchangeSpy,
     }))

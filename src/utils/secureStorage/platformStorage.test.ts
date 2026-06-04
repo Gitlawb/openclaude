@@ -1,24 +1,33 @@
 
-import { expect, test, mock, describe, beforeEach, afterEach } from "bun:test";
-import { linuxSecretStorage } from "./linuxSecretStorage.js";
-import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
+import { expect, test, mock, describe, beforeEach, afterEach, afterAll, beforeAll } from "bun:test";
+import * as realExeca from "execa";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from "../../test/sharedMutationLock.js";
+import type { linuxSecretStorage as LinuxSecretStorage } from "./linuxSecretStorage.js";
+import type { windowsCredentialStorage as WindowsCredentialStorage } from "./windowsCredentialStorage.js";
 
 // Mock execaSync
 const mockExecaSync = mock(() => ({ exitCode: 0, stdout: "" }));
-mock.module("execa", () => ({
-  execaSync: mockExecaSync,
-}));
 
 describe("Secure Storage Platform Implementations", () => {
   const originalEnv = process.env;
+  let linuxSecretStorage: typeof LinuxSecretStorage;
+  let windowsCredentialStorage: typeof WindowsCredentialStorage;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     await acquireSharedMutationLock("platformStorage.test.ts");
+    mock.module("execa", () => ({
+      ...realExeca,
+      execaSync: mockExecaSync,
+    }));
+    ({ linuxSecretStorage } = await import("./linuxSecretStorage.js"));
+    ({ windowsCredentialStorage } = await import("./windowsCredentialStorage.js"));
+  });
+
+  beforeEach(() => {
     process.env = { ...originalEnv };
     mockExecaSync.mockClear();
     // Default mock behavior
@@ -26,8 +35,13 @@ describe("Secure Storage Platform Implementations", () => {
   });
 
   afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  afterAll(() => {
     try {
-      process.env = originalEnv;
+      mock.restore();
+      mock.module("execa", () => realExeca);
     } finally {
       releaseSharedMutationLock();
     }

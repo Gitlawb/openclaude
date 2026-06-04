@@ -8,8 +8,7 @@
  * - src/ path aliases
  */
 
-import { readFileSync, readdirSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { readFileSync } from 'fs'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 import { CLI_EXTERNALS, SDK_EXTERNALS } from './externals.js'
 
@@ -35,7 +34,7 @@ const featureFlags: Record<string, boolean> = {
   WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
   CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
   COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
-  MCP_SKILLS: false,              // Dynamic MCP skill discovery (src/skills/mcpSkills.ts not mirrored; enabling this causes "fetchMcpSkillsForClient is not a function" when MCP servers with resources connect — see #856)
+  MCP_SKILLS: true,               // Dynamic MCP skill discovery via skill:// resources
 
   // ── Enabled: upstream defaults ──────────────────────────────────────
   COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
@@ -69,53 +68,42 @@ const featureFlags: Record<string, boolean> = {
 // so the previous onResolve/onLoad shim was silently ineffective — ALL
 // feature() calls evaluated to false regardless of the featureFlags map.
 //
-// Fix: pre-process source files to strip the bun:bundle import and
-// replace feature('FLAG') calls with their boolean literal. Files are
-// modified in-place before Bun.build() and restored in a finally block.
+// Fix: transform source as Bun loads each module, stripping the bun:bundle
+// import and replacing feature('FLAG') calls with their boolean literal.
+// The working tree stays immutable while smoke/build runs.
 
 // Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
 const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
 const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
-const modifiedFiles = new Map<string, string>() // path → original content
+const featureFlagTransformedFiles = new Set<string>()
 
-function preProcessFeatureFlags(dir: string) {
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, ent.name)
-    if (ent.isDirectory()) { preProcessFeatureFlags(full); continue }
-    if (!/\.(ts|tsx)$/.test(ent.name)) continue
+const featureFlagPreprocessPlugin = {
+  name: 'feature-flag-preprocess',
+  setup(build) {
+    build.onLoad({ filter: /\.[cm]?tsx?$/ }, args => {
+      const normalizedPath = args.path.replace(/\\/g, '/')
+      if (!normalizedPath.includes('/src/')) return null
 
-    const raw = readFileSync(full, 'utf-8')
-    if (!raw.includes('feature(')) continue
+      const raw = readFileSync(args.path, 'utf-8')
+      if (!raw.includes('feature(')) return null
 
-    let contents = raw
-    contents = contents.replace(featureImportRe, '')
-    contents = contents.replace(featureCallRe, (_match, name) =>
-      String((featureFlags as Record<string, boolean>)[name] ?? false),
-    )
+      let contents = raw
+      contents = contents.replace(featureImportRe, '')
+      contents = contents.replace(featureCallRe, (_match, name) =>
+        String((featureFlags as Record<string, boolean>)[name] ?? false),
+      )
 
-    if (contents !== raw) {
-      modifiedFiles.set(full, raw)
-      writeFileSync(full, contents)
-    }
-  }
-}
+      if (contents === raw) return null
 
-function restoreModifiedFiles() {
-  for (const [path, original] of modifiedFiles) {
-    writeFileSync(path, original)
-  }
-  modifiedFiles.clear()
-}
-
-preProcessFeatureFlags(join(import.meta.dir, '..', 'src'))
-const numModified = modifiedFiles.size
-
-// Restore source files on abrupt termination (Ctrl+C, kill, etc.)
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    restoreModifiedFiles()
-    process.exit(signal === 'SIGINT' ? 130 : 143)
-  })
+      featureFlagTransformedFiles.add(args.path)
+      return {
+        contents,
+        loader: args.path.endsWith('.tsx') || args.path.endsWith('.jsx')
+          ? 'tsx'
+          : 'ts',
+      }
+    })
+  },
 }
 
 let result: Awaited<ReturnType<typeof Bun.build>> | undefined
@@ -149,6 +137,7 @@ result = await Bun.build({
   },
   plugins: [
     noTelemetryPlugin,
+    featureFlagPreprocessPlugin,
     {
       name: 'bun-bundle-shim',
       setup(build) {
@@ -185,8 +174,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           ],
         ] as const)
 
-        // bun:bundle feature() replacement is handled by the source
-        // pre-processing step above (see preProcessFeatureFlags).
+        // bun:bundle feature() replacement is handled by featureFlagPreprocessPlugin.
         // The previous onResolve/onLoad shim was ineffective in Bun
         // v1.3.9+ because the bun: namespace is resolved natively
         // before the JS plugin phase runs.
@@ -301,6 +289,12 @@ export const createClaudeForChromeMcpServer = noop;
         const pathMod = require('path')
         const srcDir = pathMod.resolve(__dirname, '..', 'src')
         const missingModules = new Set<string>()
+        // Relative missing imports keyed by specifier + importer so identical
+        // specifiers in different folders do not stub the wrong module.
+        const missingRelativeImports = new Map<
+          string,
+          Array<{ importerPath: string; stubPath: string }>
+        >()
         const missingModuleExports = new Map<string, Set<string>>()
 
         // Known missing external packages
@@ -316,39 +310,62 @@ export const createClaudeForChromeMcpServer = noop;
 
         // Scan source to find imports that can't resolve
         function scanForMissingImports() {
-          function checkAndRegister(specifier: string, fileDir: string, namedPart: string) {
-                const names = namedPart.split(',')
-                  .map((s: string) => s.trim().replace(/^type\s+/, ''))
-                  .filter((s: string) => s && !s.startsWith('type '))
+          function checkAndRegister(
+            specifier: string,
+            importerFile: string,
+            namedPart: string,
+          ) {
+            const fileDir = pathMod.dirname(importerFile)
+            const names = namedPart.split(',')
+              .map((s: string) => s.trim().replace(/^type\s+/, ''))
+              .filter((s: string) => s && !s.startsWith('type '))
 
-                // Check src/tasks/ non-relative imports
-                if (specifier.startsWith('src/tasks/')) {
-                  const resolved = pathMod.resolve(__dirname, '..', specifier)
-                  const candidates = [
-                    resolved,
-                    `${resolved}.ts`, `${resolved}.tsx`,
-                    resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
-                    pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
-                  ]
-                  if (!candidates.some((c: string) => fs.existsSync(c))) {
-                    missingModules.add(specifier)
-                  }
-                }
-                // Check relative .js imports
-                else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
-                  const resolved = pathMod.resolve(fileDir, specifier)
-                  const tsVariant = resolved.replace(/\.js$/, '.ts')
-                  const tsxVariant = resolved.replace(/\.js$/, '.tsx')
-                  if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
-                    missingModules.add(specifier)
-                  }
-                }
+            let stubKey: string | undefined
 
-                // Track named exports for missing modules
-                if (names.length > 0) {
-                  if (!missingModuleExports.has(specifier)) missingModuleExports.set(specifier, new Set())
-                  for (const n of names) missingModuleExports.get(specifier)!.add(n)
-                }
+            // Check src/tasks/ non-relative imports
+            if (specifier.startsWith('src/tasks/')) {
+              const resolved = pathMod.resolve(__dirname, '..', specifier)
+              const candidates = [
+                resolved,
+                `${resolved}.ts`, `${resolved}.tsx`,
+                resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
+                pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
+              ]
+              if (!candidates.some((c: string) => fs.existsSync(c))) {
+                missingModules.add(specifier)
+                stubKey = specifier
+              }
+            }
+            // Check relative .js imports
+            else if (
+              specifier.endsWith('.js') &&
+              (specifier.startsWith('./') || specifier.startsWith('../'))
+            ) {
+              const resolved = pathMod.resolve(fileDir, specifier)
+              const tsVariant = resolved.replace(/\.js$/, '.ts')
+              const tsxVariant = resolved.replace(/\.js$/, '.tsx')
+              if (
+                !fs.existsSync(resolved) &&
+                !fs.existsSync(tsVariant) &&
+                !fs.existsSync(tsxVariant)
+              ) {
+                const entries = missingRelativeImports.get(specifier) ?? []
+                entries.push({
+                  importerPath: pathMod.normalize(importerFile),
+                  stubPath: tsVariant,
+                })
+                missingRelativeImports.set(specifier, entries)
+                stubKey = tsVariant
+              }
+            }
+
+            // Track named exports for missing modules
+            if (names.length > 0 && stubKey) {
+              if (!missingModuleExports.has(stubKey)) {
+                missingModuleExports.set(stubKey, new Set())
+              }
+              for (const n of names) missingModuleExports.get(stubKey)!.add(n)
+            }
           }
 
           function walk(dir: string) {
@@ -357,7 +374,6 @@ export const createClaudeForChromeMcpServer = noop;
               if (ent.isDirectory()) { walk(full); continue }
               if (!/\.(ts|tsx)$/.test(ent.name)) continue
               const rawCode: string = fs.readFileSync(full, 'utf-8')
-              const fileDir = pathMod.dirname(full)
 
               // Strip comments before scanning for imports/requires.
               // The regex scanner matches require()/import() patterns
@@ -369,18 +385,18 @@ export const createClaudeForChromeMcpServer = noop;
 
               // Collect static imports: import { X } from '...'
               for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
-                checkAndRegister(m[4], fileDir, m[1] || m[3] || '')
+                checkAndRegister(m[4], full, m[1] || m[3] || '')
               }
 
               // Collect dynamic requires: require('...') — these are used
               // behind feature() gates and become live when flags are enabled.
               for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-                checkAndRegister(m[1], fileDir, '')
+                checkAndRegister(m[1], full, '')
               }
 
               // Collect dynamic imports: import('...')
               for (const m of code.matchAll(/import\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-                checkAndRegister(m[1], fileDir, '')
+                checkAndRegister(m[1], full, '')
               }
             }
           }
@@ -388,13 +404,28 @@ export const createClaudeForChromeMcpServer = noop;
         }
         scanForMissingImports()
 
-        // Register exact-match resolvers for each missing module
+        // Register exact-match resolvers for each missing non-relative module
         for (const mod of missingModules) {
           const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
           build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
             path: mod,
             namespace: 'missing-module-stub',
           }))
+        }
+
+        // Stub missing relative imports only from the file that references them.
+        for (const [specifier, entries] of missingRelativeImports) {
+          const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, (args) => {
+            if (!args.importer) return
+            const importer = pathMod.normalize(args.importer)
+            const match = entries.find(entry => entry.importerPath === importer)
+            if (!match) return
+            return {
+              path: match.stubPath,
+              namespace: 'missing-module-stub',
+            }
+          })
         }
 
         build.onLoad(
@@ -456,6 +487,7 @@ sdkResult = await Bun.build({
   external: SDK_EXTERNALS,
   plugins: [
     noTelemetryPlugin,
+    featureFlagPreprocessPlugin,
     // Stub missing internal/optional modules (same pattern as CLI build)
     {
       name: 'sdk-missing-stub',
@@ -860,9 +892,7 @@ if (!sdkResult.success) {
 }
 
 } finally {
-  // Always restore source files, even if Bun.build() throws
-  restoreModifiedFiles()
-  console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+  console.log(`  🔄 feature-flags: transformed ${featureFlagTransformedFiles.size} files during bundling`)
 }
 
 // ── Validate SDK bundle for React/Ink leakage ──────────────────────────────

@@ -86,6 +86,36 @@ export GEMINI_API_KEY=...
 export GEMINI_MODEL=gemini-3-flash-preview
 ```
 
+### Claude on Vertex AI
+
+The Vertex route uses Anthropic's Claude-on-Vertex API. It is not a general
+Vertex AI Model Garden adapter for Gemini or arbitrary partner models; use the
+Gemini provider for Gemini models and OpenAI-compatible routes for compatible
+third-party gateways.
+
+Authentication uses Google Application Default Credentials through
+`google-auth-library`. There is no `OPENAI_API_KEY`-style API key for this
+route. Authenticate with either a service-account file or local ADC:
+
+```bash
+gcloud auth application-default login
+```
+
+Minimal setup:
+
+```bash
+export CLAUDE_CODE_USE_VERTEX=1
+export ANTHROPIC_VERTEX_PROJECT_ID=my-gcp-project
+export GOOGLE_CLOUD_PROJECT=my-gcp-project
+export CLOUD_ML_REGION=us-east5
+
+openclaude --model claude-sonnet-4-6
+```
+
+`CLOUD_ML_REGION` is optional and defaults to `us-east5`. Model-specific
+Vertex region override variables are also supported for Claude models; see
+`src/utils/envUtils.ts` for the current override names.
+
 ### Gemini via OpenRouter
 
 ```bash
@@ -153,6 +183,50 @@ export OPENAI_MODEL=llama-3.3-70b-versatile
 
 `GROQ_API_KEY` matches the built-in Groq gateway preset. `OPENAI_API_KEY` also works as a fallback on the generic OpenAI-compatible path, but `GROQ_API_KEY` is the preferred variable for Groq-specific setup.
 
+### OpenCode Zen (pay-as-you-go)
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENCODE_API_KEY=...
+export OPENAI_BASE_URL=https://opencode.ai/zen/v1
+export OPENAI_MODEL=gpt-5.4
+
+openclaude
+```
+
+OpenCode Zen is a pay-as-you-go AI gateway with 41 models (GPT, Claude, Gemini,
+Qwen, MiniMax, GLM, Kimi, Grok, Big Pickle, DeepSeek, Nemotron). Uses the same
+`OPENCODE_API_KEY` as OpenCode Go. Get your key from https://opencode.ai.
+
+### OpenCode Go (subscription)
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENCODE_API_KEY=...
+export OPENAI_BASE_URL=https://opencode.ai/zen/go/v1
+export OPENAI_MODEL=glm-5.1
+
+openclaude
+```
+
+OpenCode Go is a $10/mo subscription for 12 open models (GLM, Kimi, DeepSeek,
+MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
+
+### Gitlawb Opengateway
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=https://opengateway.gitlawb.com/v1
+export OPENAI_API_KEY=anything
+export OPENAI_MODEL=mimo-v2.5-pro
+```
+
+The Opengateway route is a smart gateway. Keep the base URL at `/v1` and switch
+models with `/model` or `OPENAI_MODEL`. Current partner models include:
+
+- `mimo-v2.5-pro`
+- `google/gemini-3.1-flash-lite-preview`
+
 ### Xiaomi MiMo
 
 ```bash
@@ -190,6 +264,7 @@ export OPENAI_MODEL=gpt-4o
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |
 | `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
 | `CLAUDE_CODE_USE_GEMINI` | Gemini only | Set to `1` to enable the direct Gemini provider path |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini API-key auth | Gemini API key for direct Gemini setup |
@@ -203,12 +278,15 @@ export OPENAI_MODEL=gpt-4o
 | `CHATGPT_ACCOUNT_ID` / `CODEX_ACCOUNT_ID` | Codex only | Required for manual Codex env setup when the account id is not coming from `auth.json` or stored OAuth credentials |
 | `CODEX_AUTH_JSON_PATH` | Codex only | Path to a Codex CLI `auth.json` file |
 | `CODEX_HOME` | Codex only | Alternative Codex home directory |
+| `OPENCLAUDE_MAX_RETRIES` | No | Maximum retry attempts for retryable API failures, capped at 100 (default: 10). Set to `0` to disable retries after the initial request. If unset, deprecated `CLAUDE_CODE_MAX_RETRIES` is still honored for compatibility. |
+| `OPENCLAUDE_RETRY_DELAY_MS` | No | Base retry delay in milliseconds for APIs that do not send `Retry-After`; exponential backoff starts from this value, capped at 60000 (default: 500) |
 | `OPENCLAUDE_DISABLE_CO_AUTHORED_BY` | No | Suppress the default `Co-Authored-By` trailer in generated git commits |
 | `OPENCLAUDE_LOG_TOKEN_USAGE` | No | When truthy (e.g. `verbose`), emits one JSON line on stderr per API request with input/output/cache tokens and the resolved provider. **User-facing debug output** — complements the REPL display controlled by `/config showCacheStats`. Distinct from `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, which is **model-facing** (injects context usage info into the prompt itself). Both can run together. |
 
-Model env vars are provider-scoped: Anthropic-native sessions read
+Model env vars are provider-scoped: first-party Anthropic sessions read
 `ANTHROPIC_MODEL`, OpenAI-compatible sessions read `OPENAI_MODEL`, Gemini reads
-`GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`.
+`GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
+or Foundry launches, select the model with `--model`.
 
 ## Runtime Hardening
 
