@@ -5,7 +5,12 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
 import { createRoot } from '../ink.js'
-import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
+import { KeybindingProvider } from '../keybindings/KeybindingContext.js'
+import type {
+  KeybindingContextName,
+  ParsedBinding,
+  ParsedKeystroke,
+} from '../keybindings/types.js'
 import { AppStateProvider } from '../state/AppState.js'
 import type { NpmDistTags } from '../utils/autoUpdater.js'
 import type { DiagnosticInfo } from '../utils/doctorDiagnostic.js'
@@ -28,6 +33,13 @@ const getGcsDistTags = mock(async (): Promise<NpmDistTags> => ({
 const isPidBasedLockingEnabled = mock(() => false)
 const cleanupStaleLocks = mock((_locksDir: string): number => 0)
 const getAllLockInfo = mock((_locksDir: string): LockInfo[] => [])
+const TEST_BINDINGS: ParsedBinding[] = []
+
+type TestKeybindingHandlerRegistration = {
+  action: string
+  context: KeybindingContextName
+  handler: () => void
+}
 
 type DoctorDiagnosticModule = typeof import('../utils/doctorDiagnostic.js')
 type AutoUpdaterModule = typeof import('../utils/autoUpdater.js')
@@ -160,6 +172,56 @@ function createTestStreams() {
   return { stdout, stdin, getOutput: () => output }
 }
 
+function TestKeybindingProvider({
+  children,
+}: {
+  children: React.ReactNode
+}): React.ReactNode {
+  const pendingChordRef = React.useRef<ParsedKeystroke[] | null>(null)
+  const [pendingChord, setPendingChordState] = React.useState<
+    ParsedKeystroke[] | null
+  >(null)
+  const activeContextsRef = React.useRef<Set<KeybindingContextName>>(new Set())
+  const handlerRegistryRef = React.useRef(
+    new Map<string, Set<TestKeybindingHandlerRegistration>>(),
+  )
+
+  const setPendingChord = React.useCallback(
+    (pending: ParsedKeystroke[] | null) => {
+      pendingChordRef.current = pending
+      setPendingChordState(pending)
+    },
+    [],
+  )
+  const registerActiveContext = React.useCallback(
+    (context: KeybindingContextName) => {
+      activeContextsRef.current.add(context)
+    },
+    [],
+  )
+  const unregisterActiveContext = React.useCallback(
+    (context: KeybindingContextName) => {
+      activeContextsRef.current.delete(context)
+    },
+    [],
+  )
+
+  return (
+    <KeybindingProvider
+      bindings={TEST_BINDINGS}
+      pendingChordRef={pendingChordRef}
+      pendingChord={pendingChord}
+      setPendingChord={setPendingChord}
+      activeContexts={activeContextsRef.current}
+      registerActiveContext={registerActiveContext}
+      unregisterActiveContext={unregisterActiveContext}
+      handlerRegistryRef={handlerRegistryRef}
+    >
+      {children}
+    </KeybindingProvider>
+  )
+}
+
 async function waitForOutput(
   getOutput: () => string,
   predicate: (output: string) => boolean,
@@ -210,9 +272,9 @@ test('renders installation diagnostics and resolved dist tags', async () => {
   try {
     root.render(
       <AppStateProvider>
-        <KeybindingSetup>
+        <TestKeybindingProvider>
           <Doctor onDone={() => {}} />
-        </KeybindingSetup>
+        </TestKeybindingProvider>
       </AppStateProvider>,
     )
 
@@ -247,9 +309,9 @@ test('renders a version-fetch failure without blocking diagnostics', async () =>
   try {
     root.render(
       <AppStateProvider>
-        <KeybindingSetup>
+        <TestKeybindingProvider>
           <Doctor onDone={() => {}} />
-        </KeybindingSetup>
+        </TestKeybindingProvider>
       </AppStateProvider>,
     )
 
