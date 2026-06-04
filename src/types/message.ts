@@ -19,7 +19,9 @@ export type AssistantMessage = any
 export type UserMessage = any
 export type SystemMessage = any
 export type SystemAPIErrorMessage = any
-export type AttachmentMessage = any
-export type ProgressMessage = any
+// Generic parameter is unused in this stub — all generics resolve to `any`.
+// See issue #473 for restoring real type definitions.
+export type AttachmentMessage<T = any> = any
+export type ProgressMessage<T = any> = any
 export type HookResultMessage = any
 export type NormalizedUserMessage = any
