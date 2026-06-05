@@ -1,13 +1,5 @@
 Set-StrictMode -Version Latest
 
-$script:OpenClaudeRepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-
-function Get-OpenClaudeRepoRoot {
-  [CmdletBinding()]
-  param()
-  return $script:OpenClaudeRepoRoot.Path
-}
-
 function Test-OpenClaudeCommand {
   [CmdletBinding()]
   param(
@@ -32,76 +24,87 @@ function Assert-OpenClaudeCommand {
   }
 }
 
-function Set-OpenClaudeProvider {
+function Invoke-OpenClaude {
   [CmdletBinding()]
   param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet("ollama", "openai", "codex", "gemini", "atomic-chat")]
-    [string]$Provider,
-    [ValidateSet("latency", "balanced", "coding")]
-    [string]$Goal = "coding",
-    [string]$Model,
-    [string]$ApiKey
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$OpenClaudeArgs
   )
 
-  Assert-OpenClaudeCommand -Name "bun" -InstallHint "Install Bun from https://bun.sh and open a new terminal."
+  Assert-OpenClaudeCommand -Name "openclaude" -InstallHint "Install with: npm install -g @gitlawb/openclaude"
 
-  Push-Location (Get-OpenClaudeRepoRoot)
-  try {
-    $bunArgs = @("run", "profile:init", "--", "--provider", $Provider)
+  & openclaude @OpenClaudeArgs
 
-    if ($Model) {
-      $bunArgs += @("--model", $Model)
-    } elseif ($Provider -eq "ollama") {
-      $bunArgs += @("--goal", $Goal)
-    }
-
-    if ($ApiKey) {
-      $bunArgs += @("--api-key", $ApiKey)
-    }
-
-    & bun @bunArgs
-    if ($LASTEXITCODE -ne 0) {
-      throw "profile:init failed with exit code $LASTEXITCODE."
-    }
-  }
-  finally {
-    Pop-Location
+  if ($LASTEXITCODE -ne 0) {
+    throw "openclaude failed with exit code $LASTEXITCODE."
   }
 }
 
-function Start-OpenClaude {
+function Get-OpenClaudeQuickHelp {
   [CmdletBinding()]
-  param(
-    [ValidateSet("profile", "ollama", "openai", "codex", "gemini", "atomic-chat", "fast")]
-    [string]$Mode = "profile"
-  )
+  param()
 
-  Assert-OpenClaudeCommand -Name "bun" -InstallHint "Install Bun from https://bun.sh and open a new terminal."
-
-  $scriptName = switch ($Mode) {
-    "profile" { "dev:profile" }
-    "ollama" { "dev:ollama" }
-    "openai" { "dev:openai" }
-    "codex" { "dev:codex" }
-    "gemini" { "dev:gemini" }
-    "atomic-chat" { "dev:atomic-chat" }
-    "fast" { "dev:fast" }
-  }
-
-  Push-Location (Get-OpenClaudeRepoRoot)
-  try {
-    & bun run $scriptName
-    if ($LASTEXITCODE -ne 0) {
-      throw "bun run $scriptName failed with exit code $LASTEXITCODE."
-    }
-  }
-  finally {
-    Pop-Location
-  }
+  @(
+    "OpenClaude quick commands:",
+    "  oc [args...]              -> launch OpenClaude using the installed CLI",
+    "  oc-local [args...]        -> launch OpenClaude with local/Ollama OpenAI-compatible environment hints",
+    "  oc-fast [args...]         -> launch OpenClaude with low-latency local defaults",
+    "  oc-provider               -> open the provider manager in OpenClaude",
+    "  oc-check                  -> show Ollama install/listening/model state",
+    "  oc-init                   -> pull/check the local model, then launch local/Ollama mode",
+    "  oc-help                   -> show this help"
+  ) -join [Environment]::NewLine
 }
 
-function Test-OpenClaudeOllama {
+function oc {
+  [CmdletBinding()]
+  param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$OpenClaudeArgs
+  )
+
+  Invoke-OpenClaude @OpenClaudeArgs
+}
+
+function oc-local {
+  [CmdletBinding()]
+  param(
+    [string]$Model = "llama3.1:8b",
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$OpenClaudeArgs
+  )
+
+  $env:CLAUDE_CODE_USE_OPENAI = "1"
+  $env:OPENAI_BASE_URL = "http://localhost:11434/v1"
+  $env:OPENAI_MODEL = $Model
+
+  Invoke-OpenClaude @OpenClaudeArgs
+}
+
+function oc-fast {
+  [CmdletBinding()]
+  param(
+    [string]$Model = "llama3.1:8b",
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$OpenClaudeArgs
+  )
+
+  $env:CLAUDE_CODE_USE_OPENAI = "1"
+  $env:OPENAI_BASE_URL = "http://localhost:11434/v1"
+  $env:OPENAI_MODEL = $Model
+  $env:OPENCLAUDE_FAST_MODE = "1"
+
+  Invoke-OpenClaude @OpenClaudeArgs
+}
+
+function oc-provider {
+  [CmdletBinding()]
+  param()
+
+  Invoke-OpenClaude "/provider"
+}
+
+function oc-check {
   [CmdletBinding()]
   param(
     [string]$Model = "llama3.1:8b"
@@ -128,124 +131,41 @@ function Test-OpenClaudeOllama {
   }
 
   [PSCustomObject]@{
-    OllamaInstalled  = $true
-    OllamaVersion    = $version
-    OllamaListening  = $probeSucceeded
-    Model            = $Model
-    ModelAvailable   = $isModelAvailable
+    OllamaInstalled = $true
+    OllamaVersion   = $version
+    OllamaListening = $probeSucceeded
+    Model           = $Model
+    ModelAvailable  = $isModelAvailable
   }
-}
-
-function Initialize-OpenClaudeRunspace {
-  [CmdletBinding()]
-  param(
-    [ValidateSet("latency", "balanced", "coding")]
-    [string]$Goal = "coding",
-    [string]$Model = "llama3.1:8b",
-    [switch]$SkipModelPull
-  )
-
-  Assert-OpenClaudeCommand -Name "npm" -InstallHint "Install Node.js 20+ from https://nodejs.org."
-  Assert-OpenClaudeCommand -Name "bun" -InstallHint "Install Bun from https://bun.sh and open a new terminal."
-  Assert-OpenClaudeCommand -Name "ollama" -InstallHint "Install Ollama from https://ollama.com/download/windows."
-
-  Push-Location (Get-OpenClaudeRepoRoot)
-  try {
-    if (-not $SkipModelPull) {
-      & ollama pull $Model
-      if ($LASTEXITCODE -ne 0) {
-        throw "ollama pull $Model failed with exit code $LASTEXITCODE."
-      }
-    }
-
-    Set-OpenClaudeProvider -Provider "ollama" -Goal $Goal -Model $Model
-
-    $health = Test-OpenClaudeOllama -Model $Model
-    if (-not $health.OllamaListening) {
-      Write-Warning "Ollama is installed but API probe to localhost:11434 did not succeed. Start Ollama and retry."
-    }
-  }
-  finally {
-    Pop-Location
-  }
-
-  Start-OpenClaude -Mode "profile"
-}
-
-function Get-OpenClaudeQuickHelp {
-  [CmdletBinding()]
-  param()
-
-  @(
-    "OpenClaude quick commands:",
-    "  oc-init                  -> bootstrap local Ollama profile and launch",
-    "  oc                        -> launch using saved provider profile",
-    "  oc-local                  -> force local Ollama launch path",
-    "  oc-fast                   -> low latency local preset",
-    "  oc-provider <name>        -> switch provider profile (ollama/openai/codex/gemini/atomic-chat)",
-    "  oc-check                  -> show Ollama install/listening/model state"
-  ) -join [Environment]::NewLine
-}
-
-function oc {
-  [CmdletBinding()]
-  param(
-    [ValidateSet("profile", "ollama", "openai", "codex", "gemini", "atomic-chat", "fast")]
-    [string]$Mode = "profile"
-  )
-
-  Start-OpenClaude -Mode $Mode
-}
-
-function oc-local {
-  [CmdletBinding()]
-  param()
-  Start-OpenClaude -Mode "ollama"
-}
-
-function oc-fast {
-  [CmdletBinding()]
-  param()
-  Start-OpenClaude -Mode "fast"
-}
-
-function oc-provider {
-  [CmdletBinding()]
-  param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet("ollama", "openai", "codex", "gemini", "atomic-chat")]
-    [string]$Provider,
-    [ValidateSet("latency", "balanced", "coding")]
-    [string]$Goal = "coding",
-    [string]$Model,
-    [string]$ApiKey
-  )
-
-  Set-OpenClaudeProvider -Provider $Provider -Goal $Goal -Model $Model -ApiKey $ApiKey
-}
-
-function oc-check {
-  [CmdletBinding()]
-  param(
-    [string]$Model = "llama3.1:8b"
-  )
-  Test-OpenClaudeOllama -Model $Model
 }
 
 function oc-init {
   [CmdletBinding()]
   param(
-    [ValidateSet("latency", "balanced", "coding")]
-    [string]$Goal = "coding",
     [string]$Model = "llama3.1:8b",
     [switch]$SkipModelPull
   )
 
-  Initialize-OpenClaudeRunspace -Goal $Goal -Model $Model -SkipModelPull:$SkipModelPull
+  Assert-OpenClaudeCommand -Name "ollama" -InstallHint "Install Ollama from https://ollama.com/download/windows."
+
+  if (-not $SkipModelPull) {
+    & ollama pull $Model
+    if ($LASTEXITCODE -ne 0) {
+      throw "ollama pull $Model failed with exit code $LASTEXITCODE."
+    }
+  }
+
+  $health = oc-check -Model $Model
+  if (-not $health.OllamaListening) {
+    Write-Warning "Ollama is installed but API probe to localhost:11434 did not succeed. Start Ollama and retry."
+  }
+
+  oc-local -Model $Model
 }
 
 function oc-help {
   [CmdletBinding()]
   param()
+
   Get-OpenClaudeQuickHelp
 }
