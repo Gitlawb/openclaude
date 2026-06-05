@@ -223,9 +223,9 @@ function logManagedSettings(): void {
         keys: allKeys.join(',') as unknown as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
-  } catch {
+  } catch (error) {
     // Silently ignore errors - this is just for analytics
-    logForDebugging('[main] logManagedSettings failed', { level: 'debug' })
+    logForDebugging(`[main] logManagedSettings failed: ${errorMessage(error)}`, { level: 'debug' })
   }
 }
 
