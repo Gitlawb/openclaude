@@ -47,6 +47,10 @@ import {
 } from '../rateLimitMocking.js'
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
+import {
+  extractOpenAICategoryMarker,
+  isRetryableOpenAICompatibilityFailureCategory,
+} from './openaiErrorClassification.js'
 
 const abortError = () => new APIUserAbortError()
 
@@ -786,6 +790,14 @@ function shouldRetry(error: APIError): boolean {
   // x-should-retry header.
   if (isPersistentRetryEnabled() && isTransientCapacityError(error)) {
     return true
+  }
+
+  const openAICategory = extractOpenAICategoryMarker(error.message ?? '')
+  if (
+    openAICategory &&
+    !isRetryableOpenAICompatibilityFailureCategory(openAICategory)
+  ) {
+    return false
   }
 
   // CCR mode: auth is via infrastructure-provided JWTs, so a 401/403 is a

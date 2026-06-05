@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import type Anthropic from '@anthropic-ai/sdk'
 import { APIError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
@@ -86,6 +87,13 @@ async function importFreshWithRetryModule(
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
+async function drainAsyncGenerator<T>(generator: AsyncGenerator<unknown, T>): Promise<T> {
+  while (true) {
+    const result = await generator.next()
+    if (result.done) return result.value
+  }
+}
+
 describe('retry configuration', () => {
   test('uses default retry attempts when env var is absent', async () => {
     const { getDefaultMaxRetries } = await importFreshWithRetryModule()
@@ -163,6 +171,40 @@ describe('retry configuration', () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
     const { getRetryDelay } = await importFreshWithRetryModule()
     expect(getRetryDelay(1, '3')).toBe(3000)
+  })
+})
+
+describe('OpenAI-compatible retry classification', () => {
+  test('does not retry marked non-retryable auth failures', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      401,
+      undefined,
+      'OpenAI API error 401: Unauthorized [openai_category=auth_invalid,host=api.z.ai] Hint: Authentication failed.',
+      new Headers(),
+    )
+    let attempts = 0
+
+    await expect(
+      drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      ),
+    ).rejects.toBeInstanceOf(CannotRetryError)
+
+    expect(attempts).toBe(1)
   })
 })
 
