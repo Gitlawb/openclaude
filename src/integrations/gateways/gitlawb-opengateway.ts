@@ -100,6 +100,14 @@ export default defineGateway({
         label: 'Qwen 3.7 Max (via Opengateway)',
         modelDescriptorId: 'qwen3.7-max',
       },
+      // OpenRouter :free endpoint — bills $0 and bypasses the gateway credit
+      // gate, so it works even with an empty credit balance.
+      {
+        id: 'opengateway-nemotron-3-ultra-free',
+        apiName: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+        label: 'Nemotron 3 Ultra Free (via Opengateway)',
+        modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+      },
     ],
   },
   usage: { supported: false },
