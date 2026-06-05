@@ -214,6 +214,7 @@ test('logs self-heal toolless retry for local tool-call incompatibility', async 
 
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
   process.env.OPENAI_API_KEY = 'ollama'
+  process.env.OPENCLAUDE_OLLAMA_FALLBACK_TOOLLESS = '1'
 
   let callCount = 0
   globalThis.fetch = mock(async () => {
