@@ -200,6 +200,41 @@ test('xhigh does not appear in available levels for non-supporting models', asyn
   expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
 })
 
+test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async () => {
+  // The Anthropic /messages shim only serializes low/medium as
+  // anthropicBody.effort for opus-4-5/4-6/4-7/4-8 and sonnet-4-6. For
+  // older variants it only emits thinking for high/max — advertising
+  // effort for them would silently drop low/medium on the wire.
+  const { modelSupportsEffort, getAvailableEffortLevels } =
+    await importFreshEffortModule({
+      provider: 'firstParty' as unknown as 'openai',
+      supportsCodexReasoningEffort: false,
+    })
+
+  // Inside the shim set → supported
+  for (const model of [
+    'claude-opus-4-5',
+    'claude-opus-4-6',
+    'claude-opus-4-7',
+    'claude-opus-4-8',
+    'claude-sonnet-4-6',
+    'opencode-claude-opus-4-7',
+  ]) {
+    expect(modelSupportsEffort(model)).toBe(true)
+  }
+
+  // Outside the shim set → not supported (was previously true via the
+  // broad `claude-opus-4*` / `claude-sonnet-4*` substring match)
+  for (const model of [
+    'claude-opus-4-1',
+    'claude-opus-4-2',
+    'claude-sonnet-4-5',
+  ]) {
+    expect(modelSupportsEffort(model)).toBe(false)
+    expect(getAvailableEffortLevels(model)).toEqual([])
+  }
+})
+
 test('xhigh clamps to high on non-supporting models so stale settings.json values do not produce API errors', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
     provider: 'firstParty' as unknown as 'openai',

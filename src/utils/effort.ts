@@ -42,13 +42,16 @@ export function modelSupportsEffort(model: string): boolean {
   if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
     return true
   }
-  // Supported by a subset of Claude 4 models
-  if (m.includes('opus-4-6') || m.includes('opus-4-8') || m.includes('sonnet-4-6')) {
-    return true
-  }
-  // OpenCode Claude models that support thinking via /messages endpoint
-  if (m.includes('claude-opus-4') || m.includes('claude-sonnet-4') ||
-      m.includes('opus-4') || m.includes('sonnet-4')) {
+  // Claude 4 models that support effort. Mirrors the Anthropic /messages
+  // shim's isAdaptive || isOpus45 set (openaiShim.ts:2292-2297) — only
+  // these models serialize low/medium as anthropicBody.effort. Older
+  // variants (opus-4-1, sonnet-4-5, haiku) only emit thinking for
+  // high/max, so advertising effort for them would silently drop
+  // low/medium on the wire. The substring match also covers prefix
+  // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`).
+  if (m.includes('opus-4-5') || m.includes('opus-4-6') ||
+      m.includes('opus-4-7') || m.includes('opus-4-8') ||
+      m.includes('sonnet-4-6')) {
     return true
   }
   // OpenCode Gemini models that support thinking via /models/gemini-* endpoint
@@ -350,7 +353,7 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'high':
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
-      return 'Maximum capability with deepest reasoning (Opus 4.6 only)'
+      return 'Maximum capability with deepest reasoning (Opus 4.6+)'
     case 'xhigh':
       return 'Extra high reasoning effort for complex tasks'
   }
