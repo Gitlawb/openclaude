@@ -107,6 +107,7 @@ export default defineGateway({
         apiName: 'nvidia/nemotron-3-ultra-550b-a55b:free',
         label: 'Nemotron 3 Ultra Free (via Opengateway)',
         modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+        notes: 'Free',
       },
     ],
   },
