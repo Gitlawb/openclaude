@@ -14,7 +14,7 @@ import type {
   SDKStatus,
   SDKUserMessageReplay,
 } from 'src/entrypoints/agentSdkTypes.js'
-import { PERMISSION_MODES } from 'src/types/permissions.js'
+import { EXTERNAL_PERMISSION_MODES } from 'src/types/permissions.js'
 import { accumulateUsage, updateUsage } from 'src/services/api/claude.js'
 import type { NonNullableUsage } from 'src/services/api/logging.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
@@ -551,7 +551,7 @@ export class QueryEngine {
 
     const rawPermissionMode = initialAppState.toolPermissionContext.mode
     const validPermissionMode: PermissionMode = (
-      PERMISSION_MODES as readonly string[]
+      EXTERNAL_PERMISSION_MODES as readonly string[]
     ).includes(rawPermissionMode)
       ? (rawPermissionMode as PermissionMode)
       : 'default'
