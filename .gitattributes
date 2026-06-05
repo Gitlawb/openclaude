@@ -1,0 +1,124 @@
+# Normalize line endings for all text files
+* text=auto
+
+# Source code
+*.py text diff=python
+*.js text
+*.ts text
+*.jsx text
+*.tsx text
+*.json text
+*.yaml text
+*.yml text
+*.toml text
+*.ini text
+*.cfg text
+
+# Shell scripts (must use LF)
+*.sh text eol=lf
+quickstart.sh text eol=lf
+
+# PowerShell scripts (Windows-friendly)
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+
+# Windows batch files (must use CRLF)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Documentation
+*.md text
+*.txt text
+*.rst text
+*.tex text
+
+# Configuration files
+.gitignore text
+.gitattributes text
+.editorconfig text
+Dockerfile text
+docker-compose.yml text
+requirements*.txt text
+pyproject.toml text
+setup.py text
+setup.cfg text
+MANIFEST.in text
+LICENSE text
+README* text
+CHANGELOG* text
+CONTRIBUTING* text
+CODE_OF_CONDUCT* text
+
+# Web files
+*.html text
+*.css text
+*.scss text
+*.sass text
+
+# Data files
+*.xml text
+*.csv text
+*.sql text
+
+# Graphics (binary)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.eps binary
+*.bmp binary
+*.tif binary
+*.tiff binary
+
+# Archives (binary)
+*.zip binary
+*.tar binary
+*.gz binary
+*.bz2 binary
+*.7z binary
+*.rar binary
+
+# Python compiled (binary)
+*.pyc binary
+*.pyo binary
+*.pyd binary
+*.whl binary
+*.egg binary
+
+# System libraries (binary)
+*.so binary
+*.dll binary
+*.dylib binary
+*.lib binary
+*.a binary
+
+# Documents (binary)
+*.pdf binary
+*.doc binary
+*.docx binary
+*.ppt binary
+*.pptx binary
+*.xls binary
+*.xlsx binary
+
+# Fonts (binary)
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# Audio/Video (binary)
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.avi binary
+*.mov binary
+*.flv binary
+
+# Database files (binary)
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
