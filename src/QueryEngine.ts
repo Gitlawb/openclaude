@@ -14,6 +14,7 @@ import type {
   SDKStatus,
   SDKUserMessageReplay,
 } from 'src/entrypoints/agentSdkTypes.js'
+import { PERMISSION_MODES } from 'src/types/permissions.js'
 import { accumulateUsage, updateUsage } from 'src/services/api/claude.js'
 import type { NonNullableUsage } from 'src/services/api/logging.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
@@ -548,12 +549,18 @@ export class QueryEngine {
     ])
     headlessProfilerCheckpoint('after_skills_plugins')
 
+    const rawPermissionMode = initialAppState.toolPermissionContext.mode
+    const validPermissionMode: PermissionMode = (
+      PERMISSION_MODES as readonly string[]
+    ).includes(rawPermissionMode)
+      ? (rawPermissionMode as PermissionMode)
+      : 'default'
+
     yield buildSystemInitMessage({
       tools,
       mcpClients,
       model: mainLoopModel,
-      permissionMode: initialAppState.toolPermissionContext
-        .mode as PermissionMode, // TODO: avoid the cast
+      permissionMode: validPermissionMode,
       commands,
       agents,
       skills,
@@ -936,8 +943,11 @@ export class QueryEngine {
           )
           if (snipResult !== undefined) {
             if (snipResult.executed) {
-              this.mutableMessages.length = 0
-              this.mutableMessages.push(...snipResult.messages)
+              this.mutableMessages.splice(
+                0,
+                this.mutableMessages.length,
+                ...snipResult.messages,
+              )
             }
             break
           }
