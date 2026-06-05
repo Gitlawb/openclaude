@@ -433,20 +433,40 @@ test('unknown openai-compatible models use the 128k fallback window (not 8k, see
   expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
 })
 
-test('unknown openai-compatible model fallback does not emit console errors', () => {
+test('unknown openai-compatible model fallback logs one debug warning and no console errors', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
+
+  const actualDebugModule = await import(
+    `./debug.ts?contextDedupeActual=${Date.now()}-${Math.random()}`
+  )
+  const logForDebugging = mock(() => {})
+  mock.module('./debug.js', () => ({
+    ...actualDebugModule,
+    logForDebugging,
+  }))
 
   const originalConsoleError = console.error
   const consoleError = mock(() => {})
   console.error = consoleError
   try {
-    expect(getContextWindowForModel('another-unknown-3p-model')).toBe(128_000)
-    expect(getContextWindowForModel('another-unknown-3p-model')).toBe(128_000)
+    const contextModule = await import(
+      `./context.ts?contextDedupe=${Date.now()}-${Math.random()}`
+    )
+
+    expect(
+      contextModule.getContextWindowForModel('another-unknown-3p-model'),
+    ).toBe(128_000)
+    expect(
+      contextModule.getContextWindowForModel('another-unknown-3p-model'),
+    ).toBe(128_000)
     expect(consoleError).not.toHaveBeenCalled()
+    expect(logForDebugging).toHaveBeenCalledTimes(1)
+    expect(logForDebugging.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
   } finally {
     console.error = originalConsoleError
+    mock.restore()
   }
 })
 
