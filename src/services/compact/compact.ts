@@ -97,6 +97,7 @@ import {
   isToolSearchEnabled,
 } from '../../utils/toolSearch.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
+import { isAnthropicProvider } from '../../utils/betas.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -436,10 +437,14 @@ export async function compactConversation(
     // Experiment (Jan 2026) confirmed: false path is 98% cache miss, costs ~0.76% of
     // fleet cache_creation (~38B tok/day), concentrated in ephemeral envs (CCR/GHA/SDK)
     // with cold GB cache and 3P providers where GB is disabled. GB gate kept as kill-switch.
-    const promptCacheSharingEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
-      'tengu_compact_cache_prefix',
-      true,
-    )
+    // Precondition: cache-sharing only works for Anthropic providers. Non-Anthropic
+    // providers don't share prompt cache and would send incompatible Anthropic-only params.
+    const promptCacheSharingEnabled =
+      isAnthropicProvider() &&
+      getFeatureValue_CACHED_MAY_BE_STALE(
+        'tengu_compact_cache_prefix',
+        true,
+      )
 
     const compactPrompt = getCompactPrompt(customInstructions)
     const summaryRequest = createUserMessage({
@@ -1156,10 +1161,16 @@ async function streamCompactSummary({
   // main conversation's cached prefix (system prompt, tools, context messages).
   // Falls back to regular streaming path on failure.
   // 3P default: true — see comment at the other tengu_compact_cache_prefix read above.
-  const promptCacheSharingEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
-    'tengu_compact_cache_prefix',
-    true,
-  )
+  // Precondition: cache-sharing only works for Anthropic providers (firstParty,
+  // bedrock, vertex, foundry). Non-Anthropic providers don't share prompt
+  // cache and would send incompatible Anthropic-only params (betas, context_management).
+  const cacheSharingAvailable = isAnthropicProvider()
+  const promptCacheSharingEnabled =
+    cacheSharingAvailable &&
+    getFeatureValue_CACHED_MAY_BE_STALE(
+      'tengu_compact_cache_prefix',
+      true,
+    )
   // Send keep-alive signals during compaction to prevent remote session
   // WebSocket idle timeouts from dropping bridge connections. Compaction
   // API calls can take 5-10+ seconds, during which no other messages
