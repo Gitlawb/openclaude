@@ -40,6 +40,37 @@ function Invoke-OpenClaude {
   }
 }
 
+function Invoke-OpenClaudeWithEnvironment {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $true)]
+    [hashtable]$Environment,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$OpenClaudeArgs
+  )
+
+  $previousValues = @{}
+
+  foreach ($name in $Environment.Keys) {
+    $previousValues[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    Set-Item -Path "Env:$name" -Value $Environment[$name]
+  }
+
+  try {
+    Invoke-OpenClaude @OpenClaudeArgs
+  }
+  finally {
+    foreach ($name in $Environment.Keys) {
+      if ($null -eq $previousValues[$name]) {
+        Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
+      }
+      else {
+        Set-Item -Path "Env:$name" -Value $previousValues[$name]
+      }
+    }
+  }
+}
+
 function Get-OpenClaudeQuickHelp {
   [CmdletBinding()]
   param()
@@ -47,8 +78,8 @@ function Get-OpenClaudeQuickHelp {
   @(
     "OpenClaude quick commands:",
     "  oc [args...]              -> launch OpenClaude using the installed CLI",
-    "  oc-local [args...]        -> launch OpenClaude with local/Ollama OpenAI-compatible environment hints",
-    "  oc-fast [args...]         -> launch OpenClaude with low-latency local defaults",
+    "  oc-local [args...]        -> launch OpenClaude with local/Ollama OpenAI-compatible environment hints for this invocation only",
+    "  oc-fast [args...]         -> launch OpenClaude with low-latency local defaults for this invocation only",
     "  oc-provider               -> open the provider manager in OpenClaude",
     "  oc-check                  -> show Ollama install/listening/model state",
     "  oc-init                   -> pull/check the local model, then launch local/Ollama mode",
@@ -74,11 +105,13 @@ function oc-local {
     [string[]]$OpenClaudeArgs
   )
 
-  $env:CLAUDE_CODE_USE_OPENAI = "1"
-  $env:OPENAI_BASE_URL = "http://localhost:11434/v1"
-  $env:OPENAI_MODEL = $Model
-
-  Invoke-OpenClaude @OpenClaudeArgs
+  Invoke-OpenClaudeWithEnvironment `
+    -Environment @{
+      CLAUDE_CODE_USE_OPENAI = "1"
+      OPENAI_BASE_URL        = "http://localhost:11434/v1"
+      OPENAI_MODEL           = $Model
+    } `
+    @OpenClaudeArgs
 }
 
 function oc-fast {
@@ -89,12 +122,14 @@ function oc-fast {
     [string[]]$OpenClaudeArgs
   )
 
-  $env:CLAUDE_CODE_USE_OPENAI = "1"
-  $env:OPENAI_BASE_URL = "http://localhost:11434/v1"
-  $env:OPENAI_MODEL = $Model
-  $env:OPENCLAUDE_FAST_MODE = "1"
-
-  Invoke-OpenClaude @OpenClaudeArgs
+  Invoke-OpenClaudeWithEnvironment `
+    -Environment @{
+      CLAUDE_CODE_USE_OPENAI = "1"
+      OPENAI_BASE_URL        = "http://localhost:11434/v1"
+      OPENAI_MODEL           = $Model
+      OPENCLAUDE_FAST_MODE   = "1"
+    } `
+    @OpenClaudeArgs
 }
 
 function oc-provider {
