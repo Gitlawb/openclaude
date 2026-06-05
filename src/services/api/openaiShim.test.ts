@@ -1269,7 +1269,7 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -1296,7 +1296,7 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [
       { role: 'user', content: 'Use Write' },
       {
@@ -2500,7 +2500,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2530,7 +2530,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2548,7 +2548,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+      model: 'google/gemini-3.1-flash-lite',
       messages: [{ role: 'user', content: 'Use Write' }],
       max_tokens: 64,
       stream: true,
@@ -2586,7 +2586,7 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -2627,7 +2627,7 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [{ role: 'user', content: 'Use Write' }],
     max_tokens: 64,
     stream: false,
@@ -2654,7 +2654,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2669,7 +2669,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2684,7 +2684,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2702,7 +2702,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+      model: 'google/gemini-3.1-flash-lite',
       messages: [{ role: 'user', content: 'Write CSS' }],
       max_tokens: 64,
       stream: true,
@@ -2760,7 +2760,7 @@ test('converts Gemini raw tool-call text into non-streaming tool_use blocks', as
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-raw-tool',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -2788,7 +2788,7 @@ test('converts Gemini raw tool-call text into non-streaming tool_use blocks', as
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [{ role: 'user', content: 'Verify' }],
     max_tokens: 64,
     stream: false,

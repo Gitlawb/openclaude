@@ -95,10 +95,10 @@ export default defineGateway({
       // the gateway URL stays unchanged; only the apiName the client sends
       // determines the upstream.
       {
-        id: 'opengateway-gemini-3.1-flash-lite-preview',
-        apiName: 'google/gemini-3.1-flash-lite-preview',
-        label: 'Gemini 3.1 Flash Lite Preview (via Opengateway)',
-        modelDescriptorId: 'gemini-3.1-flash-lite-preview',
+        id: 'opengateway-gemini-3.1-flash-lite',
+        apiName: 'google/gemini-3.1-flash-lite',
+        label: 'Gemini 3.1 Flash Lite (via Opengateway)',
+        modelDescriptorId: 'gemini-3.1-flash-lite',
       },
       {
         id: 'opengateway-minimax-m3',

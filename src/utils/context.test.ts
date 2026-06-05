@@ -438,12 +438,12 @@ test('prefixed OpenGateway Gemini Flash Lite uses integration metadata', () => {
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
-  expect(getContextWindowForModel('google/gemini-3.1-flash-lite-preview')).toBe(1_048_576)
-  expect(getModelMaxOutputTokens('google/gemini-3.1-flash-lite-preview')).toEqual({
+  expect(getContextWindowForModel('google/gemini-3.1-flash-lite')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('google/gemini-3.1-flash-lite')).toEqual({
     default: 65_536,
     upperLimit: 65_536,
   })
-  expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite-preview')).toBe(65_536)
+  expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite')).toBe(65_536)
 })
 
 test('OpenAI-compatible custom model limits honor documented env overrides', () => {
