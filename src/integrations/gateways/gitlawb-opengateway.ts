@@ -67,22 +67,10 @@ export default defineGateway({
         modelDescriptorId: 'mimo-v2.5-pro',
       },
       {
-        id: 'opengateway-mimo-v2-pro',
-        apiName: 'mimo-v2-pro',
-        label: 'MiMo V2 Pro (via Opengateway)',
-        modelDescriptorId: 'mimo-v2-pro',
-      },
-      {
         id: 'opengateway-mimo-v2.5',
         apiName: 'mimo-v2.5',
         label: 'MiMo V2.5 (via Opengateway)',
         modelDescriptorId: 'mimo-v2.5',
-      },
-      {
-        id: 'opengateway-mimo-v2-omni',
-        apiName: 'mimo-v2-omni',
-        label: 'MiMo V2 Omni (via Opengateway)',
-        modelDescriptorId: 'mimo-v2-omni',
       },
       {
         id: 'opengateway-mimo-v2-flash',
