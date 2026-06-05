@@ -210,6 +210,11 @@ Add to `~/.openclaude.json`:
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-your-key"
     },
+    "zai-default": {
+      "model": "glm-5.1",
+      "base_url": "https://api.z.ai/api/coding/paas/v4",
+      "api_key": "sk-your-key"
+    },
     "gpt-4o": {
       "base_url": "https://api.openai.com/v1",
       "api_key": "sk-your-key"
@@ -219,7 +224,7 @@ Add to `~/.openclaude.json`:
     "Explore": "deepseek-v4-flash",
     "Plan": "gpt-4o",
     "general-purpose": "gpt-4o",
-    "frontend-dev": "deepseek-v4-flash",
+    "frontend-dev": "zai-default",
     "default": "gpt-4o"
   }
 }
@@ -227,7 +232,7 @@ Add to `~/.openclaude.json`:
 
 When no routing match is found, the global provider remains the fallback.
 
-You can also explicitly pass a `model` argument to the Agent tool that exactly matches a configured key in `agentModels` to override the provider for a single subagent request.
+`agentRouting` values and explicit Agent tool `model` overrides match keys in `agentModels`. By default, that key is also the model string sent to the provider. Set `agentModels.<key>.model` when you want a local route key such as `zai-default` to call a different provider model name such as `glm-5.1`.
 
 > **Note:** `/provider` changes the global/parent provider for your current session. `agentModels` and `agentRouting` are specifically for configuring per-agent provider overrides while keeping the parent session unchanged.
 
