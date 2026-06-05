@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
@@ -431,6 +431,23 @@ test('unknown openai-compatible models use the 128k fallback window (not 8k, see
   delete process.env.OPENAI_MODEL
 
   expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
+})
+
+test('unknown openai-compatible model fallback does not emit console errors', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  const originalConsoleError = console.error
+  const consoleError = mock(() => {})
+  console.error = consoleError
+  try {
+    expect(getContextWindowForModel('another-unknown-3p-model')).toBe(128_000)
+    expect(getContextWindowForModel('another-unknown-3p-model')).toBe(128_000)
+    expect(consoleError).not.toHaveBeenCalled()
+  } finally {
+    console.error = originalConsoleError
+  }
 })
 
 test('prefixed OpenGateway Gemini Flash Lite uses integration metadata', () => {
