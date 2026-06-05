@@ -80,6 +80,13 @@ function shouldUseIntegrationRuntimeLimits(
   )
 }
 
+/**
+ * Emit one debug-only metadata fallback warning per active route/model pair.
+ *
+ * Unknown runtime metadata is recoverable because the fallback context window
+ * keeps compaction budgets positive. Keep this out of console.error because
+ * the Ink runtime treats console errors as application errors.
+ */
 function warnUnknownIntegrationRuntimeLimits(model: string): void {
   const routeId = resolveActiveRouteIdFromEnv(process.env) ?? 'unknown-route'
   const warningKey = `${routeId}:${model}`
