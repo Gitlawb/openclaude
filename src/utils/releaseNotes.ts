@@ -223,9 +223,11 @@ export async function migrateChangelogFromConfig(): Promise<void> {
 
   const cachePath = getChangelogCachePath()
 
+  // Ensure cache directory exists
+  await mkdir(dirname(cachePath), { recursive: true })
+
   // If cache file doesn't exist, create it from old config
   try {
-    await mkdir(dirname(cachePath), { recursive: true })
     await writeFile(cachePath, config.cachedChangelog, {
       encoding: 'utf-8',
       flag: 'wx', // Write only if file doesn't exist
