@@ -400,8 +400,19 @@ export async function* withRetry<T>(
       if (attempt > maxRetries && !persistent) {
         throw new CannotRetryError(error, retryContext)
       }
-      // Cap persistent retries to prevent unbounded loops (100 attempts * ~5min max backoff ≈ 8 hours)
+      // Cap persistent retries to prevent unbounded loops (100 attempts * ~5min max backoff ≈ 8 hours).
+      // The "~8 hours" estimate refers only to the exponential backoff path; actual wall-clock
+      // time depends on retry-after headers (server directives) which can add significant delay.
       if (persistent && persistentAttempt >= PERSISTENT_MAX_ATTEMPTS) {
+        logEvent('tengu_api_persistent_retry_cap_reached', {
+          error: (error as APIError).message as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          status: (error as APIError).status,
+          model: retryContext.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          persistentAttempt,
+          PERSISTENT_MAX_BACKOFF_MS,
+          PERSISTENT_MAX_ATTEMPTS,
+          provider: getAPIProviderForStatsig(),
+        })
         throw new CannotRetryError(error, retryContext)
       }
 
