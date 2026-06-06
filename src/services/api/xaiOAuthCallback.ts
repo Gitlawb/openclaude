@@ -210,6 +210,10 @@ export async function startXaiOAuthCallback(params: {
     })
   })
 
+  const address = server.address()
+  const boundPort =
+    address && typeof address === 'object' ? address.port : params.port
+
   server.on('error', err => {
     if (!settled) {
       rejectCallback?.(err)
@@ -217,7 +221,7 @@ export async function startXaiOAuthCallback(params: {
   })
 
   return {
-    port: params.port,
+    port: boundPort,
     waitForCallback: () => callbackPromise,
     close: () => {
       if (!settled) {

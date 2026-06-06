@@ -684,10 +684,14 @@ async function getFilesUsingGit(
       if (remainingCapacity === 0) {
         return normalizedTracked
       }
+      const { signal: untrackedAbortSignal, cleanup: cleanupUntrackedFetch } =
+        createCombinedAbortSignal(undefined, {
+          timeoutMs: 10_000,
+        })
       untrackedFetchPromise = collectGitPaths(untrackedArgs, {
         repoRoot,
         cwd,
-        abortSignal: AbortSignal.timeout(10_000),
+        abortSignal: untrackedAbortSignal,
         maxFiles: remainingCapacity,
         ignorePatterns,
       })
@@ -716,6 +720,7 @@ async function getFilesUsingGit(
           )
         })
         .finally(() => {
+          cleanupUntrackedFetch()
           untrackedFetchPromise = null
         })
     }

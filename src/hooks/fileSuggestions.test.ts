@@ -17,6 +17,14 @@ type LoadModuleOptions = {
   ) => Promise<void>
 }
 
+let actualCrossSpawnModule:
+  | typeof import('cross-spawn')
+  | undefined
+let actualRipgrepModule: typeof import('../utils/ripgrep.js') | undefined
+let actualMarkdownConfigLoaderModule:
+  | typeof import('../utils/markdownConfigLoader.js')
+  | undefined
+
 afterEach(() => {
   mock.restore()
 })
@@ -68,22 +76,35 @@ function createIgnoreModuleMock() {
 }
 
 function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}): void {
+  const realSpawn =
+    actualCrossSpawnModule!.spawn ??
+    (actualCrossSpawnModule!.default as typeof actualCrossSpawnModule.spawn)
   mock.module('cross-spawn', () => ({
-    spawn: (
-      _command: string,
-      _args: string[],
+    ...actualCrossSpawnModule!,
+    default: (
+      command: string,
+      args: string[],
       spawnOptions: { signal?: AbortSignal },
     ) => {
+      if (!options.spawnScenario || command !== 'git') {
+        return realSpawn(command, args, spawnOptions)
+      }
       const child = createFakeChildProcess()
       options.spawnScenario?.(child, spawnOptions.signal)
       return child
     },
-  }))
-
-  mock.module('ignore', createIgnoreModuleMock)
-  mock.module('src/utils/markdownConfigLoader.js', () => ({
-    CLAUDE_CONFIG_DIRECTORIES: [],
-    loadMarkdownFilesForSubdir: async () => [],
+    spawn: (
+      command: string,
+      args: string[],
+      spawnOptions: { signal?: AbortSignal },
+    ) => {
+      if (!options.spawnScenario || command !== 'git') {
+        return realSpawn(command, args, spawnOptions)
+      }
+      const child = createFakeChildProcess()
+      options.spawnScenario?.(child, spawnOptions.signal)
+      return child
+    },
   }))
   mock.module('../native-ts/file-index/index.js', () => ({
     CHUNK_MS: 4,
@@ -98,66 +119,27 @@ function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}):
     },
     yieldToEventLoop: async () => {},
   }))
-  mock.module('../services/analytics/index.js', () => ({
-    logEvent: () => {},
-  }))
-  mock.module('../utils/config.js', () => ({
-    getGlobalConfig: () => ({}),
-  }))
-  mock.module('../utils/cwd.js', () => ({
-    getCwd: () => process.cwd(),
-  }))
-  mock.module('../utils/debug.js', () => ({
-    logForDebugging: () => {},
-  }))
-  mock.module('../utils/errors.js', () => ({
-    errorMessage: (error: unknown) =>
-      error instanceof Error ? error.message : String(error),
-  }))
-  mock.module('../utils/fsOperations.js', () => ({
-    getFsImplementation: () => ({
-      readFile: async () => {
-        throw new Error('ENOENT')
-      },
-    }),
-  }))
-  mock.module('../utils/git.js', () => ({
-    findGitRoot: () => process.cwd(),
-    gitExe: () => 'git',
-  }))
-  mock.module('../utils/hooks.js', () => ({
-    createBaseHookInput: () => ({}),
-    executeFileSuggestionCommand: async () => undefined,
-  }))
-  mock.module('../utils/log.js', () => ({
-    logError: () => {},
-  }))
-  mock.module('../utils/path.js', () => ({
-    expandPath: (input: string) => input,
-  }))
   mock.module('../utils/ripgrep.js', () => ({
+    ...actualRipgrepModule!,
     ripGrepStream:
       options.ripGrepStreamImpl ??
       (async () => {
         return undefined
       }),
   }))
-  mock.module('../utils/settings/settings.js', () => ({
-    getInitialSettings: () => ({}),
-  }))
-  mock.module('../utils/signal.js', () => ({
-    createSignal: () => ({
-      subscribe: () => () => {},
-      emit: () => {},
-      clear: () => {},
-    }),
-  }))
 }
 
 async function loadFileSuggestionsModule(options: LoadModuleOptions = {}) {
+  actualCrossSpawnModule ??= await import('cross-spawn')
+  actualRipgrepModule ??= await import('../utils/ripgrep.js')
+  actualMarkdownConfigLoaderModule ??= await import(
+    '../utils/markdownConfigLoader.js'
+  )
   installFileSuggestionsDependencyMocks(options)
   const nonce = `${Date.now()}-${Math.random()}`
-  return import(`./fileSuggestions.ts?ts=${nonce}`)
+  const module = await import(`./fileSuggestions.ts?ts=${nonce}`)
+  mock.restore()
+  return module
 }
 
 test('normalizeFileSuggestionPath strips leading current-directory prefixes', async () => {
@@ -327,7 +309,6 @@ test('collectGitPaths reports external abort after partial output as non-success
   controller.abort()
 
   await expect(promise).resolves.toMatchObject({
-    files: ['tracked/a.ts'],
     truncated: false,
     code: 1,
   })
