@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
@@ -438,14 +438,11 @@ test('unknown openai-compatible model fallback logs one debug warning and no con
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
-  const actualDebugModule = await import(
-    `./debug.ts?contextDedupeActual=${Date.now()}-${Math.random()}`
-  )
-  const logForDebugging = mock(() => {})
-  mock.module('./debug.js', () => ({
-    ...actualDebugModule,
-    logForDebugging,
-  }))
+  const actualDebugModule = await import('./debug.js')
+  const logForDebugging = spyOn(
+    actualDebugModule,
+    'logForDebugging',
+  ).mockImplementation((_message, _options) => {})
 
   const originalConsoleError = console.error
   const consoleError = mock(() => {})
