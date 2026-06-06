@@ -5,7 +5,7 @@ import { coerce } from 'semver'
 import { getIsNonInteractiveSession } from '../bootstrap/state.js'
 import { getGlobalConfig, saveGlobalConfig } from './config.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
-import { toError } from './errors.js'
+import { toError, getErrnoCode } from './errors.js'
 import { logError } from './log.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
 import { gt } from './semver.js'
@@ -230,11 +230,15 @@ export async function migrateChangelogFromConfig(): Promise<void> {
       encoding: 'utf-8',
       flag: 'wx', // Write only if file doesn't exist
     })
-  } catch {
-    // File already exists, which is fine - skip silently
+  } catch (error) {
+    // File already exists (EEXIST) is fine - skip silently
+    if (getErrnoCode(error) !== 'EEXIST') {
+      throw error
+    }
   }
 
-  // Remove the deprecated field from config
+  // Remove the deprecated field from config only after successful write
+  // or if file already existed
   saveGlobalConfig(({ cachedChangelog: _, ...rest }) => rest)
 }
 

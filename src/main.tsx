@@ -346,8 +346,12 @@ function runMigrations(): void {
     });
   }
   // Async migration - fire and forget since it's non-blocking
-  migrateChangelogFromConfig().catch(() => {
-    // Silently ignore migration errors - will retry on next startup
+  migrateChangelogFromConfig().catch(error => {
+    logError(
+      new Error(
+        `Changelog migration failed; will retry on next startup: ${errorMessage(error)}`,
+      ),
+    )
   });
 }
 
