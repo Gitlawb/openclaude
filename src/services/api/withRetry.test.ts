@@ -293,6 +293,41 @@ describe('OpenAI-compatible retry classification', () => {
     expect(attempts).toBe(2)
     expect(consoleError).toHaveBeenCalledTimes(1)
   })
+
+  test('keeps parseable marked context-overflow errors on the max_tokens retry path', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { withRetry } = await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      400,
+      undefined,
+      'OpenAI API error 400: Bad Request [openai_category=context_overflow,host=api.z.ai] ' +
+        'input length and `max_tokens` exceed context limit: 188059 + 20000 > 200000',
+      new Headers(),
+    )
+    const observedMaxTokensOverrides: Array<number | undefined> = []
+    let attempts = 0
+
+    const result = await drainAsyncGenerator(
+      withRetry(
+        async () => ({} as Anthropic),
+        async (_client, _attempt, context) => {
+          attempts++
+          observedMaxTokensOverrides.push(context.maxTokensOverride)
+          if (attempts === 1) throw error
+          return { ok: true }
+        },
+        {
+          maxRetries: 2,
+          model: 'glm-5.1',
+          thinkingConfig: { type: 'disabled' },
+        },
+      ),
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(attempts).toBe(2)
+    expect(observedMaxTokensOverrides).toEqual([undefined, 10941])
+  })
 })
 
 // --- parseOpenAIDuration ---

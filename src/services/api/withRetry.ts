@@ -795,6 +795,17 @@ function shouldRetry(error: APIError): boolean {
     return true
   }
 
+  // Local max_tokens recovery paths need to run even when an
+  // OpenAI-compatible shim classifies the underlying provider error as a
+  // non-retryable context or quota failure.
+  if (parseMaxTokensContextOverflowError(error)) {
+    return true
+  }
+
+  if (parseOpenRouterAffordableMaxTokensError(error)) {
+    return true
+  }
+
   const openAICategory = extractOpenAICategoryMarker(error.message ?? '')
   if (
     openAICategory &&
@@ -818,17 +829,6 @@ function shouldRetry(error: APIError): boolean {
   // The SDK sometimes fails to properly pass the 529 status code during streaming,
   // so we need to check the error message directly
   if (error.message?.includes('"type":"overloaded_error"')) {
-    return true
-  }
-
-  // Check for max tokens context overflow errors that we can handle
-  if (parseMaxTokensContextOverflowError(error)) {
-    return true
-  }
-
-  // OpenRouter-style 402 with an affordable max_tokens in the message — we
-  // can retry once at the lower cap (issue #1125).
-  if (parseOpenRouterAffordableMaxTokensError(error)) {
     return true
   }
 
