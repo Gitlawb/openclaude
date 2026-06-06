@@ -401,19 +401,12 @@ export async function* withRetry<T>(
       // AWS/GCP errors aren't always APIError, but can be retried
       const handledCloudAuthError =
         handleAwsCredentialError(error) || handleGcpCredentialError(error)
-      if (
-        !handledCloudAuthError &&
-        (!(error instanceof APIError) || !shouldRetry(error))
-      ) {
-        throw new CannotRetryError(error, retryContext)
-      }
 
       // OpenRouter / OpenAI-compatible quota gateways: HTTP 402 with the
       // affordable max_tokens in the message. Retry once at the affordable
       // cap instead of failing on a credits-vs-max_tokens mismatch the user
       // can't see in their shell (#1125). One adjustment per chain — if 402
-      // recurs after this, the retry chain falls through to the normal error
-      // path.
+      // recurs after this, fail instead of spending the normal retry budget.
       if (error instanceof APIError) {
         const affordData = parseOpenRouterAffordableMaxTokensError(error)
         if (affordData && retryContext.maxTokensOverride === undefined) {
@@ -430,6 +423,16 @@ export async function* withRetry<T>(
           )
           continue
         }
+        if (affordData) {
+          throw new CannotRetryError(error, retryContext)
+        }
+      }
+
+      if (
+        !handledCloudAuthError &&
+        (!(error instanceof APIError) || !shouldRetry(error))
+      ) {
+        throw new CannotRetryError(error, retryContext)
       }
 
       // Handle max tokens context overflow errors by adjusting max_tokens for the next attempt

@@ -206,6 +206,93 @@ describe('OpenAI-compatible retry classification', () => {
 
     expect(attempts).toBe(1)
   })
+
+  test('keeps parseable 402 affordability errors on the max_tokens retry path', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { withRetry } = await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      402,
+      undefined,
+      'OpenAI API error 402: Payment Required [openai_category=unknown,host=openrouter.ai] ' +
+        'This request requires more credits, or fewer max_tokens. ' +
+        'You requested up to 32000 tokens, but can only afford 27342. To increase, visit ...',
+      new Headers(),
+    )
+    const originalConsoleError = console.error
+    const consoleError = mock(() => {})
+    const observedMaxTokensOverrides: Array<number | undefined> = []
+    let attempts = 0
+
+    console.error = consoleError
+    try {
+      const result = await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async (_client, _attempt, context) => {
+            attempts++
+            observedMaxTokensOverrides.push(context.maxTokensOverride)
+            if (attempts === 1) throw error
+            return { ok: true }
+          },
+          {
+            maxRetries: 2,
+            model: 'openrouter/test-model',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      )
+
+      expect(result).toEqual({ ok: true })
+    } finally {
+      console.error = originalConsoleError
+    }
+
+    expect(attempts).toBe(2)
+    expect(observedMaxTokensOverrides).toEqual([undefined, 27342])
+    expect(consoleError).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not keep retrying repeated 402 affordability errors after one max_tokens adjustment', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      402,
+      undefined,
+      'OpenAI API error 402: Payment Required [openai_category=unknown,host=openrouter.ai] ' +
+        'This request requires more credits, or fewer max_tokens. ' +
+        'You requested up to 32000 tokens, but can only afford 27342. To increase, visit ...',
+      new Headers(),
+    )
+    const originalConsoleError = console.error
+    const consoleError = mock(() => {})
+    let attempts = 0
+
+    console.error = consoleError
+    try {
+      await expect(
+        drainAsyncGenerator(
+          withRetry(
+            async () => ({} as Anthropic),
+            async () => {
+              attempts++
+              throw error
+            },
+            {
+              maxRetries: 2,
+              model: 'openrouter/test-model',
+              thinkingConfig: { type: 'disabled' },
+            },
+          ),
+        ),
+      ).rejects.toBeInstanceOf(CannotRetryError)
+    } finally {
+      console.error = originalConsoleError
+    }
+
+    expect(attempts).toBe(2)
+    expect(consoleError).toHaveBeenCalledTimes(1)
+  })
 })
 
 // --- parseOpenAIDuration ---
