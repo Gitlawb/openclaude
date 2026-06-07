@@ -21,8 +21,6 @@ Creates a PDF from structured content and returns the raw bytes.
 \`\`\`ts
 interface PDFPage {
   content: PDFElement[]
-  header?: string       // optional page header text
-  footer?: string       // optional page footer text
   pageSize?: 'A4' | 'Letter' | 'A3'
   orientation?: 'portrait' | 'landscape'
   margins?: { top: number; right: number; bottom: number; left: number }  // in points (72 = 1 inch)
@@ -123,8 +121,6 @@ import { readFileSync, writeFileSync } from 'fs'
 
 export interface PDFPage {
   content: PDFElement[]
-  header?: string
-  footer?: string
   pageSize?: 'A4' | 'Letter' | 'A3'
   orientation?: 'portrait' | 'landscape'
   margins?: { top: number; right: number; bottom: number; left: number }
@@ -250,8 +246,18 @@ class PDFWriter {
     const bodyObjects: string[] = []
     const pageObjPdfNums: number[] = []
 
-    // Object 3: Font dictionary
-    bodyObjects.push(buildFontDict())
+    // Object 3–10: Font dictionaries (one per variant)
+    const fontNames = [
+      'Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique',
+      'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique',
+    ]
+    for (const name of fontNames) {
+      bodyObjects.push(
+        \`<< /Type /Font /Subtype /Type1 /BaseFont /\${name} /Encoding /WinAnsiEncoding >>\`
+      )
+    }
+    // Font objects are at pdf nums 3..10 (index 0..7 → obj num 3..10)
+    const FONT_OBJ_START = 3
 
     // Build per-page objects (with automatic overflow pagination)
     for (const page of opts.pages) {
@@ -270,13 +276,12 @@ class PDFWriter {
         const streamPdfNum = bodyObjects.length + 3
         bodyObjects.push(stream)
 
-        // Page object
-        const fontPdfNum = 3
+        // Page object — each font name maps to a distinct object (3..10)
         pageObjPdfNums.push(bodyObjects.length + 3)
         bodyObjects.push(
           \`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \${pw} \${ph}]\` +
           \`\\n   /Contents \${streamPdfNum} 0 R\` +
-          \`\\n   /Resources << /Font << /F1 \${fontPdfNum} 0 R /F2 \${fontPdfNum} 0 R /F3 \${fontPdfNum} 0 R /F4 \${fontPdfNum} 0 R /F5 \${fontPdfNum} 0 R /F6 \${fontPdfNum} 0 R /F7 \${fontPdfNum} 0 R /F8 \${fontPdfNum} 0 R >> >> >>\`
+          \`\\n   /Resources << /Font << /F1 \${FONT_OBJ_START} 0 R /F2 \${FONT_OBJ_START + 1} 0 R /F3 \${FONT_OBJ_START + 2} 0 R /F4 \${FONT_OBJ_START + 3} 0 R /F5 \${FONT_OBJ_START + 4} 0 R /F6 \${FONT_OBJ_START + 5} 0 R /F7 \${FONT_OBJ_START + 6} 0 R /F8 \${FONT_OBJ_START + 7} 0 R >> >> >>\`
         )
       }
     }
@@ -336,9 +341,7 @@ function getBufLen(parts: Buffer[]): number {
   return total
 }
 
-function buildFontDict(): string {
-  return \`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\`
-}
+// Font dict is now built inline in PDFWriter.build (one object per variant)
 function buildInfoDict(title?: string, author?: string): string {
   let s = '<< '
   if (title) s += \`/Title (\${escapePdf(title)}) \`
@@ -391,7 +394,7 @@ function buildPageStreams(
             flushPage()
             y -= lh
           }
-          lines.push(\`BT /F1 \${size} Tf \${margins.left} \${y} Td (\${escapePdf(line)}) Tj ET\`)
+          lines.push(\`BT /F2 \${size} Tf \${margins.left} \${y} Td (\${escapePdf(line)}) Tj ET\`)
           y -= lh
         }
         y -= 4
@@ -576,11 +579,16 @@ const args = process.argv.slice(2)
 if (args.length > 0) {
   // Simple CLI: bun pdfgen.ts <output.pdf>
   // Reads a JSON spec from stdin or a file
-  const outFile = args.find(a => !a.startsWith('--'))
+  const nonFlags = args.filter(a => !a.startsWith('--'))
+  let specFile: string | undefined
+  if (args.includes('--spec')) {
+    specFile = args[args.indexOf('--spec') + 1]
+  }
+  // outFile is the last non-flag arg that is not the spec file
+  const outFile = nonFlags.filter(a => a !== specFile).pop()
   if (outFile) {
     let spec: PDFCreateOptions
-    if (args.includes('--spec')) {
-      const specFile = args[args.indexOf('--spec') + 1]
+    if (specFile) {
       spec = JSON.parse(readFileSync(specFile, 'utf-8'))
     } else {
       // Read from stdin
