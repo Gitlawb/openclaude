@@ -551,11 +551,12 @@ function buildPageStreams(
           lines.push(\`0.85 0.85 0.85 RG 0.3 w \${margins.left} \${y} \${contentW} 0 re S\`)
           lines.push('0 0 0 rg')
           x = margins.left
+          const cellStartY = y + rowH - 4
           for (let c = 0; c < cols; c++) {
             const cellContent = toWinAnsi(row[c] || '')
             const cellLines = wrapText(cellContent, colW[c] - 8, size)
             for (let li = 0; li < cellLines.length; li++) {
-              lines.push(\`BT /F1 \${size} Tf \${x + 4} \${(y + 4 - li * lh).toFixed(1)} Td (\${escapePdf(cellLines[li])}) Tj ET\`)
+              lines.push(\`BT /F1 \${size} Tf \${x + 4} \${(cellStartY - li * lh).toFixed(1)} Td (\${escapePdf(cellLines[li])}) Tj ET\`)
             }
             x += colW[c]
           }
