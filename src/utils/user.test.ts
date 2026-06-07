@@ -44,7 +44,6 @@ function installCommonMocks(options?: {
 
   mock.module('./config.js', () => ({
     ...realConfig,
-    getGlobalConfig: () => ({}),
     getOrCreateUserID: () => 'device-test',
   }))
 
