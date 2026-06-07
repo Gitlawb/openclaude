@@ -49,7 +49,7 @@ interface PDFCreateOptions {
 ## Example Workflow
 
 \`\`\`typescript
-import { createPDF } from './pdfgen'
+import { createPDF } from '<skill-base-dir>/pdfgen'
 import { writeFileSync } from 'fs'
 
 const pdf = await createPDF({
@@ -80,6 +80,7 @@ writeFileSync('report.pdf', pdf)
 - Default page size is A4
 - All text rendering uses built-in Helvetica font variants (Regular, Bold, Italic, BoldItalic)
 - Special characters like bullets (\\u2022), em-dashes (\\u2014), and common symbols are supported via WinAnsiEncoding
+- When importing \`pdfgen.ts\`, use the absolute base directory path shown above (replace \`<skill-base-dir>\` with the actual path). Do NOT use a relative \`./pdfgen\` import — the library lives in the extracted skill directory, not next to your script
 `
 
 export function registerPdfSkill(): void {
@@ -101,7 +102,7 @@ export function registerPdfSkill(): void {
       if (args) {
         prompt += '\n\n## User Request\n\n' + args
         prompt +=
-          '\n\n## Task\n\nWrite a TypeScript script that imports from the pdfgen.ts file in the base directory for this skill (shown above) to generate the requested PDF. Save the script, run it with bun, and report the output path.'
+          '\n\n## Task\n\nWrite a TypeScript script that imports from the pdfgen.ts file using the absolute base directory path shown above (replace `<skill-base-dir>` with the actual extracted path). Save the script in the same extracted skill directory, run it with bun from that directory, and report the output path.'
       }
 
       return [{ type: 'text', text: prompt }]
@@ -513,15 +514,15 @@ function buildPageStreams(
         const lh = size * LINE_HEIGHT
         const cols = el.headers.length
         const colW = el.colWidths || el.headers.map(() => contentW / cols)
-        const rowH = lh + 6
+        const headerH = lh + 6
 
         // Header row
-        y -= rowH
+        y -= headerH
         if (y < maxY) {
           flushPage()
-          y -= rowH
+          y -= headerH
         }
-        lines.push(\`0.15 0.15 0.15 rg \${margins.left} \${y} \${contentW} \${rowH} re f\`)
+        lines.push(\`0.15 0.15 0.15 rg \${margins.left} \${y} \${contentW} \${headerH} re f\`)
         lines.push('1 1 1 rg')
         let x = margins.left
         for (let c = 0; c < cols; c++) {
@@ -532,6 +533,13 @@ function buildPageStreams(
 
         for (let r = 0; r < el.rows.length; r++) {
           const row = el.rows[r]
+          // Compute dynamic row height based on tallest cell
+          let maxCellLines = 1
+          for (let c = 0; c < cols; c++) {
+            const cellLines = wrapText(toWinAnsi(row[c] || ''), colW[c] - 8, size)
+            if (cellLines.length > maxCellLines) maxCellLines = cellLines.length
+          }
+          const rowH = maxCellLines * lh + 6
           y -= rowH
           if (y < maxY) {
             flushPage()
@@ -544,8 +552,11 @@ function buildPageStreams(
           lines.push('0 0 0 rg')
           x = margins.left
           for (let c = 0; c < cols; c++) {
-            const cellText = (row[c] || '').substring(0, 50)
-            lines.push(\`BT /F1 \${size} Tf \${x + 4} \${y + 4} Td (\${escapePdf(cellText)}) Tj ET\`)
+            const cellContent = toWinAnsi(row[c] || '')
+            const cellLines = wrapText(cellContent, colW[c] - 8, size)
+            for (let li = 0; li < cellLines.length; li++) {
+              lines.push(\`BT /F1 \${size} Tf \${x + 4} \${(y + 4 - li * lh).toFixed(1)} Td (\${escapePdf(cellLines[li])}) Tj ET\`)
+            }
             x += colW[c]
           }
         }
