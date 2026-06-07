@@ -8,10 +8,10 @@ Generate PDF files entirely in TypeScript — no external binaries or system dep
 
 When the user asks you to create a PDF, you will:
 
-1. **Write a TypeScript script** that uses the bundled PDF generation library at \`\`\${CLAUDE_SKILL_DIR}/pdfgen.ts\`\`\`
+1. **Write a TypeScript script** that uses the bundled PDF generation library (\`pdfgen.ts\` in the base directory for this skill, shown above)
 2. **Execute it** via \`bun run <script>.ts\`
 
-The \`pdfgen.ts\`\` library provides these functions:
+The \`pdfgen.ts\` library provides these functions:
 
 ### \`createPDF(options): Promise<Buffer>\`
 
@@ -37,7 +37,6 @@ interface PDFElement =
   | { type: 'hr' }
   | { type: 'spacer'; height?: number }  // points
   | { type: 'table'; headers: string[]; rows: string[][]; colWidths?: number[] }
-  | { type: 'image'; path: string; width?: number; height?: number }  // width/height in points
 
 interface PDFCreateOptions {
   title?: string
@@ -52,7 +51,7 @@ interface PDFCreateOptions {
 ## Example Workflow
 
 \`\`\`typescript
-import { createPDF } from '\${CLAUDE_SKILL_DIR}/pdfgen'
+import { createPDF } from './pdfgen'
 import { writeFileSync } from 'fs'
 
 const pdf = await createPDF({
@@ -75,9 +74,9 @@ writeFileSync('report.pdf', pdf)
 
 ## Important Rules
 
-- ALWAYS write a standalone \`.ts\`\` script and run it with \`bun\`\`, never try to manually construct PDF bytes
+- ALWAYS write a standalone \`.ts\` script and run it with \`bun\`\`, never try to manually construct PDF bytes
 - The pdfgen library handles all PDF spec compliance — you only provide structured content
-- Use relative paths for images; they must exist on disk before calling createPDF
+- Content that overflows a single page is automatically continued onto additional pages
 - For markdown input, parse it into PDFElement objects rather than passing raw markdown
 - Default margins are 50pt (about 0.7 inches) on all sides if not specified
 - Default page size is A4
@@ -104,7 +103,7 @@ export function registerPdfSkill(): void {
       if (args) {
         prompt += '\n\n## User Request\n\n' + args
         prompt +=
-          '\n\n## Task\n\nWrite a TypeScript script that uses the pdfgen library at ${CLAUDE_SKILL_DIR}/pdfgen.ts to generate the requested PDF. Save the script, run it with bun, and report the output path.'
+          '\n\n## Task\n\nWrite a TypeScript script that imports from the pdfgen.ts file in the base directory for this skill (shown above) to generate the requested PDF. Save the script, run it with bun, and report the output path.'
       }
 
       return [{ type: 'text', text: prompt }]
@@ -116,10 +115,9 @@ export function registerPdfSkill(): void {
 // No external dependencies. Generates valid PDF 1.4.
 
 const PDFGEN_SOURCE = `// pdfgen.ts — Pure TypeScript PDF generation (PDF 1.4)
-// No external dependencies. ~350 lines.
+// No external dependencies. Supports automatic multi-page continuation.
 
 import { readFileSync, writeFileSync } from 'fs'
-import { basename } from 'path'
 
 // ─── Types ───
 
@@ -150,7 +148,6 @@ export type PDFElement =
   | { type: 'hr' }
   | { type: 'spacer'; height?: number }
   | { type: 'table'; headers: string[]; rows: string[][]; colWidths?: number[] }
-  | { type: 'image'; path: string; width?: number; height?: number }
 
 // ─── Constants ───
 
@@ -256,42 +253,32 @@ class PDFWriter {
     // Object 3: Font dictionary
     bodyObjects.push(buildFontDict())
 
-    // Build per-page objects
+    // Build per-page objects (with automatic overflow pagination)
     for (const page of opts.pages) {
       const size = PAGE_SIZES[page.pageSize || opts.defaultPageSize || 'A4']
       const [pw, ph] = page.orientation === 'landscape' ? [size[1], size[0]] : size
       const m = page.margins || opts.defaultMargins || DEFAULT_MARGINS
       const contentW = pw - m.left - m.right
 
-      const { stream, images } = buildPageStream(page.content, pw, ph, m, contentW)
+      // buildPageStreams returns an array of content streams — one per
+      // physical PDF page.  Content that overflows a single page is
+      // automatically continued onto additional pages.
+      const pageStreams = buildPageStreams(page.content, pw, ph, m, contentW)
 
-      // Image XObject entries (if any)
-      const pageImagePdfNums: number[] = []
-      for (const img of images) {
-        pageImagePdfNums.push(bodyObjects.length + 3)
-        bodyObjects.push(img.xobj)
+      for (const { stream } of pageStreams) {
+        // Content-stream object
+        const streamPdfNum = bodyObjects.length + 3
+        bodyObjects.push(stream)
+
+        // Page object
+        const fontPdfNum = 3
+        pageObjPdfNums.push(bodyObjects.length + 3)
+        bodyObjects.push(
+          \`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \${pw} \${ph}]\` +
+          \`\\n   /Contents \${streamPdfNum} 0 R\` +
+          \`\\n   /Resources << /Font << /F1 \${fontPdfNum} 0 R /F2 \${fontPdfNum} 0 R /F3 \${fontPdfNum} 0 R /F4 \${fontPdfNum} 0 R /F5 \${fontPdfNum} 0 R /F6 \${fontPdfNum} 0 R /F7 \${fontPdfNum} 0 R /F8 \${fontPdfNum} 0 R >> >> >>\`
+        )
       }
-
-      // Content-stream object
-      const streamPdfNum = bodyObjects.length + 3
-      bodyObjects.push(stream)
-
-      // Build XObject resource string
-      const imgXObjects = pageImagePdfNums
-        .map((num, idx) => \`/Img\${idx} \${num} 0 R\`)
-        .join(' ')
-      const xobjStr = imgXObjects.length
-        ? \`\\n    << \${imgXObjects} >>\`
-        : ''
-
-      // Page object
-      const fontPdfNum = 3
-      pageObjPdfNums.push(bodyObjects.length + 3)
-      bodyObjects.push(
-        \`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 \${pw} \${ph}]\` +
-        \`\\n   /Contents \${streamPdfNum} 0 R\` +
-        \`\\n   /Resources << /Font << /F1 \${fontPdfNum} 0 R /F2 \${fontPdfNum} 0 R /F3 \${fontPdfNum} 0 R /F4 \${fontPdfNum} 0 R /F5 \${fontPdfNum} 0 R /F6 \${fontPdfNum} 0 R /F7 \${fontPdfNum} 0 R /F8 \${fontPdfNum} 0 R >> /XObject <<\${xobjStr ? xobjStr.slice(4) : ''} >> >> >>\`
-      )
     }
 
     // Info dictionary
@@ -314,7 +301,7 @@ class PDFWriter {
     const kids = pageObjPdfNums.map(n => \`\${n} 0 R\`).join(' ')
     parts.push(Buffer.from(\`2 0 obj\\n<< /Type /Pages /Kids [\${kids}] /Count \${pageObjPdfNums.length} >>\\nendobj\\n\`))
 
-    // Objects 3+: body objects (font, streams, pages, images, info)
+    // Objects 3+: body objects (font, streams, pages, info)
     for (let i = 0; i < bodyObjects.length; i++) {
       const objNum = i + 3
       objPositions.push(getBufLen(parts))
@@ -360,36 +347,54 @@ function buildInfoDict(title?: string, author?: string): string {
   return s
 }
 
-interface ImageData { xobj: string; width: number; height: number }
+interface PageStreamResult {
+  stream: string
+}
 
-function buildPageStream(
+/**
+ * Build content streams for a set of elements, automatically overflowing
+ * onto new pages when content exceeds the available vertical space.
+ * Returns one PageStreamResult per physical PDF page.
+ */
+function buildPageStreams(
   elements: PDFElement[],
   pageW: number,
   pageH: number,
   margins: { top: number; right: number; bottom: number; left: number },
   contentW: number
-): { stream: string; images: ImageData[] } {
-  const lines: string[] = []
+): PageStreamResult[] {
+  const results: PageStreamResult[] = []
+  let lines: string[] = []
   let y = pageH - margins.top
   const maxY = margins.bottom + 30
-  const images: ImageData[] = []
 
-  const checkPage = () => { /* single page for now */ }
+  const flushPage = () => {
+    const streamContent = lines.join('\\n')
+    const streamBuf = Buffer.from(streamContent, 'binary')
+    results.push({
+      stream: \`<< /Length \${streamBuf.length} >>\\nstream\\n\${streamContent}\\nendstream\`
+    })
+    lines = []
+    y = pageH - margins.top
+  }
 
   for (const el of elements) {
     switch (el.type) {
       case 'heading': {
         const size = FONT_SIZES[el.level] || 12
-        const font = el.level === 1 ? 'Helvetica-Bold' : el.level === 2 ? 'Helvetica-Bold' : 'Helvetica-Bold'
+        const font = 'Helvetica-Bold'
         const wrapped = wrapText(toWinAnsi(el.text), contentW, size, font)
         const lh = size * LINE_HEIGHT
-        y -= lh // spacing before
+        y -= lh
         for (const line of wrapped) {
-          if (y < maxY) break
+          if (y < maxY) {
+            flushPage()
+            y -= lh
+          }
           lines.push(\`BT /F1 \${size} Tf \${margins.left} \${y} Td (\${escapePdf(line)}) Tj ET\`)
           y -= lh
         }
-        y -= 4 // spacing after
+        y -= 4
         break
       }
       case 'paragraph': {
@@ -398,7 +403,10 @@ function buildPageStream(
         const wrapped = wrapText(toWinAnsi(el.text), contentW, size)
         const lh = size * LINE_HEIGHT
         for (const line of wrapped) {
-          if (y < maxY) break
+          if (y < maxY) {
+            flushPage()
+            y -= lh
+          }
           let x = margins.left
           if (align === 'center') {
             const tw = measureText(line, size)
@@ -420,7 +428,10 @@ function buildPageStream(
         for (const item of el.items) {
           const wrapped = wrapText(toWinAnsi(item), contentW - 20, size)
           for (let i = 0; i < wrapped.length; i++) {
-            if (y < maxY) break
+            if (y < maxY) {
+              flushPage()
+              y -= lh
+            }
             const prefix = i === 0 ? '\\\\2022  ' : '     '
             lines.push(\`BT /F1 \${size} Tf \${margins.left} \${y.toFixed(1)} Td (\${prefix}\${escapePdf(wrapped[i])}) Tj ET\`)
             y -= lh
@@ -437,7 +448,10 @@ function buildPageStream(
           const wrapped = wrapText(toWinAnsi(el.items[idx]), contentW - 25, size)
           const num = \`\${idx + 1}. \`
           for (let i = 0; i < wrapped.length; i++) {
-            if (y < maxY) break
+            if (y < maxY) {
+              flushPage()
+              y -= lh
+            }
             const prefix = i === 0 ? num : ' '.repeat(num.length)
             lines.push(\`BT /F1 \${size} Tf \${margins.left} \${y.toFixed(1)} Td (\${escapePdf(prefix + wrapped[i])}) Tj ET\`)
             y -= lh
@@ -452,22 +466,33 @@ function buildPageStream(
         const codeLines = toWinAnsi(el.text).split('\\n')
         const boxH = codeLines.length * lh + 12
         y -= 6
-        // Draw background rect
+        // If the whole code block doesn't fit, start a new page
+        if (y - boxH < maxY) {
+          flushPage()
+          y -= 6
+        }
         lines.push(\`0.92 0.92 0.92 rg \${margins.left} \${y - boxH + 6} \${contentW} \${boxH} re f\`)
         y -= 6
-        lines.push('0 0 0 rg') // text color
+        lines.push('0 0 0 rg')
         for (const line of codeLines) {
-          if (y < maxY) break
+          if (y < maxY) {
+            flushPage()
+            y -= lh
+          }
           const escaped = line.replace(/\\\\/g, '\\\\\\\\').replace(/\\(/g, '\\\\(').replace(/\\)/g, '\\\\)')
           lines.push(\`BT /F5 \${size} Tf \${margins.left + 6} \${y.toFixed(1)} Td (\${escaped}) Tj ET\`)
           y -= lh
         }
         y -= 6
-        lines.push('0 0 0 rg') // reset
+        lines.push('0 0 0 rg')
         break
       }
       case 'hr': {
         y -= 8
+        if (y < maxY) {
+          flushPage()
+          y -= 8
+        }
         const lineY = y + 2
         lines.push(\`0.8 0.8 0.8 RG 0.5 w \${margins.left} \${lineY} \${contentW} 0 re S\`)
         y -= 8
@@ -475,6 +500,9 @@ function buildPageStream(
       }
       case 'spacer': {
         y -= el.height || 12
+        if (y < maxY) {
+          flushPage()
+        }
         break
       }
       case 'table': {
@@ -484,8 +512,12 @@ function buildPageStream(
         const colW = el.colWidths || el.headers.map(() => contentW / cols)
         const rowH = lh + 6
 
+        // Header row
         y -= rowH
-        // Header background
+        if (y < maxY) {
+          flushPage()
+          y -= rowH
+        }
         lines.push(\`0.15 0.15 0.15 rg \${margins.left} \${y} \${contentW} \${rowH} re f\`)
         lines.push('1 1 1 rg')
         let x = margins.left
@@ -495,14 +527,16 @@ function buildPageStream(
         }
         lines.push('0 0 0 rg')
 
-        for (const row of el.rows) {
+        for (let r = 0; r < el.rows.length; r++) {
+          const row = el.rows[r]
           y -= rowH
-          // Alternating row bg
-          const rowIdx = el.rows.indexOf(row)
-          if (rowIdx % 2 === 0) {
+          if (y < maxY) {
+            flushPage()
+            y -= rowH
+          }
+          if (r % 2 === 0) {
             lines.push(\`0.96 0.96 0.96 rg \${margins.left} \${y} \${contentW} \${rowH} re f\`)
           }
-          // Grid lines
           lines.push(\`0.85 0.85 0.85 RG 0.3 w \${margins.left} \${y} \${contentW} 0 re S\`)
           lines.push('0 0 0 rg')
           x = margins.left
@@ -512,40 +546,20 @@ function buildPageStream(
             x += colW[c]
           }
         }
-        // Bottom border
         y -= 2
         lines.push(\`0.6 0.6 0.6 RG 0.5 w \${margins.left} \${y + 2} \${contentW} 0 re S\`)
-        y -= 6
-        break
-      }
-      case 'image': {
-        try {
-          const data = readFileSync(el.path)
-          // Simple PPM P6 detection — most minimal image support
-          if (data[0] === 0x50 && data[1] === 0x36) {
-            // PPM format
-            y -= (el.height || 100)
-            lines.push(\`\${margins.left} \${y} \${el.width || 200} \${el.height || 100} re W n\`)
-          } else {
-            y -= 20
-            // Skip unsupported formats — leave a placeholder text
-            lines.push(\`BT /F3 9 Tf \${margins.left} \${y.toFixed(1)} Td (Image: \${basename(el.path)}) Tj ET\`)
-          }
-        } catch {
-          y -= 20
-          lines.push(\`BT /F3 9 Tf \${margins.left} \${y.toFixed(1)} Td ([Image not found: \${basename(el.path)}]) Tj ET\`)
-        }
         y -= 6
         break
       }
     }
   }
 
-  const streamContent = lines.join('\\n')
-  const streamBuf = Buffer.from(streamContent, 'binary')
-  const stream = \`<< /Length \${streamBuf.length} >>\\nstream\\n\${streamContent}\\nendstream\`
+  // Flush remaining content as the last page
+  if (lines.length > 0) {
+    flushPage()
+  }
 
-  return { stream, images }
+  return results
 }
 
 // ─── Public API ───
