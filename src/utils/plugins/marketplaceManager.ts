@@ -2658,4 +2658,5 @@ export async function setMarketplaceAutoUpdate(
 
 export const _test = {
   redactUrlCredentials,
+  loadAndCacheMarketplace,
 }
