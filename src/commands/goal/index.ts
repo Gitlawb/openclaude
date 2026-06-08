@@ -4,7 +4,7 @@ const goal = {
   type: 'local',
   name: 'goal',
   description: 'Set and manage a session completion goal',
-  argumentHint: '[condition|pause|resume|clear]',
+  argumentHint: '[condition|status|pause|resume|clear]',
   supportsNonInteractive: true,
   load: () => import('./goal.js'),
 } satisfies Command

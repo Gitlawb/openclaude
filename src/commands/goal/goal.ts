@@ -75,6 +75,10 @@ export const call: LocalCommandCall = async (args, context) => {
     return { type: 'text', value: formatStatus(currentGoal) }
   }
 
+  if (action === 'status') {
+    return { type: 'text', value: formatStatus(currentGoal) }
+  }
+
   if (CLEAR_ALIASES.has(action)) {
     context.setAppState(prev => ({ ...prev, goal: null }))
     await saveGoalState(null)

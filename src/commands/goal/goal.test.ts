@@ -42,6 +42,21 @@ describe('/goal command', () => {
     expect(result.value).toContain('No goal set')
   })
 
+  test('/goal status returns current status without mutating goal', async () => {
+    const { context, getState } = makeContext(
+      createGoalState('finish implementation'),
+    )
+    const originalGoal = getState().goal
+
+    const result = expectTextResult(await call('status', context))
+
+    expect(result.value).toContain('Status: active')
+    expect(result.value).toContain('Condition: finish implementation')
+    expect(getState().goal).toBe(originalGoal)
+    expect(result.shouldQuery).toBeUndefined()
+    expect(result.metaMessages).toBeUndefined()
+  })
+
   test('/goal shows active, paused, and achieved status details', async () => {
     const active = createGoalState('finish implementation')
     const { context, getState } = makeContext(active)

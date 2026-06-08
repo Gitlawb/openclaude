@@ -27,10 +27,12 @@ async function requestLoopback(
     method?: string
     headers?: Record<string, string>
     body?: string
+    timeoutMs?: number
   } = {},
 ): Promise<LoopbackResponse> {
   const method = options.method ?? 'GET'
   const body = options.body ?? ''
+  const timeoutMs = options.timeoutMs ?? 2_000
   const headers = {
     Host: `127.0.0.1:${port}`,
     Connection: 'close',
@@ -47,6 +49,16 @@ async function requestLoopback(
   return new Promise((resolve, reject) => {
     const socket = connect({ host: '127.0.0.1', port })
     const chunks: Buffer[] = []
+    let settled = false
+
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      reject(error)
+    }
+
+    socket.setTimeout(timeoutMs)
 
     socket.on('connect', () => {
       socket.write(requestText)
@@ -54,8 +66,13 @@ async function requestLoopback(
     socket.on('data', chunk => {
       chunks.push(Buffer.from(chunk))
     })
-    socket.on('error', reject)
+    socket.on('timeout', () => {
+      fail(new Error(`Loopback request timed out after ${timeoutMs}ms`))
+    })
+    socket.on('error', fail)
     socket.on('end', () => {
+      if (settled) return
+      settled = true
       const raw = Buffer.concat(chunks).toString('utf8')
       const [head, ...bodyParts] = raw.split('\r\n\r\n')
       const [statusLine, ...headerLines] = head.split('\r\n')
