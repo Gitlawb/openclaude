@@ -533,32 +533,42 @@ function buildPageStreams(
 
         for (let r = 0; r < el.rows.length; r++) {
           const row = el.rows[r]
-          // Compute dynamic row height based on tallest cell
+          // Pre-compute wrapped lines for each cell
+          const cellWrapped: string[][] = []
           let maxCellLines = 1
           for (let c = 0; c < cols; c++) {
-            const cellLines = wrapText(toWinAnsi(row[c] || ''), colW[c] - 8, size)
-            if (cellLines.length > maxCellLines) maxCellLines = cellLines.length
+            const cl = wrapText(toWinAnsi(row[c] || ''), colW[c] - 8, size)
+            cellWrapped.push(cl)
+            if (cl.length > maxCellLines) maxCellLines = cl.length
           }
-          const rowH = maxCellLines * lh + 6
-          y -= rowH
-          if (y < maxY) {
-            flushPage()
-            y -= rowH
-          }
-          if (r % 2 === 0) {
-            lines.push(\`0.96 0.96 0.96 rg \${margins.left} \${y} \${contentW} \${rowH} re f\`)
-          }
-          lines.push(\`0.85 0.85 0.85 RG 0.3 w \${margins.left} \${y} \${contentW} 0 re S\`)
-          lines.push('0 0 0 rg')
-          x = margins.left
-          const cellStartY = y + rowH - 4
-          for (let c = 0; c < cols; c++) {
-            const cellContent = toWinAnsi(row[c] || '')
-            const cellLines = wrapText(cellContent, colW[c] - 8, size)
-            for (let li = 0; li < cellLines.length; li++) {
-              lines.push(\`BT /F1 \${size} Tf \${x + 4} \${(cellStartY - li * lh).toFixed(1)} Td (\${escapePdf(cellLines[li])}) Tj ET\`)
+          // Render row in page-sized chunks to handle rows taller than one page
+          let linesRendered = 0
+          while (linesRendered < maxCellLines) {
+            const availH = y - maxY
+            const maxLinesThisPage = Math.max(1, Math.floor((availH - 6) / lh))
+            const linesToRender = Math.min(maxLinesThisPage, maxCellLines - linesRendered)
+            const chunkH = linesToRender * lh + 6
+            y -= chunkH
+            if (r % 2 === 0) {
+              lines.push(\`0.96 0.96 0.96 rg \${margins.left} \${y} \${contentW} \${chunkH} re f\`)
             }
-            x += colW[c]
+            lines.push(\`0.85 0.85 0.85 RG 0.3 w \${margins.left} \${y} \${contentW} 0 re S\`)
+            lines.push('0 0 0 rg')
+            let x = margins.left
+            const cellStartY = y + chunkH - 4
+            for (let c = 0; c < cols; c++) {
+              for (let li = 0; li < linesToRender; li++) {
+                const cellLineIdx = linesRendered + li
+                if (cellLineIdx < cellWrapped[c].length) {
+                  lines.push(\`BT /F1 \${size} Tf \${x + 4} \${(cellStartY - li * lh).toFixed(1)} Td (\${escapePdf(cellWrapped[c][cellLineIdx])}) Tj ET\`)
+                }
+              }
+              x += colW[c]
+            }
+            linesRendered += linesToRender
+            if (linesRendered < maxCellLines) {
+              flushPage()
+            }
           }
         }
         y -= 2
