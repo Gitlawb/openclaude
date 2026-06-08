@@ -199,7 +199,8 @@ function toWinAnsi(text: string): string {
 }
 
 function escapePdf(str: string): string {
-  return toWinAnsi(str)
+  // str is already WinAnsi-encoded; only escape PDF reserved chars
+  return str
     .replace(/\\\\/g, '\\\\\\\\')
     .replace(/\\(/g, '\\\\(')
     .replace(/\\)/g, '\\\\)')
@@ -235,7 +236,20 @@ function wrapText(text: string, maxWidth: number, fontSize: number, font: string
     }
   }
   if (current) lines.push(current)
-  return lines.length ? lines : ['']
+  // Hard-split any line that still exceeds charsPerLine (handles long URLs, IDs, hashes)
+  const result: string[] = []
+  for (const line of lines) {
+    if (line.length <= charsPerLine) {
+      result.push(line)
+    } else {
+      let remaining = line
+      while (remaining.length > 0) {
+        result.push(remaining.substring(0, charsPerLine))
+        remaining = remaining.substring(charsPerLine)
+      }
+    }
+  }
+  return result.length ? result : ['']
 }
 
 // ─── Low-level PDF builder ───
