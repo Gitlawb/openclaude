@@ -1191,6 +1191,302 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
   })
 })
 
+test('OpenGateway MiMo replays real reasoning_content without adding empty fallback', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-opengateway-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect code with an agent.',
+          },
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect code with an agent.',
+  )
+  expect(requestBody).not.toHaveProperty('store')
+})
+
+test('Xiaomi MiMo replays real reasoning_content without adding empty fallback', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.MIMO_API_KEY = 'mimo-test-key'
+  delete process.env.OPENAI_API_KEY
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect code with an agent.',
+          },
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect code with an agent.',
+  )
+  expect(requestBody).not.toHaveProperty('store')
+})
+
+test('OpenGateway MiMo does not synthesize empty reasoning_content when missing', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-opengateway-mimo',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [
+      { role: 'user', content: 'Use an agent' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_agent_1',
+            name: 'Agent',
+            input: {
+              description: 'Inspect code',
+              prompt: 'Look at the relevant code',
+              subagent_type: 'general-purpose',
+            },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_agent_1',
+            content: 'Agent finished',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall).not.toHaveProperty('reasoning_content')
+  expect(requestBody).not.toHaveProperty('store')
+})
+
+test('strips unsupported stream_options for Xiaomi MiMo streams', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.MIMO_API_KEY = 'mimo-test-key'
+  delete process.env.OPENAI_API_KEY
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return makeSseResponse(
+      makeStreamChunks([
+        {
+          id: 'chatcmpl-mimo',
+          object: 'chat.completion.chunk',
+          model: 'mimo-v2.5-pro',
+          choices: [
+            {
+              index: 0,
+              delta: { role: 'assistant', content: 'done' },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id: 'chatcmpl-mimo',
+          object: 'chat.completion.chunk',
+          model: 'mimo-v2.5-pro',
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: 'stop',
+            },
+          ],
+        },
+      ]),
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  expect(requestBody).toMatchObject({
+    stream: true,
+    max_completion_tokens: 64,
+  })
+  expect(requestBody).not.toHaveProperty('stream_options')
+  expect(requestBody).not.toHaveProperty('store')
+})
+
 test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
   let requestBody: Record<string, unknown> | undefined
 

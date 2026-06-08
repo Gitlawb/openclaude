@@ -32,6 +32,12 @@ Smoke test:
 bun run smoke
 ```
 
+Full local check:
+
+```bash
+bun run check
+```
+
 Run the app locally:
 
 ```bash
@@ -60,8 +66,7 @@ At minimum, run the most relevant checks for your change.
 Common checks:
 
 ```bash
-bun run build
-bun run smoke
+bun run check
 ```
 
 Focused tests:

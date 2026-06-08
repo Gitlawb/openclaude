@@ -19,6 +19,7 @@ type Props = {
   onSelect: (agent: AgentDefinition) => void;
   onCreateNew?: () => void;
   changes?: string[];
+  activeAgentName?: string;
 };
 export function AgentsList(t0) {
   const $ = _c(96);
@@ -28,7 +29,8 @@ export function AgentsList(t0) {
     onBack,
     onSelect,
     onCreateNew,
-    changes
+    changes,
+    activeAgentName
   } = t0;
   const [selectedAgent, setSelectedAgent] = React.useState(null);
   const [isCreateNewSelected, setIsCreateNewSelected] = React.useState(true);
@@ -51,39 +53,33 @@ export function AgentsList(t0) {
     t2 = $[3];
   }
   const renderCreateNewOption = t2;
-  let t3;
-  if ($[4] !== isCreateNewSelected || $[5] !== selectedAgent?.agentType || $[6] !== selectedAgent?.source) {
-    t3 = agent_0 => {
-      const isBuiltIn = agent_0.source === "built-in";
-      const isSelected = !isBuiltIn && !isCreateNewSelected && selectedAgent?.agentType === agent_0.agentType && selectedAgent?.source === agent_0.source;
-      const {
-        isOverridden,
-        overriddenBy
-      } = getOverrideInfo(agent_0);
-      const dimmed = isBuiltIn || isOverridden;
-      const textColor = !isBuiltIn && isSelected ? "suggestion" : undefined;
-      const resolvedModel = resolveAgentModelDisplay(agent_0);
-      return <Box key={`${agent_0.agentType}-${agent_0.source}`}><Text dimColor={dimmed && !isSelected} color={textColor}>{isBuiltIn ? "" : isSelected ? `${figures.pointer} ` : "  "}</Text><Text dimColor={dimmed && !isSelected} color={textColor}>{agent_0.agentType}</Text>{resolvedModel && <Text dimColor={true} color={textColor}>{" \xB7 "}{resolvedModel}</Text>}{agent_0.memory && <Text dimColor={true} color={textColor}>{" \xB7 "}{agent_0.memory} memory</Text>}{overriddenBy && <Text dimColor={!isSelected} color={isSelected ? "warning" : undefined}>{" "}{figures.warning} shadowed by {getOverrideSourceLabel(overriddenBy)}</Text>}</Box>;
-    };
-    $[4] = isCreateNewSelected;
-    $[5] = selectedAgent?.agentType;
-    $[6] = selectedAgent?.source;
-    $[7] = t3;
-  } else {
-    t3 = $[7];
-  }
-  const renderAgent = t3;
+  const renderAgent = agent_0 => {
+    const isSelected = !isCreateNewSelected && selectedAgent?.agentType === agent_0.agentType && selectedAgent?.source === agent_0.source;
+    const isActive = agent_0.agentType === activeAgentName && !agent_0.overriddenBy;
+    const {
+      isOverridden,
+      overriddenBy
+    } = getOverrideInfo(agent_0);
+    const dimmed = agent_0.source === "built-in" || isOverridden;
+    const textColor = isSelected ? "suggestion" : undefined;
+    const resolvedModel = resolveAgentModelDisplay(agent_0);
+    return <Box key={`${agent_0.agentType}-${agent_0.source}`}><Text dimColor={dimmed && !isSelected} color={textColor}>{isSelected ? `${figures.pointer} ` : "  "}</Text><Text dimColor={dimmed && !isSelected} color={textColor}>{agent_0.agentType}</Text>{resolvedModel && <Text dimColor={true} color={textColor}>{" \xB7 "}{resolvedModel}</Text>}{agent_0.memory && <Text dimColor={true} color={textColor}>{" \xB7 "}{agent_0.memory} memory</Text>}{isActive && <Text color="success"> {figures.tick} active</Text>}{overriddenBy && <Text dimColor={!isSelected} color={isSelected ? "warning" : undefined}>{" "}{figures.warning} shadowed by {getOverrideSourceLabel(overriddenBy)}</Text>}</Box>;
+  };
   let t4;
   if ($[8] !== sortedAgents || $[9] !== source) {
     bb0: {
       const nonBuiltIn = sortedAgents.filter(_temp2);
       if (source === "all") {
-        t4 = AGENT_SOURCE_GROUPS.filter(_temp3).flatMap(t5 => {
+        t4 = AGENT_SOURCE_GROUPS.flatMap(t5 => {
           const {
             source: groupSource
           } = t5;
-          return nonBuiltIn.filter(a_0 => a_0.source === groupSource);
+          return sortedAgents.filter(a_0 => a_0.source === groupSource);
         });
+        break bb0;
+      }
+      if (source === "built-in") {
+        t4 = sortedAgents;
         break bb0;
       }
       t4 = nonBuiltIn;
@@ -264,16 +260,7 @@ export function AgentsList(t0) {
         } else {
           t27 = $[64];
         }
-        let t28;
-        if ($[65] !== handleKeyDown || $[66] !== t23 || $[67] !== t27) {
-          t28 = <Box flexDirection="column" gap={1} tabIndex={0} autoFocus={true} onKeyDown={handleKeyDown}>{t23}{t24}{t25}{t26}{t27}</Box>;
-          $[65] = handleKeyDown;
-          $[66] = t23;
-          $[67] = t27;
-          $[68] = t28;
-        } else {
-          t28 = $[68];
-        }
+        const t28 = <Box flexDirection="column" gap={1} tabIndex={0} autoFocus={true} onKeyDown={handleKeyDown}><Text dimColor={true}>Current session agent: <Text bold={true}>{activeAgentName ?? "none"}</Text></Text>{t23}{t24}{t25}{t26}{t27}</Box>;
         let t29;
         if ($[69] !== onBack || $[70] !== sourceTitle || $[71] !== t28) {
           t29 = <Dialog title={sourceTitle} subtitle="No agents found" onCancel={onBack} hideInputGuide={true}>{t28}</Dialog>;
@@ -300,13 +287,7 @@ export function AgentsList(t0) {
       t18 = `${t23} agents`;
       t19 = onBack;
       t20 = true;
-      if ($[75] !== changes) {
-        t21 = changes && changes.length > 0 && <Box marginTop={1}><Text dimColor={true}>{changes[changes.length - 1]}</Text></Box>;
-        $[75] = changes;
-        $[76] = t21;
-      } else {
-        t21 = $[76];
-      }
+      t21 = <><Text dimColor={true}>Current session agent: <Text bold={true}>{activeAgentName ?? "none"}</Text></Text>{changes && changes.length > 0 && <Box marginTop={1}><Text dimColor={true}>{changes[changes.length - 1]}</Text></Box>}</>;
       T0 = Box;
       t11 = "column";
       t12 = 0;

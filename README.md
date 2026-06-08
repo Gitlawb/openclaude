@@ -35,7 +35,7 @@ OpenClaude is also mirrored to GitLawb:
       </a>
     </td>
     <td align="center" width="150" height="80">
-      <a href="https://api.xiaomimimo.com/v1">
+      <a href="https://mimo.mi.com">
         <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="136">
       </a>
     </td>
@@ -44,7 +44,7 @@ OpenClaude is also mirrored to GitLawb:
     <td align="center"><a href="https://gitlawb.com"><strong>GitLawb</strong></a></td>
     <td align="center"><a href="https://bankr.bot"><strong>Bankr.bot</strong></a></td>
     <td align="center"><a href="https://atomic.chat/"><strong>Atomic Chat</strong></a></td>
-    <td align="center"><a href="https://api.xiaomimimo.com/v1"><strong>Xiaomi MiMo</strong></a></td>
+    <td align="center"><a href="https://mimo.mi.com"><strong>Xiaomi MiMo</strong></a></td>
   </tr>
 </table>
 
@@ -149,10 +149,12 @@ Advanced and source-build guides:
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
 | Gitlawb Opengateway | `/provider` or zero-config fallback | Free smart gateway at `https://opengateway.gitlawb.com/v1`; routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
-| Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
+| OpenCode Zen | `/provider` or env vars | Pay-as-you-go AI gateway (41 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/v1`; shared key with OpenCode Go |
+| OpenCode Go | `/provider` or env vars | $10/mo subscription for open models (12 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/go/v1`; shared key with OpenCode Zen |
+| Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://mimo.mi.com`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
-| Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
+| Bedrock / Vertex / Foundry | env vars | Anthropic-family cloud routes; Vertex is for Claude on Vertex AI, not arbitrary Model Garden models |
 
 ## What Works
 

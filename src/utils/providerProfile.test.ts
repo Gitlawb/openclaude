@@ -485,6 +485,82 @@ test('codex profiles require a chatgpt account id', () => {
   assert.equal(env, null)
 })
 
+// Regression: a user with `OPENAI_API_KEY=sk-openai-…` in their shell
+// who signs into xAI OAuth previously had that generic OpenAI key
+// promoted into both OPENAI_API_KEY and XAI_API_KEY for the xAI
+// profile, dropping XAI_CREDENTIAL_SOURCE. openaiShim then sent the
+// OpenAI key as a Bearer to api.x.ai/v1 — wrong account, wrong key,
+// 401 (and leaks the OpenAI key to xAI). Marker-tagged xAI OAuth
+// profiles must ignore generic OpenAI credentials entirely.
+test('xai OAuth profile ignores ambient OPENAI_API_KEY and preserves marker', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.3',
+      XAI_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: 'sk-openai-shell-key',
+    },
+  })
+
+  // Marker survives so startup validation accepts the profile.
+  assert.equal(env.XAI_CREDENTIAL_SOURCE, 'oauth')
+  // OpenAI key is NOT promoted into the xAI bearer surface.
+  assert.equal(env.XAI_API_KEY, undefined)
+  // openaiShim short-circuits on OPENAI_API_KEY before checking the
+  // stored OAuth token, so it must also be cleared from the resulting
+  // process env (clearManagedProfileEnv + no promotion in profileEnv).
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  // Base URL and model still come through.
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.x.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'grok-4.3')
+})
+
+test('xai OAuth profile still honors an explicit XAI_API_KEY override', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.3',
+      XAI_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      XAI_API_KEY: 'xai-explicit-override',
+      OPENAI_API_KEY: 'sk-openai-shell-key',
+    },
+  })
+
+  // Explicit XAI_API_KEY wins; the OAuth marker drops because we have
+  // a concrete bearer to send.
+  assert.equal(env.XAI_API_KEY, 'xai-explicit-override')
+  assert.equal(env.OPENAI_API_KEY, 'xai-explicit-override')
+  assert.equal(env.XAI_CREDENTIAL_SOURCE, undefined)
+})
+
+test('xai non-OAuth profile (legacy api-key flow) still accepts OPENAI_API_KEY fallback', async () => {
+  // Backward-compat: an xAI profile saved before the OAuth flow existed
+  // (no XAI_CREDENTIAL_SOURCE marker) used to inherit OPENAI_API_KEY
+  // for one-off connections. Don't break that path.
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.3',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: 'xai-disguised-as-openai-key',
+    },
+  })
+
+  assert.equal(env.XAI_API_KEY, 'xai-disguised-as-openai-key')
+  assert.equal(env.OPENAI_API_KEY, 'xai-disguised-as-openai-key')
+})
+
 test('codex launch clears openai-compatible format and custom auth env', async () => {
   const env = await buildLaunchEnv({
     profile: 'codex',

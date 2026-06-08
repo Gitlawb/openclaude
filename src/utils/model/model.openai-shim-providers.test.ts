@@ -50,6 +50,7 @@ const SAVED_ENV = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
@@ -82,6 +83,7 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.ANTHROPIC_MODEL
   delete process.env.MIMO_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_BASE_URL
