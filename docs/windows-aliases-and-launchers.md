@@ -1,16 +1,20 @@
-# Windows Power Aliases and Launchers
+# Windows aliases and launchers
 
-This page gives you an "instant command center" in PowerShell for OpenClaude.
+This page documents optional PowerShell helper functions for launching OpenClaude on Windows after a global npm install.
 
-After setup, you can use short commands like `oc`, `oc-init`, `oc-local`, and `oc-provider`.
+These helpers are designed for the installed package workflow:
+
+~~~powershell
+npm install -g @gitlawb/openclaude
+~~~
+
+The helpers use the installed `openclaude` CLI command. They do not require a source checkout and do not call source-only `bun run scripts/*.ts` entrypoints.
 
 ## One-time setup
 
 Run this once in PowerShell:
 
-This resolves the alias helper script from the global npm installation path instead of relying on a local source checkout.
-
-```powershell
+~~~powershell
 $packageRoot = Join-Path (npm root -g) "@gitlawb/openclaude"
 $aliases = Join-Path $packageRoot "scripts\windows\openclaude-aliases.ps1"
 
@@ -30,44 +34,130 @@ if (-not (Select-String -Path $PROFILE -Pattern ([regex]::Escape($profileLine)) 
 
 . $aliases
 oc-help
-```
+~~~
 
-## Instant launch path (local Ollama)
+Open a new PowerShell window after setup, or dot-source the profile:
 
-Use this whenever you want a full local startup in one command:
+~~~powershell
+. $PROFILE
+~~~
 
-```powershell
+## Daily commands
+
+### Launch OpenClaude using the installed CLI
+
+~~~powershell
+oc
+~~~
+
+You can pass normal CLI arguments through `oc`:
+
+~~~powershell
+oc --version
+oc --help
+~~~
+
+### Launch with local Ollama/OpenAI-compatible environment hints
+
+~~~powershell
+oc-local
+~~~
+
+By default, this uses local Ollama through the OpenAI-compatible API:
+
+~~~text
+CLAUDE_CODE_USE_OPENAI=1
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_MODEL=llama3.1:8b
+~~~
+
+To use a different local model for that invocation:
+
+~~~powershell
+oc-local -Model "qwen2.5-coder:7b"
+~~~
+
+The environment overrides are scoped to that single `openclaude` invocation. A later plain `oc` call returns to normal installed CLI behavior and saved-provider-profile behavior.
+
+### Launch with low-latency local defaults
+
+~~~powershell
+oc-fast
+~~~
+
+To use a different model:
+
+~~~powershell
+oc-fast -Model "qwen2.5-coder:7b"
+~~~
+
+Like `oc-local`, the environment overrides are scoped to that single invocation.
+
+### Open the provider manager
+
+~~~powershell
+oc-provider
+~~~
+
+This opens the provider manager through the installed OpenClaude CLI.
+
+### Check local Ollama state
+
+~~~powershell
+oc-check
+~~~
+
+To check a specific model:
+
+~~~powershell
+oc-check -Model "qwen2.5-coder:7b"
+~~~
+
+### Pull/check a local model, then launch local mode
+
+~~~powershell
 oc-init
-```
+~~~
 
-What it does:
+To choose a model:
 
-- checks required tools (`npm`, `bun`, `ollama`)
-- optionally pulls model (default `llama3.1:8b`)
-- saves local provider profile
-- validates local Ollama status
-- launches OpenClaude TUI with the saved profile
+~~~powershell
+oc-init -Model "qwen2.5-coder:7b"
+~~~
 
-## Daily command set
+To skip pulling the model and only check/launch:
 
-- `oc` -> launch with saved provider profile
-- `oc-local` -> force Ollama launch (`bun run dev:ollama`)
-- `oc-fast` -> low-latency launch path (`bun run dev:fast`)
-- `oc-check` -> verify Ollama binary, API listening, and model availability
-- `oc-provider -Provider ollama -Goal coding` -> auto-pick a coding-focused local model profile
-- `oc-provider -Provider ollama -Model qwen2.5-coder:7b` -> pin exact local model
-- `oc-provider -Provider codex` -> switch to Codex profile
-- `oc-provider -Provider openai -ApiKey sk-... -Model gpt-4o` -> switch to OpenAI profile
+~~~powershell
+oc-init -Model "qwen2.5-coder:7b" -SkipModelPull
+~~~
 
-## GUI / VS Code usage
+`oc-init` does not save a provider profile. It pulls/checks the local Ollama model and then launches `oc-local`.
 
-The VS Code extension launch button runs your configured command. With this setup, you can set:
+### Show quick help
 
-- `openclaude.launchCommand` = `openclaude` (default)
+~~~powershell
+oc-help
+~~~
 
-Then keep using:
+## Command summary
 
-- Command Palette -> `OpenClaude: Launch in Terminal`
-- Control Center -> `Launch OpenClaude`
+| Command | Purpose |
+| --- | --- |
+| `oc` | Launch OpenClaude using the installed CLI and saved/default behavior |
+| `oc-local` | Launch once with local Ollama/OpenAI-compatible environment hints |
+| `oc-fast` | Launch once with local Ollama/OpenAI-compatible low-latency hints |
+| `oc-provider` | Open the provider manager |
+| `oc-check` | Show local Ollama install/listening/model state |
+| `oc-init` | Pull/check a local Ollama model, then launch local mode |
+| `oc-help` | Show quick command help |
 
-If you use profile-driven launching, keep `openclaude.useOpenAIShim` disabled so saved profile settings are not bypassed by a partial environment override.
+## Notes
+
+These helpers are intentionally global-install oriented. They use the installed CLI instead of source-checkout development scripts.
+
+For advanced provider setup, use the built-in provider manager:
+
+~~~powershell
+oc-provider
+~~~
+
