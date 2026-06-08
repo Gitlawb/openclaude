@@ -14,6 +14,9 @@ import { setSdkBetas } from '../bootstrap/state.js'
 // pin that gate: getMergedBetas() must return [] for non-Anthropic providers
 // and a non-empty list for Anthropic providers (plus GitHub Native Anthropic).
 
+// The list of provider/profile env vars these tests touch. Captured lazily
+// from the live process.env on each clear, so leaks from other test files
+// that set these vars BEFORE this file's module body runs are still cleared.
 const PROVIDER_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
@@ -70,6 +73,10 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  // Clear the provider env vars again after the test. Other test files
+  // running in the same process may read these between our tests, so
+  // leaving them set would contaminate them. The original values are
+  // not preserved (this is a destructive cleanup by design).
   try {
     restoreEnv()
     setSdkBetas(undefined)
