@@ -103,7 +103,7 @@ export function createGoalCall(
 
     if (action === 'resume') {
       if (!currentGoal) {
-        return { type: 'text', value: 'No paused goal to resume.' }
+        return { type: 'text', value: 'No goal to resume.' }
       }
       if (currentGoal.status !== 'paused' && currentGoal.status !== 'active') {
         return {

@@ -167,6 +167,17 @@ describe('/goal command', () => {
     expect(result.metaMessages?.[0]).toContain('finish implementation')
   })
 
+  test('/goal resume reports when there is no goal to resume', async () => {
+    const { context, getState } = makeContext()
+
+    const result = expectTextResult(await call('resume', context))
+
+    expect(getState().goal).toBeNull()
+    expect(result.value).toBe('No goal to resume.')
+    expect(result.shouldQuery).toBeUndefined()
+    expect(result.metaMessages).toBeUndefined()
+  })
+
   test('/goal does not mutate in-memory state when persistence fails', async () => {
     const callWithFailingPersistence = createGoalCall(async () => {
       throw new Error('persist failed')
