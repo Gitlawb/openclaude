@@ -638,6 +638,26 @@ export function normalizeFileEditInput({
           }
         }
 
+        // Fallback to whitespace-agnostic match
+        const fuzzyMatch = findWhitespaceAgnosticMatch(
+          fileContent,
+          desanitizedOldString,
+        )
+
+        if (fuzzyMatch) {
+          // Apply the same exact replacements to new_string
+          let desanitizedNewString = normalizedNewString
+          for (const { from, to } of appliedReplacements) {
+            desanitizedNewString = desanitizedNewString.replaceAll(from, to)
+          }
+
+          return {
+            old_string: fuzzyMatch,
+            new_string: desanitizedNewString,
+            replace_all,
+          }
+        }
+
         return {
           old_string,
           new_string: normalizedNewString,
@@ -772,4 +792,46 @@ export function areFileEditsInputsEquivalent(
   }
 
   return areFileEditsEquivalent(input1.edits, input2.edits, fileContent)
+}
+
+/**
+ * Finds a substring within fileContent that matches searchString, ignoring all whitespace characters
+ * (spaces, tabs, newlines). If exactly one match is found, returns the exact substring from fileContent
+ * (including its original whitespace). Otherwise, returns null.
+ */
+export function findWhitespaceAgnosticMatch(
+  fileContent: string,
+  searchString: string,
+): string | null {
+  const compressedSearch = searchString.replace(/\s+/g, '')
+  if (compressedSearch.length === 0) return null
+
+  let compressedFile = ''
+  const mapping: number[] = []
+
+  for (let i = 0; i < fileContent.length; i++) {
+    if (!/\s/.test(fileContent[i]!)) {
+      compressedFile += fileContent[i]
+      mapping.push(i)
+    }
+  }
+
+  const matchIndex = compressedFile.indexOf(compressedSearch)
+  if (matchIndex === -1) return null
+
+  // Ensure the match is unique to avoid replacing the wrong block
+  const nextMatchIndex = compressedFile.indexOf(
+    compressedSearch,
+    matchIndex + 1,
+  )
+  if (nextMatchIndex !== -1) {
+    return null
+  }
+
+  const originalStart = mapping[matchIndex]
+  const originalEnd = mapping[matchIndex + compressedSearch.length - 1]
+
+  if (originalStart === undefined || originalEnd === undefined) return null
+
+  return fileContent.substring(originalStart, originalEnd + 1)
 }
