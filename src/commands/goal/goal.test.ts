@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 import {
   achieveGoal,
@@ -32,6 +32,10 @@ function makeContext(initialGoal: AppState['goal'] = null) {
     getState: () => state,
   }
 }
+
+afterEach(() => {
+  mock.restore()
+})
 
 describe('/goal command', () => {
   test('/goal shows no goal status', async () => {
@@ -165,5 +169,43 @@ describe('/goal command', () => {
     expect(result.value).toContain('Goal resumed')
     expect(result.shouldQuery).toBe(true)
     expect(result.metaMessages?.[0]).toContain('finish implementation')
+  })
+
+  test('/goal does not mutate in-memory state when persistence fails', async () => {
+    mock.module('../../services/goal/persistence.js', () => ({
+      saveGoalState: async () => {
+        throw new Error('persist failed')
+      },
+    }))
+    const { call: callWithFailingPersistence } = await import(
+      `./goal.ts?persistFail=${Date.now()}-${Math.random()}`
+    )
+    const cases = [
+      {
+        action: 'new persisted goal',
+        initialGoal: createGoalState('existing goal'),
+      },
+      {
+        action: 'clear',
+        initialGoal: createGoalState('goal to clear'),
+      },
+      {
+        action: 'pause',
+        initialGoal: createGoalState('goal to pause'),
+      },
+      {
+        action: 'resume',
+        initialGoal: pauseGoal(createGoalState('goal to resume')),
+      },
+    ]
+
+    for (const { action, initialGoal } of cases) {
+      const { context, getState } = makeContext(initialGoal)
+
+      await expect(callWithFailingPersistence(action, context)).rejects.toThrow(
+        'persist failed',
+      )
+      expect(getState().goal).toBe(initialGoal)
+    }
   })
 })

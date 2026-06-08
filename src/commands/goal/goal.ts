@@ -56,8 +56,8 @@ async function setGoal(
   context: Parameters<LocalCommandCall>[1],
 ) {
   const goal = createGoalState(condition)
-  context.setAppState(prev => ({ ...prev, goal }))
   await saveGoalState(goal)
+  context.setAppState(prev => ({ ...prev, goal }))
   return {
     type: 'text' as const,
     value: `Goal set: ${goal.condition}`,
@@ -80,8 +80,8 @@ export const call: LocalCommandCall = async (args, context) => {
   }
 
   if (CLEAR_ALIASES.has(action)) {
-    context.setAppState(prev => ({ ...prev, goal: null }))
     await saveGoalState(null)
+    context.setAppState(prev => ({ ...prev, goal: null }))
     return { type: 'text', value: 'Goal cleared.' }
   }
 
@@ -90,8 +90,8 @@ export const call: LocalCommandCall = async (args, context) => {
       return { type: 'text', value: 'No active goal to pause.' }
     }
     const paused = pauseGoal(currentGoal)
-    context.setAppState(prev => ({ ...prev, goal: paused }))
     await saveGoalState(paused)
+    context.setAppState(prev => ({ ...prev, goal: paused }))
     return { type: 'text', value: 'Goal paused.' }
   }
 
@@ -106,8 +106,8 @@ export const call: LocalCommandCall = async (args, context) => {
       }
     }
     const resumed = resumeGoal(currentGoal)
-    context.setAppState(prev => ({ ...prev, goal: resumed }))
     await saveGoalState(resumed)
+    context.setAppState(prev => ({ ...prev, goal: resumed }))
     return {
       type: 'text',
       value:

@@ -99,7 +99,11 @@ export async function* evaluateGoalAfterTurn({
     const paused = pauseGoalAtMaxTurns(goal, terminalUuid, nowIso())
     toolUseContext.setAppState(prev => ({ ...prev, goal: paused }))
     await persistGoal(saveGoalState, paused)
-    yield createSystemMessage(paused.lastReason ?? 'Goal paused.', 'warning')
+    yield createSystemMessage(
+      paused.lastReason ??
+        'Goal paused: automatic continuation has been paused.',
+      'warning',
+    )
     return []
   }
   if (!shouldEvaluateGoal(goal, terminalUuid)) return []

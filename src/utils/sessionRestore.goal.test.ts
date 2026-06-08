@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
-import { createGoalState, markGoalEvaluated } from '../services/goal/state.js'
+import {
+  achieveGoal,
+  createGoalState,
+  markGoalEvaluated,
+  pauseGoal,
+} from '../services/goal/state.js'
+import type { GoalState } from '../services/goal/types.js'
 import { getDefaultAppState, type AppState } from '../state/AppStateStore.js'
 import {
   processResumedConversation,
@@ -67,6 +73,42 @@ describe('session restore goal lifecycle', () => {
     expect(result.initialState.goal).toBeNull()
   })
 
+  test('processResumedConversation preserves inactive resumed goals unchanged', async () => {
+    const pausedGoal = pauseGoal(createGoalState('paused resume goal'))
+    const achievedGoal = achieveGoal(createGoalState('achieved resume goal'), {
+      evaluatedMessageUuid: 'assistant-achieved',
+      reason: 'done',
+    })
+    const clearedGoal: GoalState = {
+      ...createGoalState('cleared resume goal'),
+      status: 'cleared',
+      clearedAt: '2026-04-02T00:00:00.000Z',
+    }
+
+    for (const goal of [pausedGoal, achievedGoal, clearedGoal]) {
+      const result = await processResumedConversation(
+        {
+          messages: [],
+          sessionId: '00000000-0000-4000-8000-000000001236',
+          goal,
+        },
+        {
+          forkSession: true,
+        },
+        {
+          modeApi: null,
+          mainThreadAgentDefinition: undefined,
+          agentDefinitions: { activeAgents: [], allAgents: [] },
+          currentCwd: '/tmp',
+          cliAgents: [],
+          initialState: getDefaultAppState(),
+        },
+      )
+
+      expect(result.initialState.goal).toBe(goal)
+    }
+  })
+
   test('restoreSessionStateFromLog clears stale in-memory goal when resumed session has none', () => {
     const staleGoal = createGoalState('stale interactive resume goal')
     let state: AppState = {
@@ -79,5 +121,31 @@ describe('session restore goal lifecycle', () => {
     })
 
     expect(state.goal).toBeNull()
+  })
+
+  test('restoreSessionStateFromLog preserves inactive resumed goals unchanged', () => {
+    const pausedGoal = pauseGoal(createGoalState('paused interactive goal'))
+    const achievedGoal = achieveGoal(createGoalState('achieved interactive goal'), {
+      evaluatedMessageUuid: 'assistant-achieved',
+      reason: 'done',
+    })
+    const clearedGoal: GoalState = {
+      ...createGoalState('cleared interactive goal'),
+      status: 'cleared',
+      clearedAt: '2026-04-02T00:00:00.000Z',
+    }
+
+    for (const goal of [pausedGoal, achievedGoal, clearedGoal]) {
+      let state: AppState = {
+        ...getDefaultAppState(),
+        goal: createGoalState('stale interactive goal'),
+      }
+
+      restoreSessionStateFromLog({ goal }, update => {
+        state = update(state)
+      })
+
+      expect(state.goal).toBe(goal)
+    }
   })
 })

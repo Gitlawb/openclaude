@@ -137,7 +137,7 @@ export function pauseGoalAtMaxTurns(
   now: string = nowIso(),
   evaluatorReason?: string,
 ): GoalState {
-  const maxReason = `Goal paused after reaching the maximum of ${goal.maxTurns} turns.`
+  const maxReason = `Goal paused: after reaching the maximum of ${goal.maxTurns} turns.`
   return {
     ...goal,
     status: 'paused',

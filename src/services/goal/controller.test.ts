@@ -375,6 +375,7 @@ describe('goal continuation controller', () => {
     expect(calls).toBe(0)
     expect(getState().goal?.status).toBe('paused')
     expect(getState().goal?.lastReason).toContain('maximum of 1 turns')
+    expect(yielded[0]?.content.startsWith('Goal paused:')).toBe(true)
     expect(yielded[0]?.content).toContain('maximum of 1 turns')
     expect(returned).toEqual([])
   })
@@ -477,6 +478,7 @@ describe('goal continuation controller', () => {
     expect(getState().goal?.lastReason).toContain(
       'One required validation is still missing.',
     )
+    expect(yielded[0]?.content.startsWith('Goal not complete:')).toBe(true)
     expect(yielded[0]?.content).toContain('maximum of 2 turns')
     expect(returned).toEqual([])
   })
