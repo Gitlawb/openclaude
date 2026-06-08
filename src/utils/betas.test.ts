@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -66,6 +66,7 @@ function clearProviderEnv(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/betas.test.ts')
+  mock.restore()
   clearProviderEnv()
 })
 

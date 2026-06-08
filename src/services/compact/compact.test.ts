@@ -122,9 +122,13 @@ function clearProviderEnv(): void {
  * Options that control the behavior of the compact mock fixture.
  *
  * **Essential mocks** (required for the provider gate test — must be overridable):
- * - `isAnthropicProvider` — the gate under test
  * - `runForkedAgent` — spy target; asserted on in both test cases
  * - `growthBookDefault` — controls the GrowthBook flag that gates cache-sharing
+ *
+ * **Provider gate control via environment variables:**
+ * - The `isAnthropicProvider()` gate is tested by setting provider env vars
+ *   (e.g. CLAUDE_CODE_USE_OPENAI=1) instead of mocking betas.ts. This avoids
+ *   mock.module() leaks that cause CI failures in other test files.
  *
  * **Defensive stubs** (prevent transitive import/side-effect failures):
  * - Everything else registered by registerCommonCompactStubs is a defensive
@@ -132,8 +136,6 @@ function clearProviderEnv(): void {
  *   network, GrowthBook, hooks, token counting, or filesystem I/O.
  */
 export type CompactMockOptions = {
-  /** Mock for isAnthropicProvider(). ESSENTIAL — the gate under test. */
-  isAnthropicProvider?: () => boolean
   /** Mock for runForkedAgent(). ESSENTIAL — spy asserted on by both tests. */
   runForkedAgent?: ReturnType<typeof mock>
   /** GrowthBook default for tengu_compact_cache_prefix. */
@@ -155,34 +157,14 @@ export type CompactMockOptions = {
 function registerCommonCompactStubs(options: CompactMockOptions = {}) {
   mock.restore()
 
-  // --- Provider gate (ESSENTIAL — the key dependency under test) ---
-  // Complete mock: every export from betas.ts is listed so a leaked mock
-  // never causes other test files to see a partial module with missing exports.
-  mock.module('../../utils/betas.js', () => ({
-    isAnthropicProvider:
-      options.isAnthropicProvider ?? mock(() => false),
-    // DEFENSIVE — other betas.ts exports that compact.ts imports
-    getMergedBetas: mock(() => []),
-    isGithubNativeAnthropicMode: mock(() => false),
-    modelSupportsInterleavedThinking: mock(() => false),
-    modelSupportsContextManagement: mock(() => false),
-    modelSupportsStructuredOutputs: mock(() => false),
-    getSdkBetas: mock(() => []),
-    getAllModelBetas: mock(() => []),
-    getModelBetas: mock(() => []),
-    getBedrockExtraBodyParamsBetas: mock(() => []),
-    clearBetasCaches: mock(() => {}),
-    CLAUDE_CODE_20250219_BETA_HEADER: 'claude-code-20250219',
-    CLI_INTERNAL_BETA_HEADER: '',
-    // Complete — remaining betas.ts exports (not used by compact.ts directly
-    // but needed by other test files if this mock ever leaks)
-    filterAllowedSdkBetas: mock(() => undefined),
-    modelSupportsISP: mock(() => false),
-    modelSupportsAutoMode: mock(() => false),
-    getToolSearchBetaHeader: mock(() => ''),
-    shouldIncludeFirstPartyOnlyBetas: mock(() => false),
-    shouldUseGlobalCacheScope: mock(() => false),
-  }))
+  // --- Provider gate control ---
+  // The isAnthropicProvider() gate is exercised via environment variables
+  // (e.g. CLAUDE_CODE_USE_OPENAI=1) instead of mock.module() on betas.ts.
+  // This avoids mock.module() leaks that cause CI failures in other test
+  // files (betas.test.ts, autoCompact.test.ts) that import the real module.
+  // The beforeEach hook already calls clearProviderEnv(), so each test
+  // starts with a clean provider state and the real betas.ts /
+  // providers.ts / envUtils.ts work from env vars.
 
   // --- Forked agent (ESSENTIAL — spy for call-count assertions) ---
   const runForkedAgent =
@@ -452,43 +434,9 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
     hasExactErrorMessage: mock(() => false),
   }))
 
-  // --- Model / providers (DEFENSIVE) ---
-  // Complete mock: every export from providers.ts is listed.
-  mock.module('../../utils/model/providers.js', () => ({
-    getAPIProvider: mock(() => 'firstParty'),
-    isGithubNativeAnthropicMode: mock(() => false),
-    usesAnthropicAccountFlow: mock(() => true),
-    getAPIProviderForStatsig: mock(() => 'firstParty' as const),
-    isFirstPartyAnthropicBaseUrl: mock(() => true),
-  }))
-
   // --- Auth (DEFENSIVE) ---
   mock.module('../../utils/auth.js', () => ({
     isClaudeAISubscriber: mock(() => false),
-  }))
-
-  // --- Env utils (DEFENSIVE) ---
-  // Complete mock: every export from envUtils.ts is listed.
-  mock.module('../../utils/envUtils.js', () => ({
-    isEnvDefinedFalsy: mock(() => false),
-    isEnvTruthy: mock(() => false),
-    // Remaining envUtils.ts exports (not used by compact.ts but needed
-    // by other test files if this mock ever leaks)
-    migrateLegacyClaudeConfigHome: mock(() => true),
-    resolveClaudeConfigHomeDir: mock(() => '/tmp/.openclaude'),
-    setClaudeConfigHomeDirForTesting: mock(() => {}),
-    getClaudeConfigHomeDir: mock(() => '/tmp/.openclaude'),
-    getTeamsDir: mock(() => '/tmp/.openclaude/teams'),
-    getProjectsDir: mock(() => '/tmp/.openclaude/projects'),
-    hasNodeOption: mock(() => false),
-    isBareMode: mock(() => false),
-    parseEnvVars: mock(() => ({})),
-    getAWSRegion: mock(() => 'us-east-1'),
-    getDefaultVertexRegion: mock(() => 'us-east5'),
-    shouldMaintainProjectWorkingDir: mock(() => false),
-    isRunningOnHomespace: mock(() => false),
-    isInProtectedNamespace: mock(() => false),
-    getVertexRegionForModel: mock(() => 'us-east5'),
   }))
 
   // --- Model support overrides (DEFENSIVE) ---
@@ -512,14 +460,18 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
 /**
  * Import the compact module with all transitive dependencies stubbed.
  *
- * **Provider gate test mocks (ESSENTIAL):**
- * - `isAnthropicProvider` — gate under test, injected via options
+ * **Provider gate control via environment variables:**
+ * - The `isAnthropicProvider()` gate is exercised by setting provider env vars
+ *   (e.g. CLAUDE_CODE_USE_OPENAI=1) in the test body, rather than via mock
+ *   options. The beforeEach hook calls clearProviderEnv() so each test starts
+ *   with a clean provider state and the real betas.ts / providers.ts read
+ *   live env vars.
  * - `runForkedAgent` — spy target, returned so tests can assert call count
  * - `getFeatureValue_CACHED_MAY_BE_STALE` (growthBookDefault) — controls the
  *   GrowthBook flag that gates cache-sharing alongside isAnthropicProvider()
  *
  * **Defensive stubs (everything else):**
- * - All other ~40 mock.module() calls are defensive fall-through stubs that
+ * - All other mock.module() calls are defensive fall-through stubs that
  *   prevent the compactConversation() → streamCompactSummary() → post-compaction
  *   pipeline from hitting real network, GrowthBook, hooks, token counting,
  *   skill loading, or filesystem I/O.  Without them the import alone would
@@ -561,11 +513,11 @@ afterAll(() => {
 
 describe('compactConversation provider gate', () => {
   test('skips forked-agent cache-sharing for non-Anthropic providers', async () => {
-    // When isAnthropicProvider() returns false (e.g. OpenAI), the forked-agent
-    // path must NOT be taken; runForkedAgent should never be called.
-    const { compactConversation, runForkedAgent } = await importCompact({
-      isAnthropicProvider: mock(() => false),
-    })
+    // Simulate a non-Anthropic provider (e.g. OpenAI) via env vars.
+    // The real isAnthropicProvider() reads from process.env and returns false.
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_API_KEY = 'test-openai-key'
+    const { compactConversation, runForkedAgent } = await importCompact({})
 
     const messages = [userMessage('Hello'), assistantMessage('Hi there!')]
     const ctx = toolUseContext()
@@ -577,11 +529,9 @@ describe('compactConversation provider gate', () => {
   })
 
   test('uses forked-agent cache-sharing for Anthropic providers', async () => {
-    // When isAnthropicProvider() returns true, the forked-agent path
-    // SHOULD be taken (assuming the GrowthBook flag is also true).
-    const { compactConversation, runForkedAgent } = await importCompact({
-      isAnthropicProvider: mock(() => true),
-    })
+    // All provider env vars are cleared by beforeEach → default firstParty
+    // (Anthropic). The real isAnthropicProvider() returns true.
+    const { compactConversation, runForkedAgent } = await importCompact({})
 
     const messages = [userMessage('Hello'), assistantMessage('Hi there!')]
     const ctx = toolUseContext()
