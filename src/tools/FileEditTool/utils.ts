@@ -794,44 +794,105 @@ export function areFileEditsInputsEquivalent(
   return areFileEditsEquivalent(input1.edits, input2.edits, fileContent)
 }
 
+function normalizeIndentation(str: string) {
+  let normalized = ''
+  const mapping: number[] = []
+
+  let i = 0
+  while (i < str.length) {
+    if (!/\s/.test(str[i]!)) {
+      normalized += str[i]
+      mapping.push(i)
+      i++
+    } else {
+      const startWs = i
+      let hasNewline = false
+      let lastNewline = -1
+      while (i < str.length && /\s/.test(str[i]!)) {
+        if (str[i] === '\n' || str[i] === '\r') {
+          hasNewline = true
+          lastNewline = i
+        }
+        i++
+      }
+
+      // If the whitespace run contains a newline, or is at the very beginning/end of the string,
+      // it is considered formatting/indentation. Compress it to a single space.
+      if (hasNewline || startWs === 0 || i === str.length) {
+        normalized += ' '
+        let mappedIndex = startWs
+        if (hasNewline) {
+          mappedIndex = lastNewline + 1
+          if (mappedIndex === i) {
+            mappedIndex = startWs // Fallback if no trailing spaces
+          }
+        }
+        mapping.push(mappedIndex)
+      } else {
+        // Otherwise, it's inline whitespace (e.g., separating tokens). Preserve it exactly.
+        for (let j = startWs; j < i; j++) {
+          normalized += str[j]
+          mapping.push(j)
+        }
+      }
+    }
+  }
+
+  return { normalized, mapping }
+}
+
 /**
- * Finds a substring within fileContent that matches searchString, ignoring all whitespace characters
- * (spaces, tabs, newlines). If exactly one match is found, returns the exact substring from fileContent
- * (including its original whitespace). Otherwise, returns null.
+ * Finds a substring within fileContent that matches searchString, ignoring formatting differences
+ * by compressing only line-endings and indentation into a single space, while strictly preserving
+ * inline spaces to prevent token boundary corruption (like merging operators or words).
+ * If exactly one match is found, returns the exact substring from fileContent.
  */
 export function findWhitespaceAgnosticMatch(
   fileContent: string,
   searchString: string,
 ): string | null {
-  const compressedSearch = searchString.replace(/\s+/g, '')
-  if (compressedSearch.length === 0) return null
+  const search = normalizeIndentation(searchString)
+  if (search.normalized.trim().length === 0) return null
 
-  let compressedFile = ''
-  const mapping: number[] = []
+  const file = normalizeIndentation(fileContent)
 
-  for (let i = 0; i < fileContent.length; i++) {
-    if (!/\s/.test(fileContent[i]!)) {
-      compressedFile += fileContent[i]
-      mapping.push(i)
-    }
-  }
-
-  const matchIndex = compressedFile.indexOf(compressedSearch)
+  const matchIndex = file.normalized.indexOf(search.normalized)
   if (matchIndex === -1) return null
 
   // Ensure the match is unique to avoid replacing the wrong block
-  const nextMatchIndex = compressedFile.indexOf(
-    compressedSearch,
+  const nextMatchIndex = file.normalized.indexOf(
+    search.normalized,
     matchIndex + 1,
   )
   if (nextMatchIndex !== -1) {
     return null
   }
 
-  const originalStart = mapping[matchIndex]
-  const originalEnd = mapping[matchIndex + compressedSearch.length - 1]
+  const originalStart = file.mapping[matchIndex]
+  const originalEnd = file.mapping[matchIndex + search.normalized.length - 1]
 
   if (originalStart === undefined || originalEnd === undefined) return null
 
-  return fileContent.substring(originalStart, originalEnd + 1)
+  let start = originalStart
+  let end = originalEnd
+
+  // If caller included boundary whitespace, keep equivalent boundary whitespace
+  // from the file so replacement does not duplicate/misplace indentation.
+  if (/^[ \t]/.test(searchString)) {
+    while (start > 0 && /[ \t]/.test(fileContent[start - 1]!)) start--
+  } else if (/^\s/.test(searchString)) {
+    while (start > 0 && /\s/.test(fileContent[start - 1]!)) start--
+  }
+
+  if (/[ \t]$/.test(searchString)) {
+    while (end + 1 < fileContent.length && /[ \t]/.test(fileContent[end + 1]!)) {
+      end++
+    }
+  } else if (/\s$/.test(searchString)) {
+    while (end + 1 < fileContent.length && /\s/.test(fileContent[end + 1]!)) {
+      end++
+    }
+  }
+
+  return fileContent.substring(start, end + 1)
 }
