@@ -21,6 +21,7 @@ import { getCwd, runWithCwdOverride } from '../../utils/cwd.js';
 import { logForDebugging } from '../../utils/debug.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import {
+  getCopilotMaxConcurrentSubagents,
   shouldForceSyncSubagentsInCopilotMode,
   shouldSuppressSubagentsInCopilotMode,
 } from '../../utils/copilotOptimization.js';
@@ -1317,7 +1318,11 @@ export const AgentTool = buildTool({
     return `${prefix}${i.prompt}`;
   },
   isConcurrencySafe() {
-    return true;
+    // When Copilot sub-agent concurrency is capped, force serial execution
+    // via the tool scheduler so at most one sub-agent runs at a time.
+    // A single assistant message with multiple Agent/Task calls could
+    // otherwise bypass the cap through the scheduler's concurrent batching.
+    return !(getCopilotMaxConcurrentSubagents() > 0)
   },
   userFacingName,
   userFacingNameBackgroundColor,
