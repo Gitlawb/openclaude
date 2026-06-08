@@ -94,9 +94,9 @@ function compactBoundary(
 }
 
 function snipBoundary(
-  uuid: string,
-  parentUuid: string | null,
-  removedUuids: string[],
+  uuid: UUID,
+  parentUuid: UUID | null,
+  removedUuids: UUID[],
 ) {
   return {
     ...base(uuid, parentUuid),
