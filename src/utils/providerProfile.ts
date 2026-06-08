@@ -1593,7 +1593,6 @@ export async function buildStartupEnvFromProfile(options?: {
   persisted?: ProfileFile | null
   goal?: RecommendationGoal
   processEnv?: NodeJS.ProcessEnv
-  hasConfiguredProviderProfile?: boolean
   getOllamaChatBaseUrl?: (baseUrl?: string) => string
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
   readGeminiAccessToken?: () => string | undefined
@@ -1603,8 +1602,6 @@ export async function buildStartupEnvFromProfile(options?: {
     options && 'persisted' in options ? options.persisted : loadProfileFile()
 
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  const hasConfiguredProviderProfile =
-    options?.hasConfiguredProviderProfile ?? false
 
   // The single-profile file in the user config directory is a
   // first-run / fallback mechanism. The newer plural provider-profile
@@ -1622,15 +1619,10 @@ export async function buildStartupEnvFromProfile(options?: {
     return processEnv
   }
 
-  // If startup already has a concrete provider selection and the modern
-  // plural-profile system is configured, keep trusting that selection.
-  // This prevents the legacy single-profile file from becoming a silent
-  // third precedence layer when `/provider` profiles or explicit env/flags
-  // already chose a provider before startup fallback runs.
-  if (
-    hasConfiguredProviderProfile &&
-    hasConcreteProviderSelection(processEnv)
-  ) {
+  // If startup already has a concrete provider selection, keep trusting it.
+  // This prevents legacy profiles or the fresh-install default from becoming
+  // a silent third precedence layer over explicit env/flags.
+  if (hasConcreteProviderSelection(processEnv)) {
     return processEnv
   }
 

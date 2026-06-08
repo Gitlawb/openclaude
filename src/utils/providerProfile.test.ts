@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test, { afterEach, beforeEach } from 'node:test'
 
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
+import { resolveActiveRouteIdFromEnv } from '../integrations/routeMetadata.js'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import {
   applySavedProfileToCurrentSession,
@@ -252,6 +253,25 @@ test('buildStartupEnvFromProfile defaults fresh installs to Gitlawb Opengateway'
   assert.equal(env.OPENAI_BASE_URL, 'https://opengateway.gitlawb.com/v1')
   assert.equal(env.OPENAI_MODEL, 'mimo-v2.5-pro')
   assert.equal(isDefaultStartupProviderEnv(env), true)
+})
+
+test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env without a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'sk-live',
+      OPENAI_BASE_URL: 'http://common.example.com/v1',
+      OPENAI_MODEL: 'gemma-4-31B-it',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+  assert.equal(env.OPENAI_BASE_URL, 'http://common.example.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gemma-4-31B-it')
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'custom')
+  assert.equal(isDefaultStartupProviderEnv(env), false)
 })
 
 test('openai launch preserves shell responses format and custom auth overrides', async () => {
@@ -1057,13 +1077,11 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
     processEnv,
   })
 
-  // Remove the strict object equality check: assert.equal(env, processEnv)
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
   assert.equal(env.GEMINI_API_KEY, 'gem-live')
   assert.equal(env.GEMINI_MODEL, 'gemini-2.0-flash')
-  // Add the new default fields injected by the function
-  assert.equal(env.GEMINI_BASE_URL, 'https://generativelanguage.googleapis.com/v1beta/openai')
-  assert.equal(env.GEMINI_AUTH_MODE, 'api-key')
+  assert.equal(env.GEMINI_BASE_URL, undefined)
+  assert.equal(env.GEMINI_AUTH_MODE, undefined)
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 
@@ -1275,7 +1293,7 @@ test('buildStartupEnvFromProfile preserves plural-profile env when the legacy fi
   assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, 'saved_moonshot')
 })
 
-test('buildStartupEnvFromProfile ignores the legacy file when a configured provider profile already selected a concrete env', async () => {
+test('buildStartupEnvFromProfile ignores the legacy file when startup already has concrete env', async () => {
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_OPENAI: '1',
     OPENAI_BASE_URL: 'https://api.moonshot.ai/v1',
@@ -1289,7 +1307,6 @@ test('buildStartupEnvFromProfile ignores the legacy file when a configured provi
       OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
     }),
     processEnv,
-    hasConfiguredProviderProfile: true,
   })
 
   assert.equal(env, processEnv)
@@ -1321,7 +1338,7 @@ test('buildStartupEnvFromProfile falls back to legacy file when plural system ha
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
 })
 
-test('buildStartupEnvFromProfile still falls back to the legacy file when configured profiles exist but startup env is incomplete', async () => {
+test('buildStartupEnvFromProfile falls back to the legacy file when startup env is incomplete', async () => {
   const processEnv = {
     CLAUDE_CODE_USE_OPENAI: '1',
   }
@@ -1333,7 +1350,6 @@ test('buildStartupEnvFromProfile still falls back to the legacy file when config
       OPENAI_BASE_URL: 'https://api.openai.com/v1',
     }),
     processEnv,
-    hasConfiguredProviderProfile: true,
   })
 
   assert.notEqual(env, processEnv)
@@ -1342,7 +1358,7 @@ test('buildStartupEnvFromProfile still falls back to the legacy file when config
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
 })
 
-test('buildStartupEnvFromProfile ignores falsey provider flags when deciding whether a configured profile already selected startup env', async () => {
+test('buildStartupEnvFromProfile ignores falsey provider flags when deciding whether startup env is concrete', async () => {
   const processEnv = {
     CLAUDE_CODE_USE_OPENAI: '0',
     OPENAI_BASE_URL: 'https://api.stale.example/v1',
@@ -1356,7 +1372,6 @@ test('buildStartupEnvFromProfile ignores falsey provider flags when deciding whe
       OPENAI_BASE_URL: 'https://api.openai.com/v1',
     }),
     processEnv,
-    hasConfiguredProviderProfile: true,
   })
 
   assert.notEqual(env, processEnv)
