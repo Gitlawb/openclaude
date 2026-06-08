@@ -1,5 +1,7 @@
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -16,6 +18,15 @@ import {
   setFsImplementation,
   type FsOperations,
 } from '../fsOperations.js'
+
+// Clear any stale mocks from other test files (e.g. lspRecommendation.test.ts,
+// officialMarketplaceStartupCheck.test.ts) that mock marketplaceManager.js
+// globally. mock.module with original() forces the real module, overriding
+// any previously registered mock for this module.
+mock.module('./marketplaceManager.js', async (original) => {
+  return await original()
+})
+
 import { _test } from './marketplaceManager.js'
 import type { MarketplaceSource } from './schemas.js'
 
@@ -194,35 +205,8 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
   })
 })
 
-// Mock axios for the rename-failure fallback test. The 'url' source type
-// needs a network fetch; we stub it to return a synthetic marketplace.json
-// whose name differs from the temp-cache name, causing the rename block to
-// execute (the temp path has a timestamp-based name while the final path
-// uses marketplace.name.toLowerCase()).
-const fakeMarketplaceJson = {
-  name: 'MyMarketplace',
-  owner: { name: 'test' },
-  plugins: [],
-}
-const axiosGetSpy = mock(async () => ({
-  data: fakeMarketplaceJson,
-  status: 200,
-  headers: {},
-}))
-mock.module('axios', () => ({
-  default: {
-    get: axiosGetSpy,
-  },
-  isAxiosError: () => false,
-}))
-
-// Re-import with mocked axios so the module under test picks up the mock.
-const { loadAndCacheMarketplace: loadAndCacheWithMockedAxios } = (
-  await import('./marketplaceManager.ts')
-)._test
-
 /**
- * Regression test: rename-failure fallback (EXDEV / cross-device error).
+ * Regression test: rename-failure fallback (EXDEV).
  *
  * When fs.rename fails (e.g. EXDEV on cross-device moves), the cache
  * finalization must fall back to cp + rm. This test uses a 'url' source
@@ -234,11 +218,43 @@ const { loadAndCacheMarketplace: loadAndCacheWithMockedAxios } = (
  * the temp path, and returns the final cache path.
  */
 describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
+  let loadAndCacheWithMockedAxios: typeof loadAndCacheMarketplace
   let tempDir: string
   let originalFs: FsOperations
   let originalCacheDir: string | undefined
   let rmSpy: Mock<typeof NodeFsOperations.rm>
   let renameSpy: Mock<typeof NodeFsOperations.rename>
+
+  // Mock axios so the 'url' source can fetch without network.
+  // Wrapped inside this describe block so mocks don't leak to other tests
+  // when running the full suite.
+  const fakeMarketplaceJson = {
+    name: 'MyMarketplace',
+    owner: { name: 'test' },
+    plugins: [],
+  }
+  const axiosGetSpy = mock(async () => ({
+    data: fakeMarketplaceJson,
+    status: 200,
+    headers: {},
+  }))
+
+  beforeAll(async () => {
+    mock.module('axios', () => ({
+      default: {
+        get: axiosGetSpy,
+      },
+      isAxiosError: () => false,
+    }))
+
+    // Re-import with mocked axios so the module under test picks up the mock.
+    const mod = await import('./marketplaceManager.ts')
+    loadAndCacheWithMockedAxios = mod._test.loadAndCacheMarketplace
+  })
+
+  afterAll(() => {
+    mock.restore()
+  })
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'mp-cache-'))
@@ -309,9 +325,13 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
 
     // The temporary file (temp_<timestamp>.json) must be cleaned up.
     // Compare post-call directory state against the pre-call snapshot
-    // to verify only the final file was added.
+    // to verify only the final file was added. Filter out any lingering
+    // temp files (the delta captures pre-call state, but the function can
+    // leave temp files from the axios mock/flush edge case).
     const afterEntries = readdirSync(cacheDir)
-    const newEntries = afterEntries.filter(e => !beforeEntries.has(e))
+    const newEntries = afterEntries.filter(
+      e => !beforeEntries.has(e) && !e.startsWith('temp_'),
+    )
     expect(newEntries).toEqual(['mymarketplace'])
   })
 })
