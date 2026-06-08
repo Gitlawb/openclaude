@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
 import {
   achieveGoal,
@@ -7,7 +7,7 @@ import {
 } from '../../services/goal/state.js'
 import { getDefaultAppState, type AppState } from '../../state/AppStateStore.js'
 import type { LocalCommandResult } from '../../types/command.js'
-import { call } from './goal.js'
+import { call, createGoalCall } from './goal.js'
 
 type TextCommandResult = Extract<LocalCommandResult, { type: 'text' }>
 
@@ -32,10 +32,6 @@ function makeContext(initialGoal: AppState['goal'] = null) {
     getState: () => state,
   }
 }
-
-afterEach(() => {
-  mock.restore()
-})
 
 describe('/goal command', () => {
   test('/goal shows no goal status', async () => {
@@ -172,14 +168,9 @@ describe('/goal command', () => {
   })
 
   test('/goal does not mutate in-memory state when persistence fails', async () => {
-    mock.module('../../services/goal/persistence.js', () => ({
-      saveGoalState: async () => {
-        throw new Error('persist failed')
-      },
-    }))
-    const { call: callWithFailingPersistence } = await import(
-      `./goal.ts?persistFail=${Date.now()}-${Math.random()}`
-    )
+    const callWithFailingPersistence = createGoalCall(async () => {
+      throw new Error('persist failed')
+    })
     const cases = [
       {
         action: 'new persisted goal',

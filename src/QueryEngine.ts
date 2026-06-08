@@ -32,7 +32,7 @@ import {
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import { loadMemoryPrompt } from './memdir/memdir.js'
 import { hasAutoMemPathOverride } from './memdir/paths.js'
-import { query } from './query.js'
+import { query as defaultQuery } from './query.js'
 import { categorizeRetryableAPIError } from './services/api/errors.js'
 import type { AutoCompactTrackingState } from './services/compact/autoCompact.js'
 import { toSDKGoalStatusMessage } from './services/goal/sdk.js'
@@ -171,6 +171,7 @@ export type QueryEngineConfig = {
     yieldedSystemMsg: Message,
     store: Message[],
   ) => { messages: Message[]; executed: boolean } | undefined
+  query?: typeof defaultQuery
 }
 
 /**
@@ -681,7 +682,8 @@ export class QueryEngine {
       ? countToolCalls(this.mutableMessages, SYNTHETIC_OUTPUT_TOOL_NAME)
       : 0
 
-    for await (const message of query({
+    const runQuery = this.config.query ?? defaultQuery
+    for await (const message of runQuery({
       messages,
       systemPrompt,
       userContext,

@@ -55,4 +55,29 @@ describe('QueryEngine goal status visibility', () => {
     expect(goalStatusMessage?.parent_tool_use_id).toBeNull()
     expect(goalStatusMessage?.uuid).toBe(systemMessage.uuid)
   })
+
+  test('QueryEngine.submitMessage forwards goal status as SDK assistant output', async () => {
+    const proc = Bun.spawn(
+      [process.execPath, 'src/test/fixtures/queryEngineGoalStatus.fixture.ts'],
+      {
+        cwd: process.cwd(),
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    )
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+
+    expect(
+      { exitCode, stderr, stdout },
+      `fixture failed\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+    ).toEqual({
+      exitCode: 0,
+      stderr: '',
+      stdout: '',
+    })
+  })
 })

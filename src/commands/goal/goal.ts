@@ -9,6 +9,8 @@ import {
 } from '../../services/goal/state.js'
 import type { GoalState } from '../../services/goal/types.js'
 
+type SaveGoalState = typeof saveGoalState
+
 const CLEAR_ALIASES = new Set([
   'clear',
   'stop',
@@ -54,9 +56,10 @@ function formatStatus(goal: GoalState | null): string {
 async function setGoal(
   condition: string,
   context: Parameters<LocalCommandCall>[1],
+  persistGoalState: SaveGoalState,
 ) {
   const goal = createGoalState(condition)
-  await saveGoalState(goal)
+  await persistGoalState(goal)
   context.setAppState(prev => ({ ...prev, goal }))
   return {
     type: 'text' as const,
@@ -66,63 +69,69 @@ async function setGoal(
   }
 }
 
-export const call: LocalCommandCall = async (args, context) => {
-  const raw = args.trim()
-  const action = raw.toLowerCase()
-  const currentGoal = context.getAppState().goal ?? null
+export function createGoalCall(
+  persistGoalState: SaveGoalState = saveGoalState,
+): LocalCommandCall {
+  return async (args, context) => {
+    const raw = args.trim()
+    const action = raw.toLowerCase()
+    const currentGoal = context.getAppState().goal ?? null
 
-  if (!raw) {
-    return { type: 'text', value: formatStatus(currentGoal) }
-  }
-
-  if (action === 'status') {
-    return { type: 'text', value: formatStatus(currentGoal) }
-  }
-
-  if (CLEAR_ALIASES.has(action)) {
-    await saveGoalState(null)
-    context.setAppState(prev => ({ ...prev, goal: null }))
-    return { type: 'text', value: 'Goal cleared.' }
-  }
-
-  if (action === 'pause') {
-    if (!currentGoal || currentGoal.status !== 'active') {
-      return { type: 'text', value: 'No active goal to pause.' }
+    if (!raw) {
+      return { type: 'text', value: formatStatus(currentGoal) }
     }
-    const paused = pauseGoal(currentGoal)
-    await saveGoalState(paused)
-    context.setAppState(prev => ({ ...prev, goal: paused }))
-    return { type: 'text', value: 'Goal paused.' }
-  }
 
-  if (action === 'resume') {
-    if (!currentGoal) {
-      return { type: 'text', value: 'No paused goal to resume.' }
+    if (action === 'status') {
+      return { type: 'text', value: formatStatus(currentGoal) }
     }
-    if (currentGoal.status !== 'paused' && currentGoal.status !== 'active') {
+
+    if (CLEAR_ALIASES.has(action)) {
+      await persistGoalState(null)
+      context.setAppState(prev => ({ ...prev, goal: null }))
+      return { type: 'text', value: 'Goal cleared.' }
+    }
+
+    if (action === 'pause') {
+      if (!currentGoal || currentGoal.status !== 'active') {
+        return { type: 'text', value: 'No active goal to pause.' }
+      }
+      const paused = pauseGoal(currentGoal)
+      await persistGoalState(paused)
+      context.setAppState(prev => ({ ...prev, goal: paused }))
+      return { type: 'text', value: 'Goal paused.' }
+    }
+
+    if (action === 'resume') {
+      if (!currentGoal) {
+        return { type: 'text', value: 'No paused goal to resume.' }
+      }
+      if (currentGoal.status !== 'paused' && currentGoal.status !== 'active') {
+        return {
+          type: 'text',
+          value: `Cannot resume a ${currentGoal.status} goal.`,
+        }
+      }
+      const resumed = resumeGoal(currentGoal)
+      await persistGoalState(resumed)
+      context.setAppState(prev => ({ ...prev, goal: resumed }))
       return {
         type: 'text',
-        value: `Cannot resume a ${currentGoal.status} goal.`,
+        value:
+          currentGoal.status === 'active'
+            ? 'Goal already active; continuing.'
+            : 'Goal resumed.',
+        shouldQuery: true,
+        metaMessages: [buildGoalStartInstruction(resumed)],
       }
     }
-    const resumed = resumeGoal(currentGoal)
-    await saveGoalState(resumed)
-    context.setAppState(prev => ({ ...prev, goal: resumed }))
-    return {
-      type: 'text',
-      value:
-        currentGoal.status === 'active'
-          ? 'Goal already active; continuing.'
-          : 'Goal resumed.',
-      shouldQuery: true,
-      metaMessages: [buildGoalStartInstruction(resumed)],
+
+    const validated = validateGoalCondition(raw)
+    if (!validated.ok) {
+      return { type: 'text', value: validated.error }
     }
-  }
 
-  const validated = validateGoalCondition(raw)
-  if (!validated.ok) {
-    return { type: 'text', value: validated.error }
+    return setGoal(validated.condition, context, persistGoalState)
   }
-
-  return setGoal(validated.condition, context)
 }
+
+export const call: LocalCommandCall = createGoalCall()
