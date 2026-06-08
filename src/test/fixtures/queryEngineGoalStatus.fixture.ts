@@ -7,9 +7,11 @@ import { join } from 'node:path'
 const fixtureCwd = mkdtempSync(join(tmpdir(), 'openclaude-query-engine-goal-'))
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalNodeEnv = process.env.NODE_ENV
+const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY
 
 try {
   process.env.NODE_ENV = 'test'
+  process.env.ANTHROPIC_API_KEY = 'test-api-key'
   mock.module('src/entrypoints/agentSdkTypes.js', () => ({
     EXIT_REASONS: [],
     HOOK_EVENTS: [],
@@ -89,6 +91,11 @@ try {
     delete process.env.NODE_ENV
   } else {
     process.env.NODE_ENV = originalNodeEnv
+  }
+  if (originalAnthropicApiKey === undefined) {
+    delete process.env.ANTHROPIC_API_KEY
+  } else {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey
   }
   rmSync(fixtureCwd, { recursive: true, force: true })
 }
