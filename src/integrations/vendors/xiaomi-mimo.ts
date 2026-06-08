@@ -10,22 +10,10 @@ const catalog = defineCatalog({
       modelDescriptorId: 'mimo-v2.5-pro',
     },
     {
-      id: 'mimo-v2-pro',
-      apiName: 'mimo-v2-pro',
-      label: 'MiMo V2 Pro',
-      modelDescriptorId: 'mimo-v2-pro',
-    },
-    {
       id: 'mimo-v2.5',
       apiName: 'mimo-v2.5',
       label: 'MiMo V2.5',
       modelDescriptorId: 'mimo-v2.5',
-    },
-    {
-      id: 'mimo-v2-omni',
-      apiName: 'mimo-v2-omni',
-      label: 'MiMo V2 Omni',
-      modelDescriptorId: 'mimo-v2-omni',
     },
     {
       id: 'mimo-v2-flash',

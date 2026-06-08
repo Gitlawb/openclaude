@@ -205,6 +205,39 @@ describe('package consumer types', () => {
 
     expect(tsc(tmpDir)).toBe('')
   }, 30_000)
+
+  test('control initialize response accepts generated model and account values', () => {
+    const tmpDir = setupConsumerProject('control-init')
+
+    writeFileSync(
+      join(tmpDir, 'consumer.ts'),
+      [
+        `import type { SDKControlInitializeResponse, ModelInfo } from '@gitlawb/openclaude/sdk'`,
+        ``,
+        `const models: ModelInfo[] = [{`,
+        `  value: 'claude-opus-4-6',`,
+        `  displayName: 'Claude Opus 4.6',`,
+        `  description: 'Most capable model',`,
+        `  supportsEffort: true,`,
+        `  supportedEffortLevels: ['low', 'medium', 'high', 'max'],`,
+        `}]`,
+        ``,
+        `const response: SDKControlInitializeResponse = {`,
+        `  commands: [],`,
+        `  agents: [],`,
+        `  output_style: 'default',`,
+        `  available_output_styles: ['default'],`,
+        `  models,`,
+        `  account: { apiProvider: 'openai' },`,
+        `  pid: 1234,`,
+        `}`,
+        ``,
+        `console.log(response)`,
+      ].join('\n'),
+    )
+
+    expect(tsc(tmpDir)).toBe('')
+  }, 30_000)
 })
 
 describe('package exports resolution', () => {

@@ -122,9 +122,6 @@ const getCoordinatorUserContext: (
 
 // Dead code elimination: conditional import for snip compaction
 /* eslint-disable @typescript-eslint/no-require-imports */
-const snipModule = feature('HISTORY_SNIP')
-  ? (require('./services/compact/snipCompact.js') as typeof import('./services/compact/snipCompact.js'))
-  : null
 const snipProjection = feature('HISTORY_SNIP')
   ? (require('./services/compact/snipProjection.js') as typeof import('./services/compact/snipProjection.js'))
   : null
@@ -338,7 +335,7 @@ export class QueryEngine {
 
     let processUserInputContext: ProcessUserInputContext = {
       messages: this.mutableMessages,
-      // Slash commands that mutate the message array (e.g. /force-snip)
+      // Slash commands that mutate the message array (e.g. /clear)
       // call setMessages(fn).  In interactive mode this writes back to
       // AppState; in print mode we write back to mutableMessages so the
       // rest of the query loop (push at :389, snapshot at :392) sees
@@ -938,6 +935,19 @@ export class QueryEngine {
             if (snipResult.executed) {
               this.mutableMessages.length = 0
               this.mutableMessages.push(...snipResult.messages)
+              // Persist the snip boundary so a resumed session replays the same
+              // removal. recordTranscript is append-only by UUID, so the
+              // pre-snip messages already on disk remain; appending this
+              // boundary (which carries snipMetadata.removedUuids) lets
+              // applySnipRemovals prune them in loadTranscriptFile(). Without
+              // this, --resume/restart rebuilds the un-snipped history and the
+              // context reduction is lost. Mirror the boundary into the local
+              // `messages` recording copy — like the compact_boundary path —
+              // so later writes and the parent chain stay consistent.
+              messages.push(message)
+              if (persistSession) {
+                await recordTranscript(messages)
+              }
             }
             break
           }
@@ -1430,7 +1440,17 @@ export async function* ask({
           snipReplay: (yielded: Message, store: Message[]) => {
             if (!snipProjection!.isSnipBoundaryMessage(yielded))
               return undefined
-            return snipModule!.snipCompactIfNeeded(store, { force: true })
+            // The pending set was already consumed in query.ts when the
+            // boundary was produced, so prune the store by the boundary's own
+            // removedUuids. Keep the boundary as the marker for later replays.
+            const projected = snipProjection!.projectSnippedView([
+              ...store,
+              yielded,
+            ])
+            return {
+              messages: projected,
+              executed: projected.length !== store.length + 1,
+            }
           },
         }
       : {}),
