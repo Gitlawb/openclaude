@@ -590,12 +590,26 @@ export const AgentTool = buildTool({
       const reason = isEnvTruthy(process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS)
         ? 'GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS=1'
         : `GITHUB_COPILOT_MAX_SUBAGENTS=${getCopilotMaxConcurrentSubagents()} (concurrency capped)`;
+      // The remediation depends on the actual cause:
+      //   - FORCE_SYNC=1 → user must unset it (or set OPTIMIZATION_DISABLED=1)
+      //   - MAX=0 → sub-agents are suppressed (NOT just forced sync) — user must
+      //     raise MAX to >=1 or set ALLOW_SUBAGENTS=1
+      //   - MAX>=1 → sub-agents run synchronously one-at-a-time; to restore
+      //     parallel execution set ALLOW_SUBAGENTS=1 or OPTIMIZATION_DISABLED=1
+      const isForcedSync = isEnvTruthy(
+        process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS,
+      );
+      const remediation = isForcedSync
+        ? 'Unset GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS, or set GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, ' +
+          'to allow background sub-agents.'
+        : getCopilotMaxConcurrentSubagents() === 0
+        ? 'Set GITHUB_COPILOT_MAX_SUBAGENTS=1 (or higher) along with GITHUB_COPILOT_ALLOW_SUBAGENTS=1, ' +
+          'or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, to allow background sub-agents.'
+        : 'Set GITHUB_COPILOT_ALLOW_SUBAGENTS=1, or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, ' +
+          'to allow background sub-agents.';
       logForDebugging(
         `[CopilotOptimization] Agent '${selectedAgent.agentType}' forced to synchronous execution ` +
-        `because ${reason}. ` +
-        `Set GITHUB_COPILOT_MAX_SUBAGENTS=0, GITHUB_COPILOT_ALLOW_SUBAGENTS=1, ` +
-        `or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1 ` +
-        `to allow background sub-agents.`,
+        `because ${reason}. ${remediation}`,
       );
     }
     // Assemble the worker's tool pool independently of the parent's.

@@ -14,6 +14,13 @@ import { getAPIProvider } from './model/providers.js'
  * default with a max sub-agent concurrency of 1. To customize behavior:
  *
  *   GITHUB_COPILOT_MAX_SUBAGENTS=N       Max concurrent sub-agents (default: 1).
+ *                                        Only 0 and 1 are enforced at runtime:
+ *                                          0 → sub-agents are suppressed entirely
+ *                                          1 → sub-agents run synchronously (one at a time)
+ *                                        Values 2-10 are parsed and clamped but have
+ *                                        no enforced effect — setting N=3 does NOT
+ *                                        limit concurrency to 3; it behaves the same
+ *                                        as N=1 (synchronous, one at a time).
  *                                        Set to 0 to disable sub-agents entirely.
  *   GITHUB_COPILOT_ALLOW_SUBAGENTS=1     Re-enable background/parallel sub-agents
  *                                        even when MAX_SUBAGENTS is constrained.

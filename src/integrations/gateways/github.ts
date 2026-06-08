@@ -18,8 +18,8 @@ import { defineGateway } from '../define.js'
  * per chat interaction (one per agent per turn), rapidly depleting the quota.
  *
  * By default, when CLAUDE_CODE_USE_GITHUB=1 is active, OpenClaude limits
- * sub-agents to synchronous in-process execution (max 1 concurrent) to reduce
- * Premium Request consumption. Configure these env vars to tune behaviour:
+ * sub-agents to synchronous in-process execution (max 1 concurrent) to mitigate
+ * Premium Request consumption (mitigates #678). Configure these env vars to tune behaviour:
  *
  *   GITHUB_COPILOT_MAX_SUBAGENTS=0          Disable sub-agents entirely (most conservative)
  *   GITHUB_COPILOT_MAX_SUBAGENTS=1          One sub-agent at a time (default when unset)
