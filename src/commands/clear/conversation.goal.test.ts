@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
+import {
+  getSessionId,
+  getSessionProjectDir,
+  switchSession,
+} from '../../bootstrap/state.js'
 import { createGoalState } from '../../services/goal/state.js'
 import { getDefaultAppState, type AppState } from '../../state/AppStateStore.js'
 import { clearConversation } from './conversation.js'
@@ -7,6 +12,8 @@ import { clearConversation } from './conversation.js'
 describe('/clear goal lifecycle', () => {
   test('/clear clears active goal state', async () => {
     const previousBareMode = process.env.CLAUDE_CODE_SIMPLE
+    const previousSessionId = getSessionId()
+    const previousSessionProjectDir = getSessionProjectDir()
     process.env.CLAUDE_CODE_SIMPLE = '1'
     let state: AppState = {
       ...getDefaultAppState(),
@@ -33,6 +40,7 @@ describe('/clear goal lifecycle', () => {
       } else {
         process.env.CLAUDE_CODE_SIMPLE = previousBareMode
       }
+      switchSession(previousSessionId, previousSessionProjectDir)
     }
 
     expect(state.goal).toBeNull()

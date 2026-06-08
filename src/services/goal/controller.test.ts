@@ -6,6 +6,7 @@ import {
   evaluateGoalAfterTurn,
   type GoalEvaluationDeps,
 } from './controller.js'
+import type { GoalState } from './types.js'
 
 function assistant(uuid: string, text: string) {
   return {
@@ -80,6 +81,45 @@ describe('goal continuation controller', () => {
     expect(returned).toEqual([])
     expect(getState().goal?.status).toBe('achieved')
     expect(yielded[0]?.content).toContain('Goal achieved:')
+  })
+
+  test('goal persistence failures are reported without failing the turn', async () => {
+    const { context, getState } = makeContext()
+    const persistenceError = new Error('write failed')
+    let observedGoal: GoalState | null | undefined
+    let observedError: unknown
+    const deps: GoalEvaluationDeps = {
+      evaluateGoal: async () => ({
+        complete: true,
+        confidence: 0.9,
+        decision: 'complete',
+        reason: 'Everything requested is done.',
+        nextInstruction: null,
+      }),
+      saveGoalState: async () => {
+        throw persistenceError
+      },
+      logGoalPersistenceFailure: (goal, error) => {
+        observedGoal = goal
+        observedError = error
+      },
+    }
+
+    const { yielded, returned } = await drain(
+      evaluateGoalAfterTurn({
+        messagesForQuery: [],
+        assistantMessages: [assistant('assistant-1', 'Done.')],
+        toolUseContext: context,
+        querySource: 'sdk',
+        deps,
+      }),
+    )
+
+    expect(returned).toEqual([])
+    expect(getState().goal?.status).toBe('achieved')
+    expect(yielded[0]?.content).toContain('Goal achieved:')
+    expect(observedGoal?.id).toBe(getState().goal?.id)
+    expect(observedError).toBe(persistenceError)
   })
 
   test('evaluator incomplete => blocking/meta continuation message returned', async () => {

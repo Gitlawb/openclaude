@@ -1,7 +1,10 @@
+import { getSessionId } from '../../bootstrap/state.js'
 import type { QuerySource } from '../../constants/querySource.js'
 import { getTotalCost as getTotalCostDefault } from '../../cost-tracker.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
+import { logForDebugging } from '../../utils/debug.js'
+import { logForDiagnosticsNoPII } from '../../utils/diagLogs.js'
 import { createSystemMessage, createUserMessage } from '../../utils/messages.js'
 import { evaluateGoal as evaluateGoalDefault } from './evaluator.js'
 import { buildGoalContinuationInstruction } from './instructions.js'
@@ -17,10 +20,17 @@ import {
 import type { GoalState } from './types.js'
 
 const GOAL_EVALUATION_MESSAGE_LIMIT = 24
+const GOAL_PERSISTENCE_ERROR_MESSAGE_LIMIT = 500
+
+type GoalPersistenceFailureLogger = (
+  goal: GoalState | null,
+  error: unknown,
+) => void
 
 export type GoalEvaluationDeps = {
   evaluateGoal?: typeof evaluateGoalDefault
   getTotalCost?: typeof getTotalCostDefault
+  logGoalPersistenceFailure?: GoalPersistenceFailureLogger
   saveGoalState?: typeof saveGoalStateDefault
 }
 
@@ -60,12 +70,59 @@ function getRecentGoalEvaluationMessages(
 async function persistGoal(
   saveGoalState: typeof saveGoalStateDefault,
   goal: GoalState | null,
+  logGoalPersistenceFailure: GoalPersistenceFailureLogger,
 ): Promise<void> {
   try {
     await saveGoalState(goal)
-  } catch {
+  } catch (error) {
     // Goal persistence is important for resume, but should not crash a turn.
+    logGoalPersistenceFailure(goal, error)
   }
+}
+
+function describeGoalPersistenceError(error: unknown): {
+  name: string
+  message: string
+} {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message }
+  }
+  return { name: typeof error, message: String(error) }
+}
+
+function formatGoalPersistenceErrorMessage(message: string): string {
+  return message
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, GOAL_PERSISTENCE_ERROR_MESSAGE_LIMIT)
+}
+
+function logGoalPersistenceFailureDefault(
+  goal: GoalState | null,
+  error: unknown,
+): void {
+  const sessionId = getSessionId()
+  const { name, message } = describeGoalPersistenceError(error)
+  const goalId = goal?.id ?? null
+  const goalStatus = goal?.status ?? null
+
+  logForDiagnosticsNoPII('warn', 'goal_persistence_failed', {
+    session_id: sessionId,
+    goal_id: goalId,
+    goal_status: goalStatus,
+    error_name: name,
+  })
+  logForDebugging(
+    [
+      'Goal persistence failed',
+      `session_id=${sessionId}`,
+      `goal_id=${goalId ?? 'none'}`,
+      `goal_status=${goalStatus ?? 'none'}`,
+      `error_name=${name}`,
+      `error_message=${formatGoalPersistenceErrorMessage(message)}`,
+    ].join(' '),
+    { level: 'warn' },
+  )
 }
 
 export async function* evaluateGoalAfterTurn({
@@ -83,6 +140,8 @@ export async function* evaluateGoalAfterTurn({
 }): AsyncGenerator<Message, Message[]> {
   const evaluateGoal = deps.evaluateGoal ?? evaluateGoalDefault
   const getTotalCost = deps.getTotalCost ?? getTotalCostDefault
+  const logGoalPersistenceFailure =
+    deps.logGoalPersistenceFailure ?? logGoalPersistenceFailureDefault
   const saveGoalState = deps.saveGoalState ?? saveGoalStateDefault
   const terminalUuid = terminalAssistantUuid(assistantMessages)
   const appState = toolUseContext.getAppState()
@@ -98,7 +157,7 @@ export async function* evaluateGoalAfterTurn({
   if (goal.turnCount >= goal.maxTurns) {
     const paused = pauseGoalAtMaxTurns(goal, terminalUuid, nowIso())
     toolUseContext.setAppState(prev => ({ ...prev, goal: paused }))
-    await persistGoal(saveGoalState, paused)
+    await persistGoal(saveGoalState, paused, logGoalPersistenceFailure)
     yield createSystemMessage(
       paused.lastReason ??
         'Goal paused: automatic continuation has been paused.',
@@ -134,7 +193,7 @@ export async function* evaluateGoalAfterTurn({
       nextInstruction: decision.nextInstruction,
     })
     toolUseContext.setAppState(prev => ({ ...prev, goal: achieved }))
-    await persistGoal(saveGoalState, achieved)
+    await persistGoal(saveGoalState, achieved, logGoalPersistenceFailure)
     yield createSystemMessage(`Goal achieved: ${decision.reason}`, 'info')
     return []
   }
@@ -152,7 +211,7 @@ export async function* evaluateGoalAfterTurn({
       now,
     )
     toolUseContext.setAppState(prev => ({ ...prev, goal: paused }))
-    await persistGoal(saveGoalState, paused)
+    await persistGoal(saveGoalState, paused, logGoalPersistenceFailure)
     yield createSystemMessage(`Goal paused: ${decision.reason}`, 'warning')
     return []
   }
@@ -172,7 +231,7 @@ export async function* evaluateGoalAfterTurn({
       decision.reason,
     )
     toolUseContext.setAppState(prev => ({ ...prev, goal: paused }))
-    await persistGoal(saveGoalState, paused)
+    await persistGoal(saveGoalState, paused, logGoalPersistenceFailure)
     yield createSystemMessage(
       `Goal not complete: ${decision.reason} Goal paused after reaching the maximum of ${updatedGoal.maxTurns} turns.`,
       'warning',
@@ -181,7 +240,7 @@ export async function* evaluateGoalAfterTurn({
   }
 
   toolUseContext.setAppState(prev => ({ ...prev, goal: updatedGoal }))
-  await persistGoal(saveGoalState, updatedGoal)
+  await persistGoal(saveGoalState, updatedGoal, logGoalPersistenceFailure)
   yield createSystemMessage(`Goal not complete: ${decision.reason}`, 'info')
 
   return [

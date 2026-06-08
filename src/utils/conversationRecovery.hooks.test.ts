@@ -57,9 +57,6 @@ beforeEach(async () => {
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
   providerForTest = 'firstParty'
-  delete process.env.OPENAI_BASE_URL
-  delete process.env.OPENAI_API_BASE
-  delete process.env.OPENAI_MODEL
   mock.module('./model/providers.js', () => ({
     ...realProviders,
     getAPIProvider: () => providerForTest,
