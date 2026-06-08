@@ -93,6 +93,9 @@ export function modelSupportsMaxEffort(model: string): boolean {
 // xhigh is reserved for OpenAI/Codex models and OpenCode Claude opus 4-7 / 4-8.
 // All other effort-supporting models reject xhigh at the API.
 export function modelSupportsXHighEffort(model: string): boolean {
+  if (!modelSupportsEffort(model)) {
+    return false
+  }
   const supported3P = get3PModelCapabilityOverride(model, 'xhigh_effort')
   if (supported3P !== undefined) {
     return supported3P
