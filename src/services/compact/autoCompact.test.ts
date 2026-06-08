@@ -22,7 +22,6 @@ type ImportAutoCompactOptions = {
 }
 
 async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
-  mock.restore()
   mock.module('../../utils/config.js', () => ({
     ...realConfig,
     getGlobalConfig: () => ({ autoCompactEnabled: true }),
@@ -91,7 +90,6 @@ function restoreEnv(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('services/compact/autoCompact.test.ts')
-  mock.restore()
   delete process.env.DISABLE_COMPACT
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS

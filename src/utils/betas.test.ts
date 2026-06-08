@@ -66,7 +66,6 @@ function clearProviderEnv(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/betas.test.ts')
-  mock.restore()
   clearProviderEnv()
 })
 
