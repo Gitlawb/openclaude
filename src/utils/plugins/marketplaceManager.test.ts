@@ -7,7 +7,7 @@ import {
   type Mock,
   test,
 } from 'bun:test'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -286,10 +286,18 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
       name: 'my-test-marketplace',
     }
 
-    const result = await loadAndCacheWithMockedAxios(source)
-
     const cacheDir = join(tempDir, 'marketplaces')
     const finalCachePath = join(cacheDir, 'mymarketplace')
+
+    // Create the cache directory and snapshot its contents BEFORE calling
+    // the function under test. This makes the assertion platform-agnostic:
+    // we compare against the pre-call state instead of assuming the
+    // directory is empty (which fails on case-sensitive filesystems where
+    // the temp file and final file can coexist as distinct entries).
+    mkdirSync(cacheDir, { recursive: true })
+    const beforeEntries = new Set(readdirSync(cacheDir))
+
+    const result = await loadAndCacheWithMockedAxios(source)
 
     // After the fallback, the result cache path must be the final path
     expect(result.cachePath).toBe(finalCachePath)
@@ -300,9 +308,10 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     expect(existsSync(finalCachePath)).toBe(true)
 
     // The temporary file (temp_<timestamp>.json) must be cleaned up.
-    // Verify by listing the cache directory — only the final file should remain.
-    const cacheEntries = readdirSync(cacheDir)
-    expect(cacheEntries).toHaveLength(1)
-    expect(cacheEntries[0]).toBe('mymarketplace')
+    // Compare post-call directory state against the pre-call snapshot
+    // to verify only the final file was added.
+    const afterEntries = readdirSync(cacheDir)
+    const newEntries = afterEntries.filter(e => !beforeEntries.has(e))
+    expect(newEntries).toEqual(['mymarketplace'])
   })
 })
