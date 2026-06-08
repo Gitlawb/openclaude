@@ -113,8 +113,8 @@ type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
 
-export type ProviderTransport = 'chat_completions' | 'responses' | 'codex_responses'
-export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses'
+export type ProviderTransport = 'chat_completions' | 'responses' | 'responses_compat' | 'codex_responses'
+export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses' | 'responses_compat'
 
 export type ResolvedProviderRequest = {
   transport: ProviderTransport
@@ -254,6 +254,9 @@ export function parseOpenAICompatibleApiFormat(
     normalized === 'responses_api'
   ) {
     return 'responses'
+  }
+  if (normalized === 'responses_compat' || normalized === 'responses_text') {
+    return 'responses_compat'
   }
   if (
     normalized === 'chat_completions' ||
@@ -712,7 +715,7 @@ export function resolveProviderRequest(options?: {
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
   const supportsRequestedApiFormat =
-    requestedApiFormat !== 'responses' ||
+    (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||
     (() => {
       const runtimeShimContext = resolveOpenAIShimRuntimeContext({
         processEnv: process.env,
@@ -731,8 +734,8 @@ export function resolveProviderRequest(options?: {
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
-      : requestedApiFormat === 'responses' && supportsRequestedApiFormat
-        ? 'responses'
+      : (requestedApiFormat === 'responses' || requestedApiFormat === 'responses_compat') && supportsRequestedApiFormat
+        ? requestedApiFormat
         : 'chat_completions'
 
   // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")

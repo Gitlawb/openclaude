@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.17.1](https://github.com/Gitlawb/openclaude/compare/v0.17.0...v0.17.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **typecheck:** type GitHub app setup flow ([#1523](https://github.com/Gitlawb/openclaude/issues/1523)) ([80607ca](https://github.com/Gitlawb/openclaude/commit/80607ca1358991ca4d8025213c7c2e26748f2b93))
+* **typecheck:** type search UI state ([#1529](https://github.com/Gitlawb/openclaude/issues/1529)) ([47eea3f](https://github.com/Gitlawb/openclaude/commit/47eea3f8b13c85865b84525563b4eaf446c91b6c))
+
+## [0.17.0](https://github.com/Gitlawb/openclaude/compare/v0.16.1...v0.17.0) (2026-06-05)
+
+
+### Features
+
+* add conversation cache and session persistence ([#705](https://github.com/Gitlawb/openclaude/issues/705)) ([353e306](https://github.com/Gitlawb/openclaude/commit/353e3060644254c331b52fe9d243f97b78c570fe))
+* memory optimization to prevent OOM in multi-session scenarios ([#1437](https://github.com/Gitlawb/openclaude/issues/1437)) ([22b1a19](https://github.com/Gitlawb/openclaude/commit/22b1a193f1c34763a5f98c985fc98fccac0109fd))
+* **minimax:** add MiniMax M3 model with 1M context window ([#1470](https://github.com/Gitlawb/openclaude/issues/1470)) ([e2fa248](https://github.com/Gitlawb/openclaude/commit/e2fa248376f5242dd01c22c173e1332593bc5b78))
+* **nvidia-nim:** dynamic model discovery via integrate.api.nvidia.com ([#1099](https://github.com/Gitlawb/openclaude/issues/1099)) ([#1177](https://github.com/Gitlawb/openclaude/issues/1177)) ([890456b](https://github.com/Gitlawb/openclaude/commit/890456b35e1e6d6a4baf4febc27af610d3f4aaad))
+* **opengateway:** add MiniMax M3 and Qwen 3.7 Max to the model catalog ([#1515](https://github.com/Gitlawb/openclaude/issues/1515)) ([8705cd3](https://github.com/Gitlawb/openclaude/commit/8705cd35f72c0804059c3ebbd85b1189f3ea9d07))
+* **opengateway:** Gemini 3.1 Flash Lite GA model id ([#1537](https://github.com/Gitlawb/openclaude/issues/1537)) ([ea09176](https://github.com/Gitlawb/openclaude/commit/ea091768ae15e0676ec184b3df841239733e8d97))
+* **provider:** auto-switch on rate limit via providerFallbackChain ([#768](https://github.com/Gitlawb/openclaude/issues/768)) ([#1176](https://github.com/Gitlawb/openclaude/issues/1176)) ([cfbce38](https://github.com/Gitlawb/openclaude/commit/cfbce38fe688717f61b48624ea0461cf2c1bb707))
+* **sponsors:** add Atlas Cloud sponsor and sponsored tip ([#1536](https://github.com/Gitlawb/openclaude/issues/1536)) ([73a2833](https://github.com/Gitlawb/openclaude/commit/73a2833819aa6cea91871779d9ff2f11e0953e31))
+* **xiaomi:** retire deprecated MiMo V2 Pro and V2 Omni ([#1538](https://github.com/Gitlawb/openclaude/issues/1538)) ([b1a8026](https://github.com/Gitlawb/openclaude/commit/b1a80267a5ed108b3700df08e051419d5a2c6fab))
+
+
+### Bug Fixes
+
+* **api:** tighten reasoning_content heuristic to prevent false-positi… ([#1201](https://github.com/Gitlawb/openclaude/issues/1201)) ([1fc5116](https://github.com/Gitlawb/openclaude/commit/1fc5116e9551948de0d47ea20bdfbd73631dee18))
+* **BashTool:** include captured output in non-zero-exit error result ([#1231](https://github.com/Gitlawb/openclaude/issues/1231)) ([#1249](https://github.com/Gitlawb/openclaude/issues/1249)) ([8416faa](https://github.com/Gitlawb/openclaude/commit/8416faa75c1baae5b079e9f4dd7a624a7f6fb6ff))
+* **cron:** enforce MAX_CRON_PROMPT_CHARS cap on durable cron prompt l… ([#1224](https://github.com/Gitlawb/openclaude/issues/1224)) ([f7d42c2](https://github.com/Gitlawb/openclaude/commit/f7d42c2b70081f0943cf5ebe08ab0d396cda4b99))
+* **plugins:** use mergeHooksSettings in marketplace supplement path ([#1055](https://github.com/Gitlawb/openclaude/issues/1055)) ([#1167](https://github.com/Gitlawb/openclaude/issues/1167)) ([a7fc408](https://github.com/Gitlawb/openclaude/commit/a7fc408779dc6580da8f5a05dee4bcef03ad1446))
+* preserve raw mode across component re-renders (issue [#843](https://github.com/Gitlawb/openclaude/issues/843)) ([#1198](https://github.com/Gitlawb/openclaude/issues/1198)) ([3bf6ccd](https://github.com/Gitlawb/openclaude/commit/3bf6ccd6d8f5bc8c1893c2b6fdceec86e084eac1))
+* **promptinput:** keep bash-mode `!` out of the local mirror ([#1179](https://github.com/Gitlawb/openclaude/issues/1179)) ([#1182](https://github.com/Gitlawb/openclaude/issues/1182)) ([ad3e208](https://github.com/Gitlawb/openclaude/commit/ad3e2085927f620adf05fa02f81f59d1c17c0d68))
+* **security:** prevent CRLF injection, path injection, and error message leakage ([#1477](https://github.com/Gitlawb/openclaude/issues/1477)) ([7278cad](https://github.com/Gitlawb/openclaude/commit/7278cad872dcaca49bb9b4410d00538004dfcf49))
+* show all configured Mistral models and fix model selection priority ([#1360](https://github.com/Gitlawb/openclaude/issues/1360)) ([#1418](https://github.com/Gitlawb/openclaude/issues/1418)) ([7df7cad](https://github.com/Gitlawb/openclaude/commit/7df7cad33345d2724cbff88e68a51c9dac26f306))
+* show vision-specific error when provider returns 404 for image requests ([#1187](https://github.com/Gitlawb/openclaude/issues/1187)) ([8801a4c](https://github.com/Gitlawb/openclaude/commit/8801a4cd644d3e9ac1e8f91256307f7ee891172e))
+* **test:** stop use-input test from leaking a global stdin mock ([#1501](https://github.com/Gitlawb/openclaude/issues/1501)) ([96ddec7](https://github.com/Gitlawb/openclaude/commit/96ddec71835dab350a5f6de399e819d8060c60c9))
+* **typecheck:** make session history cache variant-safe ([#1494](https://github.com/Gitlawb/openclaude/issues/1494)) ([e7abb81](https://github.com/Gitlawb/openclaude/commit/e7abb8146f9d8841c3e59aff7f4dd066ced3851b))
+* **typecheck:** narrow hook event counts ([#1496](https://github.com/Gitlawb/openclaude/issues/1496)) ([11e46af](https://github.com/Gitlawb/openclaude/commit/11e46affd10ab3412e1617aca08aed182bb3328d))
+* **typecheck:** restore AppState hook generics ([#1503](https://github.com/Gitlawb/openclaude/issues/1503)) ([343cd1a](https://github.com/Gitlawb/openclaude/commit/343cd1a2c93208429d9e02817aafea996ab19117))
+* **typecheck:** restore proactive module import surface ([#1495](https://github.com/Gitlawb/openclaude/issues/1495)) ([e357d59](https://github.com/Gitlawb/openclaude/commit/e357d593e0b90584aec0ec83f3adf5c845487a4a))
+* **typecheck:** restore typed add-dir source ([#1504](https://github.com/Gitlawb/openclaude/issues/1504)) ([2c755d3](https://github.com/Gitlawb/openclaude/commit/2c755d3da83ab1b48dfb5d5c048a682ae1325a77))
+* use mistral-vibe-cli-latest as default model for Mistral AI ([#1188](https://github.com/Gitlawb/openclaude/issues/1188)) ([671faf2](https://github.com/Gitlawb/openclaude/commit/671faf23ab4d34383bc6f3b62ce4d0363d0f216b))
+* **vscode:** send schema-valid permission responses ([#1401](https://github.com/Gitlawb/openclaude/issues/1401)) ([8065f8d](https://github.com/Gitlawb/openclaude/commit/8065f8d37b2cdfafe0833288e9150ff3af5ba2af))
+
 ## [0.16.1](https://github.com/Gitlawb/openclaude/compare/v0.16.0...v0.16.1) (2026-06-01)
 
 

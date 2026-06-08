@@ -1270,11 +1270,12 @@ test('/model applies auto provider surface for single-model static descriptor pr
       ),
     ).toEqual([
       'mimo-v2.5-pro',
-      'mimo-v2-pro',
       'mimo-v2.5',
-      'mimo-v2-omni',
       'mimo-v2-flash',
-      'google/gemini-3.1-flash-lite-preview',
+      'google/gemini-3.1-flash-lite',
+      'minimax/minimax-m3',
+      'qwen/qwen3.7-max',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
     ])
   } finally {
     rendered.instance.unmount()
