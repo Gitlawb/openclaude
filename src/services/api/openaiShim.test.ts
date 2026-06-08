@@ -344,6 +344,109 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
   ])
 })
 
+test('uses OpenAI-compatible responses endpoint with text chunk types when OPENAI_API_FORMAT=responses_compat', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('http://example.test/v1/responses')
+  expect(capturedBody?.model).toBe('gpt-5.4')
+  expect(capturedBody?.instructions).toBe('test system')
+  expect(capturedBody?.max_output_tokens).toBe(64)
+  expect(capturedBody?.store).toBe(false)
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+    },
+  ])
+})
+
+test('uses correct empty input fallback schema for standard responses and responses_compat', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({
+      id: 'resp-1',
+      model: 'test',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }]
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  process.env.OPENAI_API_FORMAT = 'responses'
+  await client.beta.messages.create({
+    model: 'test',
+    max_tokens: 10,
+    messages: [{ role: 'user', content: [] }],
+  })
+
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: '' }],
+    },
+  ])
+
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+  await client.beta.messages.create({
+    model: 'test',
+    max_tokens: 10,
+    messages: [{ role: 'user', content: [] }],
+  })
+
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: '' }],
+    },
+  ])
+})
+
 test('strips store from strict OpenAI-compatible responses providers', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
   process.env.OPENAI_API_FORMAT = 'responses'
@@ -1269,7 +1372,7 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -1296,7 +1399,7 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [
       { role: 'user', content: 'Use Write' },
       {
@@ -2500,7 +2603,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2530,7 +2633,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2548,7 +2651,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+      model: 'google/gemini-3.1-flash-lite',
       messages: [{ role: 'user', content: 'Use Write' }],
       max_tokens: 64,
       stream: true,
@@ -2586,7 +2689,7 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -2627,7 +2730,7 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [{ role: 'user', content: 'Use Write' }],
     max_tokens: 64,
     stream: false,
@@ -2654,7 +2757,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2669,7 +2772,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2684,7 +2787,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2702,7 +2805,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+      model: 'google/gemini-3.1-flash-lite',
       messages: [{ role: 'user', content: 'Write CSS' }],
       max_tokens: 64,
       stream: true,
@@ -2760,7 +2863,7 @@ test('converts Gemini raw tool-call text into non-streaming tool_use blocks', as
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-raw-tool',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -2788,7 +2891,7 @@ test('converts Gemini raw tool-call text into non-streaming tool_use blocks', as
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [{ role: 'user', content: 'Verify' }],
     max_tokens: 64,
     stream: false,

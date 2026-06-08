@@ -14,6 +14,12 @@ import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
 import { logError } from '../../utils/log.js'
 import type { Workflow } from './types.js'
 
+type WorkflowFile = {
+  path: string
+  content: string
+  message: string
+}
+
 async function createWorkflowFile(
   repoName: string,
   branchName: string,
@@ -219,7 +225,7 @@ export async function setupGitHubActions(
 
       updateProgress()
       // Create selected workflow files
-      const workflows = []
+      const workflows: WorkflowFile[] = []
 
       if (selectedWorkflows.includes('claude')) {
         workflows.push({

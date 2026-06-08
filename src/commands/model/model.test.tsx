@@ -13,6 +13,7 @@ import {
   setSessionSettingsCache,
 } from '../../utils/settings/settingsCache.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
+import type { ModelSetting } from '../../utils/model/model.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 type SettingsModule = typeof import('../../utils/settings/settings.js')
@@ -1269,11 +1270,12 @@ test('/model applies auto provider surface for single-model static descriptor pr
       ),
     ).toEqual([
       'mimo-v2.5-pro',
-      'mimo-v2-pro',
       'mimo-v2.5',
-      'mimo-v2-omni',
       'mimo-v2-flash',
-      'google/gemini-3.1-flash-lite-preview',
+      'google/gemini-3.1-flash-lite',
+      'minimax/minimax-m3',
+      'qwen/qwen3.7-max',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
     ])
   } finally {
     rendered.instance.unmount()
@@ -2582,7 +2584,7 @@ test('interactive model picker rejects models blocked by availableModels before 
     ...getDefaultAppState(),
     mainLoopModel: 'allowed-model',
   }
-  let latestMainLoopModel = initialState.mainLoopModel
+  let latestMainLoopModel: ModelSetting = initialState.mainLoopModel
   const instance = await render(
     <AppStateProvider
       initialState={initialState}

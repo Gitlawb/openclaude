@@ -269,11 +269,8 @@ function convert(schema: any, depth = 0): string {
         .join(' | ')
     }
     case 'array': {
-      const el = convert(def.element, depth)
-      // Wrap unions/intersections in parens so `[]` binds the whole type,
-      // not just the last member: `("a" | "b")[]` vs `"a" | "b[]"`.
-      const wrapped = el.includes(' | ') || el.includes(' & ') ? `(${el})` : el
-      return `${wrapped}[]`
+      const element = convert(def.element, depth)
+      return `${needsArrayElementParens(element) ? `(${element})` : element}[]`
     }
     case 'tuple': {
       const items = (def.items as any[]).map(t => convert(t, depth))
@@ -357,6 +354,10 @@ function isOptional(schema: any): boolean {
 
 function needsParens(ts: string): boolean {
   return ts.includes('\n') || ts.includes(' & ')
+}
+
+function needsArrayElementParens(ts: string): boolean {
+  return ts.includes(' | ') || ts.includes(' & ')
 }
 
 // ---------------------------------------------------------------------------

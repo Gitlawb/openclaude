@@ -1,6 +1,6 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.16.1",
+  "version": "0.17.1",
   "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
@@ -57,8 +57,9 @@
     "security:pr-scan": "bun run scripts/pr-intent-scan.ts",
     "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:type-tests": "bun run scripts/typecheck-type-tests.ts",
     "smoke": "bun run build && node dist/cli.mjs --version",
-    "check": "bun run smoke && bun run test:full",
+    "check": "bun run smoke && bun run typecheck:type-tests && bun run test:full",
     "verify:privacy": "bun run scripts/verify-no-phone-home.ts",
     "build:verified": "bun run build && bun run verify:privacy",
     "test:provider": "bun test --max-concurrency=1 src/services/api/*.test.ts src/utils/context.test.ts",
@@ -83,7 +84,6 @@
     "@modelcontextprotocol/sdk": "1.29.0",
     "@orama/orama": "^3.1.18",
     "@orama/plugin-data-persistence": "^3.1.18",
-
     "@vscode/ripgrep": "^1.17.1",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",

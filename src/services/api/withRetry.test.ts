@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import type Anthropic from '@anthropic-ai/sdk'
 import { APIError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
@@ -86,6 +87,13 @@ async function importFreshWithRetryModule(
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
+async function drainAsyncGenerator<T>(generator: AsyncGenerator<unknown, T>): Promise<T> {
+  while (true) {
+    const result = await generator.next()
+    if (result.done) return result.value
+  }
+}
+
 describe('retry configuration', () => {
   test('uses default retry attempts when env var is absent', async () => {
     const { getDefaultMaxRetries } = await importFreshWithRetryModule()
@@ -163,6 +171,162 @@ describe('retry configuration', () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
     const { getRetryDelay } = await importFreshWithRetryModule()
     expect(getRetryDelay(1, '3')).toBe(3000)
+  })
+})
+
+describe('OpenAI-compatible retry classification', () => {
+  test('does not retry marked non-retryable auth failures', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      401,
+      undefined,
+      'OpenAI API error 401: Unauthorized [openai_category=auth_invalid,host=api.z.ai] Hint: Authentication failed.',
+      new Headers(),
+    )
+    let attempts = 0
+
+    await expect(
+      drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      ),
+    ).rejects.toBeInstanceOf(CannotRetryError)
+
+    expect(attempts).toBe(1)
+  })
+
+  test('keeps parseable 402 affordability errors on the max_tokens retry path', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { withRetry } = await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      402,
+      undefined,
+      'OpenAI API error 402: Payment Required [openai_category=unknown,host=openrouter.ai] ' +
+        'This request requires more credits, or fewer max_tokens. ' +
+        'You requested up to 32000 tokens, but can only afford 27342. To increase, visit ...',
+      new Headers(),
+    )
+    const originalConsoleError = console.error
+    const consoleError = mock(() => {})
+    const observedMaxTokensOverrides: Array<number | undefined> = []
+    let attempts = 0
+
+    console.error = consoleError
+    try {
+      const result = await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async (_client, _attempt, context) => {
+            attempts++
+            observedMaxTokensOverrides.push(context.maxTokensOverride)
+            if (attempts === 1) throw error
+            return { ok: true }
+          },
+          {
+            maxRetries: 2,
+            model: 'openrouter/test-model',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      )
+
+      expect(result).toEqual({ ok: true })
+    } finally {
+      console.error = originalConsoleError
+    }
+
+    expect(attempts).toBe(2)
+    expect(observedMaxTokensOverrides).toEqual([undefined, 27342])
+    expect(consoleError).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not keep retrying repeated 402 affordability errors after one max_tokens adjustment', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      402,
+      undefined,
+      'OpenAI API error 402: Payment Required [openai_category=unknown,host=openrouter.ai] ' +
+        'This request requires more credits, or fewer max_tokens. ' +
+        'You requested up to 32000 tokens, but can only afford 27342. To increase, visit ...',
+      new Headers(),
+    )
+    const originalConsoleError = console.error
+    const consoleError = mock(() => {})
+    let attempts = 0
+
+    console.error = consoleError
+    try {
+      await expect(
+        drainAsyncGenerator(
+          withRetry(
+            async () => ({} as Anthropic),
+            async () => {
+              attempts++
+              throw error
+            },
+            {
+              maxRetries: 2,
+              model: 'openrouter/test-model',
+              thinkingConfig: { type: 'disabled' },
+            },
+          ),
+        ),
+      ).rejects.toBeInstanceOf(CannotRetryError)
+    } finally {
+      console.error = originalConsoleError
+    }
+
+    expect(attempts).toBe(2)
+    expect(consoleError).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps parseable marked context-overflow errors on the max_tokens retry path', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { withRetry } = await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      400,
+      undefined,
+      'OpenAI API error 400: Bad Request [openai_category=context_overflow,host=api.z.ai] ' +
+        'input length and `max_tokens` exceed context limit: 188059 + 20000 > 200000',
+      new Headers(),
+    )
+    const observedMaxTokensOverrides: Array<number | undefined> = []
+    let attempts = 0
+
+    const result = await drainAsyncGenerator(
+      withRetry(
+        async () => ({} as Anthropic),
+        async (_client, _attempt, context) => {
+          attempts++
+          observedMaxTokensOverrides.push(context.maxTokensOverride)
+          if (attempts === 1) throw error
+          return { ok: true }
+        },
+        {
+          maxRetries: 2,
+          model: 'glm-5.1',
+          thinkingConfig: { type: 'disabled' },
+        },
+      ),
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(attempts).toBe(2)
+    expect(observedMaxTokensOverrides).toEqual([undefined, 10941])
   })
 })
 

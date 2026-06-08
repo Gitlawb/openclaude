@@ -152,7 +152,7 @@ export type ProfileEnv = {
   OPENAI_BASE_URL?: string
   OPENAI_API_BASE?: string
   OPENAI_MODEL?: string
-  OPENAI_API_FORMAT?: 'chat_completions' | 'responses'
+  OPENAI_API_FORMAT?: 'chat_completions' | 'responses' | 'responses_compat'
   OPENAI_AUTH_HEADER?: string
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
@@ -622,7 +622,7 @@ export function buildOpenAIProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
-  apiFormat?: 'chat_completions' | 'responses' | null
+  apiFormat?: 'chat_completions' | 'responses' | 'responses_compat' | null
   authHeader?: string | null
   authScheme?: 'bearer' | 'raw' | null
   authHeaderValue?: string | null

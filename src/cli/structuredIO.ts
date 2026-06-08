@@ -352,7 +352,9 @@ export class StructuredIO {
         // by the REPL process itself, not just child Bash commands.
         const keys = Object.keys(message.variables)
         for (const [key, value] of Object.entries(message.variables)) {
-          process.env[key] = value
+          if (typeof value === 'string') {
+            process.env[key] = value
+          }
         }
         logForDebugging(
           `[structuredIO] applied update_environment_variables: ${keys.join(', ')}`,
