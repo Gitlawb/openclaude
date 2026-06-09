@@ -11,6 +11,8 @@ export function shouldEnableClaudeInChromeSkill(options?: {
   return autoEnabled && hasClaudeInChromeAccess
 }
 
+// Keep this lazy to avoid importing setup.ts while startup code is still
+// wiring shared Chrome-in-Claude state.
 function defaultShouldAutoEnableClaudeInChrome(): boolean {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { shouldAutoEnableClaudeInChrome } = require(

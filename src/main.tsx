@@ -1476,6 +1476,7 @@ async function run(): Promise<CommanderCommand> {
       autoEnabled: shouldAutoEnableClaudeInChrome(),
       hasClaudeInChromeAccess: isClaudeAISubscriber()
     });
+    const enableClaudeInChrome = claudeInChromeStartupMode === 'explicit';
     if (claudeInChromeStartupMode === 'explicit') {
       const platform = getPlatform();
       try {

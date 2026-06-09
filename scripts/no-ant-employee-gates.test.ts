@@ -31,6 +31,74 @@ function collectFiles(dir: string): string[] {
   return files
 }
 
+function findMatchingFunctionEnd(source: string, functionStart: number): number {
+  const bodyStart = source.indexOf('{', functionStart)
+  if (bodyStart === -1) {
+    throw new Error('Could not find function body start')
+  }
+
+  let braceDepth = 0
+  let stringQuote: '"' | "'" | '`' | null = null
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let index = bodyStart; index < source.length; index++) {
+    const current = source[index]
+    const next = source[index + 1]
+
+    if (inLineComment) {
+      if (current === '\n') inLineComment = false
+      continue
+    }
+
+    if (inBlockComment) {
+      if (current === '*' && next === '/') {
+        inBlockComment = false
+        index++
+      }
+      continue
+    }
+
+    if (stringQuote) {
+      if (current === '\\') {
+        index++
+        continue
+      }
+      if (current === stringQuote) stringQuote = null
+      continue
+    }
+
+    if (current === '/' && next === '/') {
+      inLineComment = true
+      index++
+      continue
+    }
+
+    if (current === '/' && next === '*') {
+      inBlockComment = true
+      index++
+      continue
+    }
+
+    if (current === '"' || current === "'" || current === '`') {
+      stringQuote = current
+      continue
+    }
+
+    if (current === '{') {
+      braceDepth++
+      continue
+    }
+
+    if (current === '}') {
+      braceDepth--
+      if (braceDepth === 0) return index + 1
+    }
+  }
+
+  throw new Error('Could not find function body end')
+}
+
 test('open build source does not reintroduce Ant employee gate helpers', () => {
   const offenders: string[] = []
 
@@ -56,12 +124,12 @@ test('initial plan messages do not seed pending plan verification state', () => 
   const initialMessageHandlerStart = replSource.indexOf(
     'async function processInitialMessage',
   )
-  const initialMessageHandlerEnd = replSource.indexOf(
-    '// Create file history snapshot',
-    initialMessageHandlerStart,
-  )
 
   expect(initialMessageHandlerStart).toBeGreaterThan(-1)
+  const initialMessageHandlerEnd = findMatchingFunctionEnd(
+    replSource,
+    initialMessageHandlerStart,
+  )
   expect(initialMessageHandlerEnd).toBeGreaterThan(initialMessageHandlerStart)
   expect(
     replSource.slice(initialMessageHandlerStart, initialMessageHandlerEnd),

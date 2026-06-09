@@ -140,6 +140,35 @@ type AgentToolInput = z.infer<ReturnType<typeof baseInputSchema>> & {
   isolation?: 'worktree';
   cwd?: string;
 };
+type AgentToolIsolation = AgentToolInput['isolation'];
+type AgentToolWorktreeInfo = {
+  worktreePath: string;
+} | null | undefined;
+
+export function resolveAgentToolEffectiveIsolation(
+  requestedIsolation: AgentToolIsolation,
+  agentIsolation: AgentToolIsolation,
+): AgentToolIsolation {
+  return requestedIsolation === 'worktree' || agentIsolation === 'worktree'
+    ? 'worktree'
+    : undefined;
+}
+
+export function assertAgentToolCwdAllowed(
+  cwd: string | undefined,
+  effectiveIsolation: AgentToolIsolation,
+): void {
+  if (cwd !== undefined && effectiveIsolation === 'worktree') {
+    throw new Error('cwd is mutually exclusive with isolation: "worktree".');
+  }
+}
+
+export function resolveAgentToolCwdOverride(
+  cwd: string | undefined,
+  worktreeInfo: AgentToolWorktreeInfo,
+): string | undefined {
+  return worktreeInfo?.worktreePath ?? cwd;
+}
 
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
 export const outputSchema = lazySchema(() => {
@@ -450,8 +479,13 @@ export const AgentTool = buildTool({
       is_fork: isForkPath
     });
 
-    // Resolve effective isolation mode (explicit param overrides agent def).
-    const effectiveIsolation = isolation === 'worktree' || selectedAgent.isolation === 'worktree' ? 'worktree' : undefined;
+    // Agent frontmatter can force worktree isolation too, so validate cwd
+    // against the effective mode instead of only the raw tool input.
+    const effectiveIsolation = resolveAgentToolEffectiveIsolation(
+      isolation,
+      selectedAgent.isolation,
+    );
+    assertAgentToolCwdAllowed(cwd, effectiveIsolation);
     // System prompt + prompt messages: branch on fork path.
     //
     // Fork path: child inherits the PARENT's system prompt (not FORK_AGENT's)
@@ -617,9 +651,9 @@ export const AgentTool = buildTool({
       agentName: name,
     };
 
-    // Helper to wrap execution with a cwd override: explicit cwd arg (KAIROS)
-    // takes precedence over worktree isolation path.
-    const cwdOverridePath = cwd ?? worktreeInfo?.worktreePath;
+    // Helper to wrap execution with a cwd override. Worktree wins if present;
+    // cwd is rejected for worktree isolation above, but keep this defensive.
+    const cwdOverridePath = resolveAgentToolCwdOverride(cwd, worktreeInfo);
     const wrapWithCwd = <T,>(fn: () => T): T => cwdOverridePath ? runWithCwdOverride(cwdOverridePath, fn) : fn();
 
     // Helper to clean up worktree after agent completes

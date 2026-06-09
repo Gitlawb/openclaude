@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { AgentTool, fullInputSchema, inputSchema, outputSchema } from './AgentTool.js'
+import {
+  AgentTool,
+  assertAgentToolCwdAllowed,
+  fullInputSchema,
+  inputSchema,
+  outputSchema,
+  resolveAgentToolCwdOverride,
+  resolveAgentToolEffectiveIsolation,
+} from './AgentTool.js'
 
 const baseInput = {
   description: 'Run check',
@@ -98,6 +106,38 @@ describe('AgentTool input schema isolation contract', () => {
         cwd: '/tmp/openclaude-agent',
       }).success,
     ).toBe(true)
+  })
+
+  test('inherits worktree isolation from agent definitions', () => {
+    expect(resolveAgentToolEffectiveIsolation(undefined, 'worktree')).toBe(
+      'worktree',
+    )
+    expect(resolveAgentToolEffectiveIsolation('worktree', undefined)).toBe(
+      'worktree',
+    )
+    expect(resolveAgentToolEffectiveIsolation(undefined, undefined)).toBe(
+      undefined,
+    )
+  })
+
+  test('rejects cwd for any effective worktree isolation source', () => {
+    expect(() =>
+      assertAgentToolCwdAllowed('/tmp/openclaude-agent', 'worktree'),
+    ).toThrow('cwd is mutually exclusive with isolation: "worktree".')
+    expect(() =>
+      assertAgentToolCwdAllowed('/tmp/openclaude-agent', undefined),
+    ).not.toThrow()
+  })
+
+  test('prefers worktree cwd over explicit cwd when both are present defensively', () => {
+    expect(
+      resolveAgentToolCwdOverride('/tmp/openclaude-agent', {
+        worktreePath: '/tmp/openclaude-worktree',
+      }),
+    ).toBe('/tmp/openclaude-worktree')
+    expect(resolveAgentToolCwdOverride('/tmp/openclaude-agent', null)).toBe(
+      '/tmp/openclaude-agent',
+    )
   })
 })
 
