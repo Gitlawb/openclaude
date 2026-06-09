@@ -652,7 +652,7 @@ export async function initBridgeCore(
       if (seq > lastTransportSequenceNum) {
         lastTransportSequenceNum = seq
       }
-      transport.close()
+      await transport.close()
       transport = null
     }
     // Transport is gone — wake the poll loop out of its at-capacity
@@ -1055,7 +1055,7 @@ export async function initBridgeCore(
     // forwarding prompts → ~25-min dead window observed in daemon logs.
     // Kill the transport + work state so isAtCapacity()=false; the loop
     // fast-polls and picks up the server's re-dispatched work in seconds.
-    onHeartbeatFatal: (err: BridgeFatalError) => {
+    onHeartbeatFatal: async (err: BridgeFatalError) => {
       logForDebugging(
         `[bridge:repl] heartbeatWork fatal (status=${err.status}) — tearing down work item for fast re-dispatch`,
       )
@@ -1064,7 +1064,7 @@ export async function initBridgeCore(
         if (seq > lastTransportSequenceNum) {
           lastTransportSequenceNum = seq
         }
-        transport.close()
+        await transport.close()
         transport = null
       }
       flushGate.drop()

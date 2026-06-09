@@ -148,9 +148,10 @@ export function accumulateStreamEvents(
   // rewrite the same entry instead of emitting one event per delta.
   const touched = new Map<string[], CoalescedStreamEvent>()
   for (const msg of buffer) {
-    switch (msg.event.type) {
+    const event = msg.event as any
+    switch (event.type) {
       case 'message_start': {
-        const id = msg.event.message.id
+        const id = event.message.id
         const prevId = state.scopeToMessage.get(scopeKey(msg))
         if (prevId) state.byMessage.delete(prevId)
         state.scopeToMessage.set(scopeKey(msg), id)
@@ -159,7 +160,7 @@ export function accumulateStreamEvents(
         break
       }
       case 'content_block_delta': {
-        if (msg.event.delta.type !== 'text_delta') {
+        if (event.delta.type !== 'text_delta') {
           out.push(msg)
           break
         }
@@ -173,8 +174,9 @@ export function accumulateStreamEvents(
           out.push(msg)
           break
         }
-        const chunks = (blocks[msg.event.index] ??= [])
-        chunks.push(msg.event.delta.text)
+        // Create or get array reference for this block index
+        const chunks = (blocks[event.index] ??= [])
+        chunks.push(event.delta.text)
         const existing = touched.get(chunks)
         if (existing) {
           existing.event.delta.text = chunks.join('')
@@ -187,7 +189,7 @@ export function accumulateStreamEvents(
           parent_tool_use_id: msg.parent_tool_use_id,
           event: {
             type: 'content_block_delta',
-            index: msg.event.index,
+            index: event.index,
             delta: { type: 'text_delta', text: chunks.join('') },
           },
         }
@@ -979,7 +981,7 @@ export class CCRClient {
   }
 
   /** Clean up uploaders and timers. */
-  close(): void {
+  async close(): Promise<void> {
     this.closed = true
     this.stopHeartbeat()
     unregisterSessionActivityCallback()

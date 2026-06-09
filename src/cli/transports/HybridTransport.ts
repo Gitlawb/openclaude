@@ -168,30 +168,26 @@ export class HybridTransport extends WebSocketTransport {
     void this.uploader.enqueue(this.takeStreamEvents())
   }
 
-  override close(): void {
+  override async close(): Promise<void> {
     if (this.streamEventTimer) {
       clearTimeout(this.streamEventTimer)
       this.streamEventTimer = null
     }
     this.streamEventBuffer = []
-    // Grace period for queued writes — fallback. replBridge teardown now
-    // awaits archive between write and close (see CLOSE_GRACE_MS), so
-    // archive latency is the primary drain window and this is a last
-    // resort. Keep close() sync (returns immediately) but defer
-    // uploader.close() so any remaining queue gets a chance to finish.
-    const uploader = this.uploader
-    let graceTimer: ReturnType<typeof setTimeout> | undefined
-    void Promise.race([
-      uploader.flush(),
-      new Promise<void>(r => {
-        // eslint-disable-next-line no-restricted-syntax -- need timer ref for clearTimeout
-        graceTimer = setTimeout(r, CLOSE_GRACE_MS)
-      }),
-    ]).finally(() => {
-      clearTimeout(graceTimer)
-      uploader.close()
-    })
+    
     super.close()
+
+    const { uploader } = this
+    if (uploader) {
+      try {
+        // Wait for final telemetry or events to be uploaded cleanly
+        await uploader.flush()
+      } catch {
+        // Ignore flush errors on shutdown
+      } finally {
+        uploader.close()
+      }
+    }
   }
 
   /**
