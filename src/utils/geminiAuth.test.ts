@@ -203,7 +203,7 @@ describe('Gemini auth helpers', () => {
       expect(mayHaveGeminiAdcCredentials(process.env)).toBe(true)
 
       process.env.GOOGLE_APPLICATION_CREDENTIALS = `${existingFilePath}.missing`
-      process.env.APPDATA = undefined
+      delete process.env.APPDATA
       expect(mayHaveGeminiAdcCredentials(process.env)).toBe(false)
     } finally {
       spy.mockRestore()

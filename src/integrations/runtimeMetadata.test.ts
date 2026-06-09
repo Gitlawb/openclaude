@@ -71,7 +71,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
 
-    it('should infer preserveReasoningContent for kimi on moonshot paths', () => {
+    it('should infer preserveReasoningContent for direct moonshot model names', () => {
       const result = resolveOpenAIShimRuntimeContext({
         processEnv: {},
         model: 'moonshot-v1-8k',
