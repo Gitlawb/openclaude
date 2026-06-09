@@ -573,4 +573,70 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
     const delta = messageDelta?.delta as Record<string, unknown> | undefined
     expect(delta?.stop_reason).not.toBe('tool_use')
   })
+
+  test('buffered text is flushed when finish_reason is "content_filter"', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('Text stopped by content filter'),
+          ollamaChunk('', 'content_filter'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 8,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).toContain('Text stopped by content filter')
+
+    const messageDelta = events.find(e => e.type === 'message_delta') as Record<string, unknown> | undefined
+    const delta = messageDelta?.delta as Record<string, unknown> | undefined
+    expect(delta?.stop_reason).not.toBe('tool_use')
+  })
+
+  test('buffered text is flushed when finish_reason is "safety"', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('Text stopped by safety check'),
+          ollamaChunk('', 'safety'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 8,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).toContain('Text stopped by safety check')
+
+    const messageDelta = events.find(e => e.type === 'message_delta') as Record<string, unknown> | undefined
+    const delta = messageDelta?.delta as Record<string, unknown> | undefined
+    expect(delta?.stop_reason).not.toBe('tool_use')
+  })
 })
