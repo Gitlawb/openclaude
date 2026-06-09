@@ -8,6 +8,8 @@ import {
   resolveAgentToolCwdOverride,
   resolveAgentToolEffectiveIsolation,
 } from './AgentTool.js'
+import { renderToolResultMessage } from './UI.js'
+import { renderToString } from '../../utils/staticRender.js'
 
 const baseInput = {
   description: 'Run check',
@@ -178,5 +180,38 @@ describe('AgentTool output status contract', () => {
         'toolu_1',
       ),
     ).toThrow('Unexpected agent tool result status: remote_launched')
+  })
+
+  test('renders async-launched output as a backgrounded agent', async () => {
+    const output = await renderToString(
+      renderToolResultMessage(
+        {
+          status: 'async_launched',
+          agentId: 'agent-1',
+          description: baseInput.description,
+          prompt: baseInput.prompt,
+          outputFile: '/tmp/openclaude-agent-output.txt',
+          canReadOutputFile: true,
+        },
+        [],
+        { tools: [], verbose: false, theme: 'dark' },
+      ),
+      80,
+    )
+
+    expect(output).toContain('Backgrounded agent')
+  })
+
+  test('does not render the removed remote-launched status', async () => {
+    const output = await renderToString(
+      renderToolResultMessage(
+        { status: 'remote_launched' } as never,
+        [],
+        { tools: [], verbose: false, theme: 'dark' },
+      ),
+      80,
+    )
+
+    expect(output.trim()).toBe('')
   })
 })

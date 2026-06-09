@@ -81,16 +81,16 @@ export function describeTeammateActivity(t: DeepImmutable<InProcessTeammateTaskS
   return (t.progress?.recentActivities && summarizeRecentActivities(t.progress.recentActivities)) ?? t.progress?.lastActivity?.activityDescription ?? 'working';
 }
 
-export function countRunningBackgroundTasks(tasks: {
+export function countVisibleBackgroundTasks(tasks: {
   [taskId: string]: TaskState;
 }): number {
-  let runningTaskCount = 0;
+  let backgroundTaskCount = 0;
   for (const task of Object.values(tasks)) {
-    if (isBackgroundTask(task) && task.status === 'running') {
-      runningTaskCount += 1;
+    if (isBackgroundTask(task)) {
+      backgroundTaskCount += 1;
     }
   }
-  return runningTaskCount;
+  return backgroundTaskCount;
 }
 
 /**

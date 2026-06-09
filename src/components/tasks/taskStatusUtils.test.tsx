@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { TaskState } from '../../tasks/types.js'
-import { countRunningBackgroundTasks } from './taskStatusUtils.js'
+import { countVisibleBackgroundTasks } from './taskStatusUtils.js'
 
 function task(status: string, isBackgrounded = true): TaskState {
   return {
@@ -11,8 +11,8 @@ function task(status: string, isBackgrounded = true): TaskState {
   } as unknown as TaskState
 }
 
-describe('countRunningBackgroundTasks', () => {
-  test('counts only running tasks that render in the background task pill', () => {
+describe('countVisibleBackgroundTasks', () => {
+  test('counts running and pending tasks that render in the background task pill', () => {
     const tasks = {
       running: task('running'),
       pending: task('pending'),
@@ -20,6 +20,6 @@ describe('countRunningBackgroundTasks', () => {
       foreground: task('running', false),
     }
 
-    expect(countRunningBackgroundTasks(tasks)).toBe(1)
+    expect(countVisibleBackgroundTasks(tasks)).toBe(2)
   })
 })

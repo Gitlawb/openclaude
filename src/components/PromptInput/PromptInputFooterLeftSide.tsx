@@ -17,7 +17,7 @@ import { isDefaultMode, permissionModeSymbol, permissionModeTitle, getModeColor 
 import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
 import { isBackgroundTask } from '../../tasks/types.js';
 import { count } from '../../utils/array.js';
-import { countRunningBackgroundTasks, shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
+import { countVisibleBackgroundTasks, shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { TeamStatus } from '../teams/TeamStatus.js';
 import { isInProcessEnabled } from '../../utils/swarm/backends/registry.js';
@@ -269,7 +269,7 @@ function ModeIndicator({
   const selGetState = useSelection().getState;
   const hasNextTick = nextTickAt !== null;
   const isCoordinator = feature('COORDINATOR_MODE') ? coordinatorModule?.isCoordinatorMode() === true : false;
-  const runningTaskCount = useMemo(() => countRunningBackgroundTasks(tasks), [tasks]);
+  const backgroundTaskCount = useMemo(() => countVisibleBackgroundTasks(tasks), [tasks]);
   const tasksV2 = useTasksV2();
   const hasTaskItems = tasksV2 !== undefined && tasksV2.length > 0;
   const escShortcut = useShortcutDisplay('chat:cancel', 'Chat', 'esc').toLowerCase();
@@ -317,7 +317,7 @@ function ModeIndicator({
   const viewedTask = viewingAgentTaskId ? tasks[viewingAgentTaskId] : undefined;
   const isViewingTeammate = viewSelectionMode === 'viewing-agent' && viewedTask?.type === 'in_process_teammate';
   const isViewingCompletedTeammate = isViewingTeammate && viewedTask != null && viewedTask.status !== 'running';
-  const hasBackgroundTasks = runningTaskCount > 0 || isViewingTeammate;
+  const hasBackgroundTasks = backgroundTaskCount > 0 || isViewingTeammate;
 
   // Count primary items (permission mode or coordinator mode, background tasks, and teams)
   const primaryItemCount = (isCoordinator || hasActiveMode ? 1 : 0) + (hasBackgroundTasks ? 1 : 0) + (hasTeams ? 1 : 0);
