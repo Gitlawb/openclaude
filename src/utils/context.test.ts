@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
@@ -431,6 +431,40 @@ test('unknown openai-compatible models use the 128k fallback window (not 8k, see
   delete process.env.OPENAI_MODEL
 
   expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
+})
+
+test('unknown openai-compatible model fallback logs one debug warning and no console errors', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  const actualDebugModule = await import('./debug.js')
+  const logForDebugging = spyOn(
+    actualDebugModule,
+    'logForDebugging',
+  ).mockImplementation((_message, _options) => {})
+
+  const originalConsoleError = console.error
+  const consoleError = mock(() => {})
+  console.error = consoleError
+  try {
+    const contextModule = await import(
+      `./context.ts?contextDedupe=${Date.now()}-${Math.random()}`
+    )
+
+    expect(
+      contextModule.getContextWindowForModel('another-unknown-3p-model'),
+    ).toBe(128_000)
+    expect(
+      contextModule.getContextWindowForModel('another-unknown-3p-model'),
+    ).toBe(128_000)
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(logForDebugging).toHaveBeenCalledTimes(1)
+    expect(logForDebugging.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
+  } finally {
+    console.error = originalConsoleError
+    mock.restore()
+  }
 })
 
 test('prefixed OpenGateway Gemini Flash Lite uses integration metadata', () => {

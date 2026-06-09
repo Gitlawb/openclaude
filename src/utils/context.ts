@@ -1,6 +1,7 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
 import { getGlobalConfig } from './config.js'
+import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
 import { resolveModelRuntimeLimits } from '../integrations/runtimeMetadata.js'
 import {
@@ -38,6 +39,8 @@ const MAX_OUTPUT_TOKENS_UPPER_LIMIT = 64_000
 // import cycle.
 export const CAPPED_DEFAULT_MAX_TOKENS = 8_000
 export const ESCALATED_MAX_TOKENS = 64_000
+
+const warnedUnknownIntegrationRuntimeLimitKeys = new Set<string>()
 
 /**
  * Check if 1M context is disabled via environment variable.
@@ -77,6 +80,27 @@ function shouldUseIntegrationRuntimeLimits(
   )
 }
 
+/**
+ * Emit one debug-only metadata fallback warning per active route/model pair.
+ *
+ * Unknown runtime metadata is recoverable because the fallback context window
+ * keeps compaction budgets positive. Keep this out of console.error because
+ * the Ink runtime treats console errors as application errors.
+ */
+function warnUnknownIntegrationRuntimeLimits(model: string): void {
+  const routeId = resolveActiveRouteIdFromEnv(process.env) ?? 'unknown-route'
+  const warningKey = `${routeId}:${model}`
+  if (warnedUnknownIntegrationRuntimeLimitKeys.has(warningKey)) return
+
+  warnedUnknownIntegrationRuntimeLimitKeys.add(warningKey)
+  logForDebugging(
+    `[context] Warning: model "${model}" not in integration model metadata for route "${routeId}" — ` +
+      `using fallback ${OPENAI_FALLBACK_CONTEXT_WINDOW} token context window. ` +
+      'Add it to src/integrations/models for accurate compaction.',
+    { level: 'warn' },
+  )
+}
+
 export function getContextWindowForModel(
   model: string,
   betas?: string[],
@@ -109,10 +133,7 @@ export function getContextWindowForModel(
     if (runtimeLimits.contextWindow !== undefined) {
       return runtimeLimits.contextWindow
     }
-    console.error(
-      `[context] Warning: model "${model}" not in integration model metadata — using conservative 128k default. ` +
-      'Add it to src/integrations/models for accurate compaction.',
-    )
+    warnUnknownIntegrationRuntimeLimits(model)
     return OPENAI_FALLBACK_CONTEXT_WINDOW
   }
 

@@ -76,6 +76,8 @@ const featureFlags: Record<string, boolean> = {
 // Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
 const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
 const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
+const isAntEmployeeCallRe = /(?<!\bfunction\s)isAntEmployee\(\)/g
+const isAntEmployeeConstRe = /\bIS_ANT_EMPLOYEE\b/g
 const featureFlagTransformedFiles = new Set<string>()
 
 const featureFlagPreprocessPlugin = {
@@ -86,13 +88,22 @@ const featureFlagPreprocessPlugin = {
       if (!normalizedPath.includes('/src/')) return null
 
       const raw = readFileSync(args.path, 'utf-8')
-      if (!raw.includes('feature(')) return null
+      if (!raw.includes('feature(') && !raw.includes('isAntEmployee()') && !raw.includes('IS_ANT_EMPLOYEE')) return null
 
       let contents = raw
       contents = contents.replace(featureImportRe, '')
       contents = contents.replace(featureCallRe, (_match, name) =>
         String((featureFlags as Record<string, boolean>)[name] ?? false),
       )
+      contents = contents.replace(isAntEmployeeCallRe, 'false')
+      contents = contents.replace(isAntEmployeeConstRe, 'false')
+      // After replacing IS_ANT_EMPLOYEE → false, clean up the import:
+      //   import { false, isAntEmployee } from ...  →  import { isAntEmployee } from ...
+      // And remove the dead export:
+      //   export const false = false as const  →  (removed)
+      contents = contents.replace(/\{\s*false\s*,\s*isAntEmployee\s*\}/g, '{ isAntEmployee }')
+      contents = contents.replace(/\{\s*isAntEmployee\s*,\s*false\s*\}/g, '{ isAntEmployee }')
+      contents = contents.replace(/^export const false = false as const\s*\n?\s*/gm, '')
 
       if (contents === raw) return null
 

@@ -9,6 +9,7 @@ import { getCwd } from '../../utils/cwd.js';
 import { formatRelativeTimeAgo } from '../../utils/format.js';
 import { getReleaseSectionHeaderTitle, isReleaseSectionHeader } from '../../utils/releaseNotes.js';
 import type { FeedConfig, FeedLine } from './Feed.js';
+import { isAntEmployee } from '../../utils/buildConfig.js';
 export function createRecentActivityFeed(activities: LogOption[]): FeedConfig {
   const lines: FeedLine[] = activities.map(log => {
     const time = formatRelativeTimeAgo(log.modified);
@@ -27,7 +28,7 @@ export function createRecentActivityFeed(activities: LogOption[]): FeedConfig {
 }
 export function createWhatsNewFeed(releaseNotes: string[]): FeedConfig {
   const lines: FeedLine[] = releaseNotes.map(note => {
-    if ("external" === 'ant') {
+    if (isAntEmployee()) {
       const match = note.match(/^(\d+\s+\w+\s+ago)\s+(.+)$/);
       if (match) {
         return {
@@ -45,9 +46,9 @@ export function createWhatsNewFeed(releaseNotes: string[]): FeedConfig {
       text: note
     };
   });
-  const emptyMessage = "external" === 'ant' ? 'Unable to fetch latest claude-cli-internal commits' : 'Check /release-notes for recent updates';
+  const emptyMessage = isAntEmployee() ? 'Unable to fetch latest claude-cli-internal commits' : 'Check /release-notes for recent updates';
   return {
-    title: "external" === 'ant' ? "OpenClaude Updates [internal-only: Latest CC commits]" : "OpenClaude Updates",
+    title: isAntEmployee() ? "OpenClaude Updates [internal-only: Latest CC commits]" : "OpenClaude Updates",
     lines,
     footer: lines.length > 0 ? '/release-notes for more' : undefined,
     emptyMessage

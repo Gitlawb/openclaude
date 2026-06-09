@@ -1,4 +1,3 @@
-
 import { expect, test, mock, describe, beforeEach, afterEach, afterAll, beforeAll } from "bun:test";
 import * as realExeca from "execa";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
@@ -9,8 +8,70 @@ import {
 import type { linuxSecretStorage as LinuxSecretStorage } from "./linuxSecretStorage.js";
 import type { windowsCredentialStorage as WindowsCredentialStorage } from "./windowsCredentialStorage.js";
 
+type MockExecaOptions = {
+  input?: string;
+  reject?: boolean;
+};
+
+type MockExecaArgs = [
+  command: string,
+  args?: readonly string[],
+  options?: MockExecaOptions,
+];
+
+type MockExecaResult = {
+  exitCode: number;
+  stdout: string | readonly string[] | Uint8Array;
+  stderr: string | readonly string[] | Uint8Array;
+};
+
+function execaResult(overrides: Partial<MockExecaResult> = {}): MockExecaResult {
+  return {
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    ...overrides,
+  };
+}
+
 // Mock execaSync
-const mockExecaSync = mock(() => ({ exitCode: 0, stdout: "" }));
+const mockExecaSync = mock((..._args: MockExecaArgs) => execaResult());
+
+function getExecaCall(index: number): MockExecaArgs {
+  const call = mockExecaSync.mock.calls[index];
+  expect(call).toBeDefined();
+  return call;
+}
+
+function getCommandArgs(index: number): readonly string[] {
+  const args = getExecaCall(index)[1];
+  expect(Array.isArray(args)).toBe(true);
+  return args ?? [];
+}
+
+function getPowerShellScript(index = 0): string {
+  const script = getCommandArgs(index)[1];
+  expect(typeof script).toBe("string");
+  return script ?? "";
+}
+
+function getCommandOptions(index = 0): MockExecaOptions {
+  const options = getExecaCall(index)[2];
+  expect(options).toBeDefined();
+  return options ?? {};
+}
+
+function getCommandInput(index = 0): string {
+  const input = getCommandOptions(index).input;
+  expect(typeof input).toBe("string");
+  return input ?? "";
+}
+
+function getSecretToolArgs(index = 0): readonly string[] {
+  const command = getExecaCall(index)[0];
+  expect(command).toBe("secret-tool");
+  return getCommandArgs(index);
+}
 
 describe("Secure Storage Platform Implementations", () => {
   const originalEnv = process.env;
@@ -31,7 +92,7 @@ describe("Secure Storage Platform Implementations", () => {
     process.env = { ...originalEnv };
     mockExecaSync.mockClear();
     // Default mock behavior
-    mockExecaSync.mockImplementation(() => ({ exitCode: 0, stdout: "" }));
+    mockExecaSync.mockImplementation(() => execaResult());
   });
 
   afterEach(() => {
@@ -76,8 +137,8 @@ describe("Secure Storage Platform Implementations", () => {
 
       linuxSecretStorage.update(testData);
 
-      const args = mockExecaSync.mock.calls[0];
-      expect(args[1]).toContain(expectedName);
+      const args = getSecretToolArgs();
+      expect(args).toContain(expectedName);
     });
 
     test("Windows storage uses scoped resource name", () => {
@@ -86,11 +147,10 @@ describe("Secure Storage Platform Implementations", () => {
 
       windowsCredentialStorage.update(testData);
 
-      const script = mockExecaSync.mock.calls[0][1][1];
-      const options = mockExecaSync.mock.calls[0][2];
+      const script = getPowerShellScript();
       expect(script).toContain(expectedName);
       expect(script).toContain("ProtectedData");
-      expect(options.input).toContain("secret-token");
+      expect(getCommandInput()).toContain("secret-token");
     });
   });
 
@@ -109,28 +169,26 @@ describe("Secure Storage Platform Implementations", () => {
 
       windowsCredentialStorage.update(dataWithDollar);
 
-      const script = mockExecaSync.mock.calls[0][1][1];
-      const options = mockExecaSync.mock.calls[0][2];
+      const script = getPowerShellScript();
       expect(script).toContain("[Console]::In.ReadToEnd()");
-      expect(options.input).toContain("token-with-$env:USERNAME");
+      expect(getCommandInput()).toContain("token-with-$env:USERNAME");
 
       const dataWithQuote = { mcpOAuth: { "s": { accessToken: "token'quote", expiresAt: 1, serverName: "s", serverUrl: "u" } } };
       windowsCredentialStorage.update(dataWithQuote);
-      const options2 = mockExecaSync.mock.calls[1][2];
-      expect(options2.input).toContain("token'quote");
+      expect(getCommandInput(1)).toContain("token'quote");
     });
 
     test("delete() skips legacy PasswordVault by default", () => {
       windowsCredentialStorage.delete();
       expect(mockExecaSync).toHaveBeenCalledTimes(1);
-      const script = mockExecaSync.mock.calls[0][1][1];
+      const script = getPowerShellScript();
       expect(script).not.toContain("System.Runtime.WindowsRuntime");
     });
 
     test("delete() includes legacy assembly load when explicitly enabled", () => {
       process.env.OPENCLAUDE_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = "1";
       windowsCredentialStorage.delete();
-      const script = mockExecaSync.mock.calls[1][1][1];
+      const script = getPowerShellScript(1);
       expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
     });
 
@@ -138,13 +196,13 @@ describe("Secure Storage Platform Implementations", () => {
       process.env.OPENCLAUDE_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = "1";
       process.env.USER = 'user"name';
       windowsCredentialStorage.read();
-      const script = mockExecaSync.mock.calls[1][1][1];
+      const script = getPowerShellScript(1);
       expect(script).toContain('user`"name');
       expect(script).not.toContain('user"name');
     });
 
     test("read() does not touch legacy PasswordVault by default", () => {
-      mockExecaSync.mockImplementationOnce(() => ({ exitCode: 1, stdout: "" }));
+      mockExecaSync.mockImplementationOnce(() => execaResult({ exitCode: 1 }));
 
       const result = windowsCredentialStorage.read();
 
@@ -155,11 +213,8 @@ describe("Secure Storage Platform Implementations", () => {
     test("read() falls back to legacy PasswordVault when explicitly enabled", () => {
       process.env.OPENCLAUDE_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = "1";
       mockExecaSync
-        .mockImplementationOnce(() => ({ exitCode: 0, stdout: "{not-json" }))
-        .mockImplementationOnce(() => ({
-          exitCode: 0,
-          stdout: JSON.stringify(testData),
-        }));
+        .mockImplementationOnce(() => execaResult({ stdout: "{not-json" }))
+        .mockImplementationOnce(() => execaResult({ stdout: JSON.stringify(testData) }));
 
       const result = windowsCredentialStorage.read();
 
@@ -170,13 +225,67 @@ describe("Secure Storage Platform Implementations", () => {
     test("read() fails closed when the legacy PasswordVault payload is invalid JSON", () => {
       process.env.OPENCLAUDE_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = "1";
       mockExecaSync
-        .mockImplementationOnce(() => ({ exitCode: 1, stdout: "" }))
-        .mockImplementationOnce(() => ({ exitCode: 0, stdout: "{not-json" }));
+        .mockImplementationOnce(() => execaResult({ exitCode: 1 }))
+        .mockImplementationOnce(() => execaResult({ stdout: "{not-json" }));
 
       const result = windowsCredentialStorage.read();
 
       expect(result).toBeNull();
       expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+
+    test("read() parses byte stdout from the DPAPI path", () => {
+      mockExecaSync.mockReturnValueOnce(
+        execaResult({ stdout: Buffer.from(JSON.stringify(testData), "utf8") }),
+      );
+
+      const result = windowsCredentialStorage.read();
+
+      expect(result).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(1);
+    });
+
+    test("read() parses string-array stdout from the DPAPI path", () => {
+      mockExecaSync.mockReturnValueOnce(
+        execaResult({ stdout: JSON.stringify(testData, null, 2).split("\n") }),
+      );
+
+      const result = windowsCredentialStorage.read();
+
+      expect(result).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(1);
+    });
+
+    test("update() reports byte stderr when DPAPI write fails", () => {
+      mockExecaSync.mockReturnValueOnce(
+        execaResult({
+          exitCode: 1,
+          stderr: Buffer.from("dpapi failed", "utf8"),
+        }),
+      );
+
+      const result = windowsCredentialStorage.update(testData);
+
+      expect(result).toEqual({
+        success: false,
+        warning: "dpapi failed",
+      });
+    });
+
+    test("update() reports string-array stderr when DPAPI write fails", () => {
+      mockExecaSync.mockReturnValueOnce(
+        execaResult({
+          exitCode: 1,
+          stderr: ["dpapi failed", ""],
+        }),
+      );
+
+      const result = windowsCredentialStorage.update(testData);
+
+      expect(result).toEqual({
+        success: false,
+        warning: "dpapi failed",
+      });
     });
   });
 
@@ -184,12 +293,11 @@ describe("Secure Storage Platform Implementations", () => {
     test("update passes payload via stdin", () => {
       linuxSecretStorage.update(testData);
 
-      const options = mockExecaSync.mock.calls[0][2];
-      expect(options.input).toContain("secret-token");
+      expect(getCommandInput()).toContain("secret-token");
     });
 
     test("read parses stdout", () => {
-      mockExecaSync.mockReturnValue({ exitCode: 0, stdout: JSON.stringify(testData) });
+      mockExecaSync.mockReturnValue(execaResult({ stdout: JSON.stringify(testData) }));
       const result = linuxSecretStorage.read();
 
       expect(result).toEqual(testData);

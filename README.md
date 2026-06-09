@@ -369,7 +369,7 @@ Coverage output is written to `coverage/lcov.info`, and OpenClaude also generate
 
 ## VS Code Extension
 
-The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration, provider-aware control-center UI, and theme support.
+The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration, provider-aware Control Center, in-editor chat, theme support, and optional **Microsoft Foundry / Azure OpenAI** configuration (endpoint, API version, deployment, API key via Secret Storage) injected into launched terminals. See that folder’s [README](vscode-extension/openclaude-vscode/README.md).
 
 ## Security
 

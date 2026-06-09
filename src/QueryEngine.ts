@@ -32,9 +32,10 @@ import {
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import { loadMemoryPrompt } from './memdir/memdir.js'
 import { hasAutoMemPathOverride } from './memdir/paths.js'
-import { query } from './query.js'
+import { query as defaultQuery } from './query.js'
 import { categorizeRetryableAPIError } from './services/api/errors.js'
 import type { AutoCompactTrackingState } from './services/compact/autoCompact.js'
+import { toSDKGoalStatusMessage } from './services/goal/sdk.js'
 import type { MCPServerConnection } from './services/mcp/types.js'
 import type { AppState } from './state/AppState.js'
 import { type Tools, type ToolUseContext, toolMatchesName } from './Tool.js'
@@ -170,6 +171,7 @@ export type QueryEngineConfig = {
     yieldedSystemMsg: Message,
     store: Message[],
   ) => { messages: Message[]; executed: boolean } | undefined
+  query?: typeof defaultQuery
 }
 
 /**
@@ -680,7 +682,8 @@ export class QueryEngine {
       ? countToolCalls(this.mutableMessages, SYNTHETIC_OUTPUT_TOOL_NAME)
       : 0
 
-    for await (const message of query({
+    const runQuery = this.config.query ?? defaultQuery
+    for await (const message of runQuery({
       messages,
       systemPrompt,
       userContext,
@@ -991,6 +994,8 @@ export class QueryEngine {
               uuid: message.uuid,
             }
           }
+          const goalStatusMessage = toSDKGoalStatusMessage(message)
+          if (goalStatusMessage) yield goalStatusMessage
           // Don't yield other system messages in headless mode
           break
         }

@@ -16,6 +16,7 @@ import { ALL_MODEL_CONFIGS } from '../utils/model/configs.js';
 import { updateTaskState } from '../utils/task/framework.js';
 import { archiveRemoteSession, teleportToRemote } from '../utils/teleport.js';
 import { pollForApprovedExitPlanMode, UltraplanPollError } from '../utils/ultraplan/ccrSession.js';
+import { isAntEmployee } from '../utils/buildConfig.js';
 
 // TODO(prod-hardening): OAuth token may go stale over the 30min poll;
 // consider refresh.
@@ -53,7 +54,7 @@ const DEFAULT_INSTRUCTIONS: string = (typeof _rawPrompt === 'string' ? _rawPromp
 // Shell-set env only, so top-level process.env read is fine
 // — settings.env never injects this.
 /* eslint-disable custom-rules/no-process-env-top-level, custom-rules/no-sync-fs -- internal-only dev override; eager top-level read is the point (crash at startup, not silently inside the slash-command try/catch) */
-const ULTRAPLAN_INSTRUCTIONS: string = "external" === 'ant' && process.env.ULTRAPLAN_PROMPT_FILE ? readFileSync(process.env.ULTRAPLAN_PROMPT_FILE, 'utf8').trimEnd() : DEFAULT_INSTRUCTIONS;
+const ULTRAPLAN_INSTRUCTIONS: string = isAntEmployee() && process.env.ULTRAPLAN_PROMPT_FILE ? readFileSync(process.env.ULTRAPLAN_PROMPT_FILE, 'utf8').trimEnd() : DEFAULT_INSTRUCTIONS;
 /* eslint-enable custom-rules/no-process-env-top-level, custom-rules/no-sync-fs */
 
 /**
@@ -463,7 +464,7 @@ export default {
   name: 'ultraplan',
   description: `~10–30 min · OpenClaude on the web drafts an advanced plan you can edit and approve. See ${CCR_TERMS_URL}`,
   argumentHint: '<prompt>',
-  isEnabled: () => "external" === 'ant',
+  isEnabled: () => isAntEmployee(),
   load: () => Promise.resolve({
     call
   })

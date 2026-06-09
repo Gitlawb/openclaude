@@ -5,17 +5,18 @@ import { Text } from '../ink.js';
 import { getGlobalConfig } from '../utils/config.js';
 import { getRainbowColor } from '../utils/thinking.js';
 import { isBuddyEnabled } from './feature.js';
+import { isAntEmployee } from '../utils/buildConfig.js';
 
 // Local date, not UTC — 24h rolling wave across timezones. Sustained Twitter
 // buzz instead of a single UTC-midnight spike, gentler on soul-gen load.
 // Teaser window: April 1-7, 2026 only. Command stays live forever after.
 export function isBuddyTeaserWindow(): boolean {
-  if ("external" === 'ant') return true;
+  if (isAntEmployee()) return true;
   const d = new Date();
   return d.getFullYear() === 2026 && d.getMonth() === 3 && d.getDate() <= 7;
 }
 export function isBuddyLive(): boolean {
-  if ("external" === 'ant') return true;
+  if (isAntEmployee()) return true;
   const d = new Date();
   return d.getFullYear() > 2026 || d.getFullYear() === 2026 && d.getMonth() >= 3;
 }

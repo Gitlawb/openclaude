@@ -50,6 +50,7 @@ const jobClassifierModule = feature('TEMPLATES')
 
 import type { QuerySource } from '../constants/querySource.js'
 import { executeAutoDream } from '../services/autoDream/autoDream.js'
+import type { GoalEvaluationDeps } from '../services/goal/controller.js'
 import { executePromptSuggestion } from '../services/PromptSuggestion/promptSuggestion.js'
 import { isBareMode, isEnvDefinedFalsy } from '../utils/envUtils.js'
 import {
@@ -60,6 +61,17 @@ import {
 type StopHookResult = {
   blockingErrors: Message[]
   preventContinuation: boolean
+  stopHookActive: boolean
+}
+
+export type StopHookExecutionDeps = {
+  executeStopHooks?: typeof executeStopHooks
+  executeTaskCompletedHooks?: typeof executeTaskCompletedHooks
+  executeTeammateIdleHooks?: typeof executeTeammateIdleHooks
+  getStopHookMessage?: typeof getStopHookMessage
+  getTaskCompletedHookMessage?: typeof getTaskCompletedHookMessage
+  getTeammateIdleHookMessage?: typeof getTeammateIdleHookMessage
+  isTeammate?: typeof isTeammate
 }
 
 export async function* handleStopHooks(
@@ -71,6 +83,8 @@ export async function* handleStopHooks(
   toolUseContext: ToolUseContext,
   querySource: QuerySource,
   stopHookActive?: boolean,
+  goalEvaluationDeps?: GoalEvaluationDeps,
+  stopHookExecutionDeps?: StopHookExecutionDeps,
 ): AsyncGenerator<
   | StreamEvent
   | RequestStartEvent
@@ -80,6 +94,16 @@ export async function* handleStopHooks(
   StopHookResult
 > {
   const hookStartTime = Date.now()
+  const hookDeps = {
+    executeStopHooks,
+    executeTaskCompletedHooks,
+    executeTeammateIdleHooks,
+    getStopHookMessage,
+    getTaskCompletedHookMessage,
+    getTeammateIdleHookMessage,
+    isTeammate,
+    ...stopHookExecutionDeps,
+  }
 
   const stopHookContext: REPLHookContext = {
     messages: [...messagesForQuery, ...assistantMessages],
@@ -177,7 +201,7 @@ export async function* handleStopHooks(
     const appState = toolUseContext.getAppState()
     const permissionMode = appState.toolPermissionContext.mode
 
-    const generator = executeStopHooks(
+    const generator = hookDeps.executeStopHooks(
       permissionMode,
       toolUseContext.abortController.signal,
       undefined,
@@ -256,7 +280,7 @@ export async function* handleStopHooks(
       }
       if (result.blockingError) {
         const userMessage = createUserMessage({
-          content: getStopHookMessage(result.blockingError),
+          content: hookDeps.getStopHookMessage(result.blockingError),
           isMeta: true, // Hide from UI (shown in summary message instead)
         })
         blockingErrors.push(userMessage)
@@ -290,7 +314,11 @@ export async function* handleStopHooks(
         yield createUserInterruptionMessage({
           toolUse: false,
         })
-        return { blockingErrors: [], preventContinuation: true }
+        return {
+          blockingErrors: [],
+          preventContinuation: true,
+          stopHookActive: false,
+        }
       }
     }
 
@@ -323,16 +351,24 @@ export async function* handleStopHooks(
     }
 
     if (preventedContinuation) {
-      return { blockingErrors: [], preventContinuation: true }
+      return {
+        blockingErrors: [],
+        preventContinuation: true,
+        stopHookActive: false,
+      }
     }
 
     // Collect blocking errors from stop hooks
     if (blockingErrors.length > 0) {
-      return { blockingErrors, preventContinuation: false }
+      return {
+        blockingErrors,
+        preventContinuation: false,
+        stopHookActive: true,
+      }
     }
 
     // After Stop hooks pass, run TeammateIdle and TaskCompleted hooks if this is a teammate
-    if (isTeammate()) {
+    if (hookDeps.isTeammate()) {
       const teammateName = getAgentName() ?? ''
       const teamName = getTeamName() ?? ''
       const teammateBlockingErrors: Message[] = []
@@ -350,7 +386,7 @@ export async function* handleStopHooks(
       )
 
       for (const task of inProgressTasks) {
-        const taskCompletedGenerator = executeTaskCompletedHooks(
+        const taskCompletedGenerator = hookDeps.executeTaskCompletedHooks(
           task.id,
           task.subject,
           task.description,
@@ -374,7 +410,9 @@ export async function* handleStopHooks(
           }
           if (result.blockingError) {
             const userMessage = createUserMessage({
-              content: getTaskCompletedHookMessage(result.blockingError),
+              content: hookDeps.getTaskCompletedHookMessage(
+                result.blockingError,
+              ),
               isMeta: true,
             })
             teammateBlockingErrors.push(userMessage)
@@ -394,13 +432,17 @@ export async function* handleStopHooks(
             })
           }
           if (toolUseContext.abortController.signal.aborted) {
-            return { blockingErrors: [], preventContinuation: true }
+            return {
+              blockingErrors: [],
+              preventContinuation: true,
+              stopHookActive: false,
+            }
           }
         }
       }
 
       // Run TeammateIdle hooks
-      const teammateIdleGenerator = executeTeammateIdleHooks(
+      const teammateIdleGenerator = hookDeps.executeTeammateIdleHooks(
         teammateName,
         teamName,
         permissionMode,
@@ -416,7 +458,7 @@ export async function* handleStopHooks(
         }
         if (result.blockingError) {
           const userMessage = createUserMessage({
-            content: getTeammateIdleHookMessage(result.blockingError),
+            content: hookDeps.getTeammateIdleHookMessage(result.blockingError),
             isMeta: true,
           })
           teammateBlockingErrors.push(userMessage)
@@ -436,23 +478,70 @@ export async function* handleStopHooks(
           })
         }
         if (toolUseContext.abortController.signal.aborted) {
-          return { blockingErrors: [], preventContinuation: true }
+          return {
+            blockingErrors: [],
+            preventContinuation: true,
+            stopHookActive: false,
+          }
         }
       }
 
       if (teammatePreventedContinuation) {
-        return { blockingErrors: [], preventContinuation: true }
+        return {
+          blockingErrors: [],
+          preventContinuation: true,
+          stopHookActive: false,
+        }
       }
 
       if (teammateBlockingErrors.length > 0) {
         return {
           blockingErrors: teammateBlockingErrors,
           preventContinuation: false,
+          stopHookActive: false,
         }
       }
     }
 
-    return { blockingErrors: [], preventContinuation: false }
+    const activeGoal = toolUseContext.getAppState().goal
+    const terminalAssistantUuid = assistantMessages.at(-1)?.uuid
+    const isMainThreadGoalQuery =
+      !toolUseContext.agentId &&
+      typeof querySource === 'string' &&
+      (querySource === 'sdk' || querySource.startsWith('repl_main_thread'))
+    if (
+      activeGoal?.status === 'active' &&
+      isMainThreadGoalQuery &&
+      terminalAssistantUuid &&
+      activeGoal.lastEvaluatedMessageUuid !== terminalAssistantUuid
+    ) {
+      const { evaluateGoalAfterTurn } = await import(
+        '../services/goal/controller.js'
+      )
+      const goalBlockingErrors = yield* evaluateGoalAfterTurn({
+        messagesForQuery,
+        assistantMessages,
+        toolUseContext,
+        querySource,
+        deps: goalEvaluationDeps,
+      })
+      if (goalBlockingErrors.length > 0) {
+        for (const userMessage of goalBlockingErrors) {
+          yield userMessage
+        }
+        return {
+          blockingErrors: goalBlockingErrors,
+          preventContinuation: false,
+          stopHookActive: false,
+        }
+      }
+    }
+
+    return {
+      blockingErrors: [],
+      preventContinuation: false,
+      stopHookActive: false,
+    }
   } catch (error) {
     const durationMs = Date.now() - hookStartTime
     logEvent('tengu_stop_hook_error', {
@@ -468,6 +557,10 @@ export async function* handleStopHooks(
       `Stop hook failed: ${errorMessage(error)}`,
       'warning',
     )
-    return { blockingErrors: [], preventContinuation: false }
+    return {
+      blockingErrors: [],
+      preventContinuation: false,
+      stopHookActive: false,
+    }
   }
 }

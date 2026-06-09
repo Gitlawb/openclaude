@@ -9,6 +9,21 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+type GithubModelsCredentialsModule =
+  typeof import('./githubModelsCredentials.js')
+
+function importFreshGithubModelsCredentials(
+  cacheKey: string,
+): Promise<GithubModelsCredentialsModule> {
+  return import(
+    `./githubModelsCredentials.js?${cacheKey}`
+  ) as Promise<GithubModelsCredentialsModule>
+}
+
+function getEnvValue(name: string): string | undefined {
+  return process.env[name]
+}
+
 describe('hydrateGithubModelsTokenFromSecureStorage', () => {
   const orig = {
     CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -52,12 +67,11 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
       }),
     }))
 
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import(
-      './githubModelsCredentials.js?hydrate=sets-token'
-    )
+    const { hydrateGithubModelsTokenFromSecureStorage } =
+      await importFreshGithubModelsCredentials('hydrate=sets-token')
     hydrateGithubModelsTokenFromSecureStorage()
-    expect(process.env.GITHUB_TOKEN).toBe('stored-secret')
-    expect(process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED).toBe('1')
+    expect(getEnvValue('GITHUB_TOKEN')).toBe('stored-secret')
+    expect(getEnvValue('CLAUDE_CODE_GITHUB_TOKEN_HYDRATED')).toBe('1')
   })
 
   test('does not override existing GITHUB_TOKEN', async () => {
@@ -73,11 +87,10 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
       }),
     }))
 
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import(
-      './githubModelsCredentials.js?hydrate=preserve-existing'
-    )
+    const { hydrateGithubModelsTokenFromSecureStorage } =
+      await importFreshGithubModelsCredentials('hydrate=preserve-existing')
     hydrateGithubModelsTokenFromSecureStorage()
-    expect(process.env.GITHUB_TOKEN).toBe('already')
-    expect(process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED).toBeUndefined()
+    expect(getEnvValue('GITHUB_TOKEN')).toBe('already')
+    expect(getEnvValue('CLAUDE_CODE_GITHUB_TOKEN_HYDRATED')).toBeUndefined()
   })
 })

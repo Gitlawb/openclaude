@@ -24,6 +24,7 @@ import { getTheme, themeColorToAnsi } from '../utils/theme.js';
 import { Pane } from './design-system/Pane.js';
 import { Tab, Tabs, useTabHeaderFocus } from './design-system/Tabs.js';
 import { Spinner } from './Spinner.js';
+import { isAntEmployee } from '../utils/buildConfig.js';
 function formatPeakDay(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString('en-US', {
@@ -512,7 +513,7 @@ function OverviewTab({
       </Box>
 
       {/* Speculation time saved (internal-only) */}
-      {"external" === 'ant' && stats.totalSpeculationTimeSavedMs > 0 && <Box flexDirection="row" gap={4}>
+      {isAntEmployee() && stats.totalSpeculationTimeSavedMs > 0 && <Box flexDirection="row" gap={4}>
             <Box flexDirection="column" width={28}>
               <Text wrap="truncate">
                 Speculation saved:{' '}
@@ -1151,7 +1152,7 @@ function renderOverviewToAnsi(stats: ClaudeCodeStats): string[] {
   lines.push(row('Active days', activeDaysVal, 'Peak hour', peakHourVal));
 
   // Speculation time saved (internal-only)
-  if ("external" === 'ant' && stats.totalSpeculationTimeSavedMs > 0) {
+  if (isAntEmployee() && stats.totalSpeculationTimeSavedMs > 0) {
     const label = 'Speculation saved:'.padEnd(COL1_LABEL_WIDTH);
     lines.push(label + h(formatDuration(stats.totalSpeculationTimeSavedMs)));
   }

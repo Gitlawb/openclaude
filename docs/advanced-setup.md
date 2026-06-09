@@ -256,6 +256,30 @@ export OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments
 export OPENAI_MODEL=gpt-4o
 ```
 
+### Microsoft Foundry / Azure OpenAI (resource URL + deployment)
+
+When your endpoint is the **resource base URL** (not the full `.../deployments/.../v1` path), set `OPENAI_MODEL` to the **deployment name** and `AZURE_OPENAI_API_VERSION` to your API version. The OpenAI shim builds:
+
+`{base}/openai/deployments/{OPENAI_MODEL}/chat/completions?api-version={AZURE_OPENAI_API_VERSION}`
+
+and sends the key in the `api-key` header for Azure hosts.
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY=your-azure-key
+export OPENAI_BASE_URL=https://your-resource.openai.azure.com
+export OPENAI_MODEL=your-deployment-name
+export AZURE_OPENAI_API_VERSION=2024-12-01-preview
+```
+
+If your hostname is not detected as Azure (for example some inference endpoints), force Azure URL and header behavior:
+
+```bash
+export OPENAI_AZURE_STYLE=1
+```
+
+The **OpenClaude VS Code extension** can store the key in Secret Storage and set these variables for you when you launch from the Control Center. See `vscode-extension/openclaude-vscode/README.md`.
+
 ## Environment Variables
 
 | Variable | Required | Description |

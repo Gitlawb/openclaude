@@ -2,17 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { Tool } from '../../Tool.js'
+import { z } from 'zod/v4'
 import type { ToolPermissionContext } from '../../types/permissions.js'
 import { getOriginalCwd, setOriginalCwd } from '../../bootstrap/state.js'
+import { createToolFixture } from '../../test/toolFixtures.js'
 import { checkWritePermissionForTool } from './filesystem.js'
 
-const writeTool = {
+const writeInputSchema = z.object({
+  file_path: z.string(),
+})
+
+const writeTool = createToolFixture(writeInputSchema, {
   name: 'Write',
   getPath(input: { file_path: string }) {
     return input.file_path
   },
-} as Tool<{ file_path: string }>
+})
 
 function permissionContext(mode: ToolPermissionContext['mode']) {
   return {

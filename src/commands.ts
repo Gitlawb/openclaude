@@ -4,6 +4,7 @@ import autofixPr from './commands/autofix-pr/index.js'
 import backfillSessions from './commands/backfill-sessions/index.js'
 import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
+import goal from './commands/goal/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
@@ -325,6 +326,7 @@ const COMMANDS = memoize((): Command[] => [
   theme,
   logo,
   feedback,
+  goal,
   review,
   ultrareview,
   rewind,
@@ -650,6 +652,7 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   copy, // Copy last message
   btw, // Quick note
   feedback, // Send feedback
+  goal, // Manage session goal continuation
   plan, // Plan mode toggle
   keybindings, // Keybinding management
   statusline, // Status line toggle
@@ -677,6 +680,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
+    goal, // Manage session goal continuation
   ].filter((c): c is Command => c !== null),
 )
 
