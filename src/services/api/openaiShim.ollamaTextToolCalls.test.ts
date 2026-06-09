@@ -158,6 +158,34 @@ describe('parseTextToolCalls', () => {
     const [start, end] = toolCallRanges[0]
     expect(text.slice(start, end)).toBe(call)
   })
+
+  // Regression: fenced/bare ranges must only be added to toolCallRanges AFTER
+  // parseAndAdd confirms acceptance — rejected blocks must not silently strip text.
+  test('fenced block with bad JSON: no call emitted, range not in toolCallRanges', () => {
+    const { calls, toolCallRanges } = parseTextToolCalls('```json\n{bad json}\n```')
+    expect(calls).toHaveLength(0)
+    expect(toolCallRanges).toHaveLength(0)
+  })
+
+  test('fenced block without name field: no call emitted, range not in toolCallRanges', () => {
+    const { calls, toolCallRanges } = parseTextToolCalls('```json\n{"foo":"bar"}\n```')
+    expect(calls).toHaveLength(0)
+    expect(toolCallRanges).toHaveLength(0)
+  })
+
+  test('duplicate fenced blocks: second block not in toolCallRanges', () => {
+    const block = '```json\n{"name":"Read","arguments":{"file_path":"x"}}\n```'
+    const { calls, toolCallRanges } = parseTextToolCalls(block + '\n' + block)
+    expect(calls).toHaveLength(1)
+    expect(toolCallRanges).toHaveLength(1)
+  })
+
+  test('duplicate bare JSON: second occurrence not in toolCallRanges', () => {
+    const call = '{"name":"Bash","arguments":{"command":"ls"}}'
+    const { calls, toolCallRanges } = parseTextToolCalls(call + '\n' + call)
+    expect(calls).toHaveLength(1)
+    expect(toolCallRanges).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

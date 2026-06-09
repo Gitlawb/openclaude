@@ -1096,12 +1096,12 @@ function parseAndAdd(
   raw: string,
   results: ParsedTextToolCall[],
   seen: Set<string>,
-): void {
+): boolean {
   let obj: Record<string, unknown>
   try {
     obj = JSON.parse(raw)
   } catch {
-    return
+    return false
   }
 
   let name: string | undefined
@@ -1131,13 +1131,14 @@ function parseAndAdd(
         : (rawArgs as Record<string, unknown>) ?? {}
   }
 
-  if (!name) return
+  if (!name) return false
 
   const dedupKey = `${name}:${JSON.stringify(args)}`
-  if (seen.has(dedupKey)) return
+  if (seen.has(dedupKey)) return false
   seen.add(dedupKey)
 
   results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  return true
 }
 
 /** Removes character ranges from `text`, returning the remaining content. */
@@ -1160,6 +1161,11 @@ export function parseTextToolCalls(text: string): {
   const results: ParsedTextToolCall[] = []
   const seen = new Set<string>()
   const fencedRanges: Array<[number, number]> = []
+  // acceptedRanges tracks only ranges where parseAndAdd confirmed a valid tool
+  // call was emitted — these are what callers strip from text.  fencedRanges
+  // (all fenced blocks regardless of acceptance) is kept separately so Pass 2
+  // can skip over them and avoid double-processing.
+  const acceptedRanges: Array<[number, number]> = []
 
   // Pass 1: fenced code blocks — regex is safe, ``` bounds the non-greedy match.
   // Context guard: same heuristic as Pass 2 — if non-whitespace, non-`{` text
@@ -1169,8 +1175,11 @@ export function parseTextToolCalls(text: string): {
     const raw = (match[1] ?? '').trim()
     const after = text.slice(match.index! + match[0].length).trimStart()
     if (after.length > 0 && !after.startsWith('{')) continue
-    fencedRanges.push([match.index!, match.index! + match[0].length])
-    if (raw) parseAndAdd(raw, results, seen)
+    const range: [number, number] = [match.index!, match.index! + match[0].length]
+    fencedRanges.push(range)
+    if (raw && parseAndAdd(raw, results, seen)) {
+      acceptedRanges.push(range)
+    }
   }
 
   // Pass 2: bare JSON — use the brace scanner so nested objects are captured fully.
@@ -1186,12 +1195,15 @@ export function parseTextToolCalls(text: string): {
       // the model is likely explaining, not calling — skip to avoid false positives.
       const after = text.slice(start + raw.length).trimStart()
       if (after.length > 0 && !after.startsWith('{')) continue
-      processedRanges.push([start, start + raw.length])
-      parseAndAdd(raw, results, seen)
+      const range: [number, number] = [start, start + raw.length]
+      processedRanges.push(range)
+      if (parseAndAdd(raw, results, seen)) {
+        acceptedRanges.push(range)
+      }
     }
   }
 
-  return { calls: results, toolCallRanges: processedRanges }
+  return { calls: results, toolCallRanges: acceptedRanges }
 }
 
 /**
