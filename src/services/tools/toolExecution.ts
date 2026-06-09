@@ -1372,7 +1372,7 @@ async function checkPermissionsAndCallTool(
       ? getMcpServerScopeFromToolName(tool.name)
       : null
 
-    
+
     // Run PostToolUse hooks
     let toolOutput = result.data
     const hookResults = []

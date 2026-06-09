@@ -23,6 +23,11 @@
  *   CLAUDE_CODE_USE_GITHUB=1         — enable GitHub inference (no need for USE_OPENAI)
  *   GITHUB_TOKEN or GH_TOKEN         — Copilot API token (mapped to Bearer auth)
  *   OPENAI_MODEL                     — optional; use github:copilot or openai/gpt-4.1 style IDs
+ *
+ * Azure OpenAI / Microsoft Foundry (OpenAI-compatible chat):
+ *   AZURE_OPENAI_API_VERSION         — query param for chat/completions (default: 2024-12-01-preview)
+ *   OPENAI_AZURE_STYLE=1             — force Azure deployment URL + api-key header when the hostname
+ *                                     would not otherwise match (for example inference.ml.azure.com)
  */
 
 import { APIError } from '@anthropic-ai/sdk'
@@ -1924,7 +1929,7 @@ class OpenAIShimMessages {
       throw APIError.generate(
         response.status,
         undefined,
-        `OpenAI API error ${response.status}: unexpected response: ${textBody.slice(0, 500)}`,
+        `OpenAI API error ${response.status}: unexpected response content-type: ${response.headers.get('content-type') ?? 'unknown'}`,
         response.headers as unknown as Headers,
       )
     })()
@@ -2197,6 +2202,7 @@ class OpenAIShimMessages {
             message?: { role?: string; content?: unknown }
             content?: unknown
           }>,
+          effectiveTransport === 'responses_compat',
         ),
         stream: params.stream ?? false,
         store: false,
@@ -2211,7 +2217,7 @@ class OpenAIShimMessages {
           {
             type: 'message',
             role: 'user',
-            content: [{ type: 'input_text', text: '' }],
+            content: [{ type: effectiveTransport === 'responses_compat' ? 'text' : 'input_text', text: '' }],
           },
         ]
       }
@@ -2427,6 +2433,9 @@ class OpenAIShimMessages {
       xaiOAuthToken ??
       ''
     const configuredAuthHeaderValue = process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
+    if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
+      throw new Error('OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters')
+    }
     const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
     const hasCustomAuthHeader = Boolean(
       customAuthHeader &&
@@ -2437,12 +2446,20 @@ class OpenAIShimMessages {
       : apiKey
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
-    let isAzure = false
-    try {
-      const { hostname } = new URL(request.baseUrl)
-      isAzure = hostname.endsWith('.azure.com') &&
-        (hostname.includes('cognitiveservices') || hostname.includes('openai') || hostname.includes('services.ai'))
-    } catch { /* malformed URL — not Azure */ }
+    let isAzure = isEnvTruthy(process.env.OPENAI_AZURE_STYLE)
+    if (!isAzure) {
+      try {
+        const { hostname } = new URL(request.baseUrl)
+        isAzure =
+          hostname.endsWith('.azure.com') &&
+          (hostname.includes('cognitiveservices') ||
+            hostname.includes('openai') ||
+            hostname.includes('services.ai') ||
+            hostname.includes('inference.ml'))
+      } catch {
+        /* malformed URL — not Azure */
+      }
+    }
 
     let isBankr = false
     try {
@@ -2508,7 +2525,7 @@ class OpenAIShimMessages {
       // path and an api-version query parameter.
       if (isAzure) {
         const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-        const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
+        const deployment = encodeURIComponent(request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o')
 
         // If base URL already contains /deployments/, use it as-is with api-version.
         if (/\/deployments\//i.test(baseUrl)) {
@@ -2535,7 +2552,7 @@ class OpenAIShimMessages {
       if (shimConfig.endpointPath) {
         return `${baseUrl}${shimConfig.endpointPath}`
       }
-      return request.transport === 'responses'
+      return request.transport === 'responses' || request.transport === 'responses_compat'
         ? `${baseUrl}/responses`
         : buildChatCompletionsUrl(baseUrl)
     }
@@ -2599,7 +2616,7 @@ class OpenAIShimMessages {
     // `JSON.stringify` fast path when the fast-path config opts out.
     const serializeBody = (): string => {
       const payload =
-        effectiveTransport === 'responses' ? buildResponsesBody()
+        effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' ? buildResponsesBody()
           : effectiveTransport === 'anthropic_messages' ? buildAnthropicMessagesBody()
           : effectiveTransport === 'gemini' ? buildGeminiBody()
           : body
@@ -2836,7 +2853,7 @@ class OpenAIShimMessages {
       }
 
       const hasToolsPayload =
-        effectiveTransport === 'responses' || effectiveTransport === 'anthropic_messages' || effectiveTransport === 'gemini'
+        effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' || effectiveTransport === 'anthropic_messages' || effectiveTransport === 'gemini'
           ? Array.isArray(params.tools) && params.tools.length > 0
           : Array.isArray(body.tools) && body.tools.length > 0
 

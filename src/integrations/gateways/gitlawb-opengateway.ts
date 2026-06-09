@@ -67,22 +67,10 @@ export default defineGateway({
         modelDescriptorId: 'mimo-v2.5-pro',
       },
       {
-        id: 'opengateway-mimo-v2-pro',
-        apiName: 'mimo-v2-pro',
-        label: 'MiMo V2 Pro (via Opengateway)',
-        modelDescriptorId: 'mimo-v2-pro',
-      },
-      {
         id: 'opengateway-mimo-v2.5',
         apiName: 'mimo-v2.5',
         label: 'MiMo V2.5 (via Opengateway)',
         modelDescriptorId: 'mimo-v2.5',
-      },
-      {
-        id: 'opengateway-mimo-v2-omni',
-        apiName: 'mimo-v2-omni',
-        label: 'MiMo V2 Omni (via Opengateway)',
-        modelDescriptorId: 'mimo-v2-omni',
       },
       {
         id: 'opengateway-mimo-v2-flash',
@@ -95,10 +83,31 @@ export default defineGateway({
       // the gateway URL stays unchanged; only the apiName the client sends
       // determines the upstream.
       {
-        id: 'opengateway-gemini-3.1-flash-lite-preview',
-        apiName: 'google/gemini-3.1-flash-lite-preview',
-        label: 'Gemini 3.1 Flash Lite Preview (via Opengateway)',
-        modelDescriptorId: 'gemini-3.1-flash-lite-preview',
+        id: 'opengateway-gemini-3.1-flash-lite',
+        apiName: 'google/gemini-3.1-flash-lite',
+        label: 'Gemini 3.1 Flash Lite (via Opengateway)',
+        modelDescriptorId: 'gemini-3.1-flash-lite',
+      },
+      {
+        id: 'opengateway-minimax-m3',
+        apiName: 'minimax/minimax-m3',
+        label: 'MiniMax M3 (via Opengateway)',
+        modelDescriptorId: 'minimax-m3',
+      },
+      {
+        id: 'opengateway-qwen3.7-max',
+        apiName: 'qwen/qwen3.7-max',
+        label: 'Qwen 3.7 Max (via Opengateway)',
+        modelDescriptorId: 'qwen3.7-max',
+      },
+      // OpenRouter :free endpoint — bills $0 and bypasses the gateway credit
+      // gate, so it works even with an empty credit balance.
+      {
+        id: 'opengateway-nemotron-3-ultra-free',
+        apiName: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+        label: 'Nemotron 3 Ultra Free (via Opengateway)',
+        modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+        notes: 'Free',
       },
     ],
   },

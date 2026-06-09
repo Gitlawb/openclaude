@@ -28,6 +28,7 @@ import FullWidthRow from '../design-system/FullWidthRow.js';
 import { FilePathLink } from '../FilePathLink.js';
 import { feature } from 'bun:bundle';
 import { useSelectedMessageBg } from '../messageActions.js';
+import { isAntEmployee } from '../../utils/buildConfig.js';
 type Props = {
   addMargin: boolean;
   attachment: Attachment;
@@ -114,7 +115,7 @@ export function AttachmentMessage({
       // names — shortId is undefined outside ant builds anyway.
       const names = attachment.skills.map(s => s.shortId ? `${s.name} [${s.shortId}]` : s.name).join(', ');
       const firstId = attachment.skills[0]?.shortId;
-      const hint = "external" === 'ant' && !isDemoEnv && firstId ? ` · /skill-feedback ${firstId} 1=wrong 2=noisy 3=good [comment]` : '';
+      const hint = isAntEmployee() && !isDemoEnv && firstId ? ` · /skill-feedback ${firstId} 1=wrong 2=noisy 3=good [comment]` : '';
       return <Line>
           <Text bold>{attachment.skills.length}</Text> relevant{' '}
           {plural(attachment.skills.length, 'skill')}: {names}

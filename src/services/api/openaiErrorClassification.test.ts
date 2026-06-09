@@ -8,6 +8,7 @@ import {
   extractOpenAICategoryMarker,
   formatOpenAICategoryMarker,
   isLocalhostLikeHost,
+  isRetryableOpenAICompatibilityFailureCategory,
 } from './openaiErrorClassification.js'
 
 test('classifies localhost ECONNREFUSED as connection_refused', () => {
@@ -177,6 +178,15 @@ test('marker without host stays backward-compatible', () => {
   expect(marker).toBe('[openai_category=endpoint_not_found]')
   expect(extractOpenAICategoryMarker(marker)).toBe('endpoint_not_found')
   expect(extractOpenAICategoryHost(marker)).toBeUndefined()
+})
+
+test('reports retryability for extracted category markers', () => {
+  expect(isRetryableOpenAICompatibilityFailureCategory('auth_invalid')).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('model_not_found')).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('context_overflow')).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('rate_limited')).toBe(true)
+  expect(isRetryableOpenAICompatibilityFailureCategory('provider_unavailable')).toBe(true)
+  expect(isRetryableOpenAICompatibilityFailureCategory('network_error')).toBe(true)
 })
 
 test('isLocalhostLikeHost matches loopback variants', () => {

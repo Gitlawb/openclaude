@@ -19,6 +19,10 @@ const { DiffContentProvider, SCHEME: DIFF_SCHEME } = require('./chat/diffControl
 const OPENCLAUDE_REPO_URL = 'https://github.com/Gitlawb/openclaude';
 const OPENCLAUDE_SETUP_URL = 'https://github.com/Gitlawb/openclaude/blob/main/README.md#quick-start';
 const PROFILE_FILE_NAME = '.openclaude-profile.json';
+const SECRET_AZURE_API_KEY = 'openclaude.azure.apiKey';
+
+/** @type {vscode.ExtensionContext | null} */
+let extensionContext = null;
 
 function escapeHtml(value) {
   return String(value)
@@ -50,6 +54,172 @@ function getExecutableFromCommand(command) {
   }
 
   return normalized.split(/\s+/)[0];
+}
+
+/**
+ * @param {string} raw
+ */
+function normalizeAzureEndpoint(raw) {
+  const t = (raw || '').trim();
+  if (!t) {
+    return '';
+  }
+  try {
+    const u = new URL(t);
+    const pathname = u.pathname.replace(/\/+$/, '');
+    return `${u.origin}${pathname}`;
+  } catch {
+    return t.replace(/\/+$/, '');
+  }
+}
+
+/**
+ * @param {vscode.ExtensionContext | null} context
+ * @param {vscode.WorkspaceConfiguration} configured
+ */
+async function resolveAzureApiKey(context, configured) {
+  if (!context) {
+    return '';
+  }
+  const fromSecret = await context.secrets.get(SECRET_AZURE_API_KEY);
+  if (fromSecret) {
+    return fromSecret;
+  }
+  return (configured.get('azure.apiKey', '') || '').trim();
+}
+
+/**
+ * @param {vscode.WorkspaceConfiguration} configured
+ */
+async function buildLaunchAzureEnv(configured) {
+  const env = {};
+  const ctx = extensionContext;
+  if (!ctx) {
+    return env;
+  }
+
+  const azureEnabled = configured.get('azure.enabled', false);
+  const endpoint = normalizeAzureEndpoint(configured.get('azure.endpoint', ''));
+  const apiVersion = (configured.get('azure.apiVersion', '2024-12-01-preview') || '').trim();
+  const deployment = (configured.get('azure.deployment', '') || '').trim();
+  const forceStyle = configured.get('azure.forceAzureUrlStyle', true);
+
+  if (!azureEnabled) {
+    return env;
+  }
+
+  const apiKey = await resolveAzureApiKey(ctx, configured);
+  if (!endpoint || !deployment) {
+    void vscode.window.showWarningMessage(
+      'OpenClaude Azure chat is enabled but endpoint or deployment is missing. Run "OpenClaude: Configure Azure / Foundry Chat" or set openclaude.azure.* in settings.',
+    );
+    return env;
+  }
+  if (!apiKey) {
+    void vscode.window.showWarningMessage(
+      'OpenClaude Azure chat is enabled but no API key is set. Use "OpenClaude: Set Azure / Foundry API Key" or openclaude.azure.apiKey (not recommended).',
+    );
+    return env;
+  }
+
+  env.CLAUDE_CODE_USE_OPENAI = '1';
+  env.OPENAI_BASE_URL = endpoint;
+  env.OPENAI_API_KEY = apiKey;
+  env.OPENAI_MODEL = deployment;
+  env.AZURE_OPENAI_API_VERSION = apiVersion || '2024-12-01-preview';
+  if (forceStyle) {
+    env.OPENAI_AZURE_STYLE = '1';
+  }
+  return env;
+}
+
+/**
+ * @param {vscode.ExtensionContext} context
+ */
+async function setAzureApiKey(context) {
+  const key = await vscode.window.showInputBox({
+    title: 'OpenClaude — Azure / Foundry API key',
+    prompt: 'Stored in VS Code Secret Storage (not committed to the repo).',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: v => (v && v.trim() ? null : 'Enter a non-empty key'),
+  });
+  if (key == null) {
+    return;
+  }
+  await context.secrets.store(SECRET_AZURE_API_KEY, key.trim());
+  void vscode.window.showInformationMessage('OpenClaude Azure / Foundry API key saved to Secret Storage.');
+}
+
+/**
+ * @param {vscode.ExtensionContext} context
+ */
+async function clearAzureApiKey(context) {
+  await context.secrets.delete(SECRET_AZURE_API_KEY);
+  void vscode.window.showInformationMessage('OpenClaude Azure / Foundry API key removed from Secret Storage.');
+}
+
+/**
+ * @param {vscode.ExtensionContext} context
+ */
+async function configureAzureChat(context) {
+  const cfg = vscode.workspace.getConfiguration('openclaude');
+  const target = vscode.ConfigurationTarget.Global;
+
+  const endpoint = await vscode.window.showInputBox({
+    title: 'OpenClaude — Azure / Foundry API endpoint',
+    prompt: 'Resource base URL only (no api-version query). Example: https://YOUR_RESOURCE.openai.azure.com',
+    ignoreFocusOut: true,
+    value: cfg.get('azure.endpoint', ''),
+    validateInput: v => (v && v.trim() ? null : 'Required'),
+  });
+  if (endpoint == null) {
+    return;
+  }
+
+  const apiVersion = await vscode.window.showInputBox({
+    title: 'OpenClaude — Azure API version',
+    prompt: 'Matches the api-version used by your deployment (e.g. 2024-12-01-preview).',
+    value: (cfg.get('azure.apiVersion', '2024-12-01-preview') || '').trim(),
+    ignoreFocusOut: true,
+    validateInput: v => (v && v.trim() ? null : 'Required'),
+  });
+  if (apiVersion == null) {
+    return;
+  }
+
+  const deployment = await vscode.window.showInputBox({
+    title: 'OpenClaude — Azure deployment / model',
+    prompt: 'Deployment name in Azure (this becomes OPENAI_MODEL for the OpenAI shim).',
+    value: cfg.get('azure.deployment', ''),
+    ignoreFocusOut: true,
+    validateInput: v => (v && v.trim() ? null : 'Required'),
+  });
+  if (deployment == null) {
+    return;
+  }
+
+  const key = await vscode.window.showInputBox({
+    title: 'OpenClaude — Azure / Foundry API key',
+    prompt: 'Stored in VS Code Secret Storage.',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: v => (v && v.trim() ? null : 'Required'),
+  });
+  if (key == null) {
+    return;
+  }
+
+  await cfg.update('azure.endpoint', normalizeAzureEndpoint(endpoint), target);
+  await cfg.update('azure.apiVersion', apiVersion.trim(), target);
+  await cfg.update('azure.deployment', deployment.trim(), target);
+  await cfg.update('azure.forceAzureUrlStyle', true, target);
+  await cfg.update('azure.enabled', true, target);
+  await context.secrets.store(SECRET_AZURE_API_KEY, key.trim());
+
+  void vscode.window.showInformationMessage(
+    'OpenClaude Azure / Foundry chat saved. Launch OpenClaude from the Control Center or command palette.',
+  );
 }
 
 function getWorkspacePaths() {
@@ -305,8 +475,8 @@ async function launchOpenClaude(options = {}) {
     return;
   }
 
-  const env = {};
-  if (shimEnabled) {
+  const env = await buildLaunchAzureEnv(configured);
+  if (shimEnabled && !env.CLAUDE_CODE_USE_OPENAI) {
     env.CLAUDE_CODE_USE_OPENAI = '1';
   }
 
@@ -887,6 +1057,10 @@ function renderControlCenterHtml(status, options = {}) {
               <span class="support-link-label">Open Command Palette</span>
               <span class="summary-detail">Access VS Code and OpenClaude commands quickly.</span>
             </button>
+            <button class="support-link" id="azureFoundry" type="button">
+              <span class="support-link-label">Azure / Foundry settings</span>
+              <span class="summary-detail">Configure endpoint, API version, deployment, and API key for chat.</span>
+            </button>
           </div>
         </section>
       </section>
@@ -904,6 +1078,7 @@ function renderControlCenterHtml(status, options = {}) {
     document.getElementById('repo').addEventListener('click', () => vscode.postMessage({ type: 'repo' }));
     document.getElementById('setup').addEventListener('click', () => vscode.postMessage({ type: 'setup' }));
     document.getElementById('commands').addEventListener('click', () => vscode.postMessage({ type: 'commands' }));
+    document.getElementById('azureFoundry').addEventListener('click', () => vscode.postMessage({ type: 'azureSettings' }));
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 
     const profileButton = document.getElementById('openProfile');
@@ -949,6 +1124,9 @@ class OpenClaudeControlCenterProvider {
           break;
         case 'commands':
           await vscode.commands.executeCommand('workbench.action.showCommands');
+          break;
+        case 'azureSettings':
+          await vscode.commands.executeCommand('workbench.action.openSettings', 'openclaude.azure');
           break;
         case 'refresh':
         default:
@@ -1044,6 +1222,8 @@ class OpenClaudeControlCenterProvider {
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
+  extensionContext = context;
+
   // ── Control Center (existing) ──
   const provider = new OpenClaudeControlCenterProvider();
   const refreshProvider = () => {
@@ -1165,6 +1345,22 @@ function activate(context) {
     chatController.abort();
   });
 
+  const setAzureApiKeyCommand = vscode.commands.registerCommand('openclaude.setAzureApiKey', async () => {
+    await setAzureApiKey(context);
+  });
+
+  const clearAzureApiKeyCommand = vscode.commands.registerCommand('openclaude.clearAzureApiKey', async () => {
+    await clearAzureApiKey(context);
+  });
+
+  const configureAzureChatCommand = vscode.commands.registerCommand('openclaude.configureAzureChat', async () => {
+    await configureAzureChat(context);
+  });
+
+  const openAzureSettingsCommand = vscode.commands.registerCommand('openclaude.openAzureSettings', async () => {
+    await vscode.commands.executeCommand('workbench.action.openSettings', 'openclaude.azure');
+  });
+
   // ── Register providers ──
   const controlCenterProviderReg = vscode.window.registerWebviewViewProvider(
     'openclaude.controlCenter',
@@ -1193,6 +1389,10 @@ function activate(context) {
     openChatCommand,
     resumeSessionCommand,
     abortChatCommand,
+    setAzureApiKeyCommand,
+    clearAzureApiKeyCommand,
+    configureAzureChatCommand,
+    openAzureSettingsCommand,
     chatViewProviderReg,
     diffProviderReg,
     statusBarItem,
@@ -1221,7 +1421,9 @@ function activate(context) {
   );
 }
 
-function deactivate() {}
+function deactivate() {
+  extensionContext = null;
+}
 
 module.exports = {
   activate,

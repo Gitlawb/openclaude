@@ -34,6 +34,7 @@ afterEach(() => {
     process.env = { ...originalEnv }
     globalThis.fetch = originalFetch
     mock.restore()
+    mock.module('./model/providers.js', () => actualProviders)
   } finally {
     releaseSharedMutationLock()
   }
@@ -101,6 +102,10 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_CLIENT_CERT
     delete process.env.CLAUDE_CODE_CLIENT_KEY
 
+    mock.module('./model/providers.js', () => ({
+      ...actualProviders,
+      getAPIProvider: () => 'firstParty',
+    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 

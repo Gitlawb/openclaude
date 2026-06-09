@@ -130,6 +130,42 @@ describe('resolveAgentProvider', () => {
     expect(result?.model).toBe('deepseek-chat')
   })
 
+  test('configured model key can alias a different API model name', () => {
+    const settings = {
+      agentModels: {
+        zai: {
+          model: 'glm-5.1',
+          base_url: 'https://api.z.ai/api/coding/paas/v4',
+          api_key: 'sk-zai',
+        },
+      },
+      agentRouting: { default: 'zai' },
+    } as unknown as SettingsJson
+
+    const result = resolveAgentProvider(undefined, undefined, settings)
+
+    expect(result).toEqual({
+      model: 'glm-5.1',
+      baseURL: 'https://api.z.ai/api/coding/paas/v4',
+      apiKey: 'sk-zai',
+    })
+  })
+
+  test('blank API keys do not create provider overrides', () => {
+    const settings = {
+      agentModels: {
+        zai: {
+          model: 'glm-5.1',
+          base_url: 'https://api.z.ai/api/coding/paas/v4',
+          api_key: '',
+        },
+      },
+      agentRouting: { default: 'zai' },
+    } as unknown as SettingsJson
+
+    expect(resolveAgentProvider(undefined, undefined, settings)).toBeNull()
+  })
+
 })
 
 describe('resolveAgentModelProvider', () => {
@@ -154,6 +190,24 @@ describe('resolveAgentModelProvider', () => {
   test('trims whitespace around requested model', () => {
     const result = resolveAgentModelProvider('  deepseek-chat  ', baseSettings)
     expect(result?.model).toBe('deepseek-chat')
+  })
+
+  test('exact match can resolve to a different API model name', () => {
+    const settings = {
+      agentModels: {
+        zai: {
+          model: 'glm-5.1',
+          base_url: 'https://api.z.ai/api/coding/paas/v4',
+          api_key: 'sk-zai',
+        },
+      },
+    } as unknown as SettingsJson
+
+    expect(resolveAgentModelProvider('zai', settings)).toEqual({
+      model: 'glm-5.1',
+      baseURL: 'https://api.z.ai/api/coding/paas/v4',
+      apiKey: 'sk-zai',
+    })
   })
 
   test('no fuzzy matching', () => {
@@ -233,6 +287,25 @@ describe('resolveAgentRunModelRouting', () => {
     })
 
     expect(result).toEqual({ mainLoopModel: 'default-model' })
+  })
+
+  test('falls back to resolved model when routed provider has a blank API key', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-runtime-model',
+      subagentType: 'Explore',
+      settings: {
+        agentModels: {
+          zai: {
+            model: 'glm-5.1',
+            base_url: 'https://api.z.ai/api/coding/paas/v4',
+            api_key: '   ',
+          },
+        },
+        agentRouting: { Explore: 'zai' },
+      } as unknown as SettingsJson,
+    })
+
+    expect(result).toEqual({ mainLoopModel: 'parent-runtime-model' })
   })
 })
 

@@ -2,34 +2,39 @@ import { describe, expect, test, vi } from 'bun:test'
 import { z } from 'zod/v4'
 
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
-import { getEmptyToolPermissionContext, type Tool } from '../../Tool.js'
+import { getEmptyToolPermissionContext, type ToolUseContext } from '../../Tool.js'
+import { createToolFixture } from '../../test/toolFixtures.js'
 import { resolveHookPermissionDecision } from './toolHooks.js'
 
-const passthroughTool = {
+const emptyInputSchema = z.object({})
+const assistantMessage = {} as Parameters<CanUseToolFn>[3]
+
+const passthroughTool = createToolFixture(emptyInputSchema, {
   name: 'PassthroughTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'passthrough',
       message: '',
     }
   },
-} as Tool<Record<string, unknown>>
+})
 
-const denyTool = {
+const denyTool = createToolFixture(emptyInputSchema, {
   name: 'DenyTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'deny',
       message: 'Denied by tool',
+      decisionReason: {
+        type: 'other',
+        reason: 'Denied by tool',
+      },
     }
   },
-} as Tool<Record<string, unknown>>
+})
 
-const askWithUpdatedInputTool = {
+const askWithUpdatedInputTool = createToolFixture(emptyInputSchema, {
   name: 'AskWithUpdatedInputTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'ask',
@@ -37,9 +42,9 @@ const askWithUpdatedInputTool = {
       updatedInput: { normalized: true },
     }
   },
-} as Tool<Record<string, unknown>>
+})
 
-function contextForFullAccess() {
+function contextForFullAccess(): ToolUseContext {
   return {
     abortController: new AbortController(),
     getAppState: () => ({
@@ -50,7 +55,7 @@ function contextForFullAccess() {
       },
     }),
     options: {},
-  } as never
+  } as unknown as ToolUseContext
 }
 
 describe('resolveHookPermissionDecision', () => {
@@ -71,7 +76,7 @@ describe('resolveHookPermissionDecision', () => {
       {},
       contextForFullAccess(),
       canUseTool,
-      {} as never,
+      assistantMessage,
       'tool-use-id',
     )
 
@@ -103,7 +108,7 @@ describe('resolveHookPermissionDecision', () => {
       {},
       contextForFullAccess(),
       canUseTool,
-      {} as never,
+      assistantMessage,
       'tool-use-id',
     )
 
@@ -129,7 +134,7 @@ describe('resolveHookPermissionDecision', () => {
       { raw: true },
       contextForFullAccess(),
       canUseTool,
-      {} as never,
+      assistantMessage,
       'tool-use-id',
     )
 

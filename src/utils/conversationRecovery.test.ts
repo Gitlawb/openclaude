@@ -55,11 +55,33 @@ function user(uuid: string, content: string) {
   }
 }
 
+function activeGoal(condition = 'resume goal') {
+  return {
+    id: id(900),
+    condition,
+    status: 'active',
+    createdAt: ts,
+    updatedAt: ts,
+    startedAt: ts,
+    turnCount: 1,
+    maxTurns: 50,
+    evaluatorFailures: 0,
+  }
+}
+
 async function writeJsonl(entry: unknown): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-conversation-recovery-'))
   tempDirs.push(dir)
   const filePath = join(dir, 'resume.jsonl')
   await writeFile(filePath, `${JSON.stringify(entry)}\n`)
+  return filePath
+}
+
+async function writeJsonlEntries(entries: unknown[]): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-conversation-recovery-'))
+  tempDirs.push(dir)
+  const filePath = join(dir, 'resume.jsonl')
+  await writeFile(filePath, entries.map(entry => JSON.stringify(entry)).join('\n') + '\n')
   return filePath
 }
 
@@ -124,6 +146,48 @@ test('loadConversationForResume accepts a small transcript from jsonl path', asy
   expect(result).not.toBeNull()
   expect(result?.sessionId).toBe(sessionId)
   expect(result?.messages.length).toBeGreaterThan(0)
+})
+
+test('loadConversationForResume preserves goal metadata from a loaded log option', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const goal = activeGoal('keep going after resume')
+  const { loadConversationForResume } = await importFreshConversationRecovery()
+
+  const result = await loadConversationForResume(
+    {
+      date: ts,
+      messages: [user(id(10), 'hello')],
+      value: 0,
+      created: new Date(ts),
+      modified: new Date(ts),
+      firstPrompt: 'hello',
+      messageCount: 1,
+      isSidechain: false,
+      sessionId,
+      goal,
+    } as any,
+    undefined,
+  )
+
+  expect(result?.goal).toEqual(goal)
+})
+
+test('loadConversationForResume preserves goal metadata from jsonl transcript path', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const goal = activeGoal('keep going after jsonl resume')
+  const path = await writeJsonlEntries([
+    {
+      type: 'goal-state',
+      sessionId,
+      goal,
+    },
+    user(id(11), 'hello'),
+  ])
+  const { loadConversationForResume } = await importFreshConversationRecovery()
+
+  const result = await loadConversationForResume('fixture', path)
+
+  expect(result?.goal).toEqual(goal)
 })
 
 test('loadConversationForResume rejects oversized reconstructed transcripts', async () => {

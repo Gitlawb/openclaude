@@ -114,14 +114,8 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
-  const hasConfiguredProviderProfile = await (async () => {
-    const { getActiveProviderProfile } = await import('../utils/providerProfiles.js')
-    return getActiveProviderProfile() !== undefined
-  })()
-
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
-    hasConfiguredProviderProfile,
   })
   if (startupEnv !== process.env) {
     const startupProfileError = await getProviderValidationError(startupEnv)

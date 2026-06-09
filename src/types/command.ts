@@ -15,13 +15,27 @@ import type { Message } from './message.js'
 import type { PluginManifest } from './plugin.js'
 
 export type LocalCommandResult =
-  | { type: 'text'; value: string; display?: 'skip' }
+  | {
+      type: 'text'
+      value: string
+      display?: 'skip'
+      shouldQuery?: boolean
+      metaMessages?: string[]
+      nextInput?: string
+      submitNextInput?: boolean
+    }
   | {
       type: 'compact'
       compactionResult: CompactionResult
       displayText?: string
+      nextInput?: string
+      submitNextInput?: boolean
     }
-  | { type: 'skip' } // Skip messages
+  | {
+      type: 'skip'
+      nextInput?: string
+      submitNextInput?: boolean
+    } // Skip messages
 
 export type PromptCommand = {
   type: 'prompt'

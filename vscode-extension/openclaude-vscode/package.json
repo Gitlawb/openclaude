@@ -1,7 +1,7 @@
 {
   "name": "openclaude-vscode",
   "displayName": "OpenClaude",
-  "description": "Practical VS Code companion for OpenClaude with project-aware launch behavior and a real Control Center.",
+  "description": "Practical VS Code companion for OpenClaude with project-aware launch, Control Center, optional Microsoft Foundry / Azure OpenAI terminal env, and chat.",
   "version": "0.2.0",
   "publisher": "devnull-bootloader",
   "engines": {
@@ -23,6 +23,10 @@
     "onCommand:openclaude.openChat",
     "onCommand:openclaude.resumeSession",
     "onCommand:openclaude.abortChat",
+    "onCommand:openclaude.setAzureApiKey",
+    "onCommand:openclaude.clearAzureApiKey",
+    "onCommand:openclaude.configureAzureChat",
+    "onCommand:openclaude.openAzureSettings",
     "onView:openclaude.controlCenter",
     "onView:openclaude.chat"
   ],
@@ -87,6 +91,26 @@
         "command": "openclaude.abortChat",
         "title": "OpenClaude: Abort Generation",
         "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.setAzureApiKey",
+        "title": "OpenClaude: Set Azure / Foundry API Key (Secret Storage)",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.clearAzureApiKey",
+        "title": "OpenClaude: Clear Azure / Foundry API Key",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.configureAzureChat",
+        "title": "OpenClaude: Configure Azure / Foundry Chat (wizard)",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.openAzureSettings",
+        "title": "OpenClaude: Open Azure / Foundry Settings",
+        "category": "OpenClaude"
       }
     ],
     "viewsContainers": {
@@ -135,7 +159,37 @@
         "openclaude.useOpenAIShim": {
           "type": "boolean",
           "default": false,
-          "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched OpenClaude terminals."
+          "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched OpenClaude terminals when Azure injection is off or incomplete."
+        },
+        "openclaude.azure.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, launch injects Microsoft Foundry / Azure OpenAI-compatible chat env (OPENAI_* + AZURE_OPENAI_API_VERSION) into the OpenClaude terminal."
+        },
+        "openclaude.azure.endpoint": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Azure resource base URL for OpenAI-compatible chat (example: `https://YOUR_RESOURCE.openai.azure.com`). Do not put `api-version` here; use **OpenClaude: Azure API Version**."
+        },
+        "openclaude.azure.apiVersion": {
+          "type": "string",
+          "default": "2024-12-01-preview",
+          "description": "Azure API version for chat completions (AZURE_OPENAI_API_VERSION)."
+        },
+        "openclaude.azure.deployment": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Azure deployment name (maps to `OPENAI_MODEL` for the OpenAI shim)."
+        },
+        "openclaude.azure.forceAzureUrlStyle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sets OPENAI_AZURE_STYLE=1 so deployment URLs and api-key header work on Foundry and non-standard Azure hosts."
+        },
+        "openclaude.azure.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional API key in settings (not recommended). Prefer **OpenClaude: Set Azure / Foundry API Key**. Secret wins if both are set."
         },
         "openclaude.permissionMode": {
           "type": "string",
@@ -169,7 +223,9 @@
     "terminal",
     "theme",
     "cli",
-    "llm"
+    "llm",
+    "azure",
+    "foundry"
   ],
   "repository": {
     "type": "git",

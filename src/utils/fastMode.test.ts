@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import * as realAxios from 'axios'
+import * as realOauthConstants from 'src/constants/oauth.js'
+import * as realGrowthbook from 'src/services/analytics/growthbook.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realAuth from './auth.js'
+import * as realModel from './model/model.js'
 type ProvidersModule = typeof import('./model/providers.js')
 type AxiosModule = typeof import('axios')
 
@@ -223,9 +228,11 @@ afterEach(async () => {
     if (originalProvidersModule) {
       mock.module('./model/providers.js', () => originalProvidersModule!)
     }
-    if (originalAxiosModule) {
-      mock.module('axios', () => originalAxiosModule!)
-    }
+    mock.module('axios', () => originalAxiosModule ?? realAxios)
+    mock.module('src/constants/oauth.js', () => realOauthConstants)
+    mock.module('src/services/analytics/growthbook.js', () => realGrowthbook)
+    mock.module('./auth.js', () => realAuth)
+    mock.module('./model/model.js', () => realModel)
     process.env = { ...originalEnv }
     const { resetStateForTests } = await import('../bootstrap/state.js')
     resetStateForTests()

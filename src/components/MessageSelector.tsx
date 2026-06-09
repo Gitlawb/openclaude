@@ -29,6 +29,7 @@ import { count } from '../utils/array.js';
 import { formatRelativeTimeAgo, truncate } from '../utils/format.js';
 import type { Theme } from '../utils/theme.js';
 import { Divider } from './design-system/Divider.js';
+import { isAntEmployee } from '../utils/buildConfig.js';
 type RestoreOption = 'both' | 'conversation' | 'code' | 'summarize' | 'summarize_up_to' | 'nevermind';
 function isSummarizeOption(option: RestoreOption | null): option is 'summarize' | 'summarize_up_to' {
   return option === 'summarize' || option === 'summarize_up_to';
@@ -119,7 +120,7 @@ export function MessageSelector({
       ...summarizeInputProps,
       onChange: setSummarizeFromFeedback
     });
-    if ("external" === 'ant') {
+    if (isAntEmployee()) {
       baseOptions.push({
         value: 'summarize_up_to',
         label: 'Summarize up to here',

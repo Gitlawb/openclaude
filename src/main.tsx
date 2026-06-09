@@ -204,6 +204,7 @@ import { checkOutTeleportedSessionBranch, processMessagesForTeleportResume, tele
 import { shouldEnableThinkingByDefault, type ThinkingConfig } from './utils/thinking.js';
 import { initUser, resetUserCache } from './utils/user.js';
 import { getTmuxInstallInstructions, isTmuxAvailable, parsePRReference } from './utils/worktree.js';
+import { IS_ANT_EMPLOYEE, isAntEmployee } from './utils/buildConfig.js';
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 profileCheckpoint('main_tsx_imports_loaded');
@@ -223,8 +224,9 @@ function logManagedSettings(): void {
         keys: allKeys.join(',') as unknown as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
-  } catch {
+  } catch (error) {
     // Silently ignore errors - this is just for analytics
+    logForDebugging(`[main] logManagedSettings failed: ${errorMessage(error)}`, { level: 'debug' })
   }
 }
 
@@ -263,10 +265,11 @@ function isBeingDebugged() {
 }
 
 // Exit if we detect node debugging or inspection
-if ("external" !== 'ant' && isBeingDebugged()) {
+if (!isAntEmployee() && isBeingDebugged()) {
   // Use process.exit directly here since we're in the top-level code before imports
   // and gracefulShutdown is not yet available
   // eslint-disable-next-line custom-rules/no-top-level-side-effects
+  process.stderr.write('[openclaude] Debugger detected. Attaching a debugger is not supported in external builds. Exiting.\n')
   process.exit(1);
 }
 
@@ -337,7 +340,7 @@ function runMigrations(): void {
     if (feature('TRANSCRIPT_CLASSIFIER')) {
       resetAutoModeOptInForDefaultOffer();
     }
-    if ("external" === 'ant') {
+    if (isAntEmployee()) {
       migrateFennecToOpus();
     }
     saveGlobalConfig(prev => prev.migrationVersion === CURRENT_MIGRATION_VERSION ? prev : {
@@ -346,8 +349,12 @@ function runMigrations(): void {
     });
   }
   // Async migration - fire and forget since it's non-blocking
-  migrateChangelogFromConfig().catch(() => {
-    // Silently ignore migration errors - will retry on next startup
+  migrateChangelogFromConfig().catch(error => {
+    logError(
+      new Error('Changelog migration failed; will retry on next startup', {
+        cause: error,
+      }),
+    )
   });
 }
 
@@ -364,7 +371,7 @@ function prefetchSystemContextIfSafe(): void {
   // execution is considered trusted (as documented in help text)
   if (isNonInteractiveSession) {
     logForDiagnosticsNoPII('info', 'prefetch_system_context_non_interactive');
-    void getSystemContext();
+    void getSystemContext().catch(logError);
     return;
   }
 
@@ -372,7 +379,7 @@ function prefetchSystemContextIfSafe(): void {
   const hasTrust = checkHasTrustDialogAccepted();
   if (hasTrust) {
     logForDiagnosticsNoPII('info', 'prefetch_system_context_has_trust');
-    void getSystemContext();
+    void getSystemContext().catch(logError);
   } else {
     logForDiagnosticsNoPII('info', 'prefetch_system_context_skipped_no_trust');
   }
@@ -452,7 +459,7 @@ export function startDeferredPrefetches(): void {
   }
 
   // Event loop stall detector — logs when the main thread is blocked >500ms
-  if ("external" === 'ant') {
+  if (IS_ANT_EMPLOYEE) {
     void import('./utils/eventLoopStallDetector.js').then(m => m.startEventLoopStallDetector());
   }
 }
@@ -726,6 +733,9 @@ export async function main() {
       extractFlag('--model', {
         hasValue: true
       });
+      extractFlag('--fallback-model', {
+        hasValue: true
+      });
     }
     // After pre-extraction, any remaining dash-arg at [1] is either -h/--help
     // (commander handles) or an unknown-to-ssh flag (fall through to commander
@@ -949,7 +959,7 @@ async function run(): Promise<CommanderCommand> {
       throw new InvalidArgumentError(`It must be one of: ${allowed.join(', ')}`);
     }
     return value;
-  })).option('--agent <agent>', `Agent for the current session. Overrides the 'agent' setting.`).option('--betas <betas...>', 'Beta headers to include in API requests (API key users only)').option('--fallback-model <model>', 'Enable automatic fallback to specified model when default model is overloaded (only works with --print)').addOption(new Option('--workload <tag>', 'Workload tag for billing-header attribution (cc_workload). Process-scoped; set by SDK daemon callers that spawn subprocesses for cron work. (only works with --print)').hideHelp()).option('--settings <file-or-json>', 'Path to a settings JSON file or a JSON string to load additional settings from').option('--add-dir <directories...>', 'Additional directories to allow tool access to').option('--ide', 'Automatically connect to IDE on startup if exactly one valid IDE is available', () => true).option('--strict-mcp-config', 'Only use MCP servers from --mcp-config, ignoring all other MCP configurations', () => true).option('--session-id <uuid>', 'Use a specific session ID for the conversation (must be a valid UUID)').option('-n, --name <name>', 'Set a display name for this session (shown in /resume and terminal title)').option('--agents <json>', 'JSON object defining custom agents (e.g. \'{"reviewer": {"description": "Reviews code", "prompt": "You are a code reviewer"}}\')').option('--setting-sources <sources>', 'Comma-separated list of setting sources to load (user, project, local).')
+  })).option('--agent <agent>', `Agent for the current session. Overrides the 'agent' setting.`).option('--betas <betas...>', 'Beta headers to include in API requests (API key users only)').option('--fallback-model <model>', 'Enable automatic fallback to specified model when default model is overloaded').addOption(new Option('--workload <tag>', 'Workload tag for billing-header attribution (cc_workload). Process-scoped; set by SDK daemon callers that spawn subprocesses for cron work. (only works with --print)').hideHelp()).option('--settings <file-or-json>', 'Path to a settings JSON file or a JSON string to load additional settings from').option('--add-dir <directories...>', 'Additional directories to allow tool access to').option('--ide', 'Automatically connect to IDE on startup if exactly one valid IDE is available', () => true).option('--strict-mcp-config', 'Only use MCP servers from --mcp-config, ignoring all other MCP configurations', () => true).option('--session-id <uuid>', 'Use a specific session ID for the conversation (must be a valid UUID)').option('-n, --name <name>', 'Set a display name for this session (shown in /resume and terminal title)').option('--agents <json>', 'JSON object defining custom agents (e.g. \'{"reviewer": {"description": "Reviews code", "prompt": "You are a code reviewer"}}\')').option('--setting-sources <sources>', 'Comma-separated list of setting sources to load (user, project, local).')
   // gh-33508: <paths...> (variadic) consumed everything until the next
   // --flag. `claude --plugin-dir /path mcp add --transport http` swallowed
   // `mcp` and `add` as paths, then choked on --transport as an unknown
@@ -1086,11 +1096,11 @@ async function run(): Promise<CommanderCommand> {
     const disableSlashCommands = options.disableSlashCommands || false;
 
     // Extract tasks mode options (internal-only)
-    const tasksOption = "external" === 'ant' && (options as {
+    const tasksOption = isAntEmployee() && (options as {
       tasks?: boolean | string;
     }).tasks;
     const taskListId = tasksOption ? typeof tasksOption === 'string' ? tasksOption : DEFAULT_TASKS_MODE_TASK_LIST_ID : undefined;
-    if ("external" === 'ant' && taskListId) {
+    if (isAntEmployee() && taskListId) {
       process.env.CLAUDE_CODE_TASK_LIST_ID = taskListId;
     }
 
@@ -1481,7 +1491,7 @@ async function run(): Promise<CommanderCommand> {
     };
     // Store the explicit CLI flag so teammates can inherit it
     setChromeFlagOverride(chromeOpts.chrome);
-    const enableClaudeInChrome = shouldEnableClaudeInChrome(chromeOpts.chrome) && ("external" === 'ant' || isClaudeAISubscriber());
+    const enableClaudeInChrome = shouldEnableClaudeInChrome(chromeOpts.chrome) && (isAntEmployee() || isClaudeAISubscriber());
     const autoEnableClaudeInChrome = !enableClaudeInChrome && shouldAutoEnableClaudeInChrome();
     if (enableClaudeInChrome) {
       const platform = getPlatform();
@@ -1713,7 +1723,7 @@ async function run(): Promise<CommanderCommand> {
     } = initResult;
 
     // Handle overly broad shell allow rules for ant users (Bash(*), PowerShell(*))
-    if ("external" === 'ant' && overlyBroadBashPermissions.length > 0) {
+    if (isAntEmployee() && overlyBroadBashPermissions.length > 0) {
       for (const permission of overlyBroadBashPermissions) {
         logForDebugging(`Ignoring overly broad shell permission ${permission.ruleDisplay} from ${permission.sourceDisplay}`);
       }
@@ -1927,7 +1937,7 @@ async function run(): Promise<CommanderCommand> {
       // a cache hit. The microtask from await getIsGit() drains at the
       // getCommands Promise.all await below. Trust is implicit in -p mode
       // (same gate as prefetchSystemContextIfSafe).
-      void getSystemContext();
+      void getSystemContext().catch(logError);
       // Kick getUserContext now too — its first await (fs.readFile in
       // getMemoryFiles) yields naturally, so the CLAUDE.md directory walk
       // runs during the ~280ms overlap window before the context
@@ -1963,7 +1973,7 @@ async function run(): Promise<CommanderCommand> {
     //  - no env override (which short-circuits _CACHED_MAY_BE_STALE before disk)
     //  - flag absent from disk (== null also catches pre-#22279 poisoned null)
     const explicitModel = options.model || process.env.ANTHROPIC_MODEL;
-    if ("external" === 'ant' && explicitModel && explicitModel !== 'default' && !hasGrowthBookEnvOverride('tengu_ant_model_override') && getGlobalConfig().cachedGrowthBookFeatures?.['tengu_ant_model_override'] == null) {
+    if (isAntEmployee() && explicitModel && explicitModel !== 'default' && !hasGrowthBookEnvOverride('tengu_ant_model_override') && getGlobalConfig().cachedGrowthBookFeatures?.['tengu_ant_model_override'] == null) {
       await initializeGrowthBook();
     }
 
@@ -2111,7 +2121,7 @@ async function run(): Promise<CommanderCommand> {
         // Log agent memory loaded event for tmux teammates
         if (customAgent.memory) {
           logEvent('tengu_agent_memory_loaded', {
-            ...("external" === 'ant' && {
+            ...(isAntEmployee() && {
               agent_type: customAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
             }),
             scope: customAgent.memory as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -2175,7 +2185,7 @@ async function run(): Promise<CommanderCommand> {
       getFpsMetrics = ctx.getFpsMetrics;
       stats = ctx.stats;
       // Install asciicast recorder before Ink mounts (internal-only, opt-in via CLAUDE_CODE_TERMINAL_RECORDING=1)
-      if ("external" === 'ant') {
+      if (isAntEmployee()) {
         installAsciicastRecorder();
       }
       const {
@@ -2772,7 +2782,7 @@ async function run(): Promise<CommanderCommand> {
         startDeferredPrefetches();
         void import('./utils/backgroundHousekeeping.js').then(m => m.startBackgroundHousekeeping());
         startMemoryMonitorIfNeeded();
-        if ("external" === 'ant') {
+        if (IS_ANT_EMPLOYEE) {
           void import('./utils/sdkHeapDumpMonitor.js').then(m => m.startSdkMemoryMonitor());
         }
       }
@@ -3022,7 +3032,7 @@ async function run(): Promise<CommanderCommand> {
     //   - Runtime: uploader checks github.com/anthropics/* remote + gcloud auth.
     //   - Safety: CLAUDE_CODE_DISABLE_SESSION_DATA_UPLOAD=1 bypasses (tests set this).
     // Import is dynamic + async to avoid adding startup latency.
-    const sessionUploaderPromise = "external" === 'ant' ? import('./utils/sessionDataUploader.js') : null;
+    const sessionUploaderPromise = IS_ANT_EMPLOYEE ? import('./utils/sessionDataUploader.js') : null;
 
     // Defer session uploader resolution to the onTurnComplete callback to avoid
     // adding a new top-level await in main.tsx (performance-critical path).
@@ -3038,6 +3048,7 @@ async function run(): Promise<CommanderCommand> {
       mainThreadAgentDefinition,
       baseMainLoopModel,
       hasExplicitModelOverride,
+      fallbackModel: userSpecifiedFallbackModel,
       disableSlashCommands,
       dynamicMcpConfig,
       strictMcpConfig,
@@ -3541,7 +3552,7 @@ async function run(): Promise<CommanderCommand> {
           }
         }
       }
-      if ("external" === 'ant') {
+      if (IS_ANT_EMPLOYEE) {
         if (options.resume && typeof options.resume === 'string' && !maybeSessionId) {
           // Check for ccshare URL (e.g. https://go/ccshare/boris-20260311-211036)
           const {
@@ -3772,7 +3783,7 @@ async function run(): Promise<CommanderCommand> {
   if (canUserConfigureAdvisor()) {
     program.addOption(new Option('--advisor <model>', 'Enable the server-side advisor tool with the specified model (alias or full ID).').hideHelp());
   }
-  if ("external" === 'ant') {
+  if (isAntEmployee()) {
     program.addOption(new Option('--delegate-permissions', '[internal-only] Alias for --permission-mode auto.').implies({
       permissionMode: 'auto'
     }));
@@ -4345,7 +4356,7 @@ async function run(): Promise<CommanderCommand> {
   });
 
   // claude up — run the project's CLAUDE.md "# claude up" setup instructions.
-  if ("external" === 'ant') {
+  if (IS_ANT_EMPLOYEE) {
     program.command('up').description('[internal-only] Initialize or upgrade the local dev environment using the "# claude up" section of the nearest CLAUDE.md').action(async () => {
       const {
         up
@@ -4356,7 +4367,7 @@ async function run(): Promise<CommanderCommand> {
 
   // claude rollback (internal-only)
   // Rolls back to previous releases
-  if ("external" === 'ant') {
+  if (IS_ANT_EMPLOYEE) {
     program.command('rollback [target]').description('[internal-only] Roll back to a previous release\n\nExamples:\n  claude rollback                                    Go 1 version back from current\n  claude rollback 3                                  Go 3 versions back from current\n  claude rollback 2.0.73-dev.20251217.t190658        Roll back to a specific version').option('-l, --list', 'List recent published versions with ages').option('--dry-run', 'Show what would be installed without installing').option('--safe', 'Roll back to the server-pinned safe version (set by oncall during incidents)').action(async (target?: string, options?: {
       list?: boolean;
       dryRun?: boolean;
@@ -4380,7 +4391,7 @@ async function run(): Promise<CommanderCommand> {
   });
 
   // internal-only commands
-  if ("external" === 'ant') {
+  if (IS_ANT_EMPLOYEE) {
     const validateLogId = (value: string) => {
       const maybeSessionId = validateUuid(value);
       if (maybeSessionId) return maybeSessionId;
@@ -4414,7 +4425,7 @@ Examples:
       } = await import('./cli/handlers/ant.js');
       await exportHandler(source, outputFile);
     });
-    if ("external" === 'ant') {
+    if (IS_ANT_EMPLOYEE) {
       const taskCmd = program.command('task').description('[internal-only] Manage task list tasks');
       taskCmd.command('create <subject>').description('Create a new task').option('-d, --description <text>', 'Task description').option('-l, --list <id>', 'Task list ID (defaults to "tasklist")').action(async (subject: string, opts: {
         description?: string;
@@ -4573,7 +4584,7 @@ async function logTenguInit({
         assistantActivationPath: assistantActivationPath as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       }),
       autoUpdatesChannel: (getInitialSettings().autoUpdatesChannel ?? 'latest') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-      ...("external" === 'ant' ? (() => {
+      ...(isAntEmployee() ? (() => {
         const cwd = getCwd();
         const gitRoot = findGitRoot(cwd);
         const rp = gitRoot ? relative(gitRoot, cwd) || '.' : undefined;
