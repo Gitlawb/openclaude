@@ -1518,9 +1518,7 @@ export function ManagePlugins({
       const {
         error: error_2
       } = updateSettingsForSource('localSettings', {
-        enabledPlugins: {
-          ...enabledPlugins
-        }
+        enabledPlugins
       });
       if (error_2) {
         setIsProcessing(false);
