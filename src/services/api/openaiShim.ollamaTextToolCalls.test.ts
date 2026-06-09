@@ -207,12 +207,15 @@ const ollamaToolChunk = (toolCalls: unknown[], finishReason?: string) => ({
 })
 
 describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', () => {
+  let originalFetch: FetchType
   beforeEach(() => {
+    originalFetch = globalThis.fetch
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
   })
   afterEach(() => {
+    globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
@@ -258,12 +261,15 @@ describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', 
 })
 
 describe('Ollama streaming — plain text response with no tool calls', () => {
+  let originalFetch: FetchType
   beforeEach(() => {
+    originalFetch = globalThis.fetch
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
   })
   afterEach(() => {
+    globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
@@ -362,12 +368,15 @@ describe('Ollama streaming — plain text response with no tool calls', () => {
 })
 
 describe('Ollama streaming — visible text before real structured tool_calls (P2)', () => {
+  let originalFetch: FetchType
   beforeEach(() => {
+    originalFetch = globalThis.fetch
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
   })
   afterEach(() => {
+    globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
@@ -416,12 +425,15 @@ describe('Ollama streaming — visible text before real structured tool_calls (P
 })
 
 describe('Ollama streaming — visible prose before text-based tool-call fallback (P2 buffered path)', () => {
+  let originalFetch: FetchType
   beforeEach(() => {
+    originalFetch = globalThis.fetch
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
   })
   afterEach(() => {
+    globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
@@ -464,5 +476,101 @@ describe('Ollama streaming — visible prose before text-based tool-call fallbac
     )
     expect(toolStarts).toHaveLength(1)
     expect((toolStarts[0].content_block as Record<string, string>).name).toBe('Read')
+  })
+})
+
+describe('parseTextToolCalls — pretty-printed bare JSON detection', () => {
+  test('detects bare JSON with whitespace/newline between { and "name"', () => {
+    const text = '{\n  "name": "Bash",\n  "arguments": {"command": "ls"}\n}'
+    const { calls } = parseTextToolCalls(text)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('Bash')
+    expect(calls[0].arguments).toEqual({ command: 'ls' })
+  })
+
+  test('detects bare JSON with spaces between { and "type"', () => {
+    const text = '{  "type": "function", "function": {"name": "Grep", "arguments": {"pattern": "foo"}}}'
+    const { calls } = parseTextToolCalls(text)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].name).toBe('Grep')
+  })
+})
+
+describe('Ollama streaming — non-stop terminal finish reasons flush buffer', () => {
+  let originalFetch: FetchType
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  })
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    delete process.env.OLLAMA_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_BASE_URL
+  })
+
+  test('buffered text is flushed when finish_reason is "length"', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('Partial response cut off by'),
+          ollamaChunk('', 'length'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 8,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(e => e.type === 'content_block_delta' && (e.delta as Record<string, string>)?.type === 'text_delta')
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).toContain('Partial response cut off by')
+  })
+
+  test('text-tool JSON is extracted when finish_reason is "length" but finish_reason stays "length"', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('{"name":"Bash","arguments":{"command":"ls"}}'),
+          ollamaChunk('', 'length'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen2.5:7b',
+        messages: [{ role: 'user', content: 'run ls' }],
+        max_tokens: 8,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const toolStarts = events.filter(
+      e => e.type === 'content_block_start' && (e.content_block as Record<string, string>)?.type === 'tool_use',
+    )
+    expect(toolStarts).toHaveLength(1)
+    expect((toolStarts[0].content_block as Record<string, string>).name).toBe('Bash')
+
+    // finish_reason must NOT be remapped to 'tool_calls' for non-stop reasons
+    const messageDelta = events.find(e => e.type === 'message_delta') as Record<string, unknown> | undefined
+    const delta = messageDelta?.delta as Record<string, unknown> | undefined
+    expect(delta?.stop_reason).not.toBe('tool_use')
   })
 })

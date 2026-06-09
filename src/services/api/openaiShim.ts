@@ -1059,7 +1059,9 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
 // Fenced code block arm: non-greedy is safe because ``` acts as terminator.
 const FENCED_TOOL_CALL_RE = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g
 // Bare JSON arm: marks candidate start positions only; balanced extraction follows.
-const BARE_TOOL_CALL_START_RE = /\{"(?:name|type)"\s*:/g
+// Allow optional whitespace (including newlines) before the property key so
+// pretty-printed objects like "{\n  \"name\":" are detected.
+const BARE_TOOL_CALL_START_RE = /\{\s*"(?:name|type)"\s*:/g
 
 interface ParsedTextToolCall {
   id: string
@@ -1456,6 +1458,7 @@ async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
+  isOllama = false,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -1478,7 +1481,9 @@ async function* openaiStreamToAnthropic(
   let hasProcessedFinishReason = false
   // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
   let accumulatedText = ''
-  const isOllamaStream = isOllamaProvider()
+  // Use the resolved value threaded from the call site (resolveProviderRequest)
+  // rather than re-reading env vars inside the generator.
+  const isOllamaStream = isOllama
   // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
   // before extraction at finish_reason=stop (P2 fix for #1053).
   let ollamaTextBuffer = ''
@@ -1874,13 +1879,17 @@ async function* openaiStreamToAnthropic(
           // Ollama text-based tool call fallback (#1053):
           // Must run before closeActiveContentBlock so the text buffer can be flushed
           // with tool-call JSON stripped (P2). Ollama models emit tool calls as raw
-          // JSON text; scan accumulated text when finish_reason=stop with no API tool calls.
-          let ollamaClosedContentBlock = false
-          if (
-            choice.finish_reason === 'stop' &&
+          // JSON text; scan accumulated text on any terminal finish reason with no
+          // API tool calls. finish_reason is mutated to 'tool_calls' only for 'stop'
+          // so the JSON fallback remains scoped to normal completions.
+          const OLLAMA_TERMINAL_REASONS = new Set(['stop', 'length', 'content_filter', 'safety'])
+          const isTerminalOllamaFinish =
+            OLLAMA_TERMINAL_REASONS.has(choice.finish_reason ?? '') &&
             activeToolCalls.size === 0 &&
             isOllamaStream
-          ) {
+          const originalFinishReason = choice.finish_reason
+          let ollamaClosedContentBlock = false
+          if (isTerminalOllamaFinish) {
             const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(accumulatedText)
             if (textToolCalls.length > 0) {
               ollamaClosedContentBlock = true
@@ -1929,7 +1938,11 @@ async function* openaiStreamToAnthropic(
                 }
                 yield { type: 'content_block_stop', index: toolBlockIndex }
               }
-              choice.finish_reason = 'tool_calls'
+              // Only remap finish_reason to 'tool_calls' for the normal stop case;
+              // non-stop terminal reasons keep their original reason.
+              if (originalFinishReason === 'stop') {
+                choice.finish_reason = 'tool_calls'
+              }
             } else if (ollamaTextBuffer) {
               // No tool calls — flush the buffered text before the normal close below.
               // Open a text block first if one is not already open (guards the edge case
@@ -2176,7 +2189,7 @@ class OpenAIShimMessages {
               ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
               : isGeminiStream
                 ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
-                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, isOllamaProvider()),
         )
       }
 
