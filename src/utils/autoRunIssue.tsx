@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import { KeyboardShortcutHint } from '../components/design-system/KeyboardShortcutHint.js';
 import { Box, Text } from '../ink.js';
 import { useKeybinding } from '../keybindings/useKeybinding.js';
-import { isAntEmployee } from './buildConfig.js';
 type Props = {
   onRun: () => void;
   onCancel: () => void;
@@ -77,33 +76,14 @@ export function AutoRunIssueNotification(t0) {
 }
 export type AutoRunIssueReason = 'feedback_survey_bad' | 'feedback_survey_good';
 
-/**
- * Determines if /issue should auto-run for Ant users
- */
 export function shouldAutoRunIssue(reason: AutoRunIssueReason): boolean {
-  // Only for Ant users
-  if (!isAntEmployee()) {
-    return false;
-  }
-  switch (reason) {
-    case 'feedback_survey_bad':
-      return false;
-    case 'feedback_survey_good':
-      return false;
-    default:
-      return false;
-  }
+  return false;
 }
 
 /**
  * Returns the appropriate command to auto-run based on the reason
- * internal-only: good-claude command only exists in ant builds
  */
 export function getAutoRunCommand(reason: AutoRunIssueReason): string {
-  // Only ant builds have the /good-claude command
-  if (isAntEmployee() && reason === 'feedback_survey_good') {
-    return '/good-claude';
-  }
   return '/issue';
 }
 

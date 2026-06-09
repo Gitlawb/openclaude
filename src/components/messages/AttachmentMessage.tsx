@@ -28,7 +28,6 @@ import FullWidthRow from '../design-system/FullWidthRow.js';
 import { FilePathLink } from '../FilePathLink.js';
 import { feature } from 'bun:bundle';
 import { useSelectedMessageBg } from '../messageActions.js';
-import { isAntEmployee } from '../../utils/buildConfig.js';
 type Props = {
   addMargin: boolean;
   attachment: Attachment;
@@ -110,12 +109,8 @@ export function AttachmentMessage({
   if (feature('EXPERIMENTAL_SKILL_SEARCH')) {
     if (attachment.type === 'skill_discovery') {
       if (attachment.skills.length === 0) return null;
-      // Ant users get shortIds inline so they can /skill-feedback while the
-      // turn is still fresh. External users (when this un-gates) just see
-      // names — shortId is undefined outside ant builds anyway.
       const names = attachment.skills.map(s => s.shortId ? `${s.name} [${s.shortId}]` : s.name).join(', ');
-      const firstId = attachment.skills[0]?.shortId;
-      const hint = isAntEmployee() && !isDemoEnv && firstId ? ` · /skill-feedback ${firstId} 1=wrong 2=noisy 3=good [comment]` : '';
+      const hint = '';
       return <Line>
           <Text bold>{attachment.skills.length}</Text> relevant{' '}
           {plural(attachment.skills.length, 'skill')}: {names}
@@ -365,9 +360,6 @@ function TaskStatusMessage(t0) {
   const {
     attachment
   } = t0;
-  if (false && attachment.status === "killed") {
-    return null;
-  }
   if (isAgentSwarmsEnabled() && attachment.taskType === "in_process_teammate") {
     let t1;
     if ($[0] !== attachment) {

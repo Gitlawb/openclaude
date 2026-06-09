@@ -46,7 +46,7 @@ import { enterTeammateView, exitTeammateView, stopOrDismissAgent } from '../../s
 import type { ToolPermissionContext } from '../../Tool.js';
 import { getRunningTeammatesSorted } from '../../tasks/InProcessTeammateTask/InProcessTeammateTask.js';
 import type { InProcessTeammateTaskState } from '../../tasks/InProcessTeammateTask/types.js';
-import { isPanelAgentTask, type LocalAgentTaskState } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
+import { type LocalAgentTaskState } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { isBackgroundTask } from '../../tasks/types.js';
 import { AGENT_COLOR_TO_THEME_COLOR, AGENT_COLORS, type AgentColorName } from '../../tools/AgentTool/agentColorManager.js';
 import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js';
@@ -124,7 +124,6 @@ import { usePromptInputPlaceholder } from './usePromptInputPlaceholder.js';
 import { useShowFastIconHint } from './useShowFastIconHint.js';
 import { useSwarmBanner } from './useSwarmBanner.js';
 import { isNonSpacePrintable, isVimModeEnabled } from './utils.js';
-import { isAntEmployee } from '../../utils/buildConfig.js';
 type Props = {
   debug: boolean;
   ideSelection: IDESelection | undefined;
@@ -305,9 +304,7 @@ function PromptInput({
   // the pill returns null for implicit-and-not-reconnecting, so nav must too,
   // otherwise bridge becomes an invisible selection stop.
   const bridgeFooterVisible = replBridgeConnected && (replBridgeExplicit || replBridgeReconnecting);
-  // Tmux pill (internal-only) — visible when there's an active tungsten session
-  const hasTungstenSession = useAppState(s => isAntEmployee() && s.tungstenActiveSession !== undefined);
-  const tmuxFooterVisible = isAntEmployee() && hasTungstenSession;
+  const tmuxFooterVisible = false;
   // WebBrowser pill — visible when a browser is open
   const bagelFooterVisible = useAppState(s => false);
   const teamContext = useAppState(s => s.teamContext);
@@ -403,7 +400,7 @@ function PromptInput({
   // exist. When only local_agent tasks are running (coordinator/fork mode), the
   // pill is absent, so the -1 sentinel would leave nothing visually selected.
   // In that case, skip -1 and treat 0 as the minimum selectable index.
-  const hasBgTaskPill = useMemo(() => Object.values(tasks).some(t => isBackgroundTask(t) && !(isAntEmployee() && isPanelAgentTask(t))), [tasks]);
+  const hasBgTaskPill = useMemo(() => Object.values(tasks).some(t => isBackgroundTask(t)), [tasks]);
   const minCoordinatorIndex = hasBgTaskPill ? -1 : 0;
   // Clamp index when tasks complete and the list shrinks beneath the cursor
   useEffect(() => {
@@ -469,10 +466,7 @@ function PromptInput({
   // (down/right = forward, up/left = back). Selection lives in AppState so
   // pills rendered outside PromptInput (CompanionSprite) can read focus.
   const runningTaskCount = useMemo(() => count(Object.values(tasks), t => t.status === 'running'), [tasks]);
-  // Panel shows retained-completed agents too (getVisibleAgentTasks), so the
-  // pill must stay navigable whenever the panel has rows — not just when
-  // something is running.
-  const tasksFooterVisible = (runningTaskCount > 0 || isAntEmployee() && coordinatorTaskCount > 0) && !shouldHideTasksFooter(tasks, showSpinnerTree);
+  const tasksFooterVisible = runningTaskCount > 0 && !shouldHideTasksFooter(tasks, showSpinnerTree);
   const teamsFooterVisible = cachedTeams.length > 0;
   const footerItems = useMemo(() => [tasksFooterVisible && 'tasks', tmuxFooterVisible && 'tmux', bagelFooterVisible && 'bagel', teamsFooterVisible && 'teams', bridgeFooterVisible && 'bridge', companionFooterVisible && 'companion'].filter(Boolean) as FooterItem[], [tasksFooterVisible, tmuxFooterVisible, bagelFooterVisible, teamsFooterVisible, bridgeFooterVisible, companionFooterVisible]);
 
@@ -1816,21 +1810,9 @@ function PromptInput({
   // selected — its useInput is inactive, so this is the only path.
   useKeybindings({
     'footer:up': () => {
-      // ↑ scrolls within the coordinator task list before leaving the pill
-      if (tasksSelected && isAntEmployee() && coordinatorTaskCount > 0 && coordinatorTaskIndex > minCoordinatorIndex) {
-        setCoordinatorTaskIndex(prev => prev - 1);
-        return;
-      }
       navigateFooter(-1, true);
     },
     'footer:down': () => {
-      // ↓ scrolls within the coordinator task list, never leaves the pill
-      if (tasksSelected && isAntEmployee() && coordinatorTaskCount > 0) {
-        if (coordinatorTaskIndex < coordinatorTaskCount - 1) {
-          setCoordinatorTaskIndex(prev => prev + 1);
-        }
-        return;
-      }
       if (tasksSelected && !isTeammateMode) {
         setShowBashesDialog(true);
         selectFooterItem(null);
@@ -1885,17 +1867,6 @@ function PromptInput({
               setShowBashesDialog(true);
               selectFooterItem(null);
             }
-          }
-          break;
-        case 'tmux':
-          if (isAntEmployee()) {
-            setAppState(prev => prev.tungstenPanelAutoHidden ? {
-              ...prev,
-              tungstenPanelAutoHidden: false
-            } : {
-              ...prev,
-              tungstenPanelVisible: !(prev.tungstenPanelVisible ?? true)
-            });
           }
           break;
         case 'bagel':

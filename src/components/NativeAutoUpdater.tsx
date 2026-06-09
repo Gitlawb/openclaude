@@ -7,12 +7,9 @@ import { useInterval } from 'usehooks-ts';
 import { useUpdateNotification } from '../hooks/useUpdateNotification.js';
 import { Box, Text } from '../ink.js';
 import type { AutoUpdaterResult } from '../utils/autoUpdater.js';
-import { getMaxVersion, getMaxVersionMessage } from '../utils/autoUpdater.js';
 import { isAutoUpdaterDisabled } from '../utils/config.js';
 import { installLatest } from '../utils/nativeInstaller/index.js';
-import { gt } from '../utils/semver.js';
 import { getInitialSettings } from '../utils/settings/settings.js';
-import { isAntEmployee } from '../utils/buildConfig.js';
 
 /**
  * Categorize error messages for analytics
@@ -61,7 +58,6 @@ export function NativeAutoUpdater({
     current?: string | null;
     latest?: string | null;
   }>({});
-  const [maxVersionIssue, setMaxVersionIssue] = useState<string | null>(null);
   const updateSemver = useUpdateNotification(autoUpdaterResult?.version);
   const channel = getInitialSettings()?.autoUpdatesChannel ?? 'latest';
 
@@ -75,10 +71,6 @@ export function NativeAutoUpdater({
     if (isUpdatingRef.current) {
       return;
     }
-    if ("production" === 'test' || "production" === 'development') {
-      logForDebugging('NativeAutoUpdater: Skipping update check in test/dev environment');
-      return;
-    }
     if (isAutoUpdaterDisabled()) {
       return;
     }
@@ -88,12 +80,6 @@ export function NativeAutoUpdater({
     // Log the start of an auto-update check for funnel analysis
     logEvent('tengu_native_auto_updater_start', {});
     try {
-      // Check if current version is above the max allowed version
-      const maxVersion = await getMaxVersion();
-      if (maxVersion && gt(MACRO.VERSION, maxVersion)) {
-        const msg = await getMaxVersionMessage();
-        setMaxVersionIssue(msg ?? 'affects your version');
-      }
       const result = await installLatest(channel);
       const currentVersion = MACRO.VERSION;
       const latencyMs = Date.now() - startTime;
@@ -164,10 +150,9 @@ export function NativeAutoUpdater({
   const hasUpdateResult = !!autoUpdaterResult?.version;
   const hasVersionInfo = !!versions.current && !!versions.latest;
   // Show the component when:
-  // - warning banner needed (above max version), or
   // - there's an update result to display (success/error), or
   // - actively checking and we have version info to show
-  const shouldRender = !!maxVersionIssue || hasUpdateResult || isUpdating && hasVersionInfo;
+  const shouldRender = hasUpdateResult || isUpdating && hasVersionInfo;
   if (!shouldRender) {
     return null;
   }
@@ -184,10 +169,6 @@ export function NativeAutoUpdater({
           </Text>}
       {autoUpdaterResult?.status === 'install_failed' && <Text color="error" wrap="truncate">
           ✗ Auto-update failed &middot; Try <Text bold>/status</Text>
-        </Text>}
-      {maxVersionIssue && isAntEmployee() && <Text color="warning">
-          ⚠ Known issue: {maxVersionIssue} &middot; Run{' '}
-          <Text bold>claude rollback --safe</Text> to downgrade
         </Text>}
     </Box>;
 }

@@ -14,7 +14,6 @@ import { submitTranscriptShare } from './submitTranscriptShare.js';
 import type { TranscriptShareResponse } from './TranscriptSharePrompt.js';
 import { useSurveyState } from './useSurveyState.js';
 import type { FeedbackSurveyResponse } from './utils.js';
-import { isAntEmployee } from '../../utils/buildConfig.js';
 const HIDE_THANKS_AFTER_MS = 3000;
 const MEMORY_SURVEY_GATE = 'tengu_dunwich_bell';
 const MEMORY_SURVEY_EVENT = 'tengu_memory_survey_event';
@@ -75,21 +74,7 @@ export function useMemorySurvey(messages: Message[], isLoading: boolean, hasActi
       response: selected as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
       }, []);
-  const shouldShowTranscriptPrompt = useCallback((selected_0: FeedbackSurveyResponse) => {
-    if (!isAntEmployee()) {
-      return false;
-    }
-    if (selected_0 !== 'bad' && selected_0 !== 'good') {
-      return false;
-    }
-    if (getGlobalConfig().transcriptShareDismissed) {
-      return false;
-    }
-    if (!isPolicyAllowed('allow_product_feedback')) {
-      return false;
-    }
-    return true;
-  }, []);
+  const shouldShowTranscriptPrompt = useCallback(() => false, []);
   const onTranscriptPromptShown = useCallback((appearanceId_1: string) => {
     logEvent(MEMORY_SURVEY_EVENT, {
       event_type: 'transcript_prompt_appeared' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

@@ -24,7 +24,6 @@ import { getTheme, themeColorToAnsi } from '../utils/theme.js';
 import { Pane } from './design-system/Pane.js';
 import { Tab, Tabs, useTabHeaderFocus } from './design-system/Tabs.js';
 import { Spinner } from './Spinner.js';
-import { isAntEmployee } from '../utils/buildConfig.js';
 function formatPeakDay(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleDateString('en-US', {
@@ -511,19 +510,6 @@ function OverviewTab({
           </Text>
         </Box>
       </Box>
-
-      {/* Speculation time saved (internal-only) */}
-      {isAntEmployee() && stats.totalSpeculationTimeSavedMs > 0 && <Box flexDirection="row" gap={4}>
-            <Box flexDirection="column" width={28}>
-              <Text wrap="truncate">
-                Speculation saved:{' '}
-                <Text color="claude">
-                  {formatDuration(stats.totalSpeculationTimeSavedMs)}
-                </Text>
-              </Text>
-            </Box>
-          </Box>}
-
       {/* Shot stats (internal-only) */}
       {shotStatsData && <>
           <Box marginTop={1}>
@@ -1150,12 +1136,6 @@ function renderOverviewToAnsi(stats: ClaudeCodeStats): string[] {
   const activeDaysVal = `${stats.activeDays}/${stats.totalDays}`;
   const peakHourVal = stats.peakActivityHour !== null ? `${stats.peakActivityHour}:00-${stats.peakActivityHour + 1}:00` : 'N/A';
   lines.push(row('Active days', activeDaysVal, 'Peak hour', peakHourVal));
-
-  // Speculation time saved (internal-only)
-  if (isAntEmployee() && stats.totalSpeculationTimeSavedMs > 0) {
-    const label = 'Speculation saved:'.padEnd(COL1_LABEL_WIDTH);
-    lines.push(label + h(formatDuration(stats.totalSpeculationTimeSavedMs)));
-  }
 
   // Shot stats (internal-only)
   if (feature('SHOT_STATS') && stats.shotDistribution) {

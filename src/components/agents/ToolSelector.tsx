@@ -28,7 +28,6 @@ import { useKeybinding } from '../../keybindings/useKeybinding.js';
 import { count } from '../../utils/array.js';
 import { plural } from '../../utils/stringUtils.js';
 import { Divider } from '../design-system/Divider.js';
-import { isAntEmployee } from '../../utils/buildConfig.js';
 type Props = {
   tools: Tools;
   initialTools: string[] | undefined;
@@ -59,7 +58,7 @@ function getToolBuckets(): ToolBuckets {
     },
     EXECUTION: {
       name: 'Execution tools',
-      toolNames: new Set([BashTool.name, isAntEmployee() ? TungstenTool.name : undefined].filter(n => n !== undefined))
+      toolNames: new Set([BashTool.name])
     },
     MCP: {
       name: 'MCP tools',

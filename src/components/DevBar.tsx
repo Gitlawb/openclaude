@@ -3,11 +3,9 @@ import * as React from 'react';
 import { useState } from 'react';
 import { getSlowOperations } from '../bootstrap/state.js';
 import { Text, useInterval } from '../ink.js';
-import { isAntEmployee } from '../utils/buildConfig.js';
 
-// Show DevBar for dev builds or all ants
 function shouldShowDevBar(): boolean {
-  return "production" === 'development' || isAntEmployee();
+  return false;
 }
 export function DevBar() {
   const $ = _c(5);
