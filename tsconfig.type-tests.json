@@ -6,6 +6,8 @@
   "files": [
     "src/state/AppState.types.test.tsx",
     "src/state/AppState.tsx",
+    "src/optionalModules.d.ts",
+    "src/optionalModules.types.test.ts",
     "src/types/utils.types.test.ts",
     "src/types/utils.ts"
   ],

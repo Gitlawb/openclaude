@@ -248,16 +248,39 @@ declare module '@ant/computer-use-mcp/types' {
     clipboardGuard: boolean
   }
 
-  export type ComputerUseApp = {
+  export type FrontmostApp = {
     bundleId: string
     displayName: string
+  }
+
+  export type ComputerUseApp = FrontmostApp & {
     path?: string
   }
 
-  export type AppGrant = {
-    bundleId: string
-    displayName: string
+  export type AppGrant = FrontmostApp & {
     grantedAt: number
+  }
+
+  export type DisplayGeometry = {
+    id?: number
+    width: number
+    height: number
+    scaleFactor: number
+  }
+
+  export type InstalledApp = FrontmostApp & {
+    path?: string
+    iconDataUrl?: string
+  }
+
+  export type RunningApp = FrontmostApp
+
+  export type ResolvePrepareCaptureResult = unknown
+
+  export type ScreenshotResult = {
+    base64: string
+    width: number
+    height: number
   }
 
   export type CuGrantFlags = {
@@ -286,68 +309,6 @@ declare module '@ant/computer-use-mcp/types' {
     info(message: string, ...args: unknown[]): void
     warn(message: string, ...args: unknown[]): void
     error(message: string, ...args: unknown[]): void
-  }
-
-  export type ComputerUseHostAdapter = {
-    serverName: string
-    logger: Logger
-    executor: ComputerExecutor
-    ensureOsPermissions: () => Promise<
-      | { granted: true }
-      | { granted: false; accessibility: boolean; screenRecording: boolean }
-    >
-    isDisabled: () => boolean
-    getSubGates: () => CuSubGates
-    getAutoUnhideEnabled: () => boolean
-    cropRawPatch: () => null
-  }
-}
-
-declare module '@ant/computer-use-mcp' {
-  import type {
-    ComputerUseHostAdapter,
-    CoordinateMode,
-    CuGrantFlags,
-    CuPermissionRequest,
-    CuPermissionResponse,
-  } from '@ant/computer-use-mcp/types'
-
-  export type {
-    ComputerUseHostAdapter,
-    CoordinateMode,
-    CuPermissionRequest,
-    CuPermissionResponse,
-  }
-
-  export type DisplayGeometry = {
-    id?: number
-    width: number
-    height: number
-    scaleFactor: number
-  }
-
-  export type FrontmostApp = {
-    bundleId: string
-    displayName: string
-  }
-
-  export type AppGrant = FrontmostApp & {
-    grantedAt: number
-  }
-
-  export type InstalledApp = FrontmostApp & {
-    path?: string
-    iconDataUrl?: string
-  }
-
-  export type RunningApp = FrontmostApp
-
-  export type ResolvePrepareCaptureResult = unknown
-
-  export type ScreenshotResult = {
-    base64: string
-    width: number
-    height: number
   }
 
   export type ComputerExecutor = {
@@ -414,6 +375,53 @@ declare module '@ant/computer-use-mcp' {
     getAppIcon(path: string): Promise<string | undefined>
     listRunningApps(): Promise<RunningApp[]>
     openApp(bundleId: string): Promise<void>
+  }
+
+  export type ComputerUseHostAdapter = {
+    serverName: string
+    logger: Logger
+    executor: ComputerExecutor
+    ensureOsPermissions: () => Promise<
+      | { granted: true }
+      | { granted: false; accessibility: boolean; screenRecording: boolean }
+    >
+    isDisabled: () => boolean
+    getSubGates: () => CuSubGates
+    getAutoUnhideEnabled: () => boolean
+    cropRawPatch: () => null
+  }
+}
+
+declare module '@ant/computer-use-mcp' {
+  import type {
+    AppGrant,
+    ComputerExecutor,
+    ComputerUseHostAdapter,
+    CoordinateMode,
+    CuGrantFlags,
+    CuPermissionRequest,
+    CuPermissionResponse,
+    DisplayGeometry,
+    FrontmostApp,
+    InstalledApp,
+    ResolvePrepareCaptureResult,
+    RunningApp,
+    ScreenshotResult,
+  } from '@ant/computer-use-mcp/types'
+
+  export type {
+    AppGrant,
+    ComputerExecutor,
+    ComputerUseHostAdapter,
+    CoordinateMode,
+    CuPermissionRequest,
+    CuPermissionResponse,
+    DisplayGeometry,
+    FrontmostApp,
+    InstalledApp,
+    ResolvePrepareCaptureResult,
+    RunningApp,
+    ScreenshotResult,
   }
 
   export type ScreenshotDims = {
