@@ -70,7 +70,7 @@ export function ConfirmStep(t0: Props): React.ReactNode {
   const handleKeyDown = t2;
   const agent = wizardData.finalAgent;
   if (!agent || !wizardData.location) {
-    return null;
+    return <WizardDialogLayout subtitle="Confirm and save" footerText={<Byline><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" /></Byline>}><Box flexDirection="column"><Text color="error">Agent draft is incomplete.</Text></Box></WizardDialogLayout>;
   }
   let T0;
   let T1;
