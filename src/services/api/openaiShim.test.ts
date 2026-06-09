@@ -1846,8 +1846,12 @@ test('preserves image tool results as placeholders in follow-up requests', async
     text?: string
     image_url?: { url: string }
   }>
-  const imagePart = parts.find(part => part.type === 'image_url')
-  expect(imagePart?.image_url?.url).toBe('data:image/png;base64,ZmFrZQ==')
+  expect(parts).toEqual([
+    {
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+    },
+  ])
 })
 
 test('adds text part for image-only user messages', async () => {
