@@ -81,6 +81,18 @@ export function describeTeammateActivity(t: DeepImmutable<InProcessTeammateTaskS
   return (t.progress?.recentActivities && summarizeRecentActivities(t.progress.recentActivities)) ?? t.progress?.lastActivity?.activityDescription ?? 'working';
 }
 
+export function countRunningBackgroundTasks(tasks: {
+  [taskId: string]: TaskState;
+}): number {
+  let runningTaskCount = 0;
+  for (const task of Object.values(tasks)) {
+    if (isBackgroundTask(task) && task.status === 'running') {
+      runningTaskCount += 1;
+    }
+  }
+  return runningTaskCount;
+}
+
 /**
  * Returns true when BackgroundTaskStatus would render nothing because the
  * spinner tree is active and every visible background task is an in-process

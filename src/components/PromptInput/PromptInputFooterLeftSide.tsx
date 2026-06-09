@@ -17,7 +17,7 @@ import { isDefaultMode, permissionModeSymbol, permissionModeTitle, getModeColor 
 import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
 import { isBackgroundTask } from '../../tasks/types.js';
 import { count } from '../../utils/array.js';
-import { shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
+import { countRunningBackgroundTasks, shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { TeamStatus } from '../teams/TeamStatus.js';
 import { isInProcessEnabled } from '../../utils/swarm/backends/registry.js';
@@ -269,7 +269,7 @@ function ModeIndicator({
   const selGetState = useSelection().getState;
   const hasNextTick = nextTickAt !== null;
   const isCoordinator = feature('COORDINATOR_MODE') ? coordinatorModule?.isCoordinatorMode() === true : false;
-  const runningTaskCount = useMemo(() => count(Object.values(tasks), t => isBackgroundTask(t)), [tasks]);
+  const runningTaskCount = useMemo(() => countRunningBackgroundTasks(tasks), [tasks]);
   const tasksV2 = useTasksV2();
   const hasTaskItems = tasksV2 !== undefined && tasksV2.length > 0;
   const escShortcut = useShortcutDisplay('chat:cancel', 'Chat', 'esc').toLowerCase();

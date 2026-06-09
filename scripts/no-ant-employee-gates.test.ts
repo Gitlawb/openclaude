@@ -50,3 +50,20 @@ test('open build source does not reintroduce Ant employee gate helpers', () => {
 
   expect(offenders).toEqual([])
 })
+
+test('initial plan messages do not seed pending plan verification state', () => {
+  const replSource = readFileSync(join(REPO_ROOT, 'src/screens/REPL.tsx'), 'utf8')
+  const initialMessageHandlerStart = replSource.indexOf(
+    'async function processInitialMessage',
+  )
+  const initialMessageHandlerEnd = replSource.indexOf(
+    '// Create file history snapshot',
+    initialMessageHandlerStart,
+  )
+
+  expect(initialMessageHandlerStart).toBeGreaterThan(-1)
+  expect(initialMessageHandlerEnd).toBeGreaterThan(initialMessageHandlerStart)
+  expect(
+    replSource.slice(initialMessageHandlerStart, initialMessageHandlerEnd),
+  ).not.toContain('pendingPlanVerification')
+})

@@ -102,8 +102,8 @@ import { getActiveAgentsFromList, getAgentDefinitionsWithOverrides, isBuiltInAge
 import type { LogOption } from './types/logs.js';
 import type { Message as MessageType } from './types/message.js';
 import { assertMinVersion } from './utils/autoUpdater.js';
-import { CLAUDE_IN_CHROME_SKILL_HINT, CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER } from './utils/claudeInChrome/prompt.js';
 import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaudeInChrome } from './utils/claudeInChrome/setup.js';
+import { mergeClaudeInChromeStartupConfig, resolveClaudeInChromeStartupMode } from './utils/claudeInChrome/startup.js';
 import { getContextWindowForModel } from './utils/context.js';
 import { loadConversationForResume } from './utils/conversationRecovery.js';
 import { buildDeepLinkBanner } from './utils/deepLink/banner.js';
@@ -1465,33 +1465,33 @@ async function run(): Promise<CommanderCommand> {
       }
     }
 
-    // Extract Claude in Chrome option and enforce claude.ai subscriber check (unless user is ant)
+    // Extract Claude in Chrome option and enforce claude.ai subscriber access.
     const chromeOpts = options as {
       chrome?: boolean;
     };
     // Store the explicit CLI flag so teammates can inherit it
     setChromeFlagOverride(chromeOpts.chrome);
-    const enableClaudeInChrome = shouldEnableClaudeInChrome(chromeOpts.chrome) && isClaudeAISubscriber();
-    const autoEnableClaudeInChrome = !enableClaudeInChrome && shouldAutoEnableClaudeInChrome();
-    if (enableClaudeInChrome) {
+    const claudeInChromeStartupMode = resolveClaudeInChromeStartupMode({
+      explicitEnabled: shouldEnableClaudeInChrome(chromeOpts.chrome),
+      autoEnabled: shouldAutoEnableClaudeInChrome(),
+      hasClaudeInChromeAccess: isClaudeAISubscriber()
+    });
+    if (claudeInChromeStartupMode === 'explicit') {
       const platform = getPlatform();
       try {
         logEvent('tengu_claude_in_chrome_setup', {
           platform: platform as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
         });
-        const {
-          mcpConfig: chromeMcpConfig,
-          allowedTools: chromeMcpTools,
-          systemPrompt: chromeSystemPrompt
-        } = setupClaudeInChrome();
-        dynamicMcpConfig = {
-          ...dynamicMcpConfig,
-          ...chromeMcpConfig
-        };
-        allowedTools.push(...chromeMcpTools);
-        if (chromeSystemPrompt) {
-          appendSystemPrompt = appendSystemPrompt ? `${chromeSystemPrompt}\n\n${appendSystemPrompt}` : chromeSystemPrompt;
-        }
+        const startupConfig = mergeClaudeInChromeStartupConfig({
+          mode: claudeInChromeStartupMode,
+          setupResult: setupClaudeInChrome(),
+          dynamicMcpConfig,
+          appendSystemPrompt,
+          hasWebBrowserTool: feature('WEB_BROWSER_TOOL') && typeof Bun !== 'undefined' && 'WebView' in Bun
+        });
+        dynamicMcpConfig = startupConfig.dynamicMcpConfig;
+        allowedTools.push(...startupConfig.allowedTools);
+        appendSystemPrompt = startupConfig.appendSystemPrompt;
       } catch (error) {
         logEvent('tengu_claude_in_chrome_setup_failed', {
           platform: platform as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -1502,17 +1502,17 @@ async function run(): Promise<CommanderCommand> {
         console.error(`Error: Failed to run with Claude in Chrome.`);
         process.exit(1);
       }
-    } else if (autoEnableClaudeInChrome) {
+    } else if (claudeInChromeStartupMode === 'auto') {
       try {
-        const {
-          mcpConfig: chromeMcpConfig
-        } = setupClaudeInChrome();
-        dynamicMcpConfig = {
-          ...dynamicMcpConfig,
-          ...chromeMcpConfig
-        };
-        const hint = feature('WEB_BROWSER_TOOL') && typeof Bun !== 'undefined' && 'WebView' in Bun ? CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER : CLAUDE_IN_CHROME_SKILL_HINT;
-        appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${hint}` : hint;
+        const startupConfig = mergeClaudeInChromeStartupConfig({
+          mode: claudeInChromeStartupMode,
+          setupResult: setupClaudeInChrome(),
+          dynamicMcpConfig,
+          appendSystemPrompt,
+          hasWebBrowserTool: feature('WEB_BROWSER_TOOL') && typeof Bun !== 'undefined' && 'WebView' in Bun
+        });
+        dynamicMcpConfig = startupConfig.dynamicMcpConfig;
+        appendSystemPrompt = startupConfig.appendSystemPrompt;
       } catch (error) {
         // Silently skip any errors for the auto-enable
         logForDebugging(`[Claude in Chrome] Error (auto-enable): ${error}`);

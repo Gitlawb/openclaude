@@ -46,6 +46,15 @@ type Props = {
   showSuccessMessage: boolean;
   verbose: boolean;
 };
+type NativeAutoUpdaterVersions = {
+  current?: string | null;
+  latest?: string | null;
+};
+export function shouldRenderNativeAutoUpdater(autoUpdaterResult: AutoUpdaterResult | null, isUpdating: boolean, versions: NativeAutoUpdaterVersions): boolean {
+  const hasUpdateResult = autoUpdaterResult?.status === 'success' || autoUpdaterResult?.status === 'install_failed';
+  const hasVersionInfo = !!versions.current && !!versions.latest;
+  return hasUpdateResult || (isUpdating && hasVersionInfo);
+}
 export function NativeAutoUpdater({
   isUpdating,
   onChangeIsUpdating,
@@ -147,12 +156,10 @@ export function NativeAutoUpdater({
 
   // Check every 30 minutes
   useInterval(checkForUpdates, 30 * 60 * 1000);
-  const hasUpdateResult = !!autoUpdaterResult?.version;
-  const hasVersionInfo = !!versions.current && !!versions.latest;
   // Show the component when:
   // - there's an update result to display (success/error), or
   // - actively checking and we have version info to show
-  const shouldRender = hasUpdateResult || isUpdating && hasVersionInfo;
+  const shouldRender = shouldRenderNativeAutoUpdater(autoUpdaterResult, isUpdating, versions);
   if (!shouldRender) {
     return null;
   }

@@ -3089,8 +3089,7 @@ export function REPL({
         }
       }
 
-      // Atomically: clear initial message, set permission mode and rules, and store plan for verification
-      const shouldStorePlanForVerification = false;
+      // Atomically clear the initial message and apply permission mode/rules.
       setAppState(prev => {
         // Build and apply permission updates (mode + allowedPrompts rules)
         let updatedToolPermissionContext = initialMsg.mode ? applyPermissionUpdatesToLiveContext(prev.toolPermissionContext, buildPermissionUpdates(initialMsg.mode, initialMsg.allowedPrompts)) : prev.toolPermissionContext;
@@ -3106,14 +3105,7 @@ export function REPL({
         return {
           ...prev,
           initialMessage: null,
-          toolPermissionContext: updatedToolPermissionContext,
-          ...(shouldStorePlanForVerification && {
-            pendingPlanVerification: {
-              plan: initialMsg.message.planContent!,
-              verificationStarted: false,
-              verificationCompleted: false
-            }
-          })
+          toolPermissionContext: updatedToolPermissionContext
         };
       });
 

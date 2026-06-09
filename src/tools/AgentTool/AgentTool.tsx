@@ -89,7 +89,7 @@ const baseInputSchema = lazySchema(() => z.object({
 }));
 
 // Full schema combining base + multi-agent params + isolation
-const fullInputSchema = lazySchema(() => {
+export const fullInputSchema = lazySchema(() => {
   // Multi-agent parameters
   const multiAgentInputSchema = z.object({
     name: z.string().optional().describe('Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running.'),
@@ -99,6 +99,9 @@ const fullInputSchema = lazySchema(() => {
   return baseInputSchema().merge(multiAgentInputSchema).extend({
     isolation: z.enum(['worktree']).optional().describe('Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.'),
     cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. Mutually exclusive with isolation: "worktree".')
+  }).refine(input => !(input.isolation === 'worktree' && input.cwd !== undefined), {
+    path: ['cwd'],
+    message: 'cwd is mutually exclusive with isolation: "worktree".'
   });
 });
 
