@@ -652,8 +652,16 @@ export async function initBridgeCore(
       if (seq > lastTransportSequenceNum) {
         lastTransportSequenceNum = seq
       }
-      await transport.close()
-      transport = null
+      try {
+        await transport.close()
+      } catch (err) {
+        logForDebugging(
+          `[bridge:repl] Old transport close threw during reconnect: ${errorMessage(err)}`,
+          { level: 'error' },
+        )
+      } finally {
+        transport = null
+      }
     }
     // Transport is gone — wake the poll loop out of its at-capacity
     // heartbeat sleep so it can fast-poll for re-dispatched work.
@@ -1064,8 +1072,16 @@ export async function initBridgeCore(
         if (seq > lastTransportSequenceNum) {
           lastTransportSequenceNum = seq
         }
-        await transport.close()
-        transport = null
+        try {
+          await transport.close()
+        } catch (closeErr) {
+          logForDebugging(
+            `[bridge:repl] Transport close threw after heartbeat fatal: ${errorMessage(closeErr)}`,
+            { level: 'error' },
+          )
+        } finally {
+          transport = null
+        }
       }
       flushGate.drop()
       // force=false → server re-queues. Likely already expired, but
@@ -1935,7 +1951,7 @@ async function startWorkPollLoop({
    * ~10-minute dead window before recovery). When omitted, falls back to
    * the backoff sleep to avoid a tight poll+heartbeat loop.
    */
-  onHeartbeatFatal?: (err: BridgeFatalError) => void
+  onHeartbeatFatal?: (err: BridgeFatalError) => Promise<void>
 }): Promise<void> {
   const MAX_ENVIRONMENT_RECREATIONS = 3
 
@@ -2063,7 +2079,7 @@ async function startWorkPollLoop({
                   // for the server's re-dispatched work item. Without
                   // the hook, backoff to avoid tight poll+heartbeat loop.
                   if (onHeartbeatFatal) {
-                    onHeartbeatFatal(err)
+                    await onHeartbeatFatal(err)
                     logForDebugging(
                       `[bridge:repl:heartbeat] Fatal (status=${err.status}), work state cleared — fast-polling for re-dispatch`,
                     )

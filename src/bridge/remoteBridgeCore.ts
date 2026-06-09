@@ -717,7 +717,14 @@ export async function initEnvLessBridgeCore(
       }
     }
 
-    await transport.close()
+    try {
+      await transport.close()
+    } catch (err) {
+      logForDebugging(
+        `[remote-bridge] Transport close threw during teardown: ${errorMessage(err)}`,
+        { level: 'error' },
+      )
+    }
 
     const archiveStatus: ArchiveTelemetryStatus =
       status === 'no_token'

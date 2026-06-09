@@ -54,6 +54,7 @@ const CLOSE_GRACE_MS = 3000
 export class HybridTransport extends WebSocketTransport {
   private postUrl: string
   private uploader: SerialBatchEventUploader<StdoutMessage>
+  private closeGraceMs: number
 
   // stream_event delay buffer — accumulates content deltas for up to
   // BATCH_FLUSH_INTERVAL_MS before enqueueing (reduces POST count)
@@ -68,11 +69,14 @@ export class HybridTransport extends WebSocketTransport {
     options?: WebSocketTransportOptions & {
       maxConsecutiveFailures?: number
       onBatchDropped?: (batchSize: number, failures: number) => void
+      closeGraceMs?: number
     },
   ) {
     super(url, headers, sessionId, refreshHeaders, options)
-    const { maxConsecutiveFailures, onBatchDropped } = options ?? {}
+    const { maxConsecutiveFailures, onBatchDropped, closeGraceMs } =
+      options ?? {}
     this.postUrl = convertWsUrlToPostUrl(url)
+    this.closeGraceMs = closeGraceMs ?? CLOSE_GRACE_MS
     this.uploader = new SerialBatchEventUploader<StdoutMessage>({
       // Large cap — session-ingress accepts arbitrary batch sizes. Events
       // naturally batch during in-flight POSTs; this just bounds the payload.
@@ -169,19 +173,21 @@ export class HybridTransport extends WebSocketTransport {
   }
 
   override async close(): Promise<void> {
-    if (this.streamEventTimer) {
-      clearTimeout(this.streamEventTimer)
-      this.streamEventTimer = null
-    }
-    this.streamEventBuffer = []
-    
-    super.close()
+    const pendingStreamEvents = this.takeStreamEvents()
+    await super.close()
 
     const { uploader } = this
     if (uploader) {
       try {
-        // Wait for final telemetry or events to be uploaded cleanly
-        await uploader.flush()
+        await Promise.race([
+          (async () => {
+            if (pendingStreamEvents.length > 0) {
+              await uploader.enqueue(pendingStreamEvents)
+            }
+            await uploader.flush()
+          })(),
+          closeGracePeriod(this.closeGraceMs),
+        ])
       } catch {
         // Ignore flush errors on shutdown
       } finally {
@@ -275,4 +281,8 @@ function convertWsUrlToPostUrl(wsUrl: URL): string {
   }
 
   return `${protocol}//${wsUrl.host}${pathname}${wsUrl.search}`
+}
+
+function closeGracePeriod(closeGraceMs: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, closeGraceMs))
 }
