@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   type AutoCompactTrackingState,
@@ -14,15 +16,19 @@ import { asSystemPrompt } from '../utils/systemPromptType.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 
 const SAVED_ENV = {
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
 }
 let savedAutoCompactEnabled: boolean | undefined
+let tempDir: string
 
 beforeEach(async () => {
   await acquireSharedMutationLock('query/autoCompactCooldown.test.ts')
+  tempDir = mkdtempSync(join(tmpdir(), 'openclaude-autocompact-test-'))
+  process.env.CLAUDE_CONFIG_DIR = tempDir
   savedAutoCompactEnabled = getGlobalConfig().autoCompactEnabled
   saveGlobalConfig(current => ({ ...current, autoCompactEnabled: true }))
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
@@ -48,6 +54,7 @@ afterEach(() => {
         process.env[key] = value
       }
     }
+    rmSync(tempDir, { recursive: true, force: true })
   } finally {
     releaseSharedMutationLock()
   }

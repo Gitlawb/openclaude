@@ -979,8 +979,11 @@ class Project {
     const allowTestPersistence = isEnvTruthy(
       process.env.TEST_ENABLE_SESSION_PERSISTENCE,
     )
+    if (allowTestPersistence) {
+      return false
+    }
     return (
-      (getNodeEnv() === 'test' && !allowTestPersistence) ||
+      getNodeEnv() === 'test' ||
       getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
       isSessionPersistenceDisabled() ||
       isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)

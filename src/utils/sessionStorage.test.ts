@@ -1,9 +1,14 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { type UUID } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 import {
   adoptResumedSessionFile,
@@ -175,8 +180,16 @@ async function withSessionPersistence<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/sessionStorage.test.ts')
+})
+
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+  try {
+    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('loadTranscriptFile replays a persisted snip boundary, pruning and relinking', async () => {
@@ -517,7 +530,7 @@ test('recordGoalState writes goal metadata durably before resolving', async () =
     const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
     tempDirs.push(dir)
     const filePath = join(dir, `${sessionId}.jsonl`)
-    switchSession(sessionId as never)
+    switchSession(sessionId as never, dir)
     setSessionFileForTesting(filePath)
 
     await recordGoalState(
