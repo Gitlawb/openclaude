@@ -48,7 +48,7 @@ describe('firecrawl client', () => {
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
-    }) as typeof globalThis.fetch
+    }) as unknown as typeof globalThis.fetch
 
     await expect(firecrawlSearch('openclaude', { limit: 7 })).resolves.toEqual({
       web: [{ url: 'https://example.com', title: 'Example', description: 'desc' }],
@@ -79,7 +79,7 @@ describe('firecrawl client', () => {
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
-    }) as typeof globalThis.fetch
+    }) as unknown as typeof globalThis.fetch
 
     await expect(firecrawlScrape('https://example.com')).resolves.toEqual({
       markdown: '# Example',
@@ -121,7 +121,7 @@ describe('firecrawl client', () => {
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
-    }) as typeof globalThis.fetch
+    }) as unknown as typeof globalThis.fetch
 
     await expect(
       firecrawlSearch('openclaude', { maxRetries: 3, backoffFactorSeconds: 0 }),
@@ -144,7 +144,7 @@ describe('firecrawl client', () => {
           once: true,
         })
       })
-    }) as typeof globalThis.fetch
+    }) as unknown as typeof globalThis.fetch
 
     await expect(
       Promise.race([
@@ -176,7 +176,7 @@ describe('firecrawl client', () => {
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
-    }) as typeof globalThis.fetch
+    }) as unknown as typeof globalThis.fetch
 
     await expect(
       firecrawlSearch('openclaude', { maxRetries: 1, timeoutMs: 20 }),
