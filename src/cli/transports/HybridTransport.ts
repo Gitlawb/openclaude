@@ -174,7 +174,14 @@ export class HybridTransport extends WebSocketTransport {
 
   override async close(): Promise<void> {
     const pendingStreamEvents = this.takeStreamEvents()
-    await super.close()
+    let closeError: unknown
+    let didCloseThrow = false
+    try {
+      await super.close()
+    } catch (error) {
+      closeError = error
+      didCloseThrow = true
+    }
 
     const { uploader } = this
     if (uploader) {
@@ -199,6 +206,10 @@ export class HybridTransport extends WebSocketTransport {
         }
         uploader.close()
       }
+    }
+
+    if (didCloseThrow) {
+      throw closeError
     }
   }
 

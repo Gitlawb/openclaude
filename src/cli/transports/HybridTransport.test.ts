@@ -101,6 +101,48 @@ describe('HybridTransport close', () => {
       clearTimeoutSpy.mock.calls.some(call => call[0] === closeGraceTimer),
     ).toBe(true)
   })
+
+  test('still drains and closes the uploader when the websocket close fails', async () => {
+    const { WebSocketTransport } = await import('./WebSocketTransport.js')
+    const closeError = new Error('websocket close failed')
+    jest
+      .spyOn(WebSocketTransport.prototype, 'close')
+      .mockRejectedValueOnce(closeError)
+
+    const posts: Array<{ url: string; data: unknown }> = []
+    postImpl = async (url, data) => {
+      posts.push({ url, data })
+      return { status: 200 }
+    }
+    const transport = await createTransport()
+    const uploaderCloseSpy = jest.spyOn(
+      (
+        transport as unknown as {
+          uploader: { close(): void }
+        }
+      ).uploader,
+      'close',
+    )
+    const streamEvent: StdoutMessage = {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'must still post' },
+      },
+    }
+
+    await transport.write(streamEvent)
+
+    await expect(transport.close()).rejects.toBe(closeError)
+    expect(posts).toEqual([
+      {
+        url: 'https://example.com/v2/session_ingress/session/session-1/events',
+        data: { events: [streamEvent] },
+      },
+    ])
+    expect(uploaderCloseSpy).toHaveBeenCalledTimes(1)
+  })
 })
 
 async function createTransport(options?: { closeGraceMs?: number }) {
