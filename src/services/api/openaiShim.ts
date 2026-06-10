@@ -1055,19 +1055,21 @@ async function* anthropicSsePassthrough(
   _model: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader()
-  if (!reader) return
+  const readerOrNull = response.body?.getReader()
+  if (!readerOrNull) throw new Error('Response body is not readable')
+  const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
   const decoder = new TextDecoder()
   let buffer = ''
 
   // Read helper that properly cleans up abort listeners (mirrors codexShim.ts pattern).
-  function readWithAbort(): Promise<ReadableStreamReadResult<Uint8Array>> {
-    if (!signal) return reader!.read() as Promise<ReadableStreamReadResult<Uint8Array>>
-    return new Promise((resolve, reject) => {
+  type ReadResult = Awaited<ReturnType<typeof reader.read>>
+  function readWithAbort(): Promise<ReadResult> {
+    if (!signal) return reader.read()
+    return new Promise<ReadResult>((resolve, reject) => {
       const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
       signal.addEventListener('abort', onAbort, { once: true })
-      reader!.read().then(
-        result => { signal.removeEventListener('abort', onAbort); resolve(result as ReadableStreamReadResult<Uint8Array>) },
+      reader.read().then(
+        result => { signal.removeEventListener('abort', onAbort); resolve(result) },
         err => { signal.removeEventListener('abort', onAbort); reject(err) },
       )
     })
@@ -1332,8 +1334,9 @@ async function* openaiStreamToAnthropic(
     },
   }
 
-  const reader = response.body?.getReader()
-  if (!reader) return
+  const readerOrNull = response.body?.getReader()
+  if (!readerOrNull) throw new Error('Response body is not readable')
+  const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull
 
   const decoder = new TextDecoder()
   let buffer = ''
@@ -1348,8 +1351,9 @@ async function* openaiStreamToAnthropic(
    * Respects the caller's AbortSignal — clears the idle timer on abort
    * so the rejection reason is AbortError, not a spurious idle timeout.
    */
-  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
-    return new Promise((resolve, reject) => {
+  type ReadResult = Awaited<ReturnType<typeof reader.read>>
+  async function readWithTimeout(): Promise<ReadResult> {
+    return new Promise<ReadResult>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
         reject(new Error(
@@ -1367,12 +1371,12 @@ async function* openaiStreamToAnthropic(
         signal.addEventListener('abort', abortCleanup, { once: true })
       }
 
-      reader!.read().then(
+      reader.read().then(
         result => {
           clearTimeout(timeoutId)
           if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
           if (result.value) lastDataTime = Date.now()
-          resolve(result as ReadableStreamReadResult<Uint8Array>)
+          resolve(result)
         },
         err => {
           clearTimeout(timeoutId)
@@ -2871,7 +2875,7 @@ class OpenAIShimMessages {
           const responsesUrl = `${request.baseUrl}/responses`
           const responsesBody = buildResponsesBody()
 
-          let responsesResponse: Response | undefined
+          let responsesResponse!: Response
           try {
             responsesResponse = await fetchWithProxyRetry(responsesUrl, {
               method: 'POST',
@@ -2882,8 +2886,6 @@ class OpenAIShimMessages {
           } catch (error) {
             throwClassifiedTransportError(error, responsesUrl)
           }
-          // throwClassifiedTransportError returns never, so if we reach here responsesResponse is defined.
-          if (!responsesResponse) continue
 
           if (responsesResponse.ok) {
             return responsesResponse
