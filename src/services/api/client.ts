@@ -237,11 +237,19 @@ function applyXaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+const NEARAI_MODEL_PREFIXES = [
+  'anthropic/',
+  'openai/',
+  'google/',
+  'zai-org/',
+  'qwen/',
+  'moonshotai/',
+]
+
 function isNearaiModelName(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
-  return Boolean(
-    normalized && normalized.includes('/'),
-  )
+  if (!normalized) return false
+  return NEARAI_MODEL_PREFIXES.some(prefix => normalized.startsWith(prefix))
 }
 
 function applyNearaiEnvOnlyDefaults(): void {

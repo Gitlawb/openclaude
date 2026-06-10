@@ -944,6 +944,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (activeProfile.baseUrl?.toLowerCase().includes('near.ai')) {
+        strictEnv.NEARAI_API_KEY = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
