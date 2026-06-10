@@ -119,6 +119,7 @@ const PRESET_ORDER = [
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',
+  'Fireworks AI',
   'Google Gemini',
   'Groq',
   'Hicap',

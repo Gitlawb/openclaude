@@ -46,6 +46,7 @@ export type DetectedProviderKind =
   | 'xiaomi-mimo'
   | 'xai'
   | 'nearai'
+  | 'fireworks'
   | 'ollama'
   | 'lm-studio'
   | 'gitlawb-opengateway'
@@ -178,6 +179,13 @@ export function detectProviderFromEnv(
     return {
       kind: 'nearai',
       source: 'NEARAI_API_KEY set',
+    }
+  }
+
+  if (envHasNonEmpty(env, 'FIREWORKS_API_KEY')) {
+    return {
+      kind: 'fireworks',
+      source: 'FIREWORKS_API_KEY set',
     }
   }
 

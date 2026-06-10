@@ -557,6 +557,10 @@ function isProcessEnvAlignedWithProfile(
     (isNearaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('fireworks.ai')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -697,6 +701,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'fireworks' || profile.baseUrl.toLowerCase().includes('fireworks.ai')) {
+        openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -988,6 +995,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isNearaiBaseUrl(activeProfile.baseUrl)) {
       env.NEARAI_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('fireworks.ai')) {
+      env.FIREWORKS_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY
