@@ -620,7 +620,17 @@ function convertMessages(
         // Gated per-provider because other endpoints either ignore the field
         // (harmless) or strict-reject unknown fields (harmful).
         if (preserveReasoningContent) {
-          const thinkingText = (thinkingBlock as { thinking?: string } | undefined)?.thinking
+          // `thinking` blocks carry their content in `.thinking`; `redacted_thinking`
+          // blocks carry it in `.data` (see thinkingTokenExtractor, token estimation,
+          // and message-size accounting). Read the right field per type so a real
+          // redacted block with non-empty content is not silently dropped to "".
+          const block = thinkingBlock as
+            | { type?: string; thinking?: string; data?: string }
+            | undefined
+          const thinkingText =
+            block?.type === 'redacted_thinking'
+              ? block?.data
+              : block?.thinking
           if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
             assistantMsg.reasoning_content = thinkingText
           } else if (
