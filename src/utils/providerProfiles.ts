@@ -44,7 +44,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { isNearaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import { isFireworksBaseUrl, isNearaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -558,7 +558,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('fireworks.ai')
+    (isFireworksBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
       : true)
@@ -702,7 +702,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'fireworks' || profile.baseUrl.toLowerCase().includes('fireworks.ai')) {
+      if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
     }
@@ -953,7 +953,7 @@ function buildOpenAICompatibleStartupEnv(
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
-      if (activeProfile.baseUrl?.toLowerCase().includes('fireworks.ai')) {
+      if (isFireworksBaseUrl(activeProfile.baseUrl)) {
         strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
       }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
@@ -964,20 +964,10 @@ function buildOpenAICompatibleStartupEnv(
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
   }
-  if (activeProfile.apiFormat) {
-    env.OPENAI_API_FORMAT = activeProfile.apiFormat
-  }
-  if (activeProfile.authHeader) {
-    env.OPENAI_AUTH_HEADER = activeProfile.authHeader
-    env.OPENAI_AUTH_SCHEME = activeProfile.authScheme ?? (
-      activeProfile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-    )
-    if (activeProfile.authHeaderValue) {
-      env.OPENAI_AUTH_HEADER_VALUE = activeProfile.authHeaderValue
-    }
-  }
+
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
+<<<<<<< HEAD
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
@@ -999,7 +989,7 @@ function buildOpenAICompatibleStartupEnv(
     if (isNearaiBaseUrl(activeProfile.baseUrl)) {
       env.NEARAI_API_KEY = activeProfile.apiKey
     }
-    if (activeProfile.baseUrl?.toLowerCase().includes('fireworks.ai')) {
+    if (isFireworksBaseUrl(activeProfile.baseUrl)) {
       env.FIREWORKS_API_KEY = activeProfile.apiKey
     }
   } else {

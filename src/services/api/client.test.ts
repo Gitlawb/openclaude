@@ -1020,7 +1020,7 @@ test('env-only Fireworks fallback preserves Fireworks OPENAI_API_BASE host overr
   expect(capturedUrl).toBe(
     'https://api.fireworks.ai/inference/v1/chat/completions',
   )
-  expect(process.env.OPENAI_BASE_URL).toBe('https://api.fireworks.ai/inference/v1')
+  expect(String(process.env.OPENAI_BASE_URL)).toBe('https://api.fireworks.ai/inference/v1')
 })
 
 test('env-only Fireworks fallback drops unsupported OpenAI shim options', async () => {

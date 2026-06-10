@@ -517,7 +517,6 @@ export function hasFireworksEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
