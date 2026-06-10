@@ -1846,10 +1846,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       }
     })
 
+    // Insert after DeepSeek so the OAuth options keep their established
+    // position in the picker regardless of how the preset list grows; if
+    // the anchor ever disappears, append instead of floating to the top.
+    const deepseekIndex = options.findIndex(
+      option => option.value === 'deepseek',
+    )
+    let oauthInsertIndex =
+      deepseekIndex >= 0 ? deepseekIndex + 1 : options.length
     if (canUseCodexOAuth) {
-      // Insert after DeepSeek so Codex OAuth keeps its established position
-      // in the picker even with Gitlawb Opengateway pinned at the top.
-      options.splice(7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'codex-oauth',
         label: (
           <Text>
@@ -1860,12 +1866,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description:
           'Sign in with ChatGPT in your browser and store Codex credentials securely',
       })
+      oauthInsertIndex += 1
     }
 
     if (canUseXaiOAuth) {
       // Place xAI OAuth directly under Codex OAuth so both browser-sign-in
       // options group together visually.
-      options.splice(canUseCodexOAuth ? 8 : 7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'xai-oauth',
         label: 'xAI OAuth (Grok)',
         description:

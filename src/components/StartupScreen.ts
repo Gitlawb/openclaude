@@ -133,6 +133,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/moonshot/i.test(baseUrl)) name = 'Moonshot AI - API'
     else if (/deepseek/i.test(baseUrl)) name = 'DeepSeek'
     else if (/mistral/i.test(baseUrl)) name = 'Mistral'
+    else if (/atlascloud/i.test(baseUrl)) name = 'Atlas Cloud'
     // rawModel fallback — fires only when base URL is generic/custom.
     else if (/nvidia/i.test(rawModel)) name = 'NVIDIA NIM'
     else if (/minimax/i.test(rawModel)) name = 'MiniMax'
@@ -145,6 +146,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/llama/i.test(rawModel)) name = 'Meta Llama'
     else if (/bankr/i.test(baseUrl)) name = 'Bankr'
     else if (/bankr/i.test(rawModel)) name = 'Bankr'
+    else if (/atlas\.cloud/i.test(rawModel)) name = 'Atlas Cloud'
     else if (isLocal) name = getLocalOpenAICompatibleProviderLabel(baseUrl)
     
     // Resolve model alias to actual model name + reasoning effort

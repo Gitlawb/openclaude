@@ -40,6 +40,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'nvidia-nim',
   'minimax',
   'venice',
+  'atlas-cloud',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -285,11 +286,14 @@ export function applyProviderFlag(
                   process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
                 ? 'minimax'
                 : process.env.OPENAI_API_KEY !== undefined &&
-                    opengatewayApiKey !== undefined &&
-                    opengatewayApiKey.length > 0 &&
-                    process.env.OPENAI_API_KEY === opengatewayApiKey
-                  ? 'gitlawb-opengateway'
-                  : null
+                    process.env.OPENAI_API_KEY === process.env.ATLAS_CLOUD_API_KEY
+                  ? 'atlas-cloud'
+                  : process.env.OPENAI_API_KEY !== undefined &&
+                      opengatewayApiKey !== undefined &&
+                      opengatewayApiKey.length > 0 &&
+                      process.env.OPENAI_API_KEY === opengatewayApiKey
+                    ? 'gitlawb-opengateway'
+                    : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -440,6 +444,25 @@ export function applyProviderFlag(
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.VENICE_API_KEY
+      }
+      break
+
+    case 'atlas-cloud':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://api.atlascloud.ai/v1',
+      )
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'deepseek-ai/deepseek-v4-pro'
+      if (model) process.env.OPENAI_MODEL = model
+      // The dedicated key always wins so a lingering OPENAI_API_KEY from
+      // another provider is never sent to Atlas Cloud; without it the
+      // generic key is cleared for the same reason and validation reports
+      // the missing ATLAS_CLOUD_API_KEY instead.
+      if (process.env.ATLAS_CLOUD_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.ATLAS_CLOUD_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
       }
       break
   }

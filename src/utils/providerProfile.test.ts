@@ -170,6 +170,43 @@ test('openai launch omits api key when no key is resolved', async () => {
   assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false)
 })
 
+test('openai launch preserves persisted dedicated vendor credentials across restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.atlascloud.ai/v1',
+      OPENAI_MODEL: 'deepseek-ai/deepseek-v4-pro',
+      OPENAI_API_KEY: 'atlas-secret-key',
+      ATLAS_CLOUD_API_KEY: 'atlas-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.atlascloud.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'deepseek-ai/deepseek-v4-pro')
+  assert.equal(env.OPENAI_API_KEY, 'atlas-secret-key')
+  assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-secret-key')
+})
+
+test('openai launch prefers a live dedicated vendor key over the persisted one', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.atlascloud.ai/v1',
+      OPENAI_MODEL: 'deepseek-ai/deepseek-v4-pro',
+      OPENAI_API_KEY: 'atlas-old-key',
+      ATLAS_CLOUD_API_KEY: 'atlas-old-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      ATLAS_CLOUD_API_KEY: 'atlas-rotated-key',
+    },
+  })
+
+  assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-rotated-key')
+})
+
 test('xai launch uses descriptor defaults and persisted xAI key', async () => {
   const env = await buildLaunchEnv({
     profile: 'xai',

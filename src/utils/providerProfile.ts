@@ -97,6 +97,7 @@ const PROFILE_ENV_KEYS = [
   'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'OPENCODE_API_KEY',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
@@ -123,6 +124,7 @@ const SECRET_ENV_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'OPENCODE_API_KEY',
 ] as const
 
@@ -182,6 +184,7 @@ export type ProfileEnv = {
   XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
+  ATLAS_CLOUD_API_KEY?: string
   OPENCODE_API_KEY?: string
 }
 
@@ -205,7 +208,8 @@ type SecretValueSource = Partial<
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
     | 'VENICE_API_KEY'
-    | 'MIMO_API_KEY',
+    | 'MIMO_API_KEY'
+    | 'ATLAS_CLOUD_API_KEY',
     string | undefined
   >
 >
@@ -568,6 +572,46 @@ export function buildXiaomiMimoProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     MIMO_API_KEY: key,
+  }
+}
+
+export function buildAtlasCloudProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.ATLAS_CLOUD_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('atlas-cloud')
+  const defaultModel = getRouteDefaultModel('atlas-cloud')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Atlas Cloud route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    ATLAS_CLOUD_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    ATLAS_CLOUD_API_KEY: key,
   }
 }
 
@@ -1576,6 +1620,24 @@ export async function buildLaunchEnv(options: {
   const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
   if (openAIKey) {
     env.OPENAI_API_KEY = openAIKey
+  }
+  // Dedicated vendor credentials ride alongside the generic OpenAI env in
+  // persisted profiles (e.g. ATLAS_CLOUD_API_KEY). Carry them over — a live
+  // shell value wins over the persisted one, matching OPENAI_API_KEY
+  // precedence — because dedicatedCredentialsOnly routes ignore
+  // OPENAI_API_KEY, so dropping them would leave the relaunched profile
+  // unauthenticated.
+  for (const dedicatedKey of [
+    'ATLAS_CLOUD_API_KEY',
+    'MIMO_API_KEY',
+    'VENICE_API_KEY',
+  ] as const) {
+    const dedicatedValue =
+      sanitizeApiKey(processEnv[dedicatedKey]) ||
+      sanitizeApiKey(persistedEnv[dedicatedKey])
+    if (dedicatedValue) {
+      env[dedicatedKey] = dedicatedValue
+    }
   }
   const customHeaders = shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {

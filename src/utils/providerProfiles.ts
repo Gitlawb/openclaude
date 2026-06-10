@@ -25,6 +25,7 @@ import {
   buildVeniceProfileEnv,
   buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
+  buildAtlasCloudProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   type ProfileFileLocation,
@@ -548,6 +549,10 @@ function isProcessEnvAlignedWithProfile(
       profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.MIMO_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('atlascloud')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -682,6 +687,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
+        openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -922,6 +930,12 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
+      // Atlas Cloud is dedicatedCredentialsOnly: its route ignores
+      // OPENAI_API_KEY, so a generic OpenAI profile pointed at Atlas must
+      // persist the dedicated key too or it relaunches unauthenticated.
+      if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
+        strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
@@ -958,6 +972,9 @@ function buildOpenAICompatibleStartupEnv(
       activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
     ) {
       env.MIMO_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
+      env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY
@@ -1089,6 +1106,19 @@ function buildStartupProfileFromActiveProfile(
       if (route.vendorId === 'xiaomi-mimo') {
         const env =
           buildXiaomiMimoProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.vendorId === 'atlas-cloud') {
+        const env =
+          buildAtlasCloudProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
