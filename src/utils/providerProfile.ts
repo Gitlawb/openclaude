@@ -98,6 +98,7 @@ const PROFILE_ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'NEARAI_API_KEY',
   'OPENCODE_API_KEY',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
@@ -125,6 +126,7 @@ const SECRET_ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'NEARAI_API_KEY',
   'OPENCODE_API_KEY',
 ] as const
 
@@ -185,6 +187,7 @@ export type ProfileEnv = {
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
   ATLAS_CLOUD_API_KEY?: string
+  NEARAI_API_KEY?: string
   OPENCODE_API_KEY?: string
 }
 
@@ -209,7 +212,8 @@ type SecretValueSource = Partial<
     | 'XAI_API_KEY'
     | 'VENICE_API_KEY'
     | 'MIMO_API_KEY'
-    | 'ATLAS_CLOUD_API_KEY',
+    | 'ATLAS_CLOUD_API_KEY'
+    | 'NEARAI_API_KEY',
     string | undefined
   >
 >
@@ -1629,6 +1633,7 @@ export async function buildLaunchEnv(options: {
   // unauthenticated.
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
+    'NEARAI_API_KEY',
     'MIMO_API_KEY',
     'VENICE_API_KEY',
   ] as const) {

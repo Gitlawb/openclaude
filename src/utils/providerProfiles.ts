@@ -553,6 +553,11 @@ function isProcessEnvAlignedWithProfile(
     (profile.baseUrl?.toLowerCase().includes('atlascloud')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('cloud-api.near.ai') ||
+      profile.baseUrl?.toLowerCase().includes('completions.near.ai')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -690,6 +695,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'nearai' || profile.baseUrl.toLowerCase().includes('near.ai')) {
+        openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -976,6 +984,9 @@ function buildOpenAICompatibleStartupEnv(
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
     }
+    if (activeProfile.baseUrl?.toLowerCase().includes('near.ai')) {
+      env.NEARAI_API_KEY = activeProfile.apiKey
+    }
   } else {
     delete env.OPENAI_API_KEY
   }
@@ -1127,6 +1138,11 @@ function buildStartupProfileFromActiveProfile(
         return env
           ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
+      }
+
+      if (route.vendorId === 'nearai') {
+        const env = buildOpenAICompatibleStartupEnv(activeProfile)
+        return env ? { profile: 'openai', env } : null
       }
 
       // xAI OAuth profile (provider=xai with no API key). Tag the startup

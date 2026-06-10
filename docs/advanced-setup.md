@@ -239,6 +239,31 @@ export OPENAI_MODEL=mimo-v2.5-pro
 
 The `/provider` Xiaomi MiMo preset uses the same endpoint and stores the key as `MIMO_API_KEY`. `OPENAI_API_KEY` also works as a compatibility fallback, but `MIMO_API_KEY` keeps the profile tied to the MiMo route.
 
+### NEAR AI
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export NEARAI_API_KEY=...
+export OPENAI_BASE_URL=https://cloud-api.near.ai/v1
+export OPENAI_MODEL=anthropic/claude-sonnet-4-6
+
+openclaude
+```
+
+NEAR AI is a unified OpenAI-compatible gateway that proxies Anthropic, OpenAI,
+and Google models alongside TEE-hosted open models (GLM 5.1, Qwen3.5, Kimi K2.6).
+All models are accessible from a single endpoint with one API key.
+Get your key from https://cloud.near.ai/dashboard/organizations.
+
+Model IDs use `provider/model-name` format (e.g. `anthropic/claude-opus-4-7`,
+`openai/gpt-5.5`, `google/gemini-3.5-flash`, `zai-org/GLM-5.1-FP8`).
+
+For direct TEE completions (lower latency, verifiable privacy):
+
+```bash
+export OPENAI_BASE_URL=https://qwen35-122b.completions.near.ai/v1
+```
+
 ### Mistral
 
 ```bash

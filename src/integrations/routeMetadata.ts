@@ -288,6 +288,36 @@ export function isVeniceBaseUrl(value: string | undefined): boolean {
     return false
   }
 }
+
+export function isNearaiBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const hostname = new URL(trimmed).hostname.toLowerCase()
+    return hostname === 'cloud-api.near.ai' || hostname.endsWith('.completions.near.ai')
+  } catch {
+    return false
+  }
+}
+export function getNearaiBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isNearaiBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isNearaiBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
+
 export function getMiniMaxBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -425,9 +455,24 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
   )
 }
 
+export function hasNearaiEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearaiBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | null {
+): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | 'nearai' | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
     hasMiniMaxEnvOnlyProviderIntent(processEnv)
@@ -449,6 +494,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasXiaomiMimoEnvOnlyProviderIntent(processEnv)) {
     return 'xiaomi-mimo'
+  }
+
+  if (hasNearaiEnvOnlyProviderIntent(processEnv)) {
+    return 'nearai'
   }
 
   return null

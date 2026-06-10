@@ -43,6 +43,7 @@ export type DetectedProviderKind =
   | 'minimax'
   | 'xiaomi-mimo'
   | 'xai'
+  | 'nearai'
   | 'ollama'
   | 'lm-studio'
   | 'gitlawb-opengateway'
@@ -169,6 +170,13 @@ export function detectProviderFromEnv(
 
   if (envHasNonEmpty(env, 'XAI_API_KEY')) {
     return { kind: 'xai', source: 'XAI_API_KEY set' }
+  }
+
+  if (envHasNonEmpty(env, 'NEARAI_API_KEY')) {
+    return {
+      kind: 'nearai',
+      source: 'NEARAI_API_KEY set',
+    }
   }
 
   return null
