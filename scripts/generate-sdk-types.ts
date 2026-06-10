@@ -38,8 +38,13 @@ const TypeOverrideMap: Record<string, string> = {
   RawMessageStreamEventPlaceholder:
     'Record<string, unknown>',
   UUIDPlaceholder: 'string',
+  // Self-contained structural stand-in for NonNullableUsage: the generated
+  // file ships to external consumers without sdkUtilityTypes or
+  // @anthropic-ai/sdk, so it must not import either. Core token counts stay
+  // typed; richer fields (cache_creation, server_tool_use, ...) flow through
+  // the open index signature.
   NonNullableUsagePlaceholder:
-    'Record<string, number>',
+    '{ input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; [key: string]: unknown }',
 }
 
 // Materialize placeholder schemas once so we can detect them by identity (===)

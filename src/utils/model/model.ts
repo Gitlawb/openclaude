@@ -29,6 +29,7 @@ import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
+import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
 
 export type ModelShortName = string
 export type ModelName = string

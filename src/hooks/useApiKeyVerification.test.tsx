@@ -101,6 +101,7 @@ test('useApiKeyVerification resets stale missing status when the session switche
   }))
 
   const { useApiKeyVerification } = await import(
+    // @ts-expect-error -- query-string cache-buster so mock.module applies to a fresh instance
     './useApiKeyVerification.ts?switch-to-third-party'
   )
 

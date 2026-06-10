@@ -27,6 +27,9 @@ import { useAppStateStore } from '../../state/AppState.js';
 import { isBackgroundTask, type TaskState } from '../../tasks/types.js';
 import { getPillLabel } from '../../tasks/pillLabel.js';
 import { useSelectedMessageBg } from '../messageActions.js';
+// Hooks faster than this render no timing line (display gate only — currently
+// short-circuited by the `true ||` below, matching upstream).
+const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 1000;
 type Props = {
   message: SystemMessage;
   addMargin: boolean;

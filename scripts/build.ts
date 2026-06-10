@@ -964,10 +964,7 @@ if (result?.success) {
   // known item to revisit, not a blessing that the stub is safe.
   // Entries are repo-relative paths from `src/` onward, without extension — the
   // same shape canonicalStub() produces, so the allowlist reads as the key.
-  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
-    'src/tools/VerifyPlanExecutionTool/constants',
-    'src/components/tasks/MonitorMcpDetailDialog',
-  ])
+  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([])
 
   // Stub markers are not byte-stable across build hosts: the per-importer
   // scanner records each stub as the resolved absolute source path, which

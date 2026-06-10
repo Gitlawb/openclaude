@@ -28,7 +28,7 @@ import { sendNotification } from '../services/notifier.js';
 import { startPreventSleep, stopPreventSleep } from '../services/preventSleep.js';
 import { useTerminalNotification } from '../ink/useTerminalNotification.js';
 import { hasCursorUpViewportYankBug } from '../ink/terminal.js';
-import { createFileStateCacheWithSizeLimit, mergeFileStateCaches, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js';
+import { createFileStateCacheWithSizeLimit, mergeFileStateCaches, READ_FILE_STATE_CACHE_SIZE, type FileStateCache } from '../utils/fileStateCache.js';
 import { registerPrunableCache } from '../utils/memoryPressure.js';
 import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getProjectRoot, getSessionId, switchSession, setCostStateForRestore, resetTurnHookDuration, resetTurnToolDuration, resetTurnClassifierDuration, setMainLoopModelOverride, setMainThreadAgentType } from '../bootstrap/state.js';
 import { asSessionId, asAgentId } from '../types/ids.js';
@@ -160,7 +160,7 @@ import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '../tools/AgentTool/agentToolUtils.js';
 import { resumeAgentBackground } from '../tools/AgentTool/resumeAgent.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
-import { useAppState, useSetAppState, useAppStateStore } from '../state/AppState.js';
+import { useAppState, useSetAppState, useAppStateStore, type AppState } from '../state/AppState.js';
 import type { ContentBlockParam, ImageBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs';
 import type { ProcessUserInputContext } from '../utils/processUserInput/processUserInput.js';
 import type { PastedContent } from '../utils/config.js';
@@ -300,6 +300,38 @@ const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
 // Use LRU cache to prevent unbounded memory growth
 // 100 files should be sufficient for most coding sessions while preventing
 // memory issues when working across many files in large projects
+
+// Stubs: Ultraplan (remote planning sessions) is not included in this open
+// snapshot. Every use below is gated behind feature('ULTRAPLAN'), so these
+// render nothing / reject if ever reached.
+function UltraplanChoiceDialog(_props: {
+  plan: string;
+  sessionId: string;
+  taskId: string;
+  setMessages: (action: React.SetStateAction<MessageType[]>) => void;
+  readFileState: FileStateCache;
+  getAppState: () => AppState;
+  setConversationId: React.Dispatch<React.SetStateAction<UUID>>;
+}): React.ReactElement | null {
+  return null;
+}
+function UltraplanLaunchDialog(_props: {
+  onChoice: (choice: 'launch' | 'cancel', opts?: {
+    disconnectedBridge?: boolean;
+  }) => void;
+}): React.ReactElement | null {
+  return null;
+}
+async function launchUltraplan(_opts: {
+  blurb: string;
+  getAppState: () => AppState;
+  setAppState: SetAppState;
+  signal: AbortSignal;
+  disconnectedBridge?: boolean;
+  onSessionReady: (msg: string) => void;
+}): Promise<string> {
+  throw new Error('Ultraplan is not available in this build');
+}
 
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);

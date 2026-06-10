@@ -6,7 +6,21 @@ import type { Message } from './message.js'
 import type { QueueOperationMessage } from './messageQueueTypes.js'
 import type { GoalState } from '../services/goal/types.js'
 
-export type SerializedMessage = Message & {
+// Omit<Message, never> instead of plain Message: the open snapshot stubs
+// Message as `any`, and `any & {...}` collapses to `any`. That made every
+// guard targeting TranscriptMessage (`entry is TranscriptMessage`) an
+// any-guard, which TypeScript narrows to `never` in else-branches —
+// breaking the Entry else-if chains in sessionStorage/stats. Omit forces
+// a mapped type ({ [k: string]: any }), keeping property access permissive
+// while giving SerializedMessage a real object shape that narrows correctly.
+//
+// The `type` discriminant is declared explicitly (the stub's index signature
+// is not usable for discriminant narrowing) and SerializedMessage is a
+// distributed union over it so Extract<TranscriptMessage, { type: '...' }>
+// and `m.type === '...'` narrowing both work. 'progress' covers legacy
+// on-disk entries (removed from isTranscriptMessage in PR #24099 but still
+// present in old transcripts).
+type SerializedMessageFields = {
   cwd: string
   userType: string
   entrypoint?: string // CLAUDE_CODE_ENTRYPOINT — distinguishes cli/sdk-ts/sdk-py/etc.
@@ -16,6 +30,17 @@ export type SerializedMessage = Message & {
   gitBranch?: string
   slug?: string // Session slug for files like plans (used for resume)
 }
+
+type SerializedMessageOf<K extends string> = Omit<Message, never> & {
+  type: K
+} & SerializedMessageFields
+
+export type SerializedMessage =
+  | SerializedMessageOf<'user'>
+  | SerializedMessageOf<'assistant'>
+  | SerializedMessageOf<'attachment'>
+  | SerializedMessageOf<'system'>
+  | SerializedMessageOf<'progress'>
 
 export type LogOption = {
   date: string
