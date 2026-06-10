@@ -4,6 +4,7 @@ import autofixPr from './commands/autofix-pr/index.js'
 import backfillSessions from './commands/backfill-sessions/index.js'
 import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
+import goal from './commands/goal/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
@@ -93,9 +94,6 @@ const remoteControlServerCommand =
 const voiceCommand = feature('VOICE_MODE')
   ? require('./commands/voice/index.js').default
   : null
-const forceSnip = feature('HISTORY_SNIP')
-  ? require('./commands/force-snip.js').default
-  : null
 const workflowsCmd = feature('WORKFLOW_SCRIPTS')
   ? (
       require('./commands/workflows/index.js') as typeof import('./commands/workflows/index.js')
@@ -121,11 +119,6 @@ const torch = feature('TORCH') ? require('./commands/torch.js').default : null
 const peersCmd = feature('UDS_INBOX')
   ? (
       require('./commands/peers/index.js') as typeof import('./commands/peers/index.js')
-    ).default
-  : null
-const forkCmd = feature('FORK_SUBAGENT')
-  ? (
-      require('./commands/fork/index.js') as typeof import('./commands/fork/index.js')
     ).default
   : null
 const buddy = isBuddyEnabled()
@@ -249,7 +242,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   goodClaude,
   issue,
   initVerifiers,
-  ...(forceSnip ? [forceSnip] : []),
   mockLimits,
   bridgeKick,
   version,
@@ -334,6 +326,7 @@ const COMMANDS = memoize((): Command[] => [
   theme,
   logo,
   feedback,
+  goal,
   review,
   ultrareview,
   rewind,
@@ -348,7 +341,6 @@ const COMMANDS = memoize((): Command[] => [
   vim,
   wiki,
   ...(webCmd ? [webCmd] : []),
-  ...(forkCmd ? [forkCmd] : []),
   ...(buddy ? [buddy] : []),
   ...(proactive ? [proactive] : []),
   ...(briefCommand ? [briefCommand] : []),
@@ -660,6 +652,7 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   copy, // Copy last message
   btw, // Quick note
   feedback, // Send feedback
+  goal, // Manage session goal continuation
   plan, // Plan mode toggle
   keybindings, // Keybinding management
   statusline, // Status line toggle
@@ -687,6 +680,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
+    goal, // Manage session goal continuation
   ].filter((c): c is Command => c !== null),
 )
 

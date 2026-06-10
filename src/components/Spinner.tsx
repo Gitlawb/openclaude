@@ -10,7 +10,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growt
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { count } from '../utils/array.js';
 import sample from 'lodash-es/sample.js';
-import { formatDuration, formatNumber, formatSecondsShort } from '../utils/format.js';
+import { formatDuration, formatNumber } from '../utils/format.js';
 import type { Theme } from 'src/utils/theme.js';
 import { activityManager } from '../utils/activityManager.js';
 import { getSpinnerVerbs } from '../constants/spinnerVerbs.js';
@@ -212,16 +212,6 @@ function SpinnerWithVerbInner({
   const defaultShimmerColor = 'claudeShimmer';
   const messageColor = overrideColor ?? defaultColor;
   const shimmerColor = overrideShimmerColor ?? defaultShimmerColor;
-
-  // Compute TTFT string here (off the 50ms animation clock) and pass to
-  // SpinnerAnimationRow so it folds into the `(thought for Ns · ...)` status
-  // line instead of taking a separate row. apiMetricsRef is a ref so this
-  // doesn't trigger re-renders; we pick up updates on the parent's ~25x/turn
-  // re-render cadence, same as the old ApiMetricsLine did.
-  let ttftText: string | null = null;
-  if ("external" === 'ant' && apiMetricsRef?.current && apiMetricsRef.current.length > 0) {
-    ttftText = computeTtftText(apiMetricsRef.current);
-  }
 
   // When leader is idle but teammates are running (and we're viewing the leader),
   // show a static dim idle display instead of the animated spinner — otherwise

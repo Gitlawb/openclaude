@@ -15,7 +15,7 @@ type Props = {
   dim?: boolean;
 };
 const DEFAULT_WIDTH = 80;
-export const HighlightedCode = memo(function HighlightedCode(t0) {
+export const HighlightedCode = memo(function HighlightedCode(t0: Props): React.ReactNode {
   const $ = _c(21);
   const {
     code,
@@ -24,7 +24,7 @@ export const HighlightedCode = memo(function HighlightedCode(t0) {
     dim: t1
   } = t0;
   const dim = t1 === undefined ? false : t1;
-  const ref = useRef(null);
+  const ref = useRef<DOMElement | null>(null);
   const [measuredWidth, setMeasuredWidth] = useState(width || DEFAULT_WIDTH);
   const [theme] = useTheme();
   const settings = useSettings();
@@ -134,7 +134,10 @@ export const HighlightedCode = memo(function HighlightedCode(t0) {
   }
   return t7;
 });
-function CodeLine(t0) {
+function CodeLine(t0: {
+  line: string;
+  gutterWidth: number;
+}): React.ReactNode {
   const $ = _c(13);
   const {
     line,

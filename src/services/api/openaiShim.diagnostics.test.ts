@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import type { DebugLogLevel } from '../../utils/debug.js'
+
+type DebugModule = typeof import('../../utils/debug.js')
+type DebugSpy = ReturnType<
+  typeof mock<(message: string, options?: { level?: DebugLogLevel }) => void>
+>
+type FetchMock = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -7,6 +17,7 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
+let actualDebugModule: DebugModule | undefined
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -27,16 +38,14 @@ afterEach(() => {
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     mock.restore()
+    restoreDebugModule()
   } finally {
     releaseSharedMutationLock()
   }
 })
 
 test('logs classified transport diagnostics with category and code', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { createOpenAIShimClient } = await import(`./openaiShim.ts?ts=${nonce}`)
@@ -48,9 +57,9 @@ test('logs classified transport diagnostics with category and code', async () =>
     code: 'ECONNREFUSED',
   })
 
-  globalThis.fetch = mock(async () => {
+  globalThis.fetch = mockFetch(async (): Promise<Response> => {
     throw transportError
-  }) as typeof globalThis.fetch
+  })
 
   const client = createOpenAIShimClient({}) as {
     beta: {
@@ -80,10 +89,7 @@ test('logs classified transport diagnostics with category and code', async () =>
 })
 
 test('redacts credentials in transport diagnostic URL logs', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { createOpenAIShimClient } = await import(`./openaiShim.ts?ts=${nonce}`)
@@ -95,9 +101,9 @@ test('redacts credentials in transport diagnostic URL logs', async () => {
     code: 'ECONNREFUSED',
   })
 
-  globalThis.fetch = mock(async () => {
+  globalThis.fetch = mockFetch(async (): Promise<Response> => {
     throw transportError
-  }) as typeof globalThis.fetch
+  })
 
   const client = createOpenAIShimClient({}) as {
     beta: {
@@ -127,10 +133,7 @@ test('redacts credentials in transport diagnostic URL logs', async () => {
   expect(logLine).not.toContain('supersecret@')
 })
 test('logs self-heal localhost fallback with redacted from/to URLs', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { createOpenAIShimClient } = await import(`./openaiShim.ts?ts=${nonce}`)
@@ -138,8 +141,8 @@ test('logs self-heal localhost fallback with redacted from/to URLs', async () =>
   process.env.OPENAI_BASE_URL = 'http://user:supersecret@localhost:11434/v1'
   process.env.OPENAI_API_KEY = 'supersecret'
 
-  globalThis.fetch = mock(async (input: string | Request) => {
-    const url = typeof input === 'string' ? input : input.url
+  globalThis.fetch = mockFetch(async (input: RequestInfo | URL) => {
+    const url = getFetchInputUrl(input)
     if (url.includes('localhost')) {
       throw Object.assign(new TypeError('fetch failed'), {
         code: 'ENOTFOUND',
@@ -172,7 +175,7 @@ test('logs self-heal localhost fallback with redacted from/to URLs', async () =>
         },
       },
     )
-  }) as typeof globalThis.fetch
+  })
 
   const client = createOpenAIShimClient({}) as {
     beta: {
@@ -204,10 +207,7 @@ test('logs self-heal localhost fallback with redacted from/to URLs', async () =>
 })
 
 test('logs self-heal toolless retry for local tool-call incompatibility', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { createOpenAIShimClient } = await import(`./openaiShim.ts?ts=${nonce}`)
@@ -216,7 +216,7 @@ test('logs self-heal toolless retry for local tool-call incompatibility', async 
   process.env.OPENAI_API_KEY = 'ollama'
 
   let callCount = 0
-  globalThis.fetch = mock(async () => {
+  globalThis.fetch = mockFetch(async () => {
     callCount += 1
     if (callCount === 1) {
       return new Response('tool_calls are not supported', {
@@ -253,7 +253,7 @@ test('logs self-heal toolless retry for local tool-call incompatibility', async 
         },
       },
     )
-  }) as typeof globalThis.fetch
+  })
 
   const client = createOpenAIShimClient({}) as {
     beta: {
@@ -293,3 +293,37 @@ test('logs self-heal toolless retry for local tool-call incompatibility', async 
   expect(fallbackLog).toBeDefined()
   expect(fallbackLog?.[1]).toEqual({ level: 'warn' })
 })
+
+async function mockDebugLogging(): Promise<DebugSpy> {
+  actualDebugModule ??= await import(
+    `../../utils/debug.ts?openaiShimDiagnosticsActual=${Date.now()}-${Math.random()}`
+  )
+  const debugSpy = mock(
+    (_message: string, _options?: { level?: DebugLogLevel }) => {},
+  )
+  mock.module('../../utils/debug.js', () => ({
+    ...actualDebugModule!,
+    logForDebugging: debugSpy,
+  }))
+  return debugSpy
+}
+
+function restoreDebugModule(): void {
+  if (actualDebugModule) {
+    mock.module('../../utils/debug.js', () => ({ ...actualDebugModule! }))
+  }
+}
+
+function mockFetch(fetchMock: FetchMock): typeof globalThis.fetch {
+  return mock(fetchMock) as unknown as typeof globalThis.fetch
+}
+
+function getFetchInputUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') {
+    return input
+  }
+  if (input instanceof URL) {
+    return input.toString()
+  }
+  return input.url
+}

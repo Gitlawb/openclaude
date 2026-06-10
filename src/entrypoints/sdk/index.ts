@@ -66,6 +66,14 @@ export type {
   SDKAgentLoadFailureMessage,
   QueryPermissionMode,
 } from './shared.js'
+export type {
+  AccountInfo,
+  AgentInfo,
+  FastModeState,
+  ModelInfo,
+  SlashCommand,
+} from './coreTypes.js'
+export type { SDKControlInitializeResponse } from './controlTypes.js'
 
 // ============================================================================
 // Re-exports from permissions

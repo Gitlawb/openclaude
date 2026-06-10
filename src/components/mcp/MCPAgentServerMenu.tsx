@@ -6,7 +6,7 @@ import { useKeybinding } from '../../keybindings/useKeybinding.js';
 import { AuthenticationCancelledError, performMCPOAuthFlow } from '../../services/mcp/auth.js';
 import { capitalize } from '../../utils/stringUtils.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
-import { Select } from '../CustomSelect/index.js';
+import { Select, type OptionWithDescription } from '../CustomSelect/index.js';
 import { Byline } from '../design-system/Byline.js';
 import { Dialog } from '../design-system/Dialog.js';
 import { KeyboardShortcutHint } from '../design-system/KeyboardShortcutHint.js';
@@ -102,7 +102,7 @@ export function MCPAgentServerMenu({
         </Box>
       </Box>;
   }
-  const menuOptions = [];
+  const menuOptions: OptionWithDescription<string>[] = [];
 
   // Only show authenticate option for HTTP/SSE servers
   if (agentServer.needsAuth) {

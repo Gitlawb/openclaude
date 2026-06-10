@@ -11,7 +11,6 @@ import { maybeMarkProjectOnboardingComplete } from '../../projectOnboardingState
 import type { ToolUseContext } from '../../Tool.js';
 import type { LocalJSXCommandContext, LocalJSXCommandOnDone } from '../../types/command.js';
 import { backupTerminalPreferences, checkAndRestoreTerminalBackup, getTerminalPlistPath, markTerminalSetupComplete } from '../../utils/appleTerminalBackup.js';
-import { setupShellCompletion } from '../../utils/completionCache.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { env } from '../../utils/env.js';
 import { isFsInaccessible } from '../../utils/errors.js';
@@ -118,10 +117,6 @@ export async function setupTerminal(theme: ThemeName): Promise<string> {
   });
   maybeMarkProjectOnboardingComplete();
 
-  // Install shell completions (internal-only, since the completion command is internal-only)
-  if ("external" === 'ant') {
-    result += await setupShellCompletion(theme);
-  }
   return result;
 }
 export function isShiftEnterKeyBindingInstalled(): boolean {

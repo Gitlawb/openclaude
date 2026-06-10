@@ -236,15 +236,15 @@ test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
   expect(getDefaultOpusModel()).toBe('MiniMax-M2.7')
 })
 
-test('getDefaultMainLoopModelSetting defaults MiniMax to M2.7', async () => {
+test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   process.env.MINIMAX_API_KEY = 'minimax-test'
 
   const {
     getDefaultMainLoopModel,
     getDefaultMainLoopModelSetting,
   } = await importFreshModelModule()
-  expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M2.7')
-  expect(getDefaultMainLoopModel()).toBe('MiniMax-M2.7')
+  expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M3')
+  expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
 })
 
 test('getDefaultMainLoopModelSetting defaults Xiaomi MiMo to mimo-v2.5-pro', async () => {

@@ -141,15 +141,15 @@ function PostGracePeriodContentBody() {
   }
   return t6;
 }
-export function GroveDialog(t0) {
+export function GroveDialog(t0: Props) {
   const $ = _c(34);
   const {
     showIfAlreadyViewed,
     location,
     onDone
   } = t0;
-  const [shouldShowDialog, setShouldShowDialog] = useState(null);
-  const [groveConfig, setGroveConfig] = useState(null);
+  const [shouldShowDialog, setShouldShowDialog] = useState<boolean | null>(null);
+  const [groveConfig, setGroveConfig] = useState<GroveConfig | null>(null);
   let t1;
   let t2;
   if ($[0] !== location || $[1] !== onDone || $[2] !== showIfAlreadyViewed) {
@@ -354,7 +354,7 @@ type PrivacySettingsDialogProps = {
   domainExcluded?: boolean;
   onDone(): void;
 };
-export function PrivacySettingsDialog(t0) {
+export function PrivacySettingsDialog(t0: PrivacySettingsDialogProps) {
   const $ = _c(17);
   const {
     settings,

@@ -21,7 +21,7 @@ type Props = {
   style?: 'condensed';
   verbose: boolean;
 };
-export function FileEditToolUseRejectedMessage(t0) {
+export function FileEditToolUseRejectedMessage(t0: Props): React.ReactNode {
   const $ = _c(38);
   const {
     file_path,

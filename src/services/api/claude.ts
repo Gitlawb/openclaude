@@ -119,6 +119,7 @@ import {
   getCacheEditingHeaderLatched,
   getFastModeHeaderLatched,
   getLastApiCompletionTimestamp,
+  getSdkBetas,
   getPromptCache1hAllowlist,
   getPromptCache1hEligible,
   getSessionId,
@@ -164,7 +165,7 @@ import {
 } from 'src/utils/betas.js'
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from 'src/utils/claudeInChrome/common.js'
 import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt.js'
-import { getMaxThinkingTokensForModel } from 'src/utils/context.js'
+import { COMPACT_MAX_OUTPUT_TOKENS, getContextWindowForModel, getMaxThinkingTokensForModel } from 'src/utils/context.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import { type EffortValue, modelSupportsEffort } from 'src/utils/effort.js'
@@ -181,7 +182,7 @@ import { calculateUSDCost } from 'src/utils/modelCost.js'
 import { endQueryProfile, queryCheckpoint } from 'src/utils/queryProfiler.js'
 import {
   modelSupportsAdaptiveThinking,
-  modelSupportsThinking,
+  shouldUseThinkingForModel,
   type ThinkingConfig,
 } from 'src/utils/thinking.js'
 import {
@@ -978,7 +979,7 @@ export function stripExcessMediaItems(
       if (isMedia(block)) toRemove++
       if (isToolResult(block) && Array.isArray(block.content)) {
         for (const nested of block.content) {
-          if (isMedia(nested)) toRemove++
+          if (isMedia(nested as BetaContentBlockParam)) toRemove++
         }
       }
     }
@@ -1001,7 +1002,7 @@ export function stripExcessMediaItems(
         )
           return block
         const filtered = block.content.filter(n => {
-          if (toRemove > 0 && isMedia(n)) {
+          if (toRemove > 0 && isMedia(n as BetaContentBlockParam)) {
             toRemove--
             return false
           }
@@ -1214,7 +1215,7 @@ async function* queryModel(
     cachedMCEnabled = featureEnabled && modelSupported
     const config = getCachedMCConfig()
     logForDebugging(
-      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify(config?.supportedModels)}`,
+      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify((config as Record<string, unknown> | null)?.supportedModels)}`,
     )
   }
 
@@ -1287,9 +1288,12 @@ async function* queryModel(
     const strategyResult = applyHybridStrategy(messagesForAPI, {
       cacheWeight: 0.4,
       freshWeight: 0.6,
-      maxTotalTokens: Math.min(
-        getContextWindowForModel(model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
-        200000
+      maxTotalTokens: Math.max(
+        0,
+        Math.min(
+          getContextWindowForModel(options.model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
+          200000,
+        ),
       ),
     })
     messagesForAPI = strategyResult.selectedMessages
@@ -1604,18 +1608,16 @@ async function* queryModel(
       options.maxOutputTokensOverride ||
       getMaxOutputTokensForModel(options.model)
 
-    const hasThinking =
-      thinkingConfig.type !== 'disabled' &&
-      !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_THINKING)
+    const hasThinking = shouldUseThinkingForModel(retryContext.model, thinkingConfig)
     let thinking: BetaMessageStreamParams['thinking'] | undefined = undefined
 
     // IMPORTANT: Do not change the adaptive-vs-budget thinking selection below
     // without notifying the model launch DRI and research. This is a sensitive
     // setting that can greatly affect model quality and bashing.
-    if (hasThinking && modelSupportsThinking(options.model)) {
+    if (hasThinking) {
       if (
         !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING) &&
-        modelSupportsAdaptiveThinking(options.model)
+        modelSupportsAdaptiveThinking(retryContext.model)
       ) {
         // For models that support adaptive thinking, always use adaptive
         // thinking without a budget.
@@ -1625,7 +1627,7 @@ async function* queryModel(
       } else {
         // For models that do not support adaptive thinking, use the default
         // thinking budget unless explicitly specified.
-        let thinkingBudget = getMaxThinkingTokensForModel(options.model)
+        let thinkingBudget = getMaxThinkingTokensForModel(retryContext.model)
         if (
           thinkingConfig.type === 'enabled' &&
           thinkingConfig.budgetTokens !== undefined

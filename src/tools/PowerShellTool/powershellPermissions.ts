@@ -4,6 +4,7 @@
  */
 
 import { resolve } from 'path'
+import { getOriginalCwd } from '../../bootstrap/state.js'
 import type { ToolPermissionContext, ToolUseContext } from '../../Tool.js'
 import type {
   PermissionDecisionReason,
@@ -17,6 +18,7 @@ import {
   createPermissionRequestMessage,
   getRuleByContentsForToolName,
 } from '../../utils/permissions/permissions.js'
+import { isOpenClaudeCommitMessagePath } from '../../utils/permissions/filesystem.js'
 import {
   matchWildcardPattern,
   parsePermissionRule,
@@ -82,6 +84,27 @@ const GIT_SAFETY_WRITE_CMDLETS = new Set([
   'export-csv',
   'export-clixml',
 ])
+
+export function isUnsafeDotGitWritePathForPowerShell(
+  path: string,
+  toolPermissionContext: ToolPermissionContext,
+): boolean {
+  if (!isDotGitPathPS(path)) {
+    return false
+  }
+
+  if (
+    (toolPermissionContext.mode === 'bypassPermissions' ||
+      toolPermissionContext.mode === 'fullAccess') &&
+    // Keep this aligned with the shared filesystem permission exception:
+    // /commit's temp file is scoped to the project root .git directory.
+    isOpenClaudeCommitMessagePath(resolve(getOriginalCwd(), path))
+  ) {
+    return false
+  }
+
+  return true
+}
 
 /**
  * External archive-extraction applications that write files to cwd with
@@ -1241,12 +1264,25 @@ export async function powershellToolHasPermission(
     const found =
       allSubCommands.some(({ element }) => {
         for (const r of element.redirections ?? []) {
-          if (isDotGitPathPS(r.target)) return true
+          if (
+            isUnsafeDotGitWritePathForPowerShell(
+              r.target,
+              toolPermissionContext,
+            )
+          )
+            return true
         }
         const canonical = resolveToCanonical(element.name)
         if (!GIT_SAFETY_WRITE_CMDLETS.has(canonical)) return false
-        return element.args.flatMap(a => a.split(',')).some(isDotGitPathPS)
-      }) || getFileRedirections(parsed).some(r => isDotGitPathPS(r.target))
+        return element.args
+          .flatMap(a => a.split(','))
+          .some(path =>
+            isUnsafeDotGitWritePathForPowerShell(path, toolPermissionContext),
+          )
+      }) ||
+      getFileRedirections(parsed).some(r =>
+        isUnsafeDotGitWritePathForPowerShell(r.target, toolPermissionContext),
+      )
     if (found) {
       decisions.push({
         behavior: 'ask',

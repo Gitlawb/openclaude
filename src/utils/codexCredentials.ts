@@ -1,6 +1,10 @@
 import { isBareMode } from './envUtils.js'
 import { createCombinedAbortSignal } from './combinedAbortSignal.js'
-import { getSecureStorage } from './secureStorage/index.js'
+import {
+  getSecureStorage,
+  type SecureStorageData,
+} from './secureStorage/index.js'
+import { plainTextStorage } from './secureStorage/plainTextStorage.js'
 import {
   asTrimmedString,
   CODEX_REFRESH_URL,
@@ -13,6 +17,10 @@ import {
 export const CODEX_STORAGE_KEY = 'codex' as const
 const CODEX_TOKEN_REFRESH_SKEW_MS = 60_000
 const CODEX_TOKEN_REFRESH_RETRY_COOLDOWN_MS = 60_000
+const CODEX_FALLBACK_NATIVE_DELETE_FAILED_WARNING =
+  'Codex credentials were written to plaintext fallback, but stale native secure storage could not be removed.'
+const CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING =
+  'Codex credentials were saved, but stale plaintext fallback credentials could not be removed.'
 
 export type CodexCredentialBlob = {
   apiKey?: string
@@ -39,7 +47,7 @@ let inFlightCodexRefresh:
   | null = null
 let inMemoryLastRefreshFailureAt: number | null = null
 
-function getCodexSecureStorage() {
+function getCodexPrimarySecureStorage() {
   return getSecureStorage({ allowPlainTextFallback: false })
 }
 
@@ -91,6 +99,103 @@ function normalizeCodexCredentialBlob(
     profileId,
     lastRefreshAt,
     lastRefreshFailureAt,
+  }
+}
+
+function getRecord(data: SecureStorageData | null | undefined): Record<
+  string,
+  unknown
+> {
+  return data && typeof data === 'object'
+    ? (data as Record<string, unknown>)
+    : {}
+}
+
+function hasStoredCodexRecord(
+  data: SecureStorageData | null | undefined,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(getRecord(data), CODEX_STORAGE_KEY)
+}
+
+function hasNonCodexStorageFields(
+  data: SecureStorageData | null | undefined,
+): boolean {
+  return Object.keys(getRecord(data)).some(key => key !== CODEX_STORAGE_KEY)
+}
+
+function readCodexFromPlainTextStorage(): CodexCredentialBlob | undefined {
+  try {
+    const data = plainTextStorage.read()
+    return normalizeCodexCredentialBlob(data?.[CODEX_STORAGE_KEY])
+  } catch {
+    return undefined
+  }
+}
+
+async function readCodexFromPlainTextStorageAsync(): Promise<
+  CodexCredentialBlob | undefined
+> {
+  try {
+    const data = await plainTextStorage.readAsync()
+    return normalizeCodexCredentialBlob(data?.[CODEX_STORAGE_KEY])
+  } catch {
+    return undefined
+  }
+}
+
+// Do not use the generic secure-storage fallback for Codex writes. Its update()
+// path receives the whole storage document, so a native-write failure can copy
+// unrelated native-only secrets into plaintext.
+function writeCodexToPlainTextStorage(
+  codex: CodexCredentialBlob,
+): { success: boolean; warning?: string } {
+  try {
+    const previous = plainTextStorage.read() || {}
+    const next = {
+      ...getRecord(previous),
+      [CODEX_STORAGE_KEY]: codex,
+    }
+    return plainTextStorage.update(next as SecureStorageData)
+  } catch {
+    return { success: false }
+  }
+}
+
+function removeCodexFromPlainTextStorage(): {
+  success: boolean
+  warning?: string
+} {
+  try {
+    const previous = plainTextStorage.read()
+    if (!hasStoredCodexRecord(previous)) {
+      return { success: true }
+    }
+
+    const next = { ...getRecord(previous) }
+    delete next[CODEX_STORAGE_KEY]
+
+    if (Object.keys(next).length === 0) {
+      return plainTextStorage.delete()
+        ? { success: true }
+        : {
+            success: false,
+            warning: CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING,
+          }
+    }
+
+    const result = plainTextStorage.update(next as SecureStorageData)
+    return result.success
+      ? { success: true }
+      : {
+          success: false,
+          warning:
+            result.warning ?? CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING,
+        }
+  } catch {
+    return {
+      success: false,
+      warning: CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING,
+    }
   }
 }
 
@@ -151,11 +256,14 @@ export function readCodexCredentials(): CodexCredentialBlob | undefined {
   if (isBareMode()) return undefined
 
   try {
-    const data = getCodexSecureStorage().read()
-    return normalizeCodexCredentialBlob(data?.codex)
+    const data = getCodexPrimarySecureStorage().read()
+    const primaryCodex = normalizeCodexCredentialBlob(data?.codex)
+    if (primaryCodex) return primaryCodex
   } catch {
-    return undefined
+    // Fall through to the Codex-only plaintext fallback.
   }
+
+  return readCodexFromPlainTextStorage()
 }
 
 export async function readCodexCredentialsAsync(): Promise<
@@ -164,11 +272,14 @@ export async function readCodexCredentialsAsync(): Promise<
   if (isBareMode()) return undefined
 
   try {
-    const data = await getCodexSecureStorage().readAsync()
-    return normalizeCodexCredentialBlob(data?.codex)
+    const data = await getCodexPrimarySecureStorage().readAsync()
+    const primaryCodex = normalizeCodexCredentialBlob(data?.codex)
+    if (primaryCodex) return primaryCodex
   } catch {
-    return undefined
+    // Fall through to the Codex-only plaintext fallback.
   }
+
+  return readCodexFromPlainTextStorageAsync()
 }
 
 export function isCodexRefreshFailureCoolingDown(
@@ -193,23 +304,66 @@ export function saveCodexCredentials(
     return { success: false, warning: 'Codex credentials are incomplete.' }
   }
 
-  const secureStorage = getCodexSecureStorage()
-  const previous = secureStorage.read() || {}
-  const previousCodex = normalizeCodexCredentialBlob(previous[CODEX_STORAGE_KEY])
+  const secureStorage = getCodexPrimarySecureStorage()
+  const previous = secureStorage.read()
+  const previousNativeCodex = normalizeCodexCredentialBlob(
+    previous?.[CODEX_STORAGE_KEY],
+  )
+  const previousCodex = previousNativeCodex ?? readCodexFromPlainTextStorage()
   const next = {
-    ...(previous as Record<string, unknown>),
+    ...getRecord(previous),
     [CODEX_STORAGE_KEY]: {
       ...normalized,
       profileId: normalized.profileId ?? previousCodex?.profileId,
       lastRefreshAt: normalized.lastRefreshAt ?? Date.now(),
     },
   }
-  const result = secureStorage.update(next as typeof previous)
+  const result = secureStorage.update(next as SecureStorageData)
   if (result.success) {
     const storedCodex = normalizeCodexCredentialBlob(next[CODEX_STORAGE_KEY])
     inMemoryLastRefreshFailureAt = storedCodex?.lastRefreshFailureAt ?? null
+    const cleanupResult = removeCodexFromPlainTextStorage()
+    if (!cleanupResult.success) {
+      return {
+        success: true,
+        warning:
+          cleanupResult.warning ?? CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING,
+      }
+    }
+    return result
   }
-  return result
+
+  // If native storage still contains a Codex record and unrelated secrets, a
+  // plaintext Codex-only fallback would be shadowed by the stale native record.
+  // Deleting the native document would remove unrelated secrets, so fail closed.
+  if (previousNativeCodex && hasNonCodexStorageFields(previous)) {
+    return result
+  }
+
+  const fallbackResult = writeCodexToPlainTextStorage(
+    next[CODEX_STORAGE_KEY] as CodexCredentialBlob,
+  )
+  if (fallbackResult.success) {
+    if (previousNativeCodex && !secureStorage.delete()) {
+      return {
+        success: false,
+        warning: CODEX_FALLBACK_NATIVE_DELETE_FAILED_WARNING,
+      }
+    }
+
+    if (!previousNativeCodex && !hasNonCodexStorageFields(previous)) {
+      secureStorage.delete()
+    }
+
+    const storedCodex = normalizeCodexCredentialBlob(next[CODEX_STORAGE_KEY])
+    inMemoryLastRefreshFailureAt = storedCodex?.lastRefreshFailureAt ?? null
+    return {
+      success: true,
+      warning: fallbackResult.warning,
+    }
+  }
+
+  return fallbackResult.warning ? fallbackResult : result
 }
 
 export function attachCodexProfileIdToStoredCredentials(profileId: string): {
@@ -255,14 +409,33 @@ export function clearCodexCredentials(): {
     return { success: true }
   }
 
-  const secureStorage = getCodexSecureStorage()
-  const previous = secureStorage.read() || {}
-  const next = { ...(previous as Record<string, unknown>) }
-  delete next[CODEX_STORAGE_KEY]
-  const result = secureStorage.update(next as typeof previous)
-  if (result.success) {
-    inMemoryLastRefreshFailureAt = null
+  const secureStorage = getCodexPrimarySecureStorage()
+  const previous = secureStorage.read()
+  const previousCodex = normalizeCodexCredentialBlob(
+    previous?.[CODEX_STORAGE_KEY],
+  )
+
+  if (!previousCodex) {
+    const plaintextResult = removeCodexFromPlainTextStorage()
+    if (plaintextResult.success) {
+      inMemoryLastRefreshFailureAt = null
+    }
+    return plaintextResult
   }
+
+  const next = { ...getRecord(previous) }
+  delete next[CODEX_STORAGE_KEY]
+  const result = secureStorage.update(next as SecureStorageData)
+  if (!result.success) {
+    return result
+  }
+
+  const plaintextResult = removeCodexFromPlainTextStorage()
+  if (!plaintextResult.success) {
+    return plaintextResult
+  }
+
+  inMemoryLastRefreshFailureAt = null
   return result
 }
 
@@ -285,7 +458,8 @@ export async function refreshCodexAccessTokenIfNeeded(options?: {
     return { refreshed: false }
   }
 
-  if (!current.refreshToken) {
+  const refreshToken = current.refreshToken
+  if (!refreshToken) {
     return { refreshed: false, credentials: current }
   }
 
@@ -308,7 +482,7 @@ export async function refreshCodexAccessTokenIfNeeded(options?: {
       const body = new URLSearchParams({
         client_id: getCodexOAuthClientId(),
         grant_type: 'refresh_token',
-        refresh_token: current.refreshToken,
+        refresh_token: refreshToken,
       })
 
       const { signal, cleanup } = createCombinedAbortSignal(undefined, {

@@ -25,6 +25,7 @@ const ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  'CLAUDE_CODE_DISABLE_THINKING',
   'USER_TYPE',
 ]
 
@@ -57,9 +58,13 @@ afterEach(() => {
 
 async function importFreshThinkingModule() {
   mock.restore()
-  mock.module('./model/providers.js', () => ({
-    getAPIProvider: () => 'openai',
-  }))
+  const originalProviders = await import('./model/providers.js')
+  mock.module('./model/providers.js', () => {
+    return {
+      ...originalProviders,
+      getAPIProvider: () => 'openai',
+    }
+  })
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./thinking.js?ts=${nonce}`)
 }
@@ -107,5 +112,18 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
+  })
+})
+
+describe('shouldUseThinkingForModel — Ollama', () => {
+  test('does not use thinking for Ollama models when app-level thinking is enabled', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    const { shouldUseThinkingForModel } = await importFreshThinkingModule()
+    const enabledThinking = { type: 'enabled' as const, budgetTokens: 1024 }
+
+    expect(shouldUseThinkingForModel('llama3.1:8b', enabledThinking)).toBe(false)
+    // Covers catalog-missing local names that would otherwise match Claude 4 heuristics.
+    expect(shouldUseThinkingForModel('claude-sonnet-4-local', enabledThinking)).toBe(false)
   })
 })

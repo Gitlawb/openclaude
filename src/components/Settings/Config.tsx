@@ -7,11 +7,11 @@ import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.js';
 import figures from 'figures';
-import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle } from '../../utils/config.js';
+import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
 import chalk from 'chalk';
-import { permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, EXTERNAL_PERMISSION_MODES, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
+import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
 import { logError } from '../../utils/log.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
@@ -48,6 +48,7 @@ import { useSearchInput } from '../../hooks/useSearchInput.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeEnabled, getFastModeModel, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
+import { getDefaultPermissionModeOptions } from '../../utils/permissions/defaultPermissionModeOptions.js';
 type Props = {
   onClose: (result?: string, options?: {
     display?: CommandResultDisplay;
@@ -198,7 +199,16 @@ export function Config({
   const isConnectedToIde = hasAccessToIDEExtensionDiffFeature(context.options.mcpClients);
   const isFileCheckpointingAvailable = !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING);
   const memoryFiles = React.use(getMemoryFiles(true));
-  const shouldShowExternalIncludesToggle = hasExternalClaudeMdIncludes(memoryFiles);
+  function getPendingExternalIncludesScope(): 'User' | 'Project' | null {
+    const cfg = getCurrentProjectConfig();
+    // Project/Local first (mirrors startup priority in shouldShowClaudeMdExternalIncludesWarning)
+    if (!cfg.hasClaudeMdExternalIncludesApproved && !cfg.hasClaudeMdExternalIncludesWarningShown && hasExternalClaudeMdIncludes(memoryFiles, ['Project', 'Local'])) return 'Project';
+    // User second
+    if (!cfg.hasClaudeMdExternalIncludesApprovedForUser && !cfg.hasClaudeMdExternalIncludesWarningShownForUser && hasExternalClaudeMdIncludes(memoryFiles, ['User'])) return 'User';
+    return null;
+  }
+  const pendingScope = getPendingExternalIncludesScope();
+  const shouldShowExternalIncludesToggle = pendingScope !== null;
   const autoUpdaterDisabledReason = getAutoUpdaterDisabledReason();
   function onChangeMainModelConfig(value: string | null): void {
     const previousModel = mainLoopModel;
@@ -279,6 +289,26 @@ export function Config({
       });
       logEvent('tengu_auto_compact_setting_changed', {
         enabled: autoCompactEnabled
+      });
+    }
+  }, {
+    id: 'maxMessagesCompactionThreshold',
+    label: 'Message-count compaction',
+    value: globalConfig.maxMessagesCompactionThreshold ?? 'off',
+    options: [...MAX_MESSAGES_COMPACTION_THRESHOLDS],
+    type: 'enum' as const,
+    onChange(maxMessagesCompactionThreshold: string) {
+      const normalizedThreshold = normalizeMaxMessagesCompactionThreshold(maxMessagesCompactionThreshold);
+      saveGlobalConfig(current => ({
+        ...current,
+        maxMessagesCompactionThreshold: normalizedThreshold
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        maxMessagesCompactionThreshold: normalizedThreshold
+      });
+      logEvent('tengu_max_messages_compaction_threshold_changed', {
+        threshold: normalizedThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
   }, {
@@ -429,29 +459,7 @@ export function Config({
       });
     }
   }] : []),
-  // Speculation toggle (internal-only)
-  ...("external" === 'ant' ? [{
-    id: 'speculationEnabled',
-    label: 'Speculative execution',
-    value: globalConfig.speculationEnabled ?? true,
-    type: 'boolean' as const,
-    onChange(enabled_2: boolean) {
-      saveGlobalConfig(current_1 => {
-        if (current_1.speculationEnabled === enabled_2) return current_1;
-        return {
-          ...current_1,
-          speculationEnabled: enabled_2
-        };
-      });
-      setGlobalConfig({
-        ...getGlobalConfig(),
-        speculationEnabled: enabled_2
-      });
-      logEvent('tengu_speculation_setting_changed', {
-        enabled: enabled_2
-      });
-    }
-  }] : []), ...(isFileCheckpointingAvailable ? [{
+  ...(isFileCheckpointingAvailable ? [{
     id: 'fileCheckpointingEnabled',
     label: 'Rewind code (checkpoints)',
     value: globalConfig.fileCheckpointingEnabled,
@@ -533,15 +541,7 @@ export function Config({
     id: 'defaultPermissionMode',
     label: 'Default permission mode',
     value: settingsData?.permissions?.defaultMode || 'default',
-    options: (() => {
-      const priorityOrder: PermissionMode[] = ['default', 'plan'];
-      const allModes: readonly PermissionMode[] = feature('TRANSCRIPT_CLASSIFIER') ? PERMISSION_MODES : EXTERNAL_PERMISSION_MODES;
-      const excluded: PermissionMode[] = ['bypassPermissions'];
-      if (feature('TRANSCRIPT_CLASSIFIER') && !showAutoInDefaultModePicker) {
-        excluded.push('auto');
-      }
-      return [...priorityOrder, ...allModes.filter(m => !priorityOrder.includes(m) && !excluded.includes(m))];
-    })(),
+    options: getDefaultPermissionModeOptions(showAutoInDefaultModePicker),
     type: 'enum' as const,
     onChange(mode: string) {
       const parsedMode = permissionModeFromString(mode);
@@ -1030,20 +1030,16 @@ export function Config({
         };
       });
     }
-  }] : []), ...(shouldShowExternalIncludesToggle ? [{
+  }] : []),   ...(shouldShowExternalIncludesToggle ? [{
     id: 'showExternalIncludesDialog',
-    label: 'External CLAUDE.md includes',
+    label: pendingScope === 'User' ? 'User CLAUDE.md external includes' : 'External CLAUDE.md includes',
     value: (() => {
-      const projectConfig = getCurrentProjectConfig();
-      if (projectConfig.hasClaudeMdExternalIncludesApproved) {
-        return 'true';
-      } else {
-        return 'false';
-      }
+      const cfg = getCurrentProjectConfig();
+      return cfg[pendingScope === 'User' ? 'hasClaudeMdExternalIncludesApprovedForUser' : 'hasClaudeMdExternalIncludesApproved'] ? 'true' : 'false';
     })(),
     type: 'managedEnum' as const,
     onChange() {
-      // Will be handled by toggleSetting function
+      // Handled by toggleSetting -> setShowSubmenu('ExternalIncludes')
     }
   }] : []), ...(process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace() ? [{
     id: 'apiKey',
@@ -1195,6 +1191,10 @@ export function Config({
     }
     if (globalConfig.autoCompactEnabled !== initialConfig.current.autoCompactEnabled) {
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
+    }
+    if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
+      const threshold = globalConfig.maxMessagesCompactionThreshold ?? 'off';
+      formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
@@ -1578,11 +1578,11 @@ export function Config({
               <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
             </Byline>
           </Text>
-        </> : showSubmenu === 'ExternalIncludes' ? <>
+        </> : showSubmenu === 'ExternalIncludes' && pendingScope ? <>
           <ClaudeMdExternalIncludesDialog onDone={() => {
         setShowSubmenu(null);
         setTabsHidden(false);
-      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles)} />
+      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles, pendingScope === 'User' ? ['User'] : ['Project', 'Local'])} scope={pendingScope} />
           <Text dimColor>
             <Byline>
               <KeyboardShortcutHint shortcut="Enter" action="confirm" />
@@ -1746,7 +1746,7 @@ export function Config({
                                 {THEME_LABELS[setting_2.value.toString()] ?? setting_2.value.toString()}
                               </Text> : setting_2.id === 'notifChannel' ? <Text color={isSelected ? 'suggestion' : undefined}>
                                 <NotifChannelLabel value={setting_2.value.toString()} />
-                              </Text> : setting_2.id === 'defaultPermissionMode' ? <Text color={isSelected ? 'suggestion' : undefined}>
+                              </Text> : setting_2.id === 'defaultPermissionMode' ? <Text color={setting_2.value === 'fullAccess' ? getModeColor('fullAccess') : isSelected ? 'suggestion' : undefined}>
                                 {permissionModeTitle(setting_2.value as PermissionMode)}
                               </Text> : setting_2.id === 'autoUpdatesChannel' && autoUpdaterDisabledReason ? <Box flexDirection="column">
                                 <Text color={isSelected ? 'suggestion' : undefined}>

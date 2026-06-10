@@ -813,6 +813,10 @@ export const getMemoryFiles = memoize(
       forceIncludeExternal ||
       config.hasClaudeMdExternalIncludesApproved ||
       false
+    const includeExternalForUser =
+      forceIncludeExternal ||
+      config.hasClaudeMdExternalIncludesApprovedForUser ||
+      false
 
     // Process Managed file first (always loaded - policy settings)
     const managedClaudeMd = getMemoryPath('Managed')
@@ -844,7 +848,7 @@ export const getMemoryFiles = memoize(
           userClaudeMd,
           'User',
           processedPaths,
-          true, // User memory can always include external files
+          includeExternalForUser, // User-scope external-includes gate
         )),
       )
       // Process User ~/.claude/rules/*.md files
@@ -854,7 +858,7 @@ export const getMemoryFiles = memoize(
           rulesDir: userClaudeRulesDir,
           type: 'User',
           processedPaths,
-          includeExternal: true,
+          includeExternal: includeExternalForUser, // User-scope external-includes gate
           conditionalRule: false,
         })),
       )
@@ -1227,6 +1231,7 @@ export async function getManagedAndUserConditionalRules(
   processedPaths: Set<string>,
 ): Promise<MemoryFileInfo[]> {
   const result: MemoryFileInfo[] = []
+  const config = getCurrentProjectConfig()
 
   // Process Managed conditional .claude/rules/*.md files
   const managedClaudeRulesDir = getManagedClaudeRulesDir()
@@ -1242,14 +1247,18 @@ export async function getManagedAndUserConditionalRules(
 
   if (isSettingSourceEnabled('userSettings')) {
     // Process User conditional .claude/rules/*.md files
+    // Gate external includes through the same User-scope approval flag
+    // as unconditional User rules, so declining approval blocks the
+    // conditional path too.
     const userClaudeRulesDir = getUserClaudeRulesDir()
+    const includeExternalForUser = config.hasClaudeMdExternalIncludesApprovedForUser ?? false
     result.push(
       ...(await processConditionedMdRules(
         targetPath,
         userClaudeRulesDir,
         'User',
         processedPaths,
-        true,
+        includeExternalForUser,
       )),
     )
   }
@@ -1426,30 +1435,41 @@ export type ExternalClaudeMdInclude = {
 
 export function getExternalClaudeMdIncludes(
   files: MemoryFileInfo[],
+  types?: MemoryType[],
 ): ExternalClaudeMdInclude[] {
   const externals: ExternalClaudeMdInclude[] = []
   for (const file of files) {
-    if (file.type !== 'User' && file.parent && !pathInOriginalCwd(file.path)) {
+    if (types && !types.includes(file.type)) continue
+    if (file.parent && !pathInOriginalCwd(file.path)) {
       externals.push({ path: file.path, parent: file.parent })
     }
   }
   return externals
 }
 
-export function hasExternalClaudeMdIncludes(files: MemoryFileInfo[]): boolean {
-  return getExternalClaudeMdIncludes(files).length > 0
+export function hasExternalClaudeMdIncludes(files: MemoryFileInfo[], types?: MemoryType[]): boolean {
+  return getExternalClaudeMdIncludes(files, types).length > 0
 }
 
-export async function shouldShowClaudeMdExternalIncludesWarning(): Promise<boolean> {
-  const config = getCurrentProjectConfig()
-  if (
-    config.hasClaudeMdExternalIncludesApproved ||
-    config.hasClaudeMdExternalIncludesWarningShown
-  ) {
-    return false
-  }
+export type ExternalIncludesScope = 'User' | 'Project' | 'None'
 
-  return hasExternalClaudeMdIncludes(await getMemoryFiles(true))
+export async function shouldShowClaudeMdExternalIncludesWarning(): Promise<ExternalIncludesScope> {
+  const config = getCurrentProjectConfig()
+  const files = await getMemoryFiles(true)
+
+  const hasProjectExternals =
+    !config.hasClaudeMdExternalIncludesApproved &&
+    !config.hasClaudeMdExternalIncludesWarningShown &&
+    hasExternalClaudeMdIncludes(files, ['Project', 'Local'])
+
+  const hasUserExternals =
+    !config.hasClaudeMdExternalIncludesApprovedForUser &&
+    !config.hasClaudeMdExternalIncludesWarningShownForUser &&
+    hasExternalClaudeMdIncludes(files, ['User'])
+
+  if (hasProjectExternals) return 'Project'
+  if (hasUserExternals) return 'User'
+  return 'None'
 }
 
 /**

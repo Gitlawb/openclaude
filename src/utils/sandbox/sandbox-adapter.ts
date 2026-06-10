@@ -968,7 +968,8 @@ export const SandboxManager: ISandboxManager = {
   waitForNetworkInitialization: BaseSandboxManager.waitForNetworkInitialization,
   getSandboxViolationStore: BaseSandboxManager.getSandboxViolationStore,
   annotateStderrWithSandboxFailures:
-    BaseSandboxManager.annotateStderrWithSandboxFailures,
+    BaseSandboxManager.annotateStderrWithSandboxFailures ??
+    ((_command: string, stderr: string): string => stderr),
   cleanupAfterCommand: (): void => {
     BaseSandboxManager.cleanupAfterCommand()
     scrubBareGitRepoFiles()

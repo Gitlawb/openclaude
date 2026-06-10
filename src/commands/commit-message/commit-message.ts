@@ -138,7 +138,7 @@ export const call: LocalCommandCall = async args => {
       if (error) return { type: 'text', value: error }
       return {
         type: 'text',
-        value: 'Commit attribution reset to the OpenClaude default.',
+        value: 'Commit attribution reset to the privacy-preserving default.',
       }
     }
 

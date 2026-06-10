@@ -17,6 +17,7 @@ const originalEnv = {
   CLAUDE_CODE_SIMPLE: process.env.CLAUDE_CODE_SIMPLE,
   CLAUDE_CODE_USE_NATIVE_FILE_SEARCH:
     process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH,
+  USER_TYPE: process.env.USER_TYPE,
 }
 
 let tempDir: string
@@ -37,6 +38,7 @@ afterEach(async () => {
     restoreEnv('CLAUDE_CONFIG_DIR')
     restoreEnv('CLAUDE_CODE_SIMPLE')
     restoreEnv('CLAUDE_CODE_USE_NATIVE_FILE_SEARCH')
+    restoreEnv('USER_TYPE')
     clearAgentDefinitionsCache()
     loadMarkdownFilesForSubdir.cache.clear?.()
   } finally {
@@ -57,6 +59,7 @@ async function writeAgent(
   filePath: string,
   name: string,
   prompt = `You are ${name}.`,
+  extraFrontmatter = '',
 ): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true })
   await writeFile(
@@ -64,6 +67,7 @@ async function writeAgent(
     `---
 name: ${name}
 description: "Use for regression coverage"
+${extraFrontmatter}
 ---
 
 ${prompt}
@@ -119,6 +123,38 @@ describe('agent definition loading', () => {
     const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
     const agent = activeAgents.find(agent => agent.agentType === 'shared-agent')
 
-    expect(agent?.getSystemPrompt()).toBe('openclaude prompt')
+    expect(agent?.source === 'projectSettings' ? agent.getSystemPrompt() : undefined).toBe('openclaude prompt')
+  })
+
+  test('accepts worktree isolation in markdown agent frontmatter', async () => {
+    const projectDir = join(tempDir, 'project')
+    await writeAgent(
+      join(projectDir, '.openclaude', 'agents', 'worktree-agent.md'),
+      'worktree-agent',
+      'worktree prompt',
+      'isolation: worktree\n',
+    )
+
+    const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
+    const agent = activeAgents.find(agent => agent.agentType === 'worktree-agent')
+
+    expect(agent?.isolation).toBe('worktree')
+  })
+
+  test('rejects removed remote isolation in markdown agent frontmatter', async () => {
+    process.env.USER_TYPE = 'ant'
+    const projectDir = join(tempDir, 'project')
+    await writeAgent(
+      join(projectDir, '.openclaude', 'agents', 'remote-agent.md'),
+      'remote-agent',
+      'remote prompt',
+      'isolation: remote\n',
+    )
+
+    const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
+    const agent = activeAgents.find(agent => agent.agentType === 'remote-agent')
+
+    expect(agent).toBeDefined()
+    expect(agent?.isolation).toBeUndefined()
   })
 })

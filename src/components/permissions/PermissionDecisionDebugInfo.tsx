@@ -46,7 +46,7 @@ function decisionReasonDisplayString(decisionReason: PermissionDecisionReason & 
       return '';
   }
 }
-function PermissionDecisionInfoItem(t0) {
+function PermissionDecisionInfoItem(t0: PermissionDecisionInfoItemProps): React.ReactNode {
   const $ = _c(10);
   const {
     title,
@@ -105,7 +105,9 @@ function PermissionDecisionInfoItem(t0) {
   }
   return t4;
 }
-function SuggestedRules(t0) {
+function SuggestedRules(t0: {
+  suggestions?: PermissionUpdate[];
+}): React.ReactNode {
   const $ = _c(18);
   const {
     suggestions

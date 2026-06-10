@@ -205,7 +205,15 @@ describe('discoverModelsForRoute', () => {
     expect(second).toMatchObject({
       source: 'stale-cache',
       stale: true,
-      models: [{ id: 'llama3.1:8b', apiName: 'llama3.1:8b' }],
+      models: [
+        {
+          id: 'deepseek-v4-pro-cloud',
+          apiName: 'deepseek-v4-pro:cloud',
+          contextWindow: 1_048_576,
+          maxOutputTokens: 65_536,
+        },
+        { id: 'llama3.1:8b', apiName: 'llama3.1:8b' },
+      ],
     })
     expect(second?.error?.message).toContain('Discovery failed')
   })

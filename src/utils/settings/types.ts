@@ -361,14 +361,14 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Customize attribution text for commits and PRs. ' +
-            'Each field defaults to the standard Claude Code attribution if not set.',
+            'Unspecified fields are off by default; set a non-empty string to opt in.',
         ),
       includeCoAuthoredBy: z
         .boolean()
         .optional()
         .describe(
           'Deprecated: Use attribution instead. ' +
-            "Whether to include Claude's co-authored by attribution in commits and PRs (defaults to true)",
+            "Whether to include Claude's co-authored by attribution in commits and PRs (defaults to false)",
         ),
       includeGitInstructions: z
         .boolean()
@@ -394,6 +394,16 @@ export const SettingsSchema = lazySchema(() =>
             'and full model IDs. ' +
             'If undefined, all models are available. If empty array, only the default model is available. ' +
             'Typically set in managed settings by enterprise administrators.',
+        ),
+      providerProfileModelPickerMode: z
+        .enum(['auto', 'profile', 'provider'])
+        .optional()
+        .catch(undefined)
+        .describe(
+          'Controls /model options when an active provider profile is applied. ' +
+            '"profile" shows only explicitly configured profile models; ' +
+            '"provider" shows the provider catalog/discovery list plus explicit profile-only custom models; ' +
+            '"auto" uses profile mode when the profile has multiple explicitly configured models, otherwise provider mode.',
         ),
       modelOverrides: z
         .record(z.string(), z.string())
@@ -728,7 +738,7 @@ export const SettingsSchema = lazySchema(() =>
             'enabled automatically for supported models.',
         ),
       effortLevel: z
-        .enum(['low', 'medium', 'high', 'max'])
+        .enum(['low', 'medium', 'high', 'xhigh', 'max'])
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),
@@ -740,14 +750,19 @@ export const SettingsSchema = lazySchema(() =>
         .record(
           z.string(),
           z.object({
+            model: z
+              .string()
+              .optional()
+              .describe('Actual model name to send to the API. Defaults to the surrounding agentModels key.'),
             base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
             api_key: z.string().describe('API key for this provider'),
           }),
         )
         .optional()
         .describe(
-          'Map of model name to provider connection info. ' +
-            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }',
+          'Map of route key to provider connection info. ' +
+            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }. ' +
+            'Use "model" when the route key is an alias for a different API model name.',
         ),
       agentRouting: z
         .record(z.string(), z.string())
@@ -756,6 +771,15 @@ export const SettingsSchema = lazySchema(() =>
           'Map of agent identifier (subagent_type or team member name) to model name. ' +
             'Use "default" key as fallback. Model name must exist in agentModels. ' +
             'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
+        ),
+      providerFallbackChain: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Ordered list of providerProfile ids. When the active provider returns a rate-limit ' +
+            'or quota error, OpenClaude advances to the next profile in this list (starting after ' +
+            'the currently-active id) and retries the turn. ' +
+            'Example: ["provider_anthropic", "provider_openai", "provider_ollama"]',
         ),
       fastMode: z
         .boolean()
@@ -1008,6 +1032,12 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Whether the user has accepted the bypass permissions mode dialog',
+        ),
+      skipFullAccessModePermissionPrompt: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether the user has accepted the full access mode dialog',
         ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {

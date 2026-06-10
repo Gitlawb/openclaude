@@ -10,7 +10,7 @@ import { useAppState } from '../../state/AppState.js';
 import { errorMessage } from '../../utils/errors.js';
 import { capitalize } from '../../utils/stringUtils.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
-import { Select } from '../CustomSelect/index.js';
+import { Select, type OptionWithDescription } from '../CustomSelect/index.js';
 import { Byline } from '../design-system/Byline.js';
 import { KeyboardShortcutHint } from '../design-system/KeyboardShortcutHint.js';
 import { Spinner } from '../Spinner.js';
@@ -56,7 +56,7 @@ export function MCPStdioServerMenu({
 
   // Count MCP prompts for this server (skills are shown in /skills, not here)
   const serverCommandsCount = filterMcpPromptsByServer(mcp.commands, server.name).length;
-  const menuOptions = [];
+  const menuOptions: OptionWithDescription<string>[] = [];
 
   // Only show "View tools" if server is not disabled and has tools
   if (server.client.type !== 'disabled' && serverToolsCount > 0) {

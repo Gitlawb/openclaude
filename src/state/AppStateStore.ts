@@ -38,6 +38,7 @@ import { getInitialSettings } from '../utils/settings/settings.js'
 import type { SettingsJson } from '../utils/settings/types.js'
 import { shouldEnableThinkingByDefault } from '../utils/thinking.js'
 import type { Store } from './store.js'
+import type { GoalState } from '../services/goal/types.js'
 
 export type CompletionBoundary =
   | { type: 'complete'; completedAt: number; outputTokens: number }
@@ -109,7 +110,8 @@ export type AppState = DeepImmutable<{
   footerSelection: FooterItem | null
   toolPermissionContext: ToolPermissionContext
   spinnerTip?: string
-  // Agent name from --agent CLI flag or settings (for logo display)
+  // Active main-thread agent name for this session. Initially sourced from
+  // --agent/settings; runtime menu changes update it alongside REPL state.
   agent: string | undefined
   // Assistant mode fully enabled (settings + GrowthBook gate + trust).
   // Single source of truth - computed once in main.tsx before option
@@ -423,6 +425,8 @@ export type AppState = DeepImmutable<{
   activeOverlays: ReadonlySet<string>
   // Fast mode
   fastMode?: boolean
+  // Session-scoped auto-continuation goal.
+  goal: GoalState | null
   // Advisor model for server-side advisor tool (undefined = disabled).
   advisorModel?: string
   // Effort value
@@ -562,5 +566,6 @@ export function getDefaultAppState(): AppState {
     effortValue: undefined,
     activeOverlays: new Set<string>(),
     fastMode: false,
+    goal: null,
   }
 }

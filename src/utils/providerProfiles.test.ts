@@ -61,6 +61,7 @@ const RESTORED_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'HICAP_API_KEY',
 ] as const
 
@@ -129,7 +130,16 @@ async function importFreshProviderProfileModules() {
   const actualConfig = await import(`./config.js?ts=${Date.now()}-${Math.random()}`)
   mock.module('./config.js', () => ({
     ...actualConfig,
-    getGlobalConfig: () => mockConfigState,
+    // Spread the real config so the mock stays a COMPLETE GlobalConfig and only
+    // the provider-profile fields are overridden. bun's mock.restore() does NOT
+    // revert mock.module(), so this replacement leaks into later test files in
+    // the same process; returning a partial object (missing e.g.
+    // autoCompactEnabled) silently broke unrelated suites that read other config
+    // fields via getGlobalConfig().
+    getGlobalConfig: () => ({
+      ...actualConfig.getGlobalConfig(),
+      ...mockConfigState,
+    }),
     saveGlobalConfig: (
       updater: (current: MockConfigState) => MockConfigState,
     ) => {
@@ -206,6 +216,17 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
     baseUrl: 'https://api.xiaomimimo.com/v1',
     model: 'mimo-v2.5-pro',
     apiKey: 'mimo-test-key',
+    ...overrides,
+  })
+}
+
+function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'atlas-cloud',
+    name: 'Atlas Cloud',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    model: 'deepseek-ai/deepseek-v4-pro',
+    apiKey: 'atlas-test-key',
     ...overrides,
   })
 }
@@ -423,6 +444,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('openai responses_compat profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        apiFormat: 'responses_compat',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses_compat')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('custom OpenAI-compatible responses profile sets OPENAI_API_FORMAT', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -529,6 +568,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('mimo-test-key')
     expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('atlas cloud profile applies OpenAI-compatible env with ATLAS_CLOUD_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildAtlasCloudProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-ai/deepseek-v4-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('atlas-test-key')
+    expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
   })
 
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
@@ -1016,9 +1073,13 @@ describe('applyActiveProviderProfileFromConfig', () => {
 })
 
 describe('persistActiveProviderProfileModel', () => {
-  test('updates active profile model and current env for profile-managed sessions', async () => {
+  // The runtime active-model selection is owned by mainLoopModelOverride
+  // (set by onChangeAppState before this helper is called). This helper
+  // intentionally no longer mutates the profile's model list — see the
+  // docstring in providerProfiles.ts. Coverage below locks the no-op
+  // contract for both single- and multi-model profiles.
+  test('returns the active profile unchanged for a single-model profile', async () => {
     const {
-      applyProviderProfileToProcessEnv,
       getProviderProfiles,
       persistActiveProviderProfileModel,
     } = await importFreshProviderProfileModules()
@@ -1033,13 +1094,49 @@ describe('persistActiveProviderProfileModel', () => {
       providerProfiles: [activeProfile],
       activeProviderProfileId: activeProfile.id,
     }))
-    applyProviderProfileToProcessEnv(activeProfile)
 
     const updated = persistActiveProviderProfileModel('minimax-m2.5:cloud')
 
     expect(updated?.id).toBe(activeProfile.id)
-    expect(updated?.model).toBe('minimax-m2.5:cloud')
-    expect(process.env.OPENAI_MODEL).toBe('minimax-m2.5:cloud')
+    expect(updated?.model).toBe('kimi-k2.5:cloud')
+    const saved = getProviderProfiles().find(
+      (profile: ProviderProfile) => profile.id === activeProfile.id,
+    )
+    expect(saved?.model).toBe('kimi-k2.5:cloud')
+  })
+
+  test('does not mutate multi-model mistral profile when chosen model is out of list', async () => {
+    // Regression for #1360: the picker must never silently rewrite a
+    // provider's configured model list. The active model is a session-level
+    // choice handled by mainLoopModelOverride; the profile's model list
+    // only changes via an explicit provider edit. An earlier
+    // implementation prepended the chosen model to the list, which
+    // contradicted the documented contract and grew the list unboundedly
+    // on rotation.
+    const {
+      applyProviderProfileToProcessEnv,
+      getProviderProfiles,
+      persistActiveProviderProfileModel,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildMistralProfile({
+      id: 'saved_mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'devstral-latest; mistral-small-latest',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    }))
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    const updated = persistActiveProviderProfileModel('mistral-large-latest')
+
+    expect(updated?.id).toBe(activeProfile.id)
+    // The configured list is preserved verbatim regardless of the chosen
+    // model being in or out of the list.
+    expect(updated?.model).toBe('devstral-latest; mistral-small-latest')
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
       activeProfile.id,
     )
@@ -1047,17 +1144,20 @@ describe('persistActiveProviderProfileModel', () => {
     const saved = getProviderProfiles().find(
       (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
-    expect(saved?.model).toBe('minimax-m2.5:cloud')
+    expect(saved?.model).toBe('devstral-latest; mistral-small-latest')
   })
 
-  test('does not mutate process env when session is not profile-managed', async () => {
+  test('preserves comma-separated multi-model list when chosen model is already a member', async () => {
+    // Switching between models already in the list is a session-level
+    // choice. The list itself must be preserved exactly as configured.
     const {
       getProviderProfiles,
       persistActiveProviderProfileModel,
     } = await importFreshProviderProfileModules()
-    const activeProfile = buildProfile({
-      id: 'saved_openai',
-      model: 'kimi-k2.5:cloud',
+    const activeProfile = buildMistralProfile({
+      id: 'saved_mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'devstral-latest, mistral-small-latest, mistral-large-latest',
     })
 
     saveMockGlobalConfig(current => ({
@@ -1066,18 +1166,17 @@ describe('persistActiveProviderProfileModel', () => {
       activeProviderProfileId: activeProfile.id,
     }))
 
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_MODEL = 'cli-model'
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    const updated = persistActiveProviderProfileModel('mistral-small-latest')
 
-    persistActiveProviderProfileModel('minimax-m2.5:cloud')
-
-    expect(process.env.OPENAI_MODEL).toBe('cli-model')
+    expect(updated?.model).toBe(
+      'devstral-latest, mistral-small-latest, mistral-large-latest',
+    )
     const saved = getProviderProfiles().find(
       (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
-    expect(saved?.model).toBe('minimax-m2.5:cloud')
+    expect(saved?.model).toBe(
+      'devstral-latest, mistral-small-latest, mistral-large-latest',
+    )
   })
 })
 
@@ -1151,7 +1250,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
-  test('minimax preset defaults to MiniMax M2.7', async () => {
+  test('minimax preset defaults to MiniMax M3', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('minimax')
@@ -1159,7 +1258,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('minimax')
     expect(defaults.name).toBe('MiniMax')
     expect(defaults.baseUrl).toBe('https://api.minimax.io/anthropic')
-    expect(defaults.model).toBe('MiniMax-M2.7')
+    expect(defaults.model).toBe('MiniMax-M3')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
@@ -1444,6 +1543,47 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'deepseek-chat',
         OPENAI_API_KEY: 'sk-deepseek-live',
       })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists the Atlas key for generic openai profiles targeting Atlas Cloud', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const genericAtlasProfile = buildProfile({
+        id: 'generic_atlas_prof',
+        name: 'Atlas via custom OpenAI',
+        baseUrl: 'https://api.atlascloud.ai/v1',
+        model: 'deepseek-ai/deepseek-v4-pro',
+        apiKey: 'atlas-generic-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [genericAtlasProfile],
+      }))
+
+      const result = setActiveProviderProfile('generic_atlas_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('generic_atlas_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+      expect(persisted.env.OPENAI_API_KEY).toBe('atlas-generic-key')
+      expect(persisted.env.ATLAS_CLOUD_API_KEY).toBe('atlas-generic-key')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
@@ -1856,6 +1996,94 @@ describe('deleteProviderProfile', () => {
 })
 
 describe('getProfileModelOptions', () => {
+  test('getConfiguredProfileModelOptions ignores discovered cache entries', async () => {
+    const { getConfiguredProfileModelOptions } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      model: 'glm-4.7, glm-4.7-flash',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    expect(getConfiguredProfileModelOptions(profile)).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+    ])
+  })
+
+  test('route-scoped OpenAI cache ignores active profile cache entries', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:7777/v1'
+    process.env.OPENAI_MODEL = 'route-model'
+
+    const { getAdditionalModelOptionsCacheScope } = await import(
+      '../services/api/providerConfig.js'
+    )
+    const { getActiveOpenAIRouteModelOptionsCache } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      baseUrl: 'http://localhost:7777/v1',
+      model: 'profile-model',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      additionalModelOptionsCache: [
+        {
+          value: 'route-model',
+          label: 'Route Model',
+          description: 'Detected from route',
+        },
+      ],
+      additionalModelOptionsCacheScope:
+        getAdditionalModelOptionsCacheScope() ?? undefined,
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'profile-model',
+            label: 'profile-model',
+            description: 'Provider: Multi Provider',
+          },
+        ],
+      },
+    }
+
+    expect(getActiveOpenAIRouteModelOptionsCache()).toEqual([
+      {
+        value: 'route-model',
+        label: 'Route Model',
+        description: 'Detected from route',
+      },
+    ])
+  })
+
   test('generates options for multi-model profile', async () => {
     const { getProfileModelOptions } =
       await importFreshProviderProfileModules()
@@ -2127,4 +2355,11 @@ describe('setActiveProviderProfile model cache', () => {
       },
     ])
   })
+})
+
+test('DEFAULT_MISTRAL_MODEL matches the mistral gateway defaultModel', async () => {
+  const { DEFAULT_MISTRAL_MODEL } = await import('./providerProfile.js')
+  const { default: mistralGateway } = await import('../integrations/gateways/mistral.js')
+  expect(mistralGateway.defaultModel).toBeDefined()
+  expect(DEFAULT_MISTRAL_MODEL).toBe(mistralGateway.defaultModel!)
 })

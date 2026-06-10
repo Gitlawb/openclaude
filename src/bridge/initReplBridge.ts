@@ -81,7 +81,10 @@ export type InitBridgeOptions = {
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
   onSetPermissionMode?: (
     mode: PermissionMode,
-  ) => { ok: true } | { ok: false; error: string }
+  ) =>
+    | { ok: true }
+    | { ok: false; error: string }
+    | Promise<{ ok: true } | { ok: false; error: string }>
   onStateChange?: (state: BridgeState, detail?: string) => void
   initialMessages?: Message[]
   // Explicit session name from `/remote-control <name>`. When set, overrides

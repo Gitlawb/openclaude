@@ -25,7 +25,7 @@ type Props = {
   onSaveAndEdit: () => void;
   error?: string | null;
 };
-export function ConfirmStep(t0) {
+export function ConfirmStep(t0: Props): React.ReactNode {
   const $ = _c(88);
   const {
     tools,
@@ -37,7 +37,7 @@ export function ConfirmStep(t0) {
   const {
     goBack,
     wizardData
-  } = useWizard();
+  } = useWizard<AgentWizardData>();
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = {
@@ -69,6 +69,9 @@ export function ConfirmStep(t0) {
   }
   const handleKeyDown = t2;
   const agent = wizardData.finalAgent;
+  if (!agent || !wizardData.location) {
+    return <WizardDialogLayout subtitle="Confirm and save" footerText={<Byline><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" /></Byline>}><Box flexDirection="column"><Text color="error">Agent draft is incomplete.</Text></Box></WizardDialogLayout>;
+  }
   let T0;
   let T1;
   let t10;

@@ -1005,3 +1005,62 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-test-key')
 })
+
+test('rejects CRLF-injected custom headers before sending OpenAI-compatible shim requests', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEY = 'openai-test-key'
+  process.env.OPENAI_BASE_URL = 'http://example.test/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  process.env.ANTHROPIC_CUSTOM_HEADERS =
+    'x-safe-header: keep-me\r\nx-injected: bad'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openai-crlf',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'gpt-4o',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('x-safe-header')).toBeNull()
+  expect(capturedHeaders?.get('x-injected')).toBeNull()
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
+})

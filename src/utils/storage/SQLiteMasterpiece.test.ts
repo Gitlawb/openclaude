@@ -130,7 +130,7 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
       fs.cwd = () => project1Dir
       clearMemoryOnly()
       await addGlobalEntity('type', 'entity-p1', { source: 'proj1' })
-      
+
       // 2. Enter Project 2
       fs.cwd = () => project2Dir
       clearMemoryOnly()
@@ -182,10 +182,10 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
   it('enforces referential integrity (Relations Constraint)', async () => {
     const e1 = await addGlobalEntity('node', 'source')
     const e2 = await addGlobalEntity('node', 'target')
-    
+
     // Valid relation
     await addGlobalRelation(e1.id, e2.id, 'links_to')
-    
+
     // Invalid relation (non-existent ID) should throw
     let error = null
     try {

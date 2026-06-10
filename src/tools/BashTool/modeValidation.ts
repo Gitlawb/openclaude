@@ -170,7 +170,10 @@ export function checkPermissionMode(
   toolPermissionContext: ToolPermissionContext,
 ): PermissionResult {
   // Skip if in bypass mode (handled elsewhere)
-  if (toolPermissionContext.mode === 'bypassPermissions') {
+  if (
+    toolPermissionContext.mode === 'bypassPermissions' ||
+    toolPermissionContext.mode === 'fullAccess'
+  ) {
     return {
       behavior: 'passthrough',
       message: 'Bypass mode is handled in main permission flow',

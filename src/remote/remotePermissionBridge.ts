@@ -2,12 +2,14 @@ import { randomUUID } from 'crypto'
 import type { SDKControlPermissionRequest } from '../entrypoints/sdk/controlTypes.js'
 import type { Tool } from '../Tool.js'
 import type { AssistantMessage } from '../types/message.js'
+import type { PermissionAskDecision } from '../types/permissions.js'
 import { jsonStringify } from '../utils/slowOperations.js'
+import type { ToolUseConfirm } from '../components/permissions/PermissionRequest.js'
 
 /**
  * Create a synthetic AssistantMessage for remote permission requests.
  * The ToolUseConfirm type requires an AssistantMessage, but in remote mode
- * we don't have a real one — the tool use runs on the CCR container.
+ * we don't have a real one - the tool use runs on the CCR container.
  */
 export function createSyntheticAssistantMessage(
   request: SDKControlPermissionRequest,
@@ -75,4 +77,76 @@ export function createToolStub(toolName: string): Tool {
     isMcp: false,
     needsPermissions: () => true,
   } as unknown as Tool
+}
+
+function createRemotePermissionResult(
+  request: SDKControlPermissionRequest,
+): PermissionAskDecision {
+  return {
+    behavior: 'ask',
+    message: request.description ?? `${request.tool_name} requires permission`,
+    suggestions: request.permission_suggestions,
+    blockedPath: request.blocked_path,
+  }
+}
+
+type CreateRemotePermissionQueueItemParams = {
+  request: SDKControlPermissionRequest
+  requestId: string
+  tool: Tool
+  respond: (
+    result:
+      | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+      | { behavior: 'deny'; message: string },
+  ) => void
+  removeFromQueue: () => void
+  onAllowResolved?: () => void
+}
+
+export function createRemotePermissionQueueItem({
+  request,
+  requestId,
+  tool,
+  respond,
+  removeFromQueue,
+  onAllowResolved,
+}: CreateRemotePermissionQueueItemParams): ToolUseConfirm {
+  return {
+    assistantMessage: createSyntheticAssistantMessage(request, requestId),
+    tool,
+    description: request.description ?? `${request.tool_name} requires permission`,
+    input: request.input,
+    toolUseContext: {} as ToolUseConfirm['toolUseContext'],
+    toolUseID: request.tool_use_id,
+    permissionResult: createRemotePermissionResult(request),
+    permissionPromptStartTimeMs: Date.now(),
+    onUserInteraction() {
+      // No-op for remote permission prompts.
+    },
+    onAbort() {
+      respond({
+        behavior: 'deny',
+        message: 'User aborted',
+      })
+      removeFromQueue()
+    },
+    onAllow(updatedInput) {
+      respond({
+        behavior: 'allow',
+        updatedInput: updatedInput as Record<string, unknown>,
+      })
+      removeFromQueue()
+      onAllowResolved?.()
+    },
+    onReject(feedback?: string) {
+      respond({
+        behavior: 'deny',
+        message: feedback ?? 'User denied permission',
+      })
+      removeFromQueue()
+    },
+    async recheckPermission() {
+      // No-op for remote permission prompts.
+    },
+  }
 }

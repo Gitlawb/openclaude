@@ -1,4 +1,4 @@
-export const installCommand = 'npm install -g @gitlawb/openclaude'
+export const installCommand = 'npm install -g @gitlawb/openclaude@latest'
 
 export const features = [
   {

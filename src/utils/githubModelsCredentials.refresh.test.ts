@@ -11,6 +11,10 @@ async function importFreshModule() {
   return import(`./githubModelsCredentials.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
+function getGithubTokenEnv(): string | undefined {
+  return process.env.GITHUB_TOKEN
+}
+
 describe('refreshGithubModelsTokenIfNeeded', () => {
   const orig = {
     CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -81,7 +85,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
 
     const refreshed = await refreshGithubModelsTokenIfNeeded()
     expect(refreshed).toBe(true)
-    expect(process.env.GITHUB_TOKEN?.startsWith('tid=fresh;exp=')).toBe(true)
+    expect(getGithubTokenEnv()?.startsWith('tid=fresh;exp=')).toBe(true)
 
     const githubModels = (store.githubModels ?? {}) as {
       accessToken?: string
@@ -129,7 +133,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     const refreshed = await refreshGithubModelsTokenIfNeeded()
     expect(refreshed).toBe(false)
     expect(exchangeSpy).not.toHaveBeenCalled()
-    expect(process.env.GITHUB_TOKEN?.startsWith('tid=already-valid;exp=')).toBe(
+    expect(getGithubTokenEnv()?.startsWith('tid=already-valid;exp=')).toBe(
       true,
     )
   })

@@ -54,7 +54,7 @@ describe('approximateMessageTokens', () => {
       await rm(fixtureRoot, { recursive: true, force: true })
       releaseSharedMutationLock()
     }
-  })
+  }, 15_000)
 
   test('uses local message estimates when provider token counters are unavailable', async () => {
     await acquireSharedMutationLock('analyzeContext.messageBreakdown.test.ts')

@@ -48,8 +48,8 @@ describe('BashTool error output (#1231)', () => {
   })
 
   test('"command not found" message reaches the formatted error', async () => {
-    const err = await expectShellError('no_such_command_xyz_1231')
-    expect(err.code).not.toBe(0)
+    const err = await expectShellError('printf "not found\\n" >&2; exit 127')
+    expect(err.code).toBe(127)
     const formatted = formatError(err)
     expect(formatted).toContain(`Exit code ${err.code}`)
     expect(formatted.toLowerCase()).toContain('not found')

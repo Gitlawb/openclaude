@@ -218,6 +218,25 @@ function normalizeFallbackAgentModel(
   return undefined
 }
 
+const fallbackAgentLaunchSuccessStatuses = [
+  'async_launched',
+  'completed',
+  'teammate_spawned',
+] as const
+type FallbackAgentLaunchSuccessStatus =
+  (typeof fallbackAgentLaunchSuccessStatuses)[number]
+const fallbackAgentLaunchSuccessStatusSet = new Set<string>(
+  fallbackAgentLaunchSuccessStatuses,
+)
+
+export function isFallbackAgentLaunchSuccessStatus(
+  status: unknown,
+): status is FallbackAgentLaunchSuccessStatus {
+  return (
+    typeof status === 'string' && fallbackAgentLaunchSuccessStatusSet.has(status)
+  )
+}
+
 async function launchFallbackAgentFromHookChains(
   request: SpawnFallbackAgentRequest,
   toolUseContext: ToolUseContext,
@@ -248,12 +267,7 @@ async function launchFallbackAgentFromHookChains(
       | undefined
     const status = data?.status
 
-    if (
-      status === 'async_launched' ||
-      status === 'completed' ||
-      status === 'remote_launched' ||
-      status === 'teammate_spawned'
-    ) {
+    if (isFallbackAgentLaunchSuccessStatus(status)) {
       return {
         launched: true,
         agentId: data?.agentId ?? data?.agent_id,

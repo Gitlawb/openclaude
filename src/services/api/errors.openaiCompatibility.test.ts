@@ -28,6 +28,24 @@ test('maps endpoint_not_found category markers to actionable setup guidance', ()
   expect(text).toContain('/v1')
 })
 
+test('vision_not_supported shows image-specific guidance for remote host', () => {
+  const error = APIError.generate(
+    404,
+    undefined,
+    'OpenAI API error 404: Not Found [openai_category=vision_not_supported,host=opengateway.gitlawb.com] Hint: The provider returned 404 for a request containing images.',
+    new Headers(),
+  )
+
+  const message = getAssistantMessageFromError(error, 'mimo-v2.5-pro')
+  const text = getFirstText(message)
+
+  expect(message.isApiErrorMessage).toBe(true)
+  expect(text).toContain('images')
+  expect(text).toContain('mimo-v2.5-pro')
+  expect(text).toContain('opengateway.gitlawb.com')
+  expect(text).not.toContain('OPENAI_BASE_URL')
+})
+
 test('endpoint_not_found from a remote host shows the actual host, not Ollama (issue #926)', () => {
   const error = APIError.generate(
     404,

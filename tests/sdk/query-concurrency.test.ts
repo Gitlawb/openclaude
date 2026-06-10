@@ -13,6 +13,10 @@ import { drainQuery, UUID_REGEX } from './helpers/query-test-doubles.js'
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
+async function drainInterruptedQuery(q: ReturnType<typeof query>): Promise<void> {
+  await drainQuery(q)
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('sdk-query-concurrency')
   savedApiKey = process.env[AUTH_KEY]
@@ -43,7 +47,7 @@ describe('SEC-1: env override isolation', () => {
         },
       })
       q.interrupt()
-      try { for await (const _ of q) {} } catch {}
+      await drainInterruptedQuery(q)
 
       expect(process.env[key]).toBe('original')
     } finally {
@@ -72,8 +76,8 @@ describe('SEC-1: env override isolation', () => {
       q1.interrupt()
       q2.interrupt()
 
-      try { for await (const _ of q1) {} } catch {}
-      try { for await (const _ of q2) {} } catch {}
+      await drainInterruptedQuery(q1)
+      await drainInterruptedQuery(q2)
 
       expect(process.env[key]).toBe(originalVal)
     } finally {
@@ -101,8 +105,8 @@ describe('SEC-1: env override isolation', () => {
     q1.interrupt()
     q2.interrupt()
 
-    try { for await (const _ of q1) {} } catch {}
-    try { for await (const _ of q2) {} } catch {}
+    await drainInterruptedQuery(q1)
+    await drainInterruptedQuery(q2)
   })
 })
 

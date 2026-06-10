@@ -192,7 +192,10 @@ export type BridgeCoreParams = {
    */
   onSetPermissionMode?: (
     mode: PermissionMode,
-  ) => { ok: true } | { ok: false; error: string }
+  ) =>
+    | { ok: true }
+    | { ok: false; error: string }
+    | Promise<{ ok: true } | { ok: false; error: string }>
   onStateChange?: (state: BridgeState, detail?: string) => void
   /**
    * Fires on each real user message to flow through writeMessages() until
@@ -1208,7 +1211,7 @@ export async function initBridgeCore(
       // captures transport/currentSessionId so the transport.setOnData
       // callback below doesn't need to thread them through.
       const onServerControlRequest = (request: SDKControlRequest): void =>
-        handleServerControlRequest(request, {
+        void handleServerControlRequest(request, {
           transport,
           sessionId: currentSessionId,
           onInterrupt,

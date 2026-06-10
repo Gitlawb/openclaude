@@ -13,6 +13,7 @@ export default defineBrand({
     supportsPreciseTokenCount: false,
   },
   modelIds: [
+    'mistral-vibe-cli-latest',
     'mistral-large-latest',
     'mistral-small-latest',
     'devstral-latest',

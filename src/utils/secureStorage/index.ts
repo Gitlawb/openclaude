@@ -34,6 +34,8 @@ export interface SecureStorageData {
     }
   >
   mcpOAuthClientConfig?: Record<string, { clientSecret: string }>
+  mcpXaaIdp?: Record<string, { idToken: string; expiresAt: number }>
+  mcpXaaIdpConfig?: Record<string, { clientSecret: string }>
   trustedDeviceToken?: string
   pluginSecrets?: Record<string, Record<string, string>>
 }

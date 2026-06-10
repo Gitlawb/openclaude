@@ -42,11 +42,19 @@ async function importFreshInstaller() {
   return import(`./nativeInstaller/installer.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
-test('install command displays ~/.local/bin/openclaude on non-Windows', async () => {
+async function mockEnvPlatform(platform: 'darwin' | 'win32') {
+  const actualEnvModule = await import(`./env.js?ts=${Date.now()}-${Math.random()}`)
   mock.module('../utils/env.js', () => ({
-    ...realEnv,
-    env: { platform: 'darwin' },
+    ...actualEnvModule,
+    env: {
+      ...actualEnvModule.env,
+      platform,
+    },
   }))
+}
+
+test('install command displays ~/.local/bin/openclaude on non-Windows', async () => {
+  await mockEnvPlatform('darwin')
 
   const { getInstallationPath } = await importFreshInstallCommand()
 
@@ -54,10 +62,7 @@ test('install command displays ~/.local/bin/openclaude on non-Windows', async ()
 })
 
 test('install command displays openclaude.exe path on Windows', async () => {
-  mock.module('../utils/env.js', () => ({
-    ...realEnv,
-    env: { platform: 'win32' },
-  }))
+  await mockEnvPlatform('win32')
 
   const { getInstallationPath } = await importFreshInstallCommand()
 
@@ -71,6 +76,7 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   ;(globalThis as Record<string, unknown>).MACRO = {
     PACKAGE_URL: '@gitlawb/openclaude',
   }
+  process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
 
   mock.module('fs/promises', () => ({
     ...fsPromises,
@@ -90,7 +96,6 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   mock.module('./envUtils.js', () => ({
     ...realEnvUtils,
     getClaudeConfigHomeDir: () => join(homedir(), '.openclaude'),
-    isEnvTruthy: (value: string | undefined) => value === '1',
   }))
 
   const { cleanupNpmInstallations } = await importFreshInstaller()

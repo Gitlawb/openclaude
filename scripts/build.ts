@@ -29,12 +29,13 @@ const featureFlags: Record<string, boolean> = {
   ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
   CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
   COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
+  HISTORY_SNIP: true,             // Model-callable snip tool for context management
   UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
   BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
   WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
   CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
   COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
-  MCP_SKILLS: false,              // Dynamic MCP skill discovery (src/skills/mcpSkills.ts not mirrored; enabling this causes "fetchMcpSkillsForClient is not a function" when MCP servers with resources connect — see #856)
+  MCP_SKILLS: true,               // Dynamic MCP skill discovery via skill:// resources
 
   // ── Enabled: upstream defaults ──────────────────────────────────────
   COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
@@ -134,6 +135,7 @@ result = await Bun.build({
       JSON.stringify('https://github.com/Gitlawb/openclaude/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
+    'MACRO.VERSION_CHANGELOG': 'undefined',
   },
   plugins: [
     noTelemetryPlugin,
@@ -289,6 +291,12 @@ export const createClaudeForChromeMcpServer = noop;
         const pathMod = require('path')
         const srcDir = pathMod.resolve(__dirname, '..', 'src')
         const missingModules = new Set<string>()
+        // Relative missing imports keyed by specifier + importer so identical
+        // specifiers in different folders do not stub the wrong module.
+        const missingRelativeImports = new Map<
+          string,
+          Array<{ importerPath: string; stubPath: string }>
+        >()
         const missingModuleExports = new Map<string, Set<string>>()
 
         // Known missing external packages
@@ -304,39 +312,62 @@ export const createClaudeForChromeMcpServer = noop;
 
         // Scan source to find imports that can't resolve
         function scanForMissingImports() {
-          function checkAndRegister(specifier: string, fileDir: string, namedPart: string) {
-                const names = namedPart.split(',')
-                  .map((s: string) => s.trim().replace(/^type\s+/, ''))
-                  .filter((s: string) => s && !s.startsWith('type '))
+          function checkAndRegister(
+            specifier: string,
+            importerFile: string,
+            namedPart: string,
+          ) {
+            const fileDir = pathMod.dirname(importerFile)
+            const names = namedPart.split(',')
+              .map((s: string) => s.trim().replace(/^type\s+/, ''))
+              .filter((s: string) => s && !s.startsWith('type '))
 
-                // Check src/tasks/ non-relative imports
-                if (specifier.startsWith('src/tasks/')) {
-                  const resolved = pathMod.resolve(__dirname, '..', specifier)
-                  const candidates = [
-                    resolved,
-                    `${resolved}.ts`, `${resolved}.tsx`,
-                    resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
-                    pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
-                  ]
-                  if (!candidates.some((c: string) => fs.existsSync(c))) {
-                    missingModules.add(specifier)
-                  }
-                }
-                // Check relative .js imports
-                else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
-                  const resolved = pathMod.resolve(fileDir, specifier)
-                  const tsVariant = resolved.replace(/\.js$/, '.ts')
-                  const tsxVariant = resolved.replace(/\.js$/, '.tsx')
-                  if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
-                    missingModules.add(specifier)
-                  }
-                }
+            let stubKey: string | undefined
 
-                // Track named exports for missing modules
-                if (names.length > 0) {
-                  if (!missingModuleExports.has(specifier)) missingModuleExports.set(specifier, new Set())
-                  for (const n of names) missingModuleExports.get(specifier)!.add(n)
-                }
+            // Check src/tasks/ non-relative imports
+            if (specifier.startsWith('src/tasks/')) {
+              const resolved = pathMod.resolve(__dirname, '..', specifier)
+              const candidates = [
+                resolved,
+                `${resolved}.ts`, `${resolved}.tsx`,
+                resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
+                pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
+              ]
+              if (!candidates.some((c: string) => fs.existsSync(c))) {
+                missingModules.add(specifier)
+                stubKey = specifier
+              }
+            }
+            // Check relative .js imports
+            else if (
+              specifier.endsWith('.js') &&
+              (specifier.startsWith('./') || specifier.startsWith('../'))
+            ) {
+              const resolved = pathMod.resolve(fileDir, specifier)
+              const tsVariant = resolved.replace(/\.js$/, '.ts')
+              const tsxVariant = resolved.replace(/\.js$/, '.tsx')
+              if (
+                !fs.existsSync(resolved) &&
+                !fs.existsSync(tsVariant) &&
+                !fs.existsSync(tsxVariant)
+              ) {
+                const entries = missingRelativeImports.get(specifier) ?? []
+                entries.push({
+                  importerPath: pathMod.normalize(importerFile),
+                  stubPath: tsVariant,
+                })
+                missingRelativeImports.set(specifier, entries)
+                stubKey = tsVariant
+              }
+            }
+
+            // Track named exports for missing modules
+            if (names.length > 0 && stubKey) {
+              if (!missingModuleExports.has(stubKey)) {
+                missingModuleExports.set(stubKey, new Set())
+              }
+              for (const n of names) missingModuleExports.get(stubKey)!.add(n)
+            }
           }
 
           function walk(dir: string) {
@@ -345,7 +376,6 @@ export const createClaudeForChromeMcpServer = noop;
               if (ent.isDirectory()) { walk(full); continue }
               if (!/\.(ts|tsx)$/.test(ent.name)) continue
               const rawCode: string = fs.readFileSync(full, 'utf-8')
-              const fileDir = pathMod.dirname(full)
 
               // Strip comments before scanning for imports/requires.
               // The regex scanner matches require()/import() patterns
@@ -357,18 +387,18 @@ export const createClaudeForChromeMcpServer = noop;
 
               // Collect static imports: import { X } from '...'
               for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
-                checkAndRegister(m[4], fileDir, m[1] || m[3] || '')
+                checkAndRegister(m[4], full, m[1] || m[3] || '')
               }
 
               // Collect dynamic requires: require('...') — these are used
               // behind feature() gates and become live when flags are enabled.
               for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-                checkAndRegister(m[1], fileDir, '')
+                checkAndRegister(m[1], full, '')
               }
 
               // Collect dynamic imports: import('...')
               for (const m of code.matchAll(/import\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-                checkAndRegister(m[1], fileDir, '')
+                checkAndRegister(m[1], full, '')
               }
             }
           }
@@ -376,13 +406,28 @@ export const createClaudeForChromeMcpServer = noop;
         }
         scanForMissingImports()
 
-        // Register exact-match resolvers for each missing module
+        // Register exact-match resolvers for each missing non-relative module
         for (const mod of missingModules) {
           const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
           build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
             path: mod,
             namespace: 'missing-module-stub',
           }))
+        }
+
+        // Stub missing relative imports only from the file that references them.
+        for (const [specifier, entries] of missingRelativeImports) {
+          const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, (args) => {
+            if (!args.importer) return
+            const importer = pathMod.normalize(args.importer)
+            const match = entries.find(entry => entry.importerPath === importer)
+            if (!match) return
+            return {
+              path: match.stubPath,
+              namespace: 'missing-module-stub',
+            }
+          })
         }
 
         build.onLoad(
@@ -439,6 +484,7 @@ sdkResult = await Bun.build({
       JSON.stringify('https://github.com/Gitlawb/openclaude/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
+    'MACRO.VERSION_CHANGELOG': 'undefined',
   },
   // External: everything TUI-related + native modules
   external: SDK_EXTERNALS,
@@ -807,10 +853,10 @@ export const Fragment = null;
           'instances': 'new Map()',
           'selectableUserMessagesFilter': '() => true',
           'messagesAfterAreOnlySynthetic': '() => false',
-          'SandboxManager': 'class { static isSupportedPlatform = () => false; static create = noop; static Version = \'\'; }',
+          'SandboxManager': 'class { static isSupportedPlatform = () => false; static create = noop; static Version = \'\'; static annotateStderrWithSandboxFailures = (_command, stderr) => stderr; }',
           'SandboxRuntimeConfigSchema': '{ parse: noop }',
           'SandboxViolationStore': 'null',
-          'BaseSandboxManager': 'class { static isSupportedPlatform = () => false; }',
+          'BaseSandboxManager': 'class { static isSupportedPlatform = () => false; static annotateStderrWithSandboxFailures = (_command, stderr) => stderr; }',
           'ExportResultCode': '{ SUCCESS: 0, FAILED: 1 }',
           'linkifyUrlsInText': '(s) => s',
         }
@@ -884,5 +930,104 @@ if (result?.success && sdkResult?.success) {
   })
   if (validation.exitCode !== 0) {
     process.exitCode = 1
+  }
+}
+
+// ── Guard: no unexpected missing-module stubs in the shipped CLI bundle ─────
+// The missing-import scanner above stubs any unresolved relative import to a
+// noop default export. That is correct for a require behind a DISABLED feature
+// flag: the gated branch is dead-code-eliminated and the stub never reaches the
+// bundle. But when a flag is ENABLED, its gated require becomes live and the
+// stub silently degrades a real module to `() => null` — a named export (e.g. a
+// React component) then resolves to `undefined` and crashes the first time that
+// path runs. SnipBoundaryMessage shipped exactly this way (PR #1407): the build
+// passed, smoke passed, unit tests passed, and the UI crashed on the first snip.
+//
+// This guard is a COARSE TRIPWIRE, not proof of reachability. A
+// `missing-module-stub:` marker in dist/cli.mjs does NOT by itself prove the
+// stub is reachable or invoked. The scanner (since #1399) keys missing modules
+// per importer, so a marker means *that* importer resolved to a stub — but the
+// marker can still sit on a path that never actually runs (e.g. a flag-gated
+// require that is enabled yet whose code path is not exercised).
+// So treat a flagged stub as "inspect this", not "confirmed runtime crash".
+// What the guard reliably catches is a NEW stub appearing where none was
+// expected — the regression class above — which is worth a human look before it
+// ships. Fail on any marker that is not explicitly grandfathered below.
+if (result?.success) {
+  // Pre-existing stubs grandfathered when this guard was introduced. Each is a
+  // marker the scanner emitted before this guard existed; each sits behind an
+  // enabled flag and is latent degrade-on-use debt whose source is not mirrored
+  // in this tree — the list is a baseline to detect new regressions, not an
+  // assertion that every entry is a live crash. Do NOT add entries here to
+  // silence the guard for new code — add the real source module, or gate the
+  // path so it is not reachable when the module is absent. An entry here is a
+  // known item to revisit, not a blessing that the stub is safe.
+  // Entries are repo-relative paths from `src/` onward, without extension — the
+  // same shape canonicalStub() produces, so the allowlist reads as the key.
+  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
+    'src/tools/VerifyPlanExecutionTool/constants',
+    'src/components/tasks/MonitorMcpDetailDialog',
+  ])
+
+  // Stub markers are not byte-stable across build hosts: the per-importer
+  // scanner records each stub as the resolved absolute source path, which
+  // differs only by the repo-root prefix (`/home/ubuntu/.../openclaude` locally
+  // vs `/home/runner/work/openclaude/openclaude` on CI). Diffing raw text made
+  // CI fail on already-allowlisted stubs and report them stale. Key on the
+  // repo-relative path from `src/` onward without extension: stable across hosts
+  // yet still path-specific, so a stub named `constants.ts` in one directory
+  // cannot mask a different `constants.ts` somewhere else (a basename-only key
+  // would).
+  const canonicalStub = (marker: string): string => {
+    const normalized = marker.split(/[\\/]/).join('/')
+    const srcIdx = normalized.lastIndexOf('/src/')
+    const fromSrc = srcIdx >= 0 ? normalized.slice(srcIdx + 1) : normalized
+    return fromSrc.replace(/\.(?:[cm]?[jt]sx?)$/, '')
+  }
+
+  const acceptableCanonical = new Set(
+    [...ACCEPTABLE_RUNTIME_STUBS].map(canonicalStub),
+  )
+
+  const bundleText = await Bun.file('dist/cli.mjs').text()
+  // canonical key -> raw marker text (kept for human-readable diagnostics)
+  const stubbed = new Map<string, string>()
+  for (const m of bundleText.matchAll(/\/\/\s*missing-module-stub:(\S+)/g)) {
+    stubbed.set(canonicalStub(m[1]), m[1])
+  }
+  const unexpected = [...stubbed]
+    .filter(([key]) => !acceptableCanonical.has(key))
+    .map(([, raw]) => raw)
+    .sort()
+  const staleAllowlist = [...ACCEPTABLE_RUNTIME_STUBS]
+    .filter(s => !stubbed.has(canonicalStub(s)))
+    .sort()
+
+  if (unexpected.length > 0) {
+    console.error(
+      '\n✗ Build guard: new missing-module stub(s) in the CLI bundle (inspect before shipping):',
+    )
+    for (const s of unexpected) console.error(`    ${s}`)
+    console.error(
+      '  An unresolved relative import was stubbed to a noop default export. If a feature flag\n' +
+        '  made this require live but its source module is absent, named exports become undefined\n' +
+        '  and crash on first use — add the real source module, or gate the path so it is\n' +
+        '  unreachable when the module is missing. If instead the stub sits on a path that\n' +
+        '  never runs, confirm that and add the repo-relative path (from src/, no extension)\n' +
+        '  to ACCEPTABLE_RUNTIME_STUBS in scripts/build.ts with justification.',
+    )
+    process.exitCode = 1
+  } else {
+    console.log(`✓ Bundle guard: no unexpected missing-module stubs`)
+  }
+
+  // Keep the allowlist honest: a grandfathered entry that no longer appears
+  // means the path was fixed or removed — drop it so the list reflects reality.
+  if (staleAllowlist.length > 0) {
+    console.warn(
+      '\n⚠ Build guard: ACCEPTABLE_RUNTIME_STUBS has stale entries no longer in the bundle ' +
+        '(remove them):',
+    )
+    for (const s of staleAllowlist) console.warn(`    ${s}`)
   }
 }

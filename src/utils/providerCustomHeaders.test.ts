@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  parseCustomHeadersEnv,
   parseProfileCustomHeadersInput,
   serializeProfileCustomHeaders,
 } from './providerCustomHeaders.js'
@@ -45,5 +46,13 @@ describe('serializeProfileCustomHeaders', () => {
         'X-Trace': 'enabled',
       }),
     ).toBe('X-Team: devtools\nX-Trace: enabled')
+  })
+})
+
+describe('parseCustomHeadersEnv', () => {
+  test('rejects raw CRLF before splitting custom headers', () => {
+    expect(
+      parseCustomHeadersEnv('X-Safe: keep-me\r\nX-Injected: bad'),
+    ).toBeUndefined()
   })
 })

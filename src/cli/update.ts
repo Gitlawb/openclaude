@@ -29,11 +29,15 @@ import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 
 export async function update() {
-  // Block updates for third-party providers. The update mechanism downloads
-  // from the first-party distribution bucket, which would silently replace the
-  // OpenClaude build (with the OpenAI shim) with the upstream Claude Code
-  // binary (without it).
-  if (getAPIProvider() !== 'firstParty') {
+  // Block updates for third-party providers using upstream Anthropic builds.
+  // The update mechanism downloads from the first-party distribution bucket,
+  // which would silently replace the OpenClaude build with the upstream
+  // Claude Code binary. However, builds with a custom PACKAGE_URL (like
+  // OpenClaude's @gitlawb/openclaude) are safe to self-update.
+  if (
+    getAPIProvider() !== 'firstParty' &&
+    MACRO.PACKAGE_URL === '@anthropic-ai/claude-code'
+  ) {
     writeToStdout(
       chalk.yellow(
         `Auto-update is not available for third-party provider builds.\n`,

@@ -2,6 +2,7 @@ import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import BashToolResultMessage from '../../tools/BashTool/BashToolResultMessage.js';
 import { extractTag } from '../../utils/messages.js';
+import { unescapeXml } from '../../utils/xml.js';
 export function UserBashOutputMessage(t0) {
   const $ = _c(10);
   const {
@@ -11,7 +12,7 @@ export function UserBashOutputMessage(t0) {
   let t1;
   if ($[0] !== content) {
     const rawStdout = extractTag(content, "bash-stdout") ?? "";
-    t1 = extractTag(rawStdout, "persisted-output") ?? rawStdout;
+    t1 = extractTag(rawStdout, "persisted-output") ?? unescapeXml(rawStdout);
     $[0] = content;
     $[1] = t1;
   } else {
@@ -20,7 +21,7 @@ export function UserBashOutputMessage(t0) {
   const stdout = t1;
   let t2;
   if ($[2] !== content) {
-    t2 = extractTag(content, "bash-stderr") ?? "";
+    t2 = unescapeXml(extractTag(content, "bash-stderr") ?? "");
     $[2] = content;
     $[3] = t2;
   } else {

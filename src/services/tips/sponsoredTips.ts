@@ -29,6 +29,11 @@ const XIAOMI_MIMO: TipSponsor = {
   url: 'https://api.xiaomimimo.com/v1',
 }
 
+const ATLAS_CLOUD: TipSponsor = {
+  name: 'Atlas Cloud',
+  url: 'https://www.atlascloud.ai/',
+}
+
 function renderSponsoredTip(
   sponsor: TipSponsor,
   body: string,
@@ -146,6 +151,18 @@ export const sponsoredTips: Tip[] = [
       renderSponsoredTip(
         XIAOMI_MIMO,
         "MiMo's true value: efficiently solving developers' real problems",
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'atlas-cloud-platform',
+    sponsor: ATLAS_CLOUD,
+    content: async ctx =>
+      renderSponsoredTip(
+        ATLAS_CLOUD,
+        'Single AI API · full-modal AI inference platform · 300+ curated models',
         ctx,
       ),
     cooldownSessions: 20,

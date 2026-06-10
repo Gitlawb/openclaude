@@ -1,5 +1,178 @@
 # Changelog
 
+## [0.18.0](https://github.com/Gitlawb/openclaude/compare/v0.17.1...v0.18.0) (2026-06-10)
+
+
+### Features
+
+* add .gitattributes to enforce LF line endings ([#1550](https://github.com/Gitlawb/openclaude/issues/1550)) ([1c27957](https://github.com/Gitlawb/openclaude/commit/1c279577f9b294dbb02f4b8859c60fcaeb840ca6))
+* enable HISTORY_SNIP — model-callable snip tool for context management ([#1407](https://github.com/Gitlawb/openclaude/issues/1407)) ([cdc8057](https://github.com/Gitlawb/openclaude/commit/cdc8057496b43b38b62f738c20a2db72986c9683))
+* extend --fallback-model to interactive REPL sessions ([#1346](https://github.com/Gitlawb/openclaude/issues/1346)) ([#1419](https://github.com/Gitlawb/openclaude/issues/1419)) ([14e5a41](https://github.com/Gitlawb/openclaude/commit/14e5a41acd7a0349c6c982e44e7f2650199ab971))
+* **github:** expose all 21 Copilot models with context window metadata ([#822](https://github.com/Gitlawb/openclaude/issues/822)) ([#1535](https://github.com/Gitlawb/openclaude/issues/1535)) ([1e8c1ac](https://github.com/Gitlawb/openclaude/commit/1e8c1ac8f5c07e7456420e8269851ad0ccc4c1c1))
+* **goal:** add session-scoped /goal continuation ([#1293](https://github.com/Gitlawb/openclaude/issues/1293)) ([102cc30](https://github.com/Gitlawb/openclaude/commit/102cc3060fd3fc32eee91c8c3f2df7fd0a9af9fa))
+* **opengateway:** surface the gateway's "auto" smart-routing model in /model ([#1588](https://github.com/Gitlawb/openclaude/issues/1588)) ([5040c49](https://github.com/Gitlawb/openclaude/commit/5040c491daa87587f0a3cf10e693c65dd7d5a389))
+* **provider:** add Atlas Cloud as official OpenAI-compatible provider ([#1585](https://github.com/Gitlawb/openclaude/issues/1585)) ([5b01c2b](https://github.com/Gitlawb/openclaude/commit/5b01c2b59533b5450f06c2e520b2d45c72930226))
+
+
+### Bug Fixes
+
+* add error context to silent catches and debugger detection ([#1479](https://github.com/Gitlawb/openclaude/issues/1479)) ([e9b211a](https://github.com/Gitlawb/openclaude/commit/e9b211a2262fc2d9b877c58683a66bdd885531b9))
+* **agent-routing:** support API model aliases ([#1546](https://github.com/Gitlawb/openclaude/issues/1546)) ([9a342b6](https://github.com/Gitlawb/openclaude/commit/9a342b61fafce5908ac18f79275b70e51cae6ba4))
+* **api:** honor OpenAI-compatible retry classification ([#1547](https://github.com/Gitlawb/openclaude/issues/1547)) ([f1013df](https://github.com/Gitlawb/openclaude/commit/f1013df81828eb1035c054e415ac16c9d84de917))
+* **api:** retry once with provider-capped max_tokens ([#1235](https://github.com/Gitlawb/openclaude/issues/1235)) ([edabf33](https://github.com/Gitlawb/openclaude/commit/edabf33a337b700a1937ab453a7872806281beff))
+* **claudemd:** gate User-scope external [@include](https://github.com/include) behind hasClaudeMdEx… ([#1223](https://github.com/Gitlawb/openclaude/issues/1223)) ([fde7aa0](https://github.com/Gitlawb/openclaude/commit/fde7aa07a0c83aaf8cf52be5ca93cb2e121cfb79))
+* **context:** avoid noisy metadata fallback errors ([#1544](https://github.com/Gitlawb/openclaude/issues/1544)) ([12cbe92](https://github.com/Gitlawb/openclaude/commit/12cbe92344c8d1a8bf07834bcd4c9cbb4dadf665))
+* **mcp:** fail-closed on token count error + respect maxChars budget ([#1113](https://github.com/Gitlawb/openclaude/issues/1113)) ([bd8c6b1](https://github.com/Gitlawb/openclaude/commit/bd8c6b1eb5798b8f76dc331222dbf81e99e1b74b))
+* **mcp:** pass MCP stdio server args as separate array elements to pr… ([#1222](https://github.com/Gitlawb/openclaude/issues/1222)) ([0d4e247](https://github.com/Gitlawb/openclaude/commit/0d4e2479056238cff7656d43e66818e47daae038))
+* **openai-shim:** guarantee reasoning_content continuity for DeepSeek… ([#1228](https://github.com/Gitlawb/openclaude/issues/1228)) ([d67c6d7](https://github.com/Gitlawb/openclaude/commit/d67c6d77d3c7ecd6cc6dd960ae6667afdb16ca02))
+* **openai-shim:** include text for image-only user content ([#1410](https://github.com/Gitlawb/openclaude/issues/1410)) ([7c05453](https://github.com/Gitlawb/openclaude/commit/7c05453f7925c52dc006879c8eef9eda10d6a965))
+* **provider:** preserve explicit startup env ([#1560](https://github.com/Gitlawb/openclaude/issues/1560)) ([754cb61](https://github.com/Gitlawb/openclaude/commit/754cb61d17f041df483d570050899089e08e6010))
+* replace codex input_text with standard text type in generic resp ([#1449](https://github.com/Gitlawb/openclaude/issues/1449)) ([be05594](https://github.com/Gitlawb/openclaude/commit/be05594ce8adbbb202b193b39217e548c05abdc8))
+* **typecheck:** add MCP component view types ([#1564](https://github.com/Gitlawb/openclaude/issues/1564)) ([548bffc](https://github.com/Gitlawb/openclaude/commit/548bffc2a77f14047f7558c0bce220fc67ab3ff8))
+* **typecheck:** add missing type aliases to message and tools stubs ([#1510](https://github.com/Gitlawb/openclaude/issues/1510)) ([ea75a51](https://github.com/Gitlawb/openclaude/commit/ea75a51054cec75858a343ad7f4ba5ea47b579cb))
+* **typecheck:** add missing xai entry to deprecation retirement date maps ([#1509](https://github.com/Gitlawb/openclaude/issues/1509)) ([1d90960](https://github.com/Gitlawb/openclaude/commit/1d90960afac36aa34b46bbbeca0884e420bbe57c)), closes [#1486](https://github.com/Gitlawb/openclaude/issues/1486)
+* **typecheck:** add plugin command view types ([#1565](https://github.com/Gitlawb/openclaude/issues/1565)) ([fc0a4b5](https://github.com/Gitlawb/openclaude/commit/fc0a4b5cdf641b59cfda1759bc616269557309ac))
+* **typecheck:** add proper type parameters to useState(null) hooks ([#1513](https://github.com/Gitlawb/openclaude/issues/1513)) ([0e30ee8](https://github.com/Gitlawb/openclaude/commit/0e30ee83a625e7f23e3c20838f65207c0b2d6581)), closes [#1486](https://github.com/Gitlawb/openclaude/issues/1486)
+* **typecheck:** add wizard agent creation types ([#1566](https://github.com/Gitlawb/openclaude/issues/1566)) ([65034db](https://github.com/Gitlawb/openclaude/commit/65034db3679e170680b6e5d358a781e30ddc65fc))
+* **typecheck:** annotate diff rendering props ([#1568](https://github.com/Gitlawb/openclaude/issues/1568)) ([e53d612](https://github.com/Gitlawb/openclaude/commit/e53d612da5ce77b543846256e130a80f0f8f116d))
+* **typecheck:** declare bundled markdown and macro fields ([#1562](https://github.com/Gitlawb/openclaude/issues/1562)) ([5c239eb](https://github.com/Gitlawb/openclaude/commit/5c239eb6019949f0161a50999eaa00ddd3ed688b))
+* **typecheck:** declare Ink JSX intrinsics ([#1571](https://github.com/Gitlawb/openclaude/issues/1571)) ([38b2d83](https://github.com/Gitlawb/openclaude/commit/38b2d836990ab97d04a906bd967441dafc017fe1))
+* **typecheck:** declare optional native modules ([#1563](https://github.com/Gitlawb/openclaude/issues/1563)) ([f129dd0](https://github.com/Gitlawb/openclaude/commit/f129dd039758129d56d47c4e5adf6c87e86091b0))
+* **typecheck:** import bun test helpers in truncate test ([#1520](https://github.com/Gitlawb/openclaude/issues/1520)) ([8527a04](https://github.com/Gitlawb/openclaude/commit/8527a04e9b7644dab1322f383383566e9c639e3f))
+* **typecheck:** narrow remote agent SDK logs ([#1573](https://github.com/Gitlawb/openclaude/issues/1573)) ([7727a9f](https://github.com/Gitlawb/openclaude/commit/7727a9f3a3ab34468a33f44671cd56c78c1b298d))
+* **typecheck:** recreate missing FeedbackSurvey utils ([#1580](https://github.com/Gitlawb/openclaude/issues/1580)) ([62c2c5b](https://github.com/Gitlawb/openclaude/commit/62c2c5b62f431013b1b6eb6ed632a6fc1a678c5d))
+* **typecheck:** recreate missing Spinner types ([#1579](https://github.com/Gitlawb/openclaude/issues/1579)) ([553342c](https://github.com/Gitlawb/openclaude/commit/553342c204b2cc1fafdded7165b9b4e66ebea834))
+* **typecheck:** replace dead-code literal comparisons with isAntEmployee() ([#1512](https://github.com/Gitlawb/openclaude/issues/1512)) ([7078853](https://github.com/Gitlawb/openclaude/commit/7078853ea8f5dca2686cf63e019bf047c861e554))
+* **typecheck:** restore control protocol type exports ([#1497](https://github.com/Gitlawb/openclaude/issues/1497)) ([3a308c1](https://github.com/Gitlawb/openclaude/commit/3a308c11d44514e6262eb878511efca6d83bbcc7))
+* **typecheck:** tighten permission rule UI types ([#1567](https://github.com/Gitlawb/openclaude/issues/1567)) ([6ee24f7](https://github.com/Gitlawb/openclaude/commit/6ee24f78e76fa3f68303561e96975fc25b03f6f5))
+* **typecheck:** type beta header accumulator ([#1516](https://github.com/Gitlawb/openclaude/issues/1516)) ([a692fca](https://github.com/Gitlawb/openclaude/commit/a692fca02a0aedb013c0aef89b8972ef14d464f7))
+* **typecheck:** type cache-busted credential tests ([#1525](https://github.com/Gitlawb/openclaude/issues/1525)) ([9e942da](https://github.com/Gitlawb/openclaude/commit/9e942da3fbf02816d3113a93988a7ac1cced8174))
+* **typecheck:** type Doctor screen state ([#1522](https://github.com/Gitlawb/openclaude/issues/1522)) ([6cb3493](https://github.com/Gitlawb/openclaude/commit/6cb3493d8c5f4ad862d17af9d427bdf69cafebd5))
+* **typecheck:** type FileWrite rejection state ([#1574](https://github.com/Gitlawb/openclaude/issues/1574)) ([fba949c](https://github.com/Gitlawb/openclaude/commit/fba949cabf48a9bc352f6c91ad7fe61946bdca32))
+* **typecheck:** type Grove dialog state ([#1521](https://github.com/Gitlawb/openclaude/issues/1521)) ([f726685](https://github.com/Gitlawb/openclaude/commit/f726685ff0172800a530ef317962270513926b58))
+* **typecheck:** type gRPC stream messages ([#1572](https://github.com/Gitlawb/openclaude/issues/1572)) ([c2cc6ed](https://github.com/Gitlawb/openclaude/commit/c2cc6ed333ba4c095709ae804b0fb222987b6f20))
+* **typecheck:** type MCP doctor test fixtures ([#1527](https://github.com/Gitlawb/openclaude/issues/1527)) ([38c0fe4](https://github.com/Gitlawb/openclaude/commit/38c0fe4982cb8e1e387efd69eae7da8f2cd49336))
+* **typecheck:** type MCP XAA auth storage ([#1570](https://github.com/Gitlawb/openclaude/issues/1570)) ([bf2d540](https://github.com/Gitlawb/openclaude/commit/bf2d540efc5e7369c8d8466dcb3605608578b9d9))
+* **typecheck:** type provider diagnostic tests ([#1517](https://github.com/Gitlawb/openclaude/issues/1517)) ([ebf38f7](https://github.com/Gitlawb/openclaude/commit/ebf38f7819a5c2ba1bf1b5ef7d9f2c1d58d3dc59))
+* **typecheck:** type secure storage command output ([#1524](https://github.com/Gitlawb/openclaude/issues/1524)) ([8c2f585](https://github.com/Gitlawb/openclaude/commit/8c2f5859b3c63dd7a2569088877fc31a3ba8b396))
+* **typecheck:** type session storage test fixtures ([#1526](https://github.com/Gitlawb/openclaude/issues/1526)) ([491985a](https://github.com/Gitlawb/openclaude/commit/491985a6181a43cb616944ca23144024b86a9ea3))
+* **typecheck:** type stats dialog state ([#1569](https://github.com/Gitlawb/openclaude/issues/1569)) ([499c702](https://github.com/Gitlawb/openclaude/commit/499c702bcec3789d59b1c4898e43b5b30d3720e2))
+* **typecheck:** type tool test fixtures ([#1518](https://github.com/Gitlawb/openclaude/issues/1518)) ([ddf9282](https://github.com/Gitlawb/openclaude/commit/ddf9282ae31c072a821c909919118157897de054))
+
+
+### Performance Improvements
+
+* **attachments:** skip skill listings for utility forks ([#1545](https://github.com/Gitlawb/openclaude/issues/1545)) ([2bed184](https://github.com/Gitlawb/openclaude/commit/2bed1849b1a587bda2970cb83f20b326f794aec0))
+
+## [0.17.1](https://github.com/Gitlawb/openclaude/compare/v0.17.0...v0.17.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **typecheck:** type GitHub app setup flow ([#1523](https://github.com/Gitlawb/openclaude/issues/1523)) ([80607ca](https://github.com/Gitlawb/openclaude/commit/80607ca1358991ca4d8025213c7c2e26748f2b93))
+* **typecheck:** type search UI state ([#1529](https://github.com/Gitlawb/openclaude/issues/1529)) ([47eea3f](https://github.com/Gitlawb/openclaude/commit/47eea3f8b13c85865b84525563b4eaf446c91b6c))
+
+## [0.17.0](https://github.com/Gitlawb/openclaude/compare/v0.16.1...v0.17.0) (2026-06-05)
+
+
+### Features
+
+* add conversation cache and session persistence ([#705](https://github.com/Gitlawb/openclaude/issues/705)) ([353e306](https://github.com/Gitlawb/openclaude/commit/353e3060644254c331b52fe9d243f97b78c570fe))
+* memory optimization to prevent OOM in multi-session scenarios ([#1437](https://github.com/Gitlawb/openclaude/issues/1437)) ([22b1a19](https://github.com/Gitlawb/openclaude/commit/22b1a193f1c34763a5f98c985fc98fccac0109fd))
+* **minimax:** add MiniMax M3 model with 1M context window ([#1470](https://github.com/Gitlawb/openclaude/issues/1470)) ([e2fa248](https://github.com/Gitlawb/openclaude/commit/e2fa248376f5242dd01c22c173e1332593bc5b78))
+* **nvidia-nim:** dynamic model discovery via integrate.api.nvidia.com ([#1099](https://github.com/Gitlawb/openclaude/issues/1099)) ([#1177](https://github.com/Gitlawb/openclaude/issues/1177)) ([890456b](https://github.com/Gitlawb/openclaude/commit/890456b35e1e6d6a4baf4febc27af610d3f4aaad))
+* **opengateway:** add MiniMax M3 and Qwen 3.7 Max to the model catalog ([#1515](https://github.com/Gitlawb/openclaude/issues/1515)) ([8705cd3](https://github.com/Gitlawb/openclaude/commit/8705cd35f72c0804059c3ebbd85b1189f3ea9d07))
+* **opengateway:** Gemini 3.1 Flash Lite GA model id ([#1537](https://github.com/Gitlawb/openclaude/issues/1537)) ([ea09176](https://github.com/Gitlawb/openclaude/commit/ea091768ae15e0676ec184b3df841239733e8d97))
+* **provider:** auto-switch on rate limit via providerFallbackChain ([#768](https://github.com/Gitlawb/openclaude/issues/768)) ([#1176](https://github.com/Gitlawb/openclaude/issues/1176)) ([cfbce38](https://github.com/Gitlawb/openclaude/commit/cfbce38fe688717f61b48624ea0461cf2c1bb707))
+* **sponsors:** add Atlas Cloud sponsor and sponsored tip ([#1536](https://github.com/Gitlawb/openclaude/issues/1536)) ([73a2833](https://github.com/Gitlawb/openclaude/commit/73a2833819aa6cea91871779d9ff2f11e0953e31))
+* **xiaomi:** retire deprecated MiMo V2 Pro and V2 Omni ([#1538](https://github.com/Gitlawb/openclaude/issues/1538)) ([b1a8026](https://github.com/Gitlawb/openclaude/commit/b1a80267a5ed108b3700df08e051419d5a2c6fab))
+
+
+### Bug Fixes
+
+* **api:** tighten reasoning_content heuristic to prevent false-positi… ([#1201](https://github.com/Gitlawb/openclaude/issues/1201)) ([1fc5116](https://github.com/Gitlawb/openclaude/commit/1fc5116e9551948de0d47ea20bdfbd73631dee18))
+* **BashTool:** include captured output in non-zero-exit error result ([#1231](https://github.com/Gitlawb/openclaude/issues/1231)) ([#1249](https://github.com/Gitlawb/openclaude/issues/1249)) ([8416faa](https://github.com/Gitlawb/openclaude/commit/8416faa75c1baae5b079e9f4dd7a624a7f6fb6ff))
+* **cron:** enforce MAX_CRON_PROMPT_CHARS cap on durable cron prompt l… ([#1224](https://github.com/Gitlawb/openclaude/issues/1224)) ([f7d42c2](https://github.com/Gitlawb/openclaude/commit/f7d42c2b70081f0943cf5ebe08ab0d396cda4b99))
+* **plugins:** use mergeHooksSettings in marketplace supplement path ([#1055](https://github.com/Gitlawb/openclaude/issues/1055)) ([#1167](https://github.com/Gitlawb/openclaude/issues/1167)) ([a7fc408](https://github.com/Gitlawb/openclaude/commit/a7fc408779dc6580da8f5a05dee4bcef03ad1446))
+* preserve raw mode across component re-renders (issue [#843](https://github.com/Gitlawb/openclaude/issues/843)) ([#1198](https://github.com/Gitlawb/openclaude/issues/1198)) ([3bf6ccd](https://github.com/Gitlawb/openclaude/commit/3bf6ccd6d8f5bc8c1893c2b6fdceec86e084eac1))
+* **promptinput:** keep bash-mode `!` out of the local mirror ([#1179](https://github.com/Gitlawb/openclaude/issues/1179)) ([#1182](https://github.com/Gitlawb/openclaude/issues/1182)) ([ad3e208](https://github.com/Gitlawb/openclaude/commit/ad3e2085927f620adf05fa02f81f59d1c17c0d68))
+* **security:** prevent CRLF injection, path injection, and error message leakage ([#1477](https://github.com/Gitlawb/openclaude/issues/1477)) ([7278cad](https://github.com/Gitlawb/openclaude/commit/7278cad872dcaca49bb9b4410d00538004dfcf49))
+* show all configured Mistral models and fix model selection priority ([#1360](https://github.com/Gitlawb/openclaude/issues/1360)) ([#1418](https://github.com/Gitlawb/openclaude/issues/1418)) ([7df7cad](https://github.com/Gitlawb/openclaude/commit/7df7cad33345d2724cbff88e68a51c9dac26f306))
+* show vision-specific error when provider returns 404 for image requests ([#1187](https://github.com/Gitlawb/openclaude/issues/1187)) ([8801a4c](https://github.com/Gitlawb/openclaude/commit/8801a4cd644d3e9ac1e8f91256307f7ee891172e))
+* **test:** stop use-input test from leaking a global stdin mock ([#1501](https://github.com/Gitlawb/openclaude/issues/1501)) ([96ddec7](https://github.com/Gitlawb/openclaude/commit/96ddec71835dab350a5f6de399e819d8060c60c9))
+* **typecheck:** make session history cache variant-safe ([#1494](https://github.com/Gitlawb/openclaude/issues/1494)) ([e7abb81](https://github.com/Gitlawb/openclaude/commit/e7abb8146f9d8841c3e59aff7f4dd066ced3851b))
+* **typecheck:** narrow hook event counts ([#1496](https://github.com/Gitlawb/openclaude/issues/1496)) ([11e46af](https://github.com/Gitlawb/openclaude/commit/11e46affd10ab3412e1617aca08aed182bb3328d))
+* **typecheck:** restore AppState hook generics ([#1503](https://github.com/Gitlawb/openclaude/issues/1503)) ([343cd1a](https://github.com/Gitlawb/openclaude/commit/343cd1a2c93208429d9e02817aafea996ab19117))
+* **typecheck:** restore proactive module import surface ([#1495](https://github.com/Gitlawb/openclaude/issues/1495)) ([e357d59](https://github.com/Gitlawb/openclaude/commit/e357d593e0b90584aec0ec83f3adf5c845487a4a))
+* **typecheck:** restore typed add-dir source ([#1504](https://github.com/Gitlawb/openclaude/issues/1504)) ([2c755d3](https://github.com/Gitlawb/openclaude/commit/2c755d3da83ab1b48dfb5d5c048a682ae1325a77))
+* use mistral-vibe-cli-latest as default model for Mistral AI ([#1188](https://github.com/Gitlawb/openclaude/issues/1188)) ([671faf2](https://github.com/Gitlawb/openclaude/commit/671faf23ab4d34383bc6f3b62ce4d0363d0f216b))
+* **vscode:** send schema-valid permission responses ([#1401](https://github.com/Gitlawb/openclaude/issues/1401)) ([8065f8d](https://github.com/Gitlawb/openclaude/commit/8065f8d37b2cdfafe0833288e9150ff3af5ba2af))
+
+## [0.16.1](https://github.com/Gitlawb/openclaude/compare/v0.16.0...v0.16.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **ci:** build before unit tests in release workflow ([#1463](https://github.com/Gitlawb/openclaude/issues/1463)) ([d35d468](https://github.com/Gitlawb/openclaude/commit/d35d4687ad33388f87f43652919ce3ea96dd7435))
+
+## [0.16.0](https://github.com/Gitlawb/openclaude/compare/v0.15.0...v0.16.0) (2026-05-31)
+
+
+### Features
+
+* **doctor:** warn local-model users about large context contributors ([#1238](https://github.com/Gitlawb/openclaude/issues/1238)) ([11f0e02](https://github.com/Gitlawb/openclaude/commit/11f0e02b6327f333d60f8f36e872e03d2e358be1))
+* enable MCP_SKILLS — discover skill:// resources as invocable skills ([#1408](https://github.com/Gitlawb/openclaude/issues/1408)) ([f111eaa](https://github.com/Gitlawb/openclaude/commit/f111eaa1b33a6dc3946f17af0d51cc5048ebc88c))
+* **provider:** add OpenCode Zen/Go subscription support ([#1350](https://github.com/Gitlawb/openclaude/issues/1350)) ([5a22d60](https://github.com/Gitlawb/openclaude/commit/5a22d604f83fc68fcb2e6f41ca3586ab5044df1d))
+* set process.title to 'openclaude' ([#1425](https://github.com/Gitlawb/openclaude/issues/1425)) ([f6d7a58](https://github.com/Gitlawb/openclaude/commit/f6d7a5894b20fa1aaeafd4b6e0102c3632a69895))
+
+
+### Bug Fixes
+
+* **agents:** route configured agent model overrides ([#1390](https://github.com/Gitlawb/openclaude/issues/1390)) ([a8632b4](https://github.com/Gitlawb/openclaude/commit/a8632b4cc3e77aebbcf332a235109f22eeb720bd))
+* **autocompact:** retry circuit breaker after cooldown ([#1375](https://github.com/Gitlawb/openclaude/issues/1375)) ([11d59ec](https://github.com/Gitlawb/openclaude/commit/11d59ecdcb4f583a629c370a1ee9dd5e9129ce03))
+* **bash:** show output for ! shell commands ([#1265](https://github.com/Gitlawb/openclaude/issues/1265)) ([#1395](https://github.com/Gitlawb/openclaude/issues/1395)) ([ac3ae10](https://github.com/Gitlawb/openclaude/commit/ac3ae109363e59df13c981646e8683192b7a6de2))
+* **build:** restore /dream slash command in bundled CLI ([#1399](https://github.com/Gitlawb/openclaude/issues/1399)) ([132539f](https://github.com/Gitlawb/openclaude/commit/132539ff79f6e1eab05f94aafb3f84db644b26fc))
+* **ci:** scan PR head for intent checks ([#1461](https://github.com/Gitlawb/openclaude/issues/1461)) ([276ec6a](https://github.com/Gitlawb/openclaude/commit/276ec6ab0efb5c8d93cf5c522d5b88f9787235fb))
+* **docs:** update Xiaomi MiMo API URL in README. ([#1424](https://github.com/Gitlawb/openclaude/issues/1424)) ([7cc8eda](https://github.com/Gitlawb/openclaude/commit/7cc8edaa3c0d307a90ee530a253411973ed9cdc3))
+* **fork:** render forked-worker messages, drop unmirrored /fork command ([#1451](https://github.com/Gitlawb/openclaude/issues/1451)) ([b900364](https://github.com/Gitlawb/openclaude/commit/b900364dbef182dbbf5522043a4fdd1c8750cb72))
+* **ink:** correct stringWidth JS fallback for symbol characters ([#1244](https://github.com/Gitlawb/openclaude/issues/1244)) ([83abfa5](https://github.com/Gitlawb/openclaude/commit/83abfa506ab19676722c5dff09ce68f658af32a7))
+* **launcher:** route direct Node launch paths through launcher ([#1363](https://github.com/Gitlawb/openclaude/issues/1363)) ([363583f](https://github.com/Gitlawb/openclaude/commit/363583faf55bf3cf01a712e78f03f633269451ef))
+* **loader:** batch markdown reads + cap file size to unblock startup ([#1240](https://github.com/Gitlawb/openclaude/issues/1240)) ([bfb0667](https://github.com/Gitlawb/openclaude/commit/bfb0667601cde541e8ee8a472a91d786ed045a21))
+* **ollama:** cap deepseek v4 pro cloud output tokens ([#1348](https://github.com/Gitlawb/openclaude/issues/1348)) ([8dd7cb0](https://github.com/Gitlawb/openclaude/commit/8dd7cb066a67db0a69deff3ce68247ec26be0142))
+* **onboarding:** bound preflight probe + recover from connectivity failure ([#1017](https://github.com/Gitlawb/openclaude/issues/1017)) ([#1400](https://github.com/Gitlawb/openclaude/issues/1400)) ([c5ca847](https://github.com/Gitlawb/openclaude/commit/c5ca8476596ffb53a14d596ae55c1a95054921a7))
+* **provider:** allow remote Ollama without OPENAI_API_KEY ([#952](https://github.com/Gitlawb/openclaude/issues/952)) ([01ffbb6](https://github.com/Gitlawb/openclaude/commit/01ffbb68b8db8221c2e800067d8a7c6bf17d30d2)), closes [#369](https://github.com/Gitlawb/openclaude/issues/369)
+* **provider:** require API key input when adding OpenGateway ([#1384](https://github.com/Gitlawb/openclaude/issues/1384)) ([7c23fb7](https://github.com/Gitlawb/openclaude/commit/7c23fb7a050f56089e41e3492e58dc2ad3a3748f))
+* **query:** keep tool failure guard across unrelated successes ([#1277](https://github.com/Gitlawb/openclaude/issues/1277)) ([cf305cc](https://github.com/Gitlawb/openclaude/commit/cf305ccc291f81fd962c3644e765b2d560678a1b))
+* **release:** verify npm latest tag and document [@latest](https://github.com/latest) install ([#1378](https://github.com/Gitlawb/openclaude/issues/1378)) ([f3d41c6](https://github.com/Gitlawb/openclaude/commit/f3d41c6161db84acae464d4eaf9ad07093effe8b))
+* **repl:** show permission prompts while draft input is present ([#1393](https://github.com/Gitlawb/openclaude/issues/1393)) ([70b4b07](https://github.com/Gitlawb/openclaude/commit/70b4b07908d98fd938ae338ca0bad60a80f36587)), closes [#651](https://github.com/Gitlawb/openclaude/issues/651)
+* **sandbox:** guard annotateStderrWithSandboxFailures against missing runtime method (fixes Bash on builds without sandbox-runtime) ([#1452](https://github.com/Gitlawb/openclaude/issues/1452)) ([479b0e8](https://github.com/Gitlawb/openclaude/commit/479b0e8226005e4eb24bb090bfb527a483039e4c))
+* **teammate-progress:** keep cumulative token+tool counts across prompts ([#475](https://github.com/Gitlawb/openclaude/issues/475)) ([#1402](https://github.com/Gitlawb/openclaude/issues/1402)) ([5247fb8](https://github.com/Gitlawb/openclaude/commit/5247fb897742d6134fd8ab97594f2c10dba336f9))
+* **test:** prevent providerProfiles config mock from leaking across files ([#1432](https://github.com/Gitlawb/openclaude/issues/1432)) ([690b3f0](https://github.com/Gitlawb/openclaude/commit/690b3f07a40cec5f8f82a292e81c4c84c6926888))
+* **thinking:** disable thinking for unsupported Ollama models ([#1376](https://github.com/Gitlawb/openclaude/issues/1376)) ([8513178](https://github.com/Gitlawb/openclaude/commit/85131789346f5b5e067189786e43535fbe04c20d))
+* third-party provider compat — update, metrics, and refusal message ([#1406](https://github.com/Gitlawb/openclaude/issues/1406)) ([dda5ea3](https://github.com/Gitlawb/openclaude/commit/dda5ea31bd3d08db12cd2973560b008f71888663))
+
+## [0.15.0](https://github.com/Gitlawb/openclaude/compare/v0.14.0...v0.15.0) (2026-05-26)
+
+
+### Features
+
+* **agents:** set active session agent from agents menu ([#1349](https://github.com/Gitlawb/openclaude/issues/1349)) ([7419d38](https://github.com/Gitlawb/openclaude/commit/7419d3800ca68c306df38173d6e9f5892ba85c50))
+* configure API retry backoff ([#370](https://github.com/Gitlawb/openclaude/issues/370)) ([#1095](https://github.com/Gitlawb/openclaude/issues/1095)) ([d02c10b](https://github.com/Gitlawb/openclaude/commit/d02c10b399a9e30a7018646ad0c24d14f35bff13))
+* **query:** robust multi-lingual and structural continuation nudge ([#1280](https://github.com/Gitlawb/openclaude/issues/1280)) ([2f8aa50](https://github.com/Gitlawb/openclaude/commit/2f8aa50cf6f87e3c64f7cf3cc07a351a22f7f950))
+* **safety:** warn at startup when 3P provider + permissive mode skip the AI classifier ([#1260](https://github.com/Gitlawb/openclaude/issues/1260)) ([4e8fa24](https://github.com/Gitlawb/openclaude/commit/4e8fa24cce5de07052632d5a8a7fb4474217eab8))
+
+
+### Bug Fixes
+
+* **agent:** allow custom model overrides ([#1337](https://github.com/Gitlawb/openclaude/issues/1337)) ([785d3de](https://github.com/Gitlawb/openclaude/commit/785d3de2cd7293bdde224eaf5e9f41d275cf346b))
+* **attribution:** make git attribution opt-in by default ([#1335](https://github.com/Gitlawb/openclaude/issues/1335)) ([6bc050e](https://github.com/Gitlawb/openclaude/commit/6bc050e621ac8712cd919e2e2b897ebb68b7bd67))
+* **codex-stream:** recover tool args delivered only via done events ([#1262](https://github.com/Gitlawb/openclaude/issues/1262)) ([2d26a46](https://github.com/Gitlawb/openclaude/commit/2d26a4673a565301a3ee00e33e26059f37b7d44a)), closes [#1259](https://github.com/Gitlawb/openclaude/issues/1259)
+* **codex:** allow credential storage fallback ([#1347](https://github.com/Gitlawb/openclaude/issues/1347)) ([f15d236](https://github.com/Gitlawb/openclaude/commit/f15d2360eeb521c19b5449df5ddd5c7cfc5639a1))
+* **json-schema:** support top-level non-object roots via wrap/unwrap ([#1261](https://github.com/Gitlawb/openclaude/issues/1261)) ([07d9b4f](https://github.com/Gitlawb/openclaude/commit/07d9b4fec49dcbae67ac721ac581f4e1b3c6a4fb)), closes [#1256](https://github.com/Gitlawb/openclaude/issues/1256)
+* **model:** include profile models in descriptor picker ([#1361](https://github.com/Gitlawb/openclaude/issues/1361)) ([2c87bfe](https://github.com/Gitlawb/openclaude/commit/2c87bfe055ae9bd95a297c21de9c3eee332c4337))
+* route MiniMax compacting through Anthropic-compatible API ([#1154](https://github.com/Gitlawb/openclaude/issues/1154)) ([b3dc674](https://github.com/Gitlawb/openclaude/commit/b3dc674dbea8e1a740832fdde54d8fd820d501bd))
+* **watchers:** debounce skills and settings reload bursts ([#1370](https://github.com/Gitlawb/openclaude/issues/1370)) ([ed91673](https://github.com/Gitlawb/openclaude/commit/ed91673f53718bca95bf31e8f0851335df020189))
+
 ## [0.14.0](https://github.com/Gitlawb/openclaude/compare/v0.13.0...v0.14.0) (2026-05-23)
 
 

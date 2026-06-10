@@ -21,6 +21,10 @@ import {
   handlePlanApprovalResponse,
 } from '../utils/inProcessTeammateHelpers.js'
 import { createAssistantMessage } from '../utils/messages.js'
+import { requestPermissionModeChange } from '../utils/permissions/permissionModeChange.js'
+import {
+  applyPermissionModeChange,
+} from '../utils/permissions/permissionSetup.js'
 import {
   permissionModeFromString,
   toExternalPermissionMode,
@@ -166,19 +170,34 @@ export function useInboxPoller({
           if (approvalResponse.approved) {
             // Use leader's permission mode if provided, otherwise default
             const targetMode = approvalResponse.permissionMode ?? 'default'
-
-            // Transition out of plan mode
-            setAppState(prev => ({
-              ...prev,
-              toolPermissionContext: applyPermissionUpdate(
-                prev.toolPermissionContext,
-                {
-                  type: 'setMode',
-                  mode: toExternalPermissionMode(targetMode),
-                  destination: 'session',
-                },
-              ),
-            }))
+            let blockedError: string | undefined
+            const result = await requestPermissionModeChange({
+              mode: targetMode,
+              toolPermissionContext: store.getState().toolPermissionContext,
+              requireLocalConfirmation: false,
+              allowDangerousModeConfirmation: false,
+              onApply: () => {
+                // Transition out of plan mode
+                setAppState(prev => {
+                  return {
+                    ...prev,
+                    toolPermissionContext: applyPermissionModeChange(
+                      prev.toolPermissionContext,
+                      targetMode,
+                    ),
+                  }
+                })
+              },
+              onBlocked: error => {
+                blockedError = error
+              },
+            })
+            if (result.status !== 'applied') {
+              logForDebugging(
+                `[InboxPoller] Rejecting plan-approval mode change from team-lead: ${blockedError ?? `Cannot set permission mode to ${targetMode}`}`,
+              )
+              continue
+            }
             logForDebugging(
               `[InboxPoller] Plan approved by team lead, exited plan mode to ${targetMode}`,
             )
@@ -570,22 +589,37 @@ export function useInboxPoller({
         }
 
         const targetMode = permissionModeFromString(parsed.mode)
+        let blockedError: string | undefined
+        const result = await requestPermissionModeChange({
+          mode: targetMode,
+          toolPermissionContext: store.getState().toolPermissionContext,
+          requireLocalConfirmation: false,
+          allowDangerousModeConfirmation: false,
+          onApply: () => {
+            // Update local permission context
+            setAppState(prev => {
+              return {
+                ...prev,
+                toolPermissionContext: applyPermissionModeChange(
+                  prev.toolPermissionContext,
+                  targetMode,
+                ),
+              }
+            })
+          },
+          onBlocked: error => {
+            blockedError = error
+          },
+        })
+        if (result.status !== 'applied') {
+          logForDebugging(
+            `[InboxPoller] Rejecting mode change from team-lead: ${blockedError ?? `Cannot set permission mode to ${targetMode}`}`,
+          )
+          continue
+        }
         logForDebugging(
           `[InboxPoller] Applying mode change from team-lead: ${targetMode}`,
         )
-
-        // Update local permission context
-        setAppState(prev => ({
-          ...prev,
-          toolPermissionContext: applyPermissionUpdate(
-            prev.toolPermissionContext,
-            {
-              type: 'setMode',
-              mode: toExternalPermissionMode(targetMode),
-              destination: 'session',
-            },
-          ),
-        }))
 
         // Update config.json so team lead can see the new mode
         const teamName = currentAppState.teamContext?.teamName

@@ -1,5 +1,11 @@
 import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
 import { query, forkSession, getSessionMessages, unstable_v2_createSession } from '../../src/entrypoints/sdk/index.js'
+import {
+  buildPermissionContext,
+  createDefaultCanUseTool,
+  createExternalCanUseTool,
+  createPermissionTarget,
+} from '../../src/entrypoints/sdk/permissions.js'
 import { randomUUID } from 'crypto'
 import { rmSync } from 'fs'
 import {
@@ -14,18 +20,36 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../src/test/sharedMutationLock.js'
+import { clearAgentDefinitionsCache } from '../../src/tools/AgentTool/loadAgentsDir.js'
 
 // Tests that drain fully (no early interrupt) trigger init(), which checks
 // for auth credentials. Provide a stub key so init() succeeds without network.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
+const DISABLE_BUILTIN_AGENTS_KEY = 'CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS'
 let savedApiKey: string | undefined
+let savedDisableBuiltinAgents: string | undefined
+let hadSavedMacro = false
+let savedMacro: unknown
 
 beforeAll(async () => {
   await acquireSharedMutationLock('tests/sdk/query-lifecycle.test.ts')
   savedApiKey = process.env[AUTH_KEY]
+  savedDisableBuiltinAgents = process.env[DISABLE_BUILTIN_AGENTS_KEY]
+  hadSavedMacro = Object.hasOwn(globalThis, 'MACRO')
+  savedMacro = (globalThis as Record<string, unknown>).MACRO
   if (!savedApiKey) {
     process.env[AUTH_KEY] = 'sk-test-lifecycle-stub'
   }
+  process.env[DISABLE_BUILTIN_AGENTS_KEY] = '1'
+  ;(globalThis as Record<string, unknown>).MACRO = {
+    VERSION: '0.0.0-test',
+    DISPLAY_VERSION: '0.0.0-test',
+    BUILD_TIME: 'test',
+    ISSUES_EXPLAINER: 'test',
+    PACKAGE_URL: 'test',
+    NATIVE_PACKAGE_URL: undefined,
+  }
+  clearAgentDefinitionsCache()
 })
 
 afterAll(() => {
@@ -35,6 +59,17 @@ afterAll(() => {
     } else {
       process.env[AUTH_KEY] = savedApiKey
     }
+    if (savedDisableBuiltinAgents === undefined) {
+      delete process.env[DISABLE_BUILTIN_AGENTS_KEY]
+    } else {
+      process.env[DISABLE_BUILTIN_AGENTS_KEY] = savedDisableBuiltinAgents
+    }
+    if (hadSavedMacro) {
+      ;(globalThis as Record<string, unknown>).MACRO = savedMacro
+    } else {
+      delete (globalThis as Record<string, unknown>).MACRO
+    }
+    clearAgentDefinitionsCache()
   } finally {
     releaseSharedMutationLock()
   }
@@ -227,11 +262,7 @@ describe('Query resume lifecycle', () => {
     })
   })
 
-  // These tests require full init() without mock engine. They fail in CI
-  // where axios/proxy/agent-loading side-effects crash init(). Skip on CI.
-  const testIfNotCI = process.env.CI ? test.skip : test
-
-  testIfNotCI('query() with fork:true — creates new sessionId', async () => {
+  test('query() with fork:true — creates new sessionId', async () => {
     await withTempDir(async (dir) => {
       tempDirs.push(dir)
       const sid = randomUUID()
@@ -242,29 +273,15 @@ describe('Query resume lifecycle', () => {
         prompt: 'forked conversation',
         options: { cwd: dir, sessionId: sid, fork: true },
       })
-      // Fork happens lazily during iteration; iterate to trigger it.
-      // Interrupt after a short delay to let fork logic run.
-      const interruptTimer = setTimeout(() => q.interrupt(), 100)
-      let caughtError: unknown = null
+      // Fork happens lazily during iteration. The first item is enough to
+      // trigger session resolution without advancing into the API request.
+      const iterator = q[Symbol.asyncIterator]()
       try {
-        for await (const _ of q) {
-          // drain
-        }
-      } catch (err) {
-        caughtError = err
+        const first = await iterator.next()
+        expect(first.done).toBe(false)
       } finally {
-        clearTimeout(interruptTimer)
-      }
-      if (caughtError instanceof Error) {
-        // Full-suite runs can hit unrelated global axios bootstrap side effects.
-        // Accept that environmental failure mode so this test only asserts
-        // fork behavior when the query engine actually initializes.
-        expect(
-          /axios\.defaults\.proxy|MACRO is not defined|unknown tool 'Glob'/.test(
-            caughtError.message,
-          ),
-        ).toBe(true)
-        return
+        q.interrupt()
+        await iterator.return?.()
       }
       expect(q.sessionId).toBeDefined()
       expect(q.sessionId).not.toBe(sid)
@@ -290,7 +307,7 @@ describe('Query resume lifecycle', () => {
     })
   })
 
-  testIfNotCI('query() with resumeSessionAt pointing to invalid UUID — throws', async () => {
+  test('query() with resumeSessionAt pointing to invalid UUID — throws', async () => {
     await withTempDir(async (dir) => {
       tempDirs.push(dir)
       const sid = randomUUID()
@@ -309,14 +326,8 @@ describe('Query resume lifecycle', () => {
         }
       } catch (err: any) {
         caught = true
-        if (err.message.includes('axios.defaults.proxy')) {
-          // See note in fork:true test above — tolerate suite-level bootstrap
-          // contamination so this test remains deterministic.
-          expect(err.message).toContain('axios.defaults.proxy')
-        } else {
-          expect(err.message).toContain('resumeSessionAt')
-          expect(err.message).toContain('not found')
-        }
+        expect(err.message).toContain('resumeSessionAt')
+        expect(err.message).toContain('not found')
       }
       expect(caught).toBe(true)
     })
@@ -325,18 +336,23 @@ describe('Query resume lifecycle', () => {
 
 describe('Secure-by-default permissions (SEC-2)', () => {
   test('createDefaultCanUseTool denies all tools when no callback is provided', async () => {
-    // We test this indirectly: create a query with no canUseTool or
-    // onPermissionRequest, and verify that tool uses are denied.
-    // The query engine will attempt to use tools, and the deny-by-default
-    // behavior should produce permission_denials in the result.
-    const q = query({
-      prompt: 'Read the file test.txt',
-      options: { cwd: process.cwd() },
-    })
+    const canUseTool = createDefaultCanUseTool(
+      buildPermissionContext({ cwd: process.cwd() }),
+      { warn: () => {} },
+    )
 
-    const messages = await drainQuery(q)
-    // The query should complete (not hang) and messages should be present
-    expect(Array.isArray(messages)).toBe(true)
+    const result = await canUseTool(
+      { name: 'Read' } as any,
+      { file_path: 'test.txt' },
+      {} as any,
+      {} as any,
+      'tool-use-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    expect(result.message).toContain('no canUseTool or onPermissionRequest')
+    expect(result.decisionReason).toEqual({ type: 'mode', mode: 'default' })
   })
 
   test('canUseTool callback overrides deny-by-default', async () => {
@@ -404,40 +420,46 @@ describe('Secure-by-default permissions (SEC-2)', () => {
 
 describe('Permission timeout eventing (PTO-1)', () => {
   test('timeout emits permission_timeout message in stream', async () => {
-    const messages: unknown[] = []
-
-    const q = query({
-      prompt: 'Read the file test.txt',
-      options: {
-        cwd: process.cwd(),
-        _permissionTimeoutMs: 100,
-        onPermissionRequest: () => {
-          // Deliberately do NOT call respondToPermission() — force timeout
-        },
+    const permissionTarget = createPermissionTarget()
+    const timeoutMessages: unknown[] = []
+    const warnings: string[] = []
+    const fallback = createDefaultCanUseTool(
+      buildPermissionContext({ cwd: process.cwd() }),
+      { warn: () => {} },
+    )
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      fallback,
+      permissionTarget,
+      () => {
+        // Deliberately do NOT resolve the pending permission; force timeout.
       },
-    })
-
-    // Drain with a timeout safety net
-    const drainPromise = drainQuery(q).then(msgs => { messages.push(...msgs) })
-    await drainPromise
-
-    // Verify no crash occurred
-    expect(Array.isArray(messages)).toBe(true)
-
-    // Check if a permission_timeout message was produced
-    const timeoutMsgs = messages.filter(
-      (msg: any) => msg?.type === 'permission_timeout',
+      message => timeoutMessages.push(message),
+      10,
+      'session-id',
+      { warn: message => warnings.push(message) },
     )
 
-    // If the engine tried to use a tool and hit the permission callback,
-    // we should see exactly one timeout message
-    if (timeoutMsgs.length > 0) {
-      const msg = timeoutMsgs[0] as Record<string, unknown>
-      expect(msg.type).toBe('permission_timeout')
-      expect(typeof msg.tool_name).toBe('string')
-      expect(typeof msg.tool_use_id).toBe('string')
-      expect(typeof msg.timed_out_after_ms).toBe('number')
-      expect(msg.timed_out_after_ms).toBe(100)
-    }
+    const result = await canUseTool(
+      { name: 'Read' } as any,
+      { file_path: 'test.txt' },
+      {} as any,
+      {} as any,
+      'tool-use-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    expect(timeoutMessages).toHaveLength(1)
+    expect(timeoutMessages[0]).toMatchObject({
+      type: 'permission_timeout',
+      tool_name: 'Read',
+      tool_use_id: 'tool-use-id',
+      timed_out_after_ms: 10,
+      session_id: 'session-id',
+    })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('timed out after 10ms')
+    expect(permissionTarget.pendingPermissionPrompts.size).toBe(0)
   }, 15_000)
 })

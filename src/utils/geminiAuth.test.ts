@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
+import * as fs from 'node:fs'
 
 import {
   acquireSharedMutationLock,
@@ -113,14 +114,19 @@ describe('resolveGeminiCredential', () => {
   })
 
   test('returns none when no Gemini auth source is configured', async () => {
-    delete process.env.GEMINI_API_KEY
-    delete process.env.GOOGLE_API_KEY
-    delete process.env.GEMINI_ACCESS_TOKEN
-    delete process.env.GOOGLE_APPLICATION_CREDENTIALS
+    const spy = spyOn(fs, 'existsSync').mockReturnValue(false)
+    try {
+      delete process.env.GEMINI_API_KEY
+      delete process.env.GOOGLE_API_KEY
+      delete process.env.GEMINI_ACCESS_TOKEN
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS
 
-    await expect(resolveGeminiCredential(process.env)).resolves.toEqual({
-      kind: 'none',
-    })
+      await expect(resolveGeminiCredential(process.env)).resolves.toEqual({
+        kind: 'none',
+      })
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   test('access-token mode does not silently fall back to ADC', async () => {
@@ -188,11 +194,19 @@ describe('Gemini auth helpers', () => {
   })
 
   test('only treats existing ADC paths as valid hints', () => {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = existingFilePath
-    expect(mayHaveGeminiAdcCredentials(process.env)).toBe(true)
+    const spy = spyOn(fs, 'existsSync').mockImplementation((path: string) => {
+      return path === existingFilePath
+    })
 
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = `${existingFilePath}.missing`
-    process.env.APPDATA = undefined
-    expect(mayHaveGeminiAdcCredentials(process.env)).toBe(false)
+    try {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = existingFilePath
+      expect(mayHaveGeminiAdcCredentials(process.env)).toBe(true)
+
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = `${existingFilePath}.missing`
+      delete process.env.APPDATA
+      expect(mayHaveGeminiAdcCredentials(process.env)).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

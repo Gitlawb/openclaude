@@ -34,7 +34,8 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
       if (ctx.resolveIfAborted(resolve)) {
         return;
       }
-      const decisionPromise = forceDecision !== undefined ? Promise.resolve(forceDecision) : hasPermissionsToUseTool(tool, input, toolUseContext, assistantMessage, toolUseID);
+      const shouldBypassForcedAsk = forceDecision?.behavior === "ask" && toolUseContext.getAppState().toolPermissionContext.mode === "fullAccess";
+      const decisionPromise = forceDecision !== undefined && !shouldBypassForcedAsk ? Promise.resolve(forceDecision) : hasPermissionsToUseTool(tool, input, toolUseContext, assistantMessage, toolUseID);
       return decisionPromise.then(async result => {
         if (result.behavior === "allow") {
           if (ctx.resolveIfAborted(resolve)) {

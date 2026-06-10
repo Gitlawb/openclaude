@@ -27,7 +27,10 @@ import {
   type PermissionDecisionReason,
   type PermissionResult,
 } from '../../utils/permissions/PermissionResult.js'
-import { checkRuleBasedPermissions } from '../../utils/permissions/permissions.js'
+import {
+  checkRuleBasedPermissions,
+  hasPermissionsToUseTool,
+} from '../../utils/permissions/permissions.js'
 import { formatError } from '../../utils/toolErrors.js'
 import { getAutoFixConfig } from '../autoFix/autoFixConfig.js'
 import { shouldRunAutoFix, buildAutoFixContext } from '../autoFix/autoFixHook.js'
@@ -478,14 +481,30 @@ export async function resolveHookPermissionDecision(
   }
 
   // No hook decision or 'ask' — normal permission flow, possibly with
-  // forceDecision so the dialog shows the hook's ask message.
-  const forceDecision =
-    hookPermissionResult?.behavior === 'ask' ? hookPermissionResult : undefined
+  // forceDecision so the dialog shows the hook's ask message. Full Access
+  // skips hook ask prompts, while still preserving rule/tool denies.
+  const isFullAccessMode =
+    toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
   const askInput =
     hookPermissionResult?.behavior === 'ask' &&
     hookPermissionResult.updatedInput
       ? hookPermissionResult.updatedInput
       : input
+  if (hookPermissionResult?.behavior === 'ask' && isFullAccessMode) {
+    const fullAccessDecision = await hasPermissionsToUseTool(
+      tool,
+      askInput,
+      toolUseContext,
+      assistantMessage,
+      toolUseID,
+    )
+    return {
+      decision: fullAccessDecision,
+      input: fullAccessDecision.updatedInput ?? askInput,
+    }
+  }
+  const forceDecision =
+    hookPermissionResult?.behavior === 'ask' ? hookPermissionResult : undefined
   return {
     decision: await canUseTool(
       tool,

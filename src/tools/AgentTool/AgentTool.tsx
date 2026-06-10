@@ -11,8 +11,8 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
+import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider } from '../../services/api/agentRouting.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
-import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
 import { runWithAgentContext } from '../../utils/agentContext.js';
@@ -25,10 +25,12 @@ import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
 import { getAgentModel } from '../../utils/model/agent.js';
+import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
 import { permissionModeSchema } from '../../utils/permissions/PermissionMode.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { filterDeniedAgents, getDenyRuleForAgent } from '../../utils/permissions/permissions.js';
 import { enqueueSdkEvent } from '../../utils/sdkEventQueue.js';
+import { getInitialSettings } from '../../utils/settings/settings.js';
 import { writeAgentMetadata } from '../../utils/sessionStorage.js';
 import { sleep } from '../../utils/sleep.js';
 import { buildEffectiveSystemPrompt } from '../../utils/systemPrompt.js';
@@ -36,7 +38,6 @@ import { asSystemPrompt } from '../../utils/systemPromptType.js';
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { getParentSessionId, isTeammate } from '../../utils/teammate.js';
 import { isInProcessTeammate } from '../../utils/teammateContext.js';
-import { teleportToRemote } from '../../utils/teleport.js';
 import { getAssistantMessageContentLength } from '../../utils/tokens.js';
 import { createAgentId } from '../../utils/uuid.js';
 import { createAgentWorktree, hasWorktreeChanges, removeAgentWorktree } from '../../utils/worktree.js';
@@ -83,12 +84,12 @@ const baseInputSchema = lazySchema(() => z.object({
   description: z.string().describe('A short (3-5 word) description of the task'),
   prompt: z.string().describe('The task for the agent to perform'),
   subagent_type: z.string().optional().describe('The type of specialized agent to use for this task'),
-  model: z.enum(['sonnet', 'opus', 'haiku']).optional().describe("Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
+  model: z.string().trim().min(1, 'Model cannot be empty').optional().describe("Optional model override for this agent. Accepts aliases such as sonnet, opus, haiku, inherit, or a provider-supported model ID. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
   run_in_background: z.boolean().optional().describe('Set to true to run this agent in the background. You will be notified when it completes.')
 }));
 
 // Full schema combining base + multi-agent params + isolation
-const fullInputSchema = lazySchema(() => {
+export const fullInputSchema = lazySchema(() => {
   // Multi-agent parameters
   const multiAgentInputSchema = z.object({
     name: z.string().optional().describe('Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running.'),
@@ -96,8 +97,11 @@ const fullInputSchema = lazySchema(() => {
     mode: permissionModeSchema().optional().describe('Permission mode for spawned teammate (e.g., "plan" to require plan approval).')
   });
   return baseInputSchema().merge(multiAgentInputSchema).extend({
-    isolation: ("external" === 'ant' ? z.enum(['worktree', 'remote']) : z.enum(['worktree'])).optional().describe("external" === 'ant' ? 'Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. "remote" launches the agent in a remote CCR environment (always runs in background).' : 'Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.'),
+    isolation: z.enum(['worktree']).optional().describe('Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.'),
     cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. Mutually exclusive with isolation: "worktree".')
+  }).refine(input => !(input.isolation === 'worktree' && input.cwd !== undefined), {
+    path: ['cwd'],
+    message: 'cwd is mutually exclusive with isolation: "worktree".'
   });
 });
 
@@ -133,9 +137,38 @@ type AgentToolInput = z.infer<ReturnType<typeof baseInputSchema>> & {
   name?: string;
   team_name?: string;
   mode?: z.infer<ReturnType<typeof permissionModeSchema>>;
-  isolation?: 'worktree' | 'remote';
+  isolation?: 'worktree';
   cwd?: string;
 };
+type AgentToolIsolation = AgentToolInput['isolation'];
+type AgentToolWorktreeInfo = {
+  worktreePath: string;
+} | null | undefined;
+
+export function resolveAgentToolEffectiveIsolation(
+  requestedIsolation: AgentToolIsolation,
+  agentIsolation: AgentToolIsolation,
+): AgentToolIsolation {
+  return requestedIsolation === 'worktree' || agentIsolation === 'worktree'
+    ? 'worktree'
+    : undefined;
+}
+
+export function assertAgentToolCwdAllowed(
+  cwd: string | undefined,
+  effectiveIsolation: AgentToolIsolation,
+): void {
+  if (cwd !== undefined && effectiveIsolation === 'worktree') {
+    throw new Error('cwd is mutually exclusive with isolation: "worktree".');
+  }
+}
+
+export function resolveAgentToolCwdOverride(
+  cwd: string | undefined,
+  worktreeInfo: AgentToolWorktreeInfo,
+): string | undefined {
+  return worktreeInfo?.worktreePath ?? cwd;
+}
 
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
 export const outputSchema = lazySchema(() => {
@@ -177,18 +210,7 @@ type TeammateSpawnedOutput = {
 
 // Combined output type including both public and internal types
 // Note: TeammateSpawnedOutput type is fine - TypeScript types are erased at compile time
-// Private type for remote-launched results — excluded from exported schema
-// like TeammateSpawnedOutput for dead code elimination purposes. Exported
-// for UI.tsx to do proper discriminated-union narrowing instead of ad-hoc casts.
-export type RemoteLaunchedOutput = {
-  status: 'remote_launched';
-  taskId: string;
-  sessionUrl: string;
-  description: string;
-  prompt: string;
-  outputFile: string;
-};
-type InternalOutput = Output | TeammateSpawnedOutput | RemoteLaunchedOutput;
+type InternalOutput = Output | TeammateSpawnedOutput;
 import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
 // AgentTool forwards both its own progress events and shell progress
 // events from the sub-agent so the SDK receives tool_progress updates during bash/powershell runs.
@@ -287,6 +309,26 @@ export const AgentTool = buildTool({
       if (agentDef?.color) {
         setAgentColor(subagent_type!, agentDef.color);
       }
+      const rawTeammateModel = model ?? agentDef?.model;
+      const resolvedTeammateModel =
+        rawTeammateModel === undefined
+          ? undefined
+          : getAgentModel(
+              agentDef?.model,
+              toolUseContext.options.mainLoopModel,
+              model,
+              permissionMode
+            );
+      const routedTeammateProvider = resolveOutOfProcessTeammateProvider({
+        cliModel: model,
+        agentName: name,
+        agentType: subagent_type,
+        agentDefinitionModel: agentDef?.model,
+        settings: getInitialSettings()
+      });
+      if (routedTeammateProvider && !isModelAllowed(routedTeammateProvider.model)) {
+        throw new Error(`Model '${routedTeammateProvider.model}' is not available. Your organization restricts model selection.`);
+      }
       const result = await spawnTeammate({
         name,
         prompt,
@@ -294,7 +336,8 @@ export const AgentTool = buildTool({
         team_name: teamName,
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
-        model: model ?? agentDef?.model,
+        model: routedTeammateProvider?.model ?? resolvedTeammateModel,
+        modelWasToolSpecified: model !== undefined,
         agent_type: subagent_type,
         invokingRequestId: assistantMessage?.requestId
       }, toolUseContext);
@@ -414,11 +457,20 @@ export const AgentTool = buildTool({
       setAgentColor(selectedAgent.agentType, selectedAgent.color);
     }
 
-    // Resolve agent params for logging (these are already resolved in runAgent)
+    // Resolve agent params for logging and prebuilt system prompts. runAgent
+    // resolves the same settings again before the actual query.
     const resolvedAgentModel = getAgentModel(selectedAgent.model, toolUseContext.options.mainLoopModel, isForkPath ? undefined : model, permissionMode);
+    const { mainLoopModel: effectiveAgentModel } = resolveAgentRunModelRouting({
+      resolvedAgentModel,
+      toolSpecifiedModel: isForkPath ? undefined : model,
+      agentName: name,
+      subagentType: selectedAgent.agentType,
+      agentDefinitionModel: selectedAgent.model,
+      settings: getInitialSettings(),
+    });
     logEvent('tengu_agent_tool_selected', {
       agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-      model: resolvedAgentModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      model: effectiveAgentModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       source: selectedAgent.source as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       color: selectedAgent.color as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       is_built_in_agent: isBuiltInAgent(selectedAgent),
@@ -427,59 +479,13 @@ export const AgentTool = buildTool({
       is_fork: isForkPath
     });
 
-    // Resolve effective isolation mode (explicit param overrides agent def)
-    const effectiveIsolation = isolation ?? selectedAgent.isolation;
-
-    // Remote isolation: delegate to CCR. Gated internal-only — the guard enables
-    // dead code elimination of the entire block for external builds.
-    if ("external" === 'ant' && effectiveIsolation === 'remote') {
-      const eligibility = await checkRemoteAgentEligibility();
-      if (!eligibility.eligible) {
-        const reasons = eligibility.errors.map(formatPreconditionError).join('\n');
-        throw new Error(`Cannot launch remote agent:\n${reasons}`);
-      }
-      let bundleFailHint: string | undefined;
-      const session = await teleportToRemote({
-        initialMessage: prompt,
-        description,
-        signal: toolUseContext.abortController.signal,
-        onBundleFail: msg => {
-          bundleFailHint = msg;
-        }
-      });
-      if (!session) {
-        throw new Error(bundleFailHint ?? 'Failed to create remote session');
-      }
-      const {
-        taskId,
-        sessionId
-      } = registerRemoteAgentTask({
-        remoteTaskType: 'remote-agent',
-        session: {
-          id: session.id,
-          title: session.title || description
-        },
-        command: prompt,
-        context: toolUseContext,
-        toolUseId: toolUseContext.toolUseId
-      });
-      logEvent('tengu_agent_tool_remote_launched', {
-        agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-      });
-      const remoteResult: RemoteLaunchedOutput = {
-        status: 'remote_launched',
-        taskId,
-        sessionUrl: getRemoteTaskSessionUrl(sessionId),
-        description,
-        prompt,
-        outputFile: getTaskOutputPath(taskId)
-      };
-      return {
-        data: remoteResult
-      } as unknown as {
-        data: Output;
-      };
-    }
+    // Agent frontmatter can force worktree isolation too, so validate cwd
+    // against the effective mode instead of only the raw tool input.
+    const effectiveIsolation = resolveAgentToolEffectiveIsolation(
+      isolation,
+      selectedAgent.isolation,
+    );
+    assertAgentToolCwdAllowed(cwd, effectiveIsolation);
     // System prompt + prompt messages: branch on fork path.
     //
     // Fork path: child inherits the PARENT's system prompt (not FORK_AGENT's)
@@ -522,16 +528,13 @@ export const AgentTool = buildTool({
         // Log agent memory loaded event for subagents
         if (selectedAgent.memory) {
           logEvent('tengu_agent_memory_loaded', {
-            ...("external" === 'ant' && {
-              agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-            }),
             scope: selectedAgent.memory as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
             source: 'subagent' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
           });
         }
 
         // Apply environment details enhancement
-        enhancedSystemPrompt = await enhanceSystemPromptWithEnvDetails([agentPrompt], resolvedAgentModel, additionalWorkingDirectories);
+        enhancedSystemPrompt = await enhanceSystemPromptWithEnvDetails([agentPrompt], effectiveAgentModel, additionalWorkingDirectories);
       } catch (error) {
         logForDebugging(`Failed to get system prompt for agent ${selectedAgent.agentType}: ${errorMessage(error)}`);
       }
@@ -541,7 +544,7 @@ export const AgentTool = buildTool({
     }
     const metadata = {
       prompt,
-      resolvedAgentModel,
+      resolvedAgentModel: effectiveAgentModel,
       isBuiltInAgent: isBuiltInAgent(selectedAgent),
       startTime,
       agentType: selectedAgent.agentType,
@@ -648,9 +651,9 @@ export const AgentTool = buildTool({
       agentName: name,
     };
 
-    // Helper to wrap execution with a cwd override: explicit cwd arg (KAIROS)
-    // takes precedence over worktree isolation path.
-    const cwdOverridePath = cwd ?? worktreeInfo?.worktreePath;
+    // Helper to wrap execution with a cwd override. Worktree wins if present;
+    // cwd is rejected for worktree isolation above, but keep this defensive.
+    const cwdOverridePath = resolveAgentToolCwdOverride(cwd, worktreeInfo);
     const wrapWithCwd = <T,>(fn: () => T): T => cwdOverridePath ? runWithCwdOverride(cwdOverridePath, fn) : fn();
 
     // Helper to clean up worktree after agent completes
@@ -1294,17 +1297,6 @@ export const AgentTool = buildTool({
     return input?.description ?? 'Running task';
   },
   async checkPermissions(input, context): Promise<PermissionResult> {
-    const appState = context.getAppState();
-
-    // Only route through auto mode classifier when in auto mode
-    // In all other modes, auto-approve sub-agent generation
-    // Note: "external" === 'ant' guard enables dead code elimination for external builds
-    if ("external" === 'ant' && appState.toolPermissionContext.mode === 'auto') {
-      return {
-        behavior: 'passthrough',
-        message: 'Agent tool requires permission to spawn sub-agents.'
-      };
-    }
     return {
       behavior: 'allow',
       updatedInput: input
@@ -1325,17 +1317,6 @@ agent_id: ${spawnData.teammate_id}
 name: ${spawnData.name}
 team_name: ${spawnData.team_name}
 The agent is now running and will receive instructions via mailbox.`
-        }]
-      };
-    }
-    if ('status' in internalData && internalData.status === 'remote_launched') {
-      const r = internalData;
-      return {
-        tool_use_id: toolUseID,
-        type: 'tool_result',
-        content: [{
-          type: 'text',
-          text: `Remote agent launched in CCR.\ntaskId: ${r.taskId}\nsession_url: ${r.sessionUrl}\noutput_file: ${r.outputFile}\nThe agent is running remotely. You will be notified automatically when it completes.\nBriefly tell the user what you launched and end your response.`
         }]
       };
     }

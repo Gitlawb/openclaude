@@ -292,9 +292,9 @@ function normalizeOpengatewayBaseUrl(baseUrl: string): string {
 }
 
 /**
- * Fallback: the Gitlawb Opengateway exposes free partner inference through a
+ * Fallback: the Gitlawb Opengateway exposes partner inference through a
  * smart OpenAI-compatible route. As of 2026-05-22 it requires a per-user API
- * key (mint at https://gitlawb.com/opengateway/keys); without a key we return
+ * key (signup at https://gitlawb.com/opengateway/keys); without a key we return
  * null so the caller surfaces the missing-credential prompt instead of
  * silently routing to an endpoint that will 401.
  */
@@ -310,7 +310,7 @@ function defaultOpengatewayProvider(env: EnvLike): DetectedProvider | null {
   return {
     kind: 'gitlawb-opengateway',
     source:
-      'Gitlawb Opengateway (free partner models — API key required, mint at https://gitlawb.com/opengateway/keys)',
+      'Gitlawb Opengateway (API key required, signup at https://gitlawb.com/opengateway/keys)',
     baseUrl: normalizeOpengatewayBaseUrl(baseUrl),
     model: OPENGATEWAY_DEFAULT_MODEL,
   }

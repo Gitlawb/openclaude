@@ -10,6 +10,11 @@ type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
   | 'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS'
 
+export type OpenAILimitOverrideMatches = {
+  exact?: number
+  prefix?: number
+}
+
 function readExternalLimits(
   envVarName: LimitEnvVar,
   processEnv: NodeJS.ProcessEnv,
@@ -88,17 +93,31 @@ function lookupByModel(
   entries: Record<string, number>,
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv,
-): number | undefined {
+): OpenAILimitOverrideMatches {
   const modelName = model?.trim() || processEnv.OPENAI_MODEL?.trim()
   const baseUrlHost = getOpenAIBaseUrlHost(processEnv)
   const hostQualifiedModel =
     baseUrlHost && modelName ? `${baseUrlHost}:${modelName}` : undefined
 
-  return (
-    lookupExactByKey(entries, hostQualifiedModel) ??
-    lookupExactByKey(entries, modelName) ??
-    lookupPrefixByKey(entries, hostQualifiedModel) ??
-    lookupPrefixByKey(entries, modelName)
+  return {
+    exact:
+      lookupExactByKey(entries, hostQualifiedModel) ??
+      lookupExactByKey(entries, modelName),
+    prefix:
+      lookupPrefixByKey(entries, hostQualifiedModel) ??
+      lookupPrefixByKey(entries, modelName),
+  }
+}
+
+function lookupExternalLimitMatches(
+  envVarName: LimitEnvVar,
+  model: string | undefined,
+  processEnv: NodeJS.ProcessEnv,
+): OpenAILimitOverrideMatches {
+  return lookupByModel(
+    readExternalLimits(envVarName, processEnv),
+    model,
+    processEnv,
   )
 }
 
@@ -107,11 +126,8 @@ function lookupExternalLimit(
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv,
 ): number | undefined {
-  return lookupByModel(
-    readExternalLimits(envVarName, processEnv),
-    model,
-    processEnv,
-  )
+  const matches = lookupExternalLimitMatches(envVarName, model, processEnv)
+  return matches.exact ?? matches.prefix
 }
 
 export function getOpenAIContextWindow(
@@ -125,11 +141,33 @@ export function getOpenAIContextWindow(
   )
 }
 
+export function getOpenAIContextWindowMatches(
+  model: string | undefined,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): OpenAILimitOverrideMatches {
+  return lookupExternalLimitMatches(
+    'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
+    model,
+    processEnv,
+  )
+}
+
 export function getOpenAIMaxOutputTokens(
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): number | undefined {
   return lookupExternalLimit(
+    'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
+    model,
+    processEnv,
+  )
+}
+
+export function getOpenAIMaxOutputTokenMatches(
+  model: string | undefined,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): OpenAILimitOverrideMatches {
+  return lookupExternalLimitMatches(
     'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
     model,
     processEnv,

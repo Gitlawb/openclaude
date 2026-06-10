@@ -11,7 +11,7 @@ type Props = {
   server: ServerInfo;
   onBack: () => void;
 };
-export function MCPToolDetailView(t0) {
+export function MCPToolDetailView(t0: Props): React.ReactNode {
   const $ = _c(44);
   const {
     tool,

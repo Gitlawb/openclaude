@@ -1,7 +1,7 @@
 import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
 import { BASE_CHROME_PROMPT } from '../../utils/claudeInChrome/prompt.js'
-import { shouldAutoEnableClaudeInChrome } from '../../utils/claudeInChrome/setup.js'
 import { registerBundledSkill } from '../bundledSkills.js'
+import { shouldEnableClaudeInChromeSkill } from './claudeInChromeAccess.js'
 
 const CLAUDE_IN_CHROME_MCP_TOOLS = BROWSER_TOOLS.map(
   tool => `mcp__claude-in-chrome__${tool.name}`,
@@ -22,7 +22,7 @@ export function registerClaudeInChromeSkill(): void {
       'When the user wants to interact with web pages, automate browser tasks, capture screenshots, read console logs, or perform any browser-based actions. Always invoke BEFORE attempting to use any mcp__claude-in-chrome__* tools.',
     allowedTools: CLAUDE_IN_CHROME_MCP_TOOLS,
     userInvocable: true,
-    isEnabled: () => shouldAutoEnableClaudeInChrome(),
+    isEnabled: () => shouldEnableClaudeInChromeSkill(),
     async getPromptForCommand(args) {
       let prompt = `${BASE_CHROME_PROMPT}\n${SKILL_ACTIVATION_MESSAGE}`
       if (args) {

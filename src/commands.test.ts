@@ -13,6 +13,10 @@ describe('builtInCommandNames', () => {
   test('includes the request-size diagnostic command', () => {
     expect(builtInCommandNames()).toContain('request-size')
   })
+
+  test('includes the /dream command', () => {
+    expect(builtInCommandNames()).toContain('dream')
+  })
 })
 
 describe('isCommand', () => {

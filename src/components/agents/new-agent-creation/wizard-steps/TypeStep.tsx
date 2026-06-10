@@ -14,16 +14,16 @@ import type { AgentWizardData } from '../types.js';
 type Props = {
   existingAgents: AgentDefinition[];
 };
-export function TypeStep(_props) {
+export function TypeStep(_props: Props): React.ReactNode {
   const $ = _c(15);
   const {
     goNext,
     goBack,
     updateWizardData,
     wizardData
-  } = useWizard();
+  } = useWizard<AgentWizardData>();
   const [agentType, setAgentType] = useState(wizardData.agentType || "");
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [cursorOffset, setCursorOffset] = useState(agentType.length);
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {

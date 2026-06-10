@@ -54,6 +54,23 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
   ])
 })
 
+test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {
+  expect(getRouteCredentialEnvVars('atlas-cloud')).toEqual([
+    'ATLAS_CLOUD_API_KEY',
+  ])
+  expect(
+    getRouteCredentialValue('atlas-cloud', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+    }),
+  ).toBeUndefined()
+  expect(
+    getRouteCredentialValue('atlas-cloud', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+      ATLAS_CLOUD_API_KEY: 'atlas-key',
+    }),
+  ).toBe('atlas-key')
+})
+
 test('getRouteCredentialValue reads the first configured route credential', () => {
   expect(
     getRouteCredentialValue('openrouter', {

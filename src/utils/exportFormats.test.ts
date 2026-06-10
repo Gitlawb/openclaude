@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { join } from 'path'
 
 import {
   ensureExportFilenameExtension,
@@ -233,7 +234,9 @@ describe('parseExportArgs', () => {
 
 describe('resolveExportFilepath', () => {
   test('resolves relative export filenames under the current working directory', () => {
-    expect(resolveExportFilepath('/work/project', 'transcript.md')).toBe('/work/project/transcript.md')
+    expect(resolveExportFilepath('/work/project', 'transcript.md')).toBe(
+      join('/work/project', 'transcript.md'),
+    )
   })
 
   test('preserves absolute export filenames', () => {

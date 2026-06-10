@@ -46,6 +46,7 @@ export interface ShimCreateParams {
 type ResponsesInputPart =
   | { type: 'input_text'; text: string }
   | { type: 'output_text'; text: string }
+  | { type: 'text'; text: string }
   | { type: 'input_image'; image_url: string }
 
 type ResponsesInputItem =
@@ -168,8 +169,9 @@ function convertToolResultToText(content: unknown): string {
 function convertContentBlocksToResponsesParts(
   content: unknown,
   role: 'user' | 'assistant',
+  forceTextChunks: boolean,
 ): ResponsesInputPart[] {
-  const textType = role === 'assistant' ? 'output_text' : 'input_text'
+  const textType = !forceTextChunks ? (role === 'assistant' ? 'output_text' : 'input_text') : 'text'
   if (typeof content === 'string') {
     return [{ type: textType, text: content }]
   }
@@ -221,20 +223,31 @@ function convertContentBlocksToResponsesParts(
 }
 
 export function convertAnthropicMessagesToResponsesInput(
-  messages: Array<{ role?: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
+  compressedMessages: Array<{
+    role?: string
+    message?: { role?: string; content?: unknown }
+    content?: unknown
+  }>,
+  forceTextChunks = false,
 ): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = []
 
-  for (const message of messages) {
-    const inner = message.message ?? message
-    const role = (inner as { role?: string }).role ?? message.role
-    const content = (inner as { content?: unknown }).content
+  for (const item of compressedMessages) {
+    const rawRole = item.message?.role ?? item.role
+    const role =
+      rawRole === 'assistant' || rawRole === 'model' ? 'assistant' : 'user'
+
+    const contentRaw = item.message?.content ?? item.content
+    const content = Array.isArray(contentRaw)
+      ? contentRaw
+      : [{ type: 'text', text: String(contentRaw ?? '') }]
 
     if (role === 'user') {
-      if (Array.isArray(content)) {
-        const toolResults = content.filter(
-          (block: { type?: string }) => block.type === 'tool_result',
-        )
+      const toolResults = content.filter(
+        (block: { type?: string }) => block.type === 'tool_result',
+      )
+
+      if (toolResults.length > 0) {
         const otherContent = content.filter(
           (block: { type?: string }) => block.type !== 'tool_result',
         )
@@ -251,7 +264,7 @@ export function convertAnthropicMessagesToResponsesInput(
           })
         }
 
-        const parts = convertContentBlocksToResponsesParts(otherContent, 'user')
+        const parts = convertContentBlocksToResponsesParts(otherContent, 'user', forceTextChunks)
         if (parts.length > 0) {
           items.push({
             type: 'message',
@@ -265,7 +278,7 @@ export function convertAnthropicMessagesToResponsesInput(
       items.push({
         type: 'message',
         role: 'user',
-        content: convertContentBlocksToResponsesParts(content, 'user'),
+        content: convertContentBlocksToResponsesParts(content, 'user', forceTextChunks),
       })
       continue
     }
@@ -275,7 +288,7 @@ export function convertAnthropicMessagesToResponsesInput(
         ? content.filter((block: { type?: string }) =>
             block.type !== 'tool_use' && block.type !== 'thinking')
         : content
-      const parts = convertContentBlocksToResponsesParts(textBlocks, 'assistant')
+      const parts = convertContentBlocksToResponsesParts(textBlocks, 'assistant', forceTextChunks)
       if (parts.length > 0) {
         items.push({
           type: 'message',

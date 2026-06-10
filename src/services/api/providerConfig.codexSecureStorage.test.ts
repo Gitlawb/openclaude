@@ -6,6 +6,16 @@ import * as realOs from 'node:os'
 import * as realCodexCredentials from '../../utils/codexCredentials.js'
 import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
 
+type ProviderConfigModule = typeof import('./providerConfig.js')
+
+function importFreshProviderConfig(
+  cacheKey: string,
+): Promise<ProviderConfigModule> {
+  return import(
+    `./providerConfig.js?${cacheKey}`
+  ) as Promise<ProviderConfigModule>
+}
+
 function makeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
     .toString('base64url')
@@ -35,10 +45,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    // @ts-expect-error cache-busting query string for Bun module mocks
-    const { resolveCodexApiCredentials } = await import(
-      './providerConfig.js?codex-secure-storage'
-    )
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfig('codex-secure-storage')
 
     const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
     expect(credentials.apiKey).toBe('codex-api-key-token')
@@ -57,10 +65,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    // @ts-expect-error cache-busting query string for Bun module mocks
-    const { resolveCodexApiCredentials } = await import(
-      './providerConfig.js?codex-env-precedence'
-    )
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfig('codex-env-precedence')
 
     const credentials = resolveCodexApiCredentials({
       CODEX_API_KEY: 'env-token',
@@ -80,10 +86,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       readCodexCredentials: () => undefined,
     }))
 
-    // @ts-expect-error cache-busting query string for Bun module mocks
-    const { resolveCodexApiCredentials } = await import(
-      './providerConfig.js?codex-env-nested-account'
-    )
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfig('codex-env-nested-account')
 
     const credentials = resolveCodexApiCredentials({
       CODEX_API_KEY: makeJwt({
@@ -121,10 +125,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
     )
 
     try {
-      // @ts-expect-error cache-busting query string for Bun module mocks
-      const { resolveCodexApiCredentials } = await import(
-        './providerConfig.js?codex-auth-json-nested-account'
-      )
+      const { resolveCodexApiCredentials } =
+        await importFreshProviderConfig('codex-auth-json-nested-account')
 
       const credentials = resolveCodexApiCredentials({
         CODEX_AUTH_JSON_PATH: authPath,
@@ -149,10 +151,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    // @ts-expect-error cache-busting query string for Bun module mocks
-    const { resolveCodexApiCredentials } = await import(
-      './providerConfig.js?codex-secure-storage-no-auth-io'
-    )
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfig('codex-secure-storage-no-auth-io')
 
     const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
     expect(credentials.apiKey).toBe('codex-api-key-token')
@@ -189,10 +189,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    // @ts-expect-error cache-busting query string for Bun module mocks
-    const { resolveCodexApiCredentials } = await import(
-      './providerConfig.js?codex-refresh-cooldown-fallback'
-    )
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfig('codex-refresh-cooldown-fallback')
 
     try {
       const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
@@ -229,9 +227,8 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    // @ts-expect-error cache-busting query string for Bun module mocks
-    const { resolveCodexApiCredentials } = await import(
-      './providerConfig.js?codex-refresh-cooldown-account-id-fallback'
+    const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+      'codex-refresh-cooldown-account-id-fallback',
     )
 
     try {

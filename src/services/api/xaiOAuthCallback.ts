@@ -202,10 +202,15 @@ export async function startXaiOAuthCallback(params: {
     }
   })
 
+  let boundPort = params.port
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(params.port, params.host, () => {
       server.removeListener('error', reject)
+      const address = server.address()
+      if (address && typeof address === 'object') {
+        boundPort = address.port
+      }
       resolve()
     })
   })
@@ -217,7 +222,7 @@ export async function startXaiOAuthCallback(params: {
   })
 
   return {
-    port: params.port,
+    port: boundPort,
     waitForCallback: () => callbackPromise,
     close: () => {
       if (!settled) {

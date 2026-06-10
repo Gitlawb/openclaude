@@ -42,6 +42,6 @@ test('build feature flags are not enabled without their source files', () => {
 
     // When the source IS present, the flag can be either true or false; either
     // is fine. We only care about the "enabled but missing" combination.
-    expect(true).toBe(true)
+    expect(isEnabled && !sourceExists).toBe(false)
   }
 })

@@ -22,7 +22,7 @@ afterAll(() => {
   }
 })
 
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { detectProvider, printStartupScreen } from './StartupScreen.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import {
@@ -287,6 +287,7 @@ describe('detectProvider — modelOverride from --model flag', () => {
   })
 
   test('modelOverride alias is resolved for Anthropic', () => {
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-4-6'
     const result = detectProvider('opus')
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('opus')

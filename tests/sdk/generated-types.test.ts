@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import {
+  AccountInfoSchema,
   SDKAssistantMessageSchema,
   SDKSystemMessageSchema,
   SDKCompactBoundaryMessageSchema,
@@ -14,6 +15,7 @@ import {
   AgentDefinitionSchema,
   McpServerStatusSchema,
   ModelUsageSchema,
+  ModelInfoSchema,
   FastModeStateSchema,
   HookInputSchema,
   ExitReasonSchema,
@@ -211,7 +213,14 @@ describe('SDK Zod schemas (type generation source)', () => {
 
   test('PermissionModeSchema accepts valid modes', () => {
     const schema = PermissionModeSchema()
-    const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']
+    const modes = [
+      'default',
+      'acceptEdits',
+      'bypassPermissions',
+      'fullAccess',
+      'plan',
+      'dontAsk',
+    ]
     for (const mode of modes) {
       expect(schema.safeParse(mode).success).toBe(true)
     }
@@ -257,6 +266,43 @@ describe('SDK Zod schemas (type generation source)', () => {
       maxOutputTokens: 8192,
     })
     expect(result.success).toBe(true)
+  })
+
+  test('ModelInfoSchema accepts supported effort level arrays', () => {
+    const schema = ModelInfoSchema()
+    const result = schema.safeParse({
+      value: 'claude-opus-4-6',
+      displayName: 'Claude Opus 4.6',
+      description: 'Most capable model',
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  test('AccountInfoSchema accepts all runtime API provider categories', () => {
+    const schema = AccountInfoSchema()
+    const providers = [
+      'firstParty',
+      'bedrock',
+      'vertex',
+      'foundry',
+      'openai',
+      'gemini',
+      'github',
+      'codex',
+      'nvidia-nim',
+      'minimax',
+      'mistral',
+      'xai',
+      'xiaomi-mimo',
+    ]
+
+    for (const apiProvider of providers) {
+      expect(schema.safeParse({ apiProvider }).success).toBe(true)
+    }
+    expect(schema.safeParse({ apiProvider: 'unknown' }).success).toBe(false)
   })
 
   test('AgentDefinitionSchema accepts valid data', () => {

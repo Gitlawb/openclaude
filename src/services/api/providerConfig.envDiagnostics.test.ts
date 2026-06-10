@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import type { DebugLogLevel } from '../../utils/debug.js'
+
+type DebugModule = typeof import('../../utils/debug.js')
+type DebugSpy = ReturnType<
+  typeof mock<(message: string, options?: { level?: DebugLogLevel }) => void>
+>
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -13,6 +19,7 @@ const originalEnv = {
   GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
 }
+let actualDebugModule: DebugModule | undefined
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -39,16 +46,14 @@ afterEach(() => {
     restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
     restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
     mock.restore()
+    restoreDebugModule()
   } finally {
     releaseSharedMutationLock()
   }
 })
 
 test('logs a warning when OPENAI_BASE_URL is literal undefined', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'undefined'
@@ -73,10 +78,7 @@ test('logs a warning when OPENAI_BASE_URL is literal undefined', async () => {
 })
 
 test('does not warn for OPENAI_API_BASE when OPENAI_BASE_URL is active', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_USE_MISTRAL
@@ -101,10 +103,7 @@ test('does not warn for OPENAI_API_BASE when OPENAI_BASE_URL is active', async (
 })
 
 test('uses OPENAI_API_BASE as fallback in mistral mode when MISTRAL_BASE_URL is unset', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  const debugSpy = await mockDebugLogging()
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   process.env.CLAUDE_CODE_USE_MISTRAL = '1'
@@ -122,10 +121,7 @@ test('uses OPENAI_API_BASE as fallback in mistral mode when MISTRAL_BASE_URL is 
 })
 
 test('uses descriptor-backed Gemini default model when GEMINI_MODEL is unset', async () => {
-  const debugSpy = mock(() => {})
-  mock.module('../../utils/debug.js', () => ({
-    logForDebugging: debugSpy,
-  }))
+  await mockDebugLogging()
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_MISTRAL
@@ -143,3 +139,23 @@ test('uses descriptor-backed Gemini default model when GEMINI_MODEL is unset', a
   expect(resolved.resolvedModel).toBe('gemini-3-flash-preview')
   expect(resolved.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta/openai')
 })
+
+async function mockDebugLogging(): Promise<DebugSpy> {
+  actualDebugModule ??= await import(
+    `../../utils/debug.ts?providerConfigEnvDiagnosticsActual=${Date.now()}-${Math.random()}`
+  )
+  const debugSpy = mock(
+    (_message: string, _options?: { level?: DebugLogLevel }) => {},
+  )
+  mock.module('../../utils/debug.js', () => ({
+    ...actualDebugModule!,
+    logForDebugging: debugSpy,
+  }))
+  return debugSpy
+}
+
+function restoreDebugModule(): void {
+  if (actualDebugModule) {
+    mock.module('../../utils/debug.js', () => ({ ...actualDebugModule! }))
+  }
+}

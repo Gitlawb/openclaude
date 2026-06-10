@@ -37,6 +37,7 @@ import { processSessionStartHooks } from '../../utils/sessionStart.js'
 import {
   clearSessionMetadata,
   getAgentTranscriptPath,
+  recordGoalState,
   resetSessionFilePointer,
   saveWorktreeState,
 } from '../../utils/sessionStorage.js'
@@ -195,9 +196,12 @@ export async function clearConversation({
           resources: {},
           pluginReconnectKey: prev.mcp.pluginReconnectKey,
         },
+        goal: null,
       }
     })
   }
+
+  await recordGoalState(null)
 
   // Clear plan slug cache so a new plan file is used after /clear
   clearAllPlanSlugs()

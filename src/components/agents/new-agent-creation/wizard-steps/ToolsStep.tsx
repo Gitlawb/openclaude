@@ -11,7 +11,7 @@ import type { AgentWizardData } from '../types.js';
 type Props = {
   tools: Tools;
 };
-export function ToolsStep(t0) {
+export function ToolsStep(t0: Props): React.ReactNode {
   const $ = _c(9);
   const {
     tools
@@ -21,7 +21,7 @@ export function ToolsStep(t0) {
     goBack,
     updateWizardData,
     wizardData
-  } = useWizard();
+  } = useWizard<AgentWizardData>();
   let t1;
   if ($[0] !== goNext || $[1] !== updateWizardData) {
     t1 = selectedTools => {

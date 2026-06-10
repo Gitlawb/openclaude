@@ -45,10 +45,29 @@ function validate(bundleName: string, externals: string[]): boolean {
   return true
 }
 
+function validateIntentionallyBundled(): boolean {
+  const stale = INTENTIONALLY_BUNDLED.filter(dep => !allDeps.has(dep))
+
+  if (stale.length > 0) {
+    console.error(`❌ INTENTIONALLY_BUNDLED entries not in package.json:`)
+    for (const dep of stale) {
+      console.error(`   - ${dep}`)
+    }
+    console.error(
+      `\n   Remove stale entries from INTENTIONALLY_BUNDLED or add the package back to dependencies.`,
+    )
+    return false
+  }
+
+  console.log(`✓ INTENTIONALLY_BUNDLED: All entries still exist in package.json (${INTENTIONALLY_BUNDLED.length} entries)`)
+  return true
+}
+
 const cliOk = validate('CLI bundle', CLI_EXTERNALS)
 const sdkOk = validate('SDK bundle', SDK_EXTERNALS)
+const intentionallyBundledOk = validateIntentionallyBundled()
 
-if (!cliOk || !sdkOk) {
+if (!cliOk || !sdkOk || !intentionallyBundledOk) {
   console.error(`\n❌ External list validation failed. Fix scripts/externals.ts before committing.`)
   process.exit(1)
 }

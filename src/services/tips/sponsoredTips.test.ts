@@ -104,8 +104,13 @@ describe('sponsored tip catalog', () => {
       (t: { sponsor?: { name: string; url?: string } }) =>
         t.sponsor?.name === 'Xiaomi MiMo',
     )
+    const atlasTips = sponsoredTips.sponsoredTips.filter(
+      (t: { sponsor?: { name: string; url?: string } }) =>
+        t.sponsor?.name === 'Atlas Cloud',
+    )
     expect(atomicTips.length).toBe(4)
     expect(xiaomiTips.length).toBe(5)
+    expect(atlasTips.length).toBe(1)
     expect(
       atomicTips.every(
         (t: { sponsor?: { url?: string } }) =>
@@ -118,6 +123,12 @@ describe('sponsored tip catalog', () => {
           t.sponsor?.url === 'https://api.xiaomimimo.com/v1',
       ),
     ).toBe(true)
+    expect(
+      atlasTips.every(
+        (t: { sponsor?: { url?: string } }) =>
+          t.sponsor?.url === 'https://www.atlascloud.ai/',
+      ),
+    ).toBe(true)
   })
 
   test('all tips have unique sponsor-prefixed ids', async () => {
@@ -128,7 +139,9 @@ describe('sponsored tip catalog', () => {
     expect(
       ids.every(
         (id: string) =>
-          id.startsWith('atomic-') || id.startsWith('xiaomi-mimo-'),
+          id.startsWith('atomic-') ||
+          id.startsWith('xiaomi-mimo-') ||
+          id.startsWith('atlas-cloud-'),
       ),
     ).toBe(true)
   })

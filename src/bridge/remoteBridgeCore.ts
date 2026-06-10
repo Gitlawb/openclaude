@@ -118,7 +118,10 @@ export type EnvLessBridgeParams = {
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
   onSetPermissionMode?: (
     mode: PermissionMode,
-  ) => { ok: true } | { ok: false; error: string }
+  ) =>
+    | { ok: true }
+    | { ok: false; error: string }
+    | Promise<{ ok: true } | { ok: false; error: string }>
   onStateChange?: (state: BridgeState, detail?: string) => void
   /**
    * When true, skip opening the SSE read stream — only the CCRClient write
@@ -434,8 +437,8 @@ export async function initEnvLessBridgeCore(
               onPermissionResponse(res)
             }
           : undefined,
-        req =>
-          handleServerControlRequest(req, {
+        req => {
+          void handleServerControlRequest(req, {
             transport,
             sessionId,
             onInterrupt,
@@ -443,7 +446,8 @@ export async function initEnvLessBridgeCore(
             onSetMaxThinkingTokens,
             onSetPermissionMode,
             outboundOnly,
-          }),
+          })
+        },
       )
     })
 

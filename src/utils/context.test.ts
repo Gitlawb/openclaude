@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
+import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata.ts'
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
@@ -134,6 +135,124 @@ test('deepseek-v4-pro uses the gateway-safe output cap by default', () => {
     upperLimit: 65_536,
   })
   expect(getMaxOutputTokensForModel('deepseek-v4-pro')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant uses DeepSeek V4 Pro runtime limits', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-pro:cloud')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-pro:cloud')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant is modeled as route catalog metadata', () => {
+  const runtimeContext = resolveOpenAIShimRuntimeContext({
+    processEnv: {
+      ...process.env,
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+    },
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'deepseek-v4-pro:cloud',
+  })
+
+  expect(runtimeContext.routeId).toBe('ollama')
+  expect(runtimeContext.catalogEntry).toMatchObject({
+    apiName: 'deepseek-v4-pro:cloud',
+    contextWindow: 1_048_576,
+    maxOutputTokens: 65_536,
+  })
+})
+
+test('Ollama deepseek-v4-pro cloud variant clamps oversized output token overrides', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '262144'
+  delete process.env.OPENAI_MODEL
+
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-pro:cloud')).toBe(65_536)
+})
+
+test('Ollama deepseek-v4-pro cloud variant does not inherit base-model env override prefixes', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    'deepseek-v4-pro': 262_144,
+  })
+  process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS = JSON.stringify({
+    'deepseek-v4-pro': 262_144,
+  })
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-pro:cloud')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+})
+
+test('Ollama deepseek-v4-pro cloud variant still honors exact env overrides', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    'deepseek-v4-pro:cloud': 262_144,
+  })
+  process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS = JSON.stringify({
+    'deepseek-v4-pro:cloud': 12_288,
+  })
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-pro:cloud')).toBe(262_144)
+  expect(getModelMaxOutputTokens('deepseek-v4-pro:cloud')).toEqual({
+    default: 12_288,
+    upperLimit: 12_288,
+  })
+})
+
+test('OpenAI-compatible env override prefixes still match colon-tagged local models', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    llama3: 262_144,
+  })
+  process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS = JSON.stringify({
+    llama3: 12_288,
+  })
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('llama3:70b')).toBe(262_144)
+  expect(getModelMaxOutputTokens('llama3:70b')).toEqual({
+    default: 12_288,
+    upperLimit: 12_288,
+  })
+})
+
+test('Ollama deepseek-v4-pro cloud variant keeps the local max_tokens transport field', () => {
+  const runtimeContext = resolveOpenAIShimRuntimeContext({
+    processEnv: {
+      ...process.env,
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+    },
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'deepseek-v4-pro:cloud',
+  })
+
+  expect(runtimeContext.routeId).toBe('ollama')
+  expect(runtimeContext.openaiShimConfig.maxTokensField).toBe('max_tokens')
 })
 
 test('deepseek-v4-pro uses DeepSeek direct API max output cap on api.deepseek.com', () => {
@@ -314,17 +433,51 @@ test('unknown openai-compatible models use the 128k fallback window (not 8k, see
   expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
 })
 
+test('unknown openai-compatible model fallback logs one debug warning and no console errors', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  const actualDebugModule = await import('./debug.js')
+  const logForDebugging = spyOn(
+    actualDebugModule,
+    'logForDebugging',
+  ).mockImplementation((_message, _options) => {})
+
+  const originalConsoleError = console.error
+  const consoleError = mock(() => {})
+  console.error = consoleError
+  try {
+    const contextModule = await import(
+      `./context.ts?contextDedupe=${Date.now()}-${Math.random()}`
+    )
+
+    expect(
+      contextModule.getContextWindowForModel('another-unknown-3p-model'),
+    ).toBe(128_000)
+    expect(
+      contextModule.getContextWindowForModel('another-unknown-3p-model'),
+    ).toBe(128_000)
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(logForDebugging).toHaveBeenCalledTimes(1)
+    expect(logForDebugging.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
+  } finally {
+    console.error = originalConsoleError
+    mock.restore()
+  }
+})
+
 test('prefixed OpenGateway Gemini Flash Lite uses integration metadata', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
-  expect(getContextWindowForModel('google/gemini-3.1-flash-lite-preview')).toBe(1_048_576)
-  expect(getModelMaxOutputTokens('google/gemini-3.1-flash-lite-preview')).toEqual({
+  expect(getContextWindowForModel('google/gemini-3.1-flash-lite')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('google/gemini-3.1-flash-lite')).toEqual({
     default: 65_536,
     upperLimit: 65_536,
   })
-  expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite-preview')).toBe(65_536)
+  expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite')).toBe(65_536)
 })
 
 test('OpenAI-compatible custom model limits honor documented env overrides', () => {

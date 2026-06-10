@@ -15,6 +15,9 @@ function toDescription(
   if (isRecommended) {
     parts.push('Recommended')
   }
+  if (entry.notes?.trim()) {
+    parts.push(entry.notes.trim())
+  }
   parts.push(`Provider: ${routeLabel}`)
 
   return parts.join(' · ')

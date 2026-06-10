@@ -36,7 +36,12 @@ export function countLines(content: string): number {
   const parts = content.split(EOL);
   return content.endsWith(EOL) ? parts.length - 1 : parts.length;
 }
-function FileWriteToolCreatedMessage(t0) {
+type FileWriteToolCreatedMessageProps = {
+  filePath: string;
+  content: string;
+  verbose: boolean;
+};
+function FileWriteToolCreatedMessage(t0: FileWriteToolCreatedMessageProps): React.ReactNode {
   const $ = _c(25);
   const {
     filePath,
@@ -205,7 +210,13 @@ type RejectionDiffData = {
 } | {
   type: 'error';
 };
-function WriteRejectionDiff(t0) {
+type WriteRejectionDiffProps = {
+  filePath: string;
+  content: string;
+  style?: 'condensed';
+  verbose: boolean;
+};
+function WriteRejectionDiff(t0: WriteRejectionDiffProps): React.ReactNode {
   const $ = _c(20);
   const {
     filePath,
@@ -213,7 +224,7 @@ function WriteRejectionDiff(t0) {
     style,
     verbose
   } = t0;
-  let t1;
+  let t1: () => Promise<RejectionDiffData>;
   if ($[0] !== content || $[1] !== filePath) {
     t1 = () => loadRejectionDiff(filePath, content);
     $[0] = content;
@@ -222,8 +233,8 @@ function WriteRejectionDiff(t0) {
   } else {
     t1 = $[2];
   }
-  const [dataPromise] = useState(t1);
-  let t2;
+  const [dataPromise] = useState<Promise<RejectionDiffData>>(t1);
+  let t2: string | null;
   if ($[3] !== content) {
     t2 = content.split("\n")[0] ?? null;
     $[3] = content;
@@ -268,7 +279,15 @@ function WriteRejectionDiff(t0) {
   }
   return t5;
 }
-function WriteRejectionBody(t0) {
+type WriteRejectionBodyProps = {
+  promise: Promise<RejectionDiffData>;
+  filePath: string;
+  firstLine: string | null;
+  createFallback: React.ReactNode;
+  style?: 'condensed';
+  verbose: boolean;
+};
+function WriteRejectionBody(t0: WriteRejectionBodyProps): React.ReactNode {
   const $ = _c(8);
   const {
     promise,
@@ -278,7 +297,7 @@ function WriteRejectionBody(t0) {
     style,
     verbose
   } = t0;
-  const data = use(promise);
+  const data: RejectionDiffData = use(promise);
   if (data.type === "create") {
     return createFallback;
   }

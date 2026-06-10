@@ -309,6 +309,16 @@ async function cachedMicrocompactPath(
   const state = ensureCachedMCState()
   const config = mod.getCachedMCConfig()
 
+  if (!config) {
+    // Invariant: if isCachedMicrocompactEnabled() is true, getCachedMCConfig()
+    // must not be null. This guard prevents a theoretical recursion loop in
+    // future non-stub implementations where the cached path could re-enter
+    // itself via the fallback to microcompactMessages.
+    throw new Error(
+      'cachedMicrocompact invariant violation: isCachedMicrocompactEnabled() is true but getCachedMCConfig() returned null',
+    )
+  }
+
   const compactableToolIds = new Set(collectCompactableToolIds(messages))
   // Second pass: register tool results grouped by user message
   for (const message of messages) {

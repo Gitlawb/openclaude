@@ -48,11 +48,32 @@ function runPowerShell(
   }
 }
 
+function commandOutputToString(
+  output:
+    | ReturnType<typeof execaSync>['stdout']
+    | ReturnType<typeof execaSync>['stderr']
+    | undefined,
+): string {
+  if (typeof output === 'string') {
+    return output
+  }
+
+  if (output instanceof Uint8Array) {
+    return Buffer.from(output).toString('utf8')
+  }
+
+  if (Array.isArray(output) && output.every(item => typeof item === 'string')) {
+    return output.join('\n')
+  }
+
+  return ''
+}
+
 function getFailureWarning(
   result: ReturnType<typeof execaSync> | null,
   fallback: string,
 ): string {
-  const stderr = result?.stderr?.trim()
+  const stderr = commandOutputToString(result?.stderr).trim()
   if (stderr) {
     return stderr
   }
@@ -84,9 +105,10 @@ function readLegacyPasswordVault(): SecureStorageData | null {
   `
 
   const result = runPowerShell(script)
-  if (result?.exitCode === 0 && result.stdout) {
+  const stdout = commandOutputToString(result?.stdout)
+  if (result?.exitCode === 0 && stdout) {
     try {
-      return jsonParse(result.stdout)
+      return jsonParse(stdout)
     } catch {
       return null
     }
@@ -134,9 +156,10 @@ export const windowsCredentialStorage: SecureStorage = {
     `
 
     const result = runPowerShell(script)
-    if (result?.exitCode === 0 && result.stdout) {
+    const stdout = commandOutputToString(result?.stdout)
+    if (result?.exitCode === 0 && stdout) {
       try {
-        return jsonParse(result.stdout)
+        return jsonParse(stdout)
       } catch {
         return readLegacyPasswordVault()
       }

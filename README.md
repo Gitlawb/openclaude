@@ -35,8 +35,13 @@ OpenClaude is also mirrored to GitLawb:
       </a>
     </td>
     <td align="center" width="150" height="80">
-      <a href="https://api.xiaomimimo.com/v1">
+      <a href="https://mimo.mi.com">
         <img src="https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg" alt="Xiaomi MiMo logo" width="136">
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://www.atlascloud.ai/">
+        <img src="docs/assets/atlas-cloud-banner.png" alt="Atlas Cloud logo" width="136">
       </a>
     </td>
   </tr>
@@ -44,7 +49,8 @@ OpenClaude is also mirrored to GitLawb:
     <td align="center"><a href="https://gitlawb.com"><strong>GitLawb</strong></a></td>
     <td align="center"><a href="https://bankr.bot"><strong>Bankr.bot</strong></a></td>
     <td align="center"><a href="https://atomic.chat/"><strong>Atomic Chat</strong></a></td>
-    <td align="center"><a href="https://api.xiaomimimo.com/v1"><strong>Xiaomi MiMo</strong></a></td>
+    <td align="center"><a href="https://mimo.mi.com"><strong>Xiaomi MiMo</strong></a></td>
+    <td align="center"><a href="https://www.atlascloud.ai/"><strong>Atlas Cloud</strong></a></td>
   </tr>
 </table>
 
@@ -65,10 +71,23 @@ OpenClaude is also mirrored to GitLawb:
 ### Install
 
 ```bash
-npm install -g @gitlawb/openclaude
+npm install -g @gitlawb/openclaude@latest
+```
+
+If you're on Arch Linux, you can install OpenClaude from the community-maintained [AUR package](https://aur.archlinux.org/packages/openclaude):
+```bash
+paru -S openclaude
 ```
 
 If the install later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
+
+**Verify / troubleshoot installed version:**
+
+```bash
+openclaude --version
+npm view @gitlawb/openclaude dist-tags
+npm install -g @gitlawb/openclaude@latest
+```
 
 ### Start
 
@@ -148,11 +167,13 @@ Advanced and source-build guides:
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
-| Gitlawb Opengateway | `/provider` or zero-config fallback | Free smart gateway at `https://opengateway.gitlawb.com/v1`; routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
-| Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://api.xiaomimimo.com/v1`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
+| Gitlawb Opengateway | Startup default, `/provider`, or env vars | Smart gateway at `https://opengateway.gitlawb.com/v1`; requires an API key from https://gitlawb.com/opengateway/keys and routes Xiaomi MiMo and GMI Cloud partner models by `OPENAI_MODEL` |
+| OpenCode Zen | `/provider` or env vars | Pay-as-you-go AI gateway (43 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/v1`; shared key with OpenCode Go |
+| OpenCode Go | `/provider` or env vars | $10/mo subscription for open models (13 models); uses `OPENCODE_API_KEY` via `https://opencode.ai/zen/go/v1`; shared key with OpenCode Zen |
+| Xiaomi MiMo | `/provider` or env vars | OpenAI-compatible API at `https://mimo.mi.com`; uses `MIMO_API_KEY` and defaults to `mimo-v2.5-pro` |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
-| Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
+| Bedrock / Vertex / Foundry | env vars | Anthropic-family cloud routes; Vertex is for Claude on Vertex AI, not arbitrary Model Garden models |
 
 ## What Works
 
@@ -171,7 +192,7 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Tool quality depends heavily on the selected model
 - Smaller local models can struggle with long multi-step tool flows
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
-- Gitlawb Opengateway uses one OpenAI-compatible base URL. Switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`; do not pin the base URL to `/v1/xiaomi-mimo`.
+- Gitlawb Opengateway is the fresh-install startup default and requires an API key from https://gitlawb.com/opengateway/keys. It uses one OpenAI-compatible base URL; switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`, and do not pin the base URL to `/v1/xiaomi-mimo`.
 - Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
 
 For best results, use models with strong tool/function calling support.
@@ -189,6 +210,11 @@ Add to `~/.openclaude.json`:
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-your-key"
     },
+    "zai-default": {
+      "model": "glm-5.1",
+      "base_url": "https://api.z.ai/api/coding/paas/v4",
+      "api_key": "sk-your-key"
+    },
     "gpt-4o": {
       "base_url": "https://api.openai.com/v1",
       "api_key": "sk-your-key"
@@ -198,13 +224,17 @@ Add to `~/.openclaude.json`:
     "Explore": "deepseek-v4-flash",
     "Plan": "gpt-4o",
     "general-purpose": "gpt-4o",
-    "frontend-dev": "deepseek-v4-flash",
+    "frontend-dev": "zai-default",
     "default": "gpt-4o"
   }
 }
 ```
 
 When no routing match is found, the global provider remains the fallback.
+
+`agentRouting` values and explicit Agent tool `model` overrides match keys in `agentModels`. By default, that key is also the model string sent to the provider. Set `agentModels.<key>.model` when you want a local route key such as `zai-default` to call a different provider model name such as `glm-5.1`.
+
+> **Note:** `/provider` changes the global/parent provider for your current session. `agentModels` and `agentRouting` are specifically for configuring per-agent provider overrides while keeping the parent session unchanged.
 
 > **Note:** `api_key` values in `settings.json` are stored in plaintext. Keep this file private and do not commit it to version control.
 
@@ -339,7 +369,7 @@ Coverage output is written to `coverage/lcov.info`, and OpenClaude also generate
 
 ## VS Code Extension
 
-The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration, provider-aware control-center UI, and theme support.
+The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration, provider-aware Control Center, in-editor chat, theme support, and optional **Microsoft Foundry / Azure OpenAI** configuration (endpoint, API version, deployment, API key via Secret Storage) injected into launched terminals. See that folder’s [README](vscode-extension/openclaude-vscode/README.md).
 
 ## Security
 

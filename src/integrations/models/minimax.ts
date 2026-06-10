@@ -88,6 +88,17 @@ export default [
     maxOutputTokens: 131_072,
   }),
   defineModel({
+    id: 'minimax-m3',
+    label: 'MiniMax M3',
+    brandId: 'minimax',
+    vendorId: 'minimax',
+    classification: ['chat', 'reasoning', 'coding'],
+    defaultModel: 'MiniMax-M3',
+    capabilities: minimaxM2Capabilities,
+    contextWindow: 1_048_576,
+    maxOutputTokens: 131_072,
+  }),
+  defineModel({
     id: 'minimax-text-01',
     label: 'MiniMax Text 01',
     brandId: 'minimax',

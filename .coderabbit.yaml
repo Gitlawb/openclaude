@@ -1,0 +1,152 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+tone_instructions: "Be direct, concise, and maintainer-minded. Separate blocking issues from non-blocking suggestions."
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  review_details: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: true
+  auto_assign_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  enable_prompt_for_ai_agents: true
+
+  auto_review:
+    enabled: true
+    drafts: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    base_branches:
+      - ".*"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+
+  path_filters:
+    - "!src/entrypoints/sdk/coreTypes.generated.ts"
+    - "!src/integrations/generated/**"
+    - "!src/types/generated/**"
+    - "!**/*.snap"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Apply the OpenClaude maintainer review rubric from AGENTS.md. Review the current diff, not stale discussion context. Separate real blockers from suggestions. Do not request changes for vague style churn. Treat approval as merge-ready from CodeRabbit's side, pending required human review and GitHub Checks. If checks are failing or unavailable, say so clearly instead of implying the PR is fully ready.
+
+    - path: "{src/services/api/**,src/integrations/**,src/utils/model/**,src/utils/provider*.ts,src/commands/provider/**}"
+      instructions: |
+        Review provider routing, model selection, env precedence, auth/token handling, OpenAI-compatible shims, retries, proxy behavior, and outbound HTTP behavior with high scrutiny. Block on silent default changes, hidden fallback expansion, credential reuse mistakes, hardcoded provider assumptions, or new network reach that is not intentional and documented.
+
+    - path: "src/{components/permissions,utils/permissions,hooks/toolPermission,tools,entrypoints/sdk}/**"
+      instructions: |
+        Review permission prompts, auto-allow logic, sandbox behavior, SDK permission schemas, shell/PowerShell execution, and background execution paths as security-sensitive. Block on bypasses, unclear trust boundaries, unsafe path handling, missing user visibility, or changes that broaden allowed behavior without an explicit maintainer decision.
+
+    - path: "src/{skills,utils/plugins,services/mcp}/**"
+      instructions: |
+        Review skill/plugin/MCP behavior as a trust boundary. Check registry fetches, local and remote installs, path normalization, hash verification, revocation/trust metadata, tools_required handling, config-home behavior, and startup-time loading. Block on path traversal risk, unverified downloads, silent trust promotion, or unexpected code/tool activation.
+
+    - path: ".github/**"
+      instructions: |
+        Review CI and release workflow changes for token permissions, third-party actions, pull_request_target usage, artifact upload/download behavior, shell injection, and whether checks still run on the actual PR head. Block on broadened write permissions or unpinned/excessively trusted external execution unless clearly justified.
+
+    - path: "{bin/**,scripts/**,package.json,src/setup.ts,src/main.tsx,src/entrypoints/**}"
+      instructions: |
+        Review install, launcher, build, packaging, startup, and entrypoint changes for cross-platform compatibility, tracked-source rewrites, env/config precedence, and release safety. Block on changes that can break Windows/macOS/Linux startup or publish unexpected artifacts.
+
+    - path: "{README.md,CONTRIBUTING.md,docs/**,.github/pull_request_template.md}"
+      instructions: |
+        Review docs for accuracy against current code behavior. Flag security or provider claims that overpromise, stale install commands, missing setup caveats, and instructions that could push users toward unsafe credential handling. Keep purely wording-level suggestions non-blocking.
+
+    - path: "{src/**/*.test.ts,src/**/*.test.tsx,tests/**,scripts/**/*.test.ts,vscode-extension/**/*.test.js}"
+      instructions: |
+        Review tests for meaningful coverage of the changed behavior, isolation of global/env/config state, async cleanup, fake timers, provider profile leaks, and Windows-compatible assumptions. Block when risky runtime changes lack focused regression coverage or tests assert implementation details while missing the user-visible behavior.
+
+    - path: "vscode-extension/**"
+      instructions: |
+        Review VS Code bridge and extension changes for schema compatibility, permission response integrity, command execution boundaries, message validation, and user-visible failure modes.
+
+    - path: "web/**"
+      instructions: |
+        Review browser extension changes for content-script isolation, message validation, cross-origin assumptions, permission surfaces, and failures that could leak prompts or credentials.
+
+  pre_merge_checks:
+    override_requested_reviewers_only: true
+    title:
+      mode: "warning"
+      requirements: "Title should be concise, scoped, and match the actual diff."
+    description:
+      mode: "warning"
+    issue_assessment:
+      mode: "warning"
+    custom_checks:
+      - name: "Risk surface disclosed"
+        mode: "warning"
+        instructions: |
+          If the PR touches auth, provider routing, permissions, outbound network behavior, background execution, startup/config-home behavior, skills/plugins/MCP, CI permissions, or release scripts, verify that the review calls out the risk surface and whether it introduces a blocker.
+      - name: "No hidden policy change"
+        mode: "warning"
+        instructions: |
+          Verify that product, trust-model, routing-default, telemetry/network, and permission-policy changes are not hidden inside unrelated cleanup. Flag the PR if the policy decision needs explicit maintainer alignment.
+
+  tools:
+    github-checks:
+      enabled: true
+      timeout_ms: 900000
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    eslint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    semgrep:
+      enabled: true
+    osvScanner:
+      enabled: true
+
+chat:
+  art: false
+  auto_reply: false
+  allow_non_org_members: false
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "CONTRIBUTING.md"
+      - ".github/pull_request_template.md"
+  learnings:
+    scope: "local"
+  pull_requests:
+    scope: "local"
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false

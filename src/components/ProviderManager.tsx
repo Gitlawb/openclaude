@@ -5,7 +5,10 @@ import { Box, Text } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
-import type { ProviderProfile } from '../utils/config.js'
+import type {
+  OpenAICompatibleApiFormat,
+  ProviderProfile,
+} from '../utils/config.js'
 import {
   clearCodexCredentials,
   readCodexCredentialsAsync,
@@ -109,6 +112,11 @@ type Screen =
   | 'select-active'
   | 'select-edit'
   | 'select-delete'
+
+type CodexOAuthPersistenceResult = { warning?: string }
+type PersistCodexOAuthCredentials = (options?: {
+  profileId?: string
+}) => CodexOAuthPersistenceResult | void
 
 type DraftField =
   | 'name'
@@ -229,25 +237,24 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
   }
 }
 
-function getPresetLabel(preset: ProviderPreset, label: string): React.ReactNode {
-  if (preset === 'gitlawb-opengateway') {
+function getPresetLabel(preset: ProviderPreset, label: string, metadata?: { badge?: { text: string; color?: string } }): React.ReactNode {
+  if (metadata?.badge) {
+    if (metadata.badge.text.toLowerCase() === 'recommended') {
+      return (
+        <Text>
+          <Text>{label} </Text>
+          <Text color={metadata.badge.color ?? 'success'} bold>★ Recommended</Text>
+        </Text>
+      )
+    }
+
     return (
       <Text>
         <Text>{label} </Text>
-        <Text color="success" bold>[FREE]</Text>
+        <Text color={metadata.badge.color ?? 'green'} bold>[{metadata.badge.text}]</Text>
       </Text>
     )
   }
-
-  if (preset === 'xiaomi-mimo') {
-    return (
-      <Text>
-        <Text>{label} </Text>
-        <Text color="success" bold>[Sponsor]</Text>
-      </Text>
-    )
-  }
-
   return label
 }
 
@@ -287,7 +294,7 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
     routeSupportsApiFormatSelection(routeId)
-      ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
+      ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
     routeSupportsAuthHeaders(routeId) && profile.authHeader
@@ -600,23 +607,32 @@ function CodexOAuthSetup({
   onConfigured,
 }: {
   onBack: () => void
-  onConfigured: (tokens: {
-    accessToken: string
-    refreshToken: string
-    accountId?: string
-    idToken?: string
-    apiKey?: string
-  }, persistCredentials: (options?: { profileId?: string }) => void) => void | Promise<void>
+  onConfigured: (
+    tokens: {
+      accessToken: string
+      refreshToken: string
+      accountId?: string
+      idToken?: string
+      apiKey?: string
+    },
+    persistCredentials: PersistCodexOAuthCredentials,
+  ) => void | Promise<void>
 }): React.ReactNode {
-  const handleAuthenticated = React.useCallback(async (tokens: {
-    accessToken: string
-    refreshToken: string
-    accountId?: string
-    idToken?: string
-    apiKey?: string
-  }, persistCredentials: (options?: { profileId?: string }) => void) => {
-    await onConfigured(tokens, persistCredentials)
-  }, [onConfigured])
+  const handleAuthenticated = React.useCallback(
+    async (
+      tokens: {
+        accessToken: string
+        refreshToken: string
+        accountId?: string
+        idToken?: string
+        apiKey?: string
+      },
+      persistCredentials: PersistCodexOAuthCredentials,
+    ) => {
+      await onConfigured(tokens, persistCredentials)
+    },
+    [onConfigured],
+  )
   useKeybinding('confirm:no', onBack)
 
   const status = useCodexOAuthFlow({
@@ -1078,17 +1094,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return clearStartupProviderOverrides()
   }
 
+  function formatWarningsForMessage(warnings: string[]): string {
+    const joined = warnings.join('; ')
+    return /[.!?]$/.test(joined.trim()) ? joined : `${joined}.`
+  }
+
   function buildCodexOAuthActivationMessage(options: {
     prefix: string
     activationWarning: string | null
     warnings: string[]
   }): string {
     if (options.activationWarning) {
-      return `${options.prefix}. Saved for next startup. Warning: ${options.warnings.join('; ')}.`
+      return `${options.prefix}. Saved for next startup. Warning: ${formatWarningsForMessage(options.warnings)}`
     }
 
     if (options.warnings.length > 0) {
-      return `${options.prefix}. OpenClaude switched to it for this session with warnings: ${options.warnings.join('; ')}.`
+      return `${options.prefix}. OpenClaude switched to it for this session with warnings: ${formatWarningsForMessage(options.warnings)}`
     }
 
     return `${options.prefix}. OpenClaude switched to it for this session.`
@@ -1464,10 +1485,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const requestedResponses =
-      supportsApiFormat && nextDraft.apiFormat === 'responses'
+      supportsApiFormat && (nextDraft.apiFormat === 'responses' || nextDraft.apiFormat === 'responses_compat')
     const shouldUseChatCompletions =
       !supportsApiFormat ||
-      nextDraft.apiFormat !== 'responses' ||
+      (nextDraft.apiFormat !== 'responses' && nextDraft.apiFormat !== 'responses_compat') ||
       !routeSupportsResponsesModel(routeId, nextDraft.model)
     const payload: ProviderProfileInput = {
       provider,
@@ -1475,7 +1496,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
+      apiFormat: shouldUseChatCompletions ? 'chat_completions' : (nextDraft.apiFormat as OpenAICompatibleApiFormat),
       authHeader:
         showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
@@ -1522,7 +1543,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
     const adjustedApiFormat =
-      requestedResponses && saved.apiFormat !== 'responses'
+      requestedResponses && saved.apiFormat !== 'responses' && saved.apiFormat !== 'responses_compat'
     const routeLabel =
       getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
     const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
@@ -1556,10 +1577,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'],
   ): ProviderDraft {
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const preferredResponsesMode = nextDraft.apiFormat === 'responses_compat' ? 'responses_compat' : 'responses'
     const apiFormat =
       routeSupportsApiFormatSelection(routeId) &&
       routeSupportsResponsesModel(routeId, nextDraft.model)
-        ? 'responses'
+        ? preferredResponsesMode
         : 'chat_completions'
 
     return {
@@ -1819,15 +1841,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       const metadata = getProviderPresetUiMetadata(preset)
       return {
         value: preset,
-        label: getPresetLabel(preset, metadata.label),
+        label: getPresetLabel(preset, metadata.label, { badge: metadata.badge }),
         description: metadata.description,
       }
     })
 
+    // Insert after DeepSeek so the OAuth options keep their established
+    // position in the picker regardless of how the preset list grows; if
+    // the anchor ever disappears, append instead of floating to the top.
+    const deepseekIndex = options.findIndex(
+      option => option.value === 'deepseek',
+    )
+    let oauthInsertIndex =
+      deepseekIndex >= 0 ? deepseekIndex + 1 : options.length
     if (canUseCodexOAuth) {
-      // Insert after DeepSeek so Codex OAuth keeps its established position
-      // in the picker even with Gitlawb Opengateway pinned at the top.
-      options.splice(7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'codex-oauth',
         label: (
           <Text>
@@ -1838,12 +1866,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description:
           'Sign in with ChatGPT in your browser and store Codex credentials securely',
       })
+      oauthInsertIndex += 1
     }
 
     if (canUseXaiOAuth) {
       // Place xAI OAuth directly under Codex OAuth so both browser-sign-in
       // options group together visually.
-      options.splice(canUseCodexOAuth ? 8 : 7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'xai-oauth',
         label: 'xAI OAuth (Grok)',
         description:
@@ -1930,16 +1959,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 label: 'Responses',
                 description: 'Use /responses for providers that support the Responses API',
               },
+              {
+                value: 'responses_compat',
+                label: 'Responses (Compat)',
+                description: 'Use /responses with legacy text chunks for strict gateways',
+              },
             ]}
             defaultValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
             defaultFocusValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
-            visibleOptionCount={2}
+            visibleOptionCount={3}
           />
         ) : (
           <Box flexDirection="row" gap={1}>
@@ -2470,7 +2504,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            persistCredentials({ profileId: saved.id })
+            const persistenceResult = persistCredentials({
+              profileId: saved.id,
+            })
+            const storageWarning =
+              persistenceResult && typeof persistenceResult === 'object'
+                ? persistenceResult.warning
+                : null
             const settingsOverrideError =
               clearStartupProviderOverrideFromUserSettings()
             const activationWarning = await activateCodexOAuthSession(tokens)
@@ -2478,6 +2518,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             setStoredCodexOAuthProfileId(saved.id)
             refreshProfiles()
             const warnings = [
+              storageWarning,
               activationWarning,
               settingsOverrideError
                 ? `could not clear startup provider override (${settingsOverrideError})`

@@ -217,7 +217,7 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
           headers: { 'Content-Type': 'application/json' },
         },
       )
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const service = new CodexOAuthService({
       callbackPort: 0,
@@ -284,7 +284,7 @@ test('cancellation during token exchange returns a cancelled page and rejects th
           { once: true },
         )
       })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const service = new CodexOAuthService({
       callbackPort: 0,

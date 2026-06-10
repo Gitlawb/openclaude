@@ -236,7 +236,7 @@ function PluginComponentsDisplay({
         const pluginEntry = marketplaceData.plugins.find(p => p.name === plugin.name);
         if (pluginEntry) {
           // Combine commands from both sources
-          const commandPathList = [];
+          const commandPathList: string[] = [];
           if (plugin.commandsPath) {
             commandPathList.push(plugin.commandsPath);
           }
@@ -255,7 +255,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine agents from both sources
-          const agentPathList = [];
+          const agentPathList: string[] = [];
           if (plugin.agentsPath) {
             agentPathList.push(plugin.agentsPath);
           }
@@ -274,7 +274,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine skills from both sources
-          const skillPathList = [];
+          const skillPathList: string[] = [];
           if (plugin.skillsPath) {
             skillPathList.push(plugin.skillsPath);
           }
@@ -294,7 +294,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine hooks from both sources
-          const hooksList = [];
+          const hooksList: unknown[] = [];
           if (plugin.hooksConfig) {
             hooksList.push(Object.keys(plugin.hooksConfig));
           }
@@ -303,7 +303,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine MCP servers from both sources
-          const mcpServersList = [];
+          const mcpServersList: unknown[] = [];
           if (plugin.mcpServers) {
             mcpServersList.push(Object.keys(plugin.mcpServers));
           }
@@ -1468,12 +1468,14 @@ export function ManagePlugins({
             for (const source of editableSources) {
               const settings = getSettingsForSource(source);
               if (settings?.enabledPlugins?.[pluginId_7] !== undefined) {
-                updateSettingsForSource(source, {
-                  enabledPlugins: {
-                    ...settings.enabledPlugins,
-                    [pluginId_7]: undefined
-                  }
-                });
+                const enabledPlugins: Record<string, boolean | string[] | undefined> = {
+                  ...settings.enabledPlugins,
+                  [pluginId_7]: undefined
+                };
+                const settingsUpdate: Record<string, unknown> = {
+                  enabledPlugins
+                };
+                updateSettingsForSource(source, settingsUpdate);
                 success = true;
               }
             }
@@ -1509,13 +1511,14 @@ export function ManagePlugins({
       // Write `false` directly — disablePluginOp's cross-scope guard would
       // reject this (plugin isn't in localSettings yet; the override IS the
       // point).
+      const enabledPlugins: Record<string, boolean | string[]> = {
+        ...(getSettingsForSource('localSettings')?.enabledPlugins ?? {}),
+        [pluginId_8]: false
+      };
       const {
         error: error_2
       } = updateSettingsForSource('localSettings', {
-        enabledPlugins: {
-          ...getSettingsForSource('localSettings')?.enabledPlugins,
-          [pluginId_8]: false
-        }
+        enabledPlugins
       });
       if (error_2) {
         setIsProcessing(false);

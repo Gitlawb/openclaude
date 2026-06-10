@@ -20,6 +20,7 @@ import {
 } from '../integrations/routeMetadata.js'
 import {
   getGithubEndpointType,
+  isLikelyOllamaEndpoint,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -262,7 +263,8 @@ function getCredentialEnvValidationError(
   if (
     validation.allowLocalBaseUrlWithoutCredential &&
     request &&
-    isLocalProviderUrl(request.baseUrl)
+    (isLocalProviderUrl(request.baseUrl) ||
+      isLikelyOllamaEndpoint(request.baseUrl))
   ) {
     return null
   }
@@ -496,7 +498,8 @@ export async function getProviderValidationError(
           validationTarget.kind === 'vendor' &&
           validationTarget.descriptor.id === 'openai' &&
           !env.OPENAI_API_KEY &&
-          !isLocalProviderUrl(request.baseUrl)
+          !isLocalProviderUrl(request.baseUrl) &&
+          !isLikelyOllamaEndpoint(request.baseUrl)
         ) {
           return getOpenAIMissingKeyMessage()
         }
@@ -512,7 +515,11 @@ export async function getProviderValidationError(
     return genericRouteValidation.error
   }
 
-  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
+  if (
+    !env.OPENAI_API_KEY &&
+    !isLocalProviderUrl(request.baseUrl) &&
+    !isLikelyOllamaEndpoint(request.baseUrl)
+  ) {
     // If we have a validation target that explicitly says it doesn't require auth,
     // we should not require OPENAI_API_KEY.
     if (validationTarget?.descriptor.setup?.requiresAuth === false) {
@@ -521,11 +528,9 @@ export async function getProviderValidationError(
 
     // For other OpenAI-compatible providers, check if any of their specific
     // credential env vars are set before falling back to the generic error.
-    if (validationTarget?.kind === 'vendor' || validationTarget?.kind === 'gateway') {
-      const envVars = validationTarget.descriptor.setup?.credentialEnvVars ?? []
-      if (envVars.some(v => env[v])) {
-        return null
-      }
+    const envVars = validationTarget?.descriptor.setup?.credentialEnvVars ?? []
+    if (envVars.some(v => env[v])) {
+      return null
     }
 
     return getOpenAIMissingKeyMessage()

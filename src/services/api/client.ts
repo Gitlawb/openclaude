@@ -591,14 +591,13 @@ function getCustomHeaders(): Record<string, string> {
 
   if (!customHeadersEnv) return customHeaders
 
-  // Split by newlines to support multiple headers
-  const headerStrings = customHeadersEnv.split(/\n|\r\n/)
+  // Reject raw CR characters — these indicate a header value containing \r\n
+  // that would be split into an injected header entry after splitting.
+  if (customHeadersEnv.includes('\r')) return customHeaders
 
-  for (const headerString of headerStrings) {
+  // Split by newlines to support multiple headers (intentional \n delimiters)
+  for (const headerString of customHeadersEnv.split('\n')) {
     if (!headerString.trim()) continue
-
-    // Parse header in format "Name: Value" (curl style). Split on first `:`
-    // then trim — avoids regex backtracking on malformed long header lines.
     const colonIdx = headerString.indexOf(':')
     if (colonIdx === -1) continue
     const name = headerString.slice(0, colonIdx).trim()

@@ -62,6 +62,22 @@ export const ConfigScopeSchema = lazySchema(() =>
   z.enum(['local', 'user', 'project']).describe('Config scope for settings.'),
 )
 
+const API_PROVIDER_VALUES = [
+  'firstParty',
+  'bedrock',
+  'vertex',
+  'foundry',
+  'openai',
+  'gemini',
+  'github',
+  'codex',
+  'nvidia-nim',
+  'minimax',
+  'mistral',
+  'xai',
+  'xiaomi-mimo',
+] as const
+
 export const SdkBetaSchema = lazySchema(() =>
   z.literal('context-1m-2025-08-07'),
 )
@@ -336,12 +352,20 @@ export const PermissionResultSchema = lazySchema(() =>
 
 export const PermissionModeSchema = lazySchema(() =>
   z
-    .enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'])
+    .enum([
+      'default',
+      'acceptEdits',
+      'bypassPermissions',
+      'fullAccess',
+      'plan',
+      'dontAsk',
+    ])
     .describe(
       'Permission mode for controlling how tool executions are handled. ' +
         "'default' - Standard behavior, prompts for dangerous operations. " +
         "'acceptEdits' - Auto-accept file edit operations. " +
-        "'bypassPermissions' - Bypass all permission checks (requires allowDangerouslySkipPermissions). " +
+        "'bypassPermissions' - Bypass normal permission prompts while preserving hard safety checks (requires allowDangerouslySkipPermissions). " +
+        "'fullAccess' - Bypass normal permission prompts and hard safety-check prompts (requires allowDangerouslySkipPermissions). " +
         "'plan' - Planning mode, no actual tool execution. " +
         "'dontAsk' - Don't prompt for permissions, deny if not pre-approved.",
     ),
@@ -1057,7 +1081,7 @@ export const ModelInfoSchema = lazySchema(() =>
         .optional()
         .describe('Whether this model supports effort levels'),
       supportedEffortLevels: z
-        .array(z.enum(['low', 'medium', 'high', 'max']))
+        .array(z.enum(['low', 'medium', 'high', 'xhigh', 'max']))
         .optional()
         .describe('Available effort levels for this model'),
       supportsAdaptiveThinking: z
@@ -1087,7 +1111,7 @@ export const AccountInfoSchema = lazySchema(() =>
       tokenSource: z.string().optional(),
       apiKeySource: z.string().optional(),
       apiProvider: z
-        .enum(['firstParty', 'bedrock', 'vertex', 'foundry'])
+        .enum(API_PROVIDER_VALUES)
         .optional()
         .describe(
           'Active API backend. Anthropic OAuth login only applies when "firstParty"; for 3P providers the other fields are absent and auth is external (AWS creds, gcloud ADC, etc.).',
@@ -1166,7 +1190,7 @@ export const AgentDefinitionSchema = lazySchema(() =>
           "Scope for auto-loading agent memory files. 'user' - ~/.claude/agent-memory/<agentType>/, 'project' - .claude/agent-memory/<agentType>/, 'local' - .claude/agent-memory-local/<agentType>/",
         ),
       effort: z
-        .union([z.enum(['low', 'medium', 'high', 'max']), z.number().int()])
+        .union([z.enum(['low', 'medium', 'high', 'xhigh', 'max']), z.number().int()])
         .optional()
         .describe(
           'Reasoning effort level for this agent. Either a named level or an integer',

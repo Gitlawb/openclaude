@@ -613,6 +613,50 @@ describe('Codex request translation', () => {
     expect(either.anyOf).toEqual([{ type: 'string' }, { type: 'number' }])
   })
 
+  test('converts plain string user message into Codex input_text chunk type', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      { role: 'user', content: 'hello' },
+    ], false) // forceTextChunks = false
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ])
+  })
+
+  test('converts plain string user message into standard text chunk type when forceTextChunks=true', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      { role: 'user', content: 'hello' },
+    ], true)
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
+      },
+    ])
+  })
+
+  test('preserves wrapped string message content', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        message: { role: 'user', content: 'hello' }
+      },
+    ])
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ])
+  })
+
   test('converts assistant tool use and user tool result into Responses items', () => {
     const items = convertAnthropicMessagesToResponsesInput([
       {

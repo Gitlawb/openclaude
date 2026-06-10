@@ -220,7 +220,7 @@ export type PermissionUpdate = ({
   destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
 }) | ({
   type: "setMode"
-  mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
 }) | ({
   type: "addDirectories"
@@ -238,7 +238,7 @@ export type PermissionDecisionClassification = "user_temporary" | "user_permanen
 export type PermissionResult = ({
   behavior: "allow"
   updatedInput?: Record<string, unknown>
-  updatedPermissions?: ({
+  updatedPermissions?: (({
     type: "addRules"
     rules: {
       toolName: string
@@ -264,7 +264,7 @@ export type PermissionResult = ({
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "setMode"
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "addDirectories"
@@ -274,7 +274,7 @@ export type PermissionResult = ({
     type: "removeDirectories"
     directories: string[]
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-  })[]
+  }))[]
   toolUseID?: string
   decisionClassification?: "user_temporary" | "user_permanent" | "user_reject"
 }) | ({
@@ -285,8 +285,8 @@ export type PermissionResult = ({
   decisionClassification?: "user_temporary" | "user_permanent" | "user_reject"
 })
 
-/** Permission mode for controlling how tool executions are handled. 'default' - Standard behavior, prompts for dangerous operations. 'acceptEdits' - Auto-accept file edit operations. 'bypassPermissions' - Bypass all permission checks (requires allowDangerouslySkipPermissions). 'plan' - Planning mode, no actual tool execution. 'dontAsk' - Don't prompt for permissions, deny if not pre-approved. */
-export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+/** Permission mode for controlling how tool executions are handled. 'default' - Standard behavior, prompts for dangerous operations. 'acceptEdits' - Auto-accept file edit operations. 'bypassPermissions' - Bypass normal permission prompts while preserving hard safety checks (requires allowDangerouslySkipPermissions). 'fullAccess' - Bypass normal permission prompts and hard safety-check prompts (requires allowDangerouslySkipPermissions). 'plan' - Planning mode, no actual tool execution. 'dontAsk' - Don't prompt for permissions, deny if not pre-approved. */
+export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
 
 export type HookEvent = "PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "Notification" | "UserPromptSubmit" | "SessionStart" | "SessionEnd" | "Stop" | "StopFailure" | "SubagentStart" | "SubagentStop" | "PreCompact" | "PostCompact" | "PermissionRequest" | "PermissionDenied" | "Setup" | "TeammateIdle" | "TaskCreated" | "TaskCompleted" | "Elicitation" | "ElicitationResult" | "ConfigChange" | "WorktreeCreate" | "WorktreeRemove" | "InstructionsLoaded" | "CwdChanged" | "FileChanged"
 
@@ -504,7 +504,7 @@ export type PermissionRequestHookInput = {
   hook_event_name: "PermissionRequest"
   tool_name: string
   tool_input: unknown
-  permission_suggestions?: ({
+  permission_suggestions?: (({
     type: "addRules"
     rules: {
       toolName: string
@@ -530,7 +530,7 @@ export type PermissionRequestHookInput = {
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "setMode"
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "addDirectories"
@@ -540,7 +540,7 @@ export type PermissionRequestHookInput = {
     type: "removeDirectories"
     directories: string[]
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-  })[]
+  }))[]
 }
 
 export type SetupHookInput = {
@@ -892,7 +892,7 @@ export type HookInput = ({
   hook_event_name: "PermissionRequest"
   tool_name: string
   tool_input: unknown
-  permission_suggestions?: ({
+  permission_suggestions?: (({
     type: "addRules"
     rules: {
       toolName: string
@@ -918,7 +918,7 @@ export type HookInput = ({
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "setMode"
-    mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+    mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
   }) | ({
     type: "addDirectories"
@@ -928,7 +928,7 @@ export type HookInput = ({
     type: "removeDirectories"
     directories: string[]
     destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-  })[]
+  }))[]
 }) | ({
   session_id: string
   transcript_path: string
@@ -1138,7 +1138,7 @@ export type PermissionRequestHookSpecificOutput = {
   decision: ({
     behavior: "allow"
     updatedInput?: Record<string, unknown>
-    updatedPermissions?: ({
+    updatedPermissions?: (({
       type: "addRules"
       rules: {
         toolName: string
@@ -1164,7 +1164,7 @@ export type PermissionRequestHookSpecificOutput = {
       destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
     }) | ({
       type: "setMode"
-      mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+      mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
       destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
     }) | ({
       type: "addDirectories"
@@ -1174,7 +1174,7 @@ export type PermissionRequestHookSpecificOutput = {
       type: "removeDirectories"
       directories: string[]
       destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-    })[]
+    }))[]
   }) | ({
     behavior: "deny"
     message?: string
@@ -1257,7 +1257,7 @@ export type SyncHookJSONOutput = {
     decision: ({
       behavior: "allow"
       updatedInput?: Record<string, unknown>
-      updatedPermissions?: ({
+      updatedPermissions?: (({
         type: "addRules"
         rules: {
           toolName: string
@@ -1283,7 +1283,7 @@ export type SyncHookJSONOutput = {
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "setMode"
-        mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+        mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "addDirectories"
@@ -1293,7 +1293,7 @@ export type SyncHookJSONOutput = {
         type: "removeDirectories"
         directories: string[]
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-      })[]
+      }))[]
     }) | ({
       behavior: "deny"
       message?: string
@@ -1367,7 +1367,7 @@ export type HookJSONOutput = ({
     decision: ({
       behavior: "allow"
       updatedInput?: Record<string, unknown>
-      updatedPermissions?: ({
+      updatedPermissions?: (({
         type: "addRules"
         rules: {
           toolName: string
@@ -1393,7 +1393,7 @@ export type HookJSONOutput = ({
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "setMode"
-        mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+        mode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
       }) | ({
         type: "addDirectories"
@@ -1403,7 +1403,7 @@ export type HookJSONOutput = ({
         type: "removeDirectories"
         directories: string[]
         destination: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg"
-      })[]
+      }))[]
     }) | ({
       behavior: "deny"
       message?: string
@@ -1470,7 +1470,7 @@ export type ModelInfo = {
   displayName: string
   description: string
   supportsEffort?: boolean
-  supportedEffortLevels?: "low" | "medium" | "high" | "max"[]
+  supportedEffortLevels?: ("low" | "medium" | "high" | "xhigh" | "max")[]
   supportsAdaptiveThinking?: boolean
   supportsFastMode?: boolean
   supportsAutoMode?: boolean
@@ -1483,7 +1483,7 @@ export type AccountInfo = {
   subscriptionType?: string
   tokenSource?: string
   apiKeySource?: string
-  apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry"
+  apiProvider?: "firstParty" | "bedrock" | "vertex" | "foundry" | "openai" | "gemini" | "github" | "codex" | "nvidia-nim" | "minimax" | "mistral" | "xai" | "xiaomi-mimo"
 }
 
 export type AgentMcpServerSpec = string | (Record<string, ({
@@ -1511,7 +1511,7 @@ export type AgentDefinition = {
   disallowedTools?: string[]
   prompt: string
   model?: string
-  mcpServers?: string | (Record<string, ({
+  mcpServers?: (string | (Record<string, ({
     type?: "stdio"
     command: string
     args?: string[]
@@ -1527,15 +1527,15 @@ export type AgentDefinition = {
   }) | ({
     type: "sdk"
     name: string
-  })>)[]
+  })>))[]
   criticalSystemReminder_EXPERIMENTAL?: string
   skills?: string[]
   initialPrompt?: string
   maxTurns?: number
   background?: boolean
   memory?: "user" | "project" | "local"
-  effort?: "low" | "medium" | "high" | "max" | number
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  effort?: "low" | "medium" | "high" | "xhigh" | "max" | number
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
 }
 
 /** Source for loading filesystem-based settings. 'user' - Global user settings (~/.claude/settings.json). 'project' - Project settings (.claude/settings.json). 'local' - Local settings (.claude/settings.local.json). */
@@ -1785,7 +1785,7 @@ export type SDKSystemMessage = {
     status: string
   }[]
   model: string
-  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   slash_commands: string[]
   output_style: string
   skills: string[]
@@ -1827,7 +1827,7 @@ export type SDKStatusMessage = {
   type: "system"
   subtype: "status"
   status: "compacting" | null
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   uuid: string
   session_id: string
 }
@@ -2142,7 +2142,7 @@ export type SDKMessage = ({
     status: string
   }[]
   model: string
-  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   slash_commands: string[]
   output_style: string
   skills: string[]
@@ -2178,7 +2178,7 @@ export type SDKMessage = ({
   type: "system"
   subtype: "status"
   status: "compacting" | null
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk"
+  permissionMode?: "default" | "acceptEdits" | "bypassPermissions" | "fullAccess" | "plan" | "dontAsk"
   uuid: string
   session_id: string
 }) | ({

@@ -1,5 +1,27 @@
-import { describe, expect, test, beforeEach } from 'bun:test'
-import { MCPTool } from './MCPTool.js'
+import { describe, expect, test } from 'bun:test'
+import { MCPTool, type Output } from './MCPTool.js'
+
+type MCPToolWithValidator = typeof MCPTool & {
+  validateInput: NonNullable<typeof MCPTool.validateInput>
+}
+
+type MCPToolWithTruncationCheck = typeof MCPTool & {
+  isResultTruncated: NonNullable<typeof MCPTool.isResultTruncated>
+}
+
+function withValidator(tool: typeof MCPTool): MCPToolWithValidator {
+  if (!tool.validateInput) {
+    throw new Error('MCPTool.validateInput is required for these tests')
+  }
+  return tool as MCPToolWithValidator
+}
+
+function withTruncationCheck(tool: typeof MCPTool): MCPToolWithTruncationCheck {
+  if (!tool.isResultTruncated) {
+    throw new Error('MCPTool.isResultTruncated is required for these tests')
+  }
+  return tool as MCPToolWithTruncationCheck
+}
 
 // =============================================================================
 // MCPTool.validateInput — AJV schema validation
@@ -8,7 +30,10 @@ import { MCPTool } from './MCPTool.js'
 describe('MCPTool.validateInput', () => {
   test('passes when no inputJSONSchema is set', async () => {
     const tool = { ...MCPTool, inputJSONSchema: undefined }
-    const result = await tool.validateInput({ anything: 'goes' }, {} as never)
+    const result = await withValidator(tool).validateInput(
+      { anything: 'goes' },
+      {} as never,
+    )
     expect(result.result).toBe(true)
   })
 
@@ -24,11 +49,14 @@ describe('MCPTool.validateInput', () => {
     const tool = { ...MCPTool, inputJSONSchema: schema }
 
     // Valid input
-    const valid = await tool.validateInput({ name: 'test' }, {} as never)
+    const valid = await withValidator(tool).validateInput(
+      { name: 'test' },
+      {} as never,
+    )
     expect(valid.result).toBe(true)
 
     // Missing required field
-    const invalid = await tool.validateInput({}, {} as never)
+    const invalid = await withValidator(tool).validateInput({}, {} as never)
     expect(invalid.result).toBe(false)
     expect(invalid.result === false && invalid.message).toContain('name')
   })
@@ -43,7 +71,10 @@ describe('MCPTool.validateInput', () => {
     }
     const tool = { ...MCPTool, inputJSONSchema: schema }
 
-    const result = await tool.validateInput({ x: 1, extra: 'bad' }, {} as never)
+    const result = await withValidator(tool).validateInput(
+      { x: 1, extra: 'bad' },
+      {} as never,
+    )
     expect(result.result).toBe(false)
   })
 
@@ -52,7 +83,7 @@ describe('MCPTool.validateInput', () => {
     const schema = { type: 'invalid_type' } as any
     const tool = { ...MCPTool, inputJSONSchema: schema }
 
-    const result = await tool.validateInput({}, {} as never)
+    const result = await withValidator(tool).validateInput({}, {} as never)
     expect(result.result).toBe(false)
     expect(result.result === false && result.errorCode).toBe(500)
     expect(result.result === false && result.message).toContain('Failed to compile')
@@ -62,7 +93,7 @@ describe('MCPTool.validateInput', () => {
     const schema = { type: 'invalid_type' } as any
     const tool = { ...MCPTool, inputJSONSchema: schema }
 
-    const result = await tool.validateInput({}, {} as never)
+    const result = await withValidator(tool).validateInput({}, {} as never)
     expect(result.result).toBe(false)
     // Should NOT contain [object Object]
     expect(result.result === false && result.message).not.toContain('[object Object]')
@@ -82,8 +113,8 @@ describe('MCPTool.mapToolResultToToolResultBlockParam', () => {
   })
 
   test('handles array content', () => {
-    const blocks = [{ type: 'text', text: 'hello' }]
-    const result = MCPTool.mapToolResultToToolResultBlockParam(blocks as any, 'tool-2')
+    const blocks = [{ type: 'text' as const, text: 'hello' }] satisfies Output
+    const result = MCPTool.mapToolResultToToolResultBlockParam(blocks, 'tool-2')
     expect(result.content).toEqual(blocks)
   })
 
@@ -106,27 +137,42 @@ describe('MCPTool.mapToolResultToToolResultBlockParam', () => {
 
 describe('MCPTool.isResultTruncated', () => {
   test('returns false for short string', () => {
-    expect(MCPTool.isResultTruncated('short')).toBe(false)
+    expect(withTruncationCheck(MCPTool).isResultTruncated('short')).toBe(false)
   })
 
   test('returns false for empty array', () => {
-    expect(MCPTool.isResultTruncated([])).toBe(false)
+    expect(withTruncationCheck(MCPTool).isResultTruncated([])).toBe(false)
   })
 
   test('returns false for array with short text blocks', () => {
-    expect(MCPTool.isResultTruncated([{ type: 'text', text: 'short' }])).toBe(false)
+    expect(
+      withTruncationCheck(MCPTool).isResultTruncated([
+        { type: 'text', text: 'short' },
+      ]),
+    ).toBe(false)
   })
 
   test('handles null blocks in array', () => {
-    expect(MCPTool.isResultTruncated([null as any, { type: 'text', text: 'ok' }])).toBe(false)
+    expect(
+      withTruncationCheck(MCPTool).isResultTruncated([
+        null as any,
+        { type: 'text', text: 'ok' },
+      ]),
+    ).toBe(false)
   })
 
   test('handles undefined blocks in array', () => {
-    expect(MCPTool.isResultTruncated([undefined as any])).toBe(false)
+    expect(
+      withTruncationCheck(MCPTool).isResultTruncated([undefined as any]),
+    ).toBe(false)
   })
 
   test('returns false for non-string non-array', () => {
-    expect(MCPTool.isResultTruncated(42 as any)).toBe(false)
-    expect(MCPTool.isResultTruncated({} as any)).toBe(false)
+    expect(withTruncationCheck(MCPTool).isResultTruncated(42 as any)).toBe(
+      false,
+    )
+    expect(withTruncationCheck(MCPTool).isResultTruncated({} as any)).toBe(
+      false,
+    )
   })
 })
