@@ -178,6 +178,7 @@ export class HybridTransport extends WebSocketTransport {
 
     const { uploader } = this
     if (uploader) {
+      let closeGraceTimer: ReturnType<typeof setTimeout> | null = null
       try {
         await Promise.race([
           (async () => {
@@ -186,11 +187,16 @@ export class HybridTransport extends WebSocketTransport {
             }
             await uploader.flush()
           })(),
-          closeGracePeriod(this.closeGraceMs),
+          new Promise<void>(resolve => {
+            closeGraceTimer = setTimeout(resolve, this.closeGraceMs)
+          }),
         ])
       } catch {
         // Ignore flush errors on shutdown
       } finally {
+        if (closeGraceTimer) {
+          clearTimeout(closeGraceTimer)
+        }
         uploader.close()
       }
     }
@@ -281,8 +287,4 @@ function convertWsUrlToPostUrl(wsUrl: URL): string {
   }
 
   return `${protocol}//${wsUrl.host}${pathname}${wsUrl.search}`
-}
-
-function closeGracePeriod(closeGraceMs: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, closeGraceMs))
 }

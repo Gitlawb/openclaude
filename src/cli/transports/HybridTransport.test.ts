@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, jest, mock, test } from 'bun:test'
 import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 
 type AxiosPost = (
@@ -23,6 +23,7 @@ describe('HybridTransport close', () => {
   afterEach(() => {
     delete process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN
     postImpl = async () => ({ status: 200 })
+    jest.restoreAllMocks()
   })
 
   test('drains buffered stream events before closing the uploader', async () => {
@@ -73,6 +74,32 @@ describe('HybridTransport close', () => {
       Promise.race([closePromise, delay(25).then(() => 'pending' as const)]),
     ).resolves.toBe('closed')
     await expect(writePromise).resolves.toBeUndefined()
+  })
+
+  test('clears the close grace timer when the final upload finishes first', async () => {
+    const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout')
+    const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout')
+    const transport = await createTransport({ closeGraceMs: 50 })
+
+    await transport.write({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'hello' },
+      },
+    })
+    await transport.close()
+
+    const closeGraceCallIndex = setTimeoutSpy.mock.calls.findIndex(
+      call => call[1] === 50,
+    )
+    expect(closeGraceCallIndex).toBeGreaterThanOrEqual(0)
+    const closeGraceTimer =
+      setTimeoutSpy.mock.results[closeGraceCallIndex]?.value
+    expect(
+      clearTimeoutSpy.mock.calls.some(call => call[0] === closeGraceTimer),
+    ).toBe(true)
   })
 })
 
