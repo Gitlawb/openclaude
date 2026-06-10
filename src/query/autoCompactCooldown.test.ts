@@ -54,8 +54,8 @@ beforeEach(async () => {
   )
   autoCompactModule = freshAutoCompactModule
   mock.module('../services/compact/autoCompact.js', () => freshAutoCompactModule)
-  savedAutoCompactEnabled = configModule.getGlobalConfig().autoCompactEnabled
-  configModule.saveGlobalConfig(current => ({
+  savedAutoCompactEnabled = freshConfigModule.getGlobalConfig().autoCompactEnabled
+  freshConfigModule.saveGlobalConfig(current => ({
     ...current,
     autoCompactEnabled: true,
   }))

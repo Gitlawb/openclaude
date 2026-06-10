@@ -861,19 +861,14 @@ export function isToolUseResultMessage(
 
 // Re-order, to move result messages to be after their tool use messages
 export function reorderMessagesInUI(
-  messages: (
-    | NormalizedUserMessage
-    | NormalizedAssistantMessage
-    | AttachmentMessage
-    | SystemMessage
-  )[],
+  messages: any[],  // eslint-disable-line @typescript-eslint/no-explicit-any
   syntheticStreamingToolUseMessages: NormalizedAssistantMessage[],
-): (
-  | NormalizedUserMessage
-  | NormalizedAssistantMessage
-  | AttachmentMessage
-  | SystemMessage
-)[] {
+): any[] {  // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Boolean wrappers to avoid type-predicate narrowing (all message types are `any` stubs,
+  // so `Exclude<any, any>` = `never` after type guards)
+  const isToolUse = (m: any): boolean => isToolUseRequestMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const isHook = (m: any): boolean => isHookAttachmentMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
+
   // Maps tool use ID to its related messages
   const toolUseGroups = new Map<
     string,
@@ -886,9 +881,10 @@ export function reorderMessagesInUI(
   >()
 
   // First pass: group messages by tool use ID
-  for (const message of messages) {
+  for (const _msg of messages) {
+    const message: any = _msg // eslint-disable-line @typescript-eslint/no-explicit-any
     // Handle tool use messages
-    if (isToolUseRequestMessage(message)) {
+    if (isToolUse(message)) {
       const toolUseID = message.message.content[0]?.id
       if (toolUseID) {
         if (!toolUseGroups.has(toolUseID)) {
@@ -906,7 +902,7 @@ export function reorderMessagesInUI(
 
     // Handle pre-tool-use hooks
     if (
-      isHookAttachmentMessage(message) &&
+      isHook(message) &&
       message.attachment.hookEvent === 'PreToolUse'
     ) {
       const toolUseID = message.attachment.toolUseID
@@ -942,7 +938,7 @@ export function reorderMessagesInUI(
 
     // Handle post-tool-use hooks
     if (
-      isHookAttachmentMessage(message) &&
+      isHook(message) &&
       message.attachment.hookEvent === 'PostToolUse'
     ) {
       const toolUseID = message.attachment.toolUseID
@@ -960,17 +956,13 @@ export function reorderMessagesInUI(
   }
 
   // Second pass: reconstruct the message list in the correct order
-  const result: (
-    | NormalizedUserMessage
-    | NormalizedAssistantMessage
-    | AttachmentMessage
-    | SystemMessage
-  )[] = []
+  const result: any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
   const processedToolUses = new Set<string>()
 
-  for (const message of messages) {
+  for (const _msg of messages) {
+    const message: any = _msg // eslint-disable-line @typescript-eslint/no-explicit-any
     // Check if this is a tool use
-    if (isToolUseRequestMessage(message)) {
+    if (isToolUse(message)) {
       const toolUseID = message.message.content[0]?.id
       if (toolUseID && !processedToolUses.has(toolUseID)) {
         processedToolUses.add(toolUseID)
@@ -990,7 +982,7 @@ export function reorderMessagesInUI(
 
     // Check if this message is part of a tool use group
     if (
-      isHookAttachmentMessage(message) &&
+      isHook(message) &&
       (message.attachment.hookEvent === 'PreToolUse' ||
         message.attachment.hookEvent === 'PostToolUse')
     ) {
@@ -2863,6 +2855,8 @@ export function getToolUseID(message: NormalizedMessage): string | null {
       return message.subtype === 'informational'
         ? (message.toolUseID ?? null)
         : null
+    default:
+      return null
   }
 }
 
