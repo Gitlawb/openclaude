@@ -309,6 +309,11 @@ async function cachedMicrocompactPath(
   const state = ensureCachedMCState()
   const config = mod.getCachedMCConfig()
 
+  if (!config) {
+    // Feature disabled — fall through to regular microcompact
+    return microcompactMessages(messages, querySource)
+  }
+
   const compactableToolIds = new Set(collectCompactableToolIds(messages))
   // Second pass: register tool results grouped by user message
   for (const message of messages) {
