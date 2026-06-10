@@ -492,14 +492,19 @@ function buildPageStreams(
         lines.push(\`0.92 0.92 0.92 rg \${margins.left} \${y - boxH + 6} \${contentW} \${boxH} re f\`)
         y -= 6
         lines.push('0 0 0 rg')
-        for (const line of codeLines) {
-          if (y < maxY) {
-            flushPage()
+        for (const rawLine of codeLines) {
+          // Wrap long code lines to available width
+          const codeAvailW = pageW - margins.left - margins.right - 12
+          const wrappedCode = wrapText(rawLine, codeAvailW, size, 'Courier')
+          for (const codeLine of wrappedCode) {
+            if (y < maxY) {
+              flushPage()
+              y -= lh
+            }
+            const escaped = codeLine.replace(/\\\\/g, '\\\\\\\\').replace(/\\(/g, '\\\\(').replace(/\\)/g, '\\\\)')
+            lines.push(\`BT /F5 \${size} Tf \${margins.left + 6} \${y.toFixed(1)} Td (\${escaped}) Tj ET\`)
             y -= lh
           }
-          const escaped = line.replace(/\\\\/g, '\\\\\\\\').replace(/\\(/g, '\\\\(').replace(/\\)/g, '\\\\)')
-          lines.push(\`BT /F5 \${size} Tf \${margins.left + 6} \${y.toFixed(1)} Td (\${escaped}) Tj ET\`)
-          y -= lh
         }
         y -= 6
         lines.push('0 0 0 rg')
@@ -540,7 +545,7 @@ function buildPageStreams(
         lines.push('1 1 1 rg')
         let x = margins.left
         for (let c = 0; c < cols; c++) {
-          lines.push(\`BT /F2 \${size} Tf \${x + 4} \${y + 4} Td (\${escapePdf(el.headers[c])}) Tj ET\`)
+          lines.push(\`BT /F2 \${size} Tf \${x + 4} \${y + 4} Td (\${escapePdf(toWinAnsi(el.headers[c]))}) Tj ET\`)
           x += colW[c]
         }
         lines.push('0 0 0 rg')
