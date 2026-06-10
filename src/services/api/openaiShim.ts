@@ -1119,7 +1119,7 @@ async function* geminiSseToAnthropic(
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader()
-  if (!reader) return
+  if (!reader) throw new Error('Response body is not readable')
   const decoder = new TextDecoder()
   let buffer = ''
   const messageId = makeMessageId()

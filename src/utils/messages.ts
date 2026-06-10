@@ -868,7 +868,6 @@ export function reorderMessagesInUI(
   // so `Exclude<any, any>` = `never` after type guards)
   const isToolUse = (m: any): boolean => isToolUseRequestMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
   const isHook = (m: any): boolean => isHookAttachmentMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
-  const isResult = (m: any): boolean => isToolUseResultMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
 
   // Maps tool use ID to its related messages
   const toolUseGroups = new Map<

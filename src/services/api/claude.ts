@@ -1288,9 +1288,12 @@ async function* queryModel(
     const strategyResult = applyHybridStrategy(messagesForAPI, {
       cacheWeight: 0.4,
       freshWeight: 0.6,
-      maxTotalTokens: Math.min(
-        getContextWindowForModel(options.model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
-        200000
+      maxTotalTokens: Math.max(
+        0,
+        Math.min(
+          getContextWindowForModel(options.model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
+          200000,
+        ),
       ),
     })
     messagesForAPI = strategyResult.selectedMessages
