@@ -81,21 +81,12 @@ export async function launchAssistantSessionChooser(root: Root, props: {
  * distinguish errors from user cancellation.
  */
 export async function launchAssistantInstallWizard(root: Root): Promise<string | null> {
-  // assistant.js is currently a stub (`export default null` — the assistant
-  // command is not included in this source snapshot). Assert the expected
-  // module shape; runtime behavior is unchanged (these are absent either way).
+  // assistant.js is a stub in this source snapshot; its NewInstallWizard
+  // cancels immediately, so this resolves null when the path is reached.
   const {
     NewInstallWizard,
     computeDefaultInstallDir
-  } = (await import('./commands/assistant/assistant.js')) as unknown as {
-    NewInstallWizard: React.ComponentType<{
-      defaultDir: string;
-      onInstalled: (dir: string) => void;
-      onCancel: () => void;
-      onError: (message: string) => void;
-    }>;
-    computeDefaultInstallDir: () => Promise<string>;
-  };
+  } = await import('./commands/assistant/assistant.js');
   const defaultDir = await computeDefaultInstallDir();
   let rejectWithError: (reason: Error) => void;
   const errorPromise = new Promise<never>((_, reject) => {
