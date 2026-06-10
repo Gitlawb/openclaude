@@ -292,6 +292,25 @@ export function Config({
       });
     }
   }, {
+    id: 'maxMessagesCompactionThreshold',
+    label: 'Message-count compaction',
+    value: globalConfig.maxMessagesCompactionThreshold ?? 'off',
+    options: ['off', '100', '200', '500', '1000'],
+    type: 'enum' as const,
+    onChange(maxMessagesCompactionThreshold: string) {
+      saveGlobalConfig(current => ({
+        ...current,
+        maxMessagesCompactionThreshold
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        maxMessagesCompactionThreshold
+      });
+      logEvent('tengu_max_messages_compaction_threshold_changed', {
+        threshold: maxMessagesCompactionThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
     id: 'toolHistoryCompressionEnabled',
     label: 'Tool history compression',
     value: globalConfig.toolHistoryCompressionEnabled,
@@ -1171,6 +1190,10 @@ export function Config({
     }
     if (globalConfig.autoCompactEnabled !== initialConfig.current.autoCompactEnabled) {
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
+    }
+    if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
+      const threshold = globalConfig.maxMessagesCompactionThreshold ?? 'off';
+      formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

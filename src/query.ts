@@ -564,11 +564,15 @@ async function* queryLoop(
     const canForceCompact =
       querySource !== 'compact' && querySource !== 'session_memory'
     if (canForceCompact) {
-      const MAX_ACTIVE_MESSAGES = Number.parseInt(
-        process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES ?? '200',
-        10,
-      )
-      if (messagesForQuery.length > MAX_ACTIVE_MESSAGES) {
+      const configSetting = getGlobalConfig().maxMessagesCompactionThreshold ?? 'off'
+      const envSetting = process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
+      const maxActiveMessages = configSetting !== 'off'
+        ? Number.parseInt(configSetting, 10)
+        : envSetting
+          ? Number.parseInt(envSetting, 10)
+          : 0
+
+      if (maxActiveMessages > 0 && messagesForQuery.length > maxActiveMessages) {
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
           forceReason: 'message-count',
