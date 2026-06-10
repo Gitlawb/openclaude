@@ -7,6 +7,7 @@ import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import { FallbackTriggeredError } from './services/api/withRetry.js'
 import {
   calculateTokenWarningState,
+  getAutoCompactThreshold,
   isAutoCompactEnabled,
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   type AutoCompactTrackingState,
@@ -818,18 +819,14 @@ async function* queryLoop(
     // autocompact threshold, block immediately with a clear message instead
     // of burning an oversized API call.
     if (
+      isAutoCompactEnabled() &&
       tracking?.consecutiveFailures !== undefined &&
       tracking.consecutiveFailures >=
-        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES &&
-      isAutoCompactEnabled()
+        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
     ) {
       const model = toolUseContext.options.mainLoopModel
       const tokenUsage = tokenCountWithEstimation(messagesForQuery) - snipTokensFreed
-      const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
-        tokenUsage,
-        model,
-      )
-      if (isAboveAutoCompactThreshold) {
+      if (tokenUsage >= getAutoCompactThreshold(model)) {
         const nowMs = Date.now()
         const retryDelayMs =
           tracking.nextRetryAtMs !== undefined

@@ -2,52 +2,77 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-  type AutoCompactTrackingState,
-} from '../services/compact/autoCompact.js'
+import type { AutoCompactTrackingState } from '../services/compact/autoCompact.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import type { Message } from '../types/message.js'
-import { query } from '../query.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
-import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 
-const SAVED_ENV = {
-  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
-  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
-    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
-  DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
-  DISABLE_COMPACT: process.env.DISABLE_COMPACT,
+const TEST_MODEL = 'claude-sonnet-4'
+
+type ConfigModule = typeof import('../utils/config.js')
+type QueryModule = typeof import('../query.js')
+type AutoCompactModule = typeof import('../services/compact/autoCompact.js')
+type SavedEnv = {
+  CLAUDE_CONFIG_DIR: string | undefined
+  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: string | undefined
+  DISABLE_AUTO_COMPACT: string | undefined
+  DISABLE_COMPACT: string | undefined
 }
+
+let savedEnv: SavedEnv | undefined
 let savedAutoCompactEnabled: boolean | undefined
 let tempDir: string | undefined
+let configModule: ConfigModule | undefined
+let autoCompactModule: AutoCompactModule | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('query/autoCompactCooldown.test.ts')
+  savedEnv = {
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+    CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
+      process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
+    DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
+    DISABLE_COMPACT: process.env.DISABLE_COMPACT,
+  }
+
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-autocompact-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
-  savedAutoCompactEnabled = getGlobalConfig().autoCompactEnabled
-  saveGlobalConfig(current => ({ ...current, autoCompactEnabled: true }))
-  process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
+  delete process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.DISABLE_COMPACT
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const freshConfigModule = await import(`../utils/config.js?test=${nonce}`)
+  configModule = freshConfigModule
+  mock.module('../utils/config.js', () => freshConfigModule)
+
+  const freshAutoCompactModule = await import(
+    `../services/compact/autoCompact.ts?test=${nonce}`
+  )
+  autoCompactModule = freshAutoCompactModule
+  mock.module('../services/compact/autoCompact.js', () => freshAutoCompactModule)
+  savedAutoCompactEnabled = configModule.getGlobalConfig().autoCompactEnabled
+  configModule.saveGlobalConfig(current => ({
+    ...current,
+    autoCompactEnabled: true,
+  }))
 })
 
 afterEach(() => {
   try {
-    if (savedAutoCompactEnabled !== undefined) {
+    if (savedAutoCompactEnabled !== undefined && configModule) {
       const autoCompactEnabled = savedAutoCompactEnabled
-      saveGlobalConfig(current => ({
+      configModule.saveGlobalConfig(current => ({
         ...current,
         autoCompactEnabled,
       }))
       savedAutoCompactEnabled = undefined
     }
 
-    for (const [key, value] of Object.entries(SAVED_ENV)) {
+    for (const [key, value] of Object.entries(savedEnv ?? {})) {
       if (value === undefined) {
         delete process.env[key]
       } else {
@@ -58,6 +83,9 @@ afterEach(() => {
       rmSync(tempDir, { recursive: true, force: true })
       tempDir = undefined
     }
+    configModule = undefined
+    autoCompactModule = undefined
+    savedEnv = undefined
   } finally {
     releaseSharedMutationLock()
   }
@@ -72,6 +100,28 @@ function userMessage(content: string): Message {
   }
 }
 
+function overAutoCompactThresholdMessage(): Message {
+  const threshold = getAutoCompactModule().getAutoCompactThreshold(TEST_MODEL)
+  return userMessage('x'.repeat((threshold + 1_000) * 4))
+}
+
+function maxAutoCompactFailures(): number {
+  return getAutoCompactModule().MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES
+}
+
+function getAutoCompactModule(): AutoCompactModule {
+  if (!autoCompactModule) {
+    throw new Error('autoCompactModule not initialized - call beforeEach first')
+  }
+  return autoCompactModule
+}
+
+async function importQueryUnderTest(): Promise<QueryModule['query']> {
+  const nonce = `${Date.now()}-${Math.random()}`
+  const module = await import(`../query.ts?test=${nonce}`)
+  return module.query
+}
+
 function toolUseContext() {
   const abortController = new AbortController()
   return {
@@ -83,7 +133,7 @@ function toolUseContext() {
       allowedAgentTypes: undefined,
       appendSystemPrompt: undefined,
       isNonInteractiveSession: false,
-      mainLoopModel: 'claude-sonnet-4',
+      mainLoopModel: TEST_MODEL,
       mcpClients: [],
       providerOverride: undefined,
       thinkingConfig: undefined,
@@ -94,7 +144,7 @@ function toolUseContext() {
       fastMode: false,
       effortValue: undefined,
       advisorModel: undefined,
-      mainLoopModel: 'claude-sonnet-4',
+      mainLoopModel: TEST_MODEL,
       mainLoopModelForSession: undefined,
       mcp: { tools: [], clients: [] },
       toolPermissionContext: { mode: 'default' },
@@ -141,7 +191,8 @@ async function drain<T, TReturn>(
 }
 
 test('active auto-compact cooldown blocks before model call with cooldown guidance', async () => {
-  const messages = [userMessage('x'.repeat(100_000))]
+  const query = await importQueryUnderTest()
+  const messages = [overAutoCompactThresholdMessage()]
   const nextRetryAtMs = Date.now() + 60_000
   const callModel = mock(() => {
     throw new Error('model should not be called while autocompact cools down')
@@ -160,7 +211,7 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
         circuitBreakerTripped: boolean
       }> => ({
         wasCompacted: false,
-        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        consecutiveFailures: maxAutoCompactFailures(),
         nextRetryAtMs,
         circuitBreakerActive: true,
         circuitBreakerTripped: false,
@@ -196,7 +247,8 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
 })
 
 test('auto-compact cooldown tracking is carried into the next query call', async () => {
-  const messages = [userMessage('x'.repeat(100_000))]
+  const query = await importQueryUnderTest()
+  const messages = [overAutoCompactThresholdMessage()]
   const nextRetryAtMs = Date.now() + 60_000
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []
   const callModel = mock(() => {
@@ -218,7 +270,7 @@ test('auto-compact cooldown tracking is carried into the next query call', async
         seenTracking.push(tracking)
         return {
           wasCompacted: false,
-          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          consecutiveFailures: maxAutoCompactFailures(),
           nextRetryAtMs,
           circuitBreakerActive: true,
           circuitBreakerTripped: false,
@@ -257,11 +309,12 @@ test('auto-compact cooldown tracking is carried into the next query call', async
   expect(seenTracking[0]).toBeUndefined()
   expect(seenTracking[1]?.nextRetryAtMs).toBe(nextRetryAtMs)
   expect(seenTracking[1]?.consecutiveFailures).toBe(
-    MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    maxAutoCompactFailures(),
   )
 })
 
 test('post-compact turn tracking callback publishes a fresh object', async () => {
+  const query = await importQueryUnderTest()
   const initialTracking: AutoCompactTrackingState = {
     compacted: true,
     turnId: 'compact-turn',
@@ -309,7 +362,57 @@ test('post-compact turn tracking callback publishes a fresh object', async () =>
   expect(initialTracking.turnCounter).toBe(0)
 })
 
+test('persisted breaker state does not block when auto-compact is disabled', async () => {
+  process.env.DISABLE_AUTO_COMPACT = '1'
+  const query = await importQueryUnderTest()
+  const initialTracking: AutoCompactTrackingState = {
+    compacted: false,
+    turnId: 'turn',
+    turnCounter: 0,
+    consecutiveFailures: maxAutoCompactFailures(),
+    nextRetryAtMs: Date.now() + 60_000,
+  }
+  const callModel = mock(async function* () {
+    yield assistantToolUseMessage()
+  })
+  const deps = {
+    callModel,
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+    })),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages: [overAutoCompactThresholdMessage()],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: initialTracking,
+    }),
+  )
+
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(terminal.reason).toBe('max_turns')
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
+})
+
 test('breaker metadata tracking callback publishes a fresh object', async () => {
+  const query = await importQueryUnderTest()
   const initialTracking: AutoCompactTrackingState = {
     compacted: false,
     turnId: 'turn',
@@ -328,7 +431,7 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
     })),
     autocompact: mock(async () => ({
       wasCompacted: false,
-      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      consecutiveFailures: maxAutoCompactFailures(),
       nextRetryAtMs: 20_000,
       lastFailureAtMs: 15_000,
       circuitBreakerActive: true,
@@ -339,7 +442,7 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
 
   const { terminal } = await drain(
     query({
-      messages: [userMessage('x'.repeat(100_000))],
+      messages: [overAutoCompactThresholdMessage()],
       systemPrompt: asSystemPrompt([]),
       userContext: {},
       systemContext: {},
@@ -360,7 +463,7 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
   expect(trackingUpdates).toHaveLength(1)
   expect(trackingUpdates[0]).not.toBe(initialTracking)
   expect(trackingUpdates[0]?.consecutiveFailures).toBe(
-    MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    maxAutoCompactFailures(),
   )
   expect(trackingUpdates[0]?.nextRetryAtMs).toBe(20_000)
   expect(trackingUpdates[0]?.lastFailureAtMs).toBe(15_000)

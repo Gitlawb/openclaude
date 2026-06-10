@@ -2,6 +2,7 @@ import axios, { type AxiosError } from 'axios'
 import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { logForDiagnosticsNoPII } from '../../utils/diagLogs.js'
+import { errorMessage } from '../../utils/errors.js'
 import { getSessionIngressAuthToken } from '../../utils/sessionIngressAuth.js'
 import { SerialBatchEventUploader } from './SerialBatchEventUploader.js'
 import {
@@ -184,6 +185,7 @@ export class HybridTransport extends WebSocketTransport {
     }
 
     const { uploader } = this
+    let uploaderCloseError: unknown
     if (uploader) {
       let closeGraceTimer: ReturnType<typeof setTimeout> | null = null
       try {
@@ -204,12 +206,23 @@ export class HybridTransport extends WebSocketTransport {
         if (closeGraceTimer) {
           clearTimeout(closeGraceTimer)
         }
-        uploader.close()
+        try {
+          uploader.close()
+        } catch (error) {
+          uploaderCloseError = error
+          logForDebugging(
+            `HybridTransport: uploader close failed: ${errorMessage(error)}`,
+          )
+          logForDiagnosticsNoPII('warn', 'cli_hybrid_uploader_close_error')
+        }
       }
     }
 
     if (didCloseThrow) {
       throw closeError
+    }
+    if (uploaderCloseError) {
+      throw uploaderCloseError
     }
   }
 

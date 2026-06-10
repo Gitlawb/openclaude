@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Tool } from '../Tool.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../tools/ToolSearchTool/constants.js'
 import { countMcpToolTokens } from './analyzeContext.js'
 import { createRequestSizeReport } from './requestSizeBreakdown.js'
@@ -51,19 +55,24 @@ function makeContextData(overrides: Partial<ContextData> = {}): ContextData {
 }
 
 describe('countMcpToolTokens', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/analyzeContext.mcp.test.ts')
     process.env.ENABLE_TOOL_SEARCH = 'true'
     delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
     delete process.env.ANTHROPIC_BASE_URL
   })
 
   afterEach(() => {
-    for (const [key, value] of Object.entries(savedToolSearchEnv)) {
-      if (value === undefined) {
-        delete process.env[key]
-      } else {
-        process.env[key] = value
+    try {
+      for (const [key, value] of Object.entries(savedToolSearchEnv)) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
       }
+    } finally {
+      releaseSharedMutationLock()
     }
   })
 

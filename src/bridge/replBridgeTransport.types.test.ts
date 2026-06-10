@@ -16,6 +16,7 @@ test('work poll loop waits for heartbeat-fatal cleanup before fast-polling again
   let pollCount = 0
   let resolveCleanup: (() => void) | undefined
   const cleanupStarted = deferred<void>()
+  const secondPollStarted = deferred<void>()
   const cleanupReleased = new Promise<void>(resolve => {
     resolveCleanup = resolve
   })
@@ -24,6 +25,7 @@ test('work poll loop waits for heartbeat-fatal cleanup before fast-polling again
     pollForWork: async () => {
       pollCount += 1
       if (pollCount === 2) {
+        secondPollStarted.resolve()
         abort.abort()
       }
       return null
@@ -64,10 +66,12 @@ test('work poll loop waits for heartbeat-fatal cleanup before fast-polling again
   })
 
   await cleanupStarted.promise
-  await delay(25)
+  await Promise.resolve()
+  await Promise.resolve()
   expect(pollCount).toBe(1)
 
   resolveCleanup?.()
+  await secondPollStarted.promise
   await loop
   expect(pollCount).toBe(2)
 })
@@ -92,8 +96,4 @@ function deferred<T>(): {
     resolve = res
   })
   return { promise, resolve }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

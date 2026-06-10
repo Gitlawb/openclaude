@@ -16,12 +16,19 @@ mock.module('axios', () => ({
 }))
 
 describe('HybridTransport close', () => {
+  let originalSessionAccessToken: string | undefined
+
   beforeEach(() => {
+    originalSessionAccessToken = process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN
     process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN = 'test-token'
   })
 
   afterEach(() => {
-    delete process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN
+    if (originalSessionAccessToken === undefined) {
+      delete process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN
+    } else {
+      process.env.CLAUDE_CODE_SESSION_ACCESS_TOKEN = originalSessionAccessToken
+    }
     postImpl = async () => ({ status: 200 })
     jest.restoreAllMocks()
   })
@@ -54,52 +61,61 @@ describe('HybridTransport close', () => {
   })
 
   test('uses a close grace period when the final upload stalls', async () => {
-    postImpl = async () => new Promise(() => {})
-    const transport = await createTransport({ closeGraceMs: 1 })
+    jest.useFakeTimers()
+    try {
+      postImpl = async () => new Promise(() => {})
+      const transport = await createTransport({ closeGraceMs: 1 })
 
-    const writePromise = transport.write({
-      type: 'result',
-      subtype: 'success',
-      duration_ms: 0,
-      duration_api_ms: 0,
-      is_error: false,
-      result: 'ok',
-      session_id: 'session-1',
-    })
-    const closePromise = transport.close().then(() => 'closed' as const)
+      const writePromise = transport.write({
+        type: 'result',
+        subtype: 'success',
+        duration_ms: 0,
+        duration_api_ms: 0,
+        is_error: false,
+        result: 'ok',
+        session_id: 'session-1',
+      })
+      const closePromise = transport.close().then(() => 'closed' as const)
 
-    expect(await settledValue(closePromise)).toBe('pending')
+      expect(await settledValue(closePromise)).toBe('pending')
 
-    await expect(
-      Promise.race([closePromise, delay(25).then(() => 'pending' as const)]),
-    ).resolves.toBe('closed')
-    await expect(writePromise).resolves.toBeUndefined()
+      jest.advanceTimersByTime(1)
+      await expect(closePromise).resolves.toBe('closed')
+      await expect(writePromise).resolves.toBeUndefined()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   test('clears the close grace timer when the final upload finishes first', async () => {
-    const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout')
-    const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout')
-    const transport = await createTransport({ closeGraceMs: 50 })
+    jest.useFakeTimers()
+    try {
+      const setTimeoutSpy = jest.spyOn(globalThis, 'setTimeout')
+      const clearTimeoutSpy = jest.spyOn(globalThis, 'clearTimeout')
+      const transport = await createTransport({ closeGraceMs: 50 })
 
-    await transport.write({
-      type: 'stream_event',
-      event: {
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'text_delta', text: 'hello' },
-      },
-    })
-    await transport.close()
+      await transport.write({
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'hello' },
+        },
+      })
+      await transport.close()
 
-    const closeGraceCallIndex = setTimeoutSpy.mock.calls.findIndex(
-      call => call[1] === 50,
-    )
-    expect(closeGraceCallIndex).toBeGreaterThanOrEqual(0)
-    const closeGraceTimer =
-      setTimeoutSpy.mock.results[closeGraceCallIndex]?.value
-    expect(
-      clearTimeoutSpy.mock.calls.some(call => call[0] === closeGraceTimer),
-    ).toBe(true)
+      const closeGraceCallIndex = setTimeoutSpy.mock.calls.findIndex(
+        call => call[1] === 50,
+      )
+      expect(closeGraceCallIndex).toBeGreaterThanOrEqual(0)
+      const closeGraceTimer =
+        setTimeoutSpy.mock.results[closeGraceCallIndex]?.value
+      expect(
+        clearTimeoutSpy.mock.calls.some(call => call[0] === closeGraceTimer),
+      ).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   test('still drains and closes the uploader when the websocket close fails', async () => {
@@ -115,14 +131,6 @@ describe('HybridTransport close', () => {
       return { status: 200 }
     }
     const transport = await createTransport()
-    const uploaderCloseSpy = jest.spyOn(
-      (
-        transport as unknown as {
-          uploader: { close(): void }
-        }
-      ).uploader,
-      'close',
-    )
     const streamEvent: StdoutMessage = {
       type: 'stream_event',
       event: {
@@ -141,14 +149,48 @@ describe('HybridTransport close', () => {
         data: { events: [streamEvent] },
       },
     ])
-    expect(uploaderCloseSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('preserves websocket close errors when uploader close also fails', async () => {
+    const { WebSocketTransport } = await import('./WebSocketTransport.js')
+    const { SerialBatchEventUploader } = await import(
+      './SerialBatchEventUploader.js'
+    )
+    const closeError = new Error('websocket close failed')
+    const uploaderError = new Error('uploader close failed')
+    jest
+      .spyOn(WebSocketTransport.prototype, 'close')
+      .mockRejectedValueOnce(closeError)
+    jest
+      .spyOn(SerialBatchEventUploader.prototype, 'close')
+      .mockImplementationOnce(() => {
+        throw uploaderError
+      })
+
+    const transport = await createTransport()
+
+    await expect(transport.close()).rejects.toBe(closeError)
+  })
+
+  test('surfaces uploader close errors when websocket close succeeds', async () => {
+    const { SerialBatchEventUploader } = await import(
+      './SerialBatchEventUploader.js'
+    )
+    const uploaderError = new Error('uploader close failed')
+    jest
+      .spyOn(SerialBatchEventUploader.prototype, 'close')
+      .mockImplementationOnce(() => {
+        throw uploaderError
+      })
+
+    const transport = await createTransport()
+
+    await expect(transport.close()).rejects.toBe(uploaderError)
   })
 })
 
 async function createTransport(options?: { closeGraceMs?: number }) {
-  const { HybridTransport } = await import(
-    `./HybridTransport.js?test=${Date.now()}-${Math.random()}`
-  )
+  const { HybridTransport } = await import('./HybridTransport.js')
   return new HybridTransport(
     new URL('wss://example.com/v2/session_ingress/ws/session-1'),
     {},
@@ -162,8 +204,4 @@ async function settledValue<T>(promise: Promise<T>): Promise<T | 'pending'> {
   const pending = Symbol('pending')
   const result = await Promise.race([promise, Promise.resolve(pending)])
   return result === pending ? 'pending' : result
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

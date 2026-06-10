@@ -7,7 +7,7 @@ export interface Transport {
   setOnData(callback: (data: string) => void): void
   setOnClose(callback: (closeCode?: number) => void): void
   setOnConnect?(callback: () => void): void
-  setOnEvent?(callback: (event: any) => void): void
+  setOnEvent?(callback: (event: unknown) => void): void
   isConnectedStatus?(): boolean
   isClosedStatus?(): boolean
   getStateLabel?(): string
