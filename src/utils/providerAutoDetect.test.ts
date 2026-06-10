@@ -124,6 +124,13 @@ describe('detectProviderFromEnv — priority order', () => {
     })
   })
 
+  test('FIREWORKS_API_KEY detected', () => {
+    expect(scan({ FIREWORKS_API_KEY: 'fw-key' })).toEqual({
+      kind: 'fireworks',
+      source: 'FIREWORKS_API_KEY set',
+    })
+  })
+
   test('empty-string values are ignored', () => {
     expect(
       scan({

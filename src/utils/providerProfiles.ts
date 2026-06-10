@@ -953,6 +953,9 @@ function buildOpenAICompatibleStartupEnv(
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
+      if (activeProfile.baseUrl?.toLowerCase().includes('fireworks.ai')) {
+        strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
