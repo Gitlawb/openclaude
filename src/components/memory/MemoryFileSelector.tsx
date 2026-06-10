@@ -112,7 +112,7 @@ export function MemoryFileSelector(t0) {
       description
     };
   });
-  const folderOptions = [];
+  const folderOptions: Array<{ label: string; value: string; description: string }> = [];
   const agentDefinitions = useAppState(_temp3);
   if (isAutoMemoryEnabled()) {
     let t1;
@@ -166,7 +166,7 @@ export function MemoryFileSelector(t0) {
   const [autoDreamOn, setAutoDreamOn] = useState(isAutoDreamEnabled);
   const [showDreamRow] = useState(isAutoMemoryEnabled);
   const isDreamRunning = useAppState(_temp6);
-  const [lastDreamAt, setLastDreamAt] = useState(null);
+  const [lastDreamAt, setLastDreamAt] = useState<number | null>(null);
   let t2;
   if ($[4] !== showDreamRow) {
     t2 = () => {
@@ -200,7 +200,7 @@ export function MemoryFileSelector(t0) {
     t4 = $[11];
   }
   const dreamStatus = t4;
-  const [focusedToggle, setFocusedToggle] = useState(null);
+  const [focusedToggle, setFocusedToggle] = useState<number | null>(null);
   const toggleFocused = focusedToggle !== null;
   const lastToggleIndex = showDreamRow ? 1 : 0;
   let t5;

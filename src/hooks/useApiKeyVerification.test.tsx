@@ -100,7 +100,6 @@ test('useApiKeyVerification resets stale missing status when the session switche
     verifyApiKey: async () => true,
   }))
 
-  // @ts-expect-error cache-busting query string for Bun module mocks
   const { useApiKeyVerification } = await import(
     './useApiKeyVerification.ts?switch-to-third-party'
   )

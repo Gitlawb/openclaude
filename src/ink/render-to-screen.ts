@@ -66,7 +66,6 @@ export function renderToScreen(
     stylePool = new StylePool()
     charPool = new CharPool()
     hyperlinkPool = new HyperlinkPool()
-    // @ts-expect-error react-reconciler 0.33 takes 10 args; @types says 11
     container = reconciler.createContainer(
       root,
       LegacyRoot,
@@ -82,9 +81,7 @@ export function renderToScreen(
   }
 
   const t0 = performance.now()
-  // @ts-expect-error updateContainerSync exists but not in @types
   reconciler.updateContainerSync(el, container, null, noop)
-  // @ts-expect-error flushSyncWork exists but not in @types
   reconciler.flushSyncWork()
   const t1 = performance.now()
 
@@ -117,9 +114,7 @@ export function renderToScreen(
   const t3 = performance.now()
 
   // Unmount so next call gets a fresh tree. Leaves root/container/pools.
-  // @ts-expect-error updateContainerSync exists but not in @types
   reconciler.updateContainerSync(null, container, null, noop)
-  // @ts-expect-error flushSyncWork exists but not in @types
   reconciler.flushSyncWork()
 
   timing.reconcile += t1 - t0
