@@ -2080,7 +2080,7 @@ export function REPL({
     // High priority dialogs (always show regardless of typing)
     if (isMessageSelectorVisible) return 'message-selector';
 
-    const allowDialogsWithAnimation = !toolJSX || toolJSX.shouldContinueAnimation;
+    const allowDialogsWithAnimation = !toolJSX || !!toolJSX.shouldContinueAnimation;
     const criticalDialog = resolveCriticalInputDialog({
       sandboxPermissionPending: !!sandboxPermissionRequestQueue[0],
       toolUseConfirmPending: !!toolUseConfirmQueue[0],

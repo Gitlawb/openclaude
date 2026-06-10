@@ -245,13 +245,12 @@ function addCodexSource(
   sourceMap: Map<string, { title: string; url: string }>,
   source: unknown,
 ): void {
-  if (typeof source?.url !== 'string' || !source.url) return
-  sourceMap.set(source.url, {
-    title:
-      typeof source.title === 'string' && source.title
-        ? source.title
-        : source.url,
-    url: source.url,
+  if (typeof source !== 'object' || source === null) return
+  const { url, title } = source as { url?: unknown; title?: unknown }
+  if (typeof url !== 'string' || !url) return
+  sourceMap.set(url, {
+    title: typeof title === 'string' && title ? title : url,
+    url,
   })
 }
 

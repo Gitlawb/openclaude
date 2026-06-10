@@ -2841,6 +2841,9 @@ async function run(): Promise<CommanderCommand> {
       settings: getInitialSettings(),
       tasks: {},
       agentNameRegistry: new Map(),
+      // Session-scoped auto-continuation goal — starts unset, matching
+      // AppStateStore's default state factory.
+      goal: null,
       verbose: verbose ?? getGlobalConfig().verbose ?? false,
       mainLoopModel: initialMainLoopModel,
       mainLoopModelForSession: null,
@@ -3169,7 +3172,7 @@ async function run(): Promise<CommanderCommand> {
 
       // Discovery flow — list bridge environments, filter sessions
       if (!targetSessionId) {
-        let sessions;
+        let sessions: Awaited<ReturnType<typeof discoverAssistantSessions>>;
         try {
           sessions = await discoverAssistantSessions();
         } catch (e) {

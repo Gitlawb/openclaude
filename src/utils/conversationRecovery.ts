@@ -289,7 +289,11 @@ export function deserializeMessagesWithInterruptDetection(
     const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
       processEnv: process.env,
       model: process.env.OPENAI_MODEL,
-      providerCategory: provider,
+      // runtimeMetadata's inline providerCategory union predates the newer
+      // 'xai'/'xiaomi-mimo' categories; they take the same third-party path.
+      providerCategory: provider as NonNullable<
+        Parameters<typeof usesAnthropicNativeMessageFormat>[0]
+      >['providerCategory'],
     })
     const isThirdPartyProvider =
       provider !== 'foundry' && !isAnthropicNativeTransport

@@ -64,7 +64,7 @@ export function SkillsMenu(t0) {
     t1 = $[1];
   }
   const skills = t1;
-  let groups;
+  let groups: Record<SkillSource, SkillCommand[]>;
   if ($[2] !== skills) {
     groups = {
       policySettings: [],

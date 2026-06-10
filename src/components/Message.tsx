@@ -8,7 +8,7 @@ import { useTerminalSize } from '../hooks/useTerminalSize.js';
 import { Box } from '../ink.js';
 import type { Tools } from '../Tool.js';
 import { type ConnectorTextBlock, isConnectorTextBlock } from '../types/connectorText.js';
-import type { AssistantMessage, AttachmentMessage as AttachmentMessageType, CollapsedReadSearchGroup as CollapsedReadSearchGroupType, GroupedToolUseMessage as GroupedToolUseMessageType, NormalizedUserMessage, ProgressMessage, SystemMessage } from '../types/message.js';
+import type { AssistantMessage, AttachmentMessage as AttachmentMessageType, CollapsedReadSearchGroup as CollapsedReadSearchGroupType, GroupedToolUseMessage as GroupedToolUseMessageType, NormalizedUserMessage, ProgressMessage, SystemMessage, SystemSnipBoundaryMessage } from '../types/message.js';
 import { type AdvisorBlock, isAdvisorBlock } from '../utils/advisor.js';
 import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
 import { logError } from '../utils/log.js';
@@ -55,7 +55,7 @@ export type Props = {
   /** UUID of the latest user bash output message (for auto-expanding) */
   latestBashOutputUUID?: string | null;
 };
-function MessageImpl(t0) {
+function MessageImpl(t0: Props) {
   const $ = _c(94);
   const {
     message,
@@ -266,7 +266,9 @@ function MessageImpl(t0) {
             } = t2 as typeof import('./messages/SnipBoundaryMessage.js');
             let t3;
             if ($[66] !== message) {
-              t3 = <SnipBoundaryMessage message={message} />;
+              // isSnipBoundaryMessage checks for snipMetadata at runtime but
+              // is not a type predicate, so narrow explicitly here.
+              t3 = <SnipBoundaryMessage message={message as SystemSnipBoundaryMessage} />;
               $[66] = message;
               $[67] = t3;
             } else {

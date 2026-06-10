@@ -8,6 +8,7 @@ import type {
   SDKSystemMessage,
   SDKToolProgressMessage,
 } from '../entrypoints/agentSdkTypes.js'
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { UUID } from 'crypto'
 import type {
   AssistantMessage,
@@ -183,13 +184,16 @@ export function convertSDKMessage(
       // shape (tool_result blocks) — parent_tool_use_id is NOT reliable: the
       // agent-side normalizeMessage() hardcodes it to null for top-level
       // tool results, so it can't distinguish tool results from prompt echoes.
+      // The generated SDK wire type erases content blocks to `unknown[]`;
+      // probe/forward them as ContentBlockParam[] like the pre-SDK-types code did.
       const isToolResult =
-        Array.isArray(content) && content.some(b => b.type === 'tool_result')
+        Array.isArray(content) &&
+        content.some(b => (b as { type?: unknown }).type === 'tool_result')
       if (opts?.convertToolResults && isToolResult) {
         return {
           type: 'message',
           message: createUserMessage({
-            content,
+            content: content as ContentBlockParam[],
             toolUseResult: msg.tool_use_result,
             uuid: msg.uuid,
             timestamp: msg.timestamp,
@@ -204,7 +208,8 @@ export function convertSDKMessage(
           return {
             type: 'message',
             message: createUserMessage({
-              content,
+              // Same wire-type erasure as above (`unknown[]` from the SDK).
+              content: content as string | ContentBlockParam[],
               toolUseResult: msg.tool_use_result,
               uuid: msg.uuid,
               timestamp: msg.timestamp,

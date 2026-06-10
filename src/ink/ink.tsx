@@ -1628,7 +1628,7 @@ export default class Ink {
     const stderr = process.stderr;
     const originalWrite = stderr.write;
     let reentered = false;
-    const intercept = (chunk: Uint8Array | string, encodingOrCb?: BufferEncoding | ((err?: Error) => void), cb?: (err?: Error) => void): boolean => {
+    const intercept = (chunk: Uint8Array | string, encodingOrCb?: BufferEncoding | ((err?: Error | null) => void), cb?: (err?: Error | null) => void): boolean => {
       const callback = typeof encodingOrCb === 'function' ? encodingOrCb : cb;
       // Reentrancy guard: logForDebugging → writeToStderr → here. Pass
       // through to the original so --debug-to-stderr still works and we

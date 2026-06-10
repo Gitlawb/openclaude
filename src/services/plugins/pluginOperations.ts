@@ -510,7 +510,9 @@ export async function uninstallPluginOp(
   }
   newEnabledPlugins[pluginId] = undefined
   updateSettingsForSource(settingSource, {
-    enabledPlugins: newEnabledPlugins,
+    // Cast: undefined signals key deletion to updateSettingsForSource's
+    // mergeWith customizer; the zod-derived SettingsJson type can't express that.
+    enabledPlugins: newEnabledPlugins as Record<string, boolean | string[]>,
   })
 
   clearAllCaches()

@@ -159,7 +159,9 @@ export function useRemoteSession({
         if (sdkMessage.type === 'user') {
           const c = sdkMessage.message?.content
           parts.push(
-            `content=${Array.isArray(c) ? c.map(b => b.type).join(',') : typeof c}`,
+            // SDK user message content blocks are typed Array<unknown>; they
+            // are content-block objects with a `type` discriminant at runtime.
+            `content=${Array.isArray(c) ? c.map(b => (b as { type?: string }).type).join(',') : typeof c}`,
           )
         }
         logForDebugging(`[useRemoteSession] Received ${parts.join(' ')}`)
@@ -251,8 +253,11 @@ export function useRemoteSession({
           if (Array.isArray(content)) {
             const resultIds: string[] = []
             for (const block of content) {
-              if (block.type === 'tool_result') {
-                resultIds.push(block.tool_use_id)
+              // SDK content blocks are typed Array<unknown>; tool_result
+              // blocks always carry a string tool_use_id at runtime.
+              const b = block as { type?: string; tool_use_id: string }
+              if (b.type === 'tool_result') {
+                resultIds.push(b.tool_use_id)
               }
             }
             if (resultIds.length > 0) {
