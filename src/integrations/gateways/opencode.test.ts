@@ -407,14 +407,15 @@ describe('OpenCode edge cases', () => {
   test('zen catalog entries have non-empty labels', () => {
     const gateway = getGateway('opencode')
     for (const entry of gateway!.catalog!.models!) {
-      expect(entry.label.length).toBeGreaterThan(0)
+      // label is optional in the catalog type; an undefined label fails too.
+      expect((entry.label ?? '').length).toBeGreaterThan(0)
     }
   })
 
   test('go catalog entries have non-empty labels', () => {
     const gateway = getGateway('opencode-go')
     for (const entry of gateway!.catalog!.models!) {
-      expect(entry.label.length).toBeGreaterThan(0)
+      expect((entry.label ?? '').length).toBeGreaterThan(0)
     }
   })
 

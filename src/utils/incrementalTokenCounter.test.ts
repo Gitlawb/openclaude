@@ -21,7 +21,7 @@ describe('IncrementalTokenCounter', () => {
 
     it('creates with custom config', () => {
       const counter = new IncrementalTokenCounter({
-        maxCacheSize: 500,
+        tokenBudget: 500,
         autoInvalidate: false,
         estimationMultiplier: 1.2,
       })
@@ -164,7 +164,7 @@ describe('IncrementalTokenCounter', () => {
 
   describe('isApproachingLimit', () => {
     it('returns false when far from limit', () => {
-      const counter = new IncrementalTokenCounter({ maxCacheSize: 1000 })
+      const counter = new IncrementalTokenCounter({ tokenBudget: 1000 })
       counter.getCount([createMessage('Hi')])
       expect(counter.isApproachingLimit([createMessage('Hi')], 0.8)).toBe(false)
     })
@@ -208,7 +208,7 @@ describe('IncrementalTokenCounter', () => {
   describe('updateConfig', () => {
     it('updates config dynamically', () => {
       const counter = new IncrementalTokenCounter()
-      counter.updateConfig({ maxCacheSize: 2000 })
+      counter.updateConfig({ tokenBudget: 2000 })
       counter.getCount([createMessage('Hello')])
       expect(counter.cachedCount).toBeGreaterThan(0)
     })

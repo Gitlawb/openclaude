@@ -4,7 +4,11 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { getGlobalConfig, saveGlobalConfig } from '../config.js'
+import {
+  type GlobalConfig,
+  getGlobalConfig,
+  saveGlobalConfig,
+} from '../config.js'
 
 async function importFreshModelModule() {
   mock.restore()
@@ -57,7 +61,8 @@ const SAVED_ENV = {
   CODEX_API_KEY: process.env.CODEX_API_KEY,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
 }
-const savedModel = getGlobalConfig().model
+// `model` is a legacy loose key not declared on GlobalConfig.
+const savedModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {

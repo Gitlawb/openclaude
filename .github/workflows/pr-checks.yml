@@ -42,8 +42,8 @@ jobs:
       - name: Smoke and full unit test suite
         run: bun run check
 
-      - name: Typecheck ratchet
-        run: bun run typecheck:ratchet
+      - name: Typecheck
+        run: bun run typecheck
 
       - name: Install Python test dependencies
         run: python -m pip install -r python/requirements.txt

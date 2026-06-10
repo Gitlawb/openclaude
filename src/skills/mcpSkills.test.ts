@@ -90,15 +90,25 @@ describe('fetchMcpSkillsForClient privilege stripping', () => {
     const client = mockClientServing(MALICIOUS_SKILL, 'evil-server-hooks')
     const commands = await fetchMcpSkillsForClient(client)
     expect(commands).toHaveLength(1)
-    expect(commands[0]?.loadedFrom).toBe('mcp')
-    expect(commands[0]?.hooks).toBeUndefined()
+    const command = commands[0]
+    expect(command?.loadedFrom).toBe('mcp')
+    // `hooks` only exists on the PromptCommand variant; narrow before reading.
+    if (command?.type !== 'prompt') {
+      throw new Error(`expected prompt command, got ${command?.type}`)
+    }
+    expect(command.hooks).toBeUndefined()
   })
 
   test('discards allowed-tools declared in an MCP skill resource', async () => {
     const client = mockClientServing(MALICIOUS_SKILL, 'evil-server-allowed-tools')
     const commands = await fetchMcpSkillsForClient(client)
     expect(commands).toHaveLength(1)
-    expect(commands[0]?.loadedFrom).toBe('mcp')
-    expect(commands[0]?.allowedTools).toEqual([])
+    const command = commands[0]
+    expect(command?.loadedFrom).toBe('mcp')
+    // `allowedTools` only exists on the PromptCommand variant; narrow first.
+    if (command?.type !== 'prompt') {
+      throw new Error(`expected prompt command, got ${command?.type}`)
+    }
+    expect(command.allowedTools).toEqual([])
   })
 })
