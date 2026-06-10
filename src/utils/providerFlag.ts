@@ -482,7 +482,9 @@ export function applyProviderFlag(
     case 'fireworks':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      process.env.OPENAI_MODEL ??= defaultModel
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.FIREWORKS_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
