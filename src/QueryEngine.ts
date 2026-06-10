@@ -955,7 +955,7 @@ export class QueryEngine {
               // applySnipRemovals prune them in loadTranscriptFile(). Without
               // this, --resume/restart rebuilds the un-snipped history and the
               // context reduction is lost. Mirror the boundary into the local
-              // `messages` recording copy — like the compact_boundary path —
+// `messages` recording copy — like the compact_boundary path —
               // so later writes and the parent chain stay consistent.
               messages.push(message)
               if (persistSession) {
