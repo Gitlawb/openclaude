@@ -18,8 +18,11 @@ export type CachedMCState = {
 }
 
 export type CachedMCConfig = {
+  enabled: boolean
   triggerThreshold: number
   keepRecent: number
+  supportedModels?: string[]
+  systemPromptSuggestSummaries?: boolean
 }
 
 export function isCachedMicrocompactEnabled(): boolean {
