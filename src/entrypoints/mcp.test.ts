@@ -1,5 +1,4 @@
 import { afterAll, describe, it, expect, mock } from 'bun:test'
-import { getCombinedTools, loadReexposedMcpTools } from './mcp.js'
 import type { Tool as InternalTool } from '../Tool.js'
 import type { MCPServerConnection } from '../services/mcp/types.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
@@ -10,15 +9,30 @@ import {
 
 await acquireSharedMutationLock('entrypoints/mcp.test.ts')
 
+const originalDisableExperimentalBetas =
+  process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+
 // Mock the MCP client service to control the tools and connections returned
 const mockGetMcpToolsCommandsAndResources = mock(async (onConnectionAttempt: any) => {})
+const realMcpClient = await import(
+  `../services/mcp/client.js?real=${Date.now()}-${Math.random()}`
+)
 mock.module('../services/mcp/client.js', () => ({
-  getMcpToolsCommandsAndResources: mockGetMcpToolsCommandsAndResources
+  ...realMcpClient,
+  getMcpToolsCommandsAndResources: mockGetMcpToolsCommandsAndResources,
 }))
+
+const { getCombinedTools, loadReexposedMcpTools } = await import('./mcp.js')
 
 afterAll(() => {
   try {
     mock.restore()
+    if (originalDisableExperimentalBetas === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS =
+        originalDisableExperimentalBetas
+    }
   } finally {
     releaseSharedMutationLock()
   }
