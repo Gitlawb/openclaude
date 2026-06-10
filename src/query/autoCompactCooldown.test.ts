@@ -23,7 +23,7 @@ const SAVED_ENV = {
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
 }
 let savedAutoCompactEnabled: boolean | undefined
-let tempDir: string
+let tempDir: string | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('query/autoCompactCooldown.test.ts')
@@ -54,7 +54,10 @@ afterEach(() => {
         process.env[key] = value
       }
     }
-    rmSync(tempDir, { recursive: true, force: true })
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true })
+      tempDir = undefined
+    }
   } finally {
     releaseSharedMutationLock()
   }
