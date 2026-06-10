@@ -30,12 +30,6 @@ export const CLI_INTERNAL_BETA_HEADER =
   process.env.USER_TYPE === 'ant' ? 'cli-internal-2026-02-09' : ''
 export const CACHE_EDITING_BETA_HEADER = 'cache-editing-2025-12-01'
 export const ADVISOR_BETA_HEADER = 'advisor-tool-2026-03-01'
-// Internal-only: cache editing for cached microcompact. Imported lazily in
-// services/api/claude.ts and only sent when the CACHED_MICROCOMPACT bundle
-// feature latches, so gate it on the same feature here.
-export const CACHE_EDITING_BETA_HEADER = feature('CACHED_MICROCOMPACT')
-  ? 'cache-editing-2026-01-05'
-  : ''
 
 /**
  * Bedrock only supports a limited number of beta headers and only through

@@ -1727,8 +1727,11 @@ async function* queryModel(
         enablePromptCaching,
         options.querySource,
         useCachedMC,
-        consumedCacheEdits,
-        consumedPinnedEdits,
+        // The stub's CacheEditsBlock/PinnedCacheEdits type edits as unknown[];
+        // the local types pin the delete-edit shape. The stub only ever
+        // yields null/[] today.
+        consumedCacheEdits as CachedMCEditsBlock | null,
+        consumedPinnedEdits as CachedMCPinnedEdits[],
         options.skipCacheWrite,
       ),
       tools: allTools,
