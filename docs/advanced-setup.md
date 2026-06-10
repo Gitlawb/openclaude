@@ -446,7 +446,7 @@ If you frequently resume long sessions that accumulate hundreds of small
 tool-result messages with negligible token cost, you can opt in to message-count
 compaction via the in-app `/config` command:
 
-```
+```text
 /config
 ```
 

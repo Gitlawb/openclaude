@@ -111,7 +111,10 @@ import {
   updateToolFailureLoopGuard,
 } from './query/toolFailureLoopGuard.js'
 import { buildQueryConfig } from './query/config.js'
-import { getGlobalConfig } from './utils/config.js'
+import {
+  getGlobalConfig,
+  normalizeMaxMessagesCompactionThreshold,
+} from './utils/config.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
 import type { Terminal, Continue } from './query/transitions.js'
 import { feature } from 'bun:bundle'
@@ -564,7 +567,9 @@ async function* queryLoop(
     const canForceCompact =
       querySource !== 'compact' && querySource !== 'session_memory'
     if (canForceCompact) {
-      const configSetting = getGlobalConfig().maxMessagesCompactionThreshold ?? 'off'
+      const configSetting = normalizeMaxMessagesCompactionThreshold(
+        getGlobalConfig().maxMessagesCompactionThreshold,
+      )
       const envSetting = process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
       const maxActiveMessages = configSetting !== 'off'
         ? Number.parseInt(configSetting, 10)

@@ -133,6 +133,7 @@ export const POST_COMPACT_MAX_TOKENS_PER_FILE = 5_000
 export const POST_COMPACT_MAX_TOKENS_PER_SKILL = 5_000
 export const POST_COMPACT_SKILLS_TOKEN_BUDGET = 25_000
 const MAX_COMPACT_STREAMING_RETRIES = 2
+const COMPACT_TIMEOUT_MS = 120_000
 
 /**
  * Strip image blocks from user messages before sending for compaction.
@@ -1188,8 +1189,6 @@ async function streamCompactSummary({
         // creating a thinking config mismatch that invalidates the cache.
         // The streaming fallback path (below) can safely set maxOutputTokensOverride
         // since it doesn't share cache with the main thread.
-        const COMPACT_TIMEOUT_MS = 120_000
-
         // Use a child AbortController that properly propagates parent aborts
         // (user ESC) and cleans up listeners automatically via createChildAbortController.
         const forkAbortController = context.abortController

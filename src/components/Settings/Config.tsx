@@ -7,7 +7,7 @@ import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.js';
 import figures from 'figures';
-import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle } from '../../utils/config.js';
+import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
 import chalk from 'chalk';
@@ -295,19 +295,20 @@ export function Config({
     id: 'maxMessagesCompactionThreshold',
     label: 'Message-count compaction',
     value: globalConfig.maxMessagesCompactionThreshold ?? 'off',
-    options: ['off', '100', '200', '500', '1000'],
+    options: [...MAX_MESSAGES_COMPACTION_THRESHOLDS],
     type: 'enum' as const,
     onChange(maxMessagesCompactionThreshold: string) {
+      const normalizedThreshold = normalizeMaxMessagesCompactionThreshold(maxMessagesCompactionThreshold);
       saveGlobalConfig(current => ({
         ...current,
-        maxMessagesCompactionThreshold
+        maxMessagesCompactionThreshold: normalizedThreshold
       }));
       setGlobalConfig({
         ...getGlobalConfig(),
-        maxMessagesCompactionThreshold
+        maxMessagesCompactionThreshold: normalizedThreshold
       });
       logEvent('tengu_max_messages_compaction_threshold_changed', {
-        threshold: maxMessagesCompactionThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+        threshold: normalizedThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
   }, {
