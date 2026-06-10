@@ -7,8 +7,10 @@ import {
   type GoalEvaluationDeps,
 } from './controller.js'
 import type { GoalState } from './types.js'
+import type { AssistantMessage } from '../../types/message.js'
 
 function assistant(uuid: string, text: string) {
+  // Minimal fixture — cast rather than fabricate the full envelope.
   return {
     type: 'assistant',
     uuid,
@@ -16,7 +18,7 @@ function assistant(uuid: string, text: string) {
       role: 'assistant',
       content: [{ type: 'text', text }],
     },
-  }
+  } as unknown as AssistantMessage
 }
 
 function makeContext(goal = createGoalState('finish implementation')) {

@@ -6,20 +6,16 @@ import type { Message } from './message.js'
 import type { QueueOperationMessage } from './messageQueueTypes.js'
 import type { GoalState } from '../services/goal/types.js'
 
-// Omit<Message, never> instead of plain Message: the open snapshot stubs
-// Message as `any`, and `any & {...}` collapses to `any`. That made every
-// guard targeting TranscriptMessage (`entry is TranscriptMessage`) an
-// any-guard, which TypeScript narrows to `never` in else-branches —
-// breaking the Entry else-if chains in sessionStorage/stats. Omit forces
-// a mapped type ({ [k: string]: any }), keeping property access permissive
-// while giving SerializedMessage a real object shape that narrows correctly.
-//
-// The `type` discriminant is declared explicitly (the stub's index signature
-// is not usable for discriminant narrowing) and SerializedMessage is a
-// distributed union over it so Extract<TranscriptMessage, { type: '...' }>
-// and `m.type === '...'` narrowing both work. 'progress' covers legacy
-// on-disk entries (removed from isTranscriptMessage in PR #24099 but still
-// present in old transcripts).
+// SerializedMessage distributes over Message's `type` discriminant via
+// Extract so that (a) `m.type === '...'` narrowing and Extract<...> both
+// work on transcript entries, and (b) every SerializedMessage variant stays
+// assignable to its Message variant (sessionStorage passes TranscriptMessage
+// where Message is expected). When Message was an `any` stub this used
+// Omit<Message, never> to fabricate an object shape; with the reconstructed
+// discriminated union (issue #473) Extract is both simpler and sound —
+// each variant's `[key: string]: any` escape hatch keeps property access
+// permissive. 'progress' covers legacy on-disk entries (removed from
+// isTranscriptMessage in PR #24099 but still present in old transcripts).
 type SerializedMessageFields = {
   cwd: string
   userType: string
@@ -31,9 +27,11 @@ type SerializedMessageFields = {
   slug?: string // Session slug for files like plans (used for resume)
 }
 
-type SerializedMessageOf<K extends string> = Omit<Message, never> & {
-  type: K
-} & SerializedMessageFields
+type SerializedMessageOf<K extends Message['type']> = Extract<
+  Message,
+  { type: K }
+> &
+  SerializedMessageFields
 
 export type SerializedMessage =
   | SerializedMessageOf<'user'>

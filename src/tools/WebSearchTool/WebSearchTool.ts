@@ -807,7 +807,7 @@ export const WebSearchTool = buildTool({
     })
 
     const allContentBlocks: BetaContentBlock[] = []
-    let currentToolUseId = null
+    let currentToolUseId: string | null = null
     let currentToolUseJson = ''
     let progressCounter = 0
     const toolUseQueries = new Map() // Map of tool_use_id to query

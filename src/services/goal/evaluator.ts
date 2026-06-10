@@ -71,7 +71,7 @@ const defaultModelCaller: GoalModelCaller = async request => {
 
   return response.message.content
     .filter((block: { type: string }) => block.type === 'text')
-    .map((block: { text?: string }) => block.text ?? '')
+    .map((block: { type: string; text?: string }) => block.text ?? '')
     .join('')
     .trim()
 }

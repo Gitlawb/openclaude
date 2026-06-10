@@ -54,6 +54,7 @@ import type { HookProgress } from '../../types/hooks.js'
 import type {
   AssistantMessage,
   AttachmentMessage,
+  HookResultMessage,
   Message,
   ProgressMessage,
   StopHookInfo,
@@ -1375,7 +1376,7 @@ async function checkPermissionsAndCallTool(
 
     // Run PostToolUse hooks
     let toolOutput = result.data
-    const hookResults: MessageUpdateLazy[] = []
+    const hookResults: MessageUpdateLazy<HookResultMessage>[] = []
     const toolContextModifier = result.contextModifier
     const mcpMeta = result.mcpMeta
 

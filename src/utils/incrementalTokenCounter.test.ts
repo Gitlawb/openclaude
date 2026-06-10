@@ -3,11 +3,12 @@ import { IncrementalTokenCounter, CounterFactory } from './incrementalTokenCount
 import type { Message } from '../types/message.js'
 
 function createMessage(content: string): Message {
+  // Minimal fixture (no uuid/timestamp) — cast rather than fabricate.
   return {
     type: 'user' as const,
     message: { role: 'user', content, id: 'test', type: 'message', created_at: Date.now() },
     sender: 'user',
-  }
+  } as unknown as Message
 }
 
 describe('IncrementalTokenCounter', () => {
@@ -116,7 +117,7 @@ describe('IncrementalTokenCounter', () => {
         },
         sender: 'user',
       }
-      const count = counter.estimateMessage(msg)
+      const count = counter.estimateMessage(msg as unknown as Message)
       expect(count).toBeGreaterThan(0)
     })
 
@@ -132,7 +133,7 @@ describe('IncrementalTokenCounter', () => {
         },
         sender: 'user',
       }
-      const count = counter.estimateMessage(msg)
+      const count = counter.estimateMessage(msg as unknown as Message)
       expect(count).toBeGreaterThan(0)
     })
   })

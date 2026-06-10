@@ -477,10 +477,10 @@ export function createUserMessage({
   origin,
 }: {
   content: string | ContentBlockParam[]
-  isMeta?: true
-  isVisibleInTranscriptOnly?: true
-  isVirtual?: true
-  isCompactSummary?: true
+  isMeta?: boolean
+  isVisibleInTranscriptOnly?: boolean
+  isVirtual?: boolean
+  isCompactSummary?: boolean
   toolUseResult?: unknown // Matches tool's `Output` type
   /** MCP protocol metadata to pass through to SDK consumers (never sent to model) */
   mcpMeta?: {
@@ -1804,7 +1804,13 @@ export function stripCallerFieldFromAssistantMessage(
           id: block.id,
           name: block.name,
           input: block.input,
-          ...(block.extra_content ? { extra_content: block.extra_content } : {})
+          // extra_content is a non-SDK extension field — cast type-side only
+          ...((block as { extra_content?: unknown }).extra_content
+            ? {
+                extra_content: (block as { extra_content?: unknown })
+                  .extra_content,
+              }
+            : {})
         }
       }),
     },
