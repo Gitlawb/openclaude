@@ -59,6 +59,7 @@
     "security:pr-scan": "bun run scripts/pr-intent-scan.ts",
     "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:ratchet": "bun run scripts/typecheck-ratchet.ts",
     "typecheck:type-tests": "bun run scripts/typecheck-type-tests.ts",
     "smoke": "bun run build && node dist/cli.mjs --version",
     "check": "bun run smoke && bun run typecheck:type-tests && bun run test:full",
