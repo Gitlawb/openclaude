@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Tool } from '../Tool.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../tools/ToolSearchTool/constants.js'
 import { countMcpToolTokens } from './analyzeContext.js'
@@ -25,6 +25,12 @@ function makeToolSearchTool(): Tool {
 
 const emptyPermissionContext = async () => ({ mode: 'default' }) as never
 const countToolDefinitions = async () => 1_500
+const savedToolSearchEnv = {
+  ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH,
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS:
+    process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+}
 
 function makeContextData(overrides: Partial<ContextData> = {}): ContextData {
   return {
@@ -45,6 +51,22 @@ function makeContextData(overrides: Partial<ContextData> = {}): ContextData {
 }
 
 describe('countMcpToolTokens', () => {
+  beforeEach(() => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    delete process.env.ANTHROPIC_BASE_URL
+  })
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedToolSearchEnv)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  })
+
   test('marks MCP tools loaded and request-size groups them by server when Tool Search is not deferred', async () => {
     const result = await countMcpToolTokens(
       [makeMcpTool('mcp__alpha__search'), makeMcpTool('mcp__beta__list')],

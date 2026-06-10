@@ -7,7 +7,6 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import * as realEnv from './env.js'
-import * as realEnvUtils from './envUtils.js'
 import * as realExecFileNoThrow from './execFileNoThrow.js'
 
 const originalEnv = { ...process.env }
@@ -27,7 +26,6 @@ afterEach(() => {
     }
     mock.restore()
     mock.module('../utils/env.js', () => realEnv)
-    mock.module('./envUtils.js', () => realEnvUtils)
     mock.module('./execFileNoThrow.js', () => realExecFileNoThrow)
   } finally {
     releaseSharedMutationLock()
@@ -91,12 +89,6 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
       code: 1,
       stderr: 'npm ERR! code E404',
     }),
-  }))
-
-  mock.module('./envUtils.js', () => ({
-    ...realEnvUtils,
-    getClaudeConfigHomeDir: () => join(homedir(), '.openclaude'),
-    isEnvTruthy: (value: string | undefined) => value === '1',
   }))
 
   const { cleanupNpmInstallations } = await importFreshInstaller()
