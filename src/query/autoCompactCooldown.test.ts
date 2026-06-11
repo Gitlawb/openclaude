@@ -17,6 +17,8 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 
 const SAVED_ENV = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW:
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
   CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
@@ -31,6 +33,7 @@ beforeEach(async () => {
   process.env.CLAUDE_CONFIG_DIR = tempDir
   savedAutoCompactEnabled = getGlobalConfig().autoCompactEnabled
   saveGlobalConfig(current => ({ ...current, autoCompactEnabled: true }))
+  process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '200000'
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.DISABLE_COMPACT
