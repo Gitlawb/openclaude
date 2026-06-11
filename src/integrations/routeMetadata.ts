@@ -352,7 +352,7 @@ export function getNearaiBaseUrlOverride(
 
 /**
  * Returns the user-configured Fireworks AI base URL from `OPENAI_BASE_URL`
- * or `OPENAI_API_API_BASE` when the hostname resolves to api.fireworks.ai.
+ * or `OPENAI_API_BASE` when the hostname resolves to api.fireworks.ai.
  */
 export function getFireworksBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
