@@ -41,6 +41,20 @@ function getValidationRoutingHosts(
   return routing?.matchBaseUrlHosts ?? []
 }
 
+export function matchHostnameAgainstRouteHosts(
+  hostname: string,
+  routeHosts: string[],
+): boolean {
+  return routeHosts.some(host => {
+    const lowerHost = host.toLowerCase()
+    if (lowerHost.startsWith('*.')) {
+      const suffix = lowerHost.slice(1)
+      return hostname.endsWith(suffix)
+    }
+    return hostname === lowerHost
+  })
+}
+
 function normalizeComparableBaseUrl(
   baseUrl?: string,
 ): string | null {
@@ -669,7 +683,7 @@ export function resolveRouteIdFromBaseUrl(
 
   if (normalizedHost) {
     for (const route of routes) {
-      if (getValidationRoutingHosts(route).includes(normalizedHost)) {
+      if (matchHostnameAgainstRouteHosts(normalizedHost, getValidationRoutingHosts(route))) {
         return route.id
       }
     }

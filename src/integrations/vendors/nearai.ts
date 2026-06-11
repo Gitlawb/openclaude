@@ -25,7 +25,7 @@ export default defineVendor({
     kind: 'credential-env',
     routing: {
       matchDefaultBaseUrl: true,
-      matchBaseUrlHosts: ['cloud-api.near.ai', 'completions.near.ai'],
+      matchBaseUrlHosts: ['cloud-api.near.ai', 'completions.near.ai', '*.completions.near.ai'],
     },
     credentialEnvVars: ['NEARAI_API_KEY'],
     missingCredentialMessage: 'NEARAI_API_KEY is required.',

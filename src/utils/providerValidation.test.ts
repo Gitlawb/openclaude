@@ -39,6 +39,7 @@ const ENV_KEYS = [
   'GOOGLE_APPLICATION_CREDENTIALS',
   'XAI_API_KEY',
   'XAI_CREDENTIAL_SOURCE',
+  'NEARAI_API_KEY',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -313,6 +314,24 @@ test('xiaomi mimo validation accepts MIMO_API_KEY without OPENAI_API_KEY', async
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
   process.env.MIMO_API_KEY = 'mimo-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('nearai validation accepts NEARAI_API_KEY for cloud-api base URL', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://cloud-api.near.ai/v1'
+  process.env.NEARAI_API_KEY = 'nearai-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('nearai validation accepts NEARAI_API_KEY for wildcard TEE completions endpoint', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://qwen35-122b.completions.near.ai/v1'
+  process.env.NEARAI_API_KEY = 'nearai-tee-key'
   delete process.env.OPENAI_API_KEY
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
