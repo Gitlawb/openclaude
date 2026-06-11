@@ -963,6 +963,10 @@ function buildOpenAICompatibleStartupEnv(
   const env: ProfileEnv = {
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+    ...(activeProfile.apiFormat ? { OPENAI_API_FORMAT: activeProfile.apiFormat } : {}),
+    ...(activeProfile.authHeader ? { OPENAI_AUTH_HEADER: activeProfile.authHeader } : {}),
+    ...(activeProfile.authScheme ? { OPENAI_AUTH_SCHEME: activeProfile.authScheme } : {}),
+    ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),
   }
 
   if (activeProfile.apiKey) {

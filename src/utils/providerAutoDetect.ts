@@ -21,11 +21,6 @@
  *  10. FIREWORKS_API_KEY
  *  11. Local Ollama reachable (default localhost:11434)
  *  12. Local LM Studio reachable (default localhost:1234)
-=======
- *   8. XAI_API_KEY
- *   9. FIREWORKS_API_KEY
- *  10. Local Ollama reachable (default localhost:11434)
- *  11. Local LM Studio reachable (default localhost:1234)
  *
  * Local-service probes are parallelized and cheap (short timeout, no
  * request body). Env scans are synchronous and run first so we don't make
