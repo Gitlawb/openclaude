@@ -967,7 +967,6 @@ function buildOpenAICompatibleStartupEnv(
 
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
-<<<<<<< HEAD
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
