@@ -1,0 +1,6 @@
+# Commits to ignore in git blame (pure mechanical reformats).
+# GitHub honors this file automatically; locally run:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: format repository with Biome
+3760035bdb52b53d48c616e86e68de8859c10bd1
