@@ -91,6 +91,11 @@ function createIgnoreModuleMock() {
   }
 }
 
+function isGitCommand(command: string): boolean {
+  return path.basename(command).toLowerCase() === 'git.exe' ||
+    path.basename(command).toLowerCase() === 'git'
+}
+
 function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}): void {
   const realSpawn =
     actualCrossSpawnModule!.spawn ??
@@ -102,7 +107,7 @@ function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}):
       args: string[],
       spawnOptions: { signal?: AbortSignal },
     ) => {
-      if (!options.spawnScenario || command !== 'git') {
+      if (!options.spawnScenario || !isGitCommand(command)) {
         return realSpawn(command, args, spawnOptions)
       }
       const child = createFakeChildProcess()
@@ -114,7 +119,7 @@ function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}):
       args: string[],
       spawnOptions: { signal?: AbortSignal },
     ) => {
-      if (!options.spawnScenario || command !== 'git') {
+      if (!options.spawnScenario || !isGitCommand(command)) {
         return realSpawn(command, args, spawnOptions)
       }
       const child = createFakeChildProcess()
