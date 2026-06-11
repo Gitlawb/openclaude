@@ -317,6 +317,10 @@ export function isNearaiBaseUrl(value: string | undefined): boolean {
   }
 }
 
+/**
+ * Checks whether the given URL value targets the Fireworks AI inference API
+ * by matching the hostname against `api.fireworks.ai`.
+ */
 export function isFireworksBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {
@@ -346,6 +350,10 @@ export function getNearaiBaseUrlOverride(
   return undefined
 }
 
+/**
+ * Returns the user-configured Fireworks AI base URL from `OPENAI_BASE_URL`
+ * or `OPENAI_API_API_BASE` when the hostname resolves to api.fireworks.ai.
+ */
 export function getFireworksBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -512,6 +520,11 @@ export function hasNearaiEnvOnlyProviderIntent(
   )
 }
 
+/**
+ * Detects whether the process environment is configured to route traffic
+ * exclusively through Fireworks AI based on the presence of FIREWORKS_API_KEY
+ * and the absence of conflicting env vars for other providers.
+ */
 export function hasFireworksEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {

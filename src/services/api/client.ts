@@ -273,6 +273,10 @@ function applyNearaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+/**
+ * Checks whether the given model ID follows the Fireworks AI model naming
+ * convention (`accounts/fireworks/models/...`).
+ */
 function isFireworksModelName(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
@@ -280,6 +284,11 @@ function isFireworksModelName(value: string | undefined): boolean {
   )
 }
 
+/**
+ * Applies Fireworks AI environment defaults by setting the OpenAI shim env
+ * vars (`CLAUDE_CODE_USE_OPENAI`, `OPENAI_BASE_URL`, `OPENAI_MODEL`,
+ * `OPENAI_API_KEY`) and clearing stale OpenAI shim options.
+ */
 function applyFireworksEnvOnlyDefaults(): void {
   const baseUrlOverride = getFireworksBaseUrlOverride()
   const hasFireworksBaseOverride = baseUrlOverride !== undefined
