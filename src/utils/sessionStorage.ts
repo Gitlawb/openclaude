@@ -69,7 +69,11 @@ import { updateSessionName } from './concurrentSessions.js'
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
-import { getClaudeConfigHomeDir, getProjectsDir, isEnvTruthy } from './envUtils.js'
+import {
+  getClaudeConfigHomeDir,
+  getProjectsDir,
+  isEnvTruthy,
+} from './envUtils.js'
 import { isFsInaccessible } from './errors.js'
 import type { FileHistorySnapshot } from './fileHistory.js'
 import { formatFileSize } from './format.js'
@@ -102,8 +106,7 @@ let builtInCommandNamesCache: Set<string> | undefined
 
 function getBuiltInCommandNames(): Set<string> {
   if (builtInCommandNamesCache) return builtInCommandNamesCache
-  const commands =
-    require('../commands.js') as typeof import('../commands.js')
+  const commands = require('../commands.js') as typeof import('../commands.js')
   builtInCommandNamesCache = commands.builtInCommandNames()
   return builtInCommandNamesCache
 }
@@ -1880,9 +1883,7 @@ export function removeExtraFields(
  *
  * Mutates the Map in place.
  */
-function applyPreservedSegmentRelinks(
-  messages: Map<UUID, TranscriptMessage>,
-): {
+function applyPreservedSegmentRelinks(messages: Map<UUID, TranscriptMessage>): {
   relinkFailed: boolean
 } {
   let relinkFailed = false
@@ -2193,7 +2194,9 @@ function stripPersistedToolUseResultFromLine(line: Buffer): Buffer {
   return line
 }
 
-export function stripPersistedToolUseResultsFromJSONLBuffer(buf: Buffer): Buffer {
+export function stripPersistedToolUseResultsFromJSONLBuffer(
+  buf: Buffer,
+): Buffer {
   if (
     buf.indexOf(PERSISTED_OUTPUT_TAG) === -1 ||
     buf.indexOf(TOOL_USE_RESULT_KEY) === -1
@@ -3900,30 +3903,31 @@ export async function loadTranscriptFile(
       forEachParsedJSONLBufferEntry<Entry>(
         Buffer.from(metadataLines.join('\n')),
         entry => {
-        if (entry.type === 'summary' && entry.leafUuid) {
-          summaries.set(entry.leafUuid, entry.summary)
-        } else if (entry.type === 'custom-title' && entry.sessionId) {
-          customTitles.set(entry.sessionId, entry.customTitle)
-        } else if (entry.type === 'tag' && entry.sessionId) {
-          tags.set(entry.sessionId, entry.tag)
-        } else if (entry.type === 'agent-name' && entry.sessionId) {
-          agentNames.set(entry.sessionId, entry.agentName)
-        } else if (entry.type === 'agent-color' && entry.sessionId) {
-          agentColors.set(entry.sessionId, entry.agentColor)
-        } else if (entry.type === 'agent-setting' && entry.sessionId) {
-          agentSettings.set(entry.sessionId, entry.agentSetting)
-        } else if (entry.type === 'mode' && entry.sessionId) {
-          modes.set(entry.sessionId, entry.mode)
-        } else if (entry.type === 'worktree-state' && entry.sessionId) {
-          worktreeStates.set(entry.sessionId, entry.worktreeSession)
-        } else if (entry.type === 'pr-link' && entry.sessionId) {
-          prNumbers.set(entry.sessionId, entry.prNumber)
-          prUrls.set(entry.sessionId, entry.prUrl)
-          prRepositories.set(entry.sessionId, entry.prRepository)
-        } else if (entry.type === 'goal-state' && entry.sessionId) {
-          goalStates.set(entry.sessionId, entry.goal)
-        }
-      })
+          if (entry.type === 'summary' && entry.leafUuid) {
+            summaries.set(entry.leafUuid, entry.summary)
+          } else if (entry.type === 'custom-title' && entry.sessionId) {
+            customTitles.set(entry.sessionId, entry.customTitle)
+          } else if (entry.type === 'tag' && entry.sessionId) {
+            tags.set(entry.sessionId, entry.tag)
+          } else if (entry.type === 'agent-name' && entry.sessionId) {
+            agentNames.set(entry.sessionId, entry.agentName)
+          } else if (entry.type === 'agent-color' && entry.sessionId) {
+            agentColors.set(entry.sessionId, entry.agentColor)
+          } else if (entry.type === 'agent-setting' && entry.sessionId) {
+            agentSettings.set(entry.sessionId, entry.agentSetting)
+          } else if (entry.type === 'mode' && entry.sessionId) {
+            modes.set(entry.sessionId, entry.mode)
+          } else if (entry.type === 'worktree-state' && entry.sessionId) {
+            worktreeStates.set(entry.sessionId, entry.worktreeSession)
+          } else if (entry.type === 'pr-link' && entry.sessionId) {
+            prNumbers.set(entry.sessionId, entry.prNumber)
+            prUrls.set(entry.sessionId, entry.prUrl)
+            prRepositories.set(entry.sessionId, entry.prRepository)
+          } else if (entry.type === 'goal-state' && entry.sessionId) {
+            goalStates.set(entry.sessionId, entry.goal)
+          }
+        },
+      )
     }
 
     // Bridge map for legacy progress entries: progress_uuid → progress_parent_uuid.

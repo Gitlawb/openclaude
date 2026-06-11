@@ -58,14 +58,8 @@ describe('cacheStatsTracker — aggregation', () => {
   })
 
   test('multiple requests sum across turn', () => {
-    recordRequest(
-      makeMetrics({ read: 100, total: 500, hitRate: 0.2 }),
-      'm1',
-    )
-    recordRequest(
-      makeMetrics({ read: 300, total: 500, hitRate: 0.6 }),
-      'm1',
-    )
+    recordRequest(makeMetrics({ read: 100, total: 500, hitRate: 0.2 }), 'm1')
+    recordRequest(makeMetrics({ read: 300, total: 500, hitRate: 0.6 }), 'm1')
     const turn = getCurrentTurnCacheMetrics()
     expect(turn.read).toBe(400)
     expect(turn.total).toBe(1000)
@@ -107,7 +101,7 @@ describe('cacheStatsTracker — history', () => {
     }
     const history = getCacheStatsHistory()
     expect(history.length).toBe(3)
-    expect(history.map((h) => h.label)).toEqual(['m2', 'm3', 'm4'])
+    expect(history.map(h => h.label)).toEqual(['m2', 'm3', 'm4'])
   })
 
   test('history copy is detached from internal state', () => {
@@ -130,7 +124,7 @@ describe('cacheStatsTracker — ring buffer semantics', () => {
     // After 8 pushes with cap=4, the survivors must be the newest 4 —
     // m4, m5, m6, m7 — in chronological order. If the ring logic were
     // wrong (e.g. off-by-one on writeIdx) this would come out rotated.
-    expect(history.map((h) => h.label)).toEqual(['m4', 'm5', 'm6', 'm7'])
+    expect(history.map(h => h.label)).toEqual(['m4', 'm5', 'm6', 'm7'])
   })
 
   test('read before ring wraps returns partial history in order', () => {
@@ -139,7 +133,7 @@ describe('cacheStatsTracker — ring buffer semantics', () => {
       recordRequest(makeMetrics({ read: i, total: 10 }), `m${i}`)
     }
     const history = getCacheStatsHistory()
-    expect(history.map((h) => h.label)).toEqual(['m0', 'm1', 'm2'])
+    expect(history.map(h => h.label)).toEqual(['m0', 'm1', 'm2'])
   })
 
   test('shrinking cap preserves the newest entries in order', () => {
@@ -149,10 +143,10 @@ describe('cacheStatsTracker — ring buffer semantics', () => {
     }
     _setHistoryCapForTesting(3)
     const history = getCacheStatsHistory()
-    expect(history.map((h) => h.label)).toEqual(['m2', 'm3', 'm4'])
+    expect(history.map(h => h.label)).toEqual(['m2', 'm3', 'm4'])
     // And pushing after shrink still respects the new cap.
     recordRequest(makeMetrics({ read: 5, total: 10 }), 'm5')
-    expect(getCacheStatsHistory().map((h) => h.label)).toEqual(['m3', 'm4', 'm5'])
+    expect(getCacheStatsHistory().map(h => h.label)).toEqual(['m3', 'm4', 'm5'])
   })
 
   test('growing cap preserves existing entries and accepts more', () => {
@@ -167,7 +161,7 @@ describe('cacheStatsTracker — ring buffer semantics', () => {
       recordRequest(makeMetrics({ read: i, total: 10 }), `m${i}`)
     }
     const history = getCacheStatsHistory()
-    expect(history.map((h) => h.label)).toEqual([
+    expect(history.map(h => h.label)).toEqual([
       'm0',
       'm1',
       'm2',

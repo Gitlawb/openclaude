@@ -73,7 +73,9 @@ test('LSPTool is part of the base tool pool', () => {
 test('LSPTool is filtered from usable tools until a server is connected', () => {
   const permissionContext = getEmptyToolPermissionContext()
 
-  expect(getTools(permissionContext).map(tool => tool.name)).not.toContain('LSP')
+  expect(getTools(permissionContext).map(tool => tool.name)).not.toContain(
+    'LSP',
+  )
 
   lspConnected = true
 

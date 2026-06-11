@@ -34,7 +34,8 @@ afterEach(() => {
     if (originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL === undefined) {
       delete process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL
     } else {
-      process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL = originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL
+      process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL =
+        originalEnv.CLAUDE_CODE_CUSTOM_OAUTH_URL
     }
     if (originalEnv.USER_TYPE === undefined) {
       delete process.env.USER_TYPE

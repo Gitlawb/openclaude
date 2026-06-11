@@ -69,7 +69,9 @@ describe('loaded registry validation', () => {
     ])
     const missingDescriptors = getAllGateways().flatMap(gateway =>
       (gateway.catalog?.models ?? [])
-        .filter(entry => !descriptorOptionalEntries.has(`${gateway.id}:${entry.id}`))
+        .filter(
+          entry => !descriptorOptionalEntries.has(`${gateway.id}:${entry.id}`),
+        )
         .filter(entry => !entry.modelDescriptorId)
         .map(entry => `${gateway.id}:${entry.id}`),
     )

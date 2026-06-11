@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import './index.js'
-import {
-  getGateway,
-  getVendor,
-} from './index.js'
+import { getGateway, getVendor } from './index.js'
 import {
   PRESET_VENDOR_MAP,
   gatewayIdForPreset,

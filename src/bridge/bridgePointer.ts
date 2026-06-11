@@ -6,9 +6,7 @@ import { isENOENT } from '../utils/errors.js'
 import { getWorktreePathsPortable } from '../utils/getWorktreePathsPortable.js'
 import { lazySchema } from '../utils/lazySchema.js'
 import { getProjectsDir } from '../utils/envUtils.js'
-import {
-  sanitizePath,
-} from '../utils/sessionStoragePortable.js'
+import { sanitizePath } from '../utils/sessionStoragePortable.js'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 
 /**

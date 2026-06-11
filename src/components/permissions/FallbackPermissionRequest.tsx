@@ -9,9 +9,7 @@ import {
   PermissionPrompt,
   type PermissionPromptOption,
 } from './PermissionPrompt.js'
-import {
-  createSimplePermissionHandlers,
-} from './simplePermissionActions.js'
+import { createSimplePermissionHandlers } from './simplePermissionActions.js'
 
 type FallbackOptionValue =
   | 'yes'
@@ -86,9 +84,8 @@ export function FallbackPermissionRequest({
       nextOptions.push({
         label: (
           <Text>
-            Yes, and don&apos;t ask again for{' '}
-            <Text bold>{userFacingName}</Text> commands in{' '}
-            <Text bold>{getOriginalCwd()}</Text>
+            Yes, and don&apos;t ask again for <Text bold>{userFacingName}</Text>{' '}
+            commands in <Text bold>{getOriginalCwd()}</Text>
           </Text>
         ),
         value: 'yes-dont-ask-again',
@@ -138,8 +135,7 @@ export function FallbackPermissionRequest({
       header={
         <Box flexDirection="column" paddingX={2} paddingY={1}>
           <Text>
-            {userFacingName}({toolMessage})
-            {mcpSuffix}
+            {userFacingName}({toolMessage}){mcpSuffix}
           </Text>
           <Text dimColor>{truncateToLines(toolUseConfirm.description, 3)}</Text>
         </Box>

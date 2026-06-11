@@ -47,14 +47,19 @@ export const duckduckgoProvider: SearchProvider = {
     return true
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
     let search: typeof import('duck-duck-scrape').search
     let SafeSearchType: typeof import('duck-duck-scrape').SafeSearchType
     try {
       ;({ search, SafeSearchType } = await import('duck-duck-scrape'))
     } catch {
-      throw new Error('duck-duck-scrape package not installed. Run: npm install duck-duck-scrape')
+      throw new Error(
+        'duck-duck-scrape package not installed. Run: npm install duck-duck-scrape',
+      )
     }
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 
@@ -63,7 +68,9 @@ export const duckduckgoProvider: SearchProvider = {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
       try {
         // TODO: duck-duck-scrape doesn't accept AbortSignal — can't cancel in-flight searches
-        const response = await search(input.query, { safeSearch: SafeSearchType.STRICT })
+        const response = await search(input.query, {
+          safeSearch: SafeSearchType.STRICT,
+        })
 
         const hits = applyDomainFilters(
           response.results.map(r => ({

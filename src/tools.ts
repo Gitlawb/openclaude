@@ -318,7 +318,9 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
   // (defensive check against initialization timing issues)
   allowedTools = allowedTools.filter(Boolean)
 
-  const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
+  const isEnabled = allowedTools.map(_ =>
+    typeof _.isEnabled === 'function' ? _.isEnabled() : true,
+  )
   return allowedTools.filter((_, i) => isEnabled[i])
 }
 
@@ -346,7 +348,10 @@ export function assembleToolPool(
 
   // Filter out MCP tools that are in the deny list, and filter out any null/undefined
   // tools that might have been added by MCP client initialization
-  const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext).filter(Boolean)
+  const allowedMcpTools = filterToolsByDenyRules(
+    mcpTools,
+    permissionContext,
+  ).filter(Boolean)
 
   // Sort each partition for prompt-cache stability, keeping built-ins as a
   // contiguous prefix. The server's claude_code_system_cache_policy places a

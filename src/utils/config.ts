@@ -184,7 +184,11 @@ export type EditorMode = 'emacs' | (typeof EDITOR_MODES)[number]
 export type DiffTool = 'terminal' | 'auto'
 
 export type ShowCacheStatsMode = 'off' | 'compact' | 'full'
-export const SHOW_CACHE_STATS_MODES = ['off', 'compact', 'full'] as const satisfies readonly ShowCacheStatsMode[]
+export const SHOW_CACHE_STATS_MODES = [
+  'off',
+  'compact',
+  'full',
+] as const satisfies readonly ShowCacheStatsMode[]
 
 export const MAX_MESSAGES_COMPACTION_THRESHOLDS = [
   'off',
@@ -209,7 +213,10 @@ export function normalizeMaxMessagesCompactionThreshold(
 export type OutputStyle = string
 
 export type Providers = string
-export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses' | 'responses_compat'
+export type OpenAICompatibleApiFormat =
+  | 'chat_completions'
+  | 'responses'
+  | 'responses_compat'
 export type OpenAICompatibleAuthScheme = 'bearer' | 'raw'
 
 export type ProviderProfile = {
@@ -619,7 +626,6 @@ export type GlobalConfig = {
 
   // Speculation configuration (internal-only)
   speculationEnabled?: boolean // Whether speculation is enabled (default: true)
-
 
   // Client data for server-side experiments (fetched during bootstrap).
   clientDataCache?: Record<string, unknown> | null

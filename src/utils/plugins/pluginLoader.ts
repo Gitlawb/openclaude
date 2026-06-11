@@ -45,7 +45,15 @@ import {
   symlink,
 } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'path'
 import { getInlinePlugins } from '../../bootstrap/state.js'
 import {
   BUILTIN_MARKETPLACE_NAME,
@@ -2724,7 +2732,10 @@ async function finishLoadingPluginFromPath(
             return {
               cmdPath,
               kind: 'path' as const,
-              ...(await resolveExistingPluginComponentPath(pluginPath, cmdPath)),
+              ...(await resolveExistingPluginComponentPath(
+                pluginPath,
+                cmdPath,
+              )),
             }
           }),
         )
@@ -2816,7 +2827,10 @@ async function finishLoadingPluginFromPath(
         skillPaths.map(async skillPath => {
           return {
             skillPath,
-            ...(await resolveExistingPluginComponentPath(pluginPath, skillPath)),
+            ...(await resolveExistingPluginComponentPath(
+              pluginPath,
+              skillPath,
+            )),
           }
         }),
       )
@@ -3018,7 +3032,10 @@ async function finishLoadingPluginFromPath(
             return {
               cmdPath,
               kind: 'path' as const,
-              ...(await resolveExistingPluginComponentPath(pluginPath, cmdPath)),
+              ...(await resolveExistingPluginComponentPath(
+                pluginPath,
+                cmdPath,
+              )),
             }
           }),
         )

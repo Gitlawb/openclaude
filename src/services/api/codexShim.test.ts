@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import {
   codexStreamToAnthropic,
   convertAnthropicMessagesToResponsesInput,
@@ -26,13 +29,16 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
+    if (originalEnv.OPENAI_BASE_URL === undefined)
+      delete process.env.OPENAI_BASE_URL
     else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
 
-    if (originalEnv.OPENAI_API_BASE === undefined) delete process.env.OPENAI_API_BASE
+    if (originalEnv.OPENAI_API_BASE === undefined)
+      delete process.env.OPENAI_API_BASE
     else process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
 
-    if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
+    if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined)
+      delete process.env.CLAUDE_CODE_USE_GITHUB
     else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
 
     if (originalEnv.OPENAI_MODEL === undefined) delete process.env.OPENAI_MODEL
@@ -55,7 +61,9 @@ function createTempAuthJson(payload: Record<string, unknown>): string {
   return authPath
 }
 
-async function collectStreamEventTypes(responseText: string): Promise<string[]> {
+async function collectStreamEventTypes(
+  responseText: string,
+): Promise<string[]> {
   const stream = new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(responseText))
@@ -64,7 +72,10 @@ async function collectStreamEventTypes(responseText: string): Promise<string[]> 
   })
 
   const events: string[] = []
-  for await (const event of codexStreamToAnthropic(new Response(stream), 'gpt-5.4')) {
+  for await (const event of codexStreamToAnthropic(
+    new Response(stream),
+    'gpt-5.4',
+  )) {
     events.push(event.type)
   }
   return events
@@ -146,7 +157,10 @@ describe('Codex provider config', () => {
   test('prefers explicit baseUrl option over env var', async () => {
     const { resolveProviderRequest } = await importFreshProviderConfigModule()
     process.env.OPENAI_BASE_URL = 'https://example.com/v1'
-    const resolved = resolveProviderRequest({ model: 'codexplan', baseUrl: 'https://chatgpt.com/backend-api/codex' })
+    const resolved = resolveProviderRequest({
+      model: 'codexplan',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+    })
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
@@ -186,7 +200,8 @@ describe('Codex provider config', () => {
   })
 
   test('loads Codex credentials from auth.json fallback', async () => {
-    const { resolveCodexApiCredentials } = await importFreshProviderConfigModule()
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfigModule()
     const authPath = createTempAuthJson({
       tokens: {
         access_token: 'header.payload.signature',
@@ -204,7 +219,8 @@ describe('Codex provider config', () => {
   })
 
   test('does not treat auth.json id_token as a Codex bearer credential', async () => {
-    const { resolveCodexApiCredentials } = await importFreshProviderConfigModule()
+    const { resolveCodexApiCredentials } =
+      await importFreshProviderConfigModule()
     const idTokenPayload = Buffer.from(
       JSON.stringify({
         'https://api.openai.com/auth': {
@@ -509,7 +525,12 @@ describe('Codex request translation', () => {
       },
     ])
 
-    const valueSchema = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties.value
+    const valueSchema = (
+      tools[0].parameters as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).properties.value
     expect(valueSchema.type).toBe('string')
     expect(valueSchema.description).toBe('Any JSON value')
   })
@@ -549,7 +570,12 @@ describe('Codex request translation', () => {
       },
     ])
 
-    const payload = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties.payload
+    const payload = (
+      tools[0].parameters as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).properties.payload
     expect(payload.type).toBe('object')
   })
 
@@ -566,7 +592,12 @@ describe('Codex request translation', () => {
       },
     ])
 
-    const tags = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties.tags
+    const tags = (
+      tools[0].parameters as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).properties.tags
     expect(tags.type).toBe('array')
   })
 
@@ -586,7 +617,12 @@ describe('Codex request translation', () => {
       },
     ])
 
-    const props = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties
+    const props = (
+      tools[0].parameters as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).properties
     expect(props.mode.type).toBe('string')
     expect(props.level.type).toBe('integer')
     expect(props.ratio.type).toBe('number')
@@ -608,15 +644,21 @@ describe('Codex request translation', () => {
       },
     ])
 
-    const either = (tools[0].parameters as Record<string, Record<string, Record<string, unknown>>>).properties.either
+    const either = (
+      tools[0].parameters as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >
+    ).properties.either
     expect(either.type).toBeUndefined()
     expect(either.anyOf).toEqual([{ type: 'string' }, { type: 'number' }])
   })
 
   test('converts plain string user message into Codex input_text chunk type', () => {
-    const items = convertAnthropicMessagesToResponsesInput([
-      { role: 'user', content: 'hello' },
-    ], false) // forceTextChunks = false
+    const items = convertAnthropicMessagesToResponsesInput(
+      [{ role: 'user', content: 'hello' }],
+      false,
+    ) // forceTextChunks = false
 
     expect(items).toEqual([
       {
@@ -628,9 +670,10 @@ describe('Codex request translation', () => {
   })
 
   test('converts plain string user message into standard text chunk type when forceTextChunks=true', () => {
-    const items = convertAnthropicMessagesToResponsesInput([
-      { role: 'user', content: 'hello' },
-    ], true)
+    const items = convertAnthropicMessagesToResponsesInput(
+      [{ role: 'user', content: 'hello' }],
+      true,
+    )
 
     expect(items).toEqual([
       {
@@ -644,7 +687,7 @@ describe('Codex request translation', () => {
   test('preserves wrapped string message content', () => {
     const items = convertAnthropicMessagesToResponsesInput([
       {
-        message: { role: 'user', content: 'hello' }
+        message: { role: 'user', content: 'hello' },
       },
     ])
 
@@ -663,7 +706,12 @@ describe('Codex request translation', () => {
         role: 'assistant',
         content: [
           { type: 'text', text: 'Working...' },
-          { type: 'tool_use', id: 'call_123', name: 'search', input: { q: 'x' } },
+          {
+            type: 'tool_use',
+            id: 'call_123',
+            name: 'search',
+            input: { q: 'x' },
+          },
         ],
       },
       {
@@ -737,8 +785,7 @@ describe('Codex request translation', () => {
             content: [
               {
                 type: 'output_text',
-                text:
-                  '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
+                text: '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
               },
             ],
           },
@@ -768,8 +815,7 @@ describe('Codex request translation', () => {
             content: [
               {
                 type: 'output_text',
-                text:
-                  'Here is the answer.\n<think>wait, let me reconsider the user request',
+                text: 'Here is the answer.\n<think>wait, let me reconsider the user request',
               },
             ],
           },
@@ -1007,7 +1053,8 @@ describe('Codex request translation', () => {
       new Response(stream),
       'gpt-5.4',
     )) {
-      const delta = (event as { delta?: { type?: string; text?: string } }).delta
+      const delta = (event as { delta?: { type?: string; text?: string } })
+        .delta
       if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
         textDeltas.push(delta.text)
       }
@@ -1049,7 +1096,8 @@ describe('Codex request translation', () => {
       new Response(stream),
       'gpt-5.4',
     )) {
-      const delta = (event as { delta?: { type?: string; text?: string } }).delta
+      const delta = (event as { delta?: { type?: string; text?: string } })
+        .delta
       if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
         textDeltas.push(delta.text)
       }
@@ -1078,9 +1126,11 @@ describe('Codex request translation', () => {
       new Response(stream),
       'gpt-5.3-codex-spark',
     )) {
-      const delta = (event as {
-        delta?: { type?: string; partial_json?: string }
-      }).delta
+      const delta = (
+        event as {
+          delta?: { type?: string; partial_json?: string }
+        }
+      ).delta
       if (
         delta?.type === 'input_json_delta' &&
         typeof delta.partial_json === 'string'

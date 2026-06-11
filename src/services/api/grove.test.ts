@@ -39,9 +39,9 @@ describe('calculateShouldShowGrove', () => {
     expect(calculateShouldShowGrove({ success: false }, config(), false)).toBe(
       false,
     )
-    expect(calculateShouldShowGrove(settings(), { success: false }, false)).toBe(
-      false,
-    )
+    expect(
+      calculateShouldShowGrove(settings(), { success: false }, false),
+    ).toBe(false)
   })
 
   test('hides the dialog after the user has already chosen either setting', () => {

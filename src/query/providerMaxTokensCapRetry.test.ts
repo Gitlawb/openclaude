@@ -162,7 +162,8 @@ test('retries once with provider maximum output token cap', async () => {
     messages.some(
       message =>
         message?.type === 'assistant' &&
-        message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
+        message?.message?.content?.[0]?.text ===
+          'Provider max_tokens limit was lower than requested.',
     ),
   ).toBe(false)
 })
@@ -218,7 +219,8 @@ test('keeps provider maximum output token cap for follow-up calls after tool use
     messages.some(
       message =>
         message?.type === 'assistant' &&
-        message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
+        message?.message?.content?.[0]?.text ===
+          'Provider max_tokens limit was lower than requested.',
     ),
   ).toBe(false)
 })
@@ -243,7 +245,8 @@ test('does not loop if the reduced-cap retry fails', async () => {
     messages.filter(
       message =>
         message?.type === 'assistant' &&
-        message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
+        message?.message?.content?.[0]?.text ===
+          'Provider max_tokens limit was lower than requested.',
     ),
   ).toHaveLength(1)
 })
@@ -301,7 +304,8 @@ test('does not retry malformed provider cap errors', async () => {
     messages.filter(
       message =>
         message?.type === 'assistant' &&
-        message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
+        message?.message?.content?.[0]?.text ===
+          'Provider max_tokens limit was lower than requested.',
     ),
   ).toHaveLength(1)
 })
@@ -314,7 +318,8 @@ test('does not retry when provider cap is not lower than the current override', 
       content: 'Provider max_tokens limit was lower than requested.',
       apiError: 'max_tokens_too_high',
       error: 'invalid_request',
-      errorDetails: 'max_tokens exceeds maximum output tokens for this model: 16384',
+      errorDetails:
+        'max_tokens exceeds maximum output tokens for this model: 16384',
     })
   }
 
@@ -335,7 +340,8 @@ test('does not retry when provider cap is not lower than the current override', 
     messages.filter(
       message =>
         message?.type === 'assistant' &&
-        message?.message?.content?.[0]?.text === 'Provider max_tokens limit was lower than requested.',
+        message?.message?.content?.[0]?.text ===
+          'Provider max_tokens limit was lower than requested.',
     ),
   ).toHaveLength(1)
 })

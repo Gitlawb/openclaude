@@ -26,9 +26,8 @@ export function getProjectMemoryPathForSelector(
   )
 
   return (
-    findProjectInstructionFilePathInAncestors(
-      cwd,
-      path => loadedProjectInstructionPaths.has(path),
+    findProjectInstructionFilePathInAncestors(cwd, path =>
+      loadedProjectInstructionPaths.has(path),
     ) ?? join(cwd, PRIMARY_PROJECT_INSTRUCTION_FILE)
   )
 }

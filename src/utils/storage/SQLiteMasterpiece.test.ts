@@ -6,13 +6,19 @@ import {
   getGlobalGraph,
   addGlobalRelation,
   saveProjectGraph,
-  initOrama
+  initOrama,
 } from '../knowledgeGraph.js'
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
-import { getProjectsDir, setClaudeConfigHomeDirForTesting } from '../envUtils.js'
+import {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} from '../../entrypoints/sdk/shared.js'
+import {
+  getProjectsDir,
+  setClaudeConfigHomeDirForTesting,
+} from '../envUtils.js'
 import { sanitizePath } from '../sessionStoragePortable.js'
 import { getFsImplementation } from '../fsOperations.js'
 
@@ -38,7 +44,12 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
         if (code !== 'EBUSY' && code !== 'EPERM') {
           throw error
         }
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1))
+        Atomics.wait(
+          new Int32Array(new SharedArrayBuffer(4)),
+          0,
+          0,
+          25 * (attempt + 1),
+        )
       }
     }
 
@@ -138,15 +149,23 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
 
       // 3. Verify Project 2 doesn't see Project 1
       const graph2 = getGlobalGraph()
-      expect(Object.values(graph2.entities).some(e => e.name === 'entity-p1')).toBe(false)
-      expect(Object.values(graph2.entities).some(e => e.name === 'entity-p2')).toBe(true)
+      expect(
+        Object.values(graph2.entities).some(e => e.name === 'entity-p1'),
+      ).toBe(false)
+      expect(
+        Object.values(graph2.entities).some(e => e.name === 'entity-p2'),
+      ).toBe(true)
 
       // 4. Switch back to Project 1 and verify isolation
       fs.cwd = () => project1Dir
       clearMemoryOnly()
       const graph1 = getGlobalGraph()
-      expect(Object.values(graph1.entities).some(e => e.name === 'entity-p1')).toBe(true)
-      expect(Object.values(graph1.entities).some(e => e.name === 'entity-p2')).toBe(false)
+      expect(
+        Object.values(graph1.entities).some(e => e.name === 'entity-p1'),
+      ).toBe(true)
+      expect(
+        Object.values(graph1.entities).some(e => e.name === 'entity-p2'),
+      ).toBe(false)
     } finally {
       fs.cwd = () => originalCwd
     }
@@ -176,7 +195,9 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
     await initOrama(cwd)
     const healedGraph = getGlobalGraph()
     expect(healedGraph.lastUpdateTime).toBe(futureTime)
-    expect(Object.values(healedGraph.entities)[0].attributes.val).toBe('newer-json')
+    expect(Object.values(healedGraph.entities)[0].attributes.val).toBe(
+      'newer-json',
+    )
   })
 
   it('enforces referential integrity (Relations Constraint)', async () => {

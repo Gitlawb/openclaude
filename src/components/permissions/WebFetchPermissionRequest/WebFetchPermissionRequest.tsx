@@ -7,12 +7,14 @@ import {
   type PermissionPromptOption,
 } from '../PermissionPrompt.js'
 import type { PermissionRequestProps } from '../PermissionRequest.js'
-import {
-  createSimplePermissionHandlers,
-} from '../simplePermissionActions.js'
+import { createSimplePermissionHandlers } from '../simplePermissionActions.js'
 import { WebFetchTool } from '../../../tools/WebFetchTool/WebFetchTool.js'
 
-type WebFetchOptionValue = 'yes' | 'yes-dont-ask-again-domain' | 'yes-full-access' | 'no'
+type WebFetchOptionValue =
+  | 'yes'
+  | 'yes-dont-ask-again-domain'
+  | 'yes-full-access'
+  | 'no'
 
 function inputToPermissionRuleContent(input: { [k: string]: unknown }): string {
   try {
@@ -53,7 +55,11 @@ export function WebFetchPermissionRequest({
 
     if (shouldShowAlwaysAllowOptions()) {
       nextOptions.push({
-        label: <Text>Yes, and don&apos;t ask again for <Text bold>{hostname}</Text></Text>,
+        label: (
+          <Text>
+            Yes, and don&apos;t ask again for <Text bold>{hostname}</Text>
+          </Text>
+        ),
         value: 'yes-dont-ask-again-domain',
       })
 

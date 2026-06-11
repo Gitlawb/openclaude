@@ -26,7 +26,8 @@ import { useShellPermissionFeedback } from '../useShellPermissionFeedback.js'
 export function PowerShellPermissionRequest(
   props: PermissionRequestProps,
 ): React.ReactNode {
-  const { toolUseConfirm, toolUseContext, onDone, onReject, workerBadge } = props
+  const { toolUseConfirm, toolUseContext, onDone, onReject, workerBadge } =
+    props
   const { command, description } = PowerShellTool.inputSchema.parse(
     toolUseConfirm.input,
   )
@@ -138,10 +139,9 @@ export function PowerShellPermissionRequest(
       option_index: optionIndex[value],
       explainer_visible: explainerState.visible,
     })
-    const toolNameForAnalytics =
-      sanitizeToolNameForAnalytics(
-        toolUseConfirm.tool.name,
-      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+    const toolNameForAnalytics = sanitizeToolNameForAnalytics(
+      toolUseConfirm.tool.name,
+    ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
 
     handleBaseShellSelection({
       value,

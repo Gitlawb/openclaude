@@ -23,9 +23,10 @@ let warnedAboutDroppedEnvKeys = false
  * a NUL/CR/LF removed. The list of dropped key names is returned so
  * callers can log it without exposing the (possibly secret) values.
  */
-export function sanitizeEnvForGit(
-  env: NodeJS.ProcessEnv,
-): { env: NodeJS.ProcessEnv; dropped: string[] } {
+export function sanitizeEnvForGit(env: NodeJS.ProcessEnv): {
+  env: NodeJS.ProcessEnv
+  dropped: string[]
+} {
   const sanitized: NodeJS.ProcessEnv = {}
   const dropped: string[] = []
   for (const [key, value] of Object.entries(env)) {

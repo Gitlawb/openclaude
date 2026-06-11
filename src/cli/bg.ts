@@ -15,13 +15,19 @@
 export async function psHandler(_args: string[]): Promise<void> {}
 
 /** `claude logs <id>` — tail a session log. Stub: no-op. */
-export async function logsHandler(_sessionId: string | undefined): Promise<void> {}
+export async function logsHandler(
+  _sessionId: string | undefined,
+): Promise<void> {}
 
 /** `claude attach <id>` — attach to a session. Stub: no-op. */
-export async function attachHandler(_sessionId: string | undefined): Promise<void> {}
+export async function attachHandler(
+  _sessionId: string | undefined,
+): Promise<void> {}
 
 /** `claude kill <id>` — terminate a session. Stub: no-op. */
-export async function killHandler(_sessionId: string | undefined): Promise<void> {}
+export async function killHandler(
+  _sessionId: string | undefined,
+): Promise<void> {}
 
 /** `claude --bg/--background ...` — spawn a detached session. Stub: no-op. */
 export async function handleBgFlag(_args: string[]): Promise<void> {}

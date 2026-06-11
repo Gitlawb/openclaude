@@ -32,7 +32,9 @@ mock.module('../../utils/settings/settings.js', () => ({
 
 mock.module('../../utils/config.js', () => ({
   getGlobalConfig: () => configRef.value,
-  saveGlobalConfig: (mut: (c: typeof configRef.value) => typeof configRef.value) => {
+  saveGlobalConfig: (
+    mut: (c: typeof configRef.value) => typeof configRef.value,
+  ) => {
     configRef.value = mut(configRef.value)
   },
 }))
@@ -80,7 +82,12 @@ function setState(opts: {
   configRef.value = {
     numStartups: opts.numStartups ?? 100,
     ...(opts.lastSponsored !== undefined
-      ? { sponsoredTipsHistory: { lastShownAt: opts.lastSponsored, totalShown: 1 } }
+      ? {
+          sponsoredTipsHistory: {
+            lastShownAt: opts.lastSponsored,
+            totalShown: 1,
+          },
+        }
       : {}),
   }
   settingsRef.value = {

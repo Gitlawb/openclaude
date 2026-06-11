@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as realOs from 'node:os'
 import * as realCodexCredentials from '../../utils/codexCredentials.js'
-import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
+import {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} from '../../entrypoints/sdk/shared.js'
 
 type ProviderConfigModule = typeof import('./providerConfig.js')
 
@@ -17,8 +20,9 @@ function importFreshProviderConfig(
 }
 
 function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
-    .toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'none', typ: 'JWT' }),
+  ).toString('base64url')
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `${header}.${body}.signature`
 }
@@ -45,8 +49,9 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    const { resolveCodexApiCredentials } =
-      await importFreshProviderConfig('codex-secure-storage')
+    const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+      'codex-secure-storage',
+    )
 
     const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
     expect(credentials.apiKey).toBe('codex-api-key-token')
@@ -65,8 +70,9 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    const { resolveCodexApiCredentials } =
-      await importFreshProviderConfig('codex-env-precedence')
+    const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+      'codex-env-precedence',
+    )
 
     const credentials = resolveCodexApiCredentials({
       CODEX_API_KEY: 'env-token',
@@ -86,8 +92,9 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       readCodexCredentials: () => undefined,
     }))
 
-    const { resolveCodexApiCredentials } =
-      await importFreshProviderConfig('codex-env-nested-account')
+    const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+      'codex-env-nested-account',
+    )
 
     const credentials = resolveCodexApiCredentials({
       CODEX_API_KEY: makeJwt({
@@ -125,8 +132,9 @@ describe('resolveCodexApiCredentials with secure storage', () => {
     )
 
     try {
-      const { resolveCodexApiCredentials } =
-        await importFreshProviderConfig('codex-auth-json-nested-account')
+      const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+        'codex-auth-json-nested-account',
+      )
 
       const credentials = resolveCodexApiCredentials({
         CODEX_AUTH_JSON_PATH: authPath,
@@ -151,8 +159,9 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    const { resolveCodexApiCredentials } =
-      await importFreshProviderConfig('codex-secure-storage-no-auth-io')
+    const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+      'codex-secure-storage-no-auth-io',
+    )
 
     const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
     expect(credentials.apiKey).toBe('codex-api-key-token')
@@ -189,8 +198,9 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       }),
     }))
 
-    const { resolveCodexApiCredentials } =
-      await importFreshProviderConfig('codex-refresh-cooldown-fallback')
+    const { resolveCodexApiCredentials } = await importFreshProviderConfig(
+      'codex-refresh-cooldown-fallback',
+    )
 
     try {
       const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)

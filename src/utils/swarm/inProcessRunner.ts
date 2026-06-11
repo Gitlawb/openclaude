@@ -145,12 +145,12 @@ function createInProcessCanUseTool(
       forceDecision !== undefined && !shouldBypassForcedAsk
         ? forceDecision
         : await hasPermissionsToUseTool(
-        tool,
-        input,
-        toolUseContext,
-        assistantMessage,
-        toolUseID,
-      )
+            tool,
+            input,
+            toolUseContext,
+            assistantMessage,
+            toolUseID,
+          )
 
     // Pass through allow/deny decisions directly
     if (result.behavior !== 'ask') {

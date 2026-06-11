@@ -149,17 +149,15 @@ test('updates the preview when keyboard focus moves to another theme', async () 
   )
 
   try {
-    const initialFrame = await waitForFrame(
-      getOutput,
-      frame => frame.includes('Preview theme: dark'),
+    const initialFrame = await waitForFrame(getOutput, frame =>
+      frame.includes('Preview theme: dark'),
     )
     expect(initialFrame).toContain('Preview theme: dark')
 
     stdin.write('j')
 
-    const updatedFrame = await waitForFrame(
-      getOutput,
-      frame => frame.includes('Preview theme: light'),
+    const updatedFrame = await waitForFrame(getOutput, frame =>
+      frame.includes('Preview theme: light'),
     )
     expect(updatedFrame).toContain('Preview theme: light')
   } finally {

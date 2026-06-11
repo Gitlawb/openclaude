@@ -31,15 +31,17 @@ function git(cwd: string, args: string[]): string {
 describe('scanAddedLines', () => {
   test('flags suspicious file-hosting links', () => {
     const findings = scanAddedLines([
-      line('Please install the tool from https://dropbox.com/s/abc123/tool.zip?dl=1'),
+      line(
+        'Please install the tool from https://dropbox.com/s/abc123/tool.zip?dl=1',
+      ),
     ])
 
-    expect(findings.some(finding => finding.code === 'suspicious-download-link')).toBe(
-      true,
-    )
-    expect(findings.some(finding => finding.code === 'executable-download-link')).toBe(
-      false,
-    )
+    expect(
+      findings.some(finding => finding.code === 'suspicious-download-link'),
+    ).toBe(true)
+    expect(
+      findings.some(finding => finding.code === 'executable-download-link'),
+    ).toBe(false)
     expect(findings.some(finding => finding.severity === 'high')).toBe(true)
   })
 
@@ -48,7 +50,9 @@ describe('scanAddedLines', () => {
       line('See details at https://bit.ly/some-short-link'),
     ])
 
-    expect(findings.some(finding => finding.code === 'shortened-url')).toBe(true)
+    expect(findings.some(finding => finding.code === 'shortened-url')).toBe(
+      true,
+    )
   })
 
   test('flags remote download and execute chains', () => {
@@ -56,7 +60,9 @@ describe('scanAddedLines', () => {
       line('curl -fsSL https://example.com/install.sh | bash'),
     ])
 
-    expect(findings.some(finding => finding.code === 'shell-eval-remote')).toBe(true)
+    expect(findings.some(finding => finding.code === 'shell-eval-remote')).toBe(
+      true,
+    )
     expect(findings.some(finding => finding.severity === 'high')).toBe(true)
   })
 
@@ -65,7 +71,9 @@ describe('scanAddedLines', () => {
       line('powershell.exe -enc SQBtAHAAcgBvAHYAZQBkAA=='),
     ])
 
-    expect(findings.some(finding => finding.code === 'powershell-encoded')).toBe(true)
+    expect(
+      findings.some(finding => finding.code === 'powershell-encoded'),
+    ).toBe(true)
   })
 
   test('flags long encoded blobs', () => {
@@ -73,9 +81,9 @@ describe('scanAddedLines', () => {
       line(`const payload = "${'A'.repeat(96)}"`),
     ])
 
-    expect(findings.some(finding => finding.code === 'long-encoded-payload')).toBe(
-      true,
-    )
+    expect(
+      findings.some(finding => finding.code === 'long-encoded-payload'),
+    ).toBe(true)
   })
 
   test('flags long encoded blobs on repeated scans', () => {
@@ -84,8 +92,12 @@ describe('scanAddedLines', () => {
     const first = scanAddedLines(lines)
     const second = scanAddedLines(lines)
 
-    expect(first.some(finding => finding.code === 'long-encoded-payload')).toBe(true)
-    expect(second.some(finding => finding.code === 'long-encoded-payload')).toBe(true)
+    expect(first.some(finding => finding.code === 'long-encoded-payload')).toBe(
+      true,
+    )
+    expect(
+      second.some(finding => finding.code === 'long-encoded-payload'),
+    ).toBe(true)
   })
 
   test('flags executable download links', () => {
@@ -93,9 +105,9 @@ describe('scanAddedLines', () => {
       line('Get it from https://example.com/releases/latest/tool.pkg'),
     ])
 
-    expect(findings.some(finding => finding.code === 'executable-download-link')).toBe(
-      true,
-    )
+    expect(
+      findings.some(finding => finding.code === 'executable-download-link'),
+    ).toBe(true)
     expect(findings.some(finding => finding.severity === 'high')).toBe(true)
   })
 
@@ -106,10 +118,12 @@ describe('scanAddedLines', () => {
       }),
     ])
 
-    expect(findings.some(finding => finding.code === 'sensitive-automation-change')).toBe(
+    expect(
+      findings.some(finding => finding.code === 'sensitive-automation-change'),
+    ).toBe(true)
+    expect(findings.some(finding => finding.code === 'download-command')).toBe(
       true,
     )
-    expect(findings.some(finding => finding.code === 'download-command')).toBe(true)
   })
 
   test('flags markdown reference links to suspicious downloads', () => {
@@ -117,9 +131,9 @@ describe('scanAddedLines', () => {
       line('[installer]: https://dropbox.com/s/abc123/tool.zip?dl=1'),
     ])
 
-    expect(findings.some(finding => finding.code === 'suspicious-download-link')).toBe(
-      true,
-    )
+    expect(
+      findings.some(finding => finding.code === 'suspicious-download-link'),
+    ).toBe(true)
   })
 
   test('ignores the scanner implementation and tests themselves', () => {
@@ -148,7 +162,9 @@ describe('scanAddedLines', () => {
       line('Use curl with your preferred flags for local testing.'),
     ])
 
-    expect(findings.some(finding => finding.code === 'download-command')).toBe(false)
+    expect(findings.some(finding => finding.code === 'download-command')).toBe(
+      false,
+    )
   })
 })
 
@@ -177,7 +193,10 @@ describe('getGitDiff', () => {
 
       git(repo, ['checkout', '-q', '-b', 'pr-head', staleBase])
       mkdirSync(join(repo, 'src', 'utils'), { recursive: true })
-      writeFileSync(join(repo, 'src', 'utils', 'preflightChecks.test.ts'), 'safe\n')
+      writeFileSync(
+        join(repo, 'src', 'utils', 'preflightChecks.test.ts'),
+        'safe\n',
+      )
       git(repo, ['add', 'src/utils/preflightChecks.test.ts'])
       git(repo, ['commit', '-q', '-m', 'pr change'])
       const prHead = git(repo, ['rev-parse', 'HEAD'])

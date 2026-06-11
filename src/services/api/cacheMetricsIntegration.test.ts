@@ -197,16 +197,28 @@ describe('display path end-to-end — private-IP, custom-port, self-hosted endpo
 
   const privateEndpoints: Array<{ name: string; baseUrl: string }> = [
     { name: 'vLLM on RFC1918 LAN IP', baseUrl: 'http://192.168.1.50:8000/v1' },
-    { name: 'LocalAI on 10.x.x.x corporate network', baseUrl: 'http://10.0.0.7:8080/v1' },
+    {
+      name: 'LocalAI on 10.x.x.x corporate network',
+      baseUrl: 'http://10.0.0.7:8080/v1',
+    },
     { name: 'self-hosted on 172.16.x.x', baseUrl: 'http://172.20.0.3:5000/v1' },
-    { name: 'reverse-proxied on .internal DNS', baseUrl: 'http://llm.internal:5000/v1' },
+    {
+      name: 'reverse-proxied on .internal DNS',
+      baseUrl: 'http://llm.internal:5000/v1',
+    },
     { name: 'mDNS .local hostname', baseUrl: 'http://box.local:8080/v1' },
     { name: 'RFC 8375 .home.arpa', baseUrl: 'http://vllm.home.arpa/v1' },
-    { name: 'CGNAT / Tailscale 100.64.x.x', baseUrl: 'http://100.64.1.5:8000/v1' },
+    {
+      name: 'CGNAT / Tailscale 100.64.x.x',
+      baseUrl: 'http://100.64.1.5:8000/v1',
+    },
     { name: 'IPv6 loopback literal', baseUrl: 'http://[::1]:5000/v1' },
     { name: 'IPv6 link-local', baseUrl: 'http://[fe80::1]:8000/v1' },
     { name: 'IPv6 ULA fc00::/7', baseUrl: 'http://[fd12:3456::7]:8080/v1' },
-    { name: 'link-local cloud-metadata IP', baseUrl: 'http://169.254.169.254/v1' },
+    {
+      name: 'link-local cloud-metadata IP',
+      baseUrl: 'http://169.254.169.254/v1',
+    },
   ]
 
   for (const { name, baseUrl } of privateEndpoints) {

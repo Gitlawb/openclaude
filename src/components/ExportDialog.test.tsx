@@ -18,10 +18,12 @@ mock.module('../ink/termio/osc.js', () => ({
   setClipboard,
 }))
 
-async function importExportDialog(): Promise<typeof import('./ExportDialog.js')> {
-  return import(`./ExportDialog.js?dialog-test-${Date.now()}-${Math.random()}`) as Promise<
-    typeof import('./ExportDialog.js')
-  >
+async function importExportDialog(): Promise<
+  typeof import('./ExportDialog.js')
+> {
+  return import(
+    `./ExportDialog.js?dialog-test-${Date.now()}-${Math.random()}`
+  ) as Promise<typeof import('./ExportDialog.js')>
 }
 
 function createTestStreams() {

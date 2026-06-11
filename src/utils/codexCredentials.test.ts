@@ -19,8 +19,9 @@ function importFreshCodexCredentials(
 }
 
 function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
-    .toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'none', typ: 'JWT' }),
+  ).toString('base64url')
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `${header}.${body}.signature`
 }
@@ -195,8 +196,9 @@ describe('codexCredentials', () => {
       },
     }))
 
-    const { saveCodexCredentials } =
-      await importFreshCodexCredentials('save-scoped-plaintext-fallback')
+    const { saveCodexCredentials } = await importFreshCodexCredentials(
+      'save-scoped-plaintext-fallback',
+    )
 
     const result = saveCodexCredentials({
       accessToken: 'codex-access-token',
@@ -437,37 +439,23 @@ describe('codexCredentials', () => {
       }),
     }))
 
-    globalThis.fetch = mock(
-      async (_input, init) => {
-        const bodyText =
-          typeof init?.body === 'string'
-            ? init.body
-            : init?.body instanceof URLSearchParams
-              ? init.body.toString()
-              : ''
+    globalThis.fetch = mock(async (_input, init) => {
+      const bodyText =
+        typeof init?.body === 'string'
+          ? init.body
+          : init?.body instanceof URLSearchParams
+            ? init.body.toString()
+            : ''
 
-        if (
-          bodyText.includes('grant_type=refresh_token') ||
-          bodyText.includes('"grant_type":"refresh_token"')
-        ) {
-          return new Response(
-            JSON.stringify({
-              access_token: freshAccessToken,
-              refresh_token: 'refresh-new',
-              id_token: freshIdToken,
-            }),
-            {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/json',
-              },
-            },
-          )
-        }
-
+      if (
+        bodyText.includes('grant_type=refresh_token') ||
+        bodyText.includes('"grant_type":"refresh_token"')
+      ) {
         return new Response(
           JSON.stringify({
-            access_token: 'codex-api-key-token',
+            access_token: freshAccessToken,
+            refresh_token: 'refresh-new',
+            id_token: freshIdToken,
           }),
           {
             status: 200,
@@ -476,8 +464,20 @@ describe('codexCredentials', () => {
             },
           },
         )
-      },
-    ) as unknown as typeof fetch
+      }
+
+      return new Response(
+        JSON.stringify({
+          access_token: 'codex-api-key-token',
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }) as unknown as typeof fetch
 
     const { refreshCodexAccessTokenIfNeeded, readCodexCredentials } =
       await importFreshCodexCredentials('refresh-success')
@@ -594,36 +594,34 @@ describe('codexCredentials', () => {
       }),
     }))
 
-    globalThis.fetch = mock(
-      async (_input, init) => {
-        const bodyText =
-          typeof init?.body === 'string'
-            ? init.body
-            : init?.body instanceof URLSearchParams
-              ? init.body.toString()
-              : ''
+    globalThis.fetch = mock(async (_input, init) => {
+      const bodyText =
+        typeof init?.body === 'string'
+          ? init.body
+          : init?.body instanceof URLSearchParams
+            ? init.body.toString()
+            : ''
 
-        if (bodyText.includes('grant_type=refresh_token')) {
-          return new Response(
-            JSON.stringify({
-              access_token: freshAccessToken,
-              refresh_token: 'refresh-new',
-              id_token: freshIdToken,
-            }),
-            {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/json',
-              },
+      if (bodyText.includes('grant_type=refresh_token')) {
+        return new Response(
+          JSON.stringify({
+            access_token: freshAccessToken,
+            refresh_token: 'refresh-new',
+            id_token: freshIdToken,
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
             },
-          )
-        }
+          },
+        )
+      }
 
-        return new Response('exchange failed', {
-          status: 500,
-        })
-      },
-    ) as unknown as typeof fetch
+      return new Response('exchange failed', {
+        status: 500,
+      })
+    }) as unknown as typeof fetch
 
     const { refreshCodexAccessTokenIfNeeded, readCodexCredentials } =
       await importFreshCodexCredentials('refresh-drop-stale-api-key')
@@ -797,13 +795,12 @@ describe('codexCredentials', () => {
       }),
     }))
 
-    const {
-      attachCodexProfileIdToStoredCredentials,
-      readCodexCredentials,
-    } = await importFreshCodexCredentials('attach-profile-id')
+    const { attachCodexProfileIdToStoredCredentials, readCodexCredentials } =
+      await importFreshCodexCredentials('attach-profile-id')
 
-    const result =
-      attachCodexProfileIdToStoredCredentials('profile_codex_oauth')
+    const result = attachCodexProfileIdToStoredCredentials(
+      'profile_codex_oauth',
+    )
 
     expect(result.success).toBe(true)
     expect(readCodexCredentials()?.profileId).toBe('profile_codex_oauth')
@@ -843,8 +840,9 @@ describe('codexCredentials', () => {
       },
     }))
 
-    const { clearCodexCredentials } =
-      await importFreshCodexCredentials('clear-scoped-plaintext-fallback')
+    const { clearCodexCredentials } = await importFreshCodexCredentials(
+      'clear-scoped-plaintext-fallback',
+    )
 
     const result = clearCodexCredentials()
 

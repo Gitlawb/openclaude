@@ -397,10 +397,9 @@ export function resolveFastModeStatusFromCache(): void {
     return
   }
   const cachedEnabled = getGlobalConfig().penguinModeOrgEnabled === true
-  orgStatus =
-    cachedEnabled
-      ? { status: 'enabled' }
-      : { status: 'disabled', reason: 'unknown' }
+  orgStatus = cachedEnabled
+    ? { status: 'enabled' }
+    : { status: 'disabled', reason: 'unknown' }
 }
 
 export async function prefetchFastModeStatus(): Promise<void> {
@@ -428,10 +427,9 @@ export async function prefetchFastModeStatus(): Promise<void> {
     getClaudeAIOAuthTokens()?.accessToken && hasProfileScope()
   if (!hasUsableOAuth && !apiKey) {
     const cachedEnabled = getGlobalConfig().penguinModeOrgEnabled === true
-    orgStatus =
-      cachedEnabled
-        ? { status: 'enabled' }
-        : { status: 'disabled', reason: 'preference' }
+    orgStatus = cachedEnabled
+      ? { status: 'enabled' }
+      : { status: 'disabled', reason: 'preference' }
     return
   }
 
@@ -510,10 +508,9 @@ export async function prefetchFastModeStatus(): Promise<void> {
       // External users: fall back to the cached penguinModeOrgEnabled value;
       // if no positive cache, disable with network_error reason.
       const cachedEnabled = getGlobalConfig().penguinModeOrgEnabled === true
-      orgStatus =
-        cachedEnabled
-          ? { status: 'enabled' }
-          : { status: 'disabled', reason: 'network_error' }
+      orgStatus = cachedEnabled
+        ? { status: 'enabled' }
+        : { status: 'disabled', reason: 'network_error' }
       logForDebugging(
         `Failed to fetch org fast mode status, defaulting to ${orgStatus.status === 'enabled' ? 'enabled (cached)' : 'disabled (network_error)'}: ${err}`,
         { level: 'error' },

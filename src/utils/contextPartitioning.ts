@@ -1,6 +1,6 @@
 /**
  * Context Window Partitioning - Production Grade
- * 
+ *
  * Splits context into priority zones with different retention policies.
  * Used for intelligent context management when context window is tight.
  */
@@ -32,22 +32,40 @@ export interface PartitionOptions {
 }
 
 const DEFAULT_ZONES: ZoneConfig[] = [
-  { name: 'recent', maxTokens: 50000, retentionPolicy: 'keep_all', priority: 4 },
-  { name: 'important', maxTokens: 30000, retentionPolicy: 'prune_least_important', priority: 3 },
-  { name: 'background', maxTokens: 10000, retentionPolicy: 'prune_oldest', priority: 2 },
+  {
+    name: 'recent',
+    maxTokens: 50000,
+    retentionPolicy: 'keep_all',
+    priority: 4,
+  },
+  {
+    name: 'important',
+    maxTokens: 30000,
+    retentionPolicy: 'prune_least_important',
+    priority: 3,
+  },
+  {
+    name: 'background',
+    maxTokens: 10000,
+    retentionPolicy: 'prune_oldest',
+    priority: 2,
+  },
   { name: 'system', maxTokens: 8000, retentionPolicy: 'keep_all', priority: 1 },
 ]
 
 function classifyMessage(message: Message, isRecent?: boolean): PriorityZone {
-  const content = typeof message.message?.content === 'string'
-    ? message.message.content
-    : ''
+  const content =
+    typeof message.message?.content === 'string' ? message.message.content : ''
 
   if (message.message?.role === 'system') {
     return 'system'
   }
 
-  if (content.includes('error') || content.includes('fail') || content.includes('important')) {
+  if (
+    content.includes('error') ||
+    content.includes('fail') ||
+    content.includes('important')
+  ) {
     return 'important'
   }
 
@@ -82,9 +100,13 @@ export function partitionContext(
   for (const msg of recentMessages) {
     const zone = classifyMessage(msg, true)
     zones.get(zone)!.push(msg)
-    zoneTokens.set(zone, zoneTokens.get(zone)! + roughTokenCountEstimation(
-      typeof msg.message?.content === 'string' ? msg.message.content : ''
-    ))
+    zoneTokens.set(
+      zone,
+      zoneTokens.get(zone)! +
+        roughTokenCountEstimation(
+          typeof msg.message?.content === 'string' ? msg.message.content : '',
+        ),
+    )
   }
 
   for (const msg of olderMessages) {
@@ -93,19 +115,31 @@ export function partitionContext(
 
     if (zone === 'system') {
       currentZone.push(msg)
-      zoneTokens.set('system', zoneTokens.get('system')! + roughTokenCountEstimation(
-        typeof msg.message?.content === 'string' ? msg.message.content : ''
-      ))
+      zoneTokens.set(
+        'system',
+        zoneTokens.get('system')! +
+          roughTokenCountEstimation(
+            typeof msg.message?.content === 'string' ? msg.message.content : '',
+          ),
+      )
     } else if (zone === 'important' && zoneTokens.get('important')! < 30000) {
       currentZone.push(msg)
-      zoneTokens.set('important', zoneTokens.get('important')! + roughTokenCountEstimation(
-        typeof msg.message?.content === 'string' ? msg.message.content : ''
-      ))
+      zoneTokens.set(
+        'important',
+        zoneTokens.get('important')! +
+          roughTokenCountEstimation(
+            typeof msg.message?.content === 'string' ? msg.message.content : '',
+          ),
+      )
     } else if (zone === 'background' && zoneTokens.get('background')! < 10000) {
       currentZone.push(msg)
-      zoneTokens.set('background', zoneTokens.get('background')! + roughTokenCountEstimation(
-        typeof msg.message?.content === 'string' ? msg.message.content : ''
-      ))
+      zoneTokens.set(
+        'background',
+        zoneTokens.get('background')! +
+          roughTokenCountEstimation(
+            typeof msg.message?.content === 'string' ? msg.message.content : '',
+          ),
+      )
     }
   }
 
@@ -128,9 +162,14 @@ export function getAllMessages(context: PartitionedContext): Message[] {
     if (zoneName === 'system') continue
     messages.push(...zoneMessages)
   }
-  return messages.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
+  return messages.sort(
+    (a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0),
+  )
 }
 
-export function getAvailableSpace(context: PartitionedContext, contextWindow: number): number {
+export function getAvailableSpace(
+  context: PartitionedContext,
+  contextWindow: number,
+): number {
   return Math.max(0, contextWindow - context.totalTokens)
 }

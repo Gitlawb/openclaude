@@ -214,17 +214,19 @@ describe('detectLocalService', () => {
   })
 
   test('probe timeout does not throw — returns null', async () => {
-    const fetchImpl = asFetch(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      // Respect the caller's abort signal so the race with timeoutMs is fair.
-      return new Promise<Response>((_resolve, reject) => {
-        const onAbort = () => reject(new Error('aborted'))
-        init?.signal?.addEventListener('abort', onAbort)
-        setTimeout(() => {
-          init?.signal?.removeEventListener('abort', onAbort)
-          _resolve(new Response('ok'))
-        }, 500)
-      })
-    })
+    const fetchImpl = asFetch(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        // Respect the caller's abort signal so the race with timeoutMs is fair.
+        return new Promise<Response>((_resolve, reject) => {
+          const onAbort = () => reject(new Error('aborted'))
+          init?.signal?.addEventListener('abort', onAbort)
+          setTimeout(() => {
+            init?.signal?.removeEventListener('abort', onAbort)
+            _resolve(new Response('ok'))
+          }, 500)
+        })
+      },
+    )
 
     const result = await detectLocalService({
       env: {},

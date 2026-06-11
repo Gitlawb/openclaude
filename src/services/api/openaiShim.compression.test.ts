@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { setToolHistoryCompressionEnabledOverrideForTest } from './compressToolHistory.js'
 import { createOpenAIShimClient } from './openaiShim.js'
 
@@ -9,8 +12,7 @@ const originalFetch = globalThis.fetch
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-  CLAUDE_CODE_AUTO_COMPACT_WINDOW:
-    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -137,7 +139,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+    for (const key of Object.keys(originalEnv) as Array<
+      keyof typeof originalEnv
+    >) {
       restoreEnv(key)
     }
     saveGlobalConfig(current => ({
@@ -177,7 +181,9 @@ async function captureRequestBody(
   return captured
 }
 
-function getToolMessages(body: Record<string, unknown>): Array<{ content: string }> {
+function getToolMessages(
+  body: Record<string, unknown>,
+): Array<{ content: string }> {
   const messages = body.messages as Array<{ role: string; content: string }>
   return messages.filter(m => m.role === 'tool')
 }

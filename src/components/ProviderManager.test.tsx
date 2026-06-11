@@ -275,26 +275,31 @@ function mockProviderManagerDependencies(
   githubAsyncRead: () => Promise<string | undefined>,
   options?: {
     addProviderProfile?: (...args: any[]) => unknown
-    applySavedProfileToCurrentSession?: (...args: any[]) => Promise<string | null>
+    applySavedProfileToCurrentSession?: (
+      ...args: any[]
+    ) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
     getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
     probeRouteReadiness?: (
       routeId: string,
-      options?: { baseUrl?: string; model?: string; timeoutMs?: number; apiKey?: string },
+      options?: {
+        baseUrl?: string
+        model?: string
+        timeoutMs?: number
+        apiKey?: string
+      },
     ) => Promise<unknown>
     probeOllamaGenerationReadiness?: () => Promise<{
       state: 'ready' | 'unreachable' | 'no_models' | 'generation_failed'
-      models: Array<
-        {
-          name: string
-          sizeBytes?: number | null
-          family?: string | null
-          families?: string[]
-          parameterSize?: string | null
-          quantizationLevel?: string | null
-        }
-      >
+      models: Array<{
+        name: string
+        sizeBytes?: number | null
+        family?: string | null
+        families?: string[]
+        parameterSize?: string | null
+        quantizationLevel?: string | null
+      }>
       probeModel?: string
       detail?: string
     }>
@@ -331,8 +336,7 @@ function mockProviderManagerDependencies(
     setActiveProviderProfile: options?.setActiveProviderProfile,
   })
 
-  mock.module('../utils/providerDiscovery.js', () => ({
-  }))
+  mock.module('../utils/providerDiscovery.js', () => ({}))
 
   mock.module('../integrations/discoveryService.js', () => ({
     probeRouteReadiness:
@@ -369,8 +373,7 @@ function mockProviderManagerDependencies(
     attachCodexProfileIdToStoredCredentials: () => ({ success: true }),
     clearCodexCredentials:
       options?.clearCodexCredentials ?? (() => ({ success: true })),
-    readCodexCredentials:
-      options?.codexSyncRead ?? (() => undefined),
+    readCodexCredentials: options?.codexSyncRead ?? (() => undefined),
     readCodexCredentialsAsync:
       options?.codexAsyncRead ?? (async () => undefined),
   }))
@@ -429,10 +432,13 @@ async function waitForFrameOutput(
 ): Promise<string> {
   let output = ''
 
-  await waitForCondition(() => {
-    output = stripAnsi(extractLastFrame(getOutput()))
-    return predicate(output)
-  }, { timeoutMs })
+  await waitForCondition(
+    () => {
+      output = stripAnsi(extractLastFrame(getOutput()))
+      return predicate(output)
+    },
+    { timeoutMs },
+  )
 
   return output
 }
@@ -445,10 +451,7 @@ async function mountProviderManager(
   options?: {
     mode?: 'first-run' | 'manage'
     onDone?: (result?: unknown) => void
-    onChangeAppState?: (args: {
-      newState: unknown
-      oldState: unknown
-    }) => void
+    onChangeAppState?: (args: { newState: unknown; oldState: unknown }) => void
   },
 ): Promise<{
   stdin: PassThrough
@@ -540,7 +543,9 @@ test('ProviderManager resolves GitHub virtual provider from async storage withou
   delete process.env.GH_TOKEN
 
   const syncRead = mock(() => {
-    throw new Error('sync credential read should not run in ProviderManager render flow')
+    throw new Error(
+      'sync credential read should not run in ProviderManager render flow',
+    )
   })
   const asyncRead = mock(async () => 'stored-token')
 
@@ -570,7 +575,9 @@ test('ProviderManager avoids first-frame false negative while stored-token looku
   delete process.env.GH_TOKEN
 
   const syncRead = mock(() => {
-    throw new Error('sync credential read should not run in ProviderManager render flow')
+    throw new Error(
+      'sync credential read should not run in ProviderManager render flow',
+    )
   })
   const deferredStoredToken = createDeferred<string | undefined>()
   const asyncRead = mock(async () => deferredStoredToken.promise)
@@ -581,9 +588,8 @@ test('ProviderManager avoids first-frame false negative while stored-token looku
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
   const mounted = await mountProviderManager(ProviderManager)
 
-  const firstFrame = await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Provider manager'),
+  const firstFrame = await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Provider manager'),
   )
 
   expect(firstFrame).toContain('Checking GitHub Models credentials...')
@@ -606,7 +612,10 @@ test('ProviderManager avoids first-frame false negative while stored-token looku
 })
 
 test('ProviderManager shows API mode picker for custom OpenAI-compatible providers', async () => {
-  mockProviderManagerDependencies(() => undefined, async () => undefined)
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+  )
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -624,9 +633,11 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
 
     await navigateToPreset(mounted.stdin, 'Custom')
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Create provider profile') &&
-      frame.includes('Provider name'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Create provider profile') &&
+        frame.includes('Provider name'),
     )
 
     mounted.stdin.write('\r')
@@ -639,8 +650,9 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
     )
     mounted.stdin.write('\r')
 
-    const output = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('API mode') && frame.includes('Chat Completions'),
+    const output = await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('API mode') && frame.includes('Chat Completions'),
     )
     expect(output).toContain('Responses')
   } finally {
@@ -649,7 +661,10 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
 })
 
 test('ProviderManager keeps full setup flow for presets with placeholder endpoint defaults', async () => {
-  mockProviderManagerDependencies(() => undefined, async () => undefined)
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+  )
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -667,9 +682,11 @@ test('ProviderManager keeps full setup flow for presets with placeholder endpoin
 
     await navigateToPreset(mounted.stdin, 'Azure OpenAI')
     mounted.stdin.write('\r')
-    const nameOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Create provider profile') &&
-      frame.includes('Provider name'),
+    const nameOutput = await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Create provider profile') &&
+        frame.includes('Provider name'),
     )
 
     expect(nameOutput).toContain('Azure OpenAI')
@@ -691,9 +708,13 @@ test('ProviderManager asks for model and API key when adding OpenAI preset', asy
     ...payload,
   }))
 
-  mockProviderManagerDependencies(() => undefined, async () => undefined, {
-    addProviderProfile,
-  })
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+    },
+  )
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -711,9 +732,11 @@ test('ProviderManager asks for model and API key when adding OpenAI preset', asy
 
     await navigateToPreset(mounted.stdin, 'OpenAI')
     mounted.stdin.write('\r')
-    const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Create provider profile') &&
-      frame.includes('Step 1 of 2: Default model'),
+    const modelOutput = await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Create provider profile') &&
+        frame.includes('Step 1 of 2: Default model'),
     )
 
     expect(modelOutput).toContain('OpenAI')
@@ -759,9 +782,13 @@ test('ProviderManager saves OpenAI preset GPT-5 models with Responses API', asyn
     ...payload,
   }))
 
-  mockProviderManagerDependencies(() => undefined, async () => undefined, {
-    addProviderProfile,
-  })
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+    },
+  )
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -818,9 +845,13 @@ test('ProviderManager saves MiniMax preset with Anthropic-compatible endpoint an
     ...payload,
   }))
 
-  mockProviderManagerDependencies(() => undefined, async () => undefined, {
-    addProviderProfile,
-  })
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+    },
+  )
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -838,9 +869,11 @@ test('ProviderManager saves MiniMax preset with Anthropic-compatible endpoint an
 
     await navigateToPreset(mounted.stdin, 'MiniMax')
     mounted.stdin.write('\r')
-    const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Create provider profile') &&
-      frame.includes('Step 1 of 2: Default model'),
+    const modelOutput = await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Create provider profile') &&
+        frame.includes('Step 1 of 2: Default model'),
     )
 
     expect(modelOutput).toContain('MiniMax')
@@ -911,9 +944,10 @@ test('ProviderManager edit flow keeps MiniMax on Anthropic-compatible provider p
   const mounted = await mountProviderManager(ProviderManager)
 
   try {
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Provider manager') &&
-      frame.includes('Edit provider'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') && frame.includes('Edit provider'),
     )
 
     mounted.stdin.write('j')
@@ -922,16 +956,20 @@ test('ProviderManager edit flow keeps MiniMax on Anthropic-compatible provider p
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Edit provider') &&
-      frame.includes('MiniMax') &&
-      !frame.includes('Provider manager'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Edit provider') &&
+        frame.includes('MiniMax') &&
+        !frame.includes('Provider manager'),
     )
 
     mounted.stdin.write('\r')
-    const editOutput = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Edit provider profile') &&
-      frame.includes('Provider type: Anthropic-compatible API'),
+    const editOutput = await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Edit provider profile') &&
+        frame.includes('Provider type: Anthropic-compatible API'),
     )
 
     expect(editOutput).toContain('Provider type: Anthropic-compatible API')
@@ -973,9 +1011,13 @@ test('ProviderManager saves Hicap preset non-GPT model with Chat Completions', a
     ...payload,
   }))
 
-  mockProviderManagerDependencies(() => undefined, async () => undefined, {
-    addProviderProfile,
-  })
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+    },
+  )
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -1058,9 +1100,10 @@ test('ProviderManager clears hidden Hicap auth fields when editing', async () =>
   const mounted = await mountProviderManager(ProviderManager)
 
   try {
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Provider manager') &&
-      frame.includes('Edit provider'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') && frame.includes('Edit provider'),
     )
 
     mounted.stdin.write('j')
@@ -1069,16 +1112,19 @@ test('ProviderManager clears hidden Hicap auth fields when editing', async () =>
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Edit provider') &&
-      frame.includes('Legacy Hicap'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Edit provider') && frame.includes('Legacy Hicap'),
     )
 
     await Bun.sleep(25)
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Edit provider profile') &&
-      frame.includes('Step 1 of 6'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Edit provider profile') &&
+        frame.includes('Step 1 of 6'),
     )
 
     for (let step = 2; step <= 6; step++) {
@@ -1133,9 +1179,10 @@ test('ProviderManager skips advanced fields for legacy Kimi Code profiles', asyn
   const mounted = await mountProviderManager(ProviderManager)
 
   try {
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Provider manager') &&
-      frame.includes('Edit provider'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') && frame.includes('Edit provider'),
     )
 
     mounted.stdin.write('j')
@@ -1144,35 +1191,38 @@ test('ProviderManager skips advanced fields for legacy Kimi Code profiles', asyn
     await Bun.sleep(25)
     mounted.stdin.write('\r')
 
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Edit provider') &&
-      frame.includes('Legacy Kimi Code'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Edit provider') && frame.includes('Legacy Kimi Code'),
     )
 
     await Bun.sleep(25)
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Edit provider profile') &&
-      frame.includes('Provider name') &&
-      frame.includes('Step 1 of 4'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Edit provider profile') &&
+        frame.includes('Provider name') &&
+        frame.includes('Step 1 of 4'),
     )
 
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Base URL') &&
-      frame.includes('Step 2 of 4'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Base URL') && frame.includes('Step 2 of 4'),
     )
 
     mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Default model') &&
-      frame.includes('Step 3 of 4'),
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Default model') && frame.includes('Step 3 of 4'),
     )
 
     mounted.stdin.write('\r')
-    const output = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('API key') &&
-      frame.includes('Step 4 of 4'),
+    const output = await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('API key') && frame.includes('Step 4 of 4'),
     )
 
     expect(output).not.toContain('API mode')
@@ -1189,20 +1239,22 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
   delete process.env.GH_TOKEN
 
   const onDone = mock(() => {})
-  const addProviderProfile = mock((payload: {
-    provider: string
-    name: string
-    baseUrl: string
-    model: string
-    apiKey?: string
-  }) => ({
-    id: 'provider_ollama',
-    provider: payload.provider,
-    name: payload.name,
-    baseUrl: payload.baseUrl,
-    model: payload.model,
-    apiKey: payload.apiKey,
-  }))
+  const addProviderProfile = mock(
+    (payload: {
+      provider: string
+      name: string
+      baseUrl: string
+      model: string
+      apiKey?: string
+    }) => ({
+      id: 'provider_ollama',
+      provider: payload.provider,
+      name: payload.name,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      apiKey: payload.apiKey,
+    }),
+  )
 
   mockProviderManagerDependencies(
     () => undefined,
@@ -1235,9 +1287,8 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
     onDone,
   })
 
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Set up provider'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Set up provider'),
   )
 
   await navigateToPreset(mounted.stdin, 'Ollama')
@@ -1290,9 +1341,8 @@ test('ProviderManager preserves the Ollama readiness message when the probe is u
     onDone,
   })
 
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Set up provider'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Set up provider'),
   )
 
   await navigateToPreset(mounted.stdin, 'Ollama')
@@ -1318,20 +1368,22 @@ test('ProviderManager first-run Atomic Chat preset auto-detects loaded models', 
   delete process.env.GH_TOKEN
 
   const onDone = mock(() => {})
-  const addProviderProfile = mock((payload: {
-    provider: string
-    name: string
-    baseUrl: string
-    model: string
-    apiKey?: string
-  }) => ({
-    id: 'provider_atomic_chat',
-    provider: payload.provider,
-    name: payload.name,
-    baseUrl: payload.baseUrl,
-    model: payload.model,
-    apiKey: payload.apiKey,
-  }))
+  const addProviderProfile = mock(
+    (payload: {
+      provider: string
+      name: string
+      baseUrl: string
+      model: string
+      apiKey?: string
+    }) => ({
+      id: 'provider_atomic_chat',
+      provider: payload.provider,
+      name: payload.name,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      apiKey: payload.apiKey,
+    }),
+  )
 
   mockProviderManagerDependencies(
     () => undefined,
@@ -1358,9 +1410,8 @@ test('ProviderManager first-run Atomic Chat preset auto-detects loaded models', 
     onDone,
   })
 
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Set up provider'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Set up provider'),
   )
 
   await navigateToPreset(mounted.stdin, 'Atomic Chat')
@@ -1415,20 +1466,22 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
     model: 'codexplan',
     apiKey: '',
   }))
-  const addProviderProfile = mock((payload: {
-    provider: string
-    name: string
-    baseUrl: string
-    model: string
-    apiKey?: string
-  }) => ({
-    id: 'provider_codex_oauth',
-    provider: payload.provider,
-    name: payload.name,
-    baseUrl: payload.baseUrl,
-    model: payload.model,
-    apiKey: payload.apiKey,
-  }))
+  const addProviderProfile = mock(
+    (payload: {
+      provider: string
+      name: string
+      baseUrl: string
+      model: string
+      apiKey?: string
+    }) => ({
+      id: 'provider_codex_oauth',
+      provider: payload.provider,
+      name: payload.name,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      apiKey: payload.apiKey,
+    }),
+  )
 
   mockProviderManagerDependencies(
     () => undefined,
@@ -1439,11 +1492,14 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
       setActiveProviderProfile,
       useCodexOAuthFlow: ({ onAuthenticated }) => {
         React.useEffect(() => {
-          void onAuthenticated({
-            accessToken: 'oauth-access-token',
-            refreshToken: 'oauth-refresh-token',
-            accountId: 'acct_oauth',
-          }, persistCredentials)
+          void onAuthenticated(
+            {
+              accessToken: 'oauth-access-token',
+              refreshToken: 'oauth-refresh-token',
+              accountId: 'acct_oauth',
+            },
+            persistCredentials,
+          )
         }, [onAuthenticated])
 
         return {
@@ -1482,9 +1538,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
     }),
     expect.objectContaining({ makeActive: false }),
   )
-  expect(setActiveProviderProfile).toHaveBeenCalledWith(
-    'provider_codex_oauth',
-  )
+  expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_codex_oauth')
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
   expect(persistCredentials).toHaveBeenCalledWith({
     profileId: 'provider_codex_oauth',
@@ -1519,20 +1573,22 @@ test('ProviderManager first-run Codex OAuth surfaces credential storage warnings
     model: 'codexplan',
     apiKey: '',
   }))
-  const addProviderProfile = mock((payload: {
-    provider: string
-    name: string
-    baseUrl: string
-    model: string
-    apiKey?: string
-  }) => ({
-    id: 'provider_codex_oauth',
-    provider: payload.provider,
-    name: payload.name,
-    baseUrl: payload.baseUrl,
-    model: payload.model,
-    apiKey: payload.apiKey,
-  }))
+  const addProviderProfile = mock(
+    (payload: {
+      provider: string
+      name: string
+      baseUrl: string
+      model: string
+      apiKey?: string
+    }) => ({
+      id: 'provider_codex_oauth',
+      provider: payload.provider,
+      name: payload.name,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      apiKey: payload.apiKey,
+    }),
+  )
 
   mockProviderManagerDependencies(
     () => undefined,
@@ -1543,11 +1599,14 @@ test('ProviderManager first-run Codex OAuth surfaces credential storage warnings
       setActiveProviderProfile,
       useCodexOAuthFlow: ({ onAuthenticated }) => {
         React.useEffect(() => {
-          void onAuthenticated({
-            accessToken: 'oauth-access-token',
-            refreshToken: 'oauth-refresh-token',
-            accountId: 'acct_oauth',
-          }, persistCredentials)
+          void onAuthenticated(
+            {
+              accessToken: 'oauth-access-token',
+              refreshToken: 'oauth-refresh-token',
+              accountId: 'acct_oauth',
+            },
+            persistCredentials,
+          )
         }, [onAuthenticated])
 
         return {
@@ -1609,20 +1668,22 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
     model: 'codexplan',
     apiKey: '',
   }))
-  const addProviderProfile = mock((payload: {
-    provider: string
-    name: string
-    baseUrl: string
-    model: string
-    apiKey?: string
-  }) => ({
-    id: 'provider_codex_oauth',
-    provider: payload.provider,
-    name: payload.name,
-    baseUrl: payload.baseUrl,
-    model: payload.model,
-    apiKey: payload.apiKey,
-  }))
+  const addProviderProfile = mock(
+    (payload: {
+      provider: string
+      name: string
+      baseUrl: string
+      model: string
+      apiKey?: string
+    }) => ({
+      id: 'provider_codex_oauth',
+      provider: payload.provider,
+      name: payload.name,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      apiKey: payload.apiKey,
+    }),
+  )
 
   mockProviderManagerDependencies(
     () => undefined,
@@ -1633,11 +1694,14 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
       setActiveProviderProfile,
       useCodexOAuthFlow: ({ onAuthenticated }) => {
         React.useEffect(() => {
-          void onAuthenticated({
-            accessToken: 'oauth-access-token',
-            refreshToken: 'oauth-refresh-token',
-            accountId: 'acct_oauth',
-          }, persistCredentials)
+          void onAuthenticated(
+            {
+              accessToken: 'oauth-access-token',
+              refreshToken: 'oauth-refresh-token',
+              accountId: 'acct_oauth',
+            },
+            persistCredentials,
+          )
         }, [onAuthenticated])
 
         return {
@@ -1669,9 +1733,7 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
   expect(persistCredentials).toHaveBeenCalledWith({
     profileId: 'provider_codex_oauth',
   })
-  expect(setActiveProviderProfile).toHaveBeenCalledWith(
-    'provider_codex_oauth',
-  )
+  expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_codex_oauth')
   expect(onDone).toHaveBeenCalledWith(
     expect.objectContaining({
       action: 'saved',
@@ -1698,20 +1760,22 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
     model: 'gpt-5.4',
     apiKey: 'manual-key',
   }
-  const addProviderProfile = mock((payload: {
-    provider: string
-    name: string
-    baseUrl: string
-    model: string
-    apiKey?: string
-  }) => ({
-    id: 'provider_codex_oauth',
-    provider: payload.provider,
-    name: payload.name,
-    baseUrl: payload.baseUrl,
-    model: payload.model,
-    apiKey: payload.apiKey,
-  }))
+  const addProviderProfile = mock(
+    (payload: {
+      provider: string
+      name: string
+      baseUrl: string
+      model: string
+      apiKey?: string
+    }) => ({
+      id: 'provider_codex_oauth',
+      provider: payload.provider,
+      name: payload.name,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      apiKey: payload.apiKey,
+    }),
+  )
   const updateProviderProfile = mock(() => manualProfile)
   const persistCredentials = mock(() => {})
   const setActiveProviderProfile = mock((profileId: string) => ({
@@ -1739,11 +1803,14 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
             return
           }
           hasAuthenticated.current = true
-          void onAuthenticated({
-            accessToken: 'oauth-access-token',
-            refreshToken: 'oauth-refresh-token',
-            accountId: 'acct_oauth',
-          }, persistCredentials)
+          void onAuthenticated(
+            {
+              accessToken: 'oauth-access-token',
+              refreshToken: 'oauth-refresh-token',
+              accountId: 'acct_oauth',
+            },
+            persistCredentials,
+          )
         }, [onAuthenticated])
 
         return {
@@ -1774,9 +1841,7 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
 
   expect(addProviderProfile).toHaveBeenCalledTimes(1)
   expect(updateProviderProfile).not.toHaveBeenCalled()
-  expect(setActiveProviderProfile).toHaveBeenCalledWith(
-    'provider_codex_oauth',
-  )
+  expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_codex_oauth')
   expect(persistCredentials).toHaveBeenCalledWith({
     profileId: 'provider_codex_oauth',
   })
@@ -1838,7 +1903,8 @@ test('ProviderManager keeps Codex OAuth as next-startup only when activating the
 
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Set active provider') && frame.includes('Codex OAuth'),
+    frame =>
+      frame.includes('Set active provider') && frame.includes('Codex OAuth'),
   )
 
   await Bun.sleep(25)
@@ -1981,8 +2047,7 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
   await waitForFrameOutput(
     mounted.getOutput,
     frame =>
-      frame.includes('Provider manager') &&
-      frame.includes('Edit provider'),
+      frame.includes('Provider manager') && frame.includes('Edit provider'),
   )
 
   mounted.stdin.write('j')
@@ -1994,8 +2059,7 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
   await waitForFrameOutput(
     mounted.getOutput,
     frame =>
-      frame.includes('Edit provider') &&
-      frame.includes('Multi Model Provider'),
+      frame.includes('Edit provider') && frame.includes('Multi Model Provider'),
   )
 
   await Bun.sleep(25)
@@ -2004,50 +2068,42 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
   await waitForFrameOutput(
     mounted.getOutput,
     frame =>
-      frame.includes('Edit provider profile') &&
-      frame.includes('Step 1 of 8'),
+      frame.includes('Edit provider profile') && frame.includes('Step 1 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 2 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 2 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 3 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 3 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 4 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 4 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 5 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 5 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 6 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 6 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 7 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 7 of 8'),
   )
 
   mounted.stdin.write('\r')
-  await waitForFrameOutput(
-    mounted.getOutput,
-    frame => frame.includes('Step 8 of 8'),
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Step 8 of 8'),
   )
 
   mounted.stdin.write('\r')
@@ -2145,7 +2201,9 @@ test('ProviderManager resolves Codex OAuth state from async storage without sync
   const githubSyncRead = mock(() => undefined)
   const githubAsyncRead = mock(async () => undefined)
   const codexSyncRead = mock(() => {
-    throw new Error('sync codex credential read should not run in ProviderManager render flow')
+    throw new Error(
+      'sync codex credential read should not run in ProviderManager render flow',
+    )
   })
   const codexAsyncRead = mock(async () => ({
     accessToken: 'codex-access-token',

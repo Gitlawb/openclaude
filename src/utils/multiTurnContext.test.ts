@@ -19,7 +19,13 @@ import {
 
 function createMessage(role: string, content: string): any {
   return {
-    message: { role, content, id: 'test', type: 'message', created_at: Date.now() },
+    message: {
+      role,
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: Date.now(),
+    },
     sender: role,
   }
 }
@@ -133,11 +139,11 @@ describe('multiTurnContext', () => {
     it('respects the maxTurns option', () => {
       // Create a tracker with a very small maxTurns
       createMultiTurnTracker({ maxTurns: 2 })
-      
+
       startNewTurn() // turn 1
       startNewTurn() // turn 2
       startNewTurn() // turn 3 - should drop turn 1
-      
+
       const history = getTurnHistory()
       expect(history.length).toBe(2)
       // The first remaining turn should be the 2nd one created

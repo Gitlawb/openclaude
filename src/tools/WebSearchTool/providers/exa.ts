@@ -20,7 +20,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 /** Join up to 3 highlight excerpts with an ellipsis separator. */
 function describeFromHighlights(r: any): string | undefined {
@@ -39,7 +43,10 @@ export const exaProvider: SearchProvider = {
     return Boolean(process.env.EXA_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const body: Record<string, any> = {
@@ -49,8 +56,10 @@ export const exaProvider: SearchProvider = {
       contents: { highlights: true },
     }
 
-    if (input.allowed_domains?.length) body.includeDomains = input.allowed_domains
-    if (input.blocked_domains?.length) body.excludeDomains = input.blocked_domains
+    if (input.allowed_domains?.length)
+      body.includeDomains = input.allowed_domains
+    if (input.blocked_domains?.length)
+      body.excludeDomains = input.blocked_domains
 
     const res = await fetch('https://api.exa.ai/search', {
       method: 'POST',
@@ -63,7 +72,9 @@ export const exaProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`Exa search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Exa search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

@@ -36,7 +36,9 @@ const addMarketplaceSource = mock(async () => ({
   resolvedSource: {},
 }))
 
-await acquireSharedMutationLock('utils/plugins/officialMarketplaceStartupCheck.test.ts')
+await acquireSharedMutationLock(
+  'utils/plugins/officialMarketplaceStartupCheck.test.ts',
+)
 
 const realGrowthbook = await import(
   `../../services/analytics/growthbook.js?real=${Date.now()}-${Math.random()}`
@@ -109,8 +111,7 @@ mock.module('./officialMarketplaceGcs.js', () => ({
   fetchOfficialMarketplaceFromGcs,
 }))
 
-let checkAndInstallOfficialMarketplace:
-  typeof import('./officialMarketplaceStartupCheck.js').checkAndInstallOfficialMarketplace
+let checkAndInstallOfficialMarketplace: typeof import('./officialMarketplaceStartupCheck.js').checkAndInstallOfficialMarketplace
 
 const mod = await import('./officialMarketplaceStartupCheck.js')
 checkAndInstallOfficialMarketplace = mod.checkAndInstallOfficialMarketplace

@@ -30,7 +30,10 @@ describe('extractor contract', () => {
       ['an unquoted POSIX path', '@/Users/foo/bar.ts'],
       // Quoted POSIX path that embeds a `:` in the filename — the quote
       // layer must shield it from MCP matching, same as the Windows case.
-      ['a quoted POSIX path with a colon in the name', '@"/tmp/weird:name.txt"'],
+      [
+        'a quoted POSIX path with a colon in the name',
+        '@"/tmp/weird:name.txt"',
+      ],
     ]
     test.each(cases)('%s', (_label, input) => {
       expect(extractMcpResourceMentions(input)).toEqual([])
@@ -86,17 +89,20 @@ describe('extractor contract', () => {
 })
 
 describe('skill listing attachment policy', () => {
-  test.each(['extract_memories', 'session_memory', 'compact'])(
-    'suppresses skill listings for %s utility forks',
-    querySource => {
-      expect(shouldIncludeSkillListingAttachment(querySource)).toBe(false)
-    },
-  )
+  test.each([
+    'extract_memories',
+    'session_memory',
+    'compact',
+  ])('suppresses skill listings for %s utility forks', querySource => {
+    expect(shouldIncludeSkillListingAttachment(querySource)).toBe(false)
+  })
 
-  test.each([undefined, 'repl_main_thread', 'agent:builtin:general-purpose', 'side_question'])(
-    'keeps skill listings available for %s',
-    querySource => {
-      expect(shouldIncludeSkillListingAttachment(querySource)).toBe(true)
-    },
-  )
+  test.each([
+    undefined,
+    'repl_main_thread',
+    'agent:builtin:general-purpose',
+    'side_question',
+  ])('keeps skill listings available for %s', querySource => {
+    expect(shouldIncludeSkillListingAttachment(querySource)).toBe(true)
+  })
 })

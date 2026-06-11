@@ -2,7 +2,10 @@ import { describe, expect, test, vi } from 'bun:test'
 import { z } from 'zod/v4'
 
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
-import { getEmptyToolPermissionContext, type ToolUseContext } from '../../Tool.js'
+import {
+  getEmptyToolPermissionContext,
+  type ToolUseContext,
+} from '../../Tool.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
 import { resolveHookPermissionDecision } from './toolHooks.js'
 

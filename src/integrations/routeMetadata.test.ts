@@ -13,15 +13,9 @@ import {
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
   expect(getRouteProviderTypeLabel('anthropic')).toBe('Anthropic native API')
   expect(getRouteProviderTypeLabel('gemini')).toBe('Gemini API')
-  expect(getRouteProviderTypeLabel('bedrock')).toBe(
-    'AWS Bedrock Claude API',
-  )
-  expect(getRouteProviderTypeLabel('vertex')).toBe(
-    'Google Vertex Claude API',
-  )
-  expect(getRouteProviderTypeLabel('openrouter')).toBe(
-    'OpenAI-compatible API',
-  )
+  expect(getRouteProviderTypeLabel('bedrock')).toBe('AWS Bedrock Claude API')
+  expect(getRouteProviderTypeLabel('vertex')).toBe('Google Vertex Claude API')
+  expect(getRouteProviderTypeLabel('openrouter')).toBe('OpenAI-compatible API')
   expect(getRouteProviderTypeLabel('ollama')).toBe('OpenAI-compatible API')
 })
 
@@ -87,16 +81,28 @@ test('getRouteCredentialValue reads the first configured route credential', () =
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('venice')).toBe('https://api.venice.ai/api/v1')
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
-  expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1')).toBe('venice')
-  expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
+  expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1')).toBe(
+    'venice',
+  )
+  expect(
+    resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions'),
+  ).toBe('venice')
 })
 
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
-  expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe('https://api.xiaomimimo.com/v1')
+  expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe(
+    'https://api.xiaomimimo.com/v1',
+  )
   expect(getRouteDefaultModel('xiaomi-mimo')).toBe('mimo-v2.5-pro')
-  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1')).toBe('xiaomi-mimo')
-  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1/chat/completions')).toBe('xiaomi-mimo')
-  expect(resolveRouteIdFromBaseUrl('https://api.mimo-v2.com/v1')).toBe('xiaomi-mimo')
+  expect(resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1')).toBe(
+    'xiaomi-mimo',
+  )
+  expect(
+    resolveRouteIdFromBaseUrl('https://api.xiaomimimo.com/v1/chat/completions'),
+  ).toBe('xiaomi-mimo')
+  expect(resolveRouteIdFromBaseUrl('https://api.mimo-v2.com/v1')).toBe(
+    'xiaomi-mimo',
+  )
 })
 
 test('resolveActiveRouteIdFromEnv treats Xiaomi MiMo credential-only env as Xiaomi MiMo', () => {
@@ -196,28 +202,40 @@ test('resolveActiveRouteIdFromEnv keeps MiniMax primary base over stale API base
 test.each([
   ['MiniMax', 'https://api.minimax.io/v1', 'MiniMax-M2.7', 'minimax'],
   ['xAI', 'https://api.x.ai/v1', 'grok-4.3', 'xai'],
-  ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', 'nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia-nim'],
-  ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
+  [
+    'NVIDIA NIM',
+    'https://integrate.api.nvidia.com/v1',
+    'nvidia/llama-3.1-nemotron-70b-instruct',
+    'nvidia-nim',
+  ],
+  [
+    'OpenRouter',
+    'https://openrouter.ai/api/v1',
+    'openai/gpt-5-mini',
+    'openrouter',
+  ],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
-  ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
+  [
+    'Xiaomi MiMo',
+    'https://api.xiaomimimo.com/v1',
+    'mimo-v2.5-pro',
+    'xiaomi-mimo',
+  ],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
-])(
-  'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',
-  (_label, baseUrl, model, expectedRouteId) => {
-    expect(
-      resolveActiveRouteIdFromEnv(
-        {
-          CLAUDE_CODE_USE_OPENAI: '1',
-          CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
-          OPENAI_BASE_URL: baseUrl,
-          OPENAI_MODEL: model,
-        },
-        { activeProfileProvider: 'openai' },
-      ),
-    ).toBe(expectedRouteId)
-  },
-)
+])('resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL', (_label, baseUrl, model, expectedRouteId) => {
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+        OPENAI_BASE_URL: baseUrl,
+        OPENAI_MODEL: model,
+      },
+      { activeProfileProvider: 'openai' },
+    ),
+  ).toBe(expectedRouteId)
+})
 
 test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials', () => {
   expect(

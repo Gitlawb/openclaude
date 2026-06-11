@@ -162,7 +162,13 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
     process.env.WEB_KEY = 'sk-test-123'
     process.env.WEB_AUTH_HEADER = ''
     const { buildAuthHeadersForPreset } = require('./custom.js')
-    expect(buildAuthHeadersForPreset({ urlTemplate: '', queryParam: 'q', authHeader: 'Authorization' })).toEqual({})
+    expect(
+      buildAuthHeadersForPreset({
+        urlTemplate: '',
+        queryParam: 'q',
+        authHeader: 'Authorization',
+      }),
+    ).toEqual({})
   })
 
   test('WEB_AUTH_SCHEME="" strips the scheme prefix (bare key only)', () => {
@@ -170,7 +176,11 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
     process.env.WEB_AUTH_SCHEME = ''
     delete process.env.WEB_AUTH_HEADER
     const { buildAuthHeadersForPreset } = require('./custom.js')
-    const result = buildAuthHeadersForPreset({ urlTemplate: '', queryParam: 'q', authHeader: 'X-Api-Key' })
+    const result = buildAuthHeadersForPreset({
+      urlTemplate: '',
+      queryParam: 'q',
+      authHeader: 'X-Api-Key',
+    })
     // scheme is '' so the header value should be just the key (trimmed)
     expect(result).toEqual({ 'X-Api-Key': 'sk-test-123' })
   })
@@ -180,8 +190,13 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
     delete process.env.WEB_AUTH_HEADER
     delete process.env.WEB_AUTH_SCHEME
     const { buildAuthHeadersForPreset } = require('./custom.js')
-    const result = buildAuthHeadersForPreset({ urlTemplate: '', queryParam: 'q', authHeader: 'Authorization', authScheme: 'Bearer' })
-    expect(result).toEqual({ 'Authorization': 'Bearer tok-abc' })
+    const result = buildAuthHeadersForPreset({
+      urlTemplate: '',
+      queryParam: 'q',
+      authHeader: 'Authorization',
+      authScheme: 'Bearer',
+    })
+    expect(result).toEqual({ Authorization: 'Bearer tok-abc' })
   })
 
   test('returns empty when WEB_KEY is not set', () => {
@@ -189,7 +204,13 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
     delete process.env.WEB_AUTH_HEADER
     delete process.env.WEB_AUTH_SCHEME
     const { buildAuthHeadersForPreset } = require('./custom.js')
-    expect(buildAuthHeadersForPreset({ urlTemplate: '', queryParam: 'q', authHeader: 'Authorization' })).toEqual({})
+    expect(
+      buildAuthHeadersForPreset({
+        urlTemplate: '',
+        queryParam: 'q',
+        authHeader: 'Authorization',
+      }),
+    ).toEqual({})
   })
 
   test('preset authScheme="" sends bare token (Brave-style)', () => {
@@ -239,8 +260,14 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
 
 describe('built-in preset request shapes', () => {
   const PRESET_ENV_KEYS = [
-    'WEB_PROVIDER', 'WEB_KEY', 'WEB_AUTH_HEADER', 'WEB_AUTH_SCHEME',
-    'WEB_SEARCH_API', 'WEB_URL_TEMPLATE', 'WEB_PARAMS', 'GOOGLE_CSE_ID',
+    'WEB_PROVIDER',
+    'WEB_KEY',
+    'WEB_AUTH_HEADER',
+    'WEB_AUTH_SCHEME',
+    'WEB_SEARCH_API',
+    'WEB_URL_TEMPLATE',
+    'WEB_PARAMS',
+    'GOOGLE_CSE_ID',
   ]
   const savedEnv: Record<string, string | undefined> = {}
   const originalFetch = globalThis.fetch
@@ -278,7 +305,8 @@ describe('built-in preset request shapes', () => {
       return new Response(JSON.stringify({ items: [] }), { status: 200 })
     }) as typeof fetch
 
-    const { customProvider: freshCustomProvider } = await importFreshCustomProvider()
+    const { customProvider: freshCustomProvider } =
+      await importFreshCustomProvider()
     await freshCustomProvider.search({ query: 'hello world' })
 
     expect(capturedUrl).toContain('https://www.googleapis.com/customsearch/v1')
@@ -299,7 +327,9 @@ describe('built-in preset request shapes', () => {
     delete process.env.GOOGLE_CSE_ID
 
     const { customProvider } = require('./custom.js')
-    await expect(customProvider.search({ query: 'q' })).rejects.toThrow(/GOOGLE_CSE_ID/)
+    await expect(customProvider.search({ query: 'q' })).rejects.toThrow(
+      /GOOGLE_CSE_ID/,
+    )
   })
 
   test('google preset throws clear error when WEB_KEY is missing', async () => {
@@ -308,7 +338,9 @@ describe('built-in preset request shapes', () => {
     delete process.env.WEB_KEY
 
     const { customProvider } = require('./custom.js')
-    await expect(customProvider.search({ query: 'q' })).rejects.toThrow(/WEB_KEY/)
+    await expect(customProvider.search({ query: 'q' })).rejects.toThrow(
+      /WEB_KEY/,
+    )
   })
 
   test('brave preset sends bare token in X-Subscription-Token (no Bearer prefix)', async () => {
@@ -320,7 +352,9 @@ describe('built-in preset request shapes', () => {
     let capturedHeaders: Record<string, string> = {}
     globalThis.fetch = (async (_input: any, init: any) => {
       capturedHeaders = (init?.headers ?? {}) as Record<string, string>
-      return new Response(JSON.stringify({ web: { results: [] } }), { status: 200 })
+      return new Response(JSON.stringify({ web: { results: [] } }), {
+        status: 200,
+      })
     }) as typeof fetch
 
     const { customProvider } = require('./custom.js')
@@ -397,7 +431,9 @@ describe('isPrivateHostname — IPv6', () => {
     // WHATWG URL normalizes [::ffff:127.0.0.1] → [::ffff:7f00:1]; must still block.
     expect(isPrivateHostname(hostOf('http://[::ffff:127.0.0.1]/'))).toBe(true)
     expect(isPrivateHostname(hostOf('http://[::ffff:7f00:1]/'))).toBe(true)
-    expect(isPrivateHostname(hostOf('http://[::ffff:169.254.169.254]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[::ffff:169.254.169.254]/'))).toBe(
+      true,
+    )
     expect(isPrivateHostname(hostOf('http://[::ffff:10.0.0.1]/'))).toBe(true)
   })
 
@@ -412,8 +448,12 @@ describe('isPrivateHostname — IPv6', () => {
   })
 
   test('allows public IPv6', () => {
-    expect(isPrivateHostname(hostOf('http://[2001:4860:4860::8888]/'))).toBe(false)
-    expect(isPrivateHostname(hostOf('http://[2606:4700:4700::1111]/'))).toBe(false)
+    expect(isPrivateHostname(hostOf('http://[2001:4860:4860::8888]/'))).toBe(
+      false,
+    )
+    expect(isPrivateHostname(hostOf('http://[2606:4700:4700::1111]/'))).toBe(
+      false,
+    )
   })
 
   test('malformed IPv6 is not classified as private (URL parser rejects it upstream)', () => {

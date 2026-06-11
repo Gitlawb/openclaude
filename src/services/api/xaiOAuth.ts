@@ -297,10 +297,8 @@ export class XaiOAuthService {
     const codeChallenge = await generateCodeChallenge(codeVerifier)
     const state = generateState()
     const nonce = randomBytes(16).toString('hex')
-    const callbackPort =
-      this.options.callbackPort ?? getXaiOAuthCallbackPort()
-    const callbackHost =
-      this.options.callbackHost ?? getXaiOAuthCallbackHost()
+    const callbackPort = this.options.callbackPort ?? getXaiOAuthCallbackPort()
+    const callbackHost = this.options.callbackHost ?? getXaiOAuthCallbackHost()
     const startCallback =
       this.options.startCallbackServer ?? startXaiOAuthCallback
 
@@ -343,7 +341,8 @@ export class XaiOAuthService {
       manualResolver = resolve
       manualRejecter = reject
     })
-    this.manualResolver = (code: string) => manualResolver?.({ kind: 'code', code })
+    this.manualResolver = (code: string) =>
+      manualResolver?.({ kind: 'code', code })
     this.manualRejecter = manualRejecter
 
     const waitForTokens = async (): Promise<XaiOAuthTokens> => {
@@ -522,12 +521,14 @@ export async function requestXaiDeviceCode(options?: {
               ),
             }
           : {}),
-        expiresInMs: Number.isFinite(expiresIn) && expiresIn > 0
-          ? expiresIn * 1000
-          : 5 * 60 * 1000,
-        intervalMs: Number.isFinite(interval) && interval > 0
-          ? interval * 1000
-          : XAI_DEVICE_CODE_DEFAULT_INTERVAL_MS,
+        expiresInMs:
+          Number.isFinite(expiresIn) && expiresIn > 0
+            ? expiresIn * 1000
+            : 5 * 60 * 1000,
+        intervalMs:
+          Number.isFinite(interval) && interval > 0
+            ? interval * 1000
+            : XAI_DEVICE_CODE_DEFAULT_INTERVAL_MS,
       },
       tokenEndpoint: discovery.tokenEndpoint,
     }
@@ -581,9 +582,7 @@ export async function pollXaiDeviceCode(params: {
       cleanup()
     }
 
-    const error = asTrimmedString(
-      ((body ?? {}) as XaiErrorResponse).error,
-    )
+    const error = asTrimmedString(((body ?? {}) as XaiErrorResponse).error)
     if (error === 'authorization_pending') {
       await sleep(Math.max(intervalMs, XAI_DEVICE_CODE_MIN_INTERVAL_MS))
       continue

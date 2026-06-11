@@ -23,8 +23,13 @@ async function runCommand(
   cwd: string,
   timeout: number,
   signal?: AbortSignal,
-): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
-  return new Promise((resolve) => {
+): Promise<{
+  stdout: string
+  stderr: string
+  exitCode: number
+  timedOut: boolean
+}> {
+  return new Promise(resolve => {
     if (signal?.aborted) {
       resolve({ stdout: '', stderr: 'Aborted', exitCode: 1, timedOut: false })
       return
@@ -49,10 +54,14 @@ async function runCommand(
         if (isWindows && proc.pid) {
           // shell=true on Windows can leave child commands running unless we
           // terminate the full process tree.
-          const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
-            windowsHide: true,
-            stdio: 'ignore',
-          })
+          const killer = spawn(
+            'taskkill',
+            ['/pid', String(proc.pid), '/T', '/F'],
+            {
+              windowsHide: true,
+              stdio: 'ignore',
+            },
+          )
           killer.unref()
           return
         }
@@ -91,7 +100,7 @@ async function runCommand(
       killTree()
     }, timeout)
 
-    proc.on('close', (code) => {
+    proc.on('close', code => {
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
       resolve({
@@ -123,10 +132,14 @@ function buildErrorSummary(result: AutoFixResult): string | undefined {
     parts.push('Command timed out.')
   }
   if (result.lintExitCode !== undefined && result.lintExitCode !== 0) {
-    parts.push(`Lint errors (exit code ${result.lintExitCode}):\n${result.lintOutput ?? ''}`)
+    parts.push(
+      `Lint errors (exit code ${result.lintExitCode}):\n${result.lintOutput ?? ''}`,
+    )
   }
   if (result.testExitCode !== undefined && result.testExitCode !== 0) {
-    parts.push(`Test failures (exit code ${result.testExitCode}):\n${result.testOutput ?? ''}`)
+    parts.push(
+      `Test failures (exit code ${result.testExitCode}):\n${result.testOutput ?? ''}`,
+    )
   }
 
   return parts.join('\n\n')

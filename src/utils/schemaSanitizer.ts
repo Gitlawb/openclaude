@@ -86,7 +86,9 @@ function matchesJsonSchemaType(type: string, value: unknown): boolean {
     case 'boolean':
       return typeof value === 'boolean'
     case 'object':
-      return value !== null && typeof value === 'object' && !Array.isArray(value)
+      return (
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+      )
     case 'array':
       return Array.isArray(value)
     case 'null':
@@ -107,7 +109,10 @@ function getJsonSchemaTypes(record: Record<string, unknown>): string[] {
   return []
 }
 
-function schemaAllowsValue(schema: Record<string, unknown>, value: unknown): boolean {
+function schemaAllowsValue(
+  schema: Record<string, unknown>,
+  value: unknown,
+): boolean {
   if (Array.isArray(schema.anyOf)) {
     return schema.anyOf.some(item =>
       schemaAllowsValue(sanitizeSchemaForOpenAICompat(item), value),
@@ -139,7 +144,10 @@ function schemaAllowsValue(schema: Record<string, unknown>, value: unknown): boo
   }
 
   const types = getJsonSchemaTypes(schema)
-  if (types.length > 0 && !types.some(type => matchesJsonSchemaType(type, value))) {
+  if (
+    types.length > 0 &&
+    !types.some(type => matchesJsonSchemaType(type, value))
+  ) {
     return false
   }
 
@@ -189,7 +197,10 @@ function sanitizeTypeField(record: Record<string, unknown>): void {
 export function sanitizeSchemaForOpenAICompat(
   schema: unknown,
 ): Record<string, unknown> {
-  const stripped = stripSchemaKeywords(schema, OPENAI_INCOMPATIBLE_SCHEMA_KEYWORDS)
+  const stripped = stripSchemaKeywords(
+    schema,
+    OPENAI_INCOMPATIBLE_SCHEMA_KEYWORDS,
+  )
   if (!isSchemaRecord(stripped)) {
     return {}
   }
@@ -218,9 +229,7 @@ export function sanitizeSchemaForOpenAICompat(
 
   for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
     if (Array.isArray(record[key])) {
-      record[key] = record[key].map(item =>
-        sanitizeSchemaForOpenAICompat(item),
-      )
+      record[key] = record[key].map(item => sanitizeSchemaForOpenAICompat(item))
     }
   }
 
@@ -230,7 +239,8 @@ export function sanitizeSchemaForOpenAICompat(
 
   if (Array.isArray(record.required) && properties) {
     record.required = record.required.filter(
-      (value): value is string => typeof value === 'string' && value in properties,
+      (value): value is string =>
+        typeof value === 'string' && value in properties,
     )
   }
 
@@ -250,7 +260,10 @@ export function sanitizeSchemaForOpenAICompat(
 
   const schemaWithoutConst = { ...record }
   delete schemaWithoutConst.const
-  if ('const' in record && !schemaAllowsValue(schemaWithoutConst, record.const)) {
+  if (
+    'const' in record &&
+    !schemaAllowsValue(schemaWithoutConst, record.const)
+  ) {
     delete record.const
   }
 

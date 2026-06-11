@@ -11,9 +11,7 @@ import {
   type PermissionPromptOption,
 } from '../PermissionPrompt.js'
 import type { PermissionRequestProps } from '../PermissionRequest.js'
-import {
-  createSimplePermissionHandlers,
-} from '../simplePermissionActions.js'
+import { createSimplePermissionHandlers } from '../simplePermissionActions.js'
 
 type SkillOptionValue =
   | 'yes'
@@ -135,8 +133,9 @@ export function SkillPermissionRequest({
         nextOptions.push({
           label: (
             <Text>
-              Yes, and don&apos;t ask again for <Text bold>{commandPrefix}</Text>{' '}
-              commands in <Text bold>{getOriginalCwd()}</Text>
+              Yes, and don&apos;t ask again for{' '}
+              <Text bold>{commandPrefix}</Text> commands in{' '}
+              <Text bold>{getOriginalCwd()}</Text>
             </Text>
           ),
           value: 'yes-prefix',
@@ -160,7 +159,9 @@ export function SkillPermissionRequest({
       title={`Use skill "${skill}"?`}
       header={
         <>
-          <Text>Claude may use instructions, code, or files from this Skill.</Text>
+          <Text>
+            Claude may use instructions, code, or files from this Skill.
+          </Text>
           {commandObj?.description ? (
             <Box flexDirection="column" paddingX={2} paddingY={1}>
               <Text dimColor>{commandObj.description}</Text>
@@ -179,7 +180,9 @@ function parseSkillInput(input: unknown): string {
   const result = SkillTool.inputSchema.safeParse(input)
 
   if (!result.success) {
-    logError(new Error(`Failed to parse skill tool input: ${result.error.message}`))
+    logError(
+      new Error(`Failed to parse skill tool input: ${result.error.message}`),
+    )
     return ''
   }
 

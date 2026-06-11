@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test'
 import { z } from 'zod/v4'
-import { getEmptyToolPermissionContext, type Tool, type Tools } from '../Tool.js'
+import {
+  getEmptyToolPermissionContext,
+  type Tool,
+  type Tools,
+} from '../Tool.js'
 import { SkillTool } from '../tools/SkillTool/SkillTool.js'
 import { toolToAPISchema } from './api.js'
 
@@ -100,6 +104,7 @@ test('toolToAPISchema removes extra required keys not in properties (MCP schema 
     },
   )
 
-  const inputSchema = (schema as { input_schema: { required?: string[] } }).input_schema
+  const inputSchema = (schema as { input_schema: { required?: string[] } })
+    .input_schema
   expect(inputSchema.required).toEqual(['name'])
 })

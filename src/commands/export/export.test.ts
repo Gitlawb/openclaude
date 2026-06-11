@@ -26,7 +26,9 @@ function defaultMessages(): unknown[] {
   ]
 }
 
-async function withExportTestCwd<T>(fn: (cwd: string) => Promise<T>): Promise<T> {
+async function withExportTestCwd<T>(
+  fn: (cwd: string) => Promise<T>,
+): Promise<T> {
   const cwd = await mkdtemp(join(tmpdir(), 'openclaude-export-test-'))
   try {
     return await fn(cwd)
@@ -39,7 +41,10 @@ async function listFiles(cwd: string): Promise<string[]> {
   return (await readdir(cwd)).sort()
 }
 
-async function runExport(args: string, messages: unknown[] = defaultMessages()): Promise<string> {
+async function runExport(
+  args: string,
+  messages: unknown[] = defaultMessages(),
+): Promise<string> {
   const { call } = await importExportCommand()
   let message = ''
   const result = await call(
@@ -56,7 +61,10 @@ async function runExport(args: string, messages: unknown[] = defaultMessages()):
   return message
 }
 
-async function openExportDialog(args: string, messages: unknown[] = defaultMessages()): Promise<React.ReactNode> {
+async function openExportDialog(
+  args: string,
+  messages: unknown[] = defaultMessages(),
+): Promise<React.ReactNode> {
   const { call } = await importExportCommand()
   return call(
     () => {},
@@ -128,7 +136,9 @@ describe('/export direct filename', () => {
     await withExportTestCwd(async cwd => {
       await runExport(join(cwd, 'transcript.json'))
 
-      const parsed = JSON.parse(await readFile(join(cwd, 'transcript.json'), 'utf8'))
+      const parsed = JSON.parse(
+        await readFile(join(cwd, 'transcript.json'), 'utf8'),
+      )
       expect(parsed.version).toBe(1)
       expect(parsed.messages[0].content[0].text).toBe('hello')
     })
@@ -144,13 +154,19 @@ describe('/export direct filename', () => {
           message: {
             role: 'user',
             content: [
-              { type: 'tool_result', tool_use_id: 'call-1', content: 'tool output' },
+              {
+                type: 'tool_result',
+                tool_use_id: 'call-1',
+                content: 'tool output',
+              },
             ],
           },
         },
       ])
 
-      const parsed = JSON.parse(await readFile(join(cwd, 'transcript.json'), 'utf8'))
+      const parsed = JSON.parse(
+        await readFile(join(cwd, 'transcript.json'), 'utf8'),
+      )
       expect(parsed.messages[0].type).toBe('tool')
       expect(parsed.messages[0].role).toBe('tool')
       expect(parsed.messages[0].internalType).toBeUndefined()
@@ -184,7 +200,9 @@ describe('/export direct filename', () => {
     await withExportTestCwd(async cwd => {
       await runExport(`--format json ${join(cwd, 'transcript.txt')}`)
 
-      const parsed = JSON.parse(await readFile(join(cwd, 'transcript.json'), 'utf8'))
+      const parsed = JSON.parse(
+        await readFile(join(cwd, 'transcript.json'), 'utf8'),
+      )
       expect(parsed.version).toBe(1)
       expect(await listFiles(cwd)).toEqual(['transcript.json'])
     })
@@ -204,7 +222,9 @@ describe('/export direct filename', () => {
     await withExportTestCwd(async cwd => {
       await runExport(`${join(cwd, 'transcript')} -f json`)
 
-      const parsed = JSON.parse(await readFile(join(cwd, 'transcript.json'), 'utf8'))
+      const parsed = JSON.parse(
+        await readFile(join(cwd, 'transcript.json'), 'utf8'),
+      )
       expect(parsed.version).toBe(1)
       expect(await listFiles(cwd)).toEqual(['transcript.json'])
     })
@@ -244,7 +264,10 @@ describe('/export direct filename', () => {
       const result = await openExportDialog('--format json')
 
       expect(React.isValidElement(result)).toBe(true)
-      expect((result as React.ReactElement<{ defaultFormat: ExportFormat }>).props.defaultFormat).toBe('json')
+      expect(
+        (result as React.ReactElement<{ defaultFormat: ExportFormat }>).props
+          .defaultFormat,
+      ).toBe('json')
     })
   })
 
@@ -253,7 +276,10 @@ describe('/export direct filename', () => {
       const result = await openExportDialog('-f json')
 
       expect(React.isValidElement(result)).toBe(true)
-      expect((result as React.ReactElement<{ defaultFormat: ExportFormat }>).props.defaultFormat).toBe('json')
+      expect(
+        (result as React.ReactElement<{ defaultFormat: ExportFormat }>).props
+          .defaultFormat,
+      ).toBe('json')
     })
   })
 
@@ -268,7 +294,12 @@ describe('/export direct filename', () => {
               type: 'user',
               uuid: '00000000-0000-4000-8000-000000000001',
               timestamp: '2026-05-13T12:00:00Z',
-              message: { role: 'user', content: [{ type: 'text', text: 'Hello, Export World!\nsecond line' }] },
+              message: {
+                role: 'user',
+                content: [
+                  { type: 'text', text: 'Hello, Export World!\nsecond line' },
+                ],
+              },
             },
           ],
           options: { tools: [] },
@@ -277,8 +308,12 @@ describe('/export direct filename', () => {
       )
 
       expect(React.isValidElement(result)).toBe(true)
-      const defaultFilename = (result as React.ReactElement<{ defaultFilename: string }>).props.defaultFilename
-      expect(defaultFilename).toMatch(/^\d{4}-\d{2}-\d{2}-\d{6}-hello-export-world\.txt$/)
+      const defaultFilename = (
+        result as React.ReactElement<{ defaultFilename: string }>
+      ).props.defaultFilename
+      expect(defaultFilename).toMatch(
+        /^\d{4}-\d{2}-\d{2}-\d{6}-hello-export-world\.txt$/,
+      )
     })
   })
 
@@ -287,8 +322,12 @@ describe('/export direct filename', () => {
       const result = await openExportDialog('', [])
 
       expect(React.isValidElement(result)).toBe(true)
-      const defaultFilename = (result as React.ReactElement<{ defaultFilename: string }>).props.defaultFilename
-      expect(defaultFilename).toMatch(/^conversation-\d{4}-\d{2}-\d{2}-\d{6}\.txt$/)
+      const defaultFilename = (
+        result as React.ReactElement<{ defaultFilename: string }>
+      ).props.defaultFilename
+      expect(defaultFilename).toMatch(
+        /^conversation-\d{4}-\d{2}-\d{2}-\d{6}\.txt$/,
+      )
     })
   })
 })

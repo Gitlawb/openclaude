@@ -7,9 +7,19 @@ import {
   getHybridStats,
 } from './hybridContextStrategy.js'
 
-function createMessage(role: string, content: string, createdAt: number = Date.now()): any {
+function createMessage(
+  role: string,
+  content: string,
+  createdAt: number = Date.now(),
+): any {
   return {
-    message: { role, content, id: 'test', type: 'message', created_at: createdAt },
+    message: {
+      role,
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: createdAt,
+    },
     sender: role,
   }
 }
@@ -65,13 +75,13 @@ describe('hybridContextStrategy', () => {
       })
 
       expect(result.selectedMessages.length).toBeGreaterThan(0)
-      expect(['cache_heavy', 'fresh_heavy', 'balanced']).toContain(result.strategy)
+      expect(['cache_heavy', 'fresh_heavy', 'balanced']).toContain(
+        result.strategy,
+      )
     })
 
     it('calculates estimated cost', () => {
-      const messages = [
-        createMessage('user', 'Test message'),
-      ]
+      const messages = [createMessage('user', 'Test message')]
 
       const result = applyHybridStrategy(messages, {
         cacheWeight: 0.5,
@@ -116,7 +126,11 @@ describe('hybridContextStrategy', () => {
         createMessage('user', 'Hello'),
       ]
 
-      const split = splitContext(messages, { cacheWeight: 0.5, freshWeight: 0.5, maxTotalTokens: 10000 })
+      const split = splitContext(messages, {
+        cacheWeight: 0.5,
+        freshWeight: 0.5,
+        maxTotalTokens: 10000,
+      })
       const stats = getHybridStats(split)
 
       expect(stats.cacheRatio).toBeGreaterThanOrEqual(0)
@@ -144,7 +158,13 @@ describe('hybridContextStrategy', () => {
           uuid: 'uuid-2',
           message: {
             role: 'user',
-            content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file content' }],
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: toolUseId,
+                content: 'file content',
+              },
+            ],
             id: 'msg-2',
             created_at: 2000,
           },
@@ -168,10 +188,14 @@ describe('hybridContextStrategy', () => {
       })
 
       const hasToolUse = result.selectedMessages.some(
-        m => Array.isArray(m.message?.content) && m.message.content.some((b: any) => b.type === 'tool_use')
+        m =>
+          Array.isArray(m.message?.content) &&
+          m.message.content.some((b: any) => b.type === 'tool_use'),
       )
       const hasToolResult = result.selectedMessages.some(
-        m => Array.isArray(m.message?.content) && m.message.content.some((b: any) => b.type === 'tool_result')
+        m =>
+          Array.isArray(m.message?.content) &&
+          m.message.content.some((b: any) => b.type === 'tool_result'),
       )
 
       expect(hasToolUse).toBe(true)
@@ -186,7 +210,12 @@ describe('hybridContextStrategy', () => {
           message: {
             role: 'assistant',
             content: [
-              { type: 'tool_use', id: 'tu1', name: 'Edit', input: { path: 'test.js', content: largeInput } },
+              {
+                type: 'tool_use',
+                id: 'tu1',
+                name: 'Edit',
+                input: { path: 'test.js', content: largeInput },
+              },
             ],
             created_at: 1000,
           },

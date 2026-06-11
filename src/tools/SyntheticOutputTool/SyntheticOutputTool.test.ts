@@ -96,7 +96,12 @@ describe('createSyntheticOutputTool (#1256 root schema wrapping)', () => {
     const result = createSyntheticOutputTool({ ...ARRAY_OF_OBJECTS_SCHEMA })
     if (!('tool' in result)) throw new Error(`expected tool: ${result.error}`)
     await expect(
-      result.tool.call({ result: [{ wrong: 'shape' }] }, UNUSED, UNUSED, UNUSED),
+      result.tool.call(
+        { result: [{ wrong: 'shape' }] },
+        UNUSED,
+        UNUSED,
+        UNUSED,
+      ),
     ).rejects.toThrow(/schema/)
   })
 })

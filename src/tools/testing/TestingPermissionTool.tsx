@@ -2,72 +2,72 @@
  * This testing-only tool will always pop up a permission dialog when called by
  * the model.
  */
-import { z } from 'zod/v4';
-import type { Tool } from '../../Tool.js';
-import { buildTool, type ToolDef } from '../../Tool.js';
-import { lazySchema } from '../../utils/lazySchema.js';
-const NAME = 'TestingPermission';
-const inputSchema = lazySchema(() => z.strictObject({}));
-type InputSchema = ReturnType<typeof inputSchema>;
+import { z } from 'zod/v4'
+import type { Tool } from '../../Tool.js'
+import { buildTool, type ToolDef } from '../../Tool.js'
+import { lazySchema } from '../../utils/lazySchema.js'
+const NAME = 'TestingPermission'
+const inputSchema = lazySchema(() => z.strictObject({}))
+type InputSchema = ReturnType<typeof inputSchema>
 export const TestingPermissionTool: Tool<InputSchema, string> = buildTool({
   name: NAME,
   maxResultSizeChars: 100_000,
   async description() {
-    return 'Test tool that always asks for permission';
+    return 'Test tool that always asks for permission'
   },
   async prompt() {
-    return 'Test tool that always asks for permission before executing. Used for end-to-end testing.';
+    return 'Test tool that always asks for permission before executing. Used for end-to-end testing.'
   },
   get inputSchema(): InputSchema {
-    return inputSchema();
+    return inputSchema()
   },
   userFacingName() {
-    return 'TestingPermission';
+    return 'TestingPermission'
   },
   isEnabled() {
-    return process.env.NODE_ENV === 'test';
+    return process.env.NODE_ENV === 'test'
   },
   isConcurrencySafe() {
-    return true;
+    return true
   },
   isReadOnly() {
-    return true;
+    return true
   },
   async checkPermissions() {
     // This tool always requires permission
     return {
       behavior: 'ask' as const,
-      message: `Run test?`
-    };
+      message: `Run test?`,
+    }
   },
   renderToolUseMessage() {
-    return null;
+    return null
   },
   renderToolUseProgressMessage() {
-    return null;
+    return null
   },
   renderToolUseQueuedMessage() {
-    return null;
+    return null
   },
   renderToolUseRejectedMessage() {
-    return null;
+    return null
   },
   renderToolResultMessage() {
-    return null;
+    return null
   },
   renderToolUseErrorMessage() {
-    return null;
+    return null
   },
   async call() {
     return {
-      data: `${NAME} executed successfully`
-    };
+      data: `${NAME} executed successfully`,
+    }
   },
   mapToolResultToToolResultBlockParam(result, toolUseID) {
     return {
       type: 'tool_result',
       content: String(result),
-      tool_use_id: toolUseID
-    };
-  }
-} satisfies ToolDef<InputSchema, string>);
+      tool_use_id: toolUseID,
+    }
+  },
+} satisfies ToolDef<InputSchema, string>)

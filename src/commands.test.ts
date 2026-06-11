@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  builtInCommandNames,
-  formatDescriptionWithSource,
-} from './commands.js'
+import { builtInCommandNames, formatDescriptionWithSource } from './commands.js'
 import { isCommand } from './types/command.js'
 
 describe('builtInCommandNames', () => {

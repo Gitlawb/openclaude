@@ -235,13 +235,48 @@ export interface ModelTokenizerConfig {
 }
 
 export const MODEL_TOKENIZER_CONFIGS: ModelTokenizerConfig[] = [
-  { modelFamily: 'claude', bytesPerToken: 3.5, supportsJson: true, supportsCode: true },
-  { modelFamily: 'gpt-4', bytesPerToken: 4, supportsJson: true, supportsCode: true },
-  { modelFamily: 'gpt-3.5', bytesPerToken: 4, supportsJson: true, supportsCode: true },
-  { modelFamily: 'gemini', bytesPerToken: 3.5, supportsJson: true, supportsCode: true },
-  { modelFamily: 'llama', bytesPerToken: 3.8, supportsJson: true, supportsCode: true },
-  { modelFamily: 'deepseek', bytesPerToken: 3.5, supportsJson: true, supportsCode: true },
-  { modelFamily: 'minimax', bytesPerToken: 3.2, supportsJson: true, supportsCode: true },
+  {
+    modelFamily: 'claude',
+    bytesPerToken: 3.5,
+    supportsJson: true,
+    supportsCode: true,
+  },
+  {
+    modelFamily: 'gpt-4',
+    bytesPerToken: 4,
+    supportsJson: true,
+    supportsCode: true,
+  },
+  {
+    modelFamily: 'gpt-3.5',
+    bytesPerToken: 4,
+    supportsJson: true,
+    supportsCode: true,
+  },
+  {
+    modelFamily: 'gemini',
+    bytesPerToken: 3.5,
+    supportsJson: true,
+    supportsCode: true,
+  },
+  {
+    modelFamily: 'llama',
+    bytesPerToken: 3.8,
+    supportsJson: true,
+    supportsCode: true,
+  },
+  {
+    modelFamily: 'deepseek',
+    bytesPerToken: 3.5,
+    supportsJson: true,
+    supportsCode: true,
+  },
+  {
+    modelFamily: 'minimax',
+    bytesPerToken: 3.2,
+    supportsJson: true,
+    supportsCode: true,
+  },
 ]
 
 /**
@@ -249,14 +284,19 @@ export const MODEL_TOKENIZER_CONFIGS: ModelTokenizerConfig[] = [
  */
 export function getTokenizerConfig(model: string): ModelTokenizerConfig {
   const lower = model.toLowerCase()
-  
+
   for (const config of MODEL_TOKENIZER_CONFIGS) {
     if (lower.includes(config.modelFamily)) {
       return config
     }
   }
-  
-  return { modelFamily: 'unknown', bytesPerToken: 4, supportsJson: true, supportsCode: true }
+
+  return {
+    modelFamily: 'unknown',
+    bytesPerToken: 4,
+    supportsJson: true,
+    supportsCode: true,
+  }
 }
 
 /**
@@ -287,15 +327,23 @@ export function roughTokenCountEstimationForFileType(
 /**
  * Content type classification for compression ratio.
  */
-export type ContentType = 
-  | 'json' | 'code' | 'prose' | 'technical' 
-  | 'list' | 'table' | 'mixed'
+export type ContentType =
+  | 'json'
+  | 'code'
+  | 'prose'
+  | 'technical'
+  | 'list'
+  | 'table'
+  | 'mixed'
 
 /**
  * Compression ratio by content type.
  * Measured empirically - denser content = lower ratio.
  */
-export const COMPRESSION_RATIOS: Record<ContentType, { min: number; max: number; typical: number }> = {
+export const COMPRESSION_RATIOS: Record<
+  ContentType,
+  { min: number; max: number; typical: number }
+> = {
   json: { min: 1.5, max: 2.5, typical: 2 },
   code: { min: 3, max: 4.5, typical: 3.5 },
   prose: { min: 3.5, max: 4.5, typical: 4 },
@@ -310,42 +358,48 @@ export const COMPRESSION_RATIOS: Record<ContentType, { min: number; max: number;
  */
 export function detectContentType(content: string): ContentType {
   const trimmed = content.trim()
-  
+
   // JSON
-  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || 
-      (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+  if (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
     try {
       JSON.parse(trimmed)
       return 'json'
-    } catch { /* not valid json */ }
+    } catch {
+      /* not valid json */
+    }
   }
-  
+
   // Table (tabs or consistent delimiters)
   const lines = trimmed.split('\n')
   if (lines.length > 2) {
     const hasTabs = lines[0].includes('\t')
     const hasCommas = lines[0].includes(',')
     if (hasTabs || hasCommas) {
-      const consistent = lines.slice(1).every(l => l.includes('\t') || l.includes(','))
+      const consistent = lines
+        .slice(1)
+        .every(l => l.includes('\t') || l.includes(','))
       if (consistent) return 'table'
     }
   }
-  
+
   // List
   if (/^[\d\-\*\•]/.test(trimmed) || /^[\d\-\*\•]/.test(lines[0])) {
     return 'list'
   }
-  
+
   // Code (high density of special chars)
   const codeChars = (content.match(/[{}()\[\];=]/g) || []).length
   const codeRatio = codeChars / content.length
   if (codeRatio > 0.05) return 'code'
-  
+
   // Technical (has numbers and units)
   if (/\d+\s*(px|em|rem|%|ms|s|kb|mb|gb)/i.test(content)) {
     return 'technical'
   }
-  
+
   // Prose (default - natural language)
   return 'prose'
 }
@@ -353,14 +407,17 @@ export function detectContentType(content: string): ContentType {
 /**
  * Get compression ratio for content.
  */
-export function getCompressionRatio(content: string, type?: ContentType): { ratio: number; min: number; max: number } {
+export function getCompressionRatio(
+  content: string,
+  type?: ContentType,
+): { ratio: number; min: number; max: number } {
   const detectedType = type ?? detectContentType(content)
   const { min, max, typical } = COMPRESSION_RATIOS[detectedType]
-  
+
   // Adjust based on actual content length
   // Shorter content = higher variance
   const lengthBonus = content.length < 100 ? 0.5 : 0
-  
+
   return {
     ratio: typical,
     min: min + lengthBonus,
@@ -375,12 +432,16 @@ export function estimateWithBounds(
   content: string,
   type?: ContentType,
 ): { estimate: number; min: number; max: number } {
-  const { ratio, min: minRatio, max: maxRatio } = getCompressionRatio(content, type)
-  
+  const {
+    ratio,
+    min: minRatio,
+    max: maxRatio,
+  } = getCompressionRatio(content, type)
+
   const estimate = roughTokenCountEstimation(content, ratio)
   const min = roughTokenCountEstimation(content, maxRatio)
   const max = roughTokenCountEstimation(content, minRatio)
-  
+
   return { estimate, min, max }
 }
 

@@ -42,7 +42,9 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   const currentDisplayedLevel = getDisplayedEffortLevel(model, appStateEffort)
 
   // For OpenAI/Codex, get the model's default reasoning effort
-  const modelReasoningEffort = usesOpenAIEffort ? getReasoningEffortForModel(model) : undefined
+  const modelReasoningEffort = usesOpenAIEffort
+    ? getReasoningEffortForModel(model)
+    : undefined
   const options: EffortOption[] = [
     {
       label: <EffortOptionLabel level="auto" text="Auto" isCurrent={false} />,
@@ -54,7 +56,11 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       // xhigh is now the persisted level for OpenAI/Codex, so compare against
       // it directly. The 'max' alias path is kept only for legacy settings
       // that still hold a persisted 'max' from before xhigh was introduced.
-      const isCurrent = currentDisplayedLevel === level || (usesOpenAIEffort && level === 'xhigh' && currentDisplayedLevel === 'max')
+      const isCurrent =
+        currentDisplayedLevel === level ||
+        (usesOpenAIEffort &&
+          level === 'xhigh' &&
+          currentDisplayedLevel === 'max')
       return {
         label: (
           <EffortOptionLabel
@@ -101,24 +107,27 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   // option matching), otherwise the model's alias default, otherwise auto.
   // For Claude: user's current selection or auto.
   const initialFocus = usesOpenAIEffort
-    ? (appStateEffort === 'max'
-        ? 'xhigh'
-        : appStateEffort
-          ? String(appStateEffort)
-          : (modelReasoningEffort || 'auto'))
-    : (appStateEffort ? String(appStateEffort) : 'auto')
+    ? appStateEffort === 'max'
+      ? 'xhigh'
+      : appStateEffort
+        ? String(appStateEffort)
+        : modelReasoningEffort || 'auto'
+    : appStateEffort
+      ? String(appStateEffort)
+      : 'auto'
 
   return (
     <Box flexDirection="column">
       <Box marginBottom={1} flexDirection="column">
-        <Text color="remember" bold={true}>Set effort level</Text>
+        <Text color="remember" bold={true}>
+          Set effort level
+        </Text>
         <Text dimColor={true}>
-            {supportsEffort && usesOpenAIEffort
-              ? `OpenAI/Codex provider (${provider})`
-              : supportsEffort
+          {supportsEffort && usesOpenAIEffort
+            ? `OpenAI/Codex provider (${provider})`
+            : supportsEffort
               ? `Claude model · ${provider} provider`
-              : `Effort not supported for this model`
-          }
+              : `Effort not supported for this model`}
         </Text>
       </Box>
 
@@ -145,9 +154,22 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   )
 }
 
-function EffortOptionLabel({ level, text, isCurrent }: { level: EffortLevel | 'auto', text: string, isCurrent: boolean }) {
-  const symbol = level === 'auto' ? '⊘' : effortLevelToSymbol(level as EffortLevel)
-  const color = isCurrent ? 'remember' : level === 'auto' ? 'subtle' : 'suggestion'
+function EffortOptionLabel({
+  level,
+  text,
+  isCurrent,
+}: {
+  level: EffortLevel | 'auto'
+  text: string
+  isCurrent: boolean
+}) {
+  const symbol =
+    level === 'auto' ? '⊘' : effortLevelToSymbol(level as EffortLevel)
+  const color = isCurrent
+    ? 'remember'
+    : level === 'auto'
+      ? 'subtle'
+      : 'suggestion'
 
   return (
     <>

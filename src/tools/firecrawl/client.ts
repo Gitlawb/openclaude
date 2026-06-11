@@ -44,7 +44,11 @@ interface FirecrawlScrapeOptions extends FirecrawlRequestOptions {
 
 function getFirecrawlConfig(options: FirecrawlRequestOptions) {
   const apiKey = options.apiKey ?? process.env.FIRECRAWL_API_KEY ?? ''
-  const apiUrl = (options.apiUrl ?? process.env.FIRECRAWL_API_URL ?? DEFAULT_FIRECRAWL_API_URL).replace(/\/$/, '')
+  const apiUrl = (
+    options.apiUrl ??
+    process.env.FIRECRAWL_API_URL ??
+    DEFAULT_FIRECRAWL_API_URL
+  ).replace(/\/$/, '')
 
   if (apiUrl.includes('api.firecrawl.dev') && !apiKey) {
     throw new Error(
@@ -98,7 +102,8 @@ async function postToFirecrawl<T>(
     'Content-Type': 'application/json',
   }
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
-  const backoffFactorSeconds = options.backoffFactorSeconds ?? DEFAULT_BACKOFF_FACTOR_SECONDS
+  const backoffFactorSeconds =
+    options.backoffFactorSeconds ?? DEFAULT_BACKOFF_FACTOR_SECONDS
 
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`

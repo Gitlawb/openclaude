@@ -7,16 +7,14 @@
 
 import { randomUUID } from 'crypto'
 import { dirname } from 'path'
-import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+import type {
+  CallToolResult,
+  ToolAnnotations,
+} from '@modelcontextprotocol/sdk/types.js'
 import { QueryEngine } from '../../QueryEngine.js'
-import {
-  getDefaultAppState,
-  type AppState,
-} from '../../state/AppStateStore.js'
+import { getDefaultAppState, type AppState } from '../../state/AppStateStore.js'
 import { createStore, type Store } from '../../state/store.js'
-import {
-  type ToolPermissionContext,
-} from '../../Tool.js'
+import { type ToolPermissionContext } from '../../Tool.js'
 import { getTools } from '../../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js'
 import { init } from '../init.js'
@@ -27,10 +25,7 @@ import {
 } from '../../utils/sessionStoragePortable.js'
 import { readJSONLFile } from '../../utils/json.js'
 import { stat } from 'fs/promises'
-import {
-  switchSession,
-  runWithSdkContext,
-} from '../../bootstrap/state.js'
+import { switchSession, runWithSdkContext } from '../../bootstrap/state.js'
 import type { SessionId } from '../../types/ids.js'
 import { getAgentDefinitionsWithOverrides } from '../../tools/AgentTool/loadAgentsDir.js'
 import type {
@@ -46,10 +41,7 @@ import type {
   CanUseToolCallback,
   SDKPermissionRequestMessage,
 } from './shared.js'
-import {
-  assertValidSessionId,
-  mapMessageToSDK,
-} from './shared.js'
+import { assertValidSessionId, mapMessageToSDK } from './shared.js'
 import {
   buildPermissionContext,
   createExternalCanUseTool,
@@ -183,7 +175,9 @@ class SDKSessionImpl implements SDKSession {
   private _engine: QueryEngine | null = null
   private get engine(): QueryEngine {
     if (!this._engine) {
-      throw new Error('SDKSessionImpl: engine not initialized. Call setEngine() first.')
+      throw new Error(
+        'SDKSessionImpl: engine not initialized. Call setEngine() first.',
+      )
     }
     return this._engine
   }
@@ -192,7 +186,9 @@ class SDKSessionImpl implements SDKSession {
   private _appStateStore: Store<AppState> | null = null
   private get appStateStore(): Store<AppState> {
     if (!this._appStateStore) {
-      throw new Error('SDKSessionImpl: appStateStore not initialized. Call setAppStateStore() first.')
+      throw new Error(
+        'SDKSessionImpl: appStateStore not initialized. Call setAppStateStore() first.',
+      )
     }
     return this._appStateStore
   }
@@ -200,9 +196,12 @@ class SDKSessionImpl implements SDKSession {
   private agentsLoaded = false
   private mcpServers?: Record<string, unknown>
   private mcpConnected = false
-  private pendingPermissionPrompts = new Map<string, {
-    resolve: (decision: PermissionResolveDecision) => void
-  }>()
+  private pendingPermissionPrompts = new Map<
+    string,
+    {
+      resolve: (decision: PermissionResolveDecision) => void
+    }
+  >()
   private timeoutQueue: SDKPermissionTimeoutMessage[] = []
   private agentFailureQueue: SDKAgentLoadFailureMessage[] = []
   /** Resolved transcript directory — dirname of the JSONL file, or null for default project dir */
@@ -267,7 +266,9 @@ class SDKSessionImpl implements SDKSession {
         // Load agent definitions once (not on every sendMessage call)
         if (!self.agentsLoaded) {
           try {
-            const agentDefs = await getAgentDefinitionsWithOverrides(self.options.cwd)
+            const agentDefs = await getAgentDefinitionsWithOverrides(
+              self.options.cwd,
+            )
             self.appStateStore.setState(prev => ({
               ...prev,
               agentDefinitions: agentDefs,
@@ -277,7 +278,8 @@ class SDKSessionImpl implements SDKSession {
             }
           } catch (err) {
             // Agent loading failed — continue without agents but emit failure event
-            const errorMessage = err instanceof Error ? err.message : String(err)
+            const errorMessage =
+              err instanceof Error ? err.message : String(err)
             console.warn('SDK: agent loading failed:', errorMessage)
             self.pushAgentFailure({
               type: 'agent_load_failure',
@@ -289,15 +291,21 @@ class SDKSessionImpl implements SDKSession {
         }
 
         // Connect MCP servers once (lazy, on first message)
-        if (!self.mcpConnected && self.mcpServers && Object.keys(self.mcpServers).length > 0) {
+        if (
+          !self.mcpConnected &&
+          self.mcpServers &&
+          Object.keys(self.mcpServers).length > 0
+        ) {
           try {
-            const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
+            const { clients: mcpClients, tools: mcpTools } =
+              await connectSdkMcpServers(self.mcpServers)
             if (mcpClients.length > 0) {
               self.engine.setMcpClients(mcpClients)
             }
             if (mcpTools.length > 0) {
-              const permissionContext = self.appStateStore.getState().toolPermissionContext
-              const allTools = [...getTools(permissionContext)]  // Mutable copy
+              const permissionContext =
+                self.appStateStore.getState().toolPermissionContext
+              const allTools = [...getTools(permissionContext)] // Mutable copy
               for (const mcpTool of mcpTools) {
                 if (!allTools.some(t => t.name === mcpTool.name)) {
                   allTools.push(mcpTool)
@@ -307,7 +315,10 @@ class SDKSessionImpl implements SDKSession {
             }
           } catch (err) {
             // MCP connection failed — continue without MCP tools
-            console.warn('SDK: MCP server connection failed:', err instanceof Error ? err.message : String(err))
+            console.warn(
+              'SDK: MCP server connection failed:',
+              err instanceof Error ? err.message : String(err),
+            )
           }
           self.mcpConnected = true
         }
@@ -337,7 +348,9 @@ class SDKSessionImpl implements SDKSession {
   }
 
   getMessages(): SDKMessage[] {
-    return this.engine.getMessages().map(msg => mapMessageToSDK(msg as Record<string, unknown>))
+    return this.engine
+      .getMessages()
+      .map(msg => mapMessageToSDK(msg as Record<string, unknown>))
   }
 
   interrupt(): void {
@@ -368,7 +381,10 @@ class SDKSessionImpl implements SDKSession {
       if (client.type === 'connected' && client.cleanup) {
         // Fire-and-forget cleanup — close() is synchronous
         void client.cleanup().catch(err => {
-          console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
+          console.warn(
+            'SDK: MCP client cleanup error:',
+            err instanceof Error ? err.message : String(err),
+          )
         })
       }
     }
@@ -382,7 +398,9 @@ class SDKSessionImpl implements SDKSession {
    * Returns a Promise that resolves when respondToPermission() is called
    * with the matching toolUseId.
    */
-  registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision> {
+  registerPendingPermission(
+    toolUseId: string,
+  ): Promise<PermissionResolveDecision> {
     return new Promise(resolve => {
       const wrappedResolve = createOnceOnlyResolve(resolve)
       this.pendingPermissionPrompts.set(toolUseId, { resolve: wrappedResolve })
@@ -461,10 +479,16 @@ class SDKSessionImpl implements SDKSession {
  */
 function createEngineFromOptions(
   options: SDKSessionOptions,
-  permissionTarget: PermissionTarget & { pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
+  permissionTarget: PermissionTarget & {
+    pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void
+  },
   initialMessages?: any[],
   sessionId?: string,
-): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {
+): {
+  engine: QueryEngine
+  appStateStore: Store<AppState>
+  abortController: AbortController
+} {
   const {
     cwd,
     model,
@@ -506,9 +530,12 @@ function createEngineFromOptions(
   // Explicit false disables thinking, undefined defaults to enabled (adaptive mode)
   const thinkingEnabled = stateWithPermissions.thinkingEnabled ?? true
   const thinkingConfig = thinkingEnabled
-    ? (stateWithPermissions.thinkingBudgetTokens
-      ? { type: 'enabled' as const, budgetTokens: stateWithPermissions.thinkingBudgetTokens }
-      : { type: 'adaptive' as const })
+    ? stateWithPermissions.thinkingBudgetTokens
+      ? {
+          type: 'enabled' as const,
+          budgetTokens: stateWithPermissions.thinkingBudgetTokens,
+        }
+      : { type: 'adaptive' as const }
     : { type: 'disabled' as const }
 
   // Get tools filtered by permission context
@@ -526,7 +553,9 @@ function createEngineFromOptions(
     defaultCanUseTool,
     permissionTarget,
     options.onPermissionRequest,
-    (msg) => { permissionTarget.pushTimeout?.(msg) },
+    msg => {
+      permissionTarget.pushTimeout?.(msg)
+    },
     30000, // Default timeout
     sessionId,
   )
@@ -579,13 +608,20 @@ function createEngineFromOptions(
  * }
  * ```
  */
-export function unstable_v2_createSession(options: SDKSessionOptions): SDKSession {
+export function unstable_v2_createSession(
+  options: SDKSessionOptions,
+): SDKSession {
   const sessionId = randomUUID()
   // Create SDKSessionImpl first (without engine) so we can pass its
   // pendingPermissionPrompts map to createEngineFromOptions for
   // external permission resolution support.
   const session = new SDKSessionImpl(null, sessionId, options, null)
-  const { engine, appStateStore, abortController } = createEngineFromOptions(options, session, undefined, sessionId)
+  const { engine, appStateStore, abortController } = createEngineFromOptions(
+    options,
+    session,
+    undefined,
+    sessionId,
+  )
   // Wire the engine, store, and abort controller into the session
   session.setEngine(engine)
   session.setAppStateStore(appStateStore)
@@ -627,7 +663,11 @@ export async function unstable_v2_resumeSession(
   if (resolved) {
     const { size: fileSize } = await stat(resolved.filePath)
     let entries: JsonlEntry[]
-    let preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null = null
+    let preservedSegment: {
+      headUuid: string
+      tailUuid: string
+      anchorUuid: string
+    } | null = null
     let boundaryIndex = -1
 
     if (fileSize > SKIP_PRECOMPACT_THRESHOLD) {
@@ -668,7 +708,11 @@ export async function unstable_v2_resumeSession(
       for (const uuid of byUuid.keys()) {
         if (!postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
       }
-    } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size > 0) {
+    } else if (
+      boundaryIndex >= 0 &&
+      preservedSegment &&
+      preservedUuids.size > 0
+    ) {
       const postBoundaryUuids = new Set<string>()
       for (const entry of entries.slice(boundaryIndex + 1)) {
         if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
@@ -677,11 +721,19 @@ export async function unstable_v2_resumeSession(
       // The anchor is needed because preserved head.parentUuid = anchor after relink
       const anchorUuid = preservedSegment.anchorUuid
       for (const uuid of byUuid.keys()) {
-        if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid) && uuid !== anchorUuid) {
+        if (
+          !preservedUuids.has(uuid) &&
+          !postBoundaryUuids.has(uuid) &&
+          uuid !== anchorUuid
+        ) {
           byUuid.delete(uuid)
         }
       }
-    } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size === 0) {
+    } else if (
+      boundaryIndex >= 0 &&
+      preservedSegment &&
+      preservedUuids.size === 0
+    ) {
       const postBoundaryUuids = new Set<string>()
       for (const entry of entries.slice(boundaryIndex + 1)) {
         if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
@@ -704,7 +756,10 @@ export async function unstable_v2_resumeSession(
         if (e.type !== 'user' && e.type !== 'assistant') continue
         if (parentUuids.has(e.uuid!)) continue
         const ts = e.timestamp ? new Date(e.timestamp as string).getTime() : 0
-        if (ts >= bestTs) { bestTs = ts; leaf = e }
+        if (ts >= bestTs) {
+          bestTs = ts
+          leaf = e
+        }
       }
       if (leaf) {
         const chain = buildChain(byUuid, leaf)
@@ -773,7 +828,9 @@ export async function unstable_v2_prompt(
     }
 
     if (!resultMessage) {
-      throw new Error('unstable_v2_prompt: query completed without a result message')
+      throw new Error(
+        'unstable_v2_prompt: query completed without a result message',
+      )
     }
 
     return resultMessage

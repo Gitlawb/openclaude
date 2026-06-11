@@ -133,9 +133,7 @@ describe('loadMarkdownFilesForSubdir (#769 scaling)', () => {
         line.includes('skipping oversized markdown config file'),
       )
       expect(warnings.length).toBe(1)
-      expect(warnings[0]).toContain(
-        'CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES',
-      )
+      expect(warnings[0]).toContain('CLAUDE_CODE_MAX_MARKDOWN_FILE_SIZE_BYTES')
     } finally {
       ;(process.stderr.write as unknown) = origWrite
     }

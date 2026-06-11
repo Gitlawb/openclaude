@@ -1,8 +1,18 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test'
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { acquireEnvMutex, releaseEnvMutex } from '../src/entrypoints/sdk/shared.js'
+import {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} from '../src/entrypoints/sdk/shared.js'
 
 // ---------------------------------------------------------------------------
 // Setup: dynamically import the source-level growthbook no-op stub.
@@ -37,7 +47,11 @@ beforeAll(async () => {
 describe('growthbook stub — local feature flag overrides', () => {
   beforeEach(() => {
     stub.resetGrowthBook()
-    try { unlinkSync(flagsFile) } catch { /* may not exist */ }
+    try {
+      unlinkSync(flagsFile)
+    } catch {
+      /* may not exist */
+    }
   })
 
   afterAll(() => {
@@ -69,16 +83,25 @@ describe('growthbook stub — local feature flag overrides', () => {
   // ── Valid JSON object ────────────────────────────────────────────
 
   test('loads and returns values from a valid JSON file', () => {
-    writeFileSync(flagsFile, JSON.stringify({ tengu_foo: true, tengu_bar: 'hello' }))
+    writeFileSync(
+      flagsFile,
+      JSON.stringify({ tengu_foo: true, tengu_bar: 'hello' }),
+    )
 
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', false)).toBe(true)
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_bar', 'default')).toBe('hello')
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', false)).toBe(
+      true,
+    )
+    expect(
+      stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_bar', 'default'),
+    ).toBe('hello')
   })
 
   test('returns defaultValue for keys not present in the file', () => {
     writeFileSync(flagsFile, JSON.stringify({ tengu_foo: true }))
 
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_missing', 99)).toBe(99)
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_missing', 99)).toBe(
+      99,
+    )
   })
 
   test('getAllGrowthBookFeatures returns the full flags object', () => {
@@ -93,66 +116,97 @@ describe('growthbook stub — local feature flag overrides', () => {
   test('falls back to defaults on malformed JSON', () => {
     writeFileSync(flagsFile, '{not valid json!!!')
 
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'fallback')).toBe('fallback')
+    expect(
+      stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'fallback'),
+    ).toBe('fallback')
   })
 
   test('falls back to defaults when JSON is a primitive (true)', () => {
     writeFileSync(flagsFile, 'true')
 
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'fallback')).toBe('fallback')
+    expect(
+      stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'fallback'),
+    ).toBe('fallback')
   })
 
   test('falls back to defaults when JSON is an array', () => {
     writeFileSync(flagsFile, '["a", "b"]')
 
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'fallback')).toBe('fallback')
+    expect(
+      stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'fallback'),
+    ).toBe('fallback')
   })
 
   // ── Cache invalidation ───────────────────────────────────────────
 
   test('resetGrowthBook clears cache so the file is re-read', () => {
     writeFileSync(flagsFile, JSON.stringify({ tengu_foo: 'first' }))
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'x')).toBe('first')
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'x')).toBe(
+      'first',
+    )
 
     // Update the file — cached value is still 'first'
     writeFileSync(flagsFile, JSON.stringify({ tengu_foo: 'second' }))
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'x')).toBe('first')
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'x')).toBe(
+      'first',
+    )
 
     // After reset, the new value is picked up
     stub.resetGrowthBook()
-    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'x')).toBe('second')
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_foo', 'x')).toBe(
+      'second',
+    )
   })
 
   // ── Security gate ────────────────────────────────────────────────
 
   test('checkSecurityRestrictionGate always returns false regardless of flags', async () => {
-    writeFileSync(flagsFile, JSON.stringify({
-      tengu_disable_bypass_permissions_mode: true,
-    }))
+    writeFileSync(
+      flagsFile,
+      JSON.stringify({
+        tengu_disable_bypass_permissions_mode: true,
+      }),
+    )
 
-    expect(await stub.checkSecurityRestrictionGate('tengu_disable_bypass_permissions_mode')).toBe(false)
+    expect(
+      await stub.checkSecurityRestrictionGate(
+        'tengu_disable_bypass_permissions_mode',
+      ),
+    ).toBe(false)
   })
 
   // ── All getter variants return default ───────────────────────────
 
   test('all getter functions return default values when no flags file', async () => {
     expect(stub.getFeatureValue_DEPRECATED('tengu_gate', false)).toBe(false)
-    expect(stub.getFeatureValue_CACHED_WITH_REFRESH('tengu_gate', false)).toBe(false)
-    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(false)
+    expect(stub.getFeatureValue_CACHED_WITH_REFRESH('tengu_gate', false)).toBe(
+      false,
+    )
+    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(
+      false,
+    )
     expect(await stub.checkGate_CACHED_OR_BLOCKING('tengu_gate')).toBe(false)
-    expect(await stub.getDynamicConfig_BLOCKS_ON_INIT('tengu_config', {})).toEqual({})
-    expect(stub.getDynamicConfig_CACHED_MAY_BE_STALE('tengu_config', {})).toEqual({})
+    expect(
+      await stub.getDynamicConfig_BLOCKS_ON_INIT('tengu_config', {}),
+    ).toEqual({})
+    expect(
+      stub.getDynamicConfig_CACHED_MAY_BE_STALE('tengu_config', {}),
+    ).toEqual({})
   })
 
   // ── Gate helpers route through _getFlagValue ──────────────────────────
 
   test('checkStatsigFeatureGate_CACHED_MAY_BE_STALE returns false when file is absent', () => {
-    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(false)
+    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(
+      false,
+    )
   })
 
   test('checkStatsigFeatureGate_CACHED_MAY_BE_STALE returns true from flags file', () => {
     writeFileSync(flagsFile, JSON.stringify({ tengu_gate: true }))
-    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(true)
+    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(
+      true,
+    )
   })
 
   test('checkGate_CACHED_OR_BLOCKING returns false when file is absent', async () => {
@@ -165,7 +219,14 @@ describe('growthbook stub — local feature flag overrides', () => {
   })
 
   test('checkSecurityRestrictionGate always returns false regardless of flags', async () => {
-    writeFileSync(flagsFile, JSON.stringify({ tengu_disable_bypass_permissions_mode: true }))
-    expect(await stub.checkSecurityRestrictionGate('tengu_disable_bypass_permissions_mode')).toBe(false)
+    writeFileSync(
+      flagsFile,
+      JSON.stringify({ tengu_disable_bypass_permissions_mode: true }),
+    )
+    expect(
+      await stub.checkSecurityRestrictionGate(
+        'tengu_disable_bypass_permissions_mode',
+      ),
+    ).toBe(false)
   })
 })

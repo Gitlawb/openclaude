@@ -51,25 +51,41 @@ describe('braveProvider search', () => {
     globalThis.fetch = (async (input: any, init: any) => {
       capturedUrl = typeof input === 'string' ? input : input.toString()
       capturedHeaders = (init?.headers ?? {}) as Record<string, string>
-      return new Response(JSON.stringify({ web: { results: [] } }), { status: 200 })
+      return new Response(JSON.stringify({ web: { results: [] } }), {
+        status: 200,
+      })
     }) as typeof fetch
 
     await braveProvider.search({ query: 'hello' })
 
     expect(capturedHeaders['X-Subscription-Token']).toBe('brv-test-key')
-    expect(capturedUrl).toContain('https://api.search.brave.com/res/v1/web/search')
+    expect(capturedUrl).toContain(
+      'https://api.search.brave.com/res/v1/web/search',
+    )
     expect(capturedUrl).toContain('q=hello')
   })
 
   test('maps web.results into SearchHit shape', async () => {
-    globalThis.fetch = (async (_input: any, _init: any) => new Response(JSON.stringify({
-      web: {
-        results: [
-          { title: 'Example', url: 'https://example.com/a', description: 'snippet a' },
-          { title: 'Other',   url: 'https://other.com/b',   description: 'snippet b' },
-        ],
-      },
-    }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          web: {
+            results: [
+              {
+                title: 'Example',
+                url: 'https://example.com/a',
+                description: 'snippet a',
+              },
+              {
+                title: 'Other',
+                url: 'https://other.com/b',
+                description: 'snippet b',
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      )) as typeof fetch
 
     const out = await braveProvider.search({ query: 'hello' })
 
@@ -84,16 +100,23 @@ describe('braveProvider search', () => {
   })
 
   test('applies blocked_domains client-side', async () => {
-    globalThis.fetch = (async (_input: any, _init: any) => new Response(JSON.stringify({
-      web: {
-        results: [
-          { title: 'Keep', url: 'https://keep.com/a', description: 'k' },
-          { title: 'Drop', url: 'https://drop.com/b', description: 'd' },
-        ],
-      },
-    }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          web: {
+            results: [
+              { title: 'Keep', url: 'https://keep.com/a', description: 'k' },
+              { title: 'Drop', url: 'https://drop.com/b', description: 'd' },
+            ],
+          },
+        }),
+        { status: 200 },
+      )) as typeof fetch
 
-    const out = await braveProvider.search({ query: 'q', blocked_domains: ['drop.com'] })
+    const out = await braveProvider.search({
+      query: 'q',
+      blocked_domains: ['drop.com'],
+    })
     expect(out.hits).toHaveLength(1)
     expect(out.hits[0].url).toBe('https://keep.com/a')
   })

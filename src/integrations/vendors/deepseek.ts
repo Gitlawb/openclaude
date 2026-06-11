@@ -33,8 +33,18 @@ export default defineVendor({
   catalog: {
     source: 'static',
     models: [
-      { id: 'deepseek-chat', apiName: 'deepseek-chat', label: 'DeepSeek Chat', modelDescriptorId: 'deepseek-chat' },
-      { id: 'deepseek-reasoner', apiName: 'deepseek-reasoner', label: 'DeepSeek Reasoner', modelDescriptorId: 'deepseek-reasoner' },
+      {
+        id: 'deepseek-chat',
+        apiName: 'deepseek-chat',
+        label: 'DeepSeek Chat',
+        modelDescriptorId: 'deepseek-chat',
+      },
+      {
+        id: 'deepseek-reasoner',
+        apiName: 'deepseek-reasoner',
+        label: 'DeepSeek Reasoner',
+        modelDescriptorId: 'deepseek-reasoner',
+      },
       {
         id: 'deepseek-v4-flash',
         apiName: 'deepseek-v4-flash',

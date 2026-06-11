@@ -1,4 +1,4 @@
-import { c as _c } from "react-compiler-runtime";
+import { c as _c } from 'react-compiler-runtime'
 /**
  * Overlay tracking for Escape key coordination.
  *
@@ -13,12 +13,12 @@ import { c as _c } from "react-compiler-runtime";
  * The hook automatically registers on mount and unregisters on unmount,
  * so no manual cleanup or state management is needed.
  */
-import { useContext, useEffect, useLayoutEffect } from 'react';
-import instances from '../ink/instances.js';
-import { AppStoreContext, useAppState } from '../state/AppState.js';
+import { useContext, useEffect, useLayoutEffect } from 'react'
+import instances from '../ink/instances.js'
+import { AppStoreContext, useAppState } from '../state/AppState.js'
 
 // Non-modal overlays that shouldn't disable TextInput focus
-const NON_MODAL_OVERLAYS = new Set(['autocomplete']);
+const NON_MODAL_OVERLAYS = new Set(['autocomplete'])
 
 /**
  * Hook to register a component as an active overlay.
@@ -36,71 +36,71 @@ const NON_MODAL_OVERLAYS = new Set(['autocomplete']);
  * }
  */
 export function useRegisterOverlay(id: string, t0?: boolean): void {
-  const $ = _c(8);
-  const enabled = t0 === undefined ? true : t0;
-  const store = useContext(AppStoreContext);
-  const setAppState = store?.setState;
-  let t1;
-  let t2;
+  const $ = _c(8)
+  const enabled = t0 === undefined ? true : t0
+  const store = useContext(AppStoreContext)
+  const setAppState = store?.setState
+  let t1
+  let t2
   if ($[0] !== enabled || $[1] !== id || $[2] !== setAppState) {
     t1 = () => {
       if (!enabled || !setAppState) {
-        return;
+        return
       }
       setAppState(prev => {
         if (prev.activeOverlays.has(id)) {
-          return prev;
+          return prev
         }
-        const next = new Set(prev.activeOverlays);
-        next.add(id);
+        const next = new Set(prev.activeOverlays)
+        next.add(id)
         return {
           ...prev,
-          activeOverlays: next
-        };
-      });
+          activeOverlays: next,
+        }
+      })
       return () => {
         setAppState(prev_0 => {
           if (!prev_0.activeOverlays.has(id)) {
-            return prev_0;
+            return prev_0
           }
-          const next_0 = new Set(prev_0.activeOverlays);
-          next_0.delete(id);
+          const next_0 = new Set(prev_0.activeOverlays)
+          next_0.delete(id)
           return {
             ...prev_0,
-            activeOverlays: next_0
-          };
-        });
-      };
-    };
-    t2 = [id, enabled, setAppState];
-    $[0] = enabled;
-    $[1] = id;
-    $[2] = setAppState;
-    $[3] = t1;
-    $[4] = t2;
+            activeOverlays: next_0,
+          }
+        })
+      }
+    }
+    t2 = [id, enabled, setAppState]
+    $[0] = enabled
+    $[1] = id
+    $[2] = setAppState
+    $[3] = t1
+    $[4] = t2
   } else {
-    t1 = $[3];
-    t2 = $[4];
+    t1 = $[3]
+    t2 = $[4]
   }
-  useEffect(t1, t2);
-  let t3;
-  let t4;
+  useEffect(t1, t2)
+  let t3
+  let t4
   if ($[5] !== enabled) {
     t3 = () => {
       if (!enabled) {
-        return;
+        return
       }
-      return _temp;
-    };
-    t4 = [enabled];
-    $[5] = enabled;
-    $[6] = t3;
-    $[7] = t4;
+      return _temp
+    }
+    t4 = [enabled]
+    $[5] = enabled
+    $[6] = t3
+    $[7] = t4
   } else {
-    t3 = $[6];
-    t4 = $[7];
+    t3 = $[6]
+    t4 = $[7]
   }
-  useLayoutEffect(t3, t4);
+  useLayoutEffect(t3, t4)
 }
 
 /**
@@ -117,10 +117,10 @@ export function useRegisterOverlay(id: string, t0?: boolean): void {
  * }
  */
 function _temp() {
-  return instances.get(process.stdout)?.invalidatePrevFrame();
+  return instances.get(process.stdout)?.invalidatePrevFrame()
 }
 export function useIsOverlayActive() {
-  return useAppState(_temp2);
+  return useAppState(_temp2)
 }
 
 /**
@@ -135,16 +135,16 @@ export function useIsOverlayActive() {
  * focus: !isSearchingHistory && !isModalOverlayActive
  */
 function _temp2(s) {
-  return s.activeOverlays.size > 0;
+  return s.activeOverlays.size > 0
 }
 export function useIsModalOverlayActive() {
-  return useAppState(_temp3);
+  return useAppState(_temp3)
 }
 function _temp3(s) {
   for (const id of s.activeOverlays) {
     if (!NON_MODAL_OVERLAYS.has(id)) {
-      return true;
+      return true
     }
   }
-  return false;
+  return false
 }

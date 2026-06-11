@@ -221,7 +221,12 @@ function parseIPv6(input: string): Uint8Array | null {
   if (v4m) {
     const n = ipv4DottedToInt(v4m[2]!)
     if (n === null) return null
-    trailingV4 = [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]
+    trailingV4 = [
+      (n >>> 24) & 0xff,
+      (n >>> 16) & 0xff,
+      (n >>> 8) & 0xff,
+      n & 0xff,
+    ]
     s = v4m[1]!.replace(/:$/, '')
     if (s === '') s = '::' // e.g. input was "::1.2.3.4"
   }
@@ -233,9 +238,11 @@ function parseIPv6(input: string): Uint8Array | null {
 
   const groupsNeeded = 8 - (trailingV4 ? 2 : 0)
   if (halves.length === 1 && left.length !== groupsNeeded) return null
-  if (halves.length === 2 && left.length + right.length > groupsNeeded) return null
+  if (halves.length === 2 && left.length + right.length > groupsNeeded)
+    return null
 
-  const fill = halves.length === 2 ? groupsNeeded - left.length - right.length : 0
+  const fill =
+    halves.length === 2 ? groupsNeeded - left.length - right.length : 0
   const groups = [...left, ...Array(fill).fill('0'), ...right]
 
   const bytes = new Uint8Array(16)
@@ -259,22 +266,44 @@ function parseIPv6(input: string): Uint8Array | null {
 function isPrivateIPv6(bytes: Uint8Array): boolean {
   // ::1 loopback
   let allZeroExceptLast = true
-  for (let i = 0; i < 15; i++) if (bytes[i] !== 0) { allZeroExceptLast = false; break }
+  for (let i = 0; i < 15; i++)
+    if (bytes[i] !== 0) {
+      allZeroExceptLast = false
+      break
+    }
   if (allZeroExceptLast && bytes[15] === 1) return true
   // :: unspecified
   if (bytes.every(v => v === 0)) return true
   // IPv4-mapped ::ffff:a.b.c.d
   let isV4Mapped = true
-  for (let i = 0; i < 10; i++) if (bytes[i] !== 0) { isV4Mapped = false; break }
+  for (let i = 0; i < 10; i++)
+    if (bytes[i] !== 0) {
+      isV4Mapped = false
+      break
+    }
   if (isV4Mapped && bytes[10] === 0xff && bytes[11] === 0xff) {
-    const n = ((bytes[12]! << 24) | (bytes[13]! << 16) | (bytes[14]! << 8) | bytes[15]!) >>> 0
+    const n =
+      ((bytes[12]! << 24) |
+        (bytes[13]! << 16) |
+        (bytes[14]! << 8) |
+        bytes[15]!) >>>
+      0
     return isPrivateIPv4Int(n)
   }
   // IPv4-compatible (deprecated) ::a.b.c.d — treat as private if embedded v4 is
   let isV4Compat = true
-  for (let i = 0; i < 12; i++) if (bytes[i] !== 0) { isV4Compat = false; break }
+  for (let i = 0; i < 12; i++)
+    if (bytes[i] !== 0) {
+      isV4Compat = false
+      break
+    }
   if (isV4Compat) {
-    const n = ((bytes[12]! << 24) | (bytes[13]! << 16) | (bytes[14]! << 8) | bytes[15]!) >>> 0
+    const n =
+      ((bytes[12]! << 24) |
+        (bytes[13]! << 16) |
+        (bytes[14]! << 8) |
+        bytes[15]!) >>>
+      0
     if (n !== 0 && n !== 1) return isPrivateIPv4Int(n)
   }
   // ULA fc00::/7
@@ -289,9 +318,10 @@ function isPrivateIPv6(bytes: Uint8Array): boolean {
 export function isPrivateHostname(hostname: string): boolean {
   if (/^localhost$/i.test(hostname)) return true
   // URL.hostname wraps IPv6 literals in brackets; strip for parsing.
-  const unwrapped = hostname.startsWith('[') && hostname.endsWith(']')
-    ? hostname.slice(1, -1)
-    : hostname
+  const unwrapped =
+    hostname.startsWith('[') && hostname.endsWith(']')
+      ? hostname.slice(1, -1)
+      : hostname
   // IPv4 dotted-quad (WHATWG URL normalizes short/numeric/hex/octal to this).
   const v4 = ipv4DottedToInt(unwrapped)
   if (v4 !== null) return isPrivateIPv4Int(v4)
@@ -312,7 +342,9 @@ function validateUrl(urlString: string): void {
   try {
     parsed = new URL(urlString)
   } catch {
-    throw new Error(`Custom search URL is not a valid URL: ${urlString.slice(0, 100)}`)
+    throw new Error(
+      `Custom search URL is not a valid URL: ${urlString.slice(0, 100)}`,
+    )
   }
 
   // 2. HTTPS-only (unless explicitly opted out)
@@ -320,7 +352,7 @@ function validateUrl(urlString: string): void {
   if (!allowHttp && parsed.protocol !== 'https:') {
     throw new Error(
       `Custom search URL must use https:// (got ${parsed.protocol}). ` +
-      `Set WEB_CUSTOM_ALLOW_HTTP=true to override (not recommended).`,
+        `Set WEB_CUSTOM_ALLOW_HTTP=true to override (not recommended).`,
     )
   }
 
@@ -329,8 +361,8 @@ function validateUrl(urlString: string): void {
   if (!allowPrivate && isPrivateHostname(parsed.hostname)) {
     throw new Error(
       `Custom search URL targets a private/reserved address (${parsed.hostname}). ` +
-      `This is blocked by default to prevent SSRF. ` +
-      `Set WEB_CUSTOM_ALLOW_PRIVATE=true to override (e.g. for local SearXNG).`,
+        `This is blocked by default to prevent SSRF. ` +
+        `Set WEB_CUSTOM_ALLOW_PRIVATE=true to override (e.g. for local SearXNG).`,
     )
   }
 }
@@ -340,7 +372,8 @@ function validateUrl(urlString: string): void {
  * unless WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true.
  */
 function validateHeaderName(name: string): boolean {
-  const allowArbitrary = process.env.WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS === 'true'
+  const allowArbitrary =
+    process.env.WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS === 'true'
   if (allowArbitrary) return true
   return SAFE_HEADER_NAMES.has(name.toLowerCase())
 }
@@ -355,9 +388,9 @@ function auditLogCustomSearch(url: string): void {
   auditLogged = true
   console.warn(
     `[web-search] ⚠️  Custom search provider is active. ` +
-    `Outbound requests go to: ${safeHostname(url) ?? url}. ` +
-    `Ensure this endpoint is trusted. ` +
-    `See: https://github.com/Gitlawb/openclaude/pull/512#security`,
+      `Outbound requests go to: ${safeHostname(url) ?? url}. ` +
+      `Ensure this endpoint is trusted. ` +
+      `See: https://github.com/Gitlawb/openclaude/pull/512#security`,
   )
 }
 
@@ -365,7 +398,9 @@ function auditLogCustomSearch(url: string): void {
 // Auth — preset overrides for built-in providers
 // ---------------------------------------------------------------------------
 
-export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
+export function buildAuthHeadersForPreset(
+  preset?: ProviderPreset,
+): Record<string, string> {
   // Presets that authenticate via a query parameter (e.g. Google's `?key=...`)
   // do not send an Authorization header. The user can still force a header by
   // setting WEB_AUTH_HEADER explicitly.
@@ -381,9 +416,10 @@ export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<strin
   if (explicitHeader === '') return {}
 
   const headerName = explicitHeader ?? preset?.authHeader ?? 'Authorization'
-  const scheme = process.env.WEB_AUTH_SCHEME !== undefined
-    ? process.env.WEB_AUTH_SCHEME
-    : (preset?.authScheme ?? 'Bearer')
+  const scheme =
+    process.env.WEB_AUTH_SCHEME !== undefined
+      ? process.env.WEB_AUTH_SCHEME
+      : (preset?.authScheme ?? 'Bearer')
   // Empty scheme → bare key, no leading space (e.g. Brave's X-Subscription-Token)
   const value = scheme ? `${scheme} ${apiKey}` : apiKey
   return { [headerName]: value }
@@ -405,10 +441,11 @@ function resolveConfig(): {
   const preset = providerName ? BUILT_IN_PROVIDERS[providerName] : undefined
 
   return {
-    urlTemplate: process.env.WEB_URL_TEMPLATE
-      ?? process.env.WEB_SEARCH_API
-      ?? preset?.urlTemplate
-      ?? '',
+    urlTemplate:
+      process.env.WEB_URL_TEMPLATE ??
+      process.env.WEB_SEARCH_API ??
+      preset?.urlTemplate ??
+      '',
     queryParam: process.env.WEB_QUERY_PARAM ?? preset?.queryParam ?? 'q',
     method: process.env.WEB_METHOD ?? preset?.method ?? 'GET',
     jsonPath: process.env.WEB_JSON_PATH ?? preset?.jsonPath,
@@ -423,7 +460,9 @@ function parseExtraParams(): Record<string, string> {
   try {
     const obj = JSON.parse(raw)
     if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return {}
 }
 
@@ -434,7 +473,10 @@ function buildRequest(query: string) {
 
   // --- URL ---
   const rawTemplate = config.urlTemplate
-  const templateWithQuery = rawTemplate.replace(/\{query\}/g, encodeURIComponent(query))
+  const templateWithQuery = rawTemplate.replace(
+    /\{query\}/g,
+    encodeURIComponent(query),
+  )
   const url = new URL(templateWithQuery)
 
   // Merge extra static params
@@ -456,7 +498,7 @@ function buildRequest(query: string) {
       if (!value) {
         throw new Error(
           `Search preset "${process.env.WEB_PROVIDER}" requires environment ` +
-          `variable ${envVar} (used as ?${paramName}=). Set ${envVar} and try again.`,
+            `variable ${envVar} (used as ?${paramName}=). Set ${envVar} and try again.`,
         )
       }
       url.searchParams.set(paramName, value)
@@ -469,7 +511,7 @@ function buildRequest(query: string) {
     if (!apiKey) {
       throw new Error(
         `Search preset "${process.env.WEB_PROVIDER}" requires WEB_KEY ` +
-        `(sent as ?${preset.authQueryParam}=). Set WEB_KEY and try again.`,
+          `(sent as ?${preset.authQueryParam}=). Set WEB_KEY and try again.`,
       )
     }
     url.searchParams.set(preset.authQueryParam, apiKey)
@@ -498,8 +540,8 @@ function buildRequest(query: string) {
           if (!validateHeaderName(k)) {
             throw new Error(
               `Header "${k}" is not in the safe allowlist. ` +
-              `Allowed: ${[...SAFE_HEADER_NAMES].join(', ')}. ` +
-              `Set WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true to override.`,
+                `Allowed: ${[...SAFE_HEADER_NAMES].join(', ')}. ` +
+                `Set WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true to override.`,
             )
           }
           headers[k] = v
@@ -515,11 +557,13 @@ function buildRequest(query: string) {
     const bodyTemplate = process.env.WEB_BODY_TEMPLATE
     if (bodyTemplate) {
       const body = bodyTemplate.replace(/\{query\}/g, query)
-      const maxBodyBytes = (Number(process.env.WEB_CUSTOM_MAX_BODY_KB) || DEFAULT_MAX_BODY_KB) * 1024
+      const maxBodyBytes =
+        (Number(process.env.WEB_CUSTOM_MAX_BODY_KB) || DEFAULT_MAX_BODY_KB) *
+        1024
       if (Buffer.byteLength(body) > maxBodyBytes) {
         throw new Error(
           `POST body exceeds ${maxBodyBytes} bytes. ` +
-          `Increase WEB_CUSTOM_MAX_BODY_KB if needed.`,
+            `Increase WEB_CUSTOM_MAX_BODY_KB if needed.`,
         )
       }
       init.body = body
@@ -546,7 +590,8 @@ function walkJsonPath(obj: any, path: string): any {
 
 function extractFromNode(node: any): SearchHit[] {
   if (!node) return []
-  if (Array.isArray(node)) return node.map(normalizeHit).filter(Boolean) as SearchHit[]
+  if (Array.isArray(node))
+    return node.map(normalizeHit).filter(Boolean) as SearchHit[]
   if (typeof node === 'object') {
     const all: SearchHit[] = []
     for (const sub of Object.values(node)) all.push(...extractFromNode(sub))
@@ -558,17 +603,28 @@ function extractFromNode(node: any): SearchHit[] {
 
 export function extractHits(raw: any, jsonPath?: string): SearchHit[] {
   if (jsonPath) return extractFromNode(walkJsonPath(raw, jsonPath))
-  if (Array.isArray(raw)) return raw.map(normalizeHit).filter(Boolean) as SearchHit[]
+  if (Array.isArray(raw))
+    return raw.map(normalizeHit).filter(Boolean) as SearchHit[]
   if (!raw || typeof raw !== 'object') return []
 
-  const arrayKeys = ['results', 'items', 'data', 'web', 'organic_results', 'hits', 'entries']
+  const arrayKeys = [
+    'results',
+    'items',
+    'data',
+    'web',
+    'organic_results',
+    'hits',
+    'entries',
+  ]
   for (const key of arrayKeys) {
     const val = raw[key]
-    if (Array.isArray(val)) return val.map(normalizeHit).filter(Boolean) as SearchHit[]
+    if (Array.isArray(val))
+      return val.map(normalizeHit).filter(Boolean) as SearchHit[]
     if (val && typeof val === 'object' && !Array.isArray(val)) {
       const all: SearchHit[] = []
       for (const sub of Object.values(val)) {
-        if (Array.isArray(sub)) all.push(...(sub.map(normalizeHit).filter(Boolean) as SearchHit[]))
+        if (Array.isArray(sub))
+          all.push(...(sub.map(normalizeHit).filter(Boolean) as SearchHit[]))
       }
       if (all.length > 0) return all
     }
@@ -581,8 +637,13 @@ export function extractHits(raw: any, jsonPath?: string): SearchHit[] {
 // Fetch with one retry + timeout
 // ---------------------------------------------------------------------------
 
-async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSignal): Promise<any> {
-  const timeoutSec = Number(process.env.WEB_CUSTOM_TIMEOUT_SEC) || DEFAULT_TIMEOUT_SECONDS
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+): Promise<any> {
+  const timeoutSec =
+    Number(process.env.WEB_CUSTOM_TIMEOUT_SEC) || DEFAULT_TIMEOUT_SECONDS
   const timeoutMs = timeoutSec * 1000
   let lastErr: Error | undefined
   let lastStatus: number | undefined
@@ -602,7 +663,9 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
 
       if (!res.ok) {
         lastStatus = res.status
-        throw new Error(`Custom search API returned ${res.status}: ${res.statusText}`)
+        throw new Error(
+          `Custom search API returned ${res.status}: ${res.statusText}`,
+        )
       }
       return await res.json()
     } catch (err) {
@@ -637,10 +700,17 @@ export const customProvider: SearchProvider = {
   name: 'custom',
 
   isConfigured() {
-    return Boolean(process.env.WEB_SEARCH_API || process.env.WEB_PROVIDER || process.env.WEB_URL_TEMPLATE)
+    return Boolean(
+      process.env.WEB_SEARCH_API ||
+        process.env.WEB_PROVIDER ||
+        process.env.WEB_URL_TEMPLATE,
+    )
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
     const { url, init, config } = buildRequest(input.query)
     const raw = await fetchWithRetry(url, init, signal)

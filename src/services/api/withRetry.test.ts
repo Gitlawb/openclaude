@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type Anthropic from '@anthropic-ai/sdk'
 import { APIError } from '@anthropic-ai/sdk'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
@@ -50,7 +53,10 @@ afterEach(() => {
     }
     mock.restore()
     if (originalProvidersModule) {
-      mock.module('src/utils/model/providers.js', () => originalProvidersModule!)
+      mock.module(
+        'src/utils/model/providers.js',
+        () => originalProvidersModule!,
+      )
     }
   } finally {
     releaseSharedMutationLock()
@@ -87,7 +93,9 @@ async function importFreshWithRetryModule(
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
-async function drainAsyncGenerator<T>(generator: AsyncGenerator<unknown, T>): Promise<T> {
+async function drainAsyncGenerator<T>(
+  generator: AsyncGenerator<unknown, T>,
+): Promise<T> {
   while (true) {
     const result = await generator.next()
     if (result.done) return result.value
@@ -190,7 +198,7 @@ describe('OpenAI-compatible retry classification', () => {
     await expect(
       drainAsyncGenerator(
         withRetry(
-          async () => ({} as Anthropic),
+          async () => ({}) as Anthropic,
           async () => {
             attempts++
             throw error
@@ -227,7 +235,7 @@ describe('OpenAI-compatible retry classification', () => {
     try {
       const result = await drainAsyncGenerator(
         withRetry(
-          async () => ({} as Anthropic),
+          async () => ({}) as Anthropic,
           async (_client, _attempt, context) => {
             attempts++
             observedMaxTokensOverrides.push(context.maxTokensOverride)
@@ -273,7 +281,7 @@ describe('OpenAI-compatible retry classification', () => {
       await expect(
         drainAsyncGenerator(
           withRetry(
-            async () => ({} as Anthropic),
+            async () => ({}) as Anthropic,
             async () => {
               attempts++
               throw error
@@ -309,7 +317,7 @@ describe('OpenAI-compatible retry classification', () => {
 
     const result = await drainAsyncGenerator(
       withRetry(
-        async () => ({} as Anthropic),
+        async () => ({}) as Anthropic,
         async (_client, _attempt, context) => {
           attempts++
           observedMaxTokensOverrides.push(context.maxTokensOverride)
@@ -446,7 +454,11 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
     process.env.CLAUDE_CODE_USE_BEDROCK = '1'
     const { getRateLimitResetDelayMs } =
       await importFreshWithRetryModule('bedrock')
-    const error = makeError({ 'anthropic-ratelimit-unified-reset': String(Math.floor(Date.now() / 1000) + 60) })
+    const error = makeError({
+      'anthropic-ratelimit-unified-reset': String(
+        Math.floor(Date.now() / 1000) + 60,
+      ),
+    })
     // Bedrock doesn't use this header — should still return null
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })

@@ -52,7 +52,10 @@ export function getEffectiveContextWindowSize(model: string): number {
   // negative and fires on every message (issue #635).
   const autocompactBuffer = 13_000 // must match AUTOCOMPACT_BUFFER_TOKENS
   const effectiveContext = contextWindow - reservedTokensForSummary
-  return Math.max(effectiveContext, reservedTokensForSummary + autocompactBuffer)
+  return Math.max(
+    effectiveContext,
+    reservedTokensForSummary + autocompactBuffer,
+  )
 }
 
 export type AutoCompactTrackingState = {
@@ -129,8 +132,7 @@ export function resolveAutoCompactCircuitBreakerState(args: {
 
   let nextRetryAtMs = tracking?.nextRetryAtMs
   if (
-    (typeof nextRetryAtMs !== 'number' ||
-      !Number.isFinite(nextRetryAtMs)) &&
+    (typeof nextRetryAtMs !== 'number' || !Number.isFinite(nextRetryAtMs)) &&
     typeof tracking?.lastFailureAtMs === 'number' &&
     Number.isFinite(tracking.lastFailureAtMs) &&
     Number.isFinite(cooldownMs)
@@ -152,8 +154,7 @@ export function resolveAutoCompactCircuitBreakerState(args: {
 
   return {
     action: 'allow',
-    effectiveConsecutiveFailures:
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+    effectiveConsecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
     wasHalfOpen: true,
   }
 }
@@ -431,17 +432,17 @@ export async function autoCompactIfNeeded(
     // Preserve system messages
     const systemMessages = messages.filter(m => m.message?.role === 'system')
     const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
-    
+
     const pruned = pruneByRelevance(nonSystemMessages, {
       targetTokens: availableSpace,
       preserveRecent: 3,
       preserveTools: true,
       preserveErrors: true,
     })
-    
+
     // Combine preserved system + pruned
     const finalMessages = [...systemMessages, ...pruned]
-    
+
     if (finalMessages.length > 0 && finalMessages.length < messages.length) {
       logForDebugging(
         `partition+prune: ${messages.length} -> ${finalMessages.length} messages`,

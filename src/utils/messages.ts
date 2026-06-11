@@ -861,9 +861,10 @@ export function isToolUseResultMessage(
 
 // Re-order, to move result messages to be after their tool use messages
 export function reorderMessagesInUI(
-  messages: any[],  // eslint-disable-line @typescript-eslint/no-explicit-any
+  messages: any[], // eslint-disable-line @typescript-eslint/no-explicit-any
   syntheticStreamingToolUseMessages: NormalizedAssistantMessage[],
-): any[] {  // eslint-disable-line @typescript-eslint/no-explicit-any
+): any[] {
+  // eslint-disable-line @typescript-eslint/no-explicit-any
   // Boolean wrappers to avoid type-predicate narrowing (all message types are `any` stubs,
   // so `Exclude<any, any>` = `never` after type guards)
   const isToolUse = (m: any): boolean => isToolUseRequestMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -901,10 +902,7 @@ export function reorderMessagesInUI(
     }
 
     // Handle pre-tool-use hooks
-    if (
-      isHook(message) &&
-      message.attachment.hookEvent === 'PreToolUse'
-    ) {
+    if (isHook(message) && message.attachment.hookEvent === 'PreToolUse') {
       const toolUseID = message.attachment.toolUseID
       if (!toolUseGroups.has(toolUseID)) {
         toolUseGroups.set(toolUseID, {
@@ -937,10 +935,7 @@ export function reorderMessagesInUI(
     }
 
     // Handle post-tool-use hooks
-    if (
-      isHook(message) &&
-      message.attachment.hookEvent === 'PostToolUse'
-    ) {
+    if (isHook(message) && message.attachment.hookEvent === 'PostToolUse') {
       const toolUseID = message.attachment.toolUseID
       if (!toolUseGroups.has(toolUseID)) {
         toolUseGroups.set(toolUseID, {
@@ -1810,7 +1805,7 @@ export function stripCallerFieldFromAssistantMessage(
                 extra_content: (block as { extra_content?: unknown })
                   .extra_content,
               }
-            : {})
+            : {}),
         }
       }),
     },
@@ -2300,19 +2295,21 @@ export function normalizeMessagesForAPI(
                       ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
-                      ...(extra_content ? { extra_content } : {})
+                      ...(extra_content ? { extra_content } : {}),
                     }
                   }
 
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
                   // 'caller' that may be stored in sessions from tool search runs
-                    return {
+                  return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
-                    ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
+                    ...((block as any).extra_content
+                      ? { extra_content: (block as any).extra_content }
+                      : {}),
                   }
                 }
                 return block
@@ -3572,7 +3569,6 @@ Read the team config to discover your teammates' names. Check the task list peri
       ]
     }
   }
-
 
   // skill_discovery handled here (not in the switch) so the 'skill_discovery'
   // string literal lives inside a feature()-guarded block. A case label can't

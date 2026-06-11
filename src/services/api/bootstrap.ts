@@ -144,7 +144,9 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
 
 async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | null> {
   if (isEssentialTrafficOnly()) {
-    logForDebugging('[Bootstrap] Skipped local model discovery: Nonessential traffic disabled')
+    logForDebugging(
+      '[Bootstrap] Skipped local model discovery: Nonessential traffic disabled',
+    )
     return null
   }
 
@@ -157,7 +159,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
   const routeId = resolveDiscoveryRouteIdFromBaseUrl(baseUrl)
   const routeLabel =
     (routeId
-      ? getGateway(routeId)?.label ?? getVendor(routeId)?.label
+      ? (getGateway(routeId)?.label ?? getVendor(routeId)?.label)
       : undefined) ?? getLocalOpenAICompatibleProviderLabel(baseUrl)
   const apiKey = resolveRouteCredentialValue({
     routeId: routeId ?? 'custom',

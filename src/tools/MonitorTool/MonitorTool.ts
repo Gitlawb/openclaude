@@ -19,9 +19,7 @@ const MONITOR_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    command: z
-      .string()
-      .describe('The shell command to run and monitor'),
+    command: z.string().describe('The shell command to run and monitor'),
     description: z
       .string()
       .describe(
@@ -33,9 +31,7 @@ type InputSchema = ReturnType<typeof inputSchema>
 
 const outputSchema = lazySchema(() =>
   z.object({
-    taskId: z
-      .string()
-      .describe('The ID of the background monitor task'),
+    taskId: z.string().describe('The ID of the background monitor task'),
     outputFile: z
       .string()
       .describe('Path to the file where output is being written'),
@@ -116,9 +112,7 @@ export const MonitorTool = buildTool({
     return `Monitoring ${input.description}`
   },
 
-  renderToolUseMessage(
-    input: Partial<z.infer<InputSchema>>,
-  ): React.ReactNode {
+  renderToolUseMessage(input: Partial<z.infer<InputSchema>>): React.ReactNode {
     const cmd = input.command ?? ''
     const desc = input.description ?? ''
     if (desc && cmd) {
@@ -127,9 +121,7 @@ export const MonitorTool = buildTool({
     return cmd || desc || ''
   },
 
-  renderToolResultMessage(
-    output: Output,
-  ): React.ReactNode {
+  renderToolResultMessage(output: Output): React.ReactNode {
     return `Monitor started (task ${output.taskId})`
   },
 
@@ -153,12 +145,9 @@ export const MonitorTool = buildTool({
     // This is intentionally a shell execution (not execFile) because
     // MonitorTool needs full shell features (pipes, redirects, etc.)
     // just like BashTool does.
-    const shellCommand = await exec(
-      command,
-      abortController.signal,
-      'bash',
-      { timeout: MONITOR_TIMEOUT_MS },
-    )
+    const shellCommand = await exec(command, abortController.signal, 'bash', {
+      timeout: MONITOR_TIMEOUT_MS,
+    })
 
     // Spawn as a background task with kind='monitor' — identical to
     // BashTool's run_in_background path but always monitor-flavored.

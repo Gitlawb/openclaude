@@ -38,9 +38,9 @@ test('initializeWiki creates the expected wiki scaffold', async () => {
   expect(await readFile(paths.logFile, 'utf8')).toContain(
     'Wiki initialized by OpenClaude',
   )
-  expect(await readFile(join(paths.pagesDir, 'architecture.md'), 'utf8')).toContain(
-    '# Architecture',
-  )
+  expect(
+    await readFile(join(paths.pagesDir, 'architecture.md'), 'utf8'),
+  ).toContain('# Architecture')
 })
 
 test('initializeWiki is idempotent and preserves existing files', async () => {

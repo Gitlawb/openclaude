@@ -8,9 +8,7 @@ import {
   createFileStateCacheWithSizeLimit,
   READ_FILE_STATE_CACHE_SIZE,
 } from '../../utils/fileStateCache.js'
-import {
-  resetSettingsCache,
-} from '../../utils/settings/settingsCache.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import type { AgentDefinition } from './loadAgentsDir.js'
 
@@ -48,7 +46,10 @@ afterEach(() => {
       mock.module('./runAgent.js', () => actualRunAgentModule!)
     }
     if (actualSettingsModule) {
-      mock.module('../../utils/settings/settings.js', () => actualSettingsModule!)
+      mock.module(
+        '../../utils/settings/settings.js',
+        () => actualSettingsModule!,
+      )
     }
     resetSettingsCache()
     settingsForTest = {}

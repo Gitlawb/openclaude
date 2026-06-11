@@ -88,7 +88,9 @@ export function createSessionJsonl(
  * Generates a minimal conversation JSONL entry set: one user + one assistant message.
  * Returns entries with valid UUID chains.
  */
-export function createMinimalConversation(sessionId: string): Array<Record<string, unknown>> {
+export function createMinimalConversation(
+  sessionId: string,
+): Array<Record<string, unknown>> {
   const userUuid = randomUUID()
   const assistantUuid = randomUUID()
   return [
@@ -102,7 +104,10 @@ export function createMinimalConversation(sessionId: string): Array<Record<strin
     },
     {
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'hi from assistant' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'hi from assistant' }],
+      },
       uuid: assistantUuid,
       parentUuid: userUuid,
       sessionId,
@@ -137,7 +142,10 @@ export function createMultiTurnConversation(
 
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: `response ${i + 1}` }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: `response ${i + 1}` }],
+      },
       uuid: assistantUuid,
       parentUuid: userUuid,
       sessionId,
@@ -195,4 +203,5 @@ export async function collectMessages(q: Query): Promise<unknown[]> {
 /**
  * Creates a UUID regex pattern for validation.
  */
-export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

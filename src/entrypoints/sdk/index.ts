@@ -8,7 +8,10 @@
  * It must NOT import React, Ink, or any CLI/TUI code.
  */
 
-import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+import type {
+  CallToolResult,
+  ToolAnnotations,
+} from '@modelcontextprotocol/sdk/types.js'
 import { QueryEngine } from '../../QueryEngine.js'
 import { getTools } from '../../tools.js'
 import { init } from '../init.js'
@@ -24,20 +27,24 @@ import { init } from '../init.js'
  * If any resolved to a stub, it means a TUI dependency leaked through.
  */
 function detectStubLeaks(): void {
-  const criticalImports: Array<{ name: string; mod: Record<string, unknown> }> = [
-    // QueryEngine is the core SDK engine — must never be a stub
-    { name: 'QueryEngine', mod: QueryEngine as unknown as Record<string, unknown> },
-    // These are imported by this file and must be real modules, not stubs
-    { name: 'getTools', mod: getTools as unknown as Record<string, unknown> },
-    { name: 'init', mod: init as unknown as Record<string, unknown> },
-  ]
+  const criticalImports: Array<{ name: string; mod: Record<string, unknown> }> =
+    [
+      // QueryEngine is the core SDK engine — must never be a stub
+      {
+        name: 'QueryEngine',
+        mod: QueryEngine as unknown as Record<string, unknown>,
+      },
+      // These are imported by this file and must be real modules, not stubs
+      { name: 'getTools', mod: getTools as unknown as Record<string, unknown> },
+      { name: 'init', mod: init as unknown as Record<string, unknown> },
+    ]
 
   for (const { name, mod } of criticalImports) {
     if ('__stub' in mod && mod.__stub === true) {
       throw new Error(
         `SDK init error: "${name}" resolved to a build stub at runtime. ` +
-        `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
-        `Report this at https://github.com/Gitlawb/openclaude/issues`,
+          `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
+          `Report this at https://github.com/Gitlawb/openclaude/issues`,
       )
     }
   }
@@ -196,7 +203,11 @@ export type SdkMcpSdkConfig = {
   tools?: import('./v2.js').SdkMcpToolDefinition[]
 }
 
-export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig | SdkMcpHttpConfig | SdkMcpSdkConfig
+export type SdkMcpServerConfig =
+  | SdkMcpStdioConfig
+  | SdkMcpSSEConfig
+  | SdkMcpHttpConfig
+  | SdkMcpSdkConfig
 
 export type SdkScopedMcpServerConfig = SdkMcpServerConfig & {
   scope: 'session'
@@ -230,7 +241,9 @@ export type SdkScopedMcpServerConfig = SdkMcpServerConfig & {
  * })
  * ```
  */
-export function createSdkMcpServer(config: SdkMcpServerConfig): SdkScopedMcpServerConfig {
+export function createSdkMcpServer(
+  config: SdkMcpServerConfig,
+): SdkScopedMcpServerConfig {
   return {
     ...config,
     scope: 'session' as const,

@@ -35,9 +35,10 @@ export type XaiCredentialBlob = {
   lastRefreshFailureAt?: number
 }
 
-let inFlightXaiRefresh:
-  | Promise<{ refreshed: boolean; credentials?: XaiCredentialBlob }>
-  | null = null
+let inFlightXaiRefresh: Promise<{
+  refreshed: boolean
+  credentials?: XaiCredentialBlob
+}> | null = null
 let inMemoryLastRefreshFailureAt: number | null = null
 
 function getXaiSecureStorage() {
@@ -122,9 +123,10 @@ export async function readXaiCredentialsAsync(): Promise<
   }
 }
 
-export function saveXaiCredentials(
-  blob: XaiCredentialBlob,
-): { success: boolean; warning?: string } {
+export function saveXaiCredentials(blob: XaiCredentialBlob): {
+  success: boolean
+  warning?: string
+} {
   if (isBareMode()) {
     return {
       success: false,
@@ -177,7 +179,10 @@ function persistRefreshFailure(
   if (!result.success) inMemoryLastRefreshFailureAt = occurredAt
 }
 
-function toBlob(tokens: XaiOAuthTokens, previous?: XaiCredentialBlob): XaiCredentialBlob {
+function toBlob(
+  tokens: XaiOAuthTokens,
+  previous?: XaiCredentialBlob,
+): XaiCredentialBlob {
   return {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken || previous?.refreshToken || '',
@@ -191,9 +196,10 @@ function toBlob(tokens: XaiOAuthTokens, previous?: XaiCredentialBlob): XaiCreden
   }
 }
 
-export function persistXaiOAuthTokens(
-  tokens: XaiOAuthTokens,
-): { success: boolean; warning?: string } {
+export function persistXaiOAuthTokens(tokens: XaiOAuthTokens): {
+  success: boolean
+  warning?: string
+} {
   return saveXaiCredentials(toBlob(tokens, readXaiCredentials()))
 }
 

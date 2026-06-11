@@ -21,7 +21,10 @@ export function markForSnip(shortIds: string[], messages: any[]): UUID[] {
   const shortIdToUuid = new Map<string, UUID>()
   for (const msg of messages) {
     if (msg?.uuid) {
-      shortIdToUuid.set(deriveShortMessageId(msg.uuid as string), msg.uuid as UUID)
+      shortIdToUuid.set(
+        deriveShortMessageId(msg.uuid as string),
+        msg.uuid as UUID,
+      )
     }
   }
   const matched = new Set<UUID>()
@@ -61,21 +64,25 @@ export function shouldNudgeForSnips(messages: any[]): boolean {
   let accumulated = 0
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg?.type === 'system' && msg?.subtype === 'compact_boundary') return false
+    if (msg?.type === 'system' && msg?.subtype === 'compact_boundary')
+      return false
     if (msg?.snipMetadata) return false
     if (
       msg?.type === 'attachment' &&
       msg?.attachment?.type === 'context_efficiency'
-    ) return false
+    )
+      return false
     accumulated += estimateTokens(msg)
     if (accumulated >= NUDGE_INTERVAL_TOKENS) return true
   }
   return false
 }
 
-export function snipCompactIfNeeded(
-  messages: any[],
-): { messages: any[]; tokensFreed: number; boundaryMessage?: any } {
+export function snipCompactIfNeeded(messages: any[]): {
+  messages: any[]
+  tokensFreed: number
+  boundaryMessage?: any
+} {
   if (pendingSnipUuids.size === 0) {
     return { messages, tokensFreed: 0 }
   }
@@ -114,7 +121,8 @@ export function snipCompactIfNeeded(
     if (!Array.isArray(blocks)) continue
     if (msg?.type === 'assistant') {
       for (const block of blocks) {
-        if (block?.type === 'tool_use' && block?.id) snippedToolUseIds.add(block.id as string)
+        if (block?.type === 'tool_use' && block?.id)
+          snippedToolUseIds.add(block.id as string)
       }
     } else if (msg?.type === 'user') {
       for (const block of blocks) {
@@ -175,7 +183,9 @@ export function snipCompactIfNeeded(
       // tool_use, which the next API-prep pass repairs with a synthetic
       // placeholder, so the snip would not actually take effect. Keep it.
       if (msg?.type === 'user' && Array.isArray(msg?.message?.content)) {
-        const results = (msg.message.content as any[]).filter(b => b?.type === 'tool_result')
+        const results = (msg.message.content as any[]).filter(
+          b => b?.type === 'tool_result',
+        )
         if (
           results.length > 0 &&
           !results.every((r: any) => safeToolUseIds.has(r?.tool_use_id))

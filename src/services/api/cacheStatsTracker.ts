@@ -89,10 +89,7 @@ const state: TrackerState = createInitialState(DEFAULT_HISTORY_MAX)
  * O(1) via ring-buffer write — previously used `splice(0, n)` on overflow
  * which was O(n) per call for the default cap of 500.
  */
-export function recordRequest(
-  metrics: CacheMetrics,
-  label: string,
-): void {
+export function recordRequest(metrics: CacheMetrics, label: string): void {
   state.currentTurn = addCacheMetrics(state.currentTurn, metrics)
   state.session = addCacheMetrics(state.session, metrics)
   const entry: CacheStatsEntry = {
@@ -151,7 +148,10 @@ export function getCacheStatsHistory(): CacheStatsEntry[] {
   }
   // Wrapped: reconstruct oldest-first by concatenating the two halves.
   const tail = state.history.slice(state.historyWriteIdx) as CacheStatsEntry[]
-  const head = state.history.slice(0, state.historyWriteIdx) as CacheStatsEntry[]
+  const head = state.history.slice(
+    0,
+    state.historyWriteIdx,
+  ) as CacheStatsEntry[]
   return tail.concat(head)
 }
 

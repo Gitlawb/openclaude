@@ -9,7 +9,10 @@
 
 import { randomUUID } from 'crypto'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
-import type { PermissionDecision, PermissionMode } from '../../types/permissions.js'
+import type {
+  PermissionDecision,
+  PermissionMode,
+} from '../../types/permissions.js'
 import { hasPermissionsToUseTool } from '../../utils/permissions/permissions.js'
 import {
   getEmptyToolPermissionContext,
@@ -17,8 +20,14 @@ import {
   type Tool,
 } from '../../Tool.js'
 import { MCPTool } from '../../tools/MCPTool/MCPTool.js'
-import type { MCPServerConnection, ScopedMcpServerConfig } from '../../services/mcp/types.js'
-import { connectToServer, fetchToolsForClient } from '../../services/mcp/client.js'
+import type {
+  MCPServerConnection,
+  ScopedMcpServerConfig,
+} from '../../services/mcp/types.js'
+import {
+  connectToServer,
+  fetchToolsForClient,
+} from '../../services/mcp/client.js'
 import type {
   QueryPermissionMode,
   CanUseToolCallback,
@@ -108,7 +117,11 @@ export function createOnceOnlyResolve<T>(
 
 export type PermissionResolveDecision =
   | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
-  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
+  | {
+      behavior: 'deny'
+      message: string
+      decisionReason: { type: 'mode'; mode: string }
+    }
 
 // ============================================================================
 // PermissionTarget interface
@@ -120,15 +133,27 @@ export type PermissionResolveDecision =
  * without exposing internal pendingPermissionPrompts map.
  */
 export interface PermissionTarget {
-  registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>
+  registerPendingPermission(
+    toolUseId: string,
+  ): Promise<PermissionResolveDecision>
   deletePendingPermission(toolUseId: string): void
   denyPendingPermission(toolUseId: string, message: string): void
 }
 
-export function createPermissionTarget(): PermissionTarget & { pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }> } {
-  const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
+export function createPermissionTarget(): PermissionTarget & {
+  pendingPermissionPrompts: Map<
+    string,
+    { resolve: (decision: PermissionResolveDecision) => void }
+  >
+} {
+  const pendingPermissionPrompts = new Map<
+    string,
+    { resolve: (decision: PermissionResolveDecision) => void }
+  >()
 
-  const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
+  const registerPendingPermission = (
+    toolUseId: string,
+  ): Promise<PermissionResolveDecision> => {
     return new Promise(resolve => {
       // Apply onceOnlyResolve at registration time - this ensures both
       // timeout handler and host response use the same wrapped resolve,
@@ -189,7 +214,9 @@ function isDangerousPermissionMode(
   )
 }
 
-export function buildPermissionContext(options: PermissionContextOptions): ToolPermissionContext {
+export function buildPermissionContext(
+  options: PermissionContextOptions,
+): ToolPermissionContext {
   const base: ToolPermissionContext = getEmptyToolPermissionContext()
   const mode = options.permissionMode ?? 'default'
 
@@ -225,7 +252,10 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
   }
 
   // Wire additionalDirectories into the permission context
-  if (options.additionalDirectories && options.additionalDirectories.length > 0) {
+  if (
+    options.additionalDirectories &&
+    options.additionalDirectories.length > 0
+  ) {
     const dirsMap = base.additionalWorkingDirectories as Map<string, unknown>
     for (const dir of options.additionalDirectories) {
       dirsMap.set(dir, true)
@@ -284,7 +314,14 @@ export function createExternalCanUseTool(
     const resolved = typeof sessionId === 'function' ? sessionId() : sessionId
     return resolved ?? NO_SESSION_PLACEHOLDER
   }
-  return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision): Promise<PermissionDecision> => {
+  return async (
+    tool,
+    input,
+    toolUseContext,
+    assistantMessage,
+    toolUseID,
+    forceDecision,
+  ): Promise<PermissionDecision> => {
     // Cast input to ensure type compatibility with PermissionDecision
     const typedInput = input as Record<string, unknown>
     let effectiveInput = typedInput
@@ -319,15 +356,22 @@ export function createExternalCanUseTool(
       try {
         const result = await userFn(tool.name, effectiveInput, { toolUseID })
         if (result.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: (result.updatedInput as Record<string, unknown> | undefined) ?? effectiveInput }
+          return {
+            behavior: 'allow' as const,
+            updatedInput:
+              (result.updatedInput as Record<string, unknown> | undefined) ??
+              effectiveInput,
+          }
         }
         return {
           behavior: 'deny' as const,
-          message: result.message ?? `Tool ${tool.name} denied by canUseTool callback`,
+          message:
+            result.message ?? `Tool ${tool.name} denied by canUseTool callback`,
           decisionReason: { type: 'mode' as const, mode: 'default' },
         }
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown callback error'
+        const errorMessage =
+          err instanceof Error ? err.message : 'Unknown callback error'
         return {
           behavior: 'deny' as const,
           message: `Tool ${tool.name} denied (callback error: ${errorMessage})`,
@@ -345,7 +389,8 @@ export function createExternalCanUseTool(
       // Register pending permission BEFORE emitting the request so that
       // a host which responds synchronously from onPermissionRequest can
       // find the entry in pendingPermissionPrompts immediately.
-      const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
+      const pendingPromise =
+        permissionTarget.registerPendingPermission(toolUseID)
 
       // Wrap onPermissionRequest in try-catch since it's SDK-host-provided code.
       // If it throws, clean up the pending entry and deny/fallback cleanly.
@@ -361,7 +406,8 @@ export function createExternalCanUseTool(
         })
       } catch (err) {
         permissionTarget.deletePendingPermission(toolUseID)
-        const errorMessage = err instanceof Error ? err.message : 'Unknown host callback error'
+        const errorMessage =
+          err instanceof Error ? err.message : 'Unknown host callback error'
         return {
           behavior: 'deny' as const,
           message: `Tool ${tool.name} denied (onPermissionRequest callback error: ${errorMessage})`,
@@ -388,12 +434,18 @@ export function createExternalCanUseTool(
         // Convert PermissionResolveDecision to PermissionDecision
         const res = raceResult.result
         if (res.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: res.updatedInput ?? effectiveInput }
+          return {
+            behavior: 'allow' as const,
+            updatedInput: res.updatedInput ?? effectiveInput,
+          }
         }
         return {
           behavior: 'deny' as const,
           message: res.message,
-          decisionReason: { type: 'mode' as const, mode: res.decisionReason.mode as PermissionMode },
+          decisionReason: {
+            type: 'mode' as const,
+            mode: res.decisionReason.mode as PermissionMode,
+          },
         }
       }
 
@@ -410,8 +462,8 @@ export function createExternalCanUseTool(
       }
       log.warn(
         `[SDK] Permission request for tool "${tool.name}" timed out after ${timeoutMs}ms. ` +
-        'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
-        'messages within the timeout window.',
+          'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
+          'messages within the timeout window.',
       )
       permissionTarget.denyPendingPermission(
         toolUseID,
@@ -420,7 +472,14 @@ export function createExternalCanUseTool(
     }
 
     // No callback or no toolUseID — fall through to default permission logic
-    return fallback(tool, effectiveInput, toolUseContext, assistantMessage, toolUseID, forceDecision)
+    return fallback(
+      tool,
+      effectiveInput,
+      toolUseContext,
+      assistantMessage,
+      toolUseID,
+      forceDecision,
+    )
   }
 }
 
@@ -450,7 +509,11 @@ export async function connectSdkMcpServers(
   const results = await Promise.allSettled(
     Object.entries(mcpServers).map(async ([name, config]) => {
       // Validate config is a non-null object before spreading (arrays are objects but invalid for config)
-      if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+      if (
+        config === null ||
+        typeof config !== 'object' ||
+        Array.isArray(config)
+      ) {
         return {
           client: {
             type: 'failed' as const,
@@ -477,12 +540,23 @@ export async function connectSdkMcpServers(
           name: string
           description?: string
           inputSchema?: Record<string, unknown>
-          handler?: (args: unknown, extra: unknown) => Promise<{ content: unknown }>
-          annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean }
+          handler?: (
+            args: unknown,
+            extra: unknown,
+          ) => Promise<{ content: unknown }>
+          annotations?: {
+            readOnlyHint?: boolean
+            destructiveHint?: boolean
+            openWorldHint?: boolean
+          }
           searchHint?: string
           alwaysLoad?: boolean
         }
-        const sdkConfig = config as { type: 'sdk'; name: string; tools?: SdkToolDef[] }
+        const sdkConfig = config as {
+          type: 'sdk'
+          name: string
+          tools?: SdkToolDef[]
+        }
         const sdkToolDefs = sdkConfig.tools ?? []
         const convertedTools: Tool[] = sdkToolDefs.map(toolDef => ({
           ...MCPTool,
@@ -509,11 +583,26 @@ export async function connectSdkMcpServers(
           isOpenWorld() {
             return toolDef.annotations?.openWorldHint ?? false
           },
-          async call(args: Record<string, unknown>, context, _canUseTool, parentMessage, onProgress) {
+          async call(
+            args: Record<string, unknown>,
+            context,
+            _canUseTool,
+            parentMessage,
+            onProgress,
+          ) {
             if (!toolDef.handler) {
-              return { data: { type: 'text', text: `SDK tool ${toolDef.name} has no handler` } }
+              return {
+                data: {
+                  type: 'text',
+                  text: `SDK tool ${toolDef.name} has no handler`,
+                },
+              }
             }
-            const result = await toolDef.handler(args, { context, parentMessage, onProgress })
+            const result = await toolDef.handler(args, {
+              context,
+              parentMessage,
+              onProgress,
+            })
             return { data: result.content }
           },
         }))
@@ -527,14 +616,18 @@ export async function connectSdkMcpServers(
         // Connect to the server
         // Note: SDK 'session' scope is not part of internal ConfigScope,
         // but connectToServer accepts any object with scope field
-        const client = await connectToServer(name, scopedConfig as unknown as ScopedMcpServerConfig, {
-          totalServers: Object.keys(mcpServers).length,
-          stdioCount: 0,
-          sseCount: 0,
-          httpCount: 0,
-          sseIdeCount: 0,
-          wsIdeCount: 0,
-        })
+        const client = await connectToServer(
+          name,
+          scopedConfig as unknown as ScopedMcpServerConfig,
+          {
+            totalServers: Object.keys(mcpServers).length,
+            stdioCount: 0,
+            sseCount: 0,
+            httpCount: 0,
+            sseIdeCount: 0,
+            wsIdeCount: 0,
+          },
+        )
 
         // If connected, fetch tools
         if (client.type === 'connected') {
@@ -546,9 +639,8 @@ export async function connectSdkMcpServers(
         return { client, tools: [] }
       } catch (error) {
         // Connection failed, return failed client with error message
-        const errorMessage = error instanceof Error
-          ? error.message
-          : 'Unknown error'
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error'
         return {
           client: {
             type: 'failed' as const,
@@ -617,15 +709,19 @@ export function createDefaultCanUseTool(
   logger?: SDKLogger,
 ): CanUseToolFn {
   const log = logger ?? defaultLogger
-  return async (tool, input, toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
+  return async (
+    tool,
+    input,
+    toolUseContext,
+    _assistantMessage,
+    _toolUseID,
+    forceDecision,
+  ) => {
     const isFullAccessMode =
       typeof toolUseContext.getAppState === 'function' &&
       toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
     if (forceDecision) {
-      if (
-        forceDecision.behavior === 'ask' &&
-        isFullAccessMode
-      ) {
+      if (forceDecision.behavior === 'ask' && isFullAccessMode) {
         const fullAccessDecision = await hasPermissionsToUseTool(
           tool,
           forceDecision.updatedInput ?? input,
@@ -644,9 +740,9 @@ export function createDefaultCanUseTool(
       warnedDefaultPermissions = true
       log.warn(
         '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
-        'All tool uses will be DENIED by default. ' +
-        'Provide canUseTool in query options, e.g.: ' +
-        '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
+          'All tool uses will be DENIED by default. ' +
+          'Provide canUseTool in query options, e.g.: ' +
+          '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
       )
     }
     return {

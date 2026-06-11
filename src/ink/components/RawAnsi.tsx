@@ -1,14 +1,14 @@
-import { c as _c } from "react-compiler-runtime";
-import React from 'react';
+import { c as _c } from 'react-compiler-runtime'
+import React from 'react'
 type Props = {
   /**
    * Pre-rendered ANSI lines. Each element must be exactly one terminal row
    * (already wrapped to `width` by the producer) with ANSI escape codes inline.
    */
-  lines: string[];
+  lines: string[]
   /** Column width the producer wrapped to. Sent to Yoga as the fixed leaf width. */
-  width: number;
-};
+  width: number
+}
 
 /**
  * Bypass the <Ansi> → React tree → Yoga → squash → re-serialize roundtrip for
@@ -26,31 +26,28 @@ type Props = {
  * which already splits on '\n' and parses ANSI into the screen buffer.
  */
 export function RawAnsi(t0) {
-  const $ = _c(6);
-  const {
-    lines,
-    width
-  } = t0;
+  const $ = _c(6)
+  const { lines, width } = t0
   if (lines.length === 0) {
-    return null;
+    return null
   }
-  let t1;
+  let t1
   if ($[0] !== lines) {
-    t1 = lines.join("\n");
-    $[0] = lines;
-    $[1] = t1;
+    t1 = lines.join('\n')
+    $[0] = lines
+    $[1] = t1
   } else {
-    t1 = $[1];
+    t1 = $[1]
   }
-  let t2;
+  let t2
   if ($[2] !== lines.length || $[3] !== t1 || $[4] !== width) {
-    t2 = <ink-raw-ansi rawText={t1} rawWidth={width} rawHeight={lines.length} />;
-    $[2] = lines.length;
-    $[3] = t1;
-    $[4] = width;
-    $[5] = t2;
+    t2 = <ink-raw-ansi rawText={t1} rawWidth={width} rawHeight={lines.length} />
+    $[2] = lines.length
+    $[3] = t1
+    $[4] = width
+    $[5] = t2
   } else {
-    t2 = $[5];
+    t2 = $[5]
   }
-  return t2;
+  return t2
 }

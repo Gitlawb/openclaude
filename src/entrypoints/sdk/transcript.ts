@@ -42,19 +42,36 @@ export function parseJsonlEntries(text: string): JsonlEntry[] {
  */
 export function findLastCompactBoundary(entries: JsonlEntry[]): {
   index: number
-  preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null
+  preservedSegment: {
+    headUuid: string
+    tailUuid: string
+    anchorUuid: string
+  } | null
 } {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i]
-    if (e.type === 'system' && (e as Record<string, unknown>).subtype === 'compact_boundary') {
-      const meta = (e as Record<string, unknown>).compactMetadata as {
-        preservedSegment?: { headUuid?: string; tailUuid?: string; anchorUuid?: string }
-      } | undefined
+    if (
+      e.type === 'system' &&
+      (e as Record<string, unknown>).subtype === 'compact_boundary'
+    ) {
+      const meta = (e as Record<string, unknown>).compactMetadata as
+        | {
+            preservedSegment?: {
+              headUuid?: string
+              tailUuid?: string
+              anchorUuid?: string
+            }
+          }
+        | undefined
       const seg = meta?.preservedSegment
       if (seg?.headUuid && seg?.tailUuid && seg?.anchorUuid) {
         return {
           index: i,
-          preservedSegment: { headUuid: seg.headUuid, tailUuid: seg.tailUuid, anchorUuid: seg.anchorUuid },
+          preservedSegment: {
+            headUuid: seg.headUuid,
+            tailUuid: seg.tailUuid,
+            anchorUuid: seg.anchorUuid,
+          },
         }
       }
       return { index: i, preservedSegment: null }
@@ -166,7 +183,12 @@ export function stripExtraFields(
   return messages
     .filter(m => m.type !== 'system') // Filter out system entries
     .map(m => {
-      const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
+      const { isSidechain, parentUuid, logicalParentUuid, ...rest } =
+        m as Record<string, unknown> & {
+          isSidechain?: boolean
+          parentUuid?: string | null
+          logicalParentUuid?: string | null
+        }
       return rest
     })
 }

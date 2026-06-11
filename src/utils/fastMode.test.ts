@@ -42,7 +42,9 @@ async function installCommonMocks(options?: {
         ? async () => {
             throw new Error('network fail')
           }
-        : async () => ({ data: { enabled: false, disabled_reason: 'preference' } }),
+        : async () => ({
+            data: { enabled: false, disabled_reason: 'preference' },
+          }),
       isAxiosError: () => false,
     },
   }))
@@ -71,10 +73,8 @@ async function installCommonMocks(options?: {
     ) => defaultValue,
     checkGate_CACHED_OR_BLOCKING: async () => false,
     checkSecurityRestrictionGate: async () => false,
-    getFeatureValue_DEPRECATED: async (
-      _name: string,
-      defaultValue: unknown,
-    ) => defaultValue,
+    getFeatureValue_DEPRECATED: async (_name: string, defaultValue: unknown) =>
+      defaultValue,
     refreshGrowthBookAfterAuthChange: () => {},
     resetGrowthBook: () => {},
     refreshGrowthBookFeatures: async () => {},
@@ -94,14 +94,16 @@ async function installCommonMocks(options?: {
     CONSOLE_OAUTH_SCOPES: ['org:create_api_key', 'user:profile'],
     CLAUDE_AI_OAUTH_SCOPES: ['user:profile', 'user:inference'],
     ALL_OAUTH_SCOPES: ['org:create_api_key', 'user:profile', 'user:inference'],
-    MCP_CLIENT_METADATA_URL: 'https://claude.ai/oauth/claude-code-client-metadata',
+    MCP_CLIENT_METADATA_URL:
+      'https://claude.ai/oauth/claude-code-client-metadata',
     getOauthConfig: () => ({
       BASE_API_URL: 'https://api.anthropic.com',
       CONSOLE_AUTHORIZE_URL: 'https://platform.claude.com/oauth/authorize',
       CLAUDE_AI_AUTHORIZE_URL: 'https://claude.com/cai/oauth/authorize',
       CLAUDE_AI_ORIGIN: 'https://claude.ai',
       TOKEN_URL: 'https://platform.claude.com/v1/oauth/token',
-      API_KEY_URL: 'https://api.anthropic.com/api/oauth/claude_cli/create_api_key',
+      API_KEY_URL:
+        'https://api.anthropic.com/api/oauth/claude_cli/create_api_key',
       ROLES_URL: 'https://api.anthropic.com/api/oauth/claude_cli/roles',
       CONSOLE_SUCCESS_URL: 'https://platform.claude.com/oauth/code/success',
       CLAUDEAI_SUCCESS_URL: 'https://platform.claude.com/oauth/code/success',
@@ -249,10 +251,8 @@ describe('fastMode ant-only fallback cleanup', () => {
     forceFirstPartyProviderEnv()
     await installCommonMocks({ cachedEnabled: false })
 
-    const {
-      resolveFastModeStatusFromCache,
-      getFastModeUnavailableReason,
-    } = await importFreshFastModeModule()
+    const { resolveFastModeStatusFromCache, getFastModeUnavailableReason } =
+      await importFreshFastModeModule()
     await prepareFastModeTestState()
 
     resolveFastModeStatusFromCache()
@@ -265,12 +265,14 @@ describe('fastMode ant-only fallback cleanup', () => {
   test('prefetchFastModeStatus without auth does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
     forceFirstPartyProviderEnv()
-    await installCommonMocks({ cachedEnabled: false, apiKey: null, oauthToken: null })
+    await installCommonMocks({
+      cachedEnabled: false,
+      apiKey: null,
+      oauthToken: null,
+    })
 
-    const {
-      prefetchFastModeStatus,
-      getFastModeUnavailableReason,
-    } = await importFreshFastModeModule()
+    const { prefetchFastModeStatus, getFastModeUnavailableReason } =
+      await importFreshFastModeModule()
     await prepareFastModeTestState()
 
     await prefetchFastModeStatus()
@@ -289,10 +291,8 @@ describe('fastMode ant-only fallback cleanup', () => {
       axiosReject: true,
     })
 
-    const {
-      prefetchFastModeStatus,
-      getFastModeUnavailableReason,
-    } = await importFreshFastModeModule()
+    const { prefetchFastModeStatus, getFastModeUnavailableReason } =
+      await importFreshFastModeModule()
     await prepareFastModeTestState()
 
     await prefetchFastModeStatus()

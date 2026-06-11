@@ -2,10 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { getDefaultAppState, type AppState } from '../../state/AppStateStore.js'
 import { createGoalState, markGoalEvaluated } from './state.js'
-import {
-  evaluateGoalAfterTurn,
-  type GoalEvaluationDeps,
-} from './controller.js'
+import { evaluateGoalAfterTurn, type GoalEvaluationDeps } from './controller.js'
 import type { GoalState } from './types.js'
 import type { AssistantMessage } from '../../types/message.js'
 

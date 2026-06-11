@@ -38,7 +38,9 @@ function App() {
           <div className="nav-right">
             <div className="nav-links">
               {navLinks.map(l => (
-                <a key={l.href} href={l.href}>{l.label}</a>
+                <a key={l.href} href={l.href}>
+                  {l.label}
+                </a>
               ))}
             </div>
             <button
@@ -58,7 +60,11 @@ function App() {
       <main className="shell-main">
         <Hero />
 
-        <section id="features" className="features" aria-labelledby="features-heading">
+        <section
+          id="features"
+          className="features"
+          aria-labelledby="features-heading"
+        >
           <div className="section-head">
             <p className="eyebrow">// features</p>
             <h2 id="features-heading">built for agents that ship code.</h2>
@@ -73,7 +79,11 @@ function App() {
           </ul>
         </section>
 
-        <section id="install" className="install-block" aria-labelledby="install-heading">
+        <section
+          id="install"
+          className="install-block"
+          aria-labelledby="install-heading"
+        >
           <div className="section-head">
             <p className="eyebrow">// install</p>
             <h2 id="install-heading">one line. then write a task.</h2>
@@ -92,14 +102,19 @@ function App() {
                 <span className="step-num">02</span>
                 <div>
                   <strong>start</strong>
-                  <p>run <code>openclaude</code> in any repo.</p>
+                  <p>
+                    run <code>openclaude</code> in any repo.
+                  </p>
                 </div>
               </li>
               <li>
                 <span className="step-num">03</span>
                 <div>
                   <strong>pick a provider</strong>
-                  <p>type <code>/provider</code> to wire openai, ollama, gemini, or a gateway.</p>
+                  <p>
+                    type <code>/provider</code> to wire openai, ollama, gemini,
+                    or a gateway.
+                  </p>
                 </div>
               </li>
             </ol>
@@ -117,7 +132,9 @@ function App() {
           <span className="sep">|</span>
           <a href="https://gitlawb.com">gitlawb ↗</a>
           <span className="sep">|</span>
-          <a href="https://github.com/Gitlawb/openclaude/blob/main/LICENSE">license</a>
+          <a href="https://github.com/Gitlawb/openclaude/blob/main/LICENSE">
+            license
+          </a>
           <span className="sep">·</span>
           <span>{new Date().getFullYear()}</span>
         </div>
@@ -135,24 +152,30 @@ function Hero() {
       </div>
 
       <h1 id="hero-heading" className="hero-title">
-        runs anywhere.<br />
+        runs anywhere.
+        <br />
         uses anything.
       </h1>
 
       <p className="hero-sub">
-        not a chatbot wrapper or another ide plugin. an open coding agent that runs in your
-        terminal, talks to any model, and keeps every change reviewable.
+        not a chatbot wrapper or another ide plugin. an open coding agent that
+        runs in your terminal, talks to any model, and keeps every change
+        reviewable.
       </p>
 
       <div className="hero-cta">
         <CopyableCommand command={installCommand} variant="hero" />
-        <a className="button button-ghost" href="https://github.com/Gitlawb/openclaude">
+        <a
+          className="button button-ghost"
+          href="https://github.com/Gitlawb/openclaude"
+        >
           view on github →
         </a>
       </div>
 
       <p className="hero-foot">
-        works with openai, gemini, codex, ollama, lm studio, litellm, and 200+ models.
+        works with openai, gemini, codex, ollama, lm studio, litellm, and 200+
+        models.
       </p>
     </section>
   )
@@ -181,7 +204,9 @@ function CopyableCommand({
     <button
       type="button"
       onClick={onCopy}
-      className={['copy-cmd', variant === 'hero' ? 'copy-cmd-hero' : ''].filter(Boolean).join(' ')}
+      className={['copy-cmd', variant === 'hero' ? 'copy-cmd-hero' : '']
+        .filter(Boolean)
+        .join(' ')}
       aria-label={`copy install command: ${command}`}
     >
       <span className="copy-prefix">$</span>

@@ -3,7 +3,7 @@ import { DiagnosticTrackingService } from './diagnosticTracking.js'
 import type { MCPServerConnection } from './mcp/types.js'
 
 // Mock the IDE client utility
-const mockGetConnectedIdeClient = (clients: MCPServerConnection[]) => 
+const mockGetConnectedIdeClient = (clients: MCPServerConnection[]) =>
   clients.find(client => client.type === 'connected')
 
 describe('DiagnosticTrackingService', () => {
@@ -14,7 +14,7 @@ describe('DiagnosticTrackingService', () => {
   beforeEach(() => {
     // Get fresh instance for each test
     service = DiagnosticTrackingService.getInstance()
-    
+
     // Setup mock clients
     mockIdeClient = {
       type: 'connected',
@@ -30,7 +30,11 @@ describe('DiagnosticTrackingService', () => {
     } as unknown as MCPServerConnection
 
     mockClients = [
-      { type: 'disconnected', name: 'test-disconnected', config: {} } as unknown as MCPServerConnection,
+      {
+        type: 'disconnected',
+        name: 'test-disconnected',
+        config: {},
+      } as unknown as MCPServerConnection,
       mockIdeClient,
     ]
   })
@@ -55,10 +59,10 @@ describe('DiagnosticTrackingService', () => {
     test('should reset service if already initialized', async () => {
       // Initialize first
       await service.handleQueryStart(mockClients)
-      
+
       // Call again - should reset without error
       await service.handleQueryStart(mockClients)
-      
+
       // Should still work
       const result = await service.getNewDiagnosticsCompat()
       expect(result).toEqual([])
@@ -90,7 +94,10 @@ describe('DiagnosticTrackingService', () => {
   describe('new explicit client methods', () => {
     test('beforeFileEdited should require client parameter', async () => {
       // Should not work without client
-      const result = await service.beforeFileEdited('/test/file.ts', undefined as any)
+      const result = await service.beforeFileEdited(
+        '/test/file.ts',
+        undefined as any,
+      )
       expect(result).toBeUndefined()
     })
 
@@ -102,7 +109,10 @@ describe('DiagnosticTrackingService', () => {
 
     test('ensureFileOpened should require client parameter', async () => {
       // Should not work without client
-      const result = await service.ensureFileOpened('/test/file.ts', undefined as any)
+      const result = await service.ensureFileOpened(
+        '/test/file.ts',
+        undefined as any,
+      )
       expect(result).toBeUndefined()
     })
   })
@@ -110,14 +120,14 @@ describe('DiagnosticTrackingService', () => {
   describe('shutdown', () => {
     test('should clear stored clients on shutdown', async () => {
       await service.handleQueryStart(mockClients)
-      
+
       // Verify service is working
       const beforeResult = await service.getNewDiagnosticsCompat()
       expect(Array.isArray(beforeResult)).toBe(true)
-      
+
       // Shutdown
       await service.shutdown()
-      
+
       // After shutdown, compat methods should return empty results
       const afterResult = await service.getNewDiagnosticsCompat()
       expect(afterResult).toEqual([])
@@ -127,10 +137,10 @@ describe('DiagnosticTrackingService', () => {
   describe('integration with existing functionality', () => {
     test('should maintain existing diagnostic tracking behavior', async () => {
       await service.handleQueryStart(mockClients)
-      
+
       // Test baseline tracking
       await service.beforeFileEditedCompat('/test/file.ts')
-      
+
       // Test getting new diagnostics (should be empty since no IDE client is actually connected)
       const newDiagnostics = await service.getNewDiagnosticsCompat()
       expect(Array.isArray(newDiagnostics)).toBe(true)
@@ -139,11 +149,15 @@ describe('DiagnosticTrackingService', () => {
     test('should handle missing IDE client gracefully', async () => {
       // Test with no connected clients
       const noIdeClients = [
-        { type: 'disconnected', name: 'test-disconnected-2', config: {} } as unknown as MCPServerConnection,
+        {
+          type: 'disconnected',
+          name: 'test-disconnected-2',
+          config: {},
+        } as unknown as MCPServerConnection,
       ]
-      
+
       await service.handleQueryStart(noIdeClients)
-      
+
       // Should handle gracefully
       const result = await service.getNewDiagnosticsCompat()
       expect(result).toEqual([])

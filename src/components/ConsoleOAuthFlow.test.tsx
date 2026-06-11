@@ -90,7 +90,9 @@ async function renderFrame(node: React.ReactNode): Promise<string> {
   try {
     return await waitForOutput(
       getOutput,
-      output => output.includes('Select login method:') || output.includes('Set up provider'),
+      output =>
+        output.includes('Select login method:') ||
+        output.includes('Set up provider'),
     )
   } finally {
     root.unmount()

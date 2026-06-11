@@ -93,7 +93,11 @@ test('falls through to system rg as a last resort even when not on PATH', () => 
 test('wrapRipgrepUnavailableError explains missing packaged fallback', () => {
   const error = wrapRipgrepUnavailableError(
     { code: 'ENOENT', message: 'spawn rg ENOENT' },
-    { mode: 'builtin', command: 'C:\\fake\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe', args: [] },
+    {
+      mode: 'builtin',
+      command: 'C:\\fake\\node_modules\\@vscode\\ripgrep\\bin\\rg.exe',
+      args: [],
+    },
     'win32',
   )
 

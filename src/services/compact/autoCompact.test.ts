@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import {
   acquireSharedMutationLock,
@@ -65,14 +58,10 @@ const SAVED_ENV = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   USER_TYPE: process.env.USER_TYPE,
-  CLAUDE_CODE_MAX_CONTEXT_TOKENS:
-    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
-  CLAUDE_CODE_AUTO_COMPACT_WINDOW:
-    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
-  CLAUDE_CODE_MAX_OUTPUT_TOKENS:
-    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
-  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
-    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
   OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS:
     process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
@@ -255,10 +244,8 @@ describe('getAutoCompactFailureCooldownMs', () => {
   })
 
   test('ignores partial or invalid override values', async () => {
-    const {
-      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
-      getAutoCompactFailureCooldownMs,
-    } = await importAutoCompact()
+    const { AUTOCOMPACT_FAILURE_COOLDOWN_MS, getAutoCompactFailureCooldownMs } =
+      await importAutoCompact()
 
     process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000ms'
     expect(getAutoCompactFailureCooldownMs()).toBe(
@@ -343,8 +330,7 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
       }),
     ).toEqual({
       action: 'allow',
-      effectiveConsecutiveFailures:
-        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      effectiveConsecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
       wasHalfOpen: true,
     })
   })
@@ -375,32 +361,29 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
   test.each([
     ['NaN', Number.NaN],
     ['Infinity', Number.POSITIVE_INFINITY],
-  ])(
-    'derives active cooldown from failure time when retry time is %s',
-    async (_label, nextRetryAtMs) => {
-      const {
-        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-        resolveAutoCompactCircuitBreakerState,
-      } = await importAutoCompact()
+  ])('derives active cooldown from failure time when retry time is %s', async (_label, nextRetryAtMs) => {
+    const {
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      resolveAutoCompactCircuitBreakerState,
+    } = await importAutoCompact()
 
-      expect(
-        resolveAutoCompactCircuitBreakerState({
-          tracking: {
-            consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-            nextRetryAtMs,
-            lastFailureAtMs: 5_000,
-          },
-          nowMs: 11_000,
-          cooldownMs: 7_000,
-        }),
-      ).toEqual({
-        action: 'skip',
-        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-        nextRetryAtMs: 12_000,
-        circuitBreakerActive: true,
-      })
-    },
-  )
+    expect(
+      resolveAutoCompactCircuitBreakerState({
+        tracking: {
+          consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+          nextRetryAtMs,
+          lastFailureAtMs: 5_000,
+        },
+        nowMs: 11_000,
+        cooldownMs: 7_000,
+      }),
+    ).toEqual({
+      action: 'skip',
+      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      nextRetryAtMs: 12_000,
+      circuitBreakerActive: true,
+    })
+  })
 
   test('uses explicit retry time before deriving cooldown from failure time', async () => {
     const {
@@ -420,8 +403,7 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
       }),
     ).toEqual({
       action: 'allow',
-      effectiveConsecutiveFailures:
-        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      effectiveConsecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
       wasHalfOpen: true,
     })
   })
@@ -443,8 +425,7 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
       }),
     ).toEqual({
       action: 'allow',
-      effectiveConsecutiveFailures:
-        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
+      effectiveConsecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES - 1,
       wasHalfOpen: true,
     })
   })
@@ -461,13 +442,11 @@ describe('autoCompactIfNeeded circuit breaker', () => {
       throw new Error('provider down')
     })
     const trySessionMemoryCompaction = mock(async () => null)
-    const {
-      autoCompactIfNeeded,
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-    } = await importAutoCompact({
-      compactConversation,
-      trySessionMemoryCompaction,
-    })
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
 
     const messages = overThresholdMessages()
     let tracking: {
@@ -521,13 +500,11 @@ describe('autoCompactIfNeeded circuit breaker', () => {
   test('active cooldown skips compaction attempts', async () => {
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
-    const {
-      autoCompactIfNeeded,
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-    } = await importAutoCompact({
-      compactConversation,
-      trySessionMemoryCompaction,
-    })
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
 
     const messages = overThresholdMessages()
     const result = await autoCompactIfNeeded(
@@ -553,13 +530,11 @@ describe('autoCompactIfNeeded circuit breaker', () => {
   test('expired cooldown allows a half-open compaction attempt', async () => {
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
-    const {
-      autoCompactIfNeeded,
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-    } = await importAutoCompact({
-      compactConversation,
-      trySessionMemoryCompaction,
-    })
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
 
     const messages = overThresholdMessages()
     const result = await autoCompactIfNeeded(
@@ -587,13 +562,11 @@ describe('autoCompactIfNeeded circuit breaker', () => {
       throw new Error('still broken')
     })
     const trySessionMemoryCompaction = mock(async () => null)
-    const {
-      autoCompactIfNeeded,
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-    } = await importAutoCompact({
-      compactConversation,
-      trySessionMemoryCompaction,
-    })
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
 
     const messages = overThresholdMessages()
     const result = await autoCompactIfNeeded(
@@ -689,13 +662,11 @@ describe('autoCompactIfNeeded circuit breaker', () => {
       throw new Error(USER_ABORT_MESSAGE)
     })
     const trySessionMemoryCompaction = mock(async () => null)
-    const {
-      autoCompactIfNeeded,
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-    } = await importAutoCompact({
-      compactConversation,
-      trySessionMemoryCompaction,
-    })
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
 
     const messages = overThresholdMessages()
     const result = await autoCompactIfNeeded(
@@ -724,13 +695,11 @@ describe('autoCompactIfNeeded circuit breaker', () => {
   test('below-threshold conversations clear stale breaker state', async () => {
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
-    const {
-      autoCompactIfNeeded,
-      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-    } = await importAutoCompact({
-      compactConversation,
-      trySessionMemoryCompaction,
-    })
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
 
     const messages = underThresholdMessages()
     const result = await autoCompactIfNeeded(

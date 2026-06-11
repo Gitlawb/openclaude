@@ -5,7 +5,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 export const jinaProvider: SearchProvider = {
   name: 'jina',
@@ -14,7 +18,10 @@ export const jinaProvider: SearchProvider = {
     return Boolean(process.env.JINA_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const url = new URL('https://s.jina.ai/')
@@ -30,7 +37,9 @@ export const jinaProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`Jina search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Jina search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

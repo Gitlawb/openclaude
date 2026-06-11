@@ -19,9 +19,8 @@ describe('projectInstructions', () => {
       join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE),
     ])
 
-    const filePath = getProjectInstructionFilePath(
-      dir,
-      path => existingPaths.has(path),
+    const filePath = getProjectInstructionFilePath(dir, path =>
+      existingPaths.has(path),
     )
 
     expect(filePath).toBe(join(dir, PRIMARY_PROJECT_INSTRUCTION_FILE))
@@ -29,11 +28,12 @@ describe('projectInstructions', () => {
 
   test('falls back to CLAUDE.md when AGENTS.md is absent', () => {
     const dir = '/repo'
-    const existingPaths = new Set([join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE)])
+    const existingPaths = new Set([
+      join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE),
+    ])
 
-    const filePath = getProjectInstructionFilePath(
-      dir,
-      path => existingPaths.has(path),
+    const filePath = getProjectInstructionFilePath(dir, path =>
+      existingPaths.has(path),
     )
 
     expect(filePath).toBe(join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE))
@@ -52,9 +52,9 @@ describe('projectInstructions', () => {
     const dir = '/repo'
     const existingPaths = new Set([join(dir, PRIMARY_PROJECT_INSTRUCTION_FILE)])
 
-    expect(hasProjectInstructionFile(dir, path => existingPaths.has(path))).toBe(
-      true,
-    )
+    expect(
+      hasProjectInstructionFile(dir, path => existingPaths.has(path)),
+    ).toBe(true)
     expect(hasProjectInstructionFile(dir, () => false)).toBe(false)
   })
 
@@ -62,21 +62,22 @@ describe('projectInstructions', () => {
     expect(isProjectInstructionFileName(PRIMARY_PROJECT_INSTRUCTION_FILE)).toBe(
       true,
     )
-    expect(isProjectInstructionFileName(FALLBACK_PROJECT_INSTRUCTION_FILE)).toBe(
-      true,
-    )
+    expect(
+      isProjectInstructionFileName(FALLBACK_PROJECT_INSTRUCTION_FILE),
+    ).toBe(true)
     expect(isProjectInstructionFileName('README.md')).toBe(false)
   })
 
   test('finds repo instructions in ancestor directories', () => {
     const repoDir = '/repo'
     const nestedDir = join(repoDir, 'packages', 'app')
-    const existingPaths = new Set([join(repoDir, PRIMARY_PROJECT_INSTRUCTION_FILE)])
+    const existingPaths = new Set([
+      join(repoDir, PRIMARY_PROJECT_INSTRUCTION_FILE),
+    ])
 
     expect(
-      findProjectInstructionFilePathInAncestors(
-        nestedDir,
-        path => existingPaths.has(path),
+      findProjectInstructionFilePathInAncestors(nestedDir, path =>
+        existingPaths.has(path),
       ),
     ).toBe(join(repoDir, PRIMARY_PROJECT_INSTRUCTION_FILE))
   })
@@ -99,7 +100,10 @@ describe('projectInstructions', () => {
 
   test('returns null when no ancestor repo instruction file exists', () => {
     expect(
-      findProjectInstructionFilePathInAncestors('/repo/packages/app', () => false),
+      findProjectInstructionFilePathInAncestors(
+        '/repo/packages/app',
+        () => false,
+      ),
     ).toBeNull()
   })
 })

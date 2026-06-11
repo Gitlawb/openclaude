@@ -47,7 +47,9 @@ describe('preconnectAnthropicApi', () => {
   // mock from another test file (e.g. fastMode) would otherwise force
   // getAPIProvider() to 'firstParty' here and break these assertions.
   test('does not fetch when OpenAI mode is enabled', async () => {
-    const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    const fetchMock = mock(() =>
+      Promise.resolve(new Response(null, { status: 200 })),
+    )
     globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
@@ -57,7 +59,9 @@ describe('preconnectAnthropicApi', () => {
   })
 
   test('does not fetch when Gemini mode is enabled', async () => {
-    const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    const fetchMock = mock(() =>
+      Promise.resolve(new Response(null, { status: 200 })),
+    )
     globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
@@ -67,7 +71,9 @@ describe('preconnectAnthropicApi', () => {
   })
 
   test('does not fetch when GitHub mode is enabled', async () => {
-    const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    const fetchMock = mock(() =>
+      Promise.resolve(new Response(null, { status: 200 })),
+    )
     globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
@@ -107,7 +113,9 @@ describe('preconnectAnthropicApi', () => {
       ...actualProviders,
       getAPIProvider: () => 'firstParty',
     }))
-    const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    const fetchMock = mock(() =>
+      Promise.resolve(new Response(null, { status: 200 })),
+    )
     globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()

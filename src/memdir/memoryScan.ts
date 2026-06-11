@@ -46,7 +46,7 @@ export async function scanMemoryFiles(
       f =>
         f.endsWith('.md') &&
         basename(f) !== 'MEMORY.md' &&
-        (f.split(sep).length - 1) < MAX_DEPTH,
+        f.split(sep).length - 1 < MAX_DEPTH,
     )
 
     const headerResults = await Promise.allSettled(

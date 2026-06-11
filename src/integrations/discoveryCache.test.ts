@@ -106,9 +106,7 @@ describe('discovery cache storage', () => {
 
     await recordDiscoveryError('openrouter', new Error('discovery failed'))
 
-    const raw = JSON.parse(
-      readFileSync(getDiscoveryCachePath(), 'utf-8'),
-    ) as {
+    const raw = JSON.parse(readFileSync(getDiscoveryCachePath(), 'utf-8')) as {
       entries: Record<
         string,
         {
@@ -141,9 +139,7 @@ describe('discovery cache storage', () => {
   test('recordDiscoveryError stores error-only entry when no cache exists', async () => {
     await recordDiscoveryError('lmstudio', 'boom')
 
-    const raw = JSON.parse(
-      readFileSync(getDiscoveryCachePath(), 'utf-8'),
-    ) as {
+    const raw = JSON.parse(readFileSync(getDiscoveryCachePath(), 'utf-8')) as {
       entries: Record<
         string,
         {
@@ -235,7 +231,9 @@ describe('discovery cache write safety', () => {
 
     await Promise.all([
       setCachedModels('ollama', { models: [createModel('llama3')] }),
-      setCachedModels('openrouter', { models: [createModel('openai/gpt-5-mini')] }),
+      setCachedModels('openrouter', {
+        models: [createModel('openai/gpt-5-mini')],
+      }),
       setCachedModels('atomic-chat', { models: [createModel('qwen3')] }),
     ])
 

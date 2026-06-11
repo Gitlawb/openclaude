@@ -114,7 +114,8 @@ export function createRemotePermissionQueueItem({
   return {
     assistantMessage: createSyntheticAssistantMessage(request, requestId),
     tool,
-    description: request.description ?? `${request.tool_name} requires permission`,
+    description:
+      request.description ?? `${request.tool_name} requires permission`,
     input: request.input,
     toolUseContext: {} as ToolUseConfirm['toolUseContext'],
     toolUseID: request.tool_use_id,

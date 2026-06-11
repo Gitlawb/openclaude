@@ -13,7 +13,10 @@ import { getGraphemeSegmenter } from './intl.js'
  * @param maxLength Maximum display width of the result in terminal columns (must be > 0)
  * @returns The truncated path, or original if it fits within maxLength
  */
-export function truncatePathMiddle(path: string | undefined, maxLength: number): string {
+export function truncatePathMiddle(
+  path: string | undefined,
+  maxLength: number,
+): string {
   const safePath = path ?? ''
   // No truncation needed
   if (stringWidth(safePath) <= maxLength) {
@@ -61,7 +64,10 @@ export function truncatePathMiddle(path: string | undefined, maxLength: number):
  * Splits on grapheme boundaries to avoid breaking emoji or surrogate pairs.
  * Appends '…' when truncation occurs.
  */
-export function truncateToWidth(text: string | undefined, maxWidth: number): string {
+export function truncateToWidth(
+  text: string | undefined,
+  maxWidth: number,
+): string {
   const safeText = text ?? ''
   if (stringWidth(safeText) <= maxWidth) return safeText
   if (maxWidth <= 1) return '…'
@@ -81,7 +87,10 @@ export function truncateToWidth(text: string | undefined, maxWidth: number): str
  * Prepends '…' when truncation occurs.
  * Width-aware and grapheme-safe.
  */
-export function truncateStartToWidth(text: string | undefined, maxWidth: number): string {
+export function truncateStartToWidth(
+  text: string | undefined,
+  maxWidth: number,
+): string {
   const safeText = text ?? ''
   if (stringWidth(safeText) <= maxWidth) return safeText
   if (maxWidth <= 1) return '…'

@@ -34,7 +34,8 @@ afterEach(() => {
       originalSandboxMethods.isAutoAllowBashIfSandboxedEnabled
     SandboxManager.areUnsandboxedCommandsAllowed =
       originalSandboxMethods.areUnsandboxedCommandsAllowed
-    SandboxManager.getExcludedCommands = originalSandboxMethods.getExcludedCommands
+    SandboxManager.getExcludedCommands =
+      originalSandboxMethods.getExcludedCommands
     if (hadOriginalMacro) {
       ;(globalThis as Record<string, unknown>).MACRO = originalMacro
     } else {

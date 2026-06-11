@@ -9,7 +9,8 @@ describe('sanitizeSchemaForOpenAICompat', () => {
       properties: {
         pattern: {
           type: 'string',
-          description: 'The regular expression pattern to search for in file contents',
+          description:
+            'The regular expression pattern to search for in file contents',
         },
         path: { type: 'string' },
         glob: { type: 'string' },
@@ -18,12 +19,15 @@ describe('sanitizeSchemaForOpenAICompat', () => {
     }
 
     const sanitized = sanitizeSchemaForOpenAICompat(schema)
-    const properties = sanitized.properties as Record<string, unknown> | undefined
+    const properties = sanitized.properties as
+      | Record<string, unknown>
+      | undefined
 
     expect(Object.keys(properties ?? {})).toEqual(['pattern', 'path', 'glob'])
     expect(properties?.pattern).toEqual({
       type: 'string',
-      description: 'The regular expression pattern to search for in file contents',
+      description:
+        'The regular expression pattern to search for in file contents',
     })
     expect(sanitized.required).toEqual(['pattern'])
   })
@@ -42,7 +46,9 @@ describe('sanitizeSchemaForOpenAICompat', () => {
     }
 
     const sanitized = sanitizeSchemaForOpenAICompat(schema)
-    const properties = sanitized.properties as Record<string, unknown> | undefined
+    const properties = sanitized.properties as
+      | Record<string, unknown>
+      | undefined
 
     expect(Object.keys(properties ?? {})).toEqual(['pattern', 'path'])
     expect(properties?.pattern).toEqual({

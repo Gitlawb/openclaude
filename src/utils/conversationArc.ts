@@ -14,7 +14,7 @@ import {
   getGlobalGraph,
   getGlobalGraphSummary,
   getOrchestratedMemory,
-  extractKeywords
+  extractKeywords,
 } from './knowledgeGraph.js'
 
 // ... (Goal, Decision, Milestone interfaces)
@@ -26,12 +26,18 @@ export async function finalizeArcTurn(): Promise<void> {
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
   const graph = getGlobalGraph()
   // Heuristic to detect new facts: entities added after arc start
-  const newFacts = Object.values(graph.entities).filter(e =>
-    e.id.includes(String(arc.id.split('_')[1])) ||
-    graph.lastUpdateTime > arc.startTime
+  const newFacts = Object.values(graph.entities).filter(
+    e =>
+      e.id.includes(String(arc.id.split('_')[1])) ||
+      graph.lastUpdateTime > arc.startTime,
   )
 
-  if (completedGoals.length === 0 && arc.decisions.length === 0 && newFacts.length === 0) return
+  if (
+    completedGoals.length === 0 &&
+    arc.decisions.length === 0 &&
+    newFacts.length === 0
+  )
+    return
 
   // Generate a concise summary of what was learned/done
   let summaryContent = `In session ${arc.id}: `
@@ -78,7 +84,12 @@ export interface ConversationArc {
   goals: Goal[]
   decisions: Decision[]
   milestones: Milestone[]
-  currentPhase: 'init' | 'exploring' | 'implementing' | 'reviewing' | 'completed'
+  currentPhase:
+    | 'init'
+    | 'exploring'
+    | 'implementing'
+    | 'reviewing'
+    | 'completed'
   startTime: number
   lastUpdateTime: number
 }
@@ -86,7 +97,15 @@ export interface ConversationArc {
 const ARC_KEYWORDS = {
   init: ['start', 'begin', 'help', 'please'],
   exploring: ['check', 'find', 'look', 'what', 'how', 'where', 'show'],
-  implementing: ['write', 'create', 'add', 'fix', 'update', 'modify', 'implement'],
+  implementing: [
+    'write',
+    'create',
+    'add',
+    'fix',
+    'update',
+    'modify',
+    'implement',
+  ],
   reviewing: ['test', 'review', 'verify', 'check', 'ensure'],
   completed: ['done', 'complete', 'finished', 'ready', 'good'],
 }
@@ -120,7 +139,9 @@ function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
-      .filter((block: any) => block.type === 'text' && typeof block.text === 'string')
+      .filter(
+        (block: any) => block.type === 'text' && typeof block.text === 'string',
+      )
       .map((block: any) => block.text)
       .join('\\n')
   }
@@ -146,24 +167,36 @@ async function extractFactsAutomatically(content: string): Promise<void> {
   const promises: Promise<any>[] = []
 
   // 1. Detect Environment Variables (KEY=VALUE)
-  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
+  const envMatches = content.matchAll(
+    /(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g,
+  )
   for (const match of envMatches) {
-    promises.push(addGlobalEntity('environment_variable', match[1], { value: match[2] }))
+    promises.push(
+      addGlobalEntity('environment_variable', match[1], { value: match[2] }),
+    )
   }
 
   // 2. Detect Absolute Paths
   const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
   for (const match of pathMatches) {
     const path = match[1]
-    if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
+    if (
+      path.length > 8 &&
+      !path.includes('node_modules') &&
+      !path.includes('://')
+    ) {
       promises.push(addGlobalEntity('path', path, { type: 'absolute' }))
     }
   }
 
   // 3. Detect Versions
-  const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
+  const versionMatches = content.matchAll(
+    /(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi,
+  )
   for (const match of versionMatches) {
-    promises.push(addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] }))
+    promises.push(
+      addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] }),
+    )
   }
 
   // 4. Detect Hostnames/URLs
@@ -172,7 +205,9 @@ async function extractFactsAutomatically(content: string): Promise<void> {
     try {
       const url = new URL(match[1])
       if (url.hostname.includes('.')) {
-        promises.push(addGlobalEntity('endpoint', url.hostname, { url: url.toString() }))
+        promises.push(
+          addGlobalEntity('endpoint', url.hostname, { url: url.toString() }),
+        )
       }
     } catch {
       /* ignore */
@@ -180,14 +215,17 @@ async function extractFactsAutomatically(content: string): Promise<void> {
   }
 
   // 5. Detect IPv4
-  const ipMatches = content.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
+  const ipMatches = content.matchAll(
+    /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g,
+  )
   for (const match of ipMatches) {
     const ip = match[1]
     const context = content.toLowerCase()
     const tags: Record<string, string> = { type: 'ipv4' }
 
     // Contextual tagging: if 'database' or 'prod' is nearby, tag the IP
-    if (context.includes('database') || context.includes('db')) tags.role = 'database'
+    if (context.includes('database') || context.includes('db'))
+      tags.role = 'database'
     if (context.includes('prod')) tags.env = 'production'
     if (context.includes('worker')) tags.role = 'worker'
 
@@ -212,8 +250,12 @@ async function extractFactsAutomatically(content: string): Promise<void> {
   )
   for (const match of technicalMatches) {
     const word = match[1]
-    if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
-      promises.push(addGlobalEntity('concept', word, { source: 'auto_discovery' }))
+    if (
+      !['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)
+    ) {
+      promises.push(
+        addGlobalEntity('concept', word, { source: 'auto_discovery' }),
+      )
     }
   }
 
@@ -238,15 +280,27 @@ async function extractFactsAutomatically(content: string): Promise<void> {
 
   // E. Direct Tech detection for UI/State
   if (content.toLowerCase().includes('redux'))
-    promises.push(addGlobalEntity('technology', 'Redux', { category: 'state_management' }))
+    promises.push(
+      addGlobalEntity('technology', 'Redux', { category: 'state_management' }),
+    )
   if (content.toLowerCase().includes('react'))
-    promises.push(addGlobalEntity('technology', 'React', { category: 'frontend' }))
+    promises.push(
+      addGlobalEntity('technology', 'React', { category: 'frontend' }),
+    )
 
   // F. Project File Signatures
-  if (content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)) {
-    const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+  if (
+    content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)
+  ) {
+    const fileMatches = content.matchAll(
+      /\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi,
+    )
     for (const match of fileMatches) {
-      promises.push(addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' }))
+      promises.push(
+        addGlobalEntity('project_file', match[1].toLowerCase(), {
+          category: 'configuration',
+        }),
+      )
     }
   }
 
@@ -264,7 +318,13 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
     // Phase detection
     const detected = detectPhase(content)
     if (detected && detected !== arc.currentPhase) {
-      const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
+      const phaseOrder = [
+        'init',
+        'exploring',
+        'implementing',
+        'reviewing',
+        'completed',
+      ]
       const oldIdx = phaseOrder.indexOf(arc.currentPhase)
       const newIdx = phaseOrder.indexOf(detected)
 
@@ -353,7 +413,9 @@ export async function getArcSummary(query?: string): Promise<string> {
   const arc = getArc()
   if (!arc) return 'No conversation arc'
 
-  const activeGoals = arc.goals.filter(g => g.status === 'active' || g.status === 'pending')
+  const activeGoals = arc.goals.filter(
+    g => g.status === 'active' || g.status === 'pending',
+  )
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
 
   let summary = `Phase: ${arc.currentPhase}\\n`

@@ -97,8 +97,10 @@ const discoverWorkspaceExtensions = async (pathspec?: string) =>
       ? []
       : ['.ts']
 
-const { discoverWorkspaceExtensions: discoverRealWorkspaceExtensions, runLspCommand } =
-  await import('./lsp.js')
+const {
+  discoverWorkspaceExtensions: discoverRealWorkspaceExtensions,
+  runLspCommand,
+} = await import('./lsp.js')
 
 const EMPTY_CONTEXT = {
   setAppState: () => {},
@@ -347,11 +349,7 @@ describe('/lsp recommend', () => {
   })
 
   test('filters noisy workspace extensions and reports matched candidate extensions', async () => {
-    deps.discoverWorkspaceExtensions = async () => [
-      '.ts',
-      '.png',
-      '.woff2',
-    ]
+    deps.discoverWorkspaceExtensions = async () => ['.ts', '.png', '.woff2']
     candidates = [
       {
         pluginId: 'typescript-lsp@claude-plugins-official',
@@ -383,7 +381,10 @@ describe('/lsp recommend', () => {
       await writeFile(join(tempDir, 'src', 'style.css'), '.root {}\n')
       await writeFile(join(tempDir, 'logo.png'), '')
 
-      const extensions = await discoverRealWorkspaceExtensions(undefined, tempDir)
+      const extensions = await discoverRealWorkspaceExtensions(
+        undefined,
+        tempDir,
+      )
 
       expect(extensions).toContain('.ts')
       expect(extensions).toContain('.css')
@@ -448,9 +449,7 @@ describe('/lsp install', () => {
       'user',
     )
     expect(refreshActivePlugins).toHaveBeenCalledWith(EMPTY_CONTEXT.setAppState)
-    expect(output).toContain(
-      'Installed typescript-lsp@claude-plugins-official',
-    )
+    expect(output).toContain('Installed typescript-lsp@claude-plugins-official')
     expect(output).toContain('Activated 1 plugin LSP server')
   })
 
@@ -474,9 +473,7 @@ describe('/lsp install', () => {
 
     const output = await run('install typescript-lsp@claude-plugins-official')
 
-    expect(output).toContain(
-      'Installed typescript-lsp@claude-plugins-official',
-    )
+    expect(output).toContain('Installed typescript-lsp@claude-plugins-official')
     expect(output).toContain('plugin refresh failed')
     expect(output).toContain('refresh exploded')
   })
@@ -499,7 +496,9 @@ describe('/lsp uninstall', () => {
     expect(refreshActivePlugins).toHaveBeenCalledWith(EMPTY_CONTEXT.setAppState)
     expect(reinitializeLspServerManager).not.toHaveBeenCalled()
     expect(waitForInitialization).toHaveBeenCalled()
-    expect(output).toContain('Uninstalled typescript-lsp@claude-plugins-official')
+    expect(output).toContain(
+      'Uninstalled typescript-lsp@claude-plugins-official',
+    )
     expect(output).toContain('1 plugin LSP server still active')
   })
 
@@ -541,7 +540,9 @@ describe('/lsp uninstall', () => {
 
     const output = await run('uninstall typescript-lsp@claude-plugins-official')
 
-    expect(output).toContain('Uninstalled typescript-lsp@claude-plugins-official')
+    expect(output).toContain(
+      'Uninstalled typescript-lsp@claude-plugins-official',
+    )
     expect(output).toContain('plugin refresh failed')
     expect(output).toContain('refresh exploded')
   })
@@ -657,7 +658,9 @@ describe('binary install hints', () => {
     const output = await run('recommend file.xyz')
 
     expect(output).toContain('Binary missing: some-unknown-binary')
-    expect(output).toContain('Install some-unknown-binary and ensure it is on PATH')
+    expect(output).toContain(
+      'Install some-unknown-binary and ensure it is on PATH',
+    )
     expect(output).toContain('some-unknown-binary --version')
   })
 

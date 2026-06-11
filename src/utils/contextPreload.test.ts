@@ -6,9 +6,19 @@ import {
   createPreloadStrategy,
 } from './contextPreload.js'
 
-function createMessage(role: string, content: string, createdAt: number = Date.now()): any {
+function createMessage(
+  role: string,
+  content: string,
+  createdAt: number = Date.now(),
+): any {
   return {
-    message: { role, content, id: 'test', type: 'message', created_at: createdAt },
+    message: {
+      role,
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: createdAt,
+    },
     sender: role,
   }
 }
@@ -51,7 +61,9 @@ describe('contextPreload', () => {
 
   describe('predictContextNeeds', () => {
     it('predicts context needs based on query', () => {
-      const patterns = [{ userQuery: 'debug', neededContext: ['error_history'], frequency: 1 }]
+      const patterns = [
+        { userQuery: 'debug', neededContext: ['error_history'], frequency: 1 },
+      ]
 
       const prediction = predictContextNeeds('Fix the bug', patterns, {
         maxPreloadTokens: 10000,
@@ -64,7 +76,11 @@ describe('contextPreload', () => {
 
     it('returns non-empty predictedNeed when pattern matches', () => {
       const patterns = [
-        { userQuery: 'debug', neededContext: ['error_history', 'stack_trace'], frequency: 2 },
+        {
+          userQuery: 'debug',
+          neededContext: ['error_history', 'stack_trace'],
+          frequency: 2,
+        },
       ]
 
       const prediction = predictContextNeeds('debug this error', patterns, {
@@ -84,9 +100,15 @@ describe('contextPreload', () => {
         createMessage('assistant', 'Fixed'),
       ]
 
-      const prediction = { predictedNeed: ['error'], confidence: 0.8, suggestedMessages: [] }
+      const prediction = {
+        predictedNeed: ['error'],
+        confidence: 0.8,
+        suggestedMessages: [],
+      }
 
-      const result = preloadContext(messages, prediction, { maxPreloadTokens: 5000 })
+      const result = preloadContext(messages, prediction, {
+        maxPreloadTokens: 5000,
+      })
 
       expect(result.length).toBeGreaterThan(0)
     })

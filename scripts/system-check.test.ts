@@ -52,8 +52,6 @@ describe('formatReachabilityFailureDetail', () => {
     expect(detail).toContain(
       'model alias "codexspark" resolved to "gpt-5.3-codex-spark"',
     )
-    expect(detail).toContain(
-      'Try "codexplan" or another entitled Codex model.',
-    )
+    expect(detail).toContain('Try "codexplan" or another entitled Codex model.')
   })
 })

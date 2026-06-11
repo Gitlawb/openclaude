@@ -1,12 +1,21 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
-import { IncrementalTokenCounter, CounterFactory } from './incrementalTokenCounter.js'
+import {
+  IncrementalTokenCounter,
+  CounterFactory,
+} from './incrementalTokenCounter.js'
 import type { Message } from '../types/message.js'
 
 function createMessage(content: string): Message {
   // Minimal fixture (no uuid/timestamp) — cast rather than fabricate.
   return {
     type: 'user' as const,
-    message: { role: 'user', content, id: 'test', type: 'message', created_at: Date.now() },
+    message: {
+      role: 'user',
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: Date.now(),
+    },
     sender: 'user',
   } as unknown as Message
 }

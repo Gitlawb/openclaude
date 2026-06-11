@@ -96,7 +96,12 @@ describe('getAgentModel provider-aware fallback', () => {
 
       // Import after mock is set up
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'claude-sonnet-4-6',
+        undefined,
+        'default',
+      )
 
       // Should resolve haiku alias, not inherit parent
       expect(result).toContain('haiku')
@@ -107,7 +112,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('bedrock')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'claude-sonnet-4-6',
+        undefined,
+        'default',
+      )
 
       // Should resolve haiku alias for Bedrock
       expect(result).toContain('haiku')
@@ -117,7 +127,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('vertex')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'claude-sonnet-4-6',
+        undefined,
+        'default',
+      )
 
       // Should resolve haiku alias for Vertex
       expect(result).toContain('haiku')
@@ -127,7 +142,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('foundry')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'claude-sonnet-4-6',
+        undefined,
+        'default',
+      )
 
       // Should resolve haiku alias for Foundry
       expect(result).toContain('haiku')
@@ -149,7 +169,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('gemini')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'gemini-2.5-pro', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'gemini-2.5-pro',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent model for Gemini
       expect(result).toBe('gemini-2.5-pro')
@@ -160,7 +185,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('firstParty')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'claude-sonnet-4-6', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'claude-sonnet-4-6',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent for custom Anthropic-compatible URL
       expect(result).toBe('claude-sonnet-4-6')
@@ -170,7 +200,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('openai')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('sonnet', 'gpt-4o-mini', undefined, 'default')
+      const result = getAgentModel(
+        'sonnet',
+        'gpt-4o-mini',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent model for OpenAI
       expect(result).toBe('gpt-4o-mini')
@@ -180,7 +215,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('mistral')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'mistral-small-latest', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'mistral-small-latest',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent model for Mistral (no haiku concept)
       expect(result).toBe('mistral-small-latest')
@@ -200,7 +240,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('nvidia-nim')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'meta/llama-3.1-8b-instruct', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'meta/llama-3.1-8b-instruct',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent model for NVIDIA NIM (no haiku concept)
       expect(result).toBe('meta/llama-3.1-8b-instruct')
@@ -210,7 +255,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('minimax')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'MiniMax-M2.5-highspeed', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'MiniMax-M2.5-highspeed',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent model for MiniMax (no haiku concept)
       expect(result).toBe('MiniMax-M2.5-highspeed')
@@ -220,7 +270,12 @@ describe('getAgentModel provider-aware fallback', () => {
       mockProvider('codex')
 
       const { getAgentModel } = await importAgentModule()
-      const result = getAgentModel('haiku', 'gpt-5.5-mini', undefined, 'default')
+      const result = getAgentModel(
+        'haiku',
+        'gpt-5.5-mini',
+        undefined,
+        'default',
+      )
 
       // Should inherit parent model for Codex provider (no haiku concept)
       expect(result).toBe('gpt-5.5-mini')
@@ -379,12 +434,7 @@ describe('getAgentModel provider-aware fallback', () => {
       const { getAgentModel } = await importAgentModule()
 
       expect(() =>
-        getAgentModel(
-          undefined,
-          'claude-sonnet-4-6',
-          'sonnet',
-          'default',
-        ),
+        getAgentModel(undefined, 'claude-sonnet-4-6', 'sonnet', 'default'),
       ).toThrow(
         "Model 'sonnet' is not available. Your organization restricts model selection.",
       )
@@ -531,14 +581,22 @@ describe('getAgentModelOptions', () => {
     const { getAgentModelOptions } = await importAgentModule()
     const options = getAgentModelOptions(null)
     expect(options.length).toBe(4)
-    expect(options.map(o => o.value)).toEqual(['sonnet', 'opus', 'haiku', 'inherit'])
+    expect(options.map(o => o.value)).toEqual([
+      'sonnet',
+      'opus',
+      'haiku',
+      'inherit',
+    ])
   })
 
   test('appends configured models from settings', async () => {
     const { getAgentModelOptions } = await importAgentModule()
     const options = getAgentModelOptions({
       agentModels: {
-        'deepseek-chat': { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds' },
+        'deepseek-chat': {
+          base_url: 'https://api.deepseek.com/v1',
+          api_key: 'sk-ds',
+        },
         'gpt-4o': { base_url: 'https://api.openai.com/v1', api_key: 'sk-oai' },
       },
     } as any)
@@ -554,8 +612,11 @@ describe('getAgentModelOptions', () => {
     const { getAgentModelOptions } = await importAgentModule()
     const options = getAgentModelOptions({
       agentModels: {
-        'sonnet': { base_url: 'https://api.custom.com/v1', api_key: 'sk-123' },
-        'deepseek-chat': { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds' },
+        sonnet: { base_url: 'https://api.custom.com/v1', api_key: 'sk-123' },
+        'deepseek-chat': {
+          base_url: 'https://api.deepseek.com/v1',
+          api_key: 'sk-ds',
+        },
       },
     } as any)
 

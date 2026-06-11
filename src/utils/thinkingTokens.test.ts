@@ -56,7 +56,12 @@ describe('extractThinkingTokens', () => {
       type: 'assistant',
       message: {
         content: [
-          { type: 'tool_use', id: 'tool_1', name: 'bash', input: { cmd: 'echo test' } },
+          {
+            type: 'tool_use',
+            id: 'tool_1',
+            name: 'bash',
+            input: { cmd: 'echo test' },
+          },
           { type: 'text', text: 'Ran command.' },
         ],
       },

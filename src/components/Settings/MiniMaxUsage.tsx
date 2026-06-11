@@ -72,8 +72,8 @@ function MiniMaxUsageLimitBar({
   const normalizedUsedPercent = Math.max(0, Math.min(100, usedPercent))
   const usedText = `${Math.floor(normalizedUsedPercent)}% used`
   const resetText = formatResetCountdown(resetsAt, nowMs)
-  const details = [usedText, extraSubtext].filter(
-    (part): part is string => Boolean(part),
+  const details = [usedText, extraSubtext].filter((part): part is string =>
+    Boolean(part),
   )
 
   return (
@@ -89,7 +89,9 @@ function MiniMaxUsageLimitBar({
           fillColor="rate_limit_fill"
           emptyColor="rate_limit_empty"
         />
-        {details.length > 0 ? <Text dimColor>{details.join(' · ')}</Text> : null}
+        {details.length > 0 ? (
+          <Text dimColor>{details.join(' · ')}</Text>
+        ) : null}
       </Box>
     </Box>
   )

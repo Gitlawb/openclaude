@@ -12,9 +12,5 @@ export default defineBrand({
     supportsReasoning: true,
     supportsPreciseTokenCount: false,
   },
-  modelIds: [
-    'claude-sonnet-4-6',
-    'claude-opus-4-6',
-    'claude-haiku-4-5',
-  ],
+  modelIds: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'],
 })

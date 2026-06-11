@@ -30,7 +30,8 @@ async function importFreshModelModule() {
       if (process.env.CLAUDE_CODE_USE_OPENAI) {
         const baseUrl = process.env.OPENAI_BASE_URL ?? ''
         const model = process.env.OPENAI_MODEL ?? ''
-        return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
+        return baseUrl.includes('/backend-api/codex') ||
+          model.startsWith('codex')
           ? 'codex'
           : 'openai'
       }
@@ -62,7 +63,8 @@ const SAVED_ENV = {
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
 }
 // `model` is a legacy loose key not declared on GlobalConfig.
-const savedModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
+const savedModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>)
+  .model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {
@@ -244,10 +246,8 @@ test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
 test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   process.env.MINIMAX_API_KEY = 'minimax-test'
 
-  const {
-    getDefaultMainLoopModel,
-    getDefaultMainLoopModelSetting,
-  } = await importFreshModelModule()
+  const { getDefaultMainLoopModel, getDefaultMainLoopModelSetting } =
+    await importFreshModelModule()
   expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M3')
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
 })
@@ -257,10 +257,8 @@ test('getDefaultMainLoopModelSetting defaults Xiaomi MiMo to mimo-v2.5-pro', asy
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
 
-  const {
-    getDefaultMainLoopModel,
-    getDefaultMainLoopModelSetting,
-  } = await importFreshModelModule()
+  const { getDefaultMainLoopModel, getDefaultMainLoopModelSetting } =
+    await importFreshModelModule()
   expect(getDefaultMainLoopModelSetting()).toBe('mimo-v2.5-pro')
   expect(getDefaultMainLoopModel()).toBe('mimo-v2.5-pro')
 })
@@ -271,10 +269,8 @@ test('modelDisplayString does not show Claude subscription default for Xiaomi Mi
   process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
   process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
 
-  const {
-    modelDisplayString,
-    renderDefaultModelSetting,
-  } = await importFreshModelModule()
+  const { modelDisplayString, renderDefaultModelSetting } =
+    await importFreshModelModule()
   expect(modelDisplayString(null)).toBe('Default (mimo-v2.5-pro)')
   expect(renderDefaultModelSetting('mimo-v2.5-pro')).toBe('mimo-v2.5-pro')
 })
@@ -283,10 +279,8 @@ test('modelDisplayString does not show Claude subscription default for MiniMax',
   process.env.MINIMAX_API_KEY = 'minimax-test'
   process.env.OPENAI_MODEL = 'MiniMax-M2.7'
 
-  const {
-    modelDisplayString,
-    renderDefaultModelSetting,
-  } = await importFreshModelModule()
+  const { modelDisplayString, renderDefaultModelSetting } =
+    await importFreshModelModule()
   expect(modelDisplayString(null)).toBe('Default (MiniMax-M2.7)')
   expect(renderDefaultModelSetting('MiniMax-M2.7')).toBe('MiniMax-M2.7')
 })
@@ -356,4 +350,3 @@ test('default helpers do not leak claude-* names to Xiaomi MiMo', async () => {
     expect(model.toLowerCase()).not.toContain('opus')
   }
 })
-

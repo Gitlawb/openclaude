@@ -277,7 +277,9 @@ function formatWindowDuration(
   return `${windowMinutes}m`
 }
 
-function formatCreditBalance(rawBalance: string | undefined): string | undefined {
+function formatCreditBalance(
+  rawBalance: string | undefined,
+): string | undefined {
   const balance = rawBalance?.trim()
   if (!balance) return undefined
 

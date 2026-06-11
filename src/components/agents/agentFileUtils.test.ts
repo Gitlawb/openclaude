@@ -21,7 +21,9 @@ describe('formatAgentAsMarkdown', () => {
       undefined,
       'sp',
     )
-    expect(md).toContain('description: "a \\"quoted\\" \\\\path\\\\nand newline"')
+    expect(md).toContain(
+      'description: "a \\"quoted\\" \\\\path\\\\nand newline"',
+    )
   })
 
   // Regression for #1086: weak local models (qwen3.5:9b in the report) can

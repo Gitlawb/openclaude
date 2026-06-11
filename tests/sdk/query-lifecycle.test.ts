@@ -1,5 +1,17 @@
-import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
-import { query, forkSession, getSessionMessages, unstable_v2_createSession } from '../../src/entrypoints/sdk/index.js'
+import {
+  describe,
+  test,
+  expect,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from 'bun:test'
+import {
+  query,
+  forkSession,
+  getSessionMessages,
+  unstable_v2_createSession,
+} from '../../src/entrypoints/sdk/index.js'
 import {
   buildPermissionContext,
   createDefaultCanUseTool,
@@ -128,7 +140,9 @@ describe('Engine lazy-init guard (COR-1)', () => {
   })
 
   test('SDKSession getMessages() works after construction', async () => {
-    const { unstable_v2_createSession } = await import('../../src/entrypoints/sdk/index.js')
+    const { unstable_v2_createSession } = await import(
+      '../../src/entrypoints/sdk/index.js'
+    )
     const session = unstable_v2_createSession({
       cwd: process.cwd(),
     })
@@ -139,9 +153,9 @@ describe('Engine lazy-init guard (COR-1)', () => {
 
 describe('query() construction validation', () => {
   test('query() with no cwd throws immediately', () => {
-    expect(() =>
-      query({ prompt: 'test', options: {} as any })
-    ).toThrow('query() requires options.cwd')
+    expect(() => query({ prompt: 'test', options: {} as any })).toThrow(
+      'query() requires options.cwd',
+    )
   })
 
   test('query() with empty string prompt creates valid Query', () => {
@@ -156,7 +170,10 @@ describe('query() construction validation', () => {
 
   test('query() with async iterable prompt creates valid Query', () => {
     async function* prompts() {
-      yield { type: 'user' as const, message: { role: 'user' as const, content: 'hello' } }
+      yield {
+        type: 'user' as const,
+        message: { role: 'user' as const, content: 'hello' },
+      }
     }
     const q = query({
       prompt: prompts(),
@@ -226,13 +243,15 @@ describe('Query resume lifecycle', () => {
 
   afterEach(() => {
     for (const dir of tempDirs) {
-      try { rmSync(dir, { recursive: true, force: true }) } catch {}
+      try {
+        rmSync(dir, { recursive: true, force: true })
+      } catch {}
     }
     tempDirs.length = 0
   })
 
   test('query() with sessionId and existing JSONL — session loads messages', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       const entries = createMinimalConversation(sid)
@@ -249,7 +268,7 @@ describe('Query resume lifecycle', () => {
   })
 
   test('query() with continue:true and no prior sessions — creates fresh session', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const q = query({
         prompt: 'fresh start',
@@ -263,7 +282,7 @@ describe('Query resume lifecycle', () => {
   })
 
   test('query() with fork:true — creates new sessionId', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       const entries = createMinimalConversation(sid)
@@ -289,7 +308,7 @@ describe('Query resume lifecycle', () => {
   }, 10_000)
 
   test('query() with resumeSessionAt — truncates at specified message', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       const entries = createMultiTurnConversation(sid, 3)
@@ -299,7 +318,11 @@ describe('Query resume lifecycle', () => {
 
       const q = query({
         prompt: 'resume at message',
-        options: { cwd: dir, sessionId: sid, resumeSessionAt: secondAssistantUuid },
+        options: {
+          cwd: dir,
+          sessionId: sid,
+          resumeSessionAt: secondAssistantUuid,
+        },
       })
       expect(q.sessionId).toBe(sid)
       q.interrupt()
@@ -308,7 +331,7 @@ describe('Query resume lifecycle', () => {
   })
 
   test('query() with resumeSessionAt pointing to invalid UUID — throws', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       const entries = createMinimalConversation(sid)

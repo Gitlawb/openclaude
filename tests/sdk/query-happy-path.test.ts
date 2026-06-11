@@ -66,12 +66,8 @@ describe('Query happy-path — full lifecycle', () => {
     // Should have at least an assistant message and a result message
     expect(messages.length).toBeGreaterThanOrEqual(2)
 
-    const assistantMsgs = messages.filter(
-      (m: any) => m?.type === 'assistant',
-    )
-    const resultMsgs = messages.filter(
-      (m: any) => m?.type === 'result',
-    )
+    const assistantMsgs = messages.filter((m: any) => m?.type === 'assistant')
+    const resultMsgs = messages.filter((m: any) => m?.type === 'result')
 
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(1)
     expect(resultMsgs.length).toBeGreaterThanOrEqual(1)
@@ -195,7 +191,11 @@ describe('mcpServerStatus() reads from engine.config.mcpClients', () => {
     const status = q.mcpServerStatus()
     expect(status).toHaveLength(3)
     expect(status[0]).toEqual({ name: 'srv-connected', status: 'connected' })
-    expect(status[1]).toEqual({ name: 'srv-failed', status: 'failed', error: 'timeout' })
+    expect(status[1]).toEqual({
+      name: 'srv-failed',
+      status: 'failed',
+      error: 'timeout',
+    })
     expect(status[2]).toEqual({ name: 'srv-pending', status: 'pending' })
     q.interrupt()
   })

@@ -121,7 +121,11 @@ export const CronCreateTool = buildTool({
     // switch — when isDurableCronEnabled() is false the call() path
     // downgrades durable: true to session-only, so validation must not
     // reject prompts that would never be persisted.
-    if (input.durable && isDurableCronEnabled() && input.prompt.length > MAX_CRON_PROMPT_CHARS) {
+    if (
+      input.durable &&
+      isDurableCronEnabled() &&
+      input.prompt.length > MAX_CRON_PROMPT_CHARS
+    ) {
       return {
         result: false,
         message: `Cron prompt exceeds maximum length of ${MAX_CRON_PROMPT_CHARS} characters (got ${input.prompt.length}). Shorten the prompt or split into multiple jobs.`,

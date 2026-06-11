@@ -82,14 +82,10 @@ export function startMemoryPressureMonitor(
   const resolved = { ...DEFAULT_CONFIG, ...config }
 
   if (resolved.elevatedThresholdMB === 0) {
-    resolved.elevatedThresholdMB = Math.floor(
-      resolved.perSessionBudgetMB * 0.8,
-    )
+    resolved.elevatedThresholdMB = Math.floor(resolved.perSessionBudgetMB * 0.8)
   }
   if (resolved.criticalThresholdMB === 0) {
-    resolved.criticalThresholdMB = Math.floor(
-      resolved.perSessionBudgetMB * 0.9,
-    )
+    resolved.criticalThresholdMB = Math.floor(resolved.perSessionBudgetMB * 0.9)
   }
 
   logForDebugging(
@@ -135,7 +131,9 @@ export function startMemoryPressureMonitor(
   }, resolved.checkIntervalMs)
 
   // Don't keep process alive just for monitoring
-  ;(monitorInterval as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.()
+  ;(
+    monitorInterval as ReturnType<typeof setInterval> & { unref?: () => void }
+  ).unref?.()
 }
 
 /**

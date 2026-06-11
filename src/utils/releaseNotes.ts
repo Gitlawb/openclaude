@@ -186,7 +186,9 @@ async function fetchGitHubReleases(): Promise<GitHubRelease[]> {
   return response.status === 200 ? response.data : []
 }
 
-async function storeSerializedChangelog(changelogContent: string): Promise<void> {
+async function storeSerializedChangelog(
+  changelogContent: string,
+): Promise<void> {
   // Skip write if content unchanged — writing Date.now() defeats the
   // dirty-check in saveGlobalConfig since the timestamp always differs.
   if (changelogContent === changelogMemoryCache) {
@@ -469,7 +471,10 @@ export function sliceReleaseNotesForDisplay(
     result.push(note)
   }
 
-  while (result.length > 0 && isReleaseSectionHeader(result[result.length - 1]!)) {
+  while (
+    result.length > 0 &&
+    isReleaseSectionHeader(result[result.length - 1]!)
+  ) {
     result.pop()
   }
 

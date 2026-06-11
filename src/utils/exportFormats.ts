@@ -30,7 +30,9 @@ export function normalizeExportFormat(value: string): ExportFormat | null {
  * Infer export format from a filename's extension.
  * Returns null if the extension doesn't map to a known format.
  */
-export function inferExportFormatFromFilename(filename: string): ExportFormat | null {
+export function inferExportFormatFromFilename(
+  filename: string,
+): ExportFormat | null {
   const ext = extname(filename)
   if (!ext || ext === '.') return null
   return normalizeExportFormat(ext.slice(1))
@@ -39,7 +41,9 @@ export function inferExportFormatFromFilename(filename: string): ExportFormat | 
 /**
  * Get the canonical file extension for an export format.
  */
-export function extensionForExportFormat(format: ExportFormat): '.txt' | '.md' | '.json' {
+export function extensionForExportFormat(
+  format: ExportFormat,
+): '.txt' | '.md' | '.json' {
   switch (format) {
     case 'text':
       return '.txt'
@@ -57,11 +61,17 @@ export function extensionForExportFormat(format: ExportFormat): '.txt' | '.md' |
 export function ensureExportFilenameExtension(
   filename: string,
   format: ExportFormat,
-  { preserveMarkdownExtension = false }: { preserveMarkdownExtension?: boolean } = {},
+  {
+    preserveMarkdownExtension = false,
+  }: { preserveMarkdownExtension?: boolean } = {},
 ): string {
   const ext = extensionForExportFormat(format)
   const currentExt = extname(filename)
-  if (format === 'markdown' && preserveMarkdownExtension && currentExt.toLowerCase() === '.markdown') {
+  if (
+    format === 'markdown' &&
+    preserveMarkdownExtension &&
+    currentExt.toLowerCase() === '.markdown'
+  ) {
     return filename
   }
   const base = currentExt
@@ -179,7 +189,11 @@ export function parseExportArgs(args: string): {
         break
       }
       format = normalized
-    } else if (!token.quoted && token.value.startsWith('-') && token.value !== '-') {
+    } else if (
+      !token.quoted &&
+      token.value.startsWith('-') &&
+      token.value !== '-'
+    ) {
       error = `Unsupported export option: ${token.value}. Supported options: --format, -f.`
       break
     } else {
@@ -187,7 +201,8 @@ export function parseExportArgs(args: string): {
     }
   }
 
-  const filename = filenameTokens.length > 0 ? filenameTokens.join(' ') : undefined
+  const filename =
+    filenameTokens.length > 0 ? filenameTokens.join(' ') : undefined
 
   if (error) return { filename, format, error }
 

@@ -10,7 +10,8 @@ function toDescription(
   const isRecommended =
     entry.default ||
     (routeDefaultModel !== undefined &&
-      entry.apiName.trim().toLowerCase() === routeDefaultModel.trim().toLowerCase())
+      entry.apiName.trim().toLowerCase() ===
+        routeDefaultModel.trim().toLowerCase())
 
   if (isRecommended) {
     parts.push('Recommended')
@@ -67,9 +68,7 @@ export function buildRouteCatalogModelOptions(
       label,
       description,
       descriptionForModel:
-        label === value
-          ? description
-          : `${description} (${value})`,
+        label === value ? description : `${description} (${value})`,
     })
   }
 

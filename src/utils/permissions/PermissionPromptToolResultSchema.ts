@@ -6,9 +6,7 @@ import type {
   PermissionDecision,
   PermissionDecisionReason,
 } from './PermissionResult.js'
-import {
-  persistPermissionUpdates,
-} from './PermissionUpdate.js'
+import { persistPermissionUpdates } from './PermissionUpdate.js'
 import { permissionUpdateSchema } from './PermissionUpdateSchema.js'
 import { applyPermissionUpdatesToLiveContext } from './permissionSetup.js'
 

@@ -10,12 +10,10 @@ import {
 type HookChainsModule = typeof import('./hookChains.js')
 type ImportHarnessOptions = {
   allowRemoteSessions?: boolean
-  teamFile?:
-    | {
-        name: string
-        members: Array<{ name: string }>
-      }
-    | null
+  teamFile?: {
+    name: string
+    members: Array<{ name: string }>
+  } | null
   teamName?: string
   senderName?: string
   replBridgeHandle?: unknown
@@ -40,14 +38,30 @@ async function importRealModules() {
   const ts = Date.now()
   const rand = Math.random()
   return {
-    analytics: await import(`../services/analytics/index.js?real=${ts}-${rand}`) as typeof import('../services/analytics/index.js'),
-    events: await import(`./telemetry/events.js?real=${ts}-${rand}`) as typeof import('./telemetry/events.js'),
-    policyLimits: await import(`../services/policyLimits/index.js?real=${ts}-${rand}`) as typeof import('../services/policyLimits/index.js'),
-    teamHelpers: await import(`./swarm/teamHelpers.js?real=${ts}-${rand}`) as typeof import('./swarm/teamHelpers.js'),
-    teammateMailbox: await import(`./teammateMailbox.js?real=${ts}-${rand}`) as typeof import('./teammateMailbox.js'),
-    teammate: await import(`./teammate.js?real=${ts}-${rand}`) as typeof import('./teammate.js'),
-    replBridge: await import(`../bridge/replBridgeHandle.js?real=${ts}-${rand}`) as typeof import('../bridge/replBridgeHandle.js'),
-    agentTool: await import(`../tools/AgentTool/AgentTool.js?real=${ts}-${rand}`) as typeof import('../tools/AgentTool/AgentTool.js'),
+    analytics: (await import(
+      `../services/analytics/index.js?real=${ts}-${rand}`
+    )) as typeof import('../services/analytics/index.js'),
+    events: (await import(
+      `./telemetry/events.js?real=${ts}-${rand}`
+    )) as typeof import('./telemetry/events.js'),
+    policyLimits: (await import(
+      `../services/policyLimits/index.js?real=${ts}-${rand}`
+    )) as typeof import('../services/policyLimits/index.js'),
+    teamHelpers: (await import(
+      `./swarm/teamHelpers.js?real=${ts}-${rand}`
+    )) as typeof import('./swarm/teamHelpers.js'),
+    teammateMailbox: (await import(
+      `./teammateMailbox.js?real=${ts}-${rand}`
+    )) as typeof import('./teammateMailbox.js'),
+    teammate: (await import(
+      `./teammate.js?real=${ts}-${rand}`
+    )) as typeof import('./teammate.js'),
+    replBridge: (await import(
+      `../bridge/replBridgeHandle.js?real=${ts}-${rand}`
+    )) as typeof import('../bridge/replBridgeHandle.js'),
+    agentTool: (await import(
+      `../tools/AgentTool/AgentTool.js?real=${ts}-${rand}`
+    )) as typeof import('../tools/AgentTool/AgentTool.js'),
   }
 }
 
@@ -133,7 +147,9 @@ async function importHookChainsHarness(
     },
   }))
 
-  const mod = await import(`./hookChains.js?integration=${Date.now()}-${Math.random()}`)
+  const mod = await import(
+    `./hookChains.js?integration=${Date.now()}-${Math.random()}`
+  )
   return { mod, writeToMailboxSpy, agentToolCallSpy }
 }
 
@@ -168,7 +184,11 @@ describe('hookChains integration dispatch', () => {
       senderName: 'mesh-lead',
       teamFile: {
         name: 'mesh-team',
-        members: [{ name: 'mesh-lead' }, { name: 'worker-a' }, { name: 'worker-b' }],
+        members: [
+          { name: 'mesh-lead' },
+          { name: 'worker-a' },
+          { name: 'worker-b' },
+        ],
       },
     })
 
@@ -182,15 +202,15 @@ describe('hookChains integration dispatch', () => {
         {
           id: 'task-failure-recovery',
           trigger: { event: 'TaskCompleted', outcome: 'failed' },
-          actions: [
-            { type: 'spawn_fallback_agent' },
-            { type: 'notify_team' },
-          ],
+          actions: [{ type: 'spawn_fallback_agent' }, { type: 'notify_team' }],
         },
       ],
     })
 
-    const spawnSpy = mock(async () => ({ launched: true, agentId: 'agent-e2e-1' }))
+    const spawnSpy = mock(async () => ({
+      launched: true,
+      agentId: 'agent-e2e-1',
+    }))
     const notifySpy = mock(async () => ({ sent: true, recipientCount: 2 }))
 
     const result = await mod.dispatchHookChainsForEvent({
@@ -257,7 +277,11 @@ describe('hookChains integration dispatch', () => {
       runtime: {
         onSpawnFallbackAgent: async request => {
           const { AgentTool } = await import('../tools/AgentTool/AgentTool.js')
-          await (AgentTool.call as unknown as (...args: unknown[]) => Promise<unknown>)({
+          await (
+            AgentTool.call as unknown as (
+              ...args: unknown[]
+            ) => Promise<unknown>
+          )({
             prompt: request.prompt,
             description: request.description,
             run_in_background: request.runInBackground,
@@ -283,7 +307,9 @@ describe('hookChains integration dispatch', () => {
     expect(callInput.prompt).toContain('Event: TaskCompleted')
     expect(callInput.prompt).toContain('Outcome: failed')
     expect(callInput.prompt).toContain('Task subject: Repair migration guard')
-    expect(callInput.prompt).toContain('Failure details: Task failed after retry budget exhausted')
+    expect(callInput.prompt).toContain(
+      'Failure details: Task failed after retry budget exhausted',
+    )
   })
 
   test('notify_team dispatches mailbox writes when team exists and skips when absent', async () => {
@@ -292,7 +318,11 @@ describe('hookChains integration dispatch', () => {
       senderName: 'lead-a',
       teamFile: {
         name: 'mesh-a',
-        members: [{ name: 'lead-a' }, { name: 'worker-1' }, { name: 'worker-2' }],
+        members: [
+          { name: 'lead-a' },
+          { name: 'worker-1' },
+          { name: 'worker-2' },
+        ],
       },
     })
 
@@ -359,7 +389,9 @@ describe('hookChains integration dispatch', () => {
     })
 
     expect(withoutTeamResult.actionResults[0]?.status).toBe('skipped')
-    expect(withoutTeamResult.actionResults[0]?.reason).toContain('Team file not found')
+    expect(withoutTeamResult.actionResults[0]?.reason).toContain(
+      'Team file not found',
+    )
     expect(withoutTeam.writeToMailboxSpy).not.toHaveBeenCalled()
   })
 

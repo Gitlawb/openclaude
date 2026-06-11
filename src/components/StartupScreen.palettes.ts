@@ -79,7 +79,9 @@ export const LOGO_PALETTES = {
 
 export type LogoPaletteName = keyof typeof LOGO_PALETTES
 
-export const LOGO_PALETTE_NAMES = Object.keys(LOGO_PALETTES) as LogoPaletteName[]
+export const LOGO_PALETTE_NAMES = Object.keys(
+  LOGO_PALETTES,
+) as LogoPaletteName[]
 
 export const DEFAULT_LOGO_PALETTE: LogoPaletteName = 'sunset'
 

@@ -22,14 +22,19 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
 
   it('sets --max-old-space-size=8192 when NODE_OPTIONS is not set', () => {
     // Guard predicate: fires when the flag is absent
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS?.includes('--max-old-space-size')
+    const shouldSetHeapCap = !process.env.NODE_OPTIONS?.includes(
+      '--max-old-space-size',
+    )
     expect(shouldSetHeapCap).toBe(true)
   })
 
   it('does not override existing --max-old-space-size=4096', () => {
-    process.env.NODE_OPTIONS = '--max-old-space-size=4096 --experimental-vm-modules'
+    process.env.NODE_OPTIONS =
+      '--max-old-space-size=4096 --experimental-vm-modules'
 
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes('--max-old-space-size')
+    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes(
+      '--max-old-space-size',
+    )
     expect(shouldSetHeapCap).toBe(false)
     expect(process.env.NODE_OPTIONS).toContain('4096')
   })
@@ -37,7 +42,9 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   it('does not override existing --max-old-space-size=8192', () => {
     process.env.NODE_OPTIONS = '--max-old-space-size=8192'
 
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes('--max-old-space-size')
+    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes(
+      '--max-old-space-size',
+    )
     expect(shouldSetHeapCap).toBe(false)
     expect(process.env.NODE_OPTIONS).toBe('--max-old-space-size=8192')
   })
@@ -64,7 +71,9 @@ describe('useMemoryUsage.ts — threshold constants (issue #402)', () => {
       `${import.meta.dir}/../hooks/useMemoryUsage.ts`,
     ).text()
 
-    expect(src).toContain('CRITICAL_MEMORY_THRESHOLD = 2.5 * 1024 * 1024 * 1024')
+    expect(src).toContain(
+      'CRITICAL_MEMORY_THRESHOLD = 2.5 * 1024 * 1024 * 1024',
+    )
   })
 })
 
@@ -72,7 +81,9 @@ describe('cli.tsx — --provider startup ordering', () => {
   it('remembers --provider so settings.env reloads cannot clobber it', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
 
-    const earlyProviderApplyIndex = src.indexOf('applyProviderFlagFromArgs(args')
+    const earlyProviderApplyIndex = src.indexOf(
+      'applyProviderFlagFromArgs(args',
+    )
     const rememberOptionIndex = src.indexOf(
       'rememberForSettingsEnv: true',
       earlyProviderApplyIndex,
@@ -87,9 +98,15 @@ describe('cli.tsx — --provider startup ordering', () => {
   })
 
   it('reapplies remembered --provider after every managed settings env merge', async () => {
-    const src = await Bun.file(`${import.meta.dir}/../utils/managedEnv.ts`).text()
-    const safeApplyIndex = src.indexOf('export function applySafeConfigEnvironmentVariables')
-    const configApplyIndex = src.indexOf('export function applyConfigEnvironmentVariables')
+    const src = await Bun.file(
+      `${import.meta.dir}/../utils/managedEnv.ts`,
+    ).text()
+    const safeApplyIndex = src.indexOf(
+      'export function applySafeConfigEnvironmentVariables',
+    )
+    const configApplyIndex = src.indexOf(
+      'export function applyConfigEnvironmentVariables',
+    )
     const safeReapplyIndex = src.indexOf(
       'reapplyRememberedProviderFlag()',
       safeApplyIndex,

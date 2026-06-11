@@ -64,7 +64,11 @@ describe('inputModes', () => {
 
     it('strips the mode character when pasting !cmd into empty input', () => {
       expect(
-        detectModeEntry({ value: '!ls -la', prevInputLength: 0, cursorOffset: 0 }),
+        detectModeEntry({
+          value: '!ls -la',
+          prevInputLength: 0,
+          cursorOffset: 0,
+        }),
       ).toEqual({ mode: 'bash', strippedValue: 'ls -la' })
     })
 
@@ -76,7 +80,11 @@ describe('inputModes', () => {
 
     it('returns null when the value does not start with !', () => {
       expect(
-        detectModeEntry({ value: 'hello', prevInputLength: 0, cursorOffset: 0 }),
+        detectModeEntry({
+          value: 'hello',
+          prevInputLength: 0,
+          cursorOffset: 0,
+        }),
       ).toBeNull()
     })
 

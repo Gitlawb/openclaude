@@ -44,9 +44,11 @@ export async function update() {
       ) +
         `Current version: ${MACRO.DISPLAY_VERSION}\n\n` +
         `To update, reinstall from npm:\n` +
-        chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n\n' +
+        chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) +
+        '\n\n' +
         `Or, if you built from source, pull and rebuild:\n` +
-        chalk.bold('  git pull && bun install && bun run build') + '\n',
+        chalk.bold('  git pull && bun install && bun run build') +
+        '\n',
     )
     await gracefulShutdown(0)
   }
@@ -132,13 +134,19 @@ export async function update() {
   if (diagnostic.installationType === 'development') {
     writeToStdout('\n')
     writeToStdout(
-      chalk.yellow('You are running a development build — auto-update is unavailable.') + '\n',
+      chalk.yellow(
+        'You are running a development build — auto-update is unavailable.',
+      ) + '\n',
     )
     writeToStdout('To update, pull the latest source and rebuild:\n')
-    writeToStdout(chalk.bold('  git pull && bun install && bun run build') + '\n')
+    writeToStdout(
+      chalk.bold('  git pull && bun install && bun run build') + '\n',
+    )
     writeToStdout('\n')
     writeToStdout('Or reinstall from npm:\n')
-    writeToStdout(chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n')
+    writeToStdout(
+      chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n',
+    )
     await gracefulShutdown(0)
   }
 
@@ -151,7 +159,9 @@ export async function update() {
       writeToStdout('Claude is managed by Homebrew.\n')
       const latest = await getLatestVersion(channel)
       if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
+        writeToStdout(
+          `Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`,
+        )
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(chalk.bold('  brew upgrade claude-code') + '\n')
@@ -162,7 +172,9 @@ export async function update() {
       writeToStdout('Claude is managed by winget.\n')
       const latest = await getLatestVersion(channel)
       if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
+        writeToStdout(
+          `Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`,
+        )
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(
@@ -175,7 +187,9 @@ export async function update() {
       writeToStdout('Claude is managed by apk.\n')
       const latest = await getLatestVersion(channel)
       if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
+        writeToStdout(
+          `Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`,
+        )
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(chalk.bold('  apk upgrade claude-code') + '\n')
@@ -266,7 +280,8 @@ export async function update() {
 
       if (result.latestVersion === MACRO.DISPLAY_VERSION) {
         writeToStdout(
-          chalk.green(`OpenClaude is up to date (${MACRO.DISPLAY_VERSION})`) + '\n',
+          chalk.green(`OpenClaude is up to date (${MACRO.DISPLAY_VERSION})`) +
+            '\n',
         )
       } else {
         writeToStdout(

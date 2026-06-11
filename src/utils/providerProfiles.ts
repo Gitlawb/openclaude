@@ -128,12 +128,12 @@ function sanitizeAuthHeader(value: string | undefined): string | undefined {
   if (!trimmed) {
     return undefined
   }
-  return /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(trimmed)
-    ? trimmed
-    : undefined
+  return /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(trimmed) ? trimmed : undefined
 }
 
-function sanitizeAuthScheme(value: string | undefined): ProviderProfile['authScheme'] | undefined {
+function sanitizeAuthScheme(
+  value: string | undefined,
+): ProviderProfile['authScheme'] | undefined {
   return value === 'raw' || value === 'bearer' ? value : undefined
 }
 
@@ -146,8 +146,7 @@ function resolveProfileCapabilityRouteId(
   baseUrl?: string,
 ): string {
   return (
-    resolveRouteIdFromBaseUrl(baseUrl) ??
-    resolveProfileRoute(provider).routeId
+    resolveRouteIdFromBaseUrl(baseUrl) ?? resolveProfileRoute(provider).routeId
   )
 }
 
@@ -185,9 +184,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   }
   if (supportsAuthHeaders && authHeader) {
     sanitized.authHeader = authHeader
-    sanitized.authScheme = authScheme ?? (
-      authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-    )
+    sanitized.authScheme =
+      authScheme ??
+      (authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
     sanitized.authHeaderValue = authHeaderValue
   }
   if (customHeaders) {
@@ -196,7 +195,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   return sanitized
 }
 
-function sanitizeProfiles(profiles: ProviderProfile[] | undefined): ProviderProfile[] {
+function sanitizeProfiles(
+  profiles: ProviderProfile[] | undefined,
+): ProviderProfile[] {
   const seen = new Set<string>()
   const sanitized: ProviderProfile[] = []
 
@@ -255,7 +256,9 @@ function applySupportedProfileCustomHeaders(
   env: ProfileEnv,
 ): ProfileEnv {
   const customHeaders = getSupportedProfileCustomHeadersEnv(profile)
-  return customHeaders ? { ...env, ANTHROPIC_CUSTOM_HEADERS: customHeaders } : env
+  return customHeaders
+    ? { ...env, ANTHROPIC_CUSTOM_HEADERS: customHeaders }
+    : env
 }
 
 function getModelCacheByProfile(
@@ -297,9 +300,7 @@ export function getProviderPresetDefaults(
   // Keep preset-pinned endpoints/models even when generic OpenAI env values
   // are present, but still read provider-specific credential env vars above.
   const routeDefaults =
-    preset === 'custom'
-      ? metadata
-      : getProviderPresetUiMetadata(preset, {})
+    preset === 'custom' ? metadata : getProviderPresetUiMetadata(preset, {})
   return {
     provider: metadata.provider,
     name: metadata.name,
@@ -398,12 +399,18 @@ function hasConflictingProviderFlagsForProfile(
   }
 
   return (
-    (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
-    (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
-    (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
-    (compatibilityMode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
-    (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
-    (compatibilityMode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
+    (compatibilityMode !== 'openai' &&
+      processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
+    (compatibilityMode !== 'gemini' &&
+      processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
+    (compatibilityMode !== 'mistral' &&
+      processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
+    (compatibilityMode !== 'github' &&
+      processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
+    (compatibilityMode !== 'bedrock' &&
+      processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
+    (compatibilityMode !== 'vertex' &&
+      processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
   )
 }
@@ -437,7 +444,10 @@ function isProcessEnvAlignedWithProfile(
     return (
       !hasProviderSelectionFlags(processEnv) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(
+        processEnv.ANTHROPIC_MODEL,
+        getPrimaryModel(profile.model),
+      ) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
     )
@@ -453,7 +463,10 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.MISTRAL_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(
+        processEnv.MISTRAL_MODEL,
+        getPrimaryModel(profile.model),
+      ) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
     )
@@ -469,7 +482,10 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.GEMINI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.GEMINI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(
+        processEnv.GEMINI_MODEL,
+        getPrimaryModel(profile.model),
+      ) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
     )
@@ -485,7 +501,10 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model))
+      sameOptionalEnvValue(
+        processEnv.OPENAI_MODEL,
+        getPrimaryModel(profile.model),
+      )
     )
   }
 
@@ -498,8 +517,14 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_BEDROCK_BASE_URL, profile.baseUrl)
+      sameOptionalEnvValue(
+        processEnv.ANTHROPIC_MODEL,
+        getPrimaryModel(profile.model),
+      ) &&
+      sameOptionalEnvValue(
+        processEnv.ANTHROPIC_BEDROCK_BASE_URL,
+        profile.baseUrl,
+      )
     )
   }
 
@@ -512,8 +537,14 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_VERTEX_BASE_URL, profile.baseUrl)
+      sameOptionalEnvValue(
+        processEnv.ANTHROPIC_MODEL,
+        getPrimaryModel(profile.model),
+      ) &&
+      sameOptionalEnvValue(
+        processEnv.ANTHROPIC_VERTEX_BASE_URL,
+        profile.baseUrl,
+      )
     )
   }
 
@@ -526,11 +557,17 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-    sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_MODEL,
+      getPrimaryModel(profile.model),
+    ) &&
     sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
-    sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_AUTH_HEADER_VALUE,
+      profile.authHeaderValue,
+    ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
@@ -546,7 +583,7 @@ function isProcessEnvAlignedWithProfile(
         sameOptionalEnvValue(processEnv.VENICE_API_KEY, profile.apiKey)
       : true) &&
     (profile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
-      profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
+    profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.MIMO_API_KEY, profile.apiKey)
       : true) &&
@@ -577,8 +614,12 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv[PROFILE_ENV_APPLIED_ID]
 }
 
-export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
-  const { route, compatibilityMode } = resolveProfileCompatibility(profile.provider)
+export function applyProviderProfileToProcessEnv(
+  profile: ProviderProfile,
+): void {
+  const { route, compatibilityMode } = resolveProfileCompatibility(
+    profile.provider,
+  )
   const primaryModel = getPrimaryModel(profile.model)
   let profileEnv: ProfileEnv
 
@@ -643,7 +684,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     const supportsAuthHeaders = routeSupportsAuthHeaders(capabilityRouteId)
     const normalizedProfileBaseUrl =
       route.routeId === 'xiaomi-mimo'
-        ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
+        ? (normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl)
         : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
@@ -666,7 +707,10 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
     if (profile.apiKey) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
-      if (route.vendorId === 'minimax' || profile.baseUrl.toLowerCase().includes('minimax')) {
+      if (
+        route.vendorId === 'minimax' ||
+        profile.baseUrl.toLowerCase().includes('minimax')
+      ) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
       }
       if (
@@ -676,19 +720,35 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       ) {
         openAIProfileEnv.NVIDIA_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'bankr' || profile.baseUrl.toLowerCase().includes('bankr')) {
+      if (
+        route.routeId === 'bankr' ||
+        profile.baseUrl.toLowerCase().includes('bankr')
+      ) {
         openAIProfileEnv.BNKR_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xai' || profile.baseUrl.toLowerCase().includes('x.ai')) {
+      if (
+        route.routeId === 'xai' ||
+        profile.baseUrl.toLowerCase().includes('x.ai')
+      ) {
         openAIProfileEnv.XAI_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
+      if (
+        route.routeId === 'venice' ||
+        profile.baseUrl.toLowerCase().includes('api.venice.ai')
+      ) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
+      if (
+        route.routeId === 'xiaomi-mimo' ||
+        profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') ||
+        profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')
+      ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
+      if (
+        route.routeId === 'atlas-cloud' ||
+        profile.baseUrl.toLowerCase().includes('atlascloud')
+      ) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
     }
@@ -730,7 +790,11 @@ export function applyActiveProviderProfileFromConfig(
     processEnv[PROFILE_ENV_APPLIED_FLAG] === '1' &&
     trimOrUndefined(processEnv[PROFILE_ENV_APPLIED_ID]) === activeProfile.id
 
-  if (!options?.force && (hasCompleteProviderSelection(processEnv) || processEnv[PROFILE_ENV_APPLIED_FLAG] === '1')) {
+  if (
+    !options?.force &&
+    (hasCompleteProviderSelection(processEnv) ||
+      processEnv[PROFILE_ENV_APPLIED_FLAG] === '1')
+  ) {
     // Respect explicit startup provider intent. Auto-heal only when this
     // exact active profile previously applied the current env.
     // NOTE: we gate on hasCompleteProviderSelection (flag + concrete config)
@@ -772,7 +836,9 @@ export function addProviderProfile(
     const nextProfiles = [...currentProfiles, profile]
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
     const nextActiveId =
-      makeActive || !currentActive || !nextProfiles.some(p => p.id === currentActive)
+      makeActive ||
+      !currentActive ||
+      !nextProfiles.some(p => p.id === currentActive)
         ? profile.id
         : currentActive
 
@@ -826,7 +892,8 @@ export function updateProviderProfile(
 
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
     const nextActiveId =
-      currentActive && nextProfiles.some(profile => profile.id === currentActive)
+      currentActive &&
+      nextProfiles.some(profile => profile.id === currentActive)
         ? currentActive
         : nextProfiles[0]?.id
 
@@ -949,9 +1016,11 @@ function buildOpenAICompatibleStartupEnv(
   }
   if (activeProfile.authHeader) {
     env.OPENAI_AUTH_HEADER = activeProfile.authHeader
-    env.OPENAI_AUTH_SCHEME = activeProfile.authScheme ?? (
-      activeProfile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-    )
+    env.OPENAI_AUTH_SCHEME =
+      activeProfile.authScheme ??
+      (activeProfile.authHeader.toLowerCase() === 'authorization'
+        ? 'bearer'
+        : 'raw')
     if (activeProfile.authHeaderValue) {
       env.OPENAI_AUTH_HEADER_VALUE = activeProfile.authHeaderValue
     }
@@ -982,13 +1051,13 @@ function buildOpenAICompatibleStartupEnv(
   return applySupportedProfileCustomHeaders(activeProfile, env)
 }
 
-function buildStartupProfileFromActiveProfile(
-  activeProfile: ProviderProfile,
-): {
+function buildStartupProfileFromActiveProfile(activeProfile: ProviderProfile): {
   profile: ProviderProfileStartup
   env: ProfileEnv
 } | null {
-  const { route, compatibilityMode } = resolveProfileCompatibility(activeProfile.provider)
+  const { route, compatibilityMode } = resolveProfileCompatibility(
+    activeProfile.provider,
+  )
 
   switch (compatibilityMode) {
     case 'anthropic':
@@ -1001,7 +1070,10 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? {
+              profile: 'minimax',
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
           : null
       }
       return {
@@ -1024,7 +1096,10 @@ function buildStartupProfileFromActiveProfile(
           processEnv: process.env,
         }) ?? null
       return env
-        ? { profile: 'gemini', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+        ? {
+            profile: 'gemini',
+            env: applySupportedProfileCustomHeaders(activeProfile, env),
+          }
         : null
     }
     case 'mistral': {
@@ -1036,32 +1111,44 @@ function buildStartupProfileFromActiveProfile(
           processEnv: process.env,
         }) ?? null
       return env
-        ? { profile: 'mistral', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+        ? {
+            profile: 'mistral',
+            env: applySupportedProfileCustomHeaders(activeProfile, env),
+          }
         : null
     }
     case 'github':
       return {
         profile: 'github',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildGithubProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
+        env: applySupportedProfileCustomHeaders(
+          activeProfile,
+          buildGithubProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+          }),
+        ),
       }
     case 'bedrock':
       return {
         profile: 'bedrock',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildBedrockProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
+        env: applySupportedProfileCustomHeaders(
+          activeProfile,
+          buildBedrockProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+          }),
+        ),
       }
     case 'vertex':
       return {
         profile: 'vertex',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildVertexProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
+        env: applySupportedProfileCustomHeaders(
+          activeProfile,
+          buildVertexProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+          }),
+        ),
       }
     case 'openai': {
       if (route.gatewayId === 'nvidia-nim') {
@@ -1073,7 +1160,10 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? {
+              profile: 'nvidia-nim',
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
           : null
       }
 
@@ -1086,7 +1176,10 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? {
+              profile: 'minimax',
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
           : null
       }
 
@@ -1099,7 +1192,10 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? {
+              profile: 'openai',
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
           : null
       }
 
@@ -1112,7 +1208,10 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? {
+              profile: 'openai',
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
           : null
       }
 
@@ -1125,7 +1224,10 @@ function buildStartupProfileFromActiveProfile(
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? {
+              profile: 'openai',
+              env: applySupportedProfileCustomHeaders(activeProfile, env),
+            }
           : null
       }
 
@@ -1231,17 +1333,21 @@ export function deleteProviderProfile(profileId: string): {
     removed = true
     deletedProfile = existing
 
-    const nextProfiles = currentProfiles.filter(profile => profile.id !== profileId)
+    const nextProfiles = currentProfiles.filter(
+      profile => profile.id !== profileId,
+    )
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
     const activeWasDeleted =
-      !currentActive || currentActive === profileId ||
+      !currentActive ||
+      currentActive === profileId ||
       !nextProfiles.some(profile => profile.id === currentActive)
 
     const nextActiveId = activeWasDeleted ? nextProfiles[0]?.id : currentActive
 
     if (nextActiveId) {
       nextActiveProfile =
-        nextProfiles.find(profile => profile.id === nextActiveId) ?? nextProfiles[0]
+        nextProfiles.find(profile => profile.id === nextActiveId) ??
+        nextProfiles[0]
     }
 
     const cacheByProfile = {
@@ -1255,16 +1361,14 @@ export function deleteProviderProfile(profileId: string): {
       activeProviderProfileId: nextActiveId,
       openaiAdditionalModelOptionsCacheByProfile: cacheByProfile,
       openaiAdditionalModelOptionsCache: nextActiveId
-        ? (
-            nextActiveProfile
-              ? getProfileModelOptions(nextActiveProfile, {
-                  ...current,
-                  providerProfiles: nextProfiles,
-                  activeProviderProfileId: nextActiveId,
-                  openaiAdditionalModelOptionsCacheByProfile: cacheByProfile,
-                })
-              : []
-          )
+        ? nextActiveProfile
+          ? getProfileModelOptions(nextActiveProfile, {
+              ...current,
+              providerProfiles: nextProfiles,
+              activeProviderProfileId: nextActiveId,
+              openaiAdditionalModelOptionsCacheByProfile: cacheByProfile,
+            })
+          : []
         : [],
     }
   })
@@ -1295,9 +1399,8 @@ export function getActiveOpenAIModelOptionsCache(
     return config.openaiAdditionalModelOptionsCache ?? []
   }
 
-  const cached = config.openaiAdditionalModelOptionsCacheByProfile?.[
-    activeProfile.id
-  ]
+  const cached =
+    config.openaiAdditionalModelOptionsCacheByProfile?.[activeProfile.id]
   if (cached) {
     return cached
   }
@@ -1309,8 +1412,8 @@ export function getActiveOpenAIModelOptionsCache(
 
   // Backward compatibility for users who have only the legacy single cache.
   if (
-    Object.keys(config.openaiAdditionalModelOptionsCacheByProfile ?? {}).length ===
-    0
+    Object.keys(config.openaiAdditionalModelOptionsCacheByProfile ?? {})
+      .length === 0
   ) {
     return config.openaiAdditionalModelOptionsCache ?? []
   }

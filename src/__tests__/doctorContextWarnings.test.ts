@@ -5,7 +5,11 @@ import { checkContextWarnings } from '../utils/doctorContextWarnings.js'
 
 const emptyPermissionContext = async () => getEmptyToolPermissionContext()
 
-function mcpTool(serverName: string, toolName: string, descriptionLength: number): Tool {
+function mcpTool(
+  serverName: string,
+  toolName: string,
+  descriptionLength: number,
+): Tool {
   return {
     name: `mcp__${serverName}__${toolName}`,
     isMcp: true,

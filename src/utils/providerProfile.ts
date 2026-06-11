@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
@@ -254,7 +260,9 @@ function resolveProfileFileReadPaths(options?: ProfileFileLocation): string[] {
   return legacy === primary ? [primary] : [primary, legacy]
 }
 
-function resolveProfileFileCleanupPaths(options?: ProfileFileLocation): string[] {
+function resolveProfileFileCleanupPaths(
+  options?: ProfileFileLocation,
+): string[] {
   const primary = resolveProfileFilePath(options)
   if (options?.filePath || (options?.cwd && !options?.configDir)) {
     return [primary]
@@ -280,8 +288,14 @@ function readProfileFile(filePath: string): ProfileFile | null {
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<ProfileFile>
-    if (!isProviderProfile(parsed.profile) || !parsed.env || typeof parsed.env !== 'object') {
+    const parsed = JSON.parse(
+      readFileSync(filePath, 'utf8'),
+    ) as Partial<ProfileFile>
+    if (
+      !isProviderProfile(parsed.profile) ||
+      !parsed.env ||
+      typeof parsed.env !== 'object'
+    ) {
       return null
     }
 
@@ -335,9 +349,8 @@ export function buildGithubProfileEnv(options: {
 }): ProfileEnv {
   const env: ProfileEnv = {
     OPENAI_MODEL:
-      normalizeProfileModel(
-        sanitizeProviderConfigValue(options.model),
-      ) || 'github:copilot',
+      normalizeProfileModel(sanitizeProviderConfigValue(options.model)) ||
+      'github:copilot',
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -369,7 +382,9 @@ export function buildAtomicChatProfileEnv(
   },
 ): ProfileEnv {
   return {
-    OPENAI_BASE_URL: options.getAtomicChatChatBaseUrl(options.baseUrl ?? undefined),
+    OPENAI_BASE_URL: options.getAtomicChatChatBaseUrl(
+      options.baseUrl ?? undefined,
+    ),
     OPENAI_MODEL: model,
   }
 }
@@ -380,9 +395,8 @@ export function buildBedrockProfileEnv(options: {
 }): ProfileEnv {
   const env: ProfileEnv = {
     ANTHROPIC_MODEL:
-      normalizeProfileModel(
-        sanitizeProviderConfigValue(options.model),
-      ) || 'claude-sonnet-4-6',
+      normalizeProfileModel(sanitizeProviderConfigValue(options.model)) ||
+      'claude-sonnet-4-6',
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -399,9 +413,8 @@ export function buildVertexProfileEnv(options: {
 }): ProfileEnv {
   const env: ProfileEnv = {
     ANTHROPIC_MODEL:
-      normalizeProfileModel(
-        sanitizeProviderConfigValue(options.model),
-      ) || 'claude-sonnet-4-6',
+      normalizeProfileModel(sanitizeProviderConfigValue(options.model)) ||
+      'claude-sonnet-4-6',
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -460,7 +473,9 @@ export function buildMiniMaxProfileEnv(options: {
   const defaultBaseUrl = getRouteDefaultBaseUrl('minimax')
   const defaultModel = getRouteDefaultModel('minimax')
   if (!defaultBaseUrl || !defaultModel) {
-    throw new Error('MiniMax route defaults are missing from integration metadata.')
+    throw new Error(
+      'MiniMax route defaults are missing from integration metadata.',
+    )
   }
   const secretSource: SecretValueSource = {
     ANTHROPIC_API_KEY: key,
@@ -471,7 +486,10 @@ export function buildMiniMaxProfileEnv(options: {
   return {
     ANTHROPIC_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, secretSource) ||
+      sanitizeProviderConfigValue(
+        processEnv.ANTHROPIC_BASE_URL,
+        secretSource,
+      ) ||
       defaultBaseUrl,
     ANTHROPIC_MODEL:
       normalizeProfileModel(
@@ -506,7 +524,9 @@ export function buildVeniceProfileEnv(options: {
   const defaultBaseUrl = getRouteDefaultBaseUrl('venice')
   const defaultModel = getRouteDefaultModel('venice')
   if (!defaultBaseUrl || !defaultModel) {
-    throw new Error('Venice route defaults are missing from integration metadata.')
+    throw new Error(
+      'Venice route defaults are missing from integration metadata.',
+    )
   }
   const secretSource: SecretValueSource = {
     OPENAI_API_KEY: key,
@@ -546,7 +566,9 @@ export function buildXiaomiMimoProfileEnv(options: {
   const defaultBaseUrl = getRouteDefaultBaseUrl('xiaomi-mimo')
   const defaultModel = getRouteDefaultModel('xiaomi-mimo')
   if (!defaultBaseUrl || !defaultModel) {
-    throw new Error('Xiaomi MiMo route defaults are missing from integration metadata.')
+    throw new Error(
+      'Xiaomi MiMo route defaults are missing from integration metadata.',
+    )
   }
   const secretSource: SecretValueSource = {
     OPENAI_API_KEY: key,
@@ -590,7 +612,9 @@ export function buildAtlasCloudProfileEnv(options: {
   const defaultBaseUrl = getRouteDefaultBaseUrl('atlas-cloud')
   const defaultModel = getRouteDefaultModel('atlas-cloud')
   if (!defaultBaseUrl || !defaultModel) {
-    throw new Error('Atlas Cloud route defaults are missing from integration metadata.')
+    throw new Error(
+      'Atlas Cloud route defaults are missing from integration metadata.',
+    )
   }
   const secretSource: SecretValueSource = {
     OPENAI_API_KEY: key,
@@ -625,9 +649,7 @@ export function buildGeminiProfileEnv(options: {
   const processEnv = options.processEnv ?? process.env
   const authMode = options.authMode ?? 'api-key'
   const key = sanitizeApiKey(
-    options.apiKey ??
-      processEnv.GEMINI_API_KEY ??
-      processEnv.GOOGLE_API_KEY,
+    options.apiKey ?? processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
   )
   if (authMode === 'api-key' && !key) {
     return null
@@ -687,10 +709,7 @@ export function buildOpenAIProfileEnv(options: {
     OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
   }
   const shellOpenAIModel = normalizeProfileModel(
-    sanitizeProviderConfigValue(
-      processEnv.OPENAI_MODEL,
-      secretSource,
-    ),
+    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
@@ -702,7 +721,8 @@ export function buildOpenAIProfileEnv(options: {
     fallbackModel: defaultModel,
     apiFormat: processEnv.OPENAI_API_FORMAT,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
+  const useShellOpenAIConfig =
+    shellOpenAIRequest.transport !== 'codex_responses'
 
   return {
     OPENAI_BASE_URL:
@@ -777,20 +797,18 @@ export function buildMistralProfileEnv(options: {
         sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }),
       ) ||
       normalizeProfileModel(
-        sanitizeProviderConfigValue(
-          processEnv.MISTRAL_MODEL,
-          { MISTRAL_API_KEY: key },
-        ),
+        sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, {
+          MISTRAL_API_KEY: key,
+        }),
       ) ||
       DEFAULT_MISTRAL_MODEL,
   }
 
   const baseUrl =
     sanitizeProviderConfigValue(options.baseUrl, { MISTRAL_API_KEY: key }) ||
-    sanitizeProviderConfigValue(
-      processEnv.MISTRAL_BASE_URL,
-      { MISTRAL_API_KEY: key },
-    )
+    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, {
+      MISTRAL_API_KEY: key,
+    })
   if (baseUrl) {
     env.MISTRAL_BASE_URL = baseUrl
   }
@@ -814,19 +832,17 @@ export function buildBankrProfileEnv(options: {
     BNKR_API_KEY: key,
     BANKR_MODEL:
       sanitizeProviderConfigValue(options.model, { BNKR_API_KEY: key }) ||
-      sanitizeProviderConfigValue(
-        processEnv.BANKR_MODEL,
-        { BNKR_API_KEY: key },
-      ) ||
+      sanitizeProviderConfigValue(processEnv.BANKR_MODEL, {
+        BNKR_API_KEY: key,
+      }) ||
       'claude-opus-4.6',
   }
 
   const baseUrl =
     sanitizeProviderConfigValue(options.baseUrl, { BNKR_API_KEY: key }) ||
-    sanitizeProviderConfigValue(
-      processEnv.BANKR_BASE_URL,
-      { BNKR_API_KEY: key },
-    )
+    sanitizeProviderConfigValue(processEnv.BANKR_BASE_URL, {
+      BNKR_API_KEY: key,
+    })
   if (baseUrl) {
     env.BANKR_BASE_URL = baseUrl
   }
@@ -899,9 +915,7 @@ function getCompatibilityProfileFlag(
   }
 }
 
-export function clearManagedProfileEnv(
-  targetEnv: NodeJS.ProcessEnv,
-): void {
+export function clearManagedProfileEnv(targetEnv: NodeJS.ProcessEnv): void {
   for (const key of PROFILE_ENV_KEYS) {
     delete targetEnv[key]
   }
@@ -928,13 +942,11 @@ export function isDefaultStartupProviderEnv(env: NodeJS.ProcessEnv): boolean {
   return env[DEFAULT_STARTUP_PROVIDER_ENV_VAR] === 'gitlawb-opengateway'
 }
 
-export function buildCodexOAuthProfileEnv(
-  tokens: {
-    accessToken: string
-    idToken?: string
-    accountId?: string
-  },
-): ProfileEnv | null {
+export function buildCodexOAuthProfileEnv(tokens: {
+  accessToken: string
+  idToken?: string
+  accountId?: string
+}): ProfileEnv | null {
   const accountId =
     tokens.accountId ??
     parseChatgptAccountId(tokens.idToken) ??
@@ -1025,7 +1037,9 @@ export function clearPersistedXaiOAuthProfile(
   return removedPath
 }
 
-export function loadProfileFile(options?: ProfileFileLocation): ProfileFile | null {
+export function loadProfileFile(
+  options?: ProfileFileLocation,
+): ProfileFile | null {
   for (const filePath of resolveProfileFileReadPaths(options)) {
     const profile = readProfileFile(filePath)
     if (profile) {
@@ -1154,13 +1168,10 @@ export async function buildLaunchEnv(options: {
   const processEnv = options.processEnv ?? process.env
   const persistedEnv =
     options.persisted?.profile === options.profile
-      ? options.persisted.env ?? {}
+      ? (options.persisted.env ?? {})
       : {}
   const persistedOpenAIModel = normalizeProfileModel(
-    sanitizeProviderConfigValue(
-      persistedEnv.OPENAI_MODEL,
-      persistedEnv,
-    ),
+    sanitizeProviderConfigValue(persistedEnv.OPENAI_MODEL, persistedEnv),
   )
   const persistedOpenAIBaseUrl = sanitizeProviderConfigValue(
     persistedEnv.OPENAI_BASE_URL,
@@ -1185,10 +1196,7 @@ export async function buildLaunchEnv(options: {
     processEnv as SecretValueSource,
   )
   const persistedGeminiModel = normalizeProfileModel(
-    sanitizeProviderConfigValue(
-      persistedEnv.GEMINI_MODEL,
-      persistedEnv,
-    ),
+    sanitizeProviderConfigValue(persistedEnv.GEMINI_MODEL, persistedEnv),
   )
   const persistedGeminiBaseUrl = sanitizeProviderConfigValue(
     persistedEnv.GEMINI_BASE_URL,
@@ -1262,9 +1270,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'anthropic',
       profileEnv: {
-        ...(anthropicBaseUrl
-          ? { ANTHROPIC_BASE_URL: anthropicBaseUrl }
-          : {}),
+        ...(anthropicBaseUrl ? { ANTHROPIC_BASE_URL: anthropicBaseUrl } : {}),
         ANTHROPIC_MODEL:
           normalizeProfileModel(
             sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
@@ -1273,9 +1279,7 @@ export async function buildLaunchEnv(options: {
             sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
           ) ||
           'claude-sonnet-4-6',
-        ...(anthropicApiKey
-          ? { ANTHROPIC_API_KEY: anthropicApiKey }
-          : {}),
+        ...(anthropicApiKey ? { ANTHROPIC_API_KEY: anthropicApiKey } : {}),
       },
     })
   }
@@ -1327,13 +1331,9 @@ export async function buildLaunchEnv(options: {
   if (options.profile === 'gemini') {
     const env: ProfileEnv = {
       GEMINI_MODEL:
-        shellGeminiModel ||
-        persistedGeminiModel ||
-        DEFAULT_GEMINI_MODEL,
+        shellGeminiModel || persistedGeminiModel || DEFAULT_GEMINI_MODEL,
       GEMINI_BASE_URL:
-        shellGeminiBaseUrl ||
-        persistedGeminiBaseUrl ||
-        DEFAULT_GEMINI_BASE_URL,
+        shellGeminiBaseUrl || persistedGeminiBaseUrl || DEFAULT_GEMINI_BASE_URL,
     }
 
     const geminiAuthMode =
@@ -1363,14 +1363,10 @@ export async function buildLaunchEnv(options: {
 
   if (options.profile === 'mistral') {
     const shellMistralModel = normalizeProfileModel(
-      sanitizeProviderConfigValue(
-        processEnv.MISTRAL_MODEL,
-      ),
+      sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL),
     )
     const persistedMistralModel = normalizeProfileModel(
-      sanitizeProviderConfigValue(
-        persistedEnv.MISTRAL_MODEL,
-      ),
+      sanitizeProviderConfigValue(persistedEnv.MISTRAL_MODEL),
     )
     const shellMistralBaseUrl = sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,
@@ -1379,9 +1375,7 @@ export async function buildLaunchEnv(options: {
       persistedEnv.MISTRAL_BASE_URL,
     )
 
-    const shellMistralKey = sanitizeApiKey(
-      processEnv.MISTRAL_API_KEY,
-    )
+    const shellMistralKey = sanitizeApiKey(processEnv.MISTRAL_API_KEY)
     const persistedMistralKey = sanitizeApiKey(persistedEnv.MISTRAL_API_KEY)
     const mistralKey = shellMistralKey || persistedMistralKey
 
@@ -1471,8 +1465,7 @@ export async function buildLaunchEnv(options: {
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.OPENAI_BASE_URL) ||
       DEFAULT_OPENCODE_BASE_URL
-    const opencodeModel =
-      shellOpenAIModel || persistedOpenAIModel || 'gpt-5.4'
+    const opencodeModel = shellOpenAIModel || persistedOpenAIModel || 'gpt-5.4'
 
     return buildCompatibilityProcessEnv({
       processEnv,
@@ -1497,8 +1490,7 @@ export async function buildLaunchEnv(options: {
       profileEnv: {
         OPENAI_BASE_URL: persistedOpenAIBaseUrl || getOllamaBaseUrl(),
         OPENAI_MODEL:
-          persistedOpenAIModel ||
-          (await resolveOllamaModel(options.goal)),
+          persistedOpenAIModel || (await resolveOllamaModel(options.goal)),
       },
     })
   }
@@ -1507,17 +1499,15 @@ export async function buildLaunchEnv(options: {
     const getAtomicChatBaseUrl =
       options.getAtomicChatChatBaseUrl ?? (() => 'http://127.0.0.1:1337/v1')
     const resolveModel =
-      options.resolveAtomicChatDefaultModel ?? (async () => null as string | null)
+      options.resolveAtomicChatDefaultModel ??
+      (async () => null as string | null)
 
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: {
         OPENAI_BASE_URL: persistedEnv.OPENAI_BASE_URL || getAtomicChatBaseUrl(),
-        OPENAI_MODEL:
-          persistedEnv.OPENAI_MODEL ||
-          (await resolveModel()) ||
-          '',
+        OPENAI_MODEL: persistedEnv.OPENAI_MODEL || (await resolveModel()) || '',
       },
     })
   }
@@ -1567,7 +1557,8 @@ export async function buildLaunchEnv(options: {
     fallbackModel: defaultOpenAIModel,
     apiFormat: persistedOpenAIApiFormat,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
+  const useShellOpenAIConfig =
+    shellOpenAIRequest.transport !== 'codex_responses'
   const usePersistedOpenAIConfig =
     (!persistedOpenAIModel && !persistedOpenAIBaseUrl) ||
     persistedOpenAIRequest.transport !== 'codex_responses'
@@ -1663,7 +1654,8 @@ export async function buildStartupEnvFromProfile(options?: {
   const persisted =
     options && 'persisted' in options ? options.persisted : loadProfileFile()
 
-  const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const profileManagedEnv =
+    processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
 
   // The single-profile file in the user config directory is a
   // first-run / fallback mechanism. The newer plural provider-profile
@@ -1716,8 +1708,7 @@ export async function buildStartupEnvFromProfile(options?: {
       options?.goal ??
       normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
     processEnv,
-    getOllamaChatBaseUrl:
-      options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
+    getOllamaChatBaseUrl: options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,
     readGeminiAccessToken: options?.readGeminiAccessToken,
   })
@@ -1743,9 +1734,7 @@ export async function applySavedProfileToCurrentSession(options: {
   if (options.profileFile.profile === 'codex' && hasExplicitSelection) {
     const isCodexOAuthProfile =
       options.profileFile.env.CODEX_CREDENTIAL_SOURCE === 'oauth'
-    const buildEnvSource = isCodexOAuthProfile
-      ? { ...processEnv }
-      : processEnv
+    const buildEnvSource = isCodexOAuthProfile ? { ...processEnv } : processEnv
     if (isCodexOAuthProfile) {
       delete buildEnvSource.CODEX_API_KEY
       delete buildEnvSource.CODEX_ACCOUNT_ID

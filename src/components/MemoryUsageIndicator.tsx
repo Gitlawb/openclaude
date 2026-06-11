@@ -1,4 +1,4 @@
-import * as React from 'react';
+import * as React from 'react'
 export function MemoryUsageIndicator(): React.ReactNode {
-  return null;
+  return null
 }

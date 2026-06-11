@@ -135,14 +135,11 @@ test('standardEffortToOpenAI maps max to xhigh for shim payload', async () => {
 })
 
 test('e2e: xhigh → persisted xhigh → resolveAppliedEffort → wire xhigh on OpenAI/Codex (no high clamp)', async () => {
-  const {
-    toPersistableEffort,
-    resolveAppliedEffort,
-    standardEffortToOpenAI,
-  } = await importFreshEffortModule({
-    provider: 'openai',
-    supportsCodexReasoningEffort: true,
-  })
+  const { toPersistableEffort, resolveAppliedEffort, standardEffortToOpenAI } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
 
   // Picker writes 'xhigh'; toPersistableEffort passes it through.
   const persisted = toPersistableEffort('xhigh')

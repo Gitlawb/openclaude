@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { DebugLogLevel } from '../../utils/debug.js'
 
 type DebugModule = typeof import('../../utils/debug.js')
@@ -78,8 +81,9 @@ test('logs classified transport diagnostics with category and code', async () =>
     }),
   ).rejects.toThrow('openai_category=connection_refused')
 
-  const transportLog = debugSpy.mock.calls.find(call =>
-    typeof call?.[0] === 'string' && call[0].includes('transport failure'),
+  const transportLog = debugSpy.mock.calls.find(
+    call =>
+      typeof call?.[0] === 'string' && call[0].includes('transport failure'),
   )
 
   expect(transportLog).toBeDefined()
@@ -122,13 +126,16 @@ test('redacts credentials in transport diagnostic URL logs', async () => {
     }),
   ).rejects.toThrow('openai_category=connection_refused')
 
-  const transportLog = debugSpy.mock.calls.find(call =>
-    typeof call?.[0] === 'string' && call[0].includes('transport failure'),
+  const transportLog = debugSpy.mock.calls.find(
+    call =>
+      typeof call?.[0] === 'string' && call[0].includes('transport failure'),
   )
 
   expect(transportLog).toBeDefined()
   const logLine = String(transportLog?.[0])
-  expect(logLine).toContain('url=http://redacted:redacted@localhost:11434/v1/chat/completions')
+  expect(logLine).toContain(
+    'url=http://redacted:redacted@localhost:11434/v1/chat/completions',
+  )
   expect(logLine).not.toContain('user:supersecret')
   expect(logLine).not.toContain('supersecret@')
 })
@@ -194,15 +201,20 @@ test('logs self-heal localhost fallback with redacted from/to URLs', async () =>
     }),
   ).resolves.toBeDefined()
 
-  const fallbackLog = debugSpy.mock.calls.find(call =>
-    typeof call?.[0] === 'string' &&
-    call[0].includes('self-heal retry reason=localhost_resolution_failed'),
+  const fallbackLog = debugSpy.mock.calls.find(
+    call =>
+      typeof call?.[0] === 'string' &&
+      call[0].includes('self-heal retry reason=localhost_resolution_failed'),
   )
 
   expect(fallbackLog).toBeDefined()
   const logLine = String(fallbackLog?.[0])
-  expect(logLine).toContain('from=http://redacted:redacted@localhost:11434/v1/chat/completions')
-  expect(logLine).toContain('to=http://redacted:redacted@127.0.0.1:11434/v1/chat/completions')
+  expect(logLine).toContain(
+    'from=http://redacted:redacted@localhost:11434/v1/chat/completions',
+  )
+  expect(logLine).toContain(
+    'to=http://redacted:redacted@127.0.0.1:11434/v1/chat/completions',
+  )
   expect(logLine).not.toContain('supersecret')
 })
 
@@ -285,9 +297,12 @@ test('logs self-heal toolless retry for local tool-call incompatibility', async 
     }),
   ).resolves.toBeDefined()
 
-  const fallbackLog = debugSpy.mock.calls.find(call =>
-    typeof call?.[0] === 'string' &&
-    call[0].includes('self-heal retry reason=tool_call_incompatible mode=toolless'),
+  const fallbackLog = debugSpy.mock.calls.find(
+    call =>
+      typeof call?.[0] === 'string' &&
+      call[0].includes(
+        'self-heal retry reason=tool_call_incompatible mode=toolless',
+      ),
   )
 
   expect(fallbackLog).toBeDefined()

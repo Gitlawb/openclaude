@@ -196,7 +196,9 @@ describe('buildCodexUsageRows', () => {
 describe('Codex usage helpers', () => {
   test('formats plan labels and usage endpoint url', () => {
     expect(formatCodexPlanType('team_max')).toBe('Team Max')
-    expect(getCodexUsageUrl()).toBe('https://chatgpt.com/backend-api/wham/usage')
+    expect(getCodexUsageUrl()).toBe(
+      'https://chatgpt.com/backend-api/wham/usage',
+    )
     expect(getCodexUsageUrl('https://chatgpt.com/backend-api/codex')).toBe(
       'https://chatgpt.com/backend-api/wham/usage',
     )

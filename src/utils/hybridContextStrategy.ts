@@ -1,6 +1,6 @@
 /**
  * Hybrid Context Strategy - Production Grade
- * 
+ *
  * Combines cached + new tokens intelligently.
  * Optimizes for cost vs accuracy.
  */
@@ -40,9 +40,10 @@ const DEFAULT_CONFIG: Required<HybridConfig> = {
 // Keep enough for: tool_use -> tool_result -> assistant -> user -> next
 const MIN_TAILMessages = 5
 
-function getMessageChain(
-  messages: Message[],
-): { chains: Message[][]; orphans: Message[] } {
+function getMessageChain(messages: Message[]): {
+  chains: Message[][]
+  orphans: Message[]
+} {
   const toolUseIds = new Set<string>()
   const toolUseMessages = new Map<string, Message[]>()
   const allMessagesByUuid = new Map<string, Message[]>()
@@ -78,7 +79,10 @@ function getMessageChain(
       const content = msg.message?.content
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (block?.type === 'tool_result' && block?.tool_use_id === toolUseId) {
+          if (
+            block?.type === 'tool_result' &&
+            block?.tool_use_id === toolUseId
+          ) {
             chainMessages.push(msg)
           }
         }
@@ -155,7 +159,8 @@ function getMessageTokenCount(message: Message): number {
 }
 
 function calculateCacheValue(message: Message): number {
-  const content = typeof message.message?.content === 'string' ? message.message.content : ''
+  const content =
+    typeof message.message?.content === 'string' ? message.message.content : ''
   const age = getCacheAge(message)
 
   let value = 0.5
@@ -225,14 +230,14 @@ export function applyHybridStrategy(
   config: HybridConfig,
 ): HybridStrategyResult {
   const cfg = { ...DEFAULT_CONFIG, ...config }
-  
+
   // Preserve message chains (tool_use/tool_result pairs)
   const { chains, orphans } = getMessageChain(messages)
-  
+
   // Always preserve the conversation tail (last N messages)
   const tailMessages = messages.slice(-MIN_TAILMessages)
   const coreMessages = messages.slice(0, -MIN_TAILMessages)
-  
+
   const split = splitContext(coreMessages, cfg)
 
   let strategy: HybridStrategyResult['strategy'] = 'balanced'
@@ -246,7 +251,7 @@ export function applyHybridStrategy(
     ...chains.flat(),
     ...split.cached,
     ...split.fresh,
-    ...tailMessages
+    ...tailMessages,
   ]
 
   const seenUuids = new Set<string>()
@@ -260,7 +265,7 @@ export function applyHybridStrategy(
   }
 
   selectedMessages.sort(
-    (a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0)
+    (a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0),
   )
 
   let totalTokens = 0
@@ -278,7 +283,10 @@ export function applyHybridStrategy(
   }
 }
 
-export function optimizeForCost(messages: Message[], budget: number): Message[] {
+export function optimizeForCost(
+  messages: Message[],
+  budget: number,
+): Message[] {
   const result = applyHybridStrategy(messages, {
     cacheWeight: 0.7,
     freshWeight: 0.3,
@@ -288,7 +296,10 @@ export function optimizeForCost(messages: Message[], budget: number): Message[] 
   return result.selectedMessages
 }
 
-export function optimizeForAccuracy(messages: Message[], maxTokens: number): Message[] {
+export function optimizeForAccuracy(
+  messages: Message[],
+  maxTokens: number,
+): Message[] {
   const result = applyHybridStrategy(messages, {
     cacheWeight: 0.3,
     freshWeight: 0.7,
@@ -298,14 +309,17 @@ export function optimizeForAccuracy(messages: Message[], maxTokens: number): Mes
 }
 
 export function getHybridStats(split: ContextSplit) {
-  const cacheRatio = split.totalTokens > 0 ? split.cachedTokens / split.totalTokens : 0
-  const freshRatio = split.totalTokens > 0 ? split.freshTokens / split.totalTokens : 0
+  const cacheRatio =
+    split.totalTokens > 0 ? split.cachedTokens / split.totalTokens : 0
+  const freshRatio =
+    split.totalTokens > 0 ? split.freshTokens / split.totalTokens : 0
 
   return {
     cacheRatio: Math.round(cacheRatio * 100),
     freshRatio: Math.round(freshRatio * 100),
     totalTokens: split.totalTokens,
     messageCount: split.cached.length + split.fresh.length,
-    efficiency: split.totalTokens / (split.cachedTokens + split.freshTokens + 1),
+    efficiency:
+      split.totalTokens / (split.cachedTokens + split.freshTokens + 1),
   }
 }

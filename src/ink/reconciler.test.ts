@@ -74,9 +74,7 @@ function getInkInstance(stdout: PassThrough): {
   rootNode?: DOMElement
   dispatchKeyboardEvent: (parsedKey: ParsedKey) => void
 } {
-  const instance = instances.get(
-    stdout as unknown as NodeJS.WriteStream,
-  ) as
+  const instance = instances.get(stdout as unknown as NodeJS.WriteStream) as
     | {
         rootNode?: DOMElement
         dispatchKeyboardEvent: (parsedKey: ParsedKey) => void
@@ -112,7 +110,10 @@ function findElement(
   return undefined
 }
 
-function requireElement(stdout: PassThrough, nodeName: ElementNames): DOMElement {
+function requireElement(
+  stdout: PassThrough,
+  nodeName: ElementNames,
+): DOMElement {
   const found = findElement(getRootNode(stdout), nodeName)
 
   if (!found) {

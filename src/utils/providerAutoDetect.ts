@@ -125,8 +125,11 @@ export function detectProviderFromEnv(
     envHasNonEmpty(env, 'CODEX_ACCOUNT_ID') ||
     hasCodexAuth()
   ) {
-    const sourceEnv =
-      firstSet(env, ['CODEX_API_KEY', 'CHATGPT_ACCOUNT_ID', 'CODEX_ACCOUNT_ID'])
+    const sourceEnv = firstSet(env, [
+      'CODEX_API_KEY',
+      'CHATGPT_ACCOUNT_ID',
+      'CODEX_ACCOUNT_ID',
+    ])
     return {
       kind: 'codex',
       source: sourceEnv ? `${sourceEnv} set` : '~/.codex/auth.json present',
@@ -222,10 +225,9 @@ export async function detectLocalService(options?: {
     /\/+$/,
     '',
   )
-  const lmStudioBase = (env.LM_STUDIO_BASE_URL ?? 'http://localhost:1234').replace(
-    /\/+$/,
-    '',
-  )
+  const lmStudioBase = (
+    env.LM_STUDIO_BASE_URL ?? 'http://localhost:1234'
+  ).replace(/\/+$/, '')
 
   const probes: LocalProbe[] = [
     {
@@ -277,7 +279,8 @@ function normalizeOpengatewayBaseUrl(baseUrl: string): string {
     const hostname = parsed.hostname.toLowerCase()
     const path = parsed.pathname.replace(/\/+$/, '').toLowerCase()
     if (
-      (hostname === 'opengateway.gitlawb.com' || hostname === 'opengateway.fly.dev') &&
+      (hostname === 'opengateway.gitlawb.com' ||
+        hostname === 'opengateway.fly.dev') &&
       (path === '/v1/xiaomi-mimo' || path === '/v1/gmi-cloud')
     ) {
       parsed.pathname = '/v1'
@@ -300,12 +303,15 @@ function normalizeOpengatewayBaseUrl(baseUrl: string): string {
  */
 function defaultOpengatewayProvider(env: EnvLike): DetectedProvider | null {
   const hasKey =
-    (typeof env.OPENGATEWAY_API_KEY === 'string' && env.OPENGATEWAY_API_KEY.trim().length > 0) ||
-    (typeof env.OPENAI_API_KEY === 'string' && env.OPENAI_API_KEY.trim().length > 0)
+    (typeof env.OPENGATEWAY_API_KEY === 'string' &&
+      env.OPENGATEWAY_API_KEY.trim().length > 0) ||
+    (typeof env.OPENAI_API_KEY === 'string' &&
+      env.OPENAI_API_KEY.trim().length > 0)
   if (!hasKey) return null
 
   const baseUrl =
-    (typeof env.OPENGATEWAY_BASE_URL === 'string' && env.OPENGATEWAY_BASE_URL.trim()) ||
+    (typeof env.OPENGATEWAY_BASE_URL === 'string' &&
+      env.OPENGATEWAY_BASE_URL.trim()) ||
     OPENGATEWAY_DEFAULT_BASE_URL
   return {
     kind: 'gitlawb-opengateway',

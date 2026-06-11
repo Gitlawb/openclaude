@@ -3,7 +3,11 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../../test/sharedMutationLock.js'
-import { getProviderMode, getProviderChain, getAvailableProviders } from './index.js'
+import {
+  getProviderMode,
+  getProviderChain,
+  getAvailableProviders,
+} from './index.js'
 import type { ProviderMode } from './index.js'
 
 const savedWebSearchEnv = {
@@ -141,7 +145,8 @@ describe('runSearch', () => {
     } finally {
       if (saved !== undefined) process.env.TAVILY_API_KEY = saved
       else delete process.env.TAVILY_API_KEY
-      if (savedProvider !== undefined) process.env.WEB_SEARCH_PROVIDER = savedProvider
+      if (savedProvider !== undefined)
+        process.env.WEB_SEARCH_PROVIDER = savedProvider
       else delete process.env.WEB_SEARCH_PROVIDER
     }
   })

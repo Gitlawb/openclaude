@@ -8,7 +8,10 @@ import {
   recordRequest as recordCacheRequest,
   resetSessionCacheStats,
 } from './services/api/cacheStatsTracker.js'
-import { getAPIProvider, isGithubNativeAnthropicMode } from './utils/model/providers.js'
+import {
+  getAPIProvider,
+  isGithubNativeAnthropicMode,
+} from './utils/model/providers.js'
 import {
   addToTotalCostState,
   addToTotalLinesChanged,

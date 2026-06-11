@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { getAnthropicClient } from './client.js'
 
 type FetchType = typeof globalThis.fetch
@@ -287,7 +290,9 @@ test('routes Gemini provider requests through the OpenAI-compatible shim', async
     stream: false,
   })
 
-  expect(capturedUrl).toBe('https://gemini.example/v1beta/openai/chat/completions')
+  expect(capturedUrl).toBe(
+    'https://gemini.example/v1beta/openai/chat/completions',
+  )
   expect(capturedHeaders?.get('authorization')).toBe('Bearer gemini-test-key')
   expect(capturedBody?.model).toBe('gemini-2.0-flash')
   expect(response).toMatchObject({
@@ -353,10 +358,14 @@ test('routes env-only MiniMax requests through the Anthropic-compatible API', as
     stream: false,
   })
 
-  expect(capturedUrl).toBe('https://api.minimax.io/anthropic/v1/messages?beta=true')
+  expect(capturedUrl).toBe(
+    'https://api.minimax.io/anthropic/v1/messages?beta=true',
+  )
   expect(capturedHeaders?.get('x-api-key')).toBe('minimax-test-key')
   expect(capturedBody?.model).toBe('MiniMax-M2.5')
-  expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+  expect(process.env.ANTHROPIC_BASE_URL).toBe(
+    'https://api.minimax.io/anthropic',
+  )
   expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-test-key')
   expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
   expect(response).toMatchObject({
@@ -389,7 +398,12 @@ test('env-only MiniMax fallback preserves legacy OPENAI_MODEL as Anthropic model
         role: 'assistant',
         model: 'MiniMax-M2.7-highspeed',
         content: [{ type: 'text', text: 'minimax override ok' }],
-        usage: { input_tokens: 8, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
         stop_reason: 'end_turn',
       }),
       { headers: { 'Content-Type': 'application/json' } },
@@ -409,7 +423,9 @@ test('env-only MiniMax fallback preserves legacy OPENAI_MODEL as Anthropic model
     stream: false,
   })
 
-  expect(capturedUrl).toBe('https://api.minimax.io/anthropic/v1/messages?beta=true')
+  expect(capturedUrl).toBe(
+    'https://api.minimax.io/anthropic/v1/messages?beta=true',
+  )
   expect(capturedBody?.model).toBe('MiniMax-M2.7-highspeed')
   expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7-highspeed')
 })
@@ -441,7 +457,12 @@ test('env-only MiniMax fallback drops stale OpenAI shim options', async () => {
         role: 'assistant',
         model: 'MiniMax-M2.7',
         content: [{ type: 'text', text: 'minimax clean ok' }],
-        usage: { input_tokens: 8, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
         stop_reason: 'end_turn',
       }),
       { headers: { 'Content-Type': 'application/json' } },
@@ -461,7 +482,9 @@ test('env-only MiniMax fallback drops stale OpenAI shim options', async () => {
     stream: false,
   })
 
-  expect(capturedUrl).toBe('https://api.minimax.io/anthropic/v1/messages?beta=true')
+  expect(capturedUrl).toBe(
+    'https://api.minimax.io/anthropic/v1/messages?beta=true',
+  )
   expect(capturedHeaders?.get('x-api-key')).toBe('minimax-test-key')
   expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
@@ -639,7 +662,7 @@ test('env-only xAI fallback preserves xAI OPENAI_API_BASE host overrides', async
   process.env.XAI_API_KEY = 'xai-test-key'
   process.env.OPENAI_API_BASE = 'https://api.x.ai/v1'
 
-  globalThis.fetch = (async (input) => {
+  globalThis.fetch = (async input => {
     capturedUrl =
       typeof input === 'string'
         ? input

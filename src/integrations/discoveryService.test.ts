@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from './index.js'
+import {
+  _clearRegistryForTesting,
+  ensureIntegrationsLoaded,
+  registerGateway,
+} from './index.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -33,15 +37,11 @@ async function loadDiscoveryServiceModule() {
   return import(`./discoveryService.js?ts=${Date.now()}-${Math.random()}`)
 }
 
-function setMockFetch(
-  implementation: typeof globalThis.fetch,
-): void {
+function setMockFetch(implementation: typeof globalThis.fetch): void {
   globalThis.fetch = implementation
 }
 
-function restoreEnvValue(
-  key: keyof typeof originalEnv,
-): void {
+function restoreEnvValue(key: keyof typeof originalEnv): void {
   const value = originalEnv[key]
   if (value === undefined) {
     delete process.env[key]
@@ -105,21 +105,28 @@ describe('discoverModelsForRoute', () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
     let callCount = 0
-    setMockFetch(mock((input: string | URL | Request, init?: RequestInit) => {
-      callCount++
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      expect(url).toBe('http://127.0.0.1:1337/v1/models')
-      expect(init?.headers).toBeUndefined()
+    setMockFetch(
+      mock((input: string | URL | Request, init?: RequestInit) => {
+        callCount++
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        expect(url).toBe('http://127.0.0.1:1337/v1/models')
+        expect(init?.headers).toBeUndefined()
 
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'Qwen3_5-4B_Q4_K_M' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'Qwen3_5-4B_Q4_K_M' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const first = await discoverModelsForRoute('atomic-chat')
     const second = await discoverModelsForRoute('atomic-chat')
@@ -138,22 +145,29 @@ describe('discoverModelsForRoute', () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
     let callCount = 0
-    setMockFetch(mock((input: string | URL | Request) => {
-      callCount++
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      const model = url.startsWith('http://remote-a.example/v1/')
-        ? 'remote-a-model'
-        : 'remote-b-model'
+    setMockFetch(
+      mock((input: string | URL | Request) => {
+        callCount++
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        const model = url.startsWith('http://remote-a.example/v1/')
+          ? 'remote-a-model'
+          : 'remote-b-model'
 
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: model }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: model }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const firstRemoteA = await discoverModelsForRoute('atomic-chat', {
       baseUrl: 'http://remote-a.example/v1',
@@ -183,25 +197,31 @@ describe('discoverModelsForRoute', () => {
   test('preserves stale cache data when refresh fails', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
-    setMockFetch(mock(() =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            models: [{ name: 'llama3.1:8b', size: 1024 }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
+    setMockFetch(
+      mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              models: [{ name: 'llama3.1:8b', size: 1024 }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
         ),
-      )
-    ) as unknown as typeof globalThis.fetch)
+      ) as unknown as typeof globalThis.fetch,
+    )
 
     const first = await discoverModelsForRoute('ollama', { forceRefresh: true })
     expect(first?.source).toBe('network')
 
-    setMockFetch(mock(() =>
-      Promise.resolve(new Response('unavailable', { status: 503 })),
-    ) as unknown as typeof globalThis.fetch)
+    setMockFetch(
+      mock(() =>
+        Promise.resolve(new Response('unavailable', { status: 503 })),
+      ) as unknown as typeof globalThis.fetch,
+    )
 
-    const second = await discoverModelsForRoute('ollama', { forceRefresh: true })
+    const second = await discoverModelsForRoute('ollama', {
+      forceRefresh: true,
+    })
     expect(second).toMatchObject({
       source: 'stale-cache',
       stale: true,
@@ -222,29 +242,30 @@ describe('discoverModelsForRoute', () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
     process.env.OPENROUTER_API_KEY = 'or-key'
-    setMockFetch(mock((_input, init) => {
-      expect(init?.headers).toEqual({ Authorization: 'Bearer or-key' })
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [
-              { id: 'openai/gpt-5-mini' },
-              { id: 'anthropic/claude-sonnet-4' },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+    setMockFetch(
+      mock((_input, init) => {
+        expect(init?.headers).toEqual({ Authorization: 'Bearer or-key' })
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [
+                { id: 'openai/gpt-5-mini' },
+                { id: 'anthropic/claude-sonnet-4' },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const result = await discoverModelsForRoute('openrouter', {
       forceRefresh: true,
     })
 
-    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
-      'openai/gpt-5-mini',
-      'anthropic/claude-sonnet-4',
-    ])
+    expect(
+      result?.models.map((model: { apiName: string }) => model.apiName),
+    ).toEqual(['openai/gpt-5-mini', 'anthropic/claude-sonnet-4'])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
   })
 
@@ -277,21 +298,23 @@ describe('discoverModelsForRoute', () => {
       },
     })
 
-    setMockFetch(mock((_input, init) => {
-      expect(init?.headers).toEqual({
-        'X-Static-Client': 'profile',
-        'X-Profile-Header': 'enabled',
-        Authorization: 'Bearer discovery-key',
-      })
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'discovered-model' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+    setMockFetch(
+      mock((_input, init) => {
+        expect(init?.headers).toEqual({
+          'X-Static-Client': 'profile',
+          'X-Profile-Header': 'enabled',
+          Authorization: 'Bearer discovery-key',
+        })
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'discovered-model' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const result = await discoverModelsForRoute('discovery-header-test', {
       apiKey: 'discovery-key',
@@ -303,7 +326,9 @@ describe('discoverModelsForRoute', () => {
     })
 
     expect(result?.source).toBe('network')
-    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['discovered-model'])
+    expect(
+      result?.models.map((model: { apiName: string }) => model.apiName),
+    ).toEqual(['discovered-model'])
   })
 
   test('openai-compatible discovery can opt out of auth', async () => {
@@ -333,18 +358,20 @@ describe('discoverModelsForRoute', () => {
     })
 
     let callCount = 0
-    setMockFetch(mock((_input, init) => {
-      callCount++
-      expect(init?.headers).toBeUndefined()
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'public-model' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+    setMockFetch(
+      mock((_input, init) => {
+        callCount++
+        expect(init?.headers).toBeUndefined()
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'public-model' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const result = await discoverModelsForRoute('discovery-no-auth-test', {
       apiKey: 'discovery-key',
@@ -355,9 +382,13 @@ describe('discoverModelsForRoute', () => {
     })
 
     expect(result?.source).toBe('network')
-    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
+    expect(
+      result?.models.map((model: { apiName: string }) => model.apiName),
+    ).toEqual(['public-model'])
     expect(cached?.source).toBe('cache')
-    expect(cached?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
+    expect(
+      cached?.models.map((model: { apiName: string }) => model.apiName),
+    ).toEqual(['public-model'])
     expect(callCount).toBe(1)
   })
 
@@ -366,9 +397,11 @@ describe('discoverModelsForRoute', () => {
     process.env.OPENROUTER_API_KEY = 'or-key'
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
-    setMockFetch(mock(() => {
-      throw new Error('unexpected model discovery request')
-    }) as unknown as typeof globalThis.fetch)
+    setMockFetch(
+      mock(() => {
+        throw new Error('unexpected model discovery request')
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const result = await discoverModelsForRoute('openrouter', {
       apiKey: 'privacy-test-key',
@@ -383,29 +416,39 @@ describe('discoverModelsForRoute', () => {
   })
 
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {
-    const { refreshStartupDiscoveryForRoute } = await loadDiscoveryServiceModule()
+    const { refreshStartupDiscoveryForRoute } =
+      await loadDiscoveryServiceModule()
 
     let callCount = 0
-    setMockFetch(mock((input: string | URL | Request) => {
-      callCount++
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      expect(url).toBe('http://localhost:1234/v1/models')
+    setMockFetch(
+      mock((input: string | URL | Request) => {
+        callCount++
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        expect(url).toBe('http://localhost:1234/v1/models')
 
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'local-model' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'local-model' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     const first = await refreshStartupDiscoveryForRoute('lmstudio')
     const second = await refreshStartupDiscoveryForRoute('lmstudio')
 
     expect(first?.source).toBe('network')
-    expect(first?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['local-model'])
+    expect(
+      first?.models.map((model: { apiName: string }) => model.apiName),
+    ).toEqual(['local-model'])
     expect(second?.source).toBe('cache')
     expect(callCount).toBe(1)
   })
@@ -419,16 +462,18 @@ describe('discoverModelsForRoute', () => {
       OPENAI_BASE_URL: 'http://127.0.0.1:1234/v1',
     }
 
-    setMockFetch(mock(() =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'local-model' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
+    setMockFetch(
+      mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'local-model' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
         ),
-      )
-    ) as unknown as typeof globalThis.fetch)
+      ) as unknown as typeof globalThis.fetch,
+    )
 
     const result = await refreshStartupDiscoveryForActiveRoute({
       processEnv: startupEnv,
@@ -457,14 +502,20 @@ describe('discoverModelsForRoute', () => {
         discovery: {
           kind: 'openai-compatible',
           mapModel(raw: unknown) {
-            const model = raw as { id?: string; active?: boolean; context_window?: number }
+            const model = raw as {
+              id?: string
+              active?: boolean
+              context_window?: number
+            }
             if (!model.id || model.active === false) return null
             if (/(guard|whisper)/i.test(model.id)) return null
             return {
               id: model.id,
               apiName: model.id,
               label: model.id,
-              ...(model.context_window ? { contextWindow: model.context_window } : {}),
+              ...(model.context_window
+                ? { contextWindow: model.context_window }
+                : {}),
             }
           },
         },
@@ -472,21 +523,23 @@ describe('discoverModelsForRoute', () => {
       },
     })
 
-    setMockFetch(mock(() =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [
-              { id: 'llama-3.3-70b', context_window: 131072 },
-              { id: 'whisper-large-v3' },
-              { id: 'llama-guard-3' },
-              { id: 'inactive-model', active: false },
-            ],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
+    setMockFetch(
+      mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [
+                { id: 'llama-3.3-70b', context_window: 131072 },
+                { id: 'whisper-large-v3' },
+                { id: 'llama-guard-3' },
+                { id: 'inactive-model', active: false },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
         ),
-      )
-    ) as unknown as typeof globalThis.fetch)
+      ) as unknown as typeof globalThis.fetch,
+    )
 
     const result = await discoverModelsForRoute('mapmodel-test', {
       forceRefresh: true,
@@ -494,7 +547,12 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.source).toBe('network')
     expect(result?.models).toEqual([
-      { id: 'llama-3.3-70b', apiName: 'llama-3.3-70b', label: 'llama-3.3-70b', contextWindow: 131072 },
+      {
+        id: 'llama-3.3-70b',
+        apiName: 'llama-3.3-70b',
+        label: 'llama-3.3-70b',
+        contextWindow: 131072,
+      },
     ])
   })
 })
@@ -503,29 +561,36 @@ describe('probeRouteReadiness', () => {
   test('drives ollama readiness through descriptor metadata', async () => {
     const { probeRouteReadiness } = await loadDiscoveryServiceModule()
 
-    setMockFetch(mock((input: string | URL | Request) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.endsWith('/api/tags')) {
+    setMockFetch(
+      mock((input: string | URL | Request) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url
+        if (url.endsWith('/api/tags')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                models: [{ name: 'llama3.1:8b', size: 1024 }],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          )
+        }
+
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              models: [{ name: 'llama3.1:8b', size: 1024 }],
+              message: { role: 'assistant', content: 'OK' },
+              done: true,
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           ),
         )
-      }
-
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            message: { role: 'assistant', content: 'OK' },
-            done: true,
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
+      }) as unknown as typeof globalThis.fetch,
+    )
 
     await expect(probeRouteReadiness('ollama')).resolves.toMatchObject({
       state: 'ready',
@@ -536,16 +601,18 @@ describe('probeRouteReadiness', () => {
   test('drives atomic chat readiness through descriptor metadata', async () => {
     const { probeRouteReadiness } = await loadDiscoveryServiceModule()
 
-    setMockFetch(mock(() =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            data: [{ id: 'Qwen3_5-4B_Q4_K_M' }],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
+    setMockFetch(
+      mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'Qwen3_5-4B_Q4_K_M' }],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
         ),
-      )
-    ) as unknown as typeof globalThis.fetch)
+      ) as unknown as typeof globalThis.fetch,
+    )
 
     await expect(probeRouteReadiness('atomic-chat')).resolves.toEqual({
       state: 'ready',
@@ -559,12 +626,12 @@ describe('resolveDiscoveryRouteIdFromBaseUrl', () => {
     const { resolveDiscoveryRouteIdFromBaseUrl } =
       await loadDiscoveryServiceModule()
 
-    expect(
-      resolveDiscoveryRouteIdFromBaseUrl('http://127.0.0.1:1337/v1'),
-    ).toBe('atomic-chat')
-    expect(
-      resolveDiscoveryRouteIdFromBaseUrl('http://localhost:1234/v1'),
-    ).toBe('lmstudio')
+    expect(resolveDiscoveryRouteIdFromBaseUrl('http://127.0.0.1:1337/v1')).toBe(
+      'atomic-chat',
+    )
+    expect(resolveDiscoveryRouteIdFromBaseUrl('http://localhost:1234/v1')).toBe(
+      'lmstudio',
+    )
   })
 
   test('falls back to local-provider heuristics for Ollama aliases', async () => {

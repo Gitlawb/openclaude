@@ -231,7 +231,9 @@ describe('SDK Zod schemas (type generation source)', () => {
     const schema = ThinkingConfigSchema()
     expect(schema.safeParse({ type: 'adaptive' }).success).toBe(true)
     expect(schema.safeParse({ type: 'enabled' }).success).toBe(true)
-    expect(schema.safeParse({ type: 'enabled', budgetTokens: 10000 }).success).toBe(true)
+    expect(
+      schema.safeParse({ type: 'enabled', budgetTokens: 10000 }).success,
+    ).toBe(true)
     expect(schema.safeParse({ type: 'disabled' }).success).toBe(true)
     expect(schema.safeParse({ type: 'unknown' }).success).toBe(false)
   })
@@ -246,7 +248,14 @@ describe('SDK Zod schemas (type generation source)', () => {
 
   test('ExitReasonSchema accepts valid reasons', () => {
     const schema = ExitReasonSchema()
-    const reasons = ['clear', 'resume', 'logout', 'prompt_input_exit', 'other', 'bypass_permissions_disabled']
+    const reasons = [
+      'clear',
+      'resume',
+      'logout',
+      'prompt_input_exit',
+      'other',
+      'bypass_permissions_disabled',
+    ]
     for (const r of reasons) {
       expect(schema.safeParse(r).success).toBe(true)
     }

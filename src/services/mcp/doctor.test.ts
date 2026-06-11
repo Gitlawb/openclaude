@@ -19,19 +19,29 @@ import type {
   ScopedMcpServerConfig,
 } from './types.js'
 
-type AllConfigResult = Awaited<ReturnType<McpDoctorDependencies['getAllMcpConfigs']>>
-type ScopeConfigResult = ReturnType<McpDoctorDependencies['getMcpConfigsByScope']>
+type AllConfigResult = Awaited<
+  ReturnType<McpDoctorDependencies['getAllMcpConfigs']>
+>
+type ScopeConfigResult = ReturnType<
+  McpDoctorDependencies['getMcpConfigsByScope']
+>
 type ConnectToServerHandler = (
   ...args: Parameters<McpDoctorDependencies['connectToServer']>
 ) => ReturnType<McpDoctorDependencies['connectToServer']>
-type ConfigFileScope = Extract<ConfigScope, 'enterprise' | 'local' | 'project' | 'user'>
+type ConfigFileScope = Extract<
+  ConfigScope,
+  'enterprise' | 'local' | 'project' | 'user'
+>
 type McpDoctorDependencyOverrides = Partial<
   Omit<McpDoctorDependencies, 'connectToServer'> & {
     connectToServer: ConnectToServerHandler
   }
 >
 
-function stdioConfig(scope: ConfigFileScope, command: string): ScopedMcpServerConfig {
+function stdioConfig(
+  scope: ConfigFileScope,
+  command: string,
+): ScopedMcpServerConfig {
   return {
     type: 'stdio' as const,
     command,
@@ -54,7 +64,10 @@ function scopeConfig(
   return { servers, errors }
 }
 
-function connectedServer(name: string, config: ScopedMcpServerConfig): MCPServerConnection {
+function connectedServer(
+  name: string,
+  config: ScopedMcpServerConfig,
+): MCPServerConnection {
   return {
     name,
     type: 'connected',
@@ -78,7 +91,10 @@ function failedServer(
   }
 }
 
-function needsAuthServer(name: string, config: ScopedMcpServerConfig): MCPServerConnection {
+function needsAuthServer(
+  name: string,
+  config: ScopedMcpServerConfig,
+): MCPServerConnection {
   return {
     name,
     type: 'needs-auth',
@@ -86,11 +102,15 @@ function needsAuthServer(name: string, config: ScopedMcpServerConfig): MCPServer
   }
 }
 
-function connectMock(handler: ConnectToServerHandler): McpDoctorDependencies['connectToServer'] {
+function connectMock(
+  handler: ConnectToServerHandler,
+): McpDoctorDependencies['connectToServer'] {
   return memoize(handler, getServerCacheKey)
 }
 
-function makeDependencies(overrides: McpDoctorDependencyOverrides = {}): McpDoctorDependencies {
+function makeDependencies(
+  overrides: McpDoctorDependencyOverrides = {},
+): McpDoctorDependencies {
   const {
     connectToServer = async (name, config) => connectedServer(name, config),
     ...rest
@@ -211,21 +231,18 @@ test('doctorAllServers reports global validation findings once without duplicati
     getAllMcpConfigs: async () => allConfig({ filesystem: localConfig }),
     getMcpConfigsByScope: scope =>
       scope === 'project'
-        ? scopeConfig(
-            {},
-            [
-              {
-                file: '.mcp.json',
-                path: '',
-                message: 'MCP config is not a valid JSON',
-                suggestion: 'Fix the JSON syntax errors in the file',
-                mcpErrorMetadata: {
-                  scope: 'project',
-                  severity: 'fatal',
-                },
+        ? scopeConfig({}, [
+            {
+              file: '.mcp.json',
+              path: '',
+              message: 'MCP config is not a valid JSON',
+              suggestion: 'Fix the JSON syntax errors in the file',
+              mcpErrorMetadata: {
+                scope: 'project',
+                severity: 'fatal',
               },
-            ],
-          )
+            },
+          ])
         : scope === 'local'
           ? scopeConfig({ filesystem: localConfig })
           : scopeConfig(),
@@ -260,8 +277,16 @@ test('doctorServer explains same-name shadowing across scopes', async () => {
   const report = await doctorServer('filesystem', { configOnly: true }, deps)
   assert.equal(report.servers.length, 1)
   assert.equal(report.servers[0]?.definitions.length, 2)
-  assert.equal(report.servers[0]?.definitions.find(def => def.sourceType === 'local')?.runtimeActive, true)
-  assert.equal(report.servers[0]?.definitions.find(def => def.sourceType === 'user')?.runtimeActive, false)
+  assert.equal(
+    report.servers[0]?.definitions.find(def => def.sourceType === 'local')
+      ?.runtimeActive,
+    true,
+  )
+  assert.equal(
+    report.servers[0]?.definitions.find(def => def.sourceType === 'user')
+      ?.runtimeActive,
+    false,
+  )
   assert.deepEqual(
     report.servers[0]?.findings.map(finding => finding.code).sort(),
     ['duplicate.same_name_multiple_scopes', 'scope.shadowed'],
@@ -275,7 +300,8 @@ test('doctorServer reports project servers pending approval', async () => {
       scope === 'project'
         ? scopeConfig({ sentry: projectConfig })
         : scopeConfig(),
-    getProjectMcpServerStatus: name => (name === 'sentry' ? 'pending' : 'approved'),
+    getProjectMcpServerStatus: name =>
+      name === 'sentry' ? 'pending' : 'approved',
   })
 
   const report = await doctorServer('sentry', { configOnly: true }, deps)
@@ -284,7 +310,9 @@ test('doctorServer reports project servers pending approval', async () => {
   assert.equal(report.servers[0]?.definitions[0]?.runtimeActive, false)
   assert.equal(report.servers[0]?.definitions[0]?.runtimeVisible, false)
   assert.equal(
-    report.servers[0]?.findings.some(finding => finding.code === 'state.pending_project_approval'),
+    report.servers[0]?.findings.some(
+      finding => finding.code === 'state.pending_project_approval',
+    ),
     true,
   )
 })
@@ -295,9 +323,7 @@ test('doctorServer does not treat disabled servers as runtime-active or live-che
   const deps = makeDependencies({
     getAllMcpConfigs: async () => allConfig({ github: localConfig }),
     getMcpConfigsByScope: scope =>
-      scope === 'local'
-        ? scopeConfig({ github: localConfig })
-        : scopeConfig(),
+      scope === 'local' ? scopeConfig({ github: localConfig }) : scopeConfig(),
     isMcpServerDisabled: name => name === 'github',
     connectToServer: async (name, config) => {
       connectCalls += 1
@@ -315,7 +341,10 @@ test('doctorServer does not treat disabled servers as runtime-active or live-che
   assert.equal(report.servers[0]?.definitions[0]?.runtimeVisible, false)
   assert.equal(report.servers[0]?.liveCheck.result, 'disabled')
   assert.equal(
-    report.servers[0]?.findings.some(finding => finding.code === 'state.disabled' && finding.severity === 'warn'),
+    report.servers[0]?.findings.some(
+      finding =>
+        finding.code === 'state.disabled' && finding.severity === 'warn',
+    ),
     true,
   )
 })
@@ -326,9 +355,7 @@ test('doctorAllServers skips live checks in config-only mode', async () => {
   const deps = makeDependencies({
     getAllMcpConfigs: async () => allConfig({ linear: localConfig }),
     getMcpConfigsByScope: scope =>
-      scope === 'local'
-        ? scopeConfig({ linear: localConfig })
-        : scopeConfig(),
+      scope === 'local' ? scopeConfig({ linear: localConfig }) : scopeConfig(),
     connectToServer: async (name, config) => {
       connectCalls += 1
       return connectedServer(name, config)
@@ -349,10 +376,14 @@ test('doctorAllServers honors scopeFilter when collecting names', async () => {
     pluginSource: 'plugin:github@official',
   }
   const deps = makeDependencies({
-    getAllMcpConfigs: async () => allConfig({ 'plugin:github:github': pluginConfig }),
+    getAllMcpConfigs: async () =>
+      allConfig({ 'plugin:github:github': pluginConfig }),
   })
 
-  const report = await doctorAllServers({ configOnly: true, scopeFilter: 'user' }, deps)
+  const report = await doctorAllServers(
+    { configOnly: true, scopeFilter: 'user' },
+    deps,
+  )
 
   assert.equal(report.summary.totalReports, 0)
   assert.deepEqual(report.servers, [])
@@ -365,21 +396,18 @@ test('doctorAllServers honors scopeFilter when collecting validation errors', as
     getMcpConfigsByScope: scope => {
       switch (scope) {
         case 'project':
-          return scopeConfig(
-            {},
-            [
-              {
-                file: '.mcp.json',
-                path: '',
-                message: 'MCP config is not a valid JSON',
-                suggestion: 'Fix the JSON syntax errors in the file',
-                mcpErrorMetadata: {
-                  scope: 'project',
-                  severity: 'fatal',
-                },
+          return scopeConfig({}, [
+            {
+              file: '.mcp.json',
+              path: '',
+              message: 'MCP config is not a valid JSON',
+              suggestion: 'Fix the JSON syntax errors in the file',
+              mcpErrorMetadata: {
+                scope: 'project',
+                severity: 'fatal',
               },
-            ],
-          )
+            },
+          ])
         case 'user':
           return scopeConfig({ filesystem: userConfig })
         default:
@@ -388,7 +416,10 @@ test('doctorAllServers honors scopeFilter when collecting validation errors', as
     },
   })
 
-  const report = await doctorAllServers({ configOnly: true, scopeFilter: 'user' }, deps)
+  const report = await doctorAllServers(
+    { configOnly: true, scopeFilter: 'user' },
+    deps,
+  )
 
   assert.equal(report.summary.totalReports, 1)
   assert.equal(report.summary.blocking, 0)
@@ -404,7 +435,8 @@ test('doctorAllServers includes observed runtime definitions for plugin-only ser
     pluginSource: 'plugin:github@official',
   }
   const deps = makeDependencies({
-    getAllMcpConfigs: async () => allConfig({ 'plugin:github:github': pluginConfig }),
+    getAllMcpConfigs: async () =>
+      allConfig({ 'plugin:github:github': pluginConfig }),
   })
 
   const report = await doctorAllServers({ configOnly: true }, deps)
@@ -423,7 +455,8 @@ test('doctorAllServers reports disabled plugin servers as disabled, not not-foun
     pluginSource: 'plugin:github@official',
   }
   const deps = makeDependencies({
-    getAllMcpConfigs: async () => allConfig({ 'plugin:github:github': pluginConfig }),
+    getAllMcpConfigs: async () =>
+      allConfig({ 'plugin:github:github': pluginConfig }),
     isMcpServerDisabled: name => name === 'plugin:github:github',
   })
 
@@ -437,11 +470,15 @@ test('doctorAllServers reports disabled plugin servers as disabled, not not-foun
   assert.equal(report.servers[0]?.definitions[0]?.disabled, true)
   assert.equal(report.servers[0]?.definitions[0]?.runtimeActive, false)
   assert.equal(
-    report.servers[0]?.findings.some(finding => finding.code === 'state.disabled' && !finding.blocking),
+    report.servers[0]?.findings.some(
+      finding => finding.code === 'state.disabled' && !finding.blocking,
+    ),
     true,
   )
   assert.equal(
-    report.servers[0]?.findings.some(finding => finding.code === 'state.not_found'),
+    report.servers[0]?.findings.some(
+      finding => finding.code === 'state.not_found',
+    ),
     false,
   )
 })
@@ -451,9 +488,7 @@ test('doctorServer converts failed live checks into blocking findings', async ()
   const deps = makeDependencies({
     getAllMcpConfigs: async () => allConfig({ github: localConfig }),
     getMcpConfigsByScope: scope =>
-      scope === 'local'
-        ? scopeConfig({ github: localConfig })
-        : scopeConfig(),
+      scope === 'local' ? scopeConfig({ github: localConfig }) : scopeConfig(),
     connectToServer: async (name, config) =>
       failedServer(name, config, 'command not found: node-local'),
   })
@@ -475,9 +510,7 @@ test('doctorServer converts needs-auth live checks into warning findings', async
   const deps = makeDependencies({
     getAllMcpConfigs: async () => allConfig({ sentry: localConfig }),
     getMcpConfigsByScope: scope =>
-      scope === 'local'
-        ? scopeConfig({ sentry: localConfig })
-        : scopeConfig(),
+      scope === 'local' ? scopeConfig({ sentry: localConfig }) : scopeConfig(),
     connectToServer: async (name, config) => needsAuthServer(name, config),
   })
 
@@ -486,7 +519,10 @@ test('doctorServer converts needs-auth live checks into warning findings', async
   assert.equal(report.summary.warnings, 1)
   assert.equal(report.summary.blocking, 0)
   assert.equal(
-    report.servers[0]?.findings.some(finding => finding.code === 'auth.needs_auth' && finding.severity === 'warn'),
+    report.servers[0]?.findings.some(
+      finding =>
+        finding.code === 'auth.needs_auth' && finding.severity === 'warn',
+    ),
     true,
   )
 })
@@ -499,10 +535,15 @@ test('doctorServer includes observed runtime definition for plugin-only targets'
     pluginSource: 'plugin:github@official',
   }
   const deps = makeDependencies({
-    getAllMcpConfigs: async () => allConfig({ 'plugin:github:github': pluginConfig }),
+    getAllMcpConfigs: async () =>
+      allConfig({ 'plugin:github:github': pluginConfig }),
   })
 
-  const report = await doctorServer('plugin:github:github', { configOnly: true }, deps)
+  const report = await doctorServer(
+    'plugin:github:github',
+    { configOnly: true },
+    deps,
+  )
 
   assert.equal(report.summary.totalReports, 1)
   assert.equal(report.servers[0]?.definitions.length, 1)
@@ -516,16 +557,18 @@ test('doctorServer with scopeFilter does not leak runtime definition from anothe
   const deps = makeDependencies({
     getAllMcpConfigs: async () => allConfig({ github: localConfig }),
     getMcpConfigsByScope: scope =>
-      scope === 'local'
-        ? scopeConfig({ github: localConfig })
-        : scopeConfig(),
+      scope === 'local' ? scopeConfig({ github: localConfig }) : scopeConfig(),
     connectToServer: async (name, config) => {
       connectCalls += 1
       return connectedServer(name, config)
     },
   })
 
-  const report = await doctorServer('github', { configOnly: false, scopeFilter: 'user' }, deps)
+  const report = await doctorServer(
+    'github',
+    { configOnly: false, scopeFilter: 'user' },
+    deps,
+  )
 
   assert.equal(connectCalls, 0)
   assert.equal(report.summary.totalReports, 1)
@@ -533,14 +576,25 @@ test('doctorServer with scopeFilter does not leak runtime definition from anothe
   assert.deepEqual(report.servers[0]?.definitions, [])
   assert.equal(report.servers[0]?.liveCheck.result, 'skipped')
   assert.equal(
-    report.servers[0]?.findings.some(finding => finding.code === 'state.not_found' && finding.blocking),
+    report.servers[0]?.findings.some(
+      finding => finding.code === 'state.not_found' && finding.blocking,
+    ),
     true,
   )
 })
 
 test('doctorServer reports blocking not-found state when no definition exists', async () => {
-  const report = await doctorServer('missing-server', { configOnly: true }, makeDependencies())
+  const report = await doctorServer(
+    'missing-server',
+    { configOnly: true },
+    makeDependencies(),
+  )
 
   assert.equal(report.summary.blocking, 1)
-  assert.equal(report.servers[0]?.findings.some(finding => finding.code === 'state.not_found' && finding.blocking), true)
+  assert.equal(
+    report.servers[0]?.findings.some(
+      finding => finding.code === 'state.not_found' && finding.blocking,
+    ),
+    true,
+  )
 })

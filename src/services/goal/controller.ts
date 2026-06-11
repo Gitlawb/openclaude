@@ -53,7 +53,9 @@ function hasPendingInteractiveDialog(toolUseContext: ToolUseContext): boolean {
   )
 }
 
-function terminalAssistantUuid(assistantMessages: Message[]): string | undefined {
+function terminalAssistantUuid(
+  assistantMessages: Message[],
+): string | undefined {
   return assistantMessages.at(-1)?.uuid
 }
 
@@ -218,7 +220,8 @@ export async function* evaluateGoalAfterTurn({
 
   const updatedGoal = markGoalEvaluated(goal, {
     evaluatedMessageUuid: terminalUuid,
-    decision: decision.decision === 'complete' ? 'incomplete' : decision.decision,
+    decision:
+      decision.decision === 'complete' ? 'incomplete' : decision.decision,
     reason: decision.reason,
     nextInstruction: decision.nextInstruction,
   })

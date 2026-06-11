@@ -31,7 +31,12 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
         if (code !== 'EBUSY' && code !== 'EPERM') {
           throw error
         }
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1))
+        Atomics.wait(
+          new Int32Array(new SharedArrayBuffer(4)),
+          0,
+          0,
+          25 * (attempt + 1),
+        )
       }
     }
 
@@ -84,14 +89,24 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
     // Clear cache and reload
     clearMemoryOnly()
     const graph = loadProjectGraph(cwd)
-    const entities = Object.values(graph.entities).filter(e => e.name === 'openclaude')
+    const entities = Object.values(graph.entities).filter(
+      e => e.name === 'openclaude',
+    )
     expect(entities.length).toBe(1)
     expect(entities[0].attributes.status).toBe('alpha')
   })
 
   it('performs keyword-based RAG search', async () => {
-    await addGlobalSummary('The database uses PostgreSQL version 15.', ['database', 'postgres', 'sql'])
-    await addGlobalSummary('The frontend is built with React and Tailwind.', ['frontend', 'react', 'css'])
+    await addGlobalSummary('The database uses PostgreSQL version 15.', [
+      'database',
+      'postgres',
+      'sql',
+    ])
+    await addGlobalSummary('The frontend is built with React and Tailwind.', [
+      'frontend',
+      'react',
+      'css',
+    ])
 
     const result = await searchGlobalGraph('PostgreSQL')
     expect(result.toLowerCase()).toContain('database')
@@ -101,17 +116,24 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
 
   it('deduplicates entities and updates attributes', async () => {
     await addGlobalEntity('tool', 'openclaude', { status: 'alpha' })
-    await addGlobalEntity('tool', 'openclaude', { status: 'beta', version: '0.6.0' })
+    await addGlobalEntity('tool', 'openclaude', {
+      status: 'beta',
+      version: '0.6.0',
+    })
 
     const graph = loadProjectGraph(cwd)
-    const entities = Object.values(graph.entities).filter(e => e.name === 'openclaude')
+    const entities = Object.values(graph.entities).filter(
+      e => e.name === 'openclaude',
+    )
     expect(entities.length).toBe(1)
     expect(entities[0].attributes.status).toBe('beta')
     expect(entities[0].attributes.version).toBe('0.6.0')
   })
 
   it('clears Orama database and persistence file on resetGlobalGraph', async () => {
-    const { initOrama, getOramaPersistencePath } = await import('./knowledgeGraph.js')
+    const { initOrama, getOramaPersistencePath } = await import(
+      './knowledgeGraph.js'
+    )
 
     await initOrama(cwd)
     await addGlobalSummary('Orama test summary', ['orama'])
@@ -125,7 +147,11 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
 
   describe('Hybrid Architecture: Orama + JSON', () => {
     it('creates Orama persistence by default', async () => {
-      const oramaPath = join(getProjectsDir(), sanitizePath(cwd), 'knowledge.orama')
+      const oramaPath = join(
+        getProjectsDir(),
+        sanitizePath(cwd),
+        'knowledge.orama',
+      )
 
       // Ensure clean state: remove orama file if it exists from previous tests
       if (existsSync(oramaPath)) rmSync(oramaPath)
@@ -151,7 +177,11 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
     })
 
     it('rebuilds Orama from JSON if persistence is missing', async () => {
-      const oramaPath = join(getProjectsDir(), sanitizePath(cwd), 'knowledge.orama')
+      const oramaPath = join(
+        getProjectsDir(),
+        sanitizePath(cwd),
+        'knowledge.orama',
+      )
 
       // 1. Add data via standard hybrid path
       await addGlobalEntity('type', 'rebuild-test', { status: 'ok' })

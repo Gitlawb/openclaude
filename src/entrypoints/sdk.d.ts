@@ -62,7 +62,13 @@ export function sdkErrorFromType(
 // Types
 // ============================================================================
 
-export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary' | 'oauth' | 'none'
+export type ApiKeySource =
+  | 'user'
+  | 'project'
+  | 'org'
+  | 'temporary'
+  | 'oauth'
+  | 'none'
 
 export type RewindFilesResult = {
   canRewind: boolean
@@ -89,46 +95,96 @@ export type McpServerStatus = {
   }[]
 }
 
-export type PermissionResult = ({
-  behavior: 'allow'
-  updatedInput?: Record<string, unknown>
-  updatedPermissions?: ({
-    type: 'addRules'
-    rules: { toolName: string; ruleContent?: string }[]
-    behavior: 'allow' | 'deny' | 'ask'
-    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
-  }) | ({
-    type: 'replaceRules'
-    rules: { toolName: string; ruleContent?: string }[]
-    behavior: 'allow' | 'deny' | 'ask'
-    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
-  }) | ({
-    type: 'removeRules'
-    rules: { toolName: string; ruleContent?: string }[]
-    behavior: 'allow' | 'deny' | 'ask'
-    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
-  }) | ({
-    type: 'setMode'
-    mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'fullAccess' | 'plan' | 'dontAsk'
-    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
-  }) | ({
-    type: 'addDirectories'
-    directories: string[]
-    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
-  }) | ({
-    type: 'removeDirectories'
-    directories: string[]
-    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
-  })[]
-  toolUseID?: string
-  decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
-}) | ({
-  behavior: 'deny'
-  message: string
-  interrupt?: boolean
-  toolUseID?: string
-  decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
-})
+export type PermissionResult =
+  | {
+      behavior: 'allow'
+      updatedInput?: Record<string, unknown>
+      updatedPermissions?:
+        | {
+            type: 'addRules'
+            rules: { toolName: string; ruleContent?: string }[]
+            behavior: 'allow' | 'deny' | 'ask'
+            destination:
+              | 'userSettings'
+              | 'projectSettings'
+              | 'localSettings'
+              | 'session'
+              | 'cliArg'
+          }
+        | {
+            type: 'replaceRules'
+            rules: { toolName: string; ruleContent?: string }[]
+            behavior: 'allow' | 'deny' | 'ask'
+            destination:
+              | 'userSettings'
+              | 'projectSettings'
+              | 'localSettings'
+              | 'session'
+              | 'cliArg'
+          }
+        | {
+            type: 'removeRules'
+            rules: { toolName: string; ruleContent?: string }[]
+            behavior: 'allow' | 'deny' | 'ask'
+            destination:
+              | 'userSettings'
+              | 'projectSettings'
+              | 'localSettings'
+              | 'session'
+              | 'cliArg'
+          }
+        | {
+            type: 'setMode'
+            mode:
+              | 'default'
+              | 'acceptEdits'
+              | 'bypassPermissions'
+              | 'fullAccess'
+              | 'plan'
+              | 'dontAsk'
+            destination:
+              | 'userSettings'
+              | 'projectSettings'
+              | 'localSettings'
+              | 'session'
+              | 'cliArg'
+          }
+        | {
+            type: 'addDirectories'
+            directories: string[]
+            destination:
+              | 'userSettings'
+              | 'projectSettings'
+              | 'localSettings'
+              | 'session'
+              | 'cliArg'
+          }
+        | {
+            type: 'removeDirectories'
+            directories: string[]
+            destination:
+              | 'userSettings'
+              | 'projectSettings'
+              | 'localSettings'
+              | 'session'
+              | 'cliArg'
+          }[]
+      toolUseID?: string
+      decisionClassification?:
+        | 'user_temporary'
+        | 'user_permanent'
+        | 'user_reject'
+    }
+  | {
+      behavior: 'deny'
+      message: string
+      interrupt?: boolean
+      toolUseID?: string
+      decisionClassification?:
+        | 'user_temporary'
+        | 'user_permanent'
+        | 'user_reject'
+    }
 
 export type SDKSessionInfo = {
   sessionId: string
@@ -273,7 +329,11 @@ export type QueryOptions = {
     name: string,
     input: unknown,
     options?: { toolUseID?: string },
-  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+  ) => Promise<{
+    behavior: 'allow' | 'deny'
+    message?: string
+    updatedInput?: unknown
+  }>
   /**
    * Callback invoked when a tool needs permission approval. The host receives
    * the request immediately and can resolve it by calling
@@ -287,14 +347,17 @@ export type QueryOptions = {
     | { type: 'preset'; preset: string; append?: string }
     | { type: 'custom'; content: string }
   /** Agent definitions to register with the query engine. */
-  agents?: Record<string, {
-    description: string
-    prompt: string
-    tools?: string[]
-    disallowedTools?: string[]
-    model?: string
-    maxTurns?: number
-  }>
+  agents?: Record<
+    string,
+    {
+      description: string
+      prompt: string
+      tools?: string[]
+      disallowedTools?: string[]
+      model?: string
+      maxTurns?: number
+    }
+  >
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */
   includePartialMessages?: boolean
@@ -369,7 +432,11 @@ export type SDKAgentLoadFailureMessage = {
  */
 export type PermissionResolveDecision =
   | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
-  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
+  | {
+      behavior: 'deny'
+      message: string
+      decisionReason: { type: 'mode'; mode: string }
+    }
 
 // ============================================================================
 // V2 API types
@@ -393,7 +460,11 @@ export type SDKSessionOptions = {
     name: string,
     input: unknown,
     options?: { toolUseID?: string },
-  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+  ) => Promise<{
+    behavior: 'allow' | 'deny'
+    message?: string
+    updatedInput?: unknown
+  }>
   /** MCP server configurations for this session. */
   mcpServers?: Record<string, unknown>
   /**
@@ -488,7 +559,9 @@ export function queryAsync(params: {
 // V2 API functions
 // ============================================================================
 
-export function unstable_v2_createSession(options: SDKSessionOptions): SDKSession
+export function unstable_v2_createSession(
+  options: SDKSessionOptions,
+): SDKSession
 
 export function unstable_v2_resumeSession(
   sessionId: string,
@@ -521,39 +594,43 @@ export function tool<Schema = any>(
  * Matches McpServerConfigForProcessTransport from coreTypes.generated.ts.
  */
 export type SdkMcpStdioConfig = {
-  type?: "stdio"
+  type?: 'stdio'
   command: string
   args?: string[]
   env?: Record<string, string>
 }
 
 export type SdkMcpSSEConfig = {
-  type: "sse"
+  type: 'sse'
   url: string
   headers?: Record<string, string>
 }
 
 export type SdkMcpHttpConfig = {
-  type: "http"
+  type: 'http'
   url: string
   headers?: Record<string, string>
 }
 
 export type SdkMcpSdkConfig = {
-  type: "sdk"
+  type: 'sdk'
   name: string
   /** In-process tool definitions created via the tool() helper. */
   tools?: SdkMcpToolDefinition[]
 }
 
-export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig | SdkMcpHttpConfig | SdkMcpSdkConfig
+export type SdkMcpServerConfig =
+  | SdkMcpStdioConfig
+  | SdkMcpSSEConfig
+  | SdkMcpHttpConfig
+  | SdkMcpSdkConfig
 
 /**
  * Scoped MCP server config with session scope.
  * Returned by createSdkMcpServer() for use with mcpServers option.
  */
 export type SdkScopedMcpServerConfig = SdkMcpServerConfig & {
-  scope: "session"
+  scope: 'session'
 }
 
 /**
@@ -577,4 +654,6 @@ export type SdkScopedMcpServerConfig = SdkMcpServerConfig & {
  * })
  * ```
  */
-export function createSdkMcpServer(config: SdkMcpServerConfig): SdkScopedMcpServerConfig
+export function createSdkMcpServer(
+  config: SdkMcpServerConfig,
+): SdkScopedMcpServerConfig

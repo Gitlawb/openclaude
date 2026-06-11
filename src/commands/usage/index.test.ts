@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  getUsageDescriptor,
-  resolveActiveUsageId,
-} from './index.js'
+import { getUsageDescriptor, resolveActiveUsageId } from './index.js'
 import type {
   GatewayDescriptor,
   VendorDescriptor,
@@ -33,16 +30,14 @@ function createRegistry(options?: {
 describe('getUsageDescriptor', () => {
   test('resolveActiveUsageId preserves first-party and codex compatibility ids', () => {
     expect(
-      resolveActiveUsageId(
-        {} as NodeJS.ProcessEnv,
-        { providerCategory: 'firstParty' },
-      ),
+      resolveActiveUsageId({} as NodeJS.ProcessEnv, {
+        providerCategory: 'firstParty',
+      }),
     ).toBe('firstParty')
     expect(
-      resolveActiveUsageId(
-        {} as NodeJS.ProcessEnv,
-        { providerCategory: 'codex' },
-      ),
+      resolveActiveUsageId({} as NodeJS.ProcessEnv, {
+        providerCategory: 'codex',
+      }),
     ).toBe('codex')
   })
 

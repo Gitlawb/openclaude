@@ -20,7 +20,9 @@ const diagnostic: DiagnosticInfo = {
   },
 }
 
-const getDoctorDiagnostic = mock(async (): Promise<DiagnosticInfo> => diagnostic)
+const getDoctorDiagnostic = mock(
+  async (): Promise<DiagnosticInfo> => diagnostic,
+)
 const setDiagnostic = mock((_diagnostic: DiagnosticInfo) => {})
 const setDiagnosticLoadFailed = mock((_failed: boolean) => {})
 

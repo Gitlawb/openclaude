@@ -8,7 +8,11 @@ describe('isSnipBoundaryMessage', () => {
   })
 
   test('returns false for compact_boundary without snipMetadata', () => {
-    const msg = { type: 'system', subtype: 'compact_boundary', compactMetadata: {} }
+    const msg = {
+      type: 'system',
+      subtype: 'compact_boundary',
+      compactMetadata: {},
+    }
     expect(isSnipBoundaryMessage(msg)).toBe(false)
   })
 
@@ -36,11 +40,19 @@ describe('projectSnippedView', () => {
       { uuid: 'aaa', type: 'user' },
       { uuid: 'bbb', type: 'assistant' },
       { uuid: 'ccc', type: 'user' },
-      { uuid: 'snip-boundary', type: 'system', snipMetadata: { removedUuids: ['aaa', 'bbb'] } },
+      {
+        uuid: 'snip-boundary',
+        type: 'system',
+        snipMetadata: { removedUuids: ['aaa', 'bbb'] },
+      },
       { uuid: 'ddd', type: 'user' },
     ]
     const result = projectSnippedView(messages)
-    expect(result.map((m: any) => m.uuid)).toEqual(['ccc', 'snip-boundary', 'ddd'])
+    expect(result.map((m: any) => m.uuid)).toEqual([
+      'ccc',
+      'snip-boundary',
+      'ddd',
+    ])
   })
 
   test('accumulates removedUuids from multiple snip boundaries', () => {

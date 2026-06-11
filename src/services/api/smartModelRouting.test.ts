@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  routeModel,
-  type SmartRoutingConfig,
-} from './smartModelRouting.ts'
+import { routeModel, type SmartRoutingConfig } from './smartModelRouting.ts'
 
 const ENABLED: SmartRoutingConfig = {
   enabled: true,
@@ -133,10 +130,7 @@ describe('routeModel — strong path', () => {
 
   test('over-long input routes to strong', () => {
     const long = 'ok '.repeat(100) // ~300 chars, 100 words
-    const decision = routeModel(
-      { userText: long, turnNumber: 5 },
-      ENABLED,
-    )
+    const decision = routeModel({ userText: long, turnNumber: 5 }, ENABLED)
     expect(decision.complexity).toBe('strong')
   })
 

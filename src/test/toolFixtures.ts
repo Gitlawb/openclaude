@@ -6,10 +6,7 @@ type ToolFixtureOverrides<Input extends AnyObject, Output> = Pick<
 > &
   Partial<Omit<Tool<Input, Output>, 'inputSchema' | 'name'>>
 
-export function createToolFixture<
-  Input extends AnyObject,
-  Output = unknown,
->(
+export function createToolFixture<Input extends AnyObject, Output = unknown>(
   inputSchema: Input,
   overrides: ToolFixtureOverrides<Input, Output>,
 ): Tool<Input, Output> {

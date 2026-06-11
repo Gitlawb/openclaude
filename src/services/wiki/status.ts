@@ -31,7 +31,9 @@ async function listMarkdownFiles(dir: string): Promise<string[]> {
   return files
 }
 
-async function getLastUpdatedAt(pathsToCheck: string[]): Promise<string | null> {
+async function getLastUpdatedAt(
+  pathsToCheck: string[],
+): Promise<string | null> {
   const mtimes: number[] = []
 
   for (const path of pathsToCheck) {

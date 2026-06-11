@@ -142,7 +142,10 @@ export function useTextInput({
   const getLiveValue = (): string => liveValueRef.current
   const getLiveCursor = (): Cursor =>
     Cursor.fromText(liveValueRef.current, columns, liveOffsetRef.current)
-  const setValue = (nextValue: string, nextOffset = liveOffsetRef.current): void => {
+  const setValue = (
+    nextValue: string,
+    nextOffset = liveOffsetRef.current,
+  ): void => {
     const previousValue = liveValueRef.current
     const previousOffset = liveOffsetRef.current
 
@@ -305,10 +308,13 @@ export function useTextInput({
     ['d', handleCtrlD],
     ['e', () => getLiveCursor().endOfLine()],
     ['f', () => getLiveCursor().right()],
-    ['h', () => {
-      const cursor = getLiveCursor()
-      return cursor.deleteTokenBefore() ?? cursor.backspace()
-    }],
+    [
+      'h',
+      () => {
+        const cursor = getLiveCursor()
+        return cursor.deleteTokenBefore() ?? cursor.backspace()
+      },
+    ],
     ['k', killToLineEnd],
     ['n', () => downOrHistoryDown()],
     ['p', () => upOrHistoryUp()],
@@ -549,8 +555,7 @@ export function useTextInput({
       // Try to delete tokens first, fall back to character backspace
       let nextCursor = currentCursor
       for (let i = 0; i < delCount; i++) {
-        nextCursor =
-          nextCursor.deleteTokenBefore() ?? nextCursor.backspace()
+        nextCursor = nextCursor.deleteTokenBefore() ?? nextCursor.backspace()
       }
 
       // Update state once with the final result

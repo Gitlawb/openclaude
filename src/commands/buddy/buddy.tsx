@@ -1,6 +1,13 @@
-import type { LocalJSXCommandContext, LocalJSXCommandOnDone } from '../../types/command.js'
+import type {
+  LocalJSXCommandContext,
+  LocalJSXCommandOnDone,
+} from '../../types/command.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
-import { companionUserId, getCompanion, rollWithSeed } from '../../buddy/companion.js'
+import {
+  companionUserId,
+  getCompanion,
+  rollWithSeed,
+} from '../../buddy/companion.js'
 import type { StoredCompanion } from '../../buddy/types.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
 

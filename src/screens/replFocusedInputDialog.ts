@@ -4,7 +4,7 @@ export type CriticalInputDialog =
   | 'prompt'
   | 'worker-sandbox-permission'
   | 'elicitation'
-  | 'cost';
+  | 'cost'
 
 /**
  * Permission and hook prompts must take focus immediately. Suppressing them
@@ -12,27 +12,31 @@ export type CriticalInputDialog =
  * the actual question until input is cleared (issue #651).
  */
 export function resolveCriticalInputDialog(options: {
-  sandboxPermissionPending: boolean;
-  toolUseConfirmPending: boolean;
-  promptPending: boolean;
-  workerSandboxPermissionPending: boolean;
-  elicitationPending: boolean;
-  showingCostDialog: boolean;
-  allowDialogsWithAnimation: boolean;
+  sandboxPermissionPending: boolean
+  toolUseConfirmPending: boolean
+  promptPending: boolean
+  workerSandboxPermissionPending: boolean
+  elicitationPending: boolean
+  showingCostDialog: boolean
+  allowDialogsWithAnimation: boolean
 }): CriticalInputDialog | undefined {
-  if (options.sandboxPermissionPending) return 'sandbox-permission';
+  if (options.sandboxPermissionPending) return 'sandbox-permission'
   if (options.allowDialogsWithAnimation && options.toolUseConfirmPending) {
-    return 'tool-permission';
+    return 'tool-permission'
   }
-  if (options.allowDialogsWithAnimation && options.promptPending) return 'prompt';
-  if (options.allowDialogsWithAnimation && options.workerSandboxPermissionPending) {
-    return 'worker-sandbox-permission';
+  if (options.allowDialogsWithAnimation && options.promptPending)
+    return 'prompt'
+  if (
+    options.allowDialogsWithAnimation &&
+    options.workerSandboxPermissionPending
+  ) {
+    return 'worker-sandbox-permission'
   }
   if (options.allowDialogsWithAnimation && options.elicitationPending) {
-    return 'elicitation';
+    return 'elicitation'
   }
   if (options.allowDialogsWithAnimation && options.showingCostDialog) {
-    return 'cost';
+    return 'cost'
   }
-  return undefined;
+  return undefined
 }

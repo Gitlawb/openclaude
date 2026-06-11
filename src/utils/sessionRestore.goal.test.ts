@@ -125,10 +125,13 @@ describe('session restore goal lifecycle', () => {
 
   test('restoreSessionStateFromLog preserves inactive resumed goals unchanged', () => {
     const pausedGoal = pauseGoal(createGoalState('paused interactive goal'))
-    const achievedGoal = achieveGoal(createGoalState('achieved interactive goal'), {
-      evaluatedMessageUuid: 'assistant-achieved',
-      reason: 'done',
-    })
+    const achievedGoal = achieveGoal(
+      createGoalState('achieved interactive goal'),
+      {
+        evaluatedMessageUuid: 'assistant-achieved',
+        reason: 'done',
+      },
+    )
     const clearedGoal: GoalState = {
       ...createGoalState('cleared interactive goal'),
       status: 'cleared',

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { DebugLogLevel } from '../../utils/debug.js'
 
 type DebugModule = typeof import('../../utils/debug.js')
@@ -61,16 +64,19 @@ test('logs a warning when OPENAI_BASE_URL is literal undefined', async () => {
   delete process.env.OPENAI_API_BASE
 
   const nonce = `${Date.now()}-${Math.random()}`
-  const { resolveProviderRequest } = await import(`./providerConfig.ts?ts=${nonce}`)
+  const { resolveProviderRequest } = await import(
+    `./providerConfig.ts?ts=${nonce}`
+  )
 
   const resolved = resolveProviderRequest()
 
   expect(resolved.baseUrl).toBe('https://api.openai.com/v1')
 
-  const warningCall = debugSpy.mock.calls.find(call =>
-    typeof call?.[0] === 'string' &&
-    call[0].includes('OPENAI_BASE_URL') &&
-    call[0].includes('"undefined"'),
+  const warningCall = debugSpy.mock.calls.find(
+    call =>
+      typeof call?.[0] === 'string' &&
+      call[0].includes('OPENAI_BASE_URL') &&
+      call[0].includes('"undefined"'),
   )
 
   expect(warningCall).toBeDefined()
@@ -87,16 +93,19 @@ test('does not warn for OPENAI_API_BASE when OPENAI_BASE_URL is active', async (
   process.env.OPENAI_API_BASE = 'undefined'
 
   const nonce = `${Date.now()}-${Math.random()}`
-  const { resolveProviderRequest } = await import(`./providerConfig.ts?ts=${nonce}`)
+  const { resolveProviderRequest } = await import(
+    `./providerConfig.ts?ts=${nonce}`
+  )
 
   const resolved = resolveProviderRequest()
 
   expect(resolved.baseUrl).toBe('http://127.0.0.1:11434/v1')
 
-  const aliasWarning = debugSpy.mock.calls.find(call =>
-    typeof call?.[0] === 'string' &&
-    call[0].includes('OPENAI_API_BASE') &&
-    call[0].includes('"undefined"'),
+  const aliasWarning = debugSpy.mock.calls.find(
+    call =>
+      typeof call?.[0] === 'string' &&
+      call[0].includes('OPENAI_API_BASE') &&
+      call[0].includes('"undefined"'),
   )
 
   expect(aliasWarning).toBeUndefined()
@@ -112,7 +121,9 @@ test('uses OPENAI_API_BASE as fallback in mistral mode when MISTRAL_BASE_URL is 
   process.env.OPENAI_API_BASE = 'http://127.0.0.1:11434/v1'
 
   const nonce = `${Date.now()}-${Math.random()}`
-  const { resolveProviderRequest } = await import(`./providerConfig.ts?ts=${nonce}`)
+  const { resolveProviderRequest } = await import(
+    `./providerConfig.ts?ts=${nonce}`
+  )
 
   const resolved = resolveProviderRequest()
 
@@ -132,12 +143,16 @@ test('uses descriptor-backed Gemini default model when GEMINI_MODEL is unset', a
   delete process.env.OPENAI_API_BASE
 
   const nonce = `${Date.now()}-${Math.random()}`
-  const { resolveProviderRequest } = await import(`./providerConfig.ts?ts=${nonce}`)
+  const { resolveProviderRequest } = await import(
+    `./providerConfig.ts?ts=${nonce}`
+  )
 
   const resolved = resolveProviderRequest()
 
   expect(resolved.resolvedModel).toBe('gemini-3-flash-preview')
-  expect(resolved.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta/openai')
+  expect(resolved.baseUrl).toBe(
+    'https://generativelanguage.googleapis.com/v1beta/openai',
+  )
 })
 
 async function mockDebugLogging(): Promise<DebugSpy> {

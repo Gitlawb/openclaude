@@ -101,7 +101,11 @@ export {
   _clearRegistryForTesting,
 }
 
-export { routeForPreset, vendorIdForPreset, gatewayIdForPreset } from './compatibility.js'
+export {
+  routeForPreset,
+  vendorIdForPreset,
+  gatewayIdForPreset,
+} from './compatibility.js'
 export { resolveProfileRoute } from './profileResolver.js'
 export type { ResolvedProfileRoute } from './profileResolver.js'
 export type { ProviderPreset }

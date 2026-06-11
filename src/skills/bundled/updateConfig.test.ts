@@ -10,7 +10,9 @@ afterEach(() => {
 test('update-config skill can generate its prompt without JSON Schema conversion errors', async () => {
   registerUpdateConfigSkill()
 
-  const skill = getBundledSkills().find(command => command.name === 'update-config')
+  const skill = getBundledSkills().find(
+    command => command.name === 'update-config',
+  )
   expect(skill).toBeDefined()
   expect(skill?.type).toBe('prompt')
   // getPromptForCommand only exists on the PromptCommand variant; narrow first.

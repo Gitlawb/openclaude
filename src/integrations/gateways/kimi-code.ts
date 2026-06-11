@@ -33,7 +33,12 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'kimi-for-coding', apiName: 'kimi-for-coding', label: 'Kimi for Coding', modelDescriptorId: 'kimi-for-coding' },
+      {
+        id: 'kimi-for-coding',
+        apiName: 'kimi-for-coding',
+        label: 'Kimi for Coding',
+        modelDescriptorId: 'kimi-for-coding',
+      },
     ],
   },
   usage: { supported: false },

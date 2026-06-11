@@ -124,7 +124,8 @@ const reducer = <T>(state: State<T>, action: Action<T>): State<T> => {
           state.visibleToIndex + 1,
         )
 
-        const nextVisibleFromIndex = nextVisibleToIndex - state.visibleOptionCount
+        const nextVisibleFromIndex =
+          nextVisibleToIndex - state.visibleOptionCount
 
         return {
           ...state,
@@ -172,7 +173,8 @@ const reducer = <T>(state: State<T>, action: Action<T>): State<T> => {
         }
 
         const nextVisibleFromIndex = Math.max(0, state.visibleFromIndex - 1)
-        const nextVisibleToIndex = nextVisibleFromIndex + state.visibleOptionCount
+        const nextVisibleToIndex =
+          nextVisibleFromIndex + state.visibleOptionCount
 
         return {
           ...state,

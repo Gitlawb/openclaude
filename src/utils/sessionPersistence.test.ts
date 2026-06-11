@@ -11,7 +11,10 @@ import { unlink } from 'node:fs/promises'
 import { mkdirSync, rmSync } from 'fs'
 
 describe('sessionPersistence', () => {
-  const testSessionDir = join(process.env.TEMP_DIR ?? '/tmp', 'openclaude-test-sessions')
+  const testSessionDir = join(
+    process.env.TEMP_DIR ?? '/tmp',
+    'openclaude-test-sessions',
+  )
 
   beforeEach(async () => {
     process.env.OPENCLAUDE_TEST_SESSIONS_DIR = testSessionDir
@@ -51,10 +54,10 @@ describe('sessionPersistence', () => {
         { model: 'gpt-4' },
       )
       session.id = 'test-session-1'
-      
+
       await saveSession(session)
       const loaded = await loadSession('test-session-1')
-      
+
       expect(loaded).not.toBeNull()
       expect(loaded?.id).toBe('test-session-1')
       expect(loaded?.messages.length).toBe(1)
@@ -78,10 +81,10 @@ describe('sessionPersistence', () => {
     it('deletes existing session', async () => {
       const session = createSession([], {})
       session.id = 'test-delete-me'
-      
+
       await saveSession(session)
       const deleted = await deleteSession('test-delete-me')
-      
+
       expect(deleted).toBe(true)
       expect(await loadSession('test-delete-me')).toBeNull()
     })

@@ -86,7 +86,9 @@ describe('MCPTool.validateInput', () => {
     const result = await withValidator(tool).validateInput({}, {} as never)
     expect(result.result).toBe(false)
     expect(result.result === false && result.errorCode).toBe(500)
-    expect(result.result === false && result.message).toContain('Failed to compile')
+    expect(result.result === false && result.message).toContain(
+      'Failed to compile',
+    )
   })
 
   test('error message is readable (not [object Object])', async () => {
@@ -96,7 +98,9 @@ describe('MCPTool.validateInput', () => {
     const result = await withValidator(tool).validateInput({}, {} as never)
     expect(result.result).toBe(false)
     // Should NOT contain [object Object]
-    expect(result.result === false && result.message).not.toContain('[object Object]')
+    expect(result.result === false && result.message).not.toContain(
+      '[object Object]',
+    )
   })
 })
 
@@ -106,7 +110,10 @@ describe('MCPTool.validateInput', () => {
 
 describe('MCPTool.mapToolResultToToolResultBlockParam', () => {
   test('handles string content', () => {
-    const result = MCPTool.mapToolResultToToolResultBlockParam('hello', 'tool-1')
+    const result = MCPTool.mapToolResultToToolResultBlockParam(
+      'hello',
+      'tool-1',
+    )
     expect(result.content).toBe('hello')
     expect(result.tool_use_id).toBe('tool-1')
     expect(result.type).toBe('tool_result')
@@ -119,13 +126,19 @@ describe('MCPTool.mapToolResultToToolResultBlockParam', () => {
   })
 
   test('handles undefined content gracefully', () => {
-    const result = MCPTool.mapToolResultToToolResultBlockParam(undefined as any, 'tool-3')
+    const result = MCPTool.mapToolResultToToolResultBlockParam(
+      undefined as any,
+      'tool-3',
+    )
     expect(result.content).toBe('[No content returned from MCP tool]')
     expect(result.tool_use_id).toBe('tool-3')
   })
 
   test('handles null content gracefully', () => {
-    const result = MCPTool.mapToolResultToToolResultBlockParam(null as any, 'tool-4')
+    const result = MCPTool.mapToolResultToToolResultBlockParam(
+      null as any,
+      'tool-4',
+    )
     expect(result.content).toBe('[No content returned from MCP tool]')
     expect(result.tool_use_id).toBe('tool-4')
   })

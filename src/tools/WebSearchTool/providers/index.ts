@@ -39,7 +39,12 @@ import { bingProvider } from './bing.js'
 import { mojeekProvider } from './mojeek.js'
 import { linkupProvider } from './linkup.js'
 
-export { type SearchInput, type SearchProvider, type ProviderOutput, type SearchHit } from './types.js'
+export {
+  type SearchInput,
+  type SearchProvider,
+  type ProviderOutput,
+  type SearchHit,
+} from './types.js'
 export { applyDomainFilters, safeHostname, hostMatchesDomain } from './types.js'
 export { extractHits } from './custom.js'
 
@@ -105,7 +110,9 @@ const PROVIDER_BY_NAME: Record<string, SearchProvider> = {
   linkup: linkupProvider,
 }
 
-const VALID_MODES = new Set<string>(Object.keys(PROVIDER_BY_NAME).concat(['auto', 'native']))
+const VALID_MODES = new Set<string>(
+  Object.keys(PROVIDER_BY_NAME).concat(['auto', 'native']),
+)
 
 export function getProviderMode(): ProviderMode {
   const raw = process.env.WEB_SEARCH_PROVIDER ?? 'auto'
@@ -160,8 +167,8 @@ export async function runSearch(
     if (provider && !provider.isConfigured()) {
       throw new Error(
         `Search provider "${mode}" is not configured. ` +
-        `Set the required environment variable (e.g. ${mode.toUpperCase()}_API_KEY) ` +
-        `or switch to WEB_SEARCH_PROVIDER=auto.`,
+          `Set the required environment variable (e.g. ${mode.toUpperCase()}_API_KEY) ` +
+          `or switch to WEB_SEARCH_PROVIDER=auto.`,
       )
     }
   }
@@ -191,10 +198,11 @@ export async function runSearch(
 
   // All providers failed in auto mode
   const lastErr = errors[errors.length - 1]
-  if (!lastErr) throw new Error('All search providers failed with no error details.')
+  if (!lastErr)
+    throw new Error('All search providers failed with no error details.')
   if (errors.length === 1) throw lastErr
   throw new Error(
     `All ${errors.length} search providers failed:\n` +
-    errors.map((e, i) => `  ${i + 1}. ${e.message}`).join('\n'),
+      errors.map((e, i) => `  ${i + 1}. ${e.message}`).join('\n'),
   )
 }

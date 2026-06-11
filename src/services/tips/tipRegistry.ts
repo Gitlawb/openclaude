@@ -434,8 +434,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'desktop-app',
-    content: async () =>
-      'Run OpenClaude locally or remotely with /desktop',
+    content: async () => 'Run OpenClaude locally or remotely with /desktop',
     cooldownSessions: 15,
     isRelevant: async () => getPlatform() !== 'linux',
   },
@@ -611,7 +610,8 @@ const externalTips: Tip[] = [
   },
   {
     id: 'feedback-command',
-    content: async () => 'Report bugs or feature requests in the issue tracker to help us improve.',
+    content: async () =>
+      'Report bugs or feature requests in the issue tracker to help us improve.',
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()

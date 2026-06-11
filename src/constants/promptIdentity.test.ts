@@ -13,15 +13,11 @@ let getSystemPrompt: typeof import('./prompts.js').getSystemPrompt
 let DEFAULT_AGENT_PROMPT: typeof import('./prompts.js').DEFAULT_AGENT_PROMPT
 let CLI_SYSPROMPT_PREFIXES: typeof import('./system.js').CLI_SYSPROMPT_PREFIXES
 let getCLISyspromptPrefix: typeof import('./system.js').getCLISyspromptPrefix
-let CLAUDE_CODE_GUIDE_AGENT:
-  typeof import('../tools/AgentTool/built-in/claudeCodeGuideAgent.js').CLAUDE_CODE_GUIDE_AGENT
-let GENERAL_PURPOSE_AGENT:
-  typeof import('../tools/AgentTool/built-in/generalPurposeAgent.js').GENERAL_PURPOSE_AGENT
-let EXPLORE_AGENT:
-  typeof import('../tools/AgentTool/built-in/exploreAgent.js').EXPLORE_AGENT
+let CLAUDE_CODE_GUIDE_AGENT: typeof import('../tools/AgentTool/built-in/claudeCodeGuideAgent.js').CLAUDE_CODE_GUIDE_AGENT
+let GENERAL_PURPOSE_AGENT: typeof import('../tools/AgentTool/built-in/generalPurposeAgent.js').GENERAL_PURPOSE_AGENT
+let EXPLORE_AGENT: typeof import('../tools/AgentTool/built-in/exploreAgent.js').EXPLORE_AGENT
 let PLAN_AGENT: typeof import('../tools/AgentTool/built-in/planAgent.js').PLAN_AGENT
-let STATUSLINE_SETUP_AGENT:
-  typeof import('../tools/AgentTool/built-in/statuslineSetup.js').STATUSLINE_SETUP_AGENT
+let STATUSLINE_SETUP_AGENT: typeof import('../tools/AgentTool/built-in/statuslineSetup.js').STATUSLINE_SETUP_AGENT
 
 beforeAll(async () => {
   await acquireSharedMutationLock('constants/promptIdentity.test.ts')
@@ -40,7 +36,9 @@ beforeAll(async () => {
 
   ;({ clearSystemPromptSections } = await import('./systemPromptSections.js'))
   ;({ getSystemPrompt, DEFAULT_AGENT_PROMPT } = await import('./prompts.js'))
-  ;({ CLI_SYSPROMPT_PREFIXES, getCLISyspromptPrefix } = await import('./system.js'))
+  ;({ CLI_SYSPROMPT_PREFIXES, getCLISyspromptPrefix } = await import(
+    './system.js'
+  ))
   ;({ CLAUDE_CODE_GUIDE_AGENT } = await import(
     '../tools/AgentTool/built-in/claudeCodeGuideAgent.js'
   ))
@@ -80,7 +78,9 @@ afterEach(() => {
 test('CLI identity prefixes describe OpenClaude instead of Claude Code', () => {
   expect(getCLISyspromptPrefix()).toContain('OpenClaude')
   expect(getCLISyspromptPrefix()).not.toContain('Claude Code')
-  expect(getCLISyspromptPrefix()).not.toContain("Anthropic's official CLI for Claude")
+  expect(getCLISyspromptPrefix()).not.toContain(
+    "Anthropic's official CLI for Claude",
+  )
 
   for (const prefix of CLI_SYSPROMPT_PREFIXES) {
     expect(prefix).toContain('OpenClaude')
@@ -111,13 +111,17 @@ test('system prompt model identity updates when model changes mid-session', asyn
 
   expect(firstText).toContain('You are powered by the model old-test-model.')
   expect(secondText).toContain('You are powered by the model new-test-model.')
-  expect(secondText).not.toContain('You are powered by the model old-test-model.')
+  expect(secondText).not.toContain(
+    'You are powered by the model old-test-model.',
+  )
 })
 
 test('built-in agent prompts describe OpenClaude instead of Claude Code', () => {
   expect(DEFAULT_AGENT_PROMPT).toContain('OpenClaude')
   expect(DEFAULT_AGENT_PROMPT).not.toContain('Claude Code')
-  expect(DEFAULT_AGENT_PROMPT).not.toContain("Anthropic's official CLI for Claude")
+  expect(DEFAULT_AGENT_PROMPT).not.toContain(
+    "Anthropic's official CLI for Claude",
+  )
 
   const generalPrompt = GENERAL_PURPOSE_AGENT.getSystemPrompt({
     toolUseContext: { options: {} as never },

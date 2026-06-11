@@ -77,7 +77,8 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
   const compactHint = getIsNonInteractiveSession()
     ? 'Reduce prompt size or start a new session.'
     : 'Run /compact or start a new session with /new.'
-  const isLocalhost = options.host === undefined || isLocalhostLikeHost(options.host)
+  const isLocalhost =
+    options.host === undefined || isLocalhostLikeHost(options.host)
 
   switch (options.category) {
     case 'localhost_resolution_failed':
@@ -231,8 +232,7 @@ export function getPromptTooLongTokenGap(
   return gap > 0 ? gap : undefined
 }
 
-const PROVIDER_MAX_TOKENS_CAP_NUMBER =
-  '([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)'
+const PROVIDER_MAX_TOKENS_CAP_NUMBER = '([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)'
 
 const PROVIDER_MAX_TOKENS_CAP_PATTERNS = [
   new RegExp(
@@ -289,10 +289,7 @@ export function parseProviderMaxTokensCap(
 export function getProviderMaxTokensCapFromMessage(
   msg: AssistantMessage | undefined,
 ): number | undefined {
-  if (
-    msg?.type !== 'assistant' ||
-    msg.apiError !== 'max_tokens_too_high'
-  ) {
+  if (msg?.type !== 'assistant' || msg.apiError !== 'max_tokens_too_high') {
     return undefined
   }
 
@@ -783,9 +780,10 @@ export function getAssistantMessageFromError(
     const innerMessage = stripped.match(/"message"\s*:\s*"([^"]*)"/)?.[1]
     const detail = innerMessage || stripped
     const retryAfter = (error as APIError).headers?.get?.('retry-after')
-    const retryHint = retryAfter && !isNaN(Number(retryAfter))
-      ? `Try again in ${retryAfter} seconds.`
-      : 'Try again in a few seconds.'
+    const retryHint =
+      retryAfter && !isNaN(Number(retryAfter))
+        ? `Try again in ${retryAfter} seconds.`
+        : 'Try again in a few seconds.'
     return createAssistantAPIErrorMessage({
       content: `${API_ERROR_MESSAGE_PREFIX}: Request rejected (429) · ${detail || 'this may be a temporary capacity issue'} — ${retryHint}`,
       error: 'rate_limit',

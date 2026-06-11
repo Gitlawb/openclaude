@@ -102,7 +102,6 @@ export const SDKControlInterruptRequestSchema = lazySchema(() =>
     .describe('Interrupts the currently running conversation turn.'),
 )
 
-
 export const SDKControlPermissionRequestSchema = lazySchema(() =>
   z
     .object({
@@ -451,7 +450,6 @@ export const SDKControlMcpToggleRequestSchema = lazySchema(() =>
     .describe('Enables or disables an MCP server.'),
 )
 
-
 export const SDKControlStopTaskRequestSchema = lazySchema(() =>
   z
     .object({
@@ -543,7 +541,6 @@ export const SDKControlElicitationResponseSchema = lazySchema(() =>
     })
     .describe('Response from the SDK consumer for an elicitation request.'),
 )
-
 
 // ============================================================================
 // Control Request/Response Wrappers

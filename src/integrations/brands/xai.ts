@@ -12,9 +12,5 @@ export default defineBrand({
     supportsReasoning: true,
     supportsPreciseTokenCount: false,
   },
-  modelIds: [
-    'grok-4.3',
-    'grok-4',
-    'grok-3',
-  ],
+  modelIds: ['grok-4.3', 'grok-4', 'grok-3'],
 })

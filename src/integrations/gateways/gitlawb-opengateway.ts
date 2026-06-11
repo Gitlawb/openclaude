@@ -46,7 +46,8 @@ export default defineGateway({
   },
   preset: {
     id: 'gitlawb-opengateway',
-    description: 'Gitlawb Opengateway - (API key required, signup at https://gitlawb.com/opengateway/keys)',
+    description:
+      'Gitlawb Opengateway - (API key required, signup at https://gitlawb.com/opengateway/keys)',
     apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
@@ -68,7 +69,8 @@ export default defineGateway({
         id: 'opengateway-auto',
         apiName: 'auto',
         label: 'Auto — Smart Routing (via Opengateway)',
-        notes: 'Gateway picks the cheapest capable model and escalates on failure',
+        notes:
+          'Gateway picks the cheapest capable model and escalates on failure',
       },
       {
         id: 'opengateway-mimo-v2.5-pro',

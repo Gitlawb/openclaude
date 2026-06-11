@@ -18,10 +18,7 @@ import {
   mcpToolDetailsForAnalytics,
   sanitizeToolNameForAnalytics,
 } from 'src/services/analytics/metadata.js'
-import {
-  addToToolDuration,
-  getStatsStore,
-} from '../../bootstrap/state.js'
+import { addToToolDuration, getStatsStore } from '../../bootstrap/state.js'
 import {
   buildCodeEditToolAttributes,
   isCodeEditingTool,
@@ -684,9 +681,13 @@ async function checkPermissionsAndCallTool(
   // Validate input types with zod (surprisingly, the model is not great at generating valid input)
   const parsedInput = tool.inputSchema.safeParse(normalizedInput)
   if (!parsedInput.success) {
-    const fallbackErrorContent = formatZodValidationError(tool.name, parsedInput.error)
+    const fallbackErrorContent = formatZodValidationError(
+      tool.name,
+      parsedInput.error,
+    )
     let errorContent =
-      getSchemaValidationErrorOverride(tool, normalizedInput) ?? fallbackErrorContent
+      getSchemaValidationErrorOverride(tool, normalizedInput) ??
+      fallbackErrorContent
 
     const schemaHint = buildSchemaNotSentHint(
       tool,
@@ -1373,7 +1374,6 @@ async function checkPermissionsAndCallTool(
       ? getMcpServerScopeFromToolName(tool.name)
       : null
 
-
     // Run PostToolUse hooks
     let toolOutput = result.data
     const hookResults: MessageUpdateLazy<HookResultMessage>[] = []
@@ -1644,8 +1644,7 @@ async function checkPermissionsAndCallTool(
       const mcpServerScope = isMcpTool(tool)
         ? getMcpServerScopeFromToolName(tool.name)
         : null
-
-          }
+    }
     const content = formatError(error)
 
     // Determine if this was a user interrupt

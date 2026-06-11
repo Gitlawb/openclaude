@@ -423,9 +423,12 @@ async function findSkillMarkdownFiles(basePath: string): Promise<string[]> {
       entries = await fs.readdir(skillDirPath)
     } catch (e: unknown) {
       if (!isFsInaccessible(e)) {
-        logForDebugging(`[skills] failed to read directory ${skillDirPath}: ${e}`, {
-          level: 'warn',
-        })
+        logForDebugging(
+          `[skills] failed to read directory ${skillDirPath}: ${e}`,
+          {
+            level: 'warn',
+          },
+        )
       }
       return
     }

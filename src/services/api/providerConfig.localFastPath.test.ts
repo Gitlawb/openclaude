@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 import { getLocalFastPathConfig } from './providerConfig.js'
 
@@ -33,13 +36,19 @@ describe('getLocalFastPathConfig — auto-detect from baseUrl', () => {
   })
 
   test('engages on private IPv4', () => {
-    expect(getLocalFastPathConfig('http://192.168.1.10:8000/v1').enabled).toBe(true)
+    expect(getLocalFastPathConfig('http://192.168.1.10:8000/v1').enabled).toBe(
+      true,
+    )
     expect(getLocalFastPathConfig('http://10.0.0.5:8000/v1').enabled).toBe(true)
-    expect(getLocalFastPathConfig('http://172.16.5.1:8000/v1').enabled).toBe(true)
+    expect(getLocalFastPathConfig('http://172.16.5.1:8000/v1').enabled).toBe(
+      true,
+    )
   })
 
   test('engages on .local hostnames', () => {
-    expect(getLocalFastPathConfig('http://gpu-rig.local:11434/v1').enabled).toBe(true)
+    expect(
+      getLocalFastPathConfig('http://gpu-rig.local:11434/v1').enabled,
+    ).toBe(true)
   })
 
   test('does not engage on public hosts', () => {
@@ -73,30 +82,44 @@ describe('getLocalFastPathConfig — explicit env override', () => {
   test('accepts truthy aliases (true / on / yes)', () => {
     for (const v of ['true', 'on', 'yes', 'TRUE', 'On']) {
       process.env[ENV_VAR] = v
-      expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(true)
+      expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(
+        true,
+      )
     }
   })
 
   test('accepts falsy aliases (false / off / no)', () => {
     for (const v of ['false', 'off', 'no', 'FALSE', 'Off']) {
       process.env[ENV_VAR] = v
-      expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(false)
+      expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(
+        false,
+      )
     }
   })
 
   test('"auto" / empty string fall through to baseUrl detection', () => {
     process.env[ENV_VAR] = 'auto'
-    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(true)
-    expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(false)
+    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(
+      true,
+    )
+    expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(
+      false,
+    )
 
     process.env[ENV_VAR] = ''
-    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(true)
+    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(
+      true,
+    )
   })
 
   test('garbage values fall through to auto-detect', () => {
     process.env[ENV_VAR] = 'maybe'
-    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(true)
-    expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(false)
+    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(
+      true,
+    )
+    expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(
+      false,
+    )
   })
 
   test('explicit env arg takes precedence over process.env', () => {

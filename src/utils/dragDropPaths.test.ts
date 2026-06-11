@@ -42,8 +42,14 @@ describe('extractDraggedFilePaths', () => {
       ['whitespace only', '   \n  '],
       // Mixed-segment cases: all-or-nothing policy means a single bad
       // entry disqualifies the whole paste.
-      ['a mix where one path does not exist', `${thisFile}\n/nonexistent/file.ts`],
-      ['a mix where one segment is an image', `${thisFile}\n/Users/foo/shot.png`],
+      [
+        'a mix where one path does not exist',
+        `${thisFile}\n/nonexistent/file.ts`,
+      ],
+      [
+        'a mix where one segment is an image',
+        `${thisFile}\n/Users/foo/shot.png`,
+      ],
     ]
     test.each(emptyCases)('for %s', (_label, input) => {
       expect(extractDraggedFilePaths(input)).toEqual([])

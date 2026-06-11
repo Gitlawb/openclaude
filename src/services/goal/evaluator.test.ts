@@ -37,7 +37,10 @@ describe('goal evaluator', () => {
       })
 
     const decision = await evaluateGoal({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: [user('u1', 'please implement it'), assistant('a1', 'Done.')],
       signal: new AbortController().signal,
       isNonInteractiveSession: false,
@@ -60,8 +63,14 @@ describe('goal evaluator', () => {
       })
 
     const decision = await evaluateGoal({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
-      messages: [user('u1', 'please implement it'), assistant('a1', 'I changed files.')],
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
+      messages: [
+        user('u1', 'please implement it'),
+        assistant('a1', 'I changed files.'),
+      ],
       signal: new AbortController().signal,
       isNonInteractiveSession: false,
       modelCaller: caller,
@@ -88,7 +97,10 @@ describe('goal evaluator', () => {
     }
 
     const decision = await evaluateGoal({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: [assistant('a1', 'Done.')],
       signal: new AbortController().signal,
       isNonInteractiveSession: false,
@@ -108,7 +120,10 @@ describe('goal evaluator', () => {
     }
 
     const decision = await evaluateGoal({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: [assistant('a1', 'Done.')],
       signal: new AbortController().signal,
       isNonInteractiveSession: false,
@@ -128,7 +143,10 @@ describe('goal evaluator', () => {
     }
 
     const decision = await evaluateGoal({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: [assistant('a1', 'Done.')],
       signal: new AbortController().signal,
       isNonInteractiveSession: false,
@@ -143,7 +161,10 @@ describe('goal evaluator', () => {
 
   test('bounded context size', () => {
     const prompt = buildGoalEvaluatorPrompt({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: Array.from({ length: 40 }, (_, i) =>
         user(`u${i}`, `message-${i} ${'x'.repeat(5_000)}`),
       ),
@@ -155,7 +176,10 @@ describe('goal evaluator', () => {
 
   test('includes visible tool-use summary text in bounded context', () => {
     const prompt = buildGoalEvaluatorPrompt({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: [
         {
           type: 'tool_use_summary',
@@ -181,7 +205,10 @@ describe('goal evaluator', () => {
     }
 
     await evaluateGoal({
-      goal: createGoalState('finish implementation', '2026-05-21T10:00:00.000Z'),
+      goal: createGoalState(
+        'finish implementation',
+        '2026-05-21T10:00:00.000Z',
+      ),
       messages: [assistant('a1', 'Done.')],
       signal: new AbortController().signal,
       isNonInteractiveSession: false,

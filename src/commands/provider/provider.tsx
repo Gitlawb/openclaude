@@ -1,6 +1,9 @@
 import * as React from 'react'
 
-import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../types/command.js'
+import type {
+  LocalJSXCommandCall,
+  LocalJSXCommandOnDone,
+} from '../../types/command.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
 import {
   ProviderManager,
@@ -22,9 +25,7 @@ import {
   getRouteLabel,
   resolveRouteIdFromBaseUrl,
 } from '../../integrations/index.js'
-import {
-  type CodexOAuthTokens,
-} from '../../services/api/codexOAuth.js'
+import { type CodexOAuthTokens } from '../../services/api/codexOAuth.js'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
@@ -78,7 +79,9 @@ import {
   type OllamaGenerationReadiness,
 } from '../../utils/providerDiscovery.js'
 
-export function buildProviderManagerCompletion(result?: ProviderManagerResult): {
+export function buildProviderManagerCompletion(
+  result?: ProviderManagerResult,
+): {
   message: string
   metaMessages?: string[]
 } {
@@ -210,7 +213,12 @@ type SecretSourceEnv = NodeJS.ProcessEnv & Partial<ProfileEnv>
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+  return (
+    normalized !== '' &&
+    normalized !== '0' &&
+    normalized !== 'false' &&
+    normalized !== 'no'
+  )
 }
 
 function getSafeDisplayValue(
@@ -219,9 +227,7 @@ function getSafeDisplayValue(
   profileEnv?: ProfileEnv,
   fallback = '(not set)',
 ): string {
-  return (
-    redactSecretValueForDisplay(value, processEnv, profileEnv) ?? fallback
-  )
+  return redactSecretValueForDisplay(value, processEnv, profileEnv) ?? fallback
 }
 
 function getConfiguredOpenAICompatibleProviderLabel(
@@ -312,11 +318,11 @@ export function buildCurrentProviderSummary(options?: {
       providerLabel: mistralMetadata.label,
       modelLabel: getSafeDisplayValue(
         processEnv.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
-        processEnv
+        processEnv,
       ),
       endpointLabel: getSafeDisplayValue(
         processEnv.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
-        processEnv
+        processEnv,
       ),
       savedProfileLabel,
     }
@@ -380,9 +386,8 @@ function buildSavedProfileSummary(
   env: ProfileEnv,
 ): SavedProfileSummary {
   switch (profile) {
-    case 'gemini':
-      {
-        const geminiMetadata = getProviderPresetUiMetadata('gemini')
+    case 'gemini': {
+      const geminiMetadata = getProviderPresetUiMetadata('gemini')
       return {
         providerLabel: geminiMetadata.label,
         modelLabel: getSafeDisplayValue(
@@ -400,14 +405,13 @@ function buildSavedProfileSummary(
             ? 'access token (stored securely)'
             : env.GEMINI_AUTH_MODE === 'adc'
               ? 'local ADC'
-            : maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
-              ? 'configured'
-              : undefined,
+              : maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
+                ? 'configured'
+                : undefined,
       }
-      }
-    case 'mistral':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
+    }
+    case 'mistral': {
+      const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return {
         providerLabel: mistralMetadata.label,
         modelLabel: getSafeDisplayValue(
@@ -425,7 +429,7 @@ function buildSavedProfileSummary(
             ? 'configured'
             : undefined,
       }
-      }
+    }
     case 'codex':
       return {
         providerLabel: 'Codex',
@@ -447,11 +451,7 @@ function buildSavedProfileSummary(
     case 'ollama':
       return {
         providerLabel: 'Ollama',
-        modelLabel: getSafeDisplayValue(
-          env.OPENAI_MODEL,
-          process.env,
-          env,
-        ),
+        modelLabel: getSafeDisplayValue(env.OPENAI_MODEL, process.env, env),
         endpointLabel: getSafeDisplayValue(
           env.OPENAI_BASE_URL,
           process.env,
@@ -471,11 +471,7 @@ function buildSavedProfileSummary(
           process.env,
           env,
         ),
-        endpointLabel: getSafeDisplayValue(
-          baseUrl,
-          process.env,
-          env,
-        ),
+        endpointLabel: getSafeDisplayValue(baseUrl, process.env, env),
         credentialLabel:
           maskSecretForDisplay(env.OPENAI_API_KEY) !== undefined
             ? 'configured'
@@ -721,7 +717,8 @@ function ProviderChooser({
     options.push({
       label: 'Clear saved profile',
       value: 'clear',
-      description: 'Remove .openclaude-profile.json and return to normal startup',
+      description:
+        'Remove .openclaude-profile.json and return to normal startup',
     })
   }
 
@@ -837,7 +834,8 @@ function AutoRecommendationStep({
           if (!cancelled) {
             setStatus({
               state: 'error',
-              message: 'Ollama readiness probe is not configured for this route.',
+              message:
+                'Ollama readiness probe is not configured for this route.',
             })
           }
           return
@@ -918,13 +916,16 @@ function AutoRecommendationStep({
       <Dialog title="Auto setup fallback" onCancel={onCancel}>
         <Box flexDirection="column" gap={1}>
           <Text>
-            Auto setup can continue into OpenAI-compatible setup with a default model of{' '}
-            {status.defaultModel}.
+            Auto setup can continue into OpenAI-compatible setup with a default
+            model of {status.defaultModel}.
           </Text>
           <Text dimColor>{status.reason}</Text>
           <Select
             options={[
-              { label: 'Continue to OpenAI-compatible setup', value: 'continue' },
+              {
+                label: 'Continue to OpenAI-compatible setup',
+                value: 'continue',
+              },
               { label: 'Back', value: 'back' },
               { label: 'Cancel', value: 'cancel' },
             ]}
@@ -1107,20 +1108,23 @@ function CodexOAuthStep({
   onBack: () => void
   onCancel: () => void
 }): React.ReactNode {
-  const handleAuthenticated = React.useCallback(async (
-    tokens: CodexOAuthTokens,
-    persistCredentials: (options?: { profileId?: string }) => void,
-  ) => {
-    const env = buildCodexOAuthProfileEnv(tokens)
-    if (!env) {
-      throw new Error(
-        'Codex OAuth succeeded, but OpenClaude could not build a Codex profile from the stored credentials.',
-      )
-    }
+  const handleAuthenticated = React.useCallback(
+    async (
+      tokens: CodexOAuthTokens,
+      persistCredentials: (options?: { profileId?: string }) => void,
+    ) => {
+      const env = buildCodexOAuthProfileEnv(tokens)
+      if (!env) {
+        throw new Error(
+          'Codex OAuth succeeded, but OpenClaude could not build a Codex profile from the stored credentials.',
+        )
+      }
 
-    persistCredentials()
-    onSave('codex', env)
-  }, [onSave])
+      persistCredentials()
+      onSave('codex', env)
+    },
+    [onSave],
+  )
 
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
@@ -1275,8 +1279,7 @@ function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
   if (!credentials.accountId) {
     return {
       ok: false,
-      message:
-        `Codex auth is missing chatgpt_account_id. ${oauthHint}, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID first.`,
+      message: `Codex auth is missing chatgpt_account_id. ${oauthHint}, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID first.`,
     }
   }
 
@@ -1289,7 +1292,7 @@ function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
         ? 'the current shell environment'
         : credentials.source === 'secure-storage'
           ? 'OpenClaude secure storage'
-        : credentials.authPath ?? DEFAULT_CODEX_BASE_URL,
+          : (credentials.authPath ?? DEFAULT_CODEX_BASE_URL),
   }
 }
 
@@ -1326,9 +1329,12 @@ export function ProviderWizard({
               setStep({ name: 'codex-oauth' })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
-              onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
-                display: 'system',
-              })
+              onDone(
+                `Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`,
+                {
+                  display: 'system',
+                },
+              )
             } else {
               setStep({ name: 'codex-check' })
             }
@@ -1367,9 +1373,8 @@ export function ProviderWizard({
         />
       )
 
-    case 'openai-key':
-      {
-        const openAIMetadata = getProviderPresetUiMetadata('openai')
+    case 'openai-key': {
+      const openAIMetadata = getProviderPresetUiMetadata('openai')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
@@ -1401,11 +1406,10 @@ export function ProviderWizard({
           onCancel={() => setStep({ name: 'choose' })}
         />
       )
-      }
+    }
 
-    case 'openai-base':
-      {
-        const openAIMetadata = getProviderPresetUiMetadata('openai')
+    case 'openai-base': {
+      const openAIMetadata = getProviderPresetUiMetadata('openai')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
@@ -1435,11 +1439,10 @@ export function ProviderWizard({
           }
         />
       )
-      }
+    }
 
-    case 'openai-model':
-      {
-        const openAIMetadata = getProviderPresetUiMetadata('openai')
+    case 'openai-model': {
+      const openAIMetadata = getProviderPresetUiMetadata('openai')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
@@ -1470,11 +1473,10 @@ export function ProviderWizard({
           }
         />
       )
-      }
+    }
 
-    case 'mistral-key':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
+    case 'mistral-key': {
+      const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
@@ -1506,11 +1508,10 @@ export function ProviderWizard({
           onCancel={() => setStep({ name: 'choose' })}
         />
       )
-      }
+    }
 
-    case 'mistral-base':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
+    case 'mistral-base': {
+      const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
@@ -1540,11 +1541,10 @@ export function ProviderWizard({
           }
         />
       )
-      }
+    }
 
-    case 'mistral-model':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
+    case 'mistral-model': {
+      const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
@@ -1574,7 +1574,7 @@ export function ProviderWizard({
           }
         />
       )
-      }
+    }
 
     case 'gemini-auth-method': {
       const hasShellGeminiKey = Boolean(
@@ -1596,13 +1596,14 @@ export function ProviderWizard({
         {
           label: 'Access token',
           value: 'access-token',
-          description: hasShellGeminiAccessToken || hasStoredGeminiAccessToken
-            ? `Use ${
-                hasShellGeminiAccessToken
-                  ? 'the current GEMINI_ACCESS_TOKEN'
-                  : 'the securely stored Gemini access token'
-              }`
-            : 'Enter a Gemini access token and store it securely',
+          description:
+            hasShellGeminiAccessToken || hasStoredGeminiAccessToken
+              ? `Use ${
+                  hasShellGeminiAccessToken
+                    ? 'the current GEMINI_ACCESS_TOKEN'
+                    : 'the securely stored Gemini access token'
+                }`
+              : 'Enter a Gemini access token and store it securely',
         },
         {
           label: 'Local ADC',
@@ -1688,7 +1689,9 @@ export function ProviderWizard({
           allowEmpty={Boolean(currentToken)}
           validate={value => {
             const token = value.trim() || currentToken
-            return token ? null : 'Enter a Gemini access token or go back and choose Local ADC.'
+            return token
+              ? null
+              : 'Enter a Gemini access token or go back and choose Local ADC.'
           }}
           onSubmit={value => {
             const token = value.trim() || currentToken

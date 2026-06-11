@@ -5,7 +5,9 @@ import {
 } from '../../test/sharedMutationLock.js'
 
 beforeEach(async () => {
-  await acquireSharedMutationLock('services/oauth/auth-code-listener.analytics.test.ts')
+  await acquireSharedMutationLock(
+    'services/oauth/auth-code-listener.analytics.test.ts',
+  )
 })
 
 afterEach(() => {

@@ -877,9 +877,9 @@ export async function getAttachments(
       ),
     ),
     ...(isBuddyEnabled()
-        ? [
-            maybe('companion_intro', () =>
-              Promise.resolve(getCompanionIntroAttachment(messages)),
+      ? [
+          maybe('companion_intro', () =>
+            Promise.resolve(getCompanionIntroAttachment(messages)),
           ),
         ]
       : []),
@@ -1766,7 +1766,6 @@ export function memoryFilesToAttachments(
         isPartialView: memoryFile.contentDiffersFromDisk,
       })
 
-
       // Fire InstructionsLoaded hook for audit/observability (fire-and-forget)
       if (shouldFireHook && isInstructionsMemoryType(memoryFile.type)) {
         const loadReason = memoryFile.globs
@@ -2518,7 +2517,6 @@ export function collectRecentSuccessfulTools(
   }
   return [...succeeded].filter(t => !failed.has(t))
 }
-
 
 /**
  * Filters prefetched memory attachments to exclude memories the model already
@@ -4017,7 +4015,6 @@ export function getContextEfficiencyAttachment(
 
   return [{ type: 'context_efficiency' }]
 }
-
 
 function isFileReadDenied(
   filePath: string,

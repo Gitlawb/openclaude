@@ -887,7 +887,11 @@ function isPathAllowed(
   // and internal editable paths live under ~/.claude/ — matching the ordering in
   // checkWritePermissionForTool (filesystem.ts step 1.5)
   if (operationType !== 'read') {
-    const internalEditResult = checkEditableInternalPath(resolvedPath, {}, context)
+    const internalEditResult = checkEditableInternalPath(
+      resolvedPath,
+      {},
+      context,
+    )
     if (internalEditResult.behavior === 'allow') {
       return {
         allowed: true,

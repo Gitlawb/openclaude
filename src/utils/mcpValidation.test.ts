@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { mcpContentNeedsTruncation, truncateMcpContent } from './mcpValidation.js'
+import {
+  mcpContentNeedsTruncation,
+  truncateMcpContent,
+} from './mcpValidation.js'
 import * as realGrowthbook from '../services/analytics/growthbook.js'
 import * as realTokenEstimation from '../services/tokenEstimation.js'
 import * as realImageResizer from './imageResizer.js'
@@ -18,8 +21,10 @@ function applyMocks() {
   mock.module('../services/analytics/growthbook.js', () => ({
     // Only intercept the mcpValidation flag (tengu_satin_quoll); return defaultValue
     // for all other flags so this mock does not affect unrelated test files.
-    getFeatureValue_CACHED_MAY_BE_STALE: (flag: string, defaultValue: unknown) =>
-      flag === 'tengu_satin_quoll' ? null : defaultValue,
+    getFeatureValue_CACHED_MAY_BE_STALE: (
+      flag: string,
+      defaultValue: unknown,
+    ) => (flag === 'tengu_satin_quoll' ? null : defaultValue),
   }))
   mock.module('../services/tokenEstimation.js', () => ({
     // Spread the real module so roughTokenCountEstimation is never replaced.
@@ -105,10 +110,9 @@ describe('truncateMcpContent — SEC-05 budget invariant', () => {
       { type: 'text', text: 'x'.repeat(60_000) },
     ] as Parameters<typeof truncateMcpContent>[0])
     expect(Array.isArray(result)).toBe(true)
-    const totalChars = (result as Array<{ type: string; text?: string }>).reduce(
-      (sum, b) => sum + (b.text?.length ?? 0),
-      0,
-    )
+    const totalChars = (
+      result as Array<{ type: string; text?: string }>
+    ).reduce((sum, b) => sum + (b.text?.length ?? 0), 0)
     expect(totalChars).toBeLessThanOrEqual(4)
   })
 

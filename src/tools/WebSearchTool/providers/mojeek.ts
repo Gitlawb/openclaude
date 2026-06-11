@@ -5,7 +5,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 export const mojeekProvider: SearchProvider = {
   name: 'mojeek',
@@ -14,7 +18,10 @@ export const mojeekProvider: SearchProvider = {
     return Boolean(process.env.MOJEEK_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const url = new URL('https://www.mojeek.com/search')
@@ -23,7 +30,7 @@ export const mojeekProvider: SearchProvider = {
     url.searchParams.set('t', '10')
 
     const headers: Record<string, string> = {
-      'Accept': 'application/json',
+      Accept: 'application/json',
     }
     if (process.env.MOJEEK_API_KEY) {
       headers['Authorization'] = `Bearer ${process.env.MOJEEK_API_KEY}`
@@ -32,7 +39,9 @@ export const mojeekProvider: SearchProvider = {
     const res = await fetch(url.toString(), { headers, signal })
 
     if (!res.ok) {
-      throw new Error(`Mojeek search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Mojeek search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

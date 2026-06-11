@@ -12,7 +12,10 @@ type StubSettings = {
 
 const settingsRef: { value: StubSettings } = { value: {} }
 const configRef: {
-  value: { numStartups: number; sponsoredTipsHistory?: { lastShownAt: number; totalShown: number } }
+  value: {
+    numStartups: number
+    sponsoredTipsHistory?: { lastShownAt: number; totalShown: number }
+  }
 } = { value: { numStartups: 100 } }
 
 // mock.module is process-global — install once, then mutate the refs per test.
@@ -26,7 +29,9 @@ mock.module('../../utils/settings/settings.js', () => ({
 
 mock.module('../../utils/config.js', () => ({
   getGlobalConfig: () => configRef.value,
-  saveGlobalConfig: (mut: (c: typeof configRef.value) => typeof configRef.value) => {
+  saveGlobalConfig: (
+    mut: (c: typeof configRef.value) => typeof configRef.value,
+  ) => {
     configRef.value = mut(configRef.value)
   },
 }))
@@ -175,8 +180,8 @@ describe('sponsored tip catalog', () => {
     resetState({ sponsoredTipsEnabled: false })
     const { sponsoredTips } = await freshImport()
     const results = await Promise.all(
-      sponsoredTips.sponsoredTips.map((t: { isRelevant: () => Promise<boolean> }) =>
-        t.isRelevant(),
+      sponsoredTips.sponsoredTips.map(
+        (t: { isRelevant: () => Promise<boolean> }) => t.isRelevant(),
       ),
     )
     expect(results.every((r: boolean) => r === false)).toBe(true)

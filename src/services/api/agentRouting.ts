@@ -127,7 +127,10 @@ export function resolveAgentModelProvider(
   if (!settings || !settings.agentModels || !modelName) return null
 
   const trimmedModelName = modelName.trim()
-  return toProviderOverride(trimmedModelName, settings.agentModels[trimmedModelName])
+  return toProviderOverride(
+    trimmedModelName,
+    settings.agentModels[trimmedModelName],
+  )
 }
 
 export function resolveAgentRunModelRouting({
@@ -150,7 +153,10 @@ export function resolveAgentRunModelRouting({
     // Tool-specified models are explicit. If the request is not a configured
     // agentModels key, preserve getAgentModel() alias/inherit/custom-ID behavior
     // instead of falling through to persistent agentRouting.
-    const providerOverride = resolveAgentModelProvider(toolRequestedModel, settings)
+    const providerOverride = resolveAgentModelProvider(
+      toolRequestedModel,
+      settings,
+    )
     return {
       mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
       ...(providerOverride && { providerOverride }),
@@ -220,7 +226,10 @@ function hasCliFlag(args: readonly string[], flag: string): boolean {
   return args.some(arg => arg === flag || arg.startsWith(`${flag}=`))
 }
 
-function parseCliFlag(args: readonly string[], flag: string): string | undefined {
+function parseCliFlag(
+  args: readonly string[],
+  flag: string,
+): string | undefined {
   for (const arg of args) {
     if (arg.startsWith(`${flag}=`)) {
       const value = arg.slice(flag.length + 1)

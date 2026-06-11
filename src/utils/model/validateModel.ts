@@ -10,13 +10,19 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
-import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
+import {
+  getCachedOllamaModelOptions,
+  isOllamaProvider,
+} from './ollamaModels.js'
 import {
   getCachedNvidiaNimModelOptions,
   getDiscoveredNvidiaNimModelIds,
   isNvidiaNimProvider,
 } from './nvidiaNimModels.js'
-import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import {
+  getCachedMiniMaxModelOptions,
+  isMiniMaxProvider,
+} from './minimaxModels.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -47,8 +53,12 @@ export async function validateModel(
       const MAX_SHOWN = 5
       const names = ollamaModels.map(m => m.value)
       const shown = names.slice(0, MAX_SHOWN).join(', ')
-      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
-      return { valid: false, error: `Model '${normalizedModel}' not found on Ollama server. Available: ${shown}${suffix}` }
+      const suffix =
+        names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return {
+        valid: false,
+        error: `Model '${normalizedModel}' not found on Ollama server. Available: ${shown}${suffix}`,
+      }
     }
     // If cache is empty, fall through to API validation
   }
@@ -71,9 +81,7 @@ export async function validateModel(
     if (nvidiaModels.length > 0 || discoveredIds.length > 0) {
       const names = [
         ...nvidiaModels.map(m => m.value),
-        ...discoveredIds.filter(
-          id => !nvidiaModels.some(m => m.value === id),
-        ),
+        ...discoveredIds.filter(id => !nvidiaModels.some(m => m.value === id)),
       ]
       const MAX_SHOWN = 5
       const shown = names.slice(0, MAX_SHOWN).join(', ')
@@ -98,8 +106,12 @@ export async function validateModel(
       const MAX_SHOWN = 5
       const names = minimaxModels.map(m => m.value)
       const shown = names.slice(0, MAX_SHOWN).join(', ')
-      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
-      return { valid: false, error: `Model '${normalizedModel}' not found in MiniMax catalog. Available: ${shown}${suffix}` }
+      const suffix =
+        names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return {
+        valid: false,
+        error: `Model '${normalizedModel}' not found in MiniMax catalog. Available: ${shown}${suffix}`,
+      }
     }
   }
 
@@ -126,7 +138,6 @@ export async function validateModel(
   if (validModelCache.has(normalizedModel)) {
     return { valid: true }
   }
-
 
   // Try to make an actual API call with minimal parameters
   try {

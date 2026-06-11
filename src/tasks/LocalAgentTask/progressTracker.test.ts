@@ -20,7 +20,11 @@ function assistantMessage(
   inputTokens: number,
   outputTokens: number,
   options: {
-    toolUses?: Array<{ id: string; name: string; input?: Record<string, unknown> }>
+    toolUses?: Array<{
+      id: string
+      name: string
+      input?: Record<string, unknown>
+    }>
     cacheCreation?: number
     cacheRead?: number
   } = {},
@@ -170,7 +174,9 @@ describe('progress tracker (issue #475)', () => {
       updateProgressFromMessage(
         tracker,
         assistantMessage(100, 5, {
-          toolUses: [{ id: `tu-${i}`, name: 'Read', input: { file_path: `/${i}` } }],
+          toolUses: [
+            { id: `tu-${i}`, name: 'Read', input: { file_path: `/${i}` } },
+          ],
         }),
       )
     }

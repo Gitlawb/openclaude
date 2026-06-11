@@ -75,7 +75,9 @@ function lookupPrefixByKey(
   return prefixKey ? entries[prefixKey] : undefined
 }
 
-function getOpenAIBaseUrlHost(processEnv: NodeJS.ProcessEnv): string | undefined {
+function getOpenAIBaseUrlHost(
+  processEnv: NodeJS.ProcessEnv,
+): string | undefined {
   const baseUrl =
     processEnv.OPENAI_BASE_URL?.trim() || processEnv.OPENAI_API_BASE?.trim()
   if (!baseUrl) {

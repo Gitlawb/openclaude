@@ -8,7 +8,9 @@ import * as realSecureStorage from './secureStorage/index.js'
 
 async function importFreshModule() {
   mock.restore()
-  return import(`./githubModelsCredentials.ts?ts=${Date.now()}-${Math.random()}`)
+  return import(
+    `./githubModelsCredentials.ts?ts=${Date.now()}-${Math.random()}`
+  )
 }
 
 function getGithubTokenEnv(): string | undefined {
@@ -24,7 +26,9 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
   }
 
   beforeEach(async () => {
-    await acquireSharedMutationLock('utils/githubModelsCredentials.refresh.test.ts')
+    await acquireSharedMutationLock(
+      'utils/githubModelsCredentials.refresh.test.ts',
+    )
     mock.restore()
   })
 
@@ -133,8 +137,6 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     const refreshed = await refreshGithubModelsTokenIfNeeded()
     expect(refreshed).toBe(false)
     expect(exchangeSpy).not.toHaveBeenCalled()
-    expect(getGithubTokenEnv()?.startsWith('tid=already-valid;exp=')).toBe(
-      true,
-    )
+    expect(getGithubTokenEnv()?.startsWith('tid=already-valid;exp=')).toBe(true)
   })
 })

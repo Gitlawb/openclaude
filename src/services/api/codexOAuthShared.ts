@@ -28,7 +28,9 @@ export function asTrimmedString(value: unknown): string | undefined {
 export function getCodexOAuthClientId(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return asTrimmedString(env.CODEX_OAUTH_CLIENT_ID) ?? DEFAULT_CODEX_OAUTH_CLIENT_ID
+  return (
+    asTrimmedString(env.CODEX_OAUTH_CLIENT_ID) ?? DEFAULT_CODEX_OAUTH_CLIENT_ID
+  )
 }
 
 export function getCodexOAuthCallbackPort(
@@ -118,7 +120,7 @@ export function escapeHtml(value: string): string {
         return '&gt;'
       case '"':
         return '&quot;'
-      case '\'':
+      case "'":
         return '&#39;'
       default:
         return char

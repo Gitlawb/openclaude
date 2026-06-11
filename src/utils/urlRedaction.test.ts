@@ -48,9 +48,9 @@ describe('redactUrlForDisplay', () => {
     expect(
       redactUrlForDisplay('https://api.example.com/v1?passwd=hunter2'),
     ).toBe('https://api.example.com/v1?passwd=redacted')
-    expect(
-      redactUrlForDisplay('https://api.example.com/v1?pwd=hunter2'),
-    ).toBe('https://api.example.com/v1?pwd=redacted')
+    expect(redactUrlForDisplay('https://api.example.com/v1?pwd=hunter2')).toBe(
+      'https://api.example.com/v1?pwd=redacted',
+    )
     expect(
       redactUrlForDisplay('https://api.example.com/v1?auth=Bearer-XYZ'),
     ).toBe('https://api.example.com/v1?auth=redacted')
@@ -85,7 +85,13 @@ describe('shouldRedactUrlQueryParam', () => {
   })
 
   test('does not flag unrelated param names', () => {
-    for (const name of ['model', 'temperature', 'foo', 'session_id', 'user_id']) {
+    for (const name of [
+      'model',
+      'temperature',
+      'foo',
+      'session_id',
+      'user_id',
+    ]) {
       expect(shouldRedactUrlQueryParam(name)).toBe(false)
     }
   })

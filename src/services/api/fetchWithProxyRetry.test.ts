@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 import { _resetKeepAliveForTesting } from '../../utils/proxy.js'
 import {
@@ -15,7 +18,10 @@ const originalEnv = {
   HTTPS_PROXY: process.env.HTTPS_PROXY,
 }
 
-function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined): void {
+function restoreEnv(
+  key: 'HTTP_PROXY' | 'HTTPS_PROXY',
+  value: string | undefined,
+): void {
   if (value === undefined) {
     delete process.env[key]
   } else {
@@ -95,7 +101,7 @@ test('fetchWithProxyRetry does not retry non-network errors', async () => {
 
 test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 response', async () => {
   const calls: Array<RequestInit | undefined> = []
-  
+
   globalThis.fetch = (async (_input, init) => {
     calls.push(init)
     if (calls.length === 1) {

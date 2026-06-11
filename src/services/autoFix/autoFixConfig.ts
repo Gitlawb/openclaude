@@ -35,9 +35,7 @@ export const AutoFixConfigSchema = z
 
 export type AutoFixConfig = z.infer<typeof AutoFixConfigSchema>
 
-export function getAutoFixConfig(
-  rawConfig: unknown,
-): AutoFixConfig | null {
+export function getAutoFixConfig(rawConfig: unknown): AutoFixConfig | null {
   if (!rawConfig || typeof rawConfig !== 'object') {
     return null
   }

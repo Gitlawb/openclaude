@@ -55,7 +55,11 @@ describe('sanitizeEnvForGit', () => {
   })
 
   test('returns input unchanged when nothing is unsafe', () => {
-    const env = { PATH: '/usr/bin:/bin', HOME: '/home/user', GIT_TERMINAL_PROMPT: '0' }
+    const env = {
+      PATH: '/usr/bin:/bin',
+      HOME: '/home/user',
+      GIT_TERMINAL_PROMPT: '0',
+    }
     const result = sanitizeEnvForGit(env)
     expect(result.env).toEqual(env)
     expect(result.dropped).toEqual([])

@@ -6,7 +6,7 @@ import {
   resetGlobalGraph,
   initOrama,
   getGlobalGraph,
-  clearMemoryOnly
+  clearMemoryOnly,
 } from './knowledgeGraph.js'
 import { mkdtempSync, rmSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
@@ -31,7 +31,12 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
         if (code !== 'EBUSY' && code !== 'EPERM') {
           throw error
         }
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1))
+        Atomics.wait(
+          new Int32Array(new SharedArrayBuffer(4)),
+          0,
+          0,
+          25 * (attempt + 1),
+        )
       }
     }
 
@@ -82,7 +87,10 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
 
     // Use sequential insertion to avoid Orama race conditions on disk/ID collisions
     for (let i = 0; i < count; i++) {
-      await addGlobalEntity('stress_test', `entity_${i}`, { index: String(i), category: 'test' })
+      await addGlobalEntity('stress_test', `entity_${i}`, {
+        index: String(i),
+        category: 'test',
+      })
     }
 
     const graph = getGlobalGraph()
@@ -94,9 +102,18 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
   })
 
   it('handles complex queries and ranking', async () => {
-    await addGlobalSummary('The authentication system uses JWT and OAuth2.', ['auth', 'security'])
-    await addGlobalSummary('The security policy forbids cleartext passwords.', ['security', 'policy'])
-    await addGlobalSummary('Frontend uses React and Tailwind.', ['ui', 'frontend'])
+    await addGlobalSummary('The authentication system uses JWT and OAuth2.', [
+      'auth',
+      'security',
+    ])
+    await addGlobalSummary('The security policy forbids cleartext passwords.', [
+      'security',
+      'policy',
+    ])
+    await addGlobalSummary('Frontend uses React and Tailwind.', [
+      'ui',
+      'frontend',
+    ])
 
     // Search for "security" should return both relevant summaries
     const result = await searchGlobalGraph('security')
@@ -123,7 +140,7 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     // 4. Verify we can still work (Orama should have re-synced from the JSON fallback)
     const result = await searchGlobalGraph('valid')
     expect(result).toContain('valid')
-    
+
     // 5. Verify the corrupted file was moved
     const { readdirSync } = await import('fs')
     const oramaDir = dirname(oramaPath)
@@ -145,19 +162,21 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
 
   it('maintains consistency between JSON and Orama', async () => {
     await addGlobalEntity('sync_test', 'entity_1', { status: 'initial' })
-    
+
     // Force reload from disk
     clearMemoryOnly()
-    
+
     // Update the same entity
     await addGlobalEntity('sync_test', 'entity_1', { status: 'updated' })
-    
+
     const result = await searchGlobalGraph('entity_1')
     expect(result).toContain('updated')
     expect(result).not.toContain('initial')
-    
+
     const graph = getGlobalGraph()
-    const entities = Object.values(graph.entities).filter(e => e.name === 'entity_1')
+    const entities = Object.values(graph.entities).filter(
+      e => e.name === 'entity_1',
+    )
     expect(entities.length).toBe(1)
     expect(entities[0].attributes.status).toBe('updated')
   })
@@ -165,25 +184,29 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
   it('handles concurrent updates to the same entity (Orama Race Condition)', async () => {
     // 1. Create initial entity
     await addGlobalEntity('tool', 'concurrent-entity', { base: '1' })
-    
+
     // 2. Perform 50 concurrent updates
     const count = 50
     const promises: Array<ReturnType<typeof addGlobalEntity>> = []
     for (let i = 0; i < count; i++) {
-      promises.push(addGlobalEntity('tool', 'concurrent-entity', { [`k${i}`]: String(i) }))
+      promises.push(
+        addGlobalEntity('tool', 'concurrent-entity', { [`k${i}`]: String(i) }),
+      )
     }
-    
+
     // This should NOT throw DOCUMENT_ALREADY_EXISTS now
     await Promise.all(promises)
-    
+
     // 3. Verify final state in Orama
     const result = await searchGlobalGraph('concurrent-entity')
     // Should find the entity
     expect(result).toContain('concurrent-entity')
-    
+
     // 4. Verify all attributes are merged in JSON
     const graph = getGlobalGraph()
-    const entity = Object.values(graph.entities).find(e => e.name === 'concurrent-entity')
+    const entity = Object.values(graph.entities).find(
+      e => e.name === 'concurrent-entity',
+    )
     expect(entity).toBeDefined()
     expect(entity?.attributes.base).toBe('1')
     for (let i = 0; i < count; i++) {

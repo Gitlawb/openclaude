@@ -1,6 +1,14 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, describe, expect, jest, mock, test } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  test,
+} from 'bun:test'
 import React from 'react'
 
 import {
@@ -35,7 +43,6 @@ function buildAxiosModuleStub(
   }
   return { default: instance } as unknown as AxiosModule
 }
-
 // MACRO is normally substituted at build time. The test runs without the
 // bundler, so stub the build-time globals before importing the module under
 // test (which transitively imports utils/http.ts -> MACRO.VERSION).

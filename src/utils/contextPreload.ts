@@ -1,6 +1,6 @@
 /**
  * Context Pre-loading - Production Grade
- * 
+ *
  * Proactively loads relevant context before it's needed.
  * Prediction based on conversation patterns.
  */
@@ -27,15 +27,17 @@ export interface ConversationPattern {
 }
 
 const PATTERN_KEYWORDS: Record<string, string[]> = {
-  'code': ['code', 'function', 'implement', 'write'],
-  'debug': ['error', 'bug', 'fix', 'issue', 'debug'],
-  'refactor': ['refactor', 'improve', 'clean', 'optimize'],
-  'test': ['test', 'spec', 'coverage', 'verify'],
-  'explain': ['explain', 'what', 'how', 'why', 'describe'],
-  'search': ['find', 'search', 'look', 'grep', 'glob'],
+  code: ['code', 'function', 'implement', 'write'],
+  debug: ['error', 'bug', 'fix', 'issue', 'debug'],
+  refactor: ['refactor', 'improve', 'clean', 'optimize'],
+  test: ['test', 'spec', 'coverage', 'verify'],
+  explain: ['explain', 'what', 'how', 'why', 'describe'],
+  search: ['find', 'search', 'look', 'grep', 'glob'],
 }
 
-export function analyzeConversationPatterns(messages: Message[]): ConversationPattern[] {
+export function analyzeConversationPatterns(
+  messages: Message[],
+): ConversationPattern[] {
   const patterns: ConversationPattern[] = []
   const recentMessages = messages.slice(-10)
 
@@ -43,8 +45,14 @@ export function analyzeConversationPatterns(messages: Message[]): ConversationPa
     const userMsg = recentMessages[i]
     const assistantMsg = recentMessages[i + 1]
 
-    const userContent = typeof userMsg.message?.content === 'string' ? userMsg.message.content : ''
-    const assistantContent = typeof assistantMsg.message?.content === 'string' ? assistantMsg.message.content : ''
+    const userContent =
+      typeof userMsg.message?.content === 'string'
+        ? userMsg.message.content
+        : ''
+    const assistantContent =
+      typeof assistantMsg.message?.content === 'string'
+        ? assistantMsg.message.content
+        : ''
 
     for (const [category, keywords] of Object.entries(PATTERN_KEYWORDS)) {
       if (keywords.some(k => userContent.toLowerCase().includes(k))) {
@@ -79,7 +87,9 @@ export function predictContextNeeds(
   let highestConfidence = 0
 
   for (const [category, keywords] of Object.entries(PATTERN_KEYWORDS)) {
-    const matches = keywords.filter(k => currentQuery.toLowerCase().includes(k)).length
+    const matches = keywords.filter(k =>
+      currentQuery.toLowerCase().includes(k),
+    ).length
     const confidence = matches / keywords.length
 
     if (confidence > highestConfidence && confidence >= threshold) {
@@ -110,8 +120,10 @@ export function preloadContext(
   const priorityTypes = prediction.predictedNeed
 
   const sorted = [...availableContext].sort((a, b) => {
-    const aContent = typeof a.message?.content === 'string' ? a.message.content : ''
-    const bContent = typeof b.message?.content === 'string' ? b.message.content : ''
+    const aContent =
+      typeof a.message?.content === 'string' ? a.message.content : ''
+    const bContent =
+      typeof b.message?.content === 'string' ? b.message.content : ''
 
     const aPriority = priorityTypes.some(t => aContent.includes(t)) ? 1 : 0
     const bPriority = priorityTypes.some(t => bContent.includes(t)) ? 1 : 0
@@ -122,7 +134,7 @@ export function preloadContext(
 
   for (const msg of sorted) {
     const tokens = roughTokenCountEstimation(
-      typeof msg.message?.content === 'string' ? msg.message.content : ''
+      typeof msg.message?.content === 'string' ? msg.message.content : '',
     )
 
     if (usedTokens + tokens > targetTokens) break

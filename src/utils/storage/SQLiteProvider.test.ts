@@ -4,13 +4,19 @@ import {
   resetGlobalGraph,
   clearMemoryOnly,
   getGlobalGraph,
-  initOrama
+  initOrama,
 } from '../knowledgeGraph.js'
 import { mkdtempSync, rmSync, existsSync, renameSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
-import { getProjectsDir, setClaudeConfigHomeDirForTesting } from '../envUtils.js'
+import {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} from '../../entrypoints/sdk/shared.js'
+import {
+  getProjectsDir,
+  setClaudeConfigHomeDirForTesting,
+} from '../envUtils.js'
 import { getFsImplementation, setFsImplementation } from '../fsOperations.js'
 import { sanitizePath } from '../sessionStoragePortable.js'
 import { SQLiteProvider } from './SQLiteProvider.js'
@@ -31,7 +37,12 @@ describe('SQLite Storage Layer', () => {
         if (code !== 'EBUSY' && code !== 'EPERM') {
           throw error
         }
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1))
+        Atomics.wait(
+          new Int32Array(new SharedArrayBuffer(4)),
+          0,
+          0,
+          25 * (attempt + 1),
+        )
       }
     }
 
@@ -73,7 +84,12 @@ describe('SQLite Storage Layer', () => {
         }
       }
 
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1))
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        50 * (attempt + 1),
+      )
     }
 
     if (existsSync(filePath)) {
@@ -120,7 +136,11 @@ describe('SQLite Storage Layer', () => {
   })
 
   it('persists data in SQLite database', async () => {
-    const sqlitePath = join(getProjectsDir(), sanitizePath(workspaceDir), 'knowledge.db')
+    const sqlitePath = join(
+      getProjectsDir(),
+      sanitizePath(workspaceDir),
+      'knowledge.db',
+    )
 
     // 1. Add data
     await addGlobalEntity('tool', 'sqlite-test', { status: 'durable' })
@@ -131,14 +151,24 @@ describe('SQLite Storage Layer', () => {
 
     // 3. Load should come from SQLite (hydrated by JSON)
     const graph = getGlobalGraph()
-    const entity = Object.values(graph.entities).find(e => e.name === 'sqlite-test')
+    const entity = Object.values(graph.entities).find(
+      e => e.name === 'sqlite-test',
+    )
     expect(entity).toBeDefined()
     expect(entity?.attributes.status).toBe('durable')
   })
 
   it('self-heals SQLite from JSON if DB is deleted', async () => {
-    const sqlitePath = join(getProjectsDir(), sanitizePath(workspaceDir), 'knowledge.db')
-    const jsonPath = join(getProjectsDir(), sanitizePath(workspaceDir), 'knowledge_graph.json')
+    const sqlitePath = join(
+      getProjectsDir(),
+      sanitizePath(workspaceDir),
+      'knowledge.db',
+    )
+    const jsonPath = join(
+      getProjectsDir(),
+      sanitizePath(workspaceDir),
+      'knowledge_graph.json',
+    )
 
     // 1. Add data to both
     await addGlobalEntity('tool', 'self-heal-test', { val: 'safe' })
@@ -154,7 +184,9 @@ describe('SQLite Storage Layer', () => {
     // In the async architecture, we must await initialization to trigger the rebuild.
     await initOrama(workspaceDir)
     const graph = getGlobalGraph()
-    const entity = Object.values(graph.entities).find(e => e.name === 'self-heal-test')
+    const entity = Object.values(graph.entities).find(
+      e => e.name === 'self-heal-test',
+    )
     expect(entity).toBeDefined()
     expect(entity?.attributes.val).toBe('safe')
 

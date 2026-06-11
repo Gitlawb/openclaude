@@ -39,11 +39,13 @@ async function runBenchmark(
     // only concrete model names can be benchmarked.
     modelsToBenchmark = ollamaModels
       .slice(0, 3)
-      .map((m) => m.value)
+      .map(m => m.value)
       .filter((v): v is string => typeof v === 'string')
   }
 
-  context?.stdout?.write(`Benchmarking ${modelsToBenchmark.length} model(s)...\n`)
+  context?.stdout?.write(
+    `Benchmarking ${modelsToBenchmark.length} model(s)...\n`,
+  )
 
   const results = await benchmarkMultipleModels(
     modelsToBenchmark,

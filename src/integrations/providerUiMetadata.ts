@@ -15,10 +15,9 @@ import {
 } from './routeMetadata.js'
 
 const PRESET_UI_METADATA = new Map<ProviderPreset, ProviderPresetManifestEntry>(
-  PROVIDER_PRESET_MANIFEST.map(entry => [
-    entry.preset,
-    entry as ProviderPresetManifestEntry,
-  ] as const),
+  PROVIDER_PRESET_MANIFEST.map(
+    entry => [entry.preset, entry as ProviderPresetManifestEntry] as const,
+  ),
 )
 
 function readFirstEnvValue(
@@ -66,7 +65,9 @@ export function getProviderPresetUiMetadata(
   }
 
   const credentialEnvVars = [
-    ...(presetMetadata.apiKeyEnvVars ?? descriptor?.setup.credentialEnvVars ?? []),
+    ...(presetMetadata.apiKeyEnvVars ??
+      descriptor?.setup.credentialEnvVars ??
+      []),
   ]
   const baseUrl =
     readFirstEnvValue(processEnv, presetMetadata.baseUrlEnvVars) ||

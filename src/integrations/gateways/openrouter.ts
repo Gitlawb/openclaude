@@ -34,7 +34,12 @@ export default defineGateway({
     discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
     models: [
-      { id: 'openrouter-gpt-5-mini', apiName: 'openai/gpt-5-mini', label: 'GPT-5 Mini (via OpenRouter)', modelDescriptorId: 'gpt-5-mini' },
+      {
+        id: 'openrouter-gpt-5-mini',
+        apiName: 'openai/gpt-5-mini',
+        label: 'GPT-5 Mini (via OpenRouter)',
+        modelDescriptorId: 'gpt-5-mini',
+      },
     ],
   },
   usage: { supported: false },

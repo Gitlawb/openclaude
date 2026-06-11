@@ -3,9 +3,7 @@ import { expect, test } from 'bun:test'
 import { escapeXml, escapeXmlAttr } from './xml.js'
 
 test('escapeXml escapes the core XML metacharacters', () => {
-  expect(escapeXml('<tag>&"\'</tag>')).toBe(
-    '&lt;tag&gt;&amp;"\'&lt;/tag&gt;',
-  )
+  expect(escapeXml('<tag>&"\'</tag>')).toBe('&lt;tag&gt;&amp;"\'&lt;/tag&gt;')
 })
 
 test('escapeXml returns an empty string for null and undefined (#1247)', () => {

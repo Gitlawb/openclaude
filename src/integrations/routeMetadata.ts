@@ -32,18 +32,14 @@ const XIAOMI_MIMO_PRIMARY_HOST = 'api.xiaomimimo.com'
 const XIAOMI_MIMO_STALE_DOCS_HOST = 'api.mimo-v2.com'
 export const XIAOMI_MIMO_PRIMARY_BASE_URL = `https://${XIAOMI_MIMO_PRIMARY_HOST}/v1`
 
-function getValidationRoutingHosts(
-  descriptor: RouteDescriptor,
-): string[] {
+function getValidationRoutingHosts(descriptor: RouteDescriptor): string[] {
   const routing = descriptor.validation?.routing as
     | ValidationRoutingMetadata
     | undefined
   return routing?.matchBaseUrlHosts ?? []
 }
 
-function normalizeComparableBaseUrl(
-  baseUrl?: string,
-): string | null {
+function normalizeComparableBaseUrl(baseUrl?: string): string | null {
   if (!baseUrl?.trim()) {
     return null
   }
@@ -58,9 +54,7 @@ function normalizeComparableBaseUrl(
   }
 }
 
-function normalizeHost(
-  baseUrl?: string,
-): string | null {
+function normalizeHost(baseUrl?: string): string | null {
   if (!baseUrl?.trim()) {
     return null
   }
@@ -106,28 +100,20 @@ function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
   return null
 }
 
-export function getRouteDescriptor(
-  routeId: string,
-): RouteDescriptor | null {
+export function getRouteDescriptor(routeId: string): RouteDescriptor | null {
   ensureIntegrationsLoaded()
   return getGateway(routeId) ?? getVendor(routeId) ?? null
 }
 
-export function getRouteLabel(
-  routeId: string,
-): string | null {
+export function getRouteLabel(routeId: string): string | null {
   return getRouteDescriptor(routeId)?.label ?? null
 }
 
-export function getRouteDefaultBaseUrl(
-  routeId: string,
-): string | undefined {
+export function getRouteDefaultBaseUrl(routeId: string): string | undefined {
   return getRouteDescriptor(routeId)?.defaultBaseUrl
 }
 
-export function getRouteDefaultModel(
-  routeId: string,
-): string | undefined {
+export function getRouteDefaultModel(routeId: string): string | undefined {
   const descriptor = getRouteDescriptor(routeId)
   if (!descriptor) {
     return undefined
@@ -454,9 +440,7 @@ export function resolveEnvOnlyProviderRouteId(
   return null
 }
 
-export function getRouteCredentialEnvVars(
-  routeId: string,
-): string[] {
+export function getRouteCredentialEnvVars(routeId: string): string[] {
   if (routeId === 'custom') {
     return ['OPENAI_API_KEY']
   }
@@ -489,14 +473,12 @@ export function getRouteCredentialValue(
   )
 }
 
-export function resolveRouteCredentialValue(
-  options?: {
-    routeId?: string | null
-    baseUrl?: string
-    processEnv?: NodeJS.ProcessEnv
-    activeProfileProvider?: string
-  },
-): string | undefined {
+export function resolveRouteCredentialValue(options?: {
+  routeId?: string | null
+  baseUrl?: string
+  processEnv?: NodeJS.ProcessEnv
+  activeProfileProvider?: string
+}): string | undefined {
   const processEnv = options?.processEnv ?? process.env
   const routeId =
     options?.routeId ??
@@ -513,9 +495,7 @@ export function resolveRouteCredentialValue(
   return getRouteCredentialValue(routeId, processEnv)
 }
 
-export function routeSupportsCustomHeaders(
-  routeId: string,
-): boolean {
+export function routeSupportsCustomHeaders(routeId: string): boolean {
   const descriptor = getRouteDescriptor(routeId)
   if (!descriptor) {
     return false
@@ -580,9 +560,7 @@ export function routeSupportsAuthHeaders(routeId: string): boolean {
   return routeSupportsOpenAIShimOption(routeId, 'supportsAuthHeaders')
 }
 
-export function getRouteProviderTypeLabel(
-  routeId: string,
-): string {
+export function getRouteProviderTypeLabel(routeId: string): string {
   const kind = getRouteDescriptor(routeId)?.transportConfig.kind
   return (
     (kind ? TRANSPORT_KIND_PROVIDER_TYPE_LABELS[kind] : undefined) ??
@@ -610,10 +588,7 @@ export function resolveRouteIdFromBaseUrl(
     const normalizedDefaultBaseUrl = normalizeComparableBaseUrl(
       route.defaultBaseUrl,
     )
-    if (
-      normalizedBaseUrl &&
-      normalizedDefaultBaseUrl === normalizedBaseUrl
-    ) {
+    if (normalizedBaseUrl && normalizedDefaultBaseUrl === normalizedBaseUrl) {
       return route.id
     }
   }
@@ -660,8 +635,7 @@ export function resolveActiveRouteIdFromEnv(
   if (envOnlyRouteId) return envOnlyRouteId
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
-    const baseUrl =
-      processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
+    const baseUrl = processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
     const matchedRoute = resolveRouteIdFromBaseUrl(baseUrl)
 
     if (

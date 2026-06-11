@@ -249,7 +249,10 @@ export type SDKAgentLoadFailureMessage = {
  * A message emitted by the query engine during a conversation.
  * Re-exports the full generated type from coreTypes.generated.ts.
  */
-export type SDKMessage = GeneratedSDKMessage | SDKPermissionTimeoutMessage | SDKAgentLoadFailureMessage
+export type SDKMessage =
+  | GeneratedSDKMessage
+  | SDKPermissionTimeoutMessage
+  | SDKAgentLoadFailureMessage
 
 /**
  * A user message fed into query() via AsyncIterable.
@@ -274,7 +277,9 @@ export function mapMessageToSDK(msg: Record<string, unknown>): SDKMessage {
   // Validate type field is a string (if present)
   const typeValue = msg.type
   if (typeValue !== undefined && typeof typeValue !== 'string') {
-    throw new TypeError(`mapMessageToSDK: 'type' field must be string, got ${typeof typeValue}`)
+    throw new TypeError(
+      `mapMessageToSDK: 'type' field must be string, got ${typeof typeValue}`,
+    )
   }
 
   // Internal messages from QueryEngine already use the SDK field naming
@@ -391,7 +396,11 @@ export type CanUseToolCallback = (
   name: string,
   input: unknown,
   options?: { toolUseID?: string },
-) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+) => Promise<{
+  behavior: 'allow' | 'deny'
+  message?: string
+  updatedInput?: unknown
+}>
 
 // ============================================================================
 // Internal types shared across modules

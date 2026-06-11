@@ -46,7 +46,7 @@ describe('fallbackModel: REPL Props contract', () => {
     // check is insufficient because dep arrays, query calls, and the
     // background path all carry the token too.
     const match = source.match(
-      /function\s+REPL\s*\(\s*\{[\s\S]*?fallbackModel[\s\S]*?\}\s*:\s*Props\s*\)/
+      /function\s+REPL\s*\(\s*\{[\s\S]*?fallbackModel[\s\S]*?\}\s*:\s*Props\s*\)/,
     )
     expect(match).not.toBeNull()
   })
@@ -62,7 +62,7 @@ describe('fallbackModel: foreground query() path', () => {
     // function signature, masking a regression that removes fallbackModel
     // from the foreground `query({ ... })` call specifically.
     const match = source.match(
-      /query\(\s*\{[\s\S]*?fallbackModel[\s\S]*?\}\s*\)/
+      /query\(\s*\{[\s\S]*?fallbackModel[\s\S]*?\}\s*\)/,
     )
     expect(match).not.toBeNull()
   })

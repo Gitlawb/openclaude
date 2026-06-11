@@ -181,10 +181,10 @@ test('coding goal recognizes codestral and devstral families', () => {
     'coding',
   )
 
-  assert.deepEqual(ranked.slice(0, 2).map(item => item.name), [
-    'devstral:24b',
-    'codestral:22b',
-  ])
+  assert.deepEqual(
+    ranked.slice(0, 2).map(item => item.name),
+    ['devstral:24b', 'codestral:22b'],
+  )
 })
 
 test('goal defaults choose sensible openai models', () => {

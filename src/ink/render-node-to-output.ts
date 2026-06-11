@@ -960,14 +960,13 @@ function renderNodeToOutput(
             // Snapshot dirty children before the first pass — the first
             // pass clears dirty flags, and edge-spanning children would be
             // missed by the second pass without this snapshot.
-            const dirtyChildren =
-              content.dirty
-                ? new Set(
-                    content.childNodes.filter(
-                      (c): c is DOMElement => isElementNode(c) && c.dirty,
-                    ),
-                  )
-                : null
+            const dirtyChildren = content.dirty
+              ? new Set(
+                  content.childNodes.filter(
+                    (c): c is DOMElement => isElementNode(c) && c.dirty,
+                  ),
+                )
+              : null
             renderScrolledChildren(
               content,
               output,

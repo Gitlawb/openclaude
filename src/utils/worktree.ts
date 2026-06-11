@@ -366,11 +366,13 @@ async function getOrCreateWorktree(
     // For the fetch/PR-fetch paths we still need the SHA — the fs-only resolveRef
     // above only covers the "origin/<branch> already exists locally" case.
     if (!baseSha) {
-      const { stdout, stderr, code: shaCode } = await execFileNoThrowWithCwd(
-        gitExe(),
-        ['rev-parse', baseBranch],
-        { cwd: repoRoot },
-      )
+      const {
+        stdout,
+        stderr,
+        code: shaCode,
+      } = await execFileNoThrowWithCwd(gitExe(), ['rev-parse', baseBranch], {
+        cwd: repoRoot,
+      })
       if (shaCode !== 0) {
         throw new Error(
           buildRevParseFailureMessage(baseBranch, stderr, shaCode),

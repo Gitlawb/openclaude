@@ -13,7 +13,10 @@ import {
 
 function collectStdout(diff: ReturnType<LogUpdate['render']>): string {
   return diff
-    .filter((patch): patch is Extract<(typeof diff)[number], { type: 'stdout' }> => patch.type === 'stdout')
+    .filter(
+      (patch): patch is Extract<(typeof diff)[number], { type: 'stdout' }> =>
+        patch.type === 'stdout',
+    )
     .map(patch => patch.content)
     .join('')
 }
@@ -39,7 +42,13 @@ function frameFromLines(
   cursor = { x: 0, y: lines.length, visible: true },
 ): Frame {
   const width = lines.reduce((max, line) => Math.max(max, line.length), 0)
-  const screen = createScreen(width, lines.length, stylePool, charPool, hyperlinkPool)
+  const screen = createScreen(
+    width,
+    lines.length,
+    stylePool,
+    charPool,
+    hyperlinkPool,
+  )
 
   for (const [y, line] of lines.entries()) {
     for (const [x, char] of [...line].entries()) {
@@ -79,18 +88,14 @@ test('ghostty main-screen rewrite paints prompt content without full terminal re
 
 test('ghostty main-screen rewrite clears only the changed prompt tail before repainting', () => {
   const { stylePool, charPool, hyperlinkPool, log } = createHarness()
-  const prev = frameFromLines(
-    stylePool,
-    charPool,
-    hyperlinkPool,
-    ['status', '> abc'],
-  )
-  const next = frameFromLines(
-    stylePool,
-    charPool,
-    hyperlinkPool,
-    ['status', '> abcd'],
-  )
+  const prev = frameFromLines(stylePool, charPool, hyperlinkPool, [
+    'status',
+    '> abc',
+  ])
+  const next = frameFromLines(stylePool, charPool, hyperlinkPool, [
+    'status',
+    '> abcd',
+  ])
 
   const diff = log.render(prev, next, false, true, true)
   const stdout = collectStdout(diff)
@@ -104,18 +109,22 @@ test('ghostty main-screen rewrite clears only the changed prompt tail before rep
 
 test('ghostty main-screen rewrite falls back to incremental diff for larger changes', () => {
   const { stylePool, charPool, hyperlinkPool, log } = createHarness()
-  const prev = frameFromLines(
-    stylePool,
-    charPool,
-    hyperlinkPool,
-    ['row 0', 'row 1', 'row 2', 'row 3', 'row 4', '> abc'],
-  )
-  const next = frameFromLines(
-    stylePool,
-    charPool,
-    hyperlinkPool,
-    ['row 0 updated', 'row 1', 'row 2', 'row 3', 'row 4', '> abcd'],
-  )
+  const prev = frameFromLines(stylePool, charPool, hyperlinkPool, [
+    'row 0',
+    'row 1',
+    'row 2',
+    'row 3',
+    'row 4',
+    '> abc',
+  ])
+  const next = frameFromLines(stylePool, charPool, hyperlinkPool, [
+    'row 0 updated',
+    'row 1',
+    'row 2',
+    'row 3',
+    'row 4',
+    '> abcd',
+  ])
 
   const diff = log.render(prev, next, false, true, true)
   const stdout = collectStdout(diff)

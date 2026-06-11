@@ -145,7 +145,9 @@ async function fetchOpenAIModels(
         return modelNames
       }
     } catch {
-      logForDebugging(`[ModelDiscovery] Failed to fetch OpenAI models from ${url}`)
+      logForDebugging(
+        `[ModelDiscovery] Failed to fetch OpenAI models from ${url}`,
+      )
     }
   }
 
@@ -167,7 +169,9 @@ async function fetchOllamaModels(
         .filter((model): model is string => model.length > 0),
     )
   } catch {
-    logForDebugging(`[ModelDiscovery] Failed to fetch Ollama models from ${url}`)
+    logForDebugging(
+      `[ModelDiscovery] Failed to fetch Ollama models from ${url}`,
+    )
     return []
   }
 }

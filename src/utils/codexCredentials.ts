@@ -39,12 +39,10 @@ type CodexTokenRefreshResponse = {
   id_token?: string
 }
 
-let inFlightCodexRefresh:
-  | Promise<{
-      refreshed: boolean
-      credentials?: CodexCredentialBlob
-    }>
-  | null = null
+let inFlightCodexRefresh: Promise<{
+  refreshed: boolean
+  credentials?: CodexCredentialBlob
+}> | null = null
 let inMemoryLastRefreshFailureAt: number | null = null
 
 function getCodexPrimarySecureStorage() {
@@ -102,10 +100,9 @@ function normalizeCodexCredentialBlob(
   }
 }
 
-function getRecord(data: SecureStorageData | null | undefined): Record<
-  string,
-  unknown
-> {
+function getRecord(
+  data: SecureStorageData | null | undefined,
+): Record<string, unknown> {
   return data && typeof data === 'object'
     ? (data as Record<string, unknown>)
     : {}
@@ -114,7 +111,10 @@ function getRecord(data: SecureStorageData | null | undefined): Record<
 function hasStoredCodexRecord(
   data: SecureStorageData | null | undefined,
 ): boolean {
-  return Object.prototype.hasOwnProperty.call(getRecord(data), CODEX_STORAGE_KEY)
+  return Object.prototype.hasOwnProperty.call(
+    getRecord(data),
+    CODEX_STORAGE_KEY,
+  )
 }
 
 function hasNonCodexStorageFields(
@@ -146,9 +146,10 @@ async function readCodexFromPlainTextStorageAsync(): Promise<
 // Do not use the generic secure-storage fallback for Codex writes. Its update()
 // path receives the whole storage document, so a native-write failure can copy
 // unrelated native-only secrets into plaintext.
-function writeCodexToPlainTextStorage(
-  codex: CodexCredentialBlob,
-): { success: boolean; warning?: string } {
+function writeCodexToPlainTextStorage(codex: CodexCredentialBlob): {
+  success: boolean
+  warning?: string
+} {
   try {
     const previous = plainTextStorage.read() || {}
     const next = {
@@ -188,8 +189,7 @@ function removeCodexFromPlainTextStorage(): {
       ? { success: true }
       : {
           success: false,
-          warning:
-            result.warning ?? CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING,
+          warning: result.warning ?? CODEX_PLAINTEXT_CLEANUP_FAILED_WARNING,
         }
   } catch {
     return {
@@ -221,15 +221,10 @@ function isWithinRefreshFailureCooldown(
     return false
   }
 
-  return (
-    now - lastRefreshFailureAt < CODEX_TOKEN_REFRESH_RETRY_COOLDOWN_MS
-  )
+  return now - lastRefreshFailureAt < CODEX_TOKEN_REFRESH_RETRY_COOLDOWN_MS
 }
 
-function getRefreshErrorMessage(
-  status: number,
-  bodyText: string,
-): string {
+function getRefreshErrorMessage(status: number, bodyText: string): string {
   if (!bodyText.trim()) {
     return `Codex token refresh failed with status ${status}.`
   }
@@ -286,15 +281,13 @@ export function isCodexRefreshFailureCoolingDown(
   blob: Pick<CodexCredentialBlob, 'lastRefreshFailureAt'>,
   now = Date.now(),
 ): boolean {
-  return isWithinRefreshFailureCooldown(
-    blob as CodexCredentialBlob,
-    now,
-  )
+  return isWithinRefreshFailureCooldown(blob as CodexCredentialBlob, now)
 }
 
-export function saveCodexCredentials(
-  credentials: CodexCredentialBlob,
-): { success: boolean; warning?: string } {
+export function saveCodexCredentials(credentials: CodexCredentialBlob): {
+  success: boolean
+  warning?: string
+} {
   if (isBareMode()) {
     return { success: false, warning: 'Bare mode: secure storage is disabled.' }
   }

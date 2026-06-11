@@ -5,7 +5,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 export const tavilyProvider: SearchProvider = {
   name: 'tavily',
@@ -14,7 +18,10 @@ export const tavilyProvider: SearchProvider = {
     return Boolean(process.env.TAVILY_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const res = await fetch('https://api.tavily.com/search', {
@@ -32,7 +39,9 @@ export const tavilyProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`Tavily search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Tavily search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

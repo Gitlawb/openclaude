@@ -49,7 +49,10 @@ export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
 
 // Computed full lists
 export const CLI_EXTERNALS: string[] = COMMON_EXTERNALS
-export const SDK_EXTERNALS: string[] = [...COMMON_EXTERNALS, ...SDK_ONLY_EXTERNALS]
+export const SDK_EXTERNALS: string[] = [
+  ...COMMON_EXTERNALS,
+  ...SDK_ONLY_EXTERNALS,
+]
 
 // Packages intentionally bundled (not external, not flagged by validation)
 // These are small utilities that are fine to inline into the output bundle.
@@ -120,7 +123,7 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   '@modelcontextprotocol/sdk',
   // Schema validation
   'zod',
-    // gRPC (bundled into CLI, not external)
+  // gRPC (bundled into CLI, not external)
   '@grpc/grpc-js',
   '@grpc/proto-loader',
   // Language server protocol

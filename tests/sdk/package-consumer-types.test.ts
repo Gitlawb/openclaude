@@ -11,13 +11,26 @@
  */
 import { afterAll, describe, expect, test } from 'bun:test'
 import { execFileSync, execSync } from 'child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync, cpSync, readFileSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  cpSync,
+  readFileSync,
+} from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
 const ROOT = join(import.meta.dir, '..', '..')
 const SDK_DTS = join(ROOT, 'src', 'entrypoints', 'sdk.d.ts')
-const CORE_TYPES_TS = join(ROOT, 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts')
+const CORE_TYPES_TS = join(
+  ROOT,
+  'src',
+  'entrypoints',
+  'sdk',
+  'coreTypes.generated.ts',
+)
 const TSC_BIN = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc')
 
 /** All temp dirs created during tests — cleaned up in afterAll */
@@ -28,7 +41,11 @@ const tempDirs: string[] = []
  * Simulates what npm pack + install would produce.
  */
 function setupConsumerProject(name: string): string {
-  const tmpDir = join(ROOT, '.tmp', `sdk-consumer-${name}-${randomUUID().slice(0, 8)}`)
+  const tmpDir = join(
+    ROOT,
+    '.tmp',
+    `sdk-consumer-${name}-${randomUUID().slice(0, 8)}`,
+  )
   tempDirs.push(tmpDir)
   mkdirSync(tmpDir, { recursive: true })
 
@@ -83,7 +100,10 @@ function setupConsumerProject(name: string): string {
 
   // Copy type files
   cpSync(SDK_DTS, join(pkgDir, 'src', 'entrypoints', 'sdk.d.ts'))
-  cpSync(CORE_TYPES_TS, join(pkgDir, 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts'))
+  cpSync(
+    CORE_TYPES_TS,
+    join(pkgDir, 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts'),
+  )
 
   // Dummy dist file so module resolution doesn't fail
   writeFileSync(join(pkgDir, 'dist', 'sdk.mjs'), 'export {}')
@@ -93,12 +113,16 @@ function setupConsumerProject(name: string): string {
 
 /** Compile consumer.ts in the given tmpDir. Returns stdout (empty = success). */
 function tsc(tmpDir: string): string {
-  return execFileSync(process.execPath, [TSC_BIN, '-p', 'tsconfig.json', '--pretty', 'false'], {
-    cwd: tmpDir,
-    encoding: 'utf-8',
-    timeout: 60000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  }).trim()
+  return execFileSync(
+    process.execPath,
+    [TSC_BIN, '-p', 'tsconfig.json', '--pretty', 'false'],
+    {
+      cwd: tmpDir,
+      encoding: 'utf-8',
+      timeout: 60000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  ).trim()
 }
 
 function ensureBuildArtifacts(): void {
@@ -277,7 +301,9 @@ describe('package consumer types', () => {
 describe('package exports resolution', () => {
   test('package.json export is defined in exports map', () => {
     // Read the package.json and verify exports structure
-    const pkgJson = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'))
+    const pkgJson = JSON.parse(
+      readFileSync(join(ROOT, 'package.json'), 'utf-8'),
+    )
     expect(pkgJson.exports).toBeDefined()
     expect(pkgJson.exports['./package.json']).toBe('./package.json')
     expect(pkgJson.exports['./dist/cli.mjs']).toBe('./dist/cli.mjs')
@@ -288,7 +314,9 @@ describe('package exports resolution', () => {
 
   test('root export is not defined (intentionally blocked)', () => {
     // Verify that "." is not in exports map
-    const pkgJson = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'))
+    const pkgJson = JSON.parse(
+      readFileSync(join(ROOT, 'package.json'), 'utf-8'),
+    )
     expect(pkgJson.exports['.']).toBeUndefined()
     // No main field means root import is intentionally broken
     expect(pkgJson.main).toBeUndefined()

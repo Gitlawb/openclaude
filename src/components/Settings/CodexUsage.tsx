@@ -108,7 +108,9 @@ export function CodexUsage(): React.ReactNode {
       setUsage(await fetchCodexUsage())
     } catch (err) {
       logError(err as Error)
-      setError(err instanceof Error ? err.message : 'Failed to load Codex usage')
+      setError(
+        err instanceof Error ? err.message : 'Failed to load Codex usage',
+      )
     } finally {
       setIsLoading(false)
     }
@@ -177,7 +179,9 @@ export function CodexUsage(): React.ReactNode {
       {planType ? <Text dimColor>Plan: {planType}</Text> : null}
 
       {rows.length === 0 ? (
-        <Text dimColor>Codex usage data is not available for this account.</Text>
+        <Text dimColor>
+          Codex usage data is not available for this account.
+        </Text>
       ) : null}
 
       {rows.map((row, index) =>

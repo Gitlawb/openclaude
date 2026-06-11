@@ -3,7 +3,10 @@
  */
 
 import { createHash } from 'crypto'
-import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import {
+  roughTokenCountEstimation,
+  roughTokenCountEstimationForMessages,
+} from '../services/tokenEstimation.js'
 import type { Message } from '../types/message.js'
 
 export interface IncrementalCounterConfig {
@@ -30,14 +33,17 @@ export interface CounterStats {
 function getMessageHash(messages: readonly Message[]): string {
   if (messages.length === 0) return 'empty'
 
-  const fullContent = messages.map(m => {
-    const c = typeof m.message?.content === 'string'
-      ? m.message.content
-      : Array.isArray(m.message?.content)
-        ? JSON.stringify(m.message.content)
-        : ''
-    return c
-  }).join('|')
+  const fullContent = messages
+    .map(m => {
+      const c =
+        typeof m.message?.content === 'string'
+          ? m.message.content
+          : Array.isArray(m.message?.content)
+            ? JSON.stringify(m.message.content)
+            : ''
+      return c
+    })
+    .join('|')
 
   return createHash('sha256').update(fullContent).digest('hex').slice(0, 16)
 }
@@ -78,7 +84,10 @@ export class IncrementalTokenCounter {
     const hash = getMessageHash(messages)
 
     // Cache hit only if both count AND content match
-    if (messages.length === this.lastMessageCount && hash === this.lastFullHash) {
+    if (
+      messages.length === this.lastMessageCount &&
+      hash === this.lastFullHash
+    ) {
       this.stats.hits++
       this.stats.totalTokens += this.lastTokenCount
       return this.lastTokenCount
@@ -94,12 +103,15 @@ export class IncrementalTokenCounter {
       this.lastFullHash.length > 0
 
     if (isIncrementalSafe) {
-      const currentPrefixHash = getMessageHash(messages.slice(0, this.lastMessageCount))
+      const currentPrefixHash = getMessageHash(
+        messages.slice(0, this.lastMessageCount),
+      )
 
       if (currentPrefixHash === this.lastPrefixHash) {
         const newMessages = messages.slice(this.lastMessageCount)
         const estimated = Math.round(
-          roughTokenCountEstimationForMessages(newMessages) * this.config.estimationMultiplier
+          roughTokenCountEstimationForMessages(newMessages) *
+            this.config.estimationMultiplier,
         )
         this.lastTokenCount += estimated
       } else {
@@ -113,7 +125,7 @@ export class IncrementalTokenCounter {
     this.lastFullHash = hash
     this.lastPrefixHash = getMessageHash(messages.slice(0, messages.length))
     this.stats.totalTokens += this.lastTokenCount
-    
+
     return this.lastTokenCount
   }
 
@@ -131,10 +143,10 @@ export class IncrementalTokenCounter {
     } else {
       this.lastTokenCount = roughTokenCountEstimationForMessages(messages)
     }
-    
+
     this.stats.totalTokens += this.lastTokenCount
     this.stats.misses++
-    
+
     return this.lastTokenCount
   }
 
@@ -155,8 +167,10 @@ export class IncrementalTokenCounter {
     }
     if (Array.isArray(message.message?.content)) {
       return message.message.content.reduce((sum, block) => {
-        if ('text' in block) return sum + roughTokenCountEstimation(block.text || '')
-        if ('thinking' in block) return sum + roughTokenCountEstimation(block.thinking || '')
+        if ('text' in block)
+          return sum + roughTokenCountEstimation(block.text || '')
+        if ('thinking' in block)
+          return sum + roughTokenCountEstimation(block.thinking || '')
         return sum + 100 // Default for other block types
       }, 0)
     }
@@ -173,7 +187,10 @@ export class IncrementalTokenCounter {
   /**
    * Get remaining budget in context window.
    */
-  getRemainingBudget(messages: readonly Message[], contextWindow: number): number {
+  getRemainingBudget(
+    messages: readonly Message[],
+    contextWindow: number,
+  ): number {
     const used = this.getCount(messages)
     return Math.max(0, contextWindow - used)
   }
@@ -181,9 +198,14 @@ export class IncrementalTokenCounter {
   /**
    * Check if approaching limit.
    */
-  isApproachingLimit(messages: readonly Message[], threshold: number = 0.8): boolean {
-    return this.lastMessageCount > 0 && 
-           (this.lastTokenCount / this.config.tokenBudget) > threshold
+  isApproachingLimit(
+    messages: readonly Message[],
+    threshold: number = 0.8,
+  ): boolean {
+    return (
+      this.lastMessageCount > 0 &&
+      this.lastTokenCount / this.config.tokenBudget > threshold
+    )
   }
 
   /** Reset all state */
@@ -222,7 +244,8 @@ export class IncrementalTokenCounter {
       ...config,
       tokenBudget: config.tokenBudget ?? this.config.tokenBudget,
       autoInvalidate: config.autoInvalidate ?? this.config.autoInvalidate,
-      estimationMultiplier: config.estimationMultiplier ?? this.config.estimationMultiplier,
+      estimationMultiplier:
+        config.estimationMultiplier ?? this.config.estimationMultiplier,
     }
   }
 }

@@ -19,10 +19,9 @@ export const PRESET_VENDOR_MAP: Array<{
 }))
 
 const PRESET_ROUTE_MAP = new Map<ProviderPreset, ProviderPresetManifestEntry>(
-  PROVIDER_PRESET_MANIFEST.map(entry => [
-    entry.preset,
-    entry as ProviderPresetManifestEntry,
-  ] as const),
+  PROVIDER_PRESET_MANIFEST.map(
+    entry => [entry.preset, entry as ProviderPresetManifestEntry] as const,
+  ),
 )
 
 export function isProviderPreset(value: string): value is ProviderPreset {

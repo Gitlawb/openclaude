@@ -4,7 +4,7 @@ export type SpinnerMode =
   | 'thinking'
   | 'tool-use'
   | 'tool-input'
-  | string & {}
+  | (string & {})
 
 export interface RGBColor {
   r: number

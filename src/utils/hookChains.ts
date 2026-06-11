@@ -24,7 +24,10 @@ type HookEvent = (typeof HOOK_EVENTS)[number]
 
 const HOOK_CHAINS_CONFIG_ENV_PATH = 'CLAUDE_CODE_HOOK_CHAINS_CONFIG_PATH'
 const HOOK_CHAINS_ENABLED_ENV = 'CLAUDE_CODE_ENABLE_HOOK_CHAINS'
-const DEFAULT_HOOK_CHAINS_RELATIVE_PATH = join('.openclaude', 'hook-chains.json')
+const DEFAULT_HOOK_CHAINS_RELATIVE_PATH = join(
+  '.openclaude',
+  'hook-chains.json',
+)
 const DEFAULT_MAX_CHAIN_DEPTH = 2
 const DEFAULT_RULE_COOLDOWN_MS = 30_000
 const DEFAULT_DEDUP_WINDOW_MS = 30_000
@@ -33,7 +36,12 @@ const CONFIG_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 const MAX_RULE_COOLDOWN_ENTRIES = 5_000
 const MAX_DEDUP_ENTRIES = 20_000
 
-const HookChainOutcomeSchema = z.enum(['success', 'failed', 'timeout', 'unknown'])
+const HookChainOutcomeSchema = z.enum([
+  'success',
+  'failed',
+  'timeout',
+  'unknown',
+])
 const HookChainConditionSchema = z
   .object({
     toolNames: z.array(z.string().min(1)).optional(),
@@ -48,12 +56,7 @@ const HookChainConditionSchema = z
 const HookChainActionBaseSchema = z.object({
   id: z.string().min(1).optional(),
   enabled: z.boolean().default(true).optional(),
-  dedupWindowMs: z
-    .number()
-    .int()
-    .min(0)
-    .max(MAX_GUARD_WINDOW_MS)
-    .optional(),
+  dedupWindowMs: z.number().int().min(0).max(MAX_GUARD_WINDOW_MS).optional(),
 })
 
 const SpawnFallbackAgentActionSchema = HookChainActionBaseSchema.extend({
@@ -111,7 +114,12 @@ const HookChainRuleSchema = z.object({
 const HookChainsConfigSchema = z.object({
   version: z.literal(1).default(1),
   enabled: z.boolean().default(true),
-  maxChainDepth: z.number().int().min(1).max(10).default(DEFAULT_MAX_CHAIN_DEPTH),
+  maxChainDepth: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(DEFAULT_MAX_CHAIN_DEPTH),
   defaultCooldownMs: z
     .number()
     .int()
@@ -301,7 +309,8 @@ function isHookChainsEnabled(): boolean {
 }
 
 function getConfigPath(pathOverride?: string): string {
-  const configuredPath = pathOverride || process.env[HOOK_CHAINS_CONFIG_ENV_PATH]
+  const configuredPath =
+    pathOverride || process.env[HOOK_CHAINS_CONFIG_ENV_PATH]
 
   if (configuredPath) {
     return resolve(getSafeOriginalCwd(), configuredPath)
@@ -531,9 +540,7 @@ export function loadHookChainsConfig(options?: {
 
   const validation = HookChainsConfigFileSchema.safeParse(parsed)
   if (!validation.success) {
-    const error = validation.error.issues
-      .map(issue => issue.message)
-      .join('; ')
+    const error = validation.error.issues.map(issue => issue.message).join('; ')
     return {
       config: makeDisabledConfig(),
       path,
@@ -569,7 +576,11 @@ function stableNormalize(value: unknown, seen: WeakSet<object>): unknown {
     return value
   }
 
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
     return value
   }
 
@@ -737,7 +748,8 @@ function buildNotifyTeamMessage(
     RULE_ID: rule.id,
     PAYLOAD_JSON: payloadJson,
     ERROR: readStringField(payload, ['error', 'reason']) ?? '',
-    TASK_SUBJECT: readStringField(payload, ['task_subject', 'taskSubject']) ?? '',
+    TASK_SUBJECT:
+      readStringField(payload, ['task_subject', 'taskSubject']) ?? '',
     TASK_ID: readStringField(payload, ['task_id', 'taskId']) ?? '',
   }
 
@@ -781,7 +793,8 @@ export async function executeSpawnFallbackAgentAction(args: {
 
   const payload = normalizePayload(event.payload)
   const description =
-    action.description ?? `Fallback recovery: ${event.eventName} (${event.outcome})`
+    action.description ??
+    `Fallback recovery: ${event.eventName} (${event.outcome})`
 
   const request: SpawnFallbackAgentRequest = {
     ruleId: rule.id,
@@ -893,7 +906,11 @@ export async function executeNotifyTeamAction(args: {
   }
 
   const memberNames = teamFile.members.map(member => member.name)
-  const recipients = resolveRecipients(action.recipients, memberNames, senderName)
+  const recipients = resolveRecipients(
+    action.recipients,
+    memberNames,
+    senderName,
+  )
 
   if (recipients.length === 0) {
     return {
@@ -1011,7 +1028,9 @@ export async function executeWarmRemoteCapacityAction(args: {
   // of touching remote APIs. This keeps the action side-effect free when the
   // session is local-only.
   try {
-    const { getReplBridgeHandle } = await import('../bridge/replBridgeHandle.js')
+    const { getReplBridgeHandle } = await import(
+      '../bridge/replBridgeHandle.js'
+    )
     if (!getReplBridgeHandle()) {
       return {
         status: 'skipped',
@@ -1030,12 +1049,15 @@ export async function executeWarmRemoteCapacityAction(args: {
   // 2) fetch selected environment metadata,
   // 3) issue a lightweight environments list call as a controlled pre-warm path.
   try {
-    const [{ checkBackgroundRemoteSessionEligibility }, { getEnvironmentSelectionInfo }, envApi] =
-      await Promise.all([
-        import('./background/remote/remoteSession.js'),
-        import('./teleport/environmentSelection.js'),
-        import('./teleport/environments.js'),
-      ])
+    const [
+      { checkBackgroundRemoteSessionEligibility },
+      { getEnvironmentSelectionInfo },
+      envApi,
+    ] = await Promise.all([
+      import('./background/remote/remoteSession.js'),
+      import('./teleport/environmentSelection.js'),
+      import('./teleport/environments.js'),
+    ])
 
     const preconditions = await checkBackgroundRemoteSessionEligibility({
       skipBundle: true,
@@ -1227,7 +1249,10 @@ async function executeHookChainAction(args: {
   }
 }
 
-function getRuleCooldownMs(rule: HookChainRule, config: HookChainsConfig): number {
+function getRuleCooldownMs(
+  rule: HookChainRule,
+  config: HookChainsConfig,
+): number {
   return rule.cooldownMs ?? config.defaultCooldownMs
 }
 
@@ -1236,7 +1261,9 @@ function getActionDedupWindowMs(
   rule: HookChainRule,
   config: HookChainsConfig,
 ): number {
-  return action.dedupWindowMs ?? rule.dedupWindowMs ?? config.defaultDedupWindowMs
+  return (
+    action.dedupWindowMs ?? rule.dedupWindowMs ?? config.defaultDedupWindowMs
+  )
 }
 
 function buildActionDedupKey(args: {
@@ -1369,7 +1396,11 @@ export async function dispatchHookChainsForEvent(args: {
       chainDepth,
     })
 
-    for (let actionIndex = 0; actionIndex < rule.actions.length; actionIndex++) {
+    for (
+      let actionIndex = 0;
+      actionIndex < rule.actions.length;
+      actionIndex++
+    ) {
       const action = rule.actions[actionIndex]
       if (!action) continue
 

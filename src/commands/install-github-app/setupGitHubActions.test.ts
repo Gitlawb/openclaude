@@ -76,7 +76,9 @@ function workflowWritePaths(): string[] {
 }
 
 function handleGhCommand(args: string[]) {
-  if (args.join('\0') === ['api', 'repos/owner/repo', '--jq', '.id'].join('\0')) {
+  if (
+    args.join('\0') === ['api', 'repos/owner/repo', '--jq', '.id'].join('\0')
+  ) {
     return execResult('123')
   }
   if (
@@ -87,12 +89,9 @@ function handleGhCommand(args: string[]) {
   }
   if (
     args.join('\0') ===
-    [
-      'api',
-      'repos/owner/repo/git/ref/heads/main',
-      '--jq',
-      '.object.sha',
-    ].join('\0')
+    ['api', 'repos/owner/repo/git/ref/heads/main', '--jq', '.object.sha'].join(
+      '\0',
+    )
   ) {
     return execResult('base-sha')
   }
@@ -153,7 +152,8 @@ function handleGhCommand(args: string[]) {
     args.length === 7 &&
     args[0] === 'secret' &&
     args[1] === 'set' &&
-    (args[2] === 'ANTHROPIC_API_KEY' || args[2] === 'CLAUDE_CODE_OAUTH_TOKEN') &&
+    (args[2] === 'ANTHROPIC_API_KEY' ||
+      args[2] === 'CLAUDE_CODE_OAUTH_TOKEN') &&
     args[3] === '--body' &&
     typeof args[4] === 'string' &&
     args[4].length > 0 &&
@@ -235,8 +235,8 @@ test('setupGitHubActions creates only the selected review workflow', async () =>
     'api_key',
   )
 
-  const secretSet = execCalls.find(call =>
-    call.args.includes('secret') && call.args.includes('set'),
+  const secretSet = execCalls.find(
+    call => call.args.includes('secret') && call.args.includes('set'),
   )
 
   expect(workflowWritePaths()).toEqual([REVIEW_WORKFLOW_PATH])
@@ -267,8 +267,8 @@ test('setupGitHubActions skip mode configures the secret without workflow writes
   const branchCreates = execCalls.filter(call =>
     call.args.includes('repos/owner/repo/git/refs'),
   )
-  const secretSet = execCalls.find(call =>
-    call.args.includes('secret') && call.args.includes('set'),
+  const secretSet = execCalls.find(
+    call => call.args.includes('secret') && call.args.includes('set'),
   )
 
   expect(branchCreates).toHaveLength(0)

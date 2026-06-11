@@ -47,7 +47,12 @@ import {
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+  return (
+    normalized !== '' &&
+    normalized !== '0' &&
+    normalized !== 'false' &&
+    normalized !== 'no'
+  )
 }
 
 type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
@@ -110,10 +115,7 @@ function getOpenAIMissingKeyMessage(): string {
   ].join('\n')
 }
 
-function hasNonEmptyEnvValue(
-  env: NodeJS.ProcessEnv,
-  envVar: string,
-): boolean {
+function hasNonEmptyEnvValue(env: NodeJS.ProcessEnv, envVar: string): boolean {
   return typeof env[envVar] === 'string' && env[envVar]!.trim() !== ''
 }
 
@@ -164,10 +166,14 @@ function getValidationTargets(): ValidationTarget[] {
 
   return [
     ...getAllVendors()
-      .filter((descriptor): descriptor is VendorDescriptor => Boolean(descriptor.validation))
+      .filter((descriptor): descriptor is VendorDescriptor =>
+        Boolean(descriptor.validation),
+      )
       .map(descriptor => ({ kind: 'vendor', descriptor }) as const),
     ...getAllGateways()
-      .filter((descriptor): descriptor is GatewayDescriptor => Boolean(descriptor.validation))
+      .filter((descriptor): descriptor is GatewayDescriptor =>
+        Boolean(descriptor.validation),
+      )
       .map(descriptor => ({ kind: 'gateway', descriptor }) as const),
   ]
 }
@@ -190,7 +196,10 @@ function getRuntimeValidationTarget(
 
   const enabledTarget = validationTargets.find(target => {
     const routing = getValidationRouting(target)
-    if (!routing?.enablementEnvVar || !isEnvTruthy(env[routing.enablementEnvVar])) {
+    if (
+      !routing?.enablementEnvVar ||
+      !isEnvTruthy(env[routing.enablementEnvVar])
+    ) {
       return false
     }
 
@@ -221,10 +230,12 @@ function getRuntimeValidationTarget(
       return false
     }
 
-    if (baseUrlMatchesDescriptor(
-      request.baseUrl,
-      getValidationTargetBaseUrl(target),
-    )) {
+    if (
+      baseUrlMatchesDescriptor(
+        request.baseUrl,
+        getValidationTargetBaseUrl(target),
+      )
+    ) {
       return true
     }
 
@@ -270,7 +281,9 @@ function getCredentialEnvValidationError(
   }
 
   if (
-    validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+    validation.credentialEnvVars.some(envVar =>
+      hasNonEmptyEnvValue(env, envVar),
+    )
   ) {
     return null
   }
@@ -328,7 +341,9 @@ async function getDescriptorValidationError(
     case 'xai-credential': {
       // 1. API key in env (legacy / explicit override path)
       if (
-        validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+        validation.credentialEnvVars.some(envVar =>
+          hasNonEmptyEnvValue(env, envVar),
+        )
       ) {
         return null
       }
@@ -452,7 +467,8 @@ export async function getProviderValidationError(
   const hasExplicitCodexIntent =
     (env.OPENAI_MODEL?.trim()
       ? shouldUseCodexTransport(env.OPENAI_MODEL, explicitBaseUrl)
-      : false) || Boolean(explicitBaseUrl && shouldUseCodexTransport('', explicitBaseUrl))
+      : false) ||
+    Boolean(explicitBaseUrl && shouldUseCodexTransport('', explicitBaseUrl))
 
   if (hasExplicitCodexIntent) {
     const credentials = resolveCodexApiCredentials(env)
@@ -549,10 +565,9 @@ export async function validateProviderEnvOrExit(
   }
 }
 
-export function shouldExitForStartupProviderValidationError(options: {
-  args?: string[]
-  stdoutIsTTY?: boolean
-} = {}): boolean {
+export function shouldExitForStartupProviderValidationError(
+  options: { args?: string[]; stdoutIsTTY?: boolean } = {},
+): boolean {
   const args = options.args ?? process.argv.slice(2)
   const stdoutIsTTY = options.stdoutIsTTY ?? process.stdout.isTTY
 

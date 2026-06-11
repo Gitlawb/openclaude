@@ -10,12 +10,7 @@ describe('getErrorParts', () => {
   test('ShellError: exit code + stderr + stdout', () => {
     const err = new ShellError('output here', 'error here', 1, false)
     const parts = getErrorParts(err)
-    expect(parts).toEqual([
-      'Exit code 1',
-      '',
-      'error here',
-      'output here',
-    ])
+    expect(parts).toEqual(['Exit code 1', '', 'error here', 'output here'])
   })
 
   test('ShellError: interrupted flag adds interrupt message', () => {

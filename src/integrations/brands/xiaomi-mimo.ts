@@ -11,9 +11,5 @@ export default defineBrand({
     supportsReasoning: true,
     supportsPreciseTokenCount: false,
   },
-  modelIds: [
-    'mimo-v2.5-pro',
-    'mimo-v2.5',
-    'mimo-v2-flash',
-  ],
+  modelIds: ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-flash'],
 })

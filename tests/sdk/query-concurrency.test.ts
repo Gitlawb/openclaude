@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { query } from '../../src/entrypoints/sdk/index.js'
-import { getSessionId, getSessionProjectDir, runWithSdkContext } from '../../src/bootstrap/state.js'
+import {
+  getSessionId,
+  getSessionProjectDir,
+  runWithSdkContext,
+} from '../../src/bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -13,7 +17,9 @@ import { drainQuery, UUID_REGEX } from './helpers/query-test-doubles.js'
 const AUTH_KEY = 'ANTHROPIC_API_KEY'
 let savedApiKey: string | undefined
 
-async function drainInterruptedQuery(q: ReturnType<typeof query>): Promise<void> {
+async function drainInterruptedQuery(
+  q: ReturnType<typeof query>,
+): Promise<void> {
   await drainQuery(q)
 }
 
@@ -117,7 +123,12 @@ describe('CON-1: CWD and session isolation between concurrent queries', () => {
     const contextId = randomUUID() as SessionId
 
     const result = runWithSdkContext(
-      { sessionId: contextId, sessionProjectDir: '/test/dir', cwd: '/test/dir', originalCwd: '/test/dir' },
+      {
+        sessionId: contextId,
+        sessionProjectDir: '/test/dir',
+        cwd: '/test/dir',
+        originalCwd: '/test/dir',
+      },
       () => getSessionId(),
     )
 
@@ -130,7 +141,12 @@ describe('CON-1: CWD and session isolation between concurrent queries', () => {
   test('AsyncLocalStorage context returns query-specific sessionProjectDir', () => {
     const contextDir = '/my/project/specific/dir'
     const result = runWithSdkContext(
-      { sessionId: randomUUID() as SessionId, sessionProjectDir: contextDir, cwd: contextDir, originalCwd: contextDir },
+      {
+        sessionId: randomUUID() as SessionId,
+        sessionProjectDir: contextDir,
+        cwd: contextDir,
+        originalCwd: contextDir,
+      },
       () => getSessionProjectDir(),
     )
     expect(result).toBe(contextDir)
@@ -141,12 +157,22 @@ describe('CON-1: CWD and session isolation between concurrent queries', () => {
     const id2 = randomUUID() as SessionId
 
     const result = runWithSdkContext(
-      { sessionId: id1, sessionProjectDir: '/dir1', cwd: '/dir1', originalCwd: '/dir1' },
+      {
+        sessionId: id1,
+        sessionProjectDir: '/dir1',
+        cwd: '/dir1',
+        originalCwd: '/dir1',
+      },
       () => {
         expect(getSessionId()).toBe(id1)
         // Inner context overrides
         const innerResult = runWithSdkContext(
-          { sessionId: id2, sessionProjectDir: '/dir2', cwd: '/dir2', originalCwd: '/dir2' },
+          {
+            sessionId: id2,
+            sessionProjectDir: '/dir2',
+            cwd: '/dir2',
+            originalCwd: '/dir2',
+          },
           () => getSessionId(),
         )
         expect(innerResult).toBe(id2)
@@ -163,8 +189,18 @@ describe('CON-1: CWD and session isolation between concurrent queries', () => {
     const cwd2 = '/project-b'
 
     // Simulate the AsyncLocalStorage context setup that query() does
-    const ctx1 = { sessionId: randomUUID() as SessionId, sessionProjectDir: cwd1, cwd: cwd1, originalCwd: cwd1 }
-    const ctx2 = { sessionId: randomUUID() as SessionId, sessionProjectDir: cwd2, cwd: cwd2, originalCwd: cwd2 }
+    const ctx1 = {
+      sessionId: randomUUID() as SessionId,
+      sessionProjectDir: cwd1,
+      cwd: cwd1,
+      originalCwd: cwd1,
+    }
+    const ctx2 = {
+      sessionId: randomUUID() as SessionId,
+      sessionProjectDir: cwd2,
+      cwd: cwd2,
+      originalCwd: cwd2,
+    }
 
     // Verify each context sees its own project dir
     const dir1 = runWithSdkContext(ctx1, () => getSessionProjectDir())
@@ -179,7 +215,7 @@ describe('CON-1: CWD and session isolation between concurrent queries', () => {
 describe('CON-2: lifecycle-aware concurrency', () => {
   test('concurrent queries produce unique session IDs', () => {
     const queries = Array.from({ length: 5 }, (_, i) =>
-      query({ prompt: `concurrent-${i}`, options: { cwd: process.cwd() } })
+      query({ prompt: `concurrent-${i}`, options: { cwd: process.cwd() } }),
     )
 
     const sessionIds = queries.map(q => q.sessionId)
@@ -209,10 +245,7 @@ describe('CON-2: lifecycle-aware concurrency', () => {
     q1.interrupt()
     q2.interrupt()
 
-    const [msgs1, msgs2] = await Promise.all([
-      drainQuery(q1),
-      drainQuery(q2),
-    ])
+    const [msgs1, msgs2] = await Promise.all([drainQuery(q1), drainQuery(q2)])
 
     expect(Array.isArray(msgs1)).toBe(true)
     expect(Array.isArray(msgs2)).toBe(true)

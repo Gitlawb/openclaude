@@ -1,4 +1,13 @@
-import { describe, test, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
+import {
+  describe,
+  test,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from 'bun:test'
 import { unstable_v2_createSession } from '../../src/entrypoints/sdk/index.js'
 import { query } from '../../src/entrypoints/sdk/index.js'
 import type { MCPServerConnection } from '../../src/services/mcp/types.js'
@@ -73,7 +82,9 @@ describe('MCP cleanup on session close', () => {
 
   test('session.close() handles MCP cleanup errors gracefully', async () => {
     // Create a mock MCP client that throws on cleanup
-    const mockCleanup = vi.fn().mockRejectedValue(new Error('MCP cleanup error'))
+    const mockCleanup = vi
+      .fn()
+      .mockRejectedValue(new Error('MCP cleanup error'))
     const mockMcpClient: MCPServerConnection = {
       type: 'connected',
       name: 'error-server',
@@ -182,7 +193,9 @@ describe('MCP cleanup on query close', () => {
   })
 
   test('query.close() handles MCP cleanup errors gracefully', async () => {
-    const mockCleanup = vi.fn().mockRejectedValue(new Error('MCP cleanup error'))
+    const mockCleanup = vi
+      .fn()
+      .mockRejectedValue(new Error('MCP cleanup error'))
     const mockMcpClient: MCPServerConnection = {
       type: 'connected',
       name: 'error-server',

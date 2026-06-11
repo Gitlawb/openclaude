@@ -26,11 +26,7 @@ function restoreEnv(): void {
 
 async function readPropertyValue(
   label: string,
-  provider:
-    | 'openai'
-    | 'codex'
-    | 'nvidia-nim'
-    | 'minimax',
+  provider: 'openai' | 'codex' | 'nvidia-nim' | 'minimax',
 ): Promise<unknown> {
   mock.restore()
   mock.module('./model/providers.js', () => ({
@@ -64,7 +60,9 @@ test('buildAPIProviderProperties labels NVIDIA NIM sessions', async () => {
   process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
   process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
 
-  expect(await readPropertyValue('API provider', 'nvidia-nim')).toBe('NVIDIA NIM')
+  expect(await readPropertyValue('API provider', 'nvidia-nim')).toBe(
+    'NVIDIA NIM',
+  )
   expect(await readPropertyValue('NVIDIA NIM base URL', 'nvidia-nim')).toBe(
     'https://integrate.api.nvidia.com/v1',
   )

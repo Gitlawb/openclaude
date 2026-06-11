@@ -63,19 +63,25 @@ test('three identical tool failures trip the guard', () => {
   const state = createToolFailureLoopGuardState()
 
   expect(
-    update(state, [toolUse('a', 'Edit')], [
-      toolResult('a', 'Error writing file: failed to replace text'),
-    ]).tripped,
+    update(
+      state,
+      [toolUse('a', 'Edit')],
+      [toolResult('a', 'Error writing file: failed to replace text')],
+    ).tripped,
   ).toBe(false)
   expect(
-    update(state, [toolUse('b', 'Edit')], [
-      toolResult('b', 'Error writing file: failed to replace text'),
-    ]).tripped,
+    update(
+      state,
+      [toolUse('b', 'Edit')],
+      [toolResult('b', 'Error writing file: failed to replace text')],
+    ).tripped,
   ).toBe(false)
 
-  const decision = update(state, [toolUse('c', 'Edit')], [
-    toolResult('c', 'Error writing file: failed to replace text'),
-  ])
+  const decision = update(
+    state,
+    [toolUse('c', 'Edit')],
+    [toolResult('c', 'Error writing file: failed to replace text')],
+  )
 
   if (!decision.tripped) {
     throw new Error('Expected repeated Edit failures to trip the guard')
@@ -89,11 +95,7 @@ test('multiple failures in the same batch each increment the counters', () => {
 
   const decision = update(
     state,
-    [
-      toolUse('a', 'Edit'),
-      toolUse('b', 'Edit'),
-      toolUse('c', 'Edit'),
-    ],
+    [toolUse('a', 'Edit'), toolUse('b', 'Edit'), toolUse('c', 'Edit')],
     [
       toolResult('a', 'Error writing file: failed to replace text'),
       toolResult('b', 'Error writing file: failed to replace text'),
@@ -107,15 +109,21 @@ test('multiple failures in the same batch each increment the counters', () => {
 test('different tools with different error categories do not trip early', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
-  update(state, [toolUse('b', 'Read')], [
-    toolResult('b', 'ENOENT: no such file or directory'),
-  ])
-  const decision = update(state, [toolUse('c', 'Bash')], [
-    toolResult('c', 'No such tool available: Bash'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Read')],
+    [toolResult('b', 'ENOENT: no such file or directory')],
+  )
+  const decision = update(
+    state,
+    [toolUse('c', 'Bash')],
+    [toolResult('c', 'No such tool available: Bash')],
+  )
 
   expect(decision.tripped).toBe(false)
 })
@@ -123,16 +131,22 @@ test('different tools with different error categories do not trip early', () => 
 test('a successful result from the same tool resets the counter', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
-  update(state, [toolUse('b', 'Edit')], [
-    toolResult('b', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Edit')],
+    [toolResult('b', 'Error writing file: failed to replace text')],
+  )
   update(state, [toolUse('c', 'Edit')], [toolResult('c', 'ok', false)])
-  const decision = update(state, [toolUse('d', 'Edit')], [
-    toolResult('d', 'Error writing file: failed to replace text'),
-  ])
+  const decision = update(
+    state,
+    [toolUse('d', 'Edit')],
+    [toolResult('d', 'Error writing file: failed to replace text')],
+  )
 
   expect(decision.tripped).toBe(false)
 })
@@ -140,9 +154,11 @@ test('a successful result from the same tool resets the counter', () => {
 test('a successful result from the same tool in the same batch resets the no-success streak', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
   update(
     state,
     [toolUse('b', 'Edit'), toolUse('c', 'Edit')],
@@ -151,9 +167,11 @@ test('a successful result from the same tool in the same batch resets the no-suc
       toolResult('c', 'ok', false),
     ],
   )
-  const decision = update(state, [toolUse('d', 'Edit')], [
-    toolResult('d', 'Error writing file: failed to replace text'),
-  ])
+  const decision = update(
+    state,
+    [toolUse('d', 'Edit')],
+    [toolResult('d', 'Error writing file: failed to replace text')],
+  )
 
   expect(decision.tripped).toBe(false)
 })
@@ -173,15 +191,19 @@ test('user aborts, user rejections, and streaming fallback discards are ignored'
 
   for (const [index, message] of ignoredMessages.entries()) {
     const id = `ignored-${index}`
-    const decision = update(state, [toolUse(id, 'Edit')], [
-      toolResult(id, message),
-    ])
+    const decision = update(
+      state,
+      [toolUse(id, 'Edit')],
+      [toolResult(id, message)],
+    )
     expect(decision.tripped).toBe(false)
   }
 
-  const decision = update(state, [toolUse('real', 'Edit')], [
-    toolResult('real', 'Error writing file: failed to replace text'),
-  ])
+  const decision = update(
+    state,
+    [toolUse('real', 'Edit')],
+    [toolResult('real', 'Error writing file: failed to replace text')],
+  )
   expect(decision.tripped).toBe(false)
 })
 
@@ -196,9 +218,11 @@ test('synthetic tool errors are recognized through wrappers', () => {
 
   for (const [index, message] of ignoredMessages.entries()) {
     const id = `wrapped-${index}`
-    const decision = update(state, [toolUse(id, 'Write')], [
-      toolResult(id, message),
-    ])
+    const decision = update(
+      state,
+      [toolUse(id, 'Write')],
+      [toolResult(id, message)],
+    )
     expect(decision.tripped).toBe(false)
   }
 
@@ -215,12 +239,16 @@ test('synthetic tool errors are recognized through wrappers', () => {
 test('ignored synthetic errors do not reset an existing failure streak', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
-  update(state, [toolUse('b', 'Edit')], [
-    toolResult('b', 'Request interrupted by user'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Edit')],
+    [toolResult('b', 'Request interrupted by user')],
+  )
   const decision = update(
     state,
     [toolUse('c', 'Edit')],
@@ -234,12 +262,16 @@ test('ignored synthetic errors do not reset an existing failure streak', () => {
 test('non-error tool results reset even when their content resembles an ignored synthetic message', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Bash')], [
-    toolResult('a', 'grep found an exact line: Interrupted by user'),
-  ])
-  update(state, [toolUse('b', 'Bash')], [
-    toolResult('b', 'Interrupted by user', false),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Bash')],
+    [toolResult('a', 'grep found an exact line: Interrupted by user')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Bash')],
+    [toolResult('b', 'Interrupted by user', false)],
+  )
   const decision = update(
     state,
     [toolUse('c', 'Bash')],
@@ -253,12 +285,16 @@ test('non-error tool results reset even when their content resembles an ignored 
 test('real tool errors that merely mention ignored phrases are still counted', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Bash')], [
-    toolResult(
-      'a',
-      'grep failed while matching literal text "Interrupted by user"',
-    ),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Bash')],
+    [
+      toolResult(
+        'a',
+        'grep failed while matching literal text "Interrupted by user"',
+      ),
+    ],
+  )
   const decision = update(
     state,
     [toolUse('b', 'Bash')],
@@ -277,12 +313,16 @@ test('real tool errors that merely mention ignored phrases are still counted', (
 test('same failing file_path across repeated failures trips the guard', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Write', { file_path: 'src//foo.ts/' })], [
-    toolResult('a', 'Error writing file: EACCES'),
-  ])
-  update(state, [toolUse('b', 'Edit', { path: 'src/foo.ts' })], [
-    toolResult('b', 'InputValidationError: old_string not found'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Write', { file_path: 'src//foo.ts/' })],
+    [toolResult('a', 'Error writing file: EACCES')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Edit', { path: 'src/foo.ts' })],
+    [toolResult('b', 'InputValidationError: old_string not found')],
+  )
   const decision = update(
     state,
     [toolUse('c', 'NotebookEdit', { notebook_path: 'src\\foo.ts' })],
@@ -298,12 +338,16 @@ test('same failing file_path across repeated failures trips the guard', () => {
 test('a successful mutating tool result resets a failing path counter', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Write', { file_path: '/tmp/blocked.txt' })], [
-    toolResult('a', 'Error writing file: EACCES'),
-  ])
-  update(state, [toolUse('b', 'Write', { file_path: '/tmp/blocked.txt' })], [
-    toolResult('b', 'ok', false),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Write', { file_path: '/tmp/blocked.txt' })],
+    [toolResult('a', 'Error writing file: EACCES')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Write', { file_path: '/tmp/blocked.txt' })],
+    [toolResult('b', 'ok', false)],
+  )
   const decision = update(
     state,
     [toolUse('c', 'Edit', { file_path: '/tmp/blocked.txt' })],
@@ -317,28 +361,38 @@ test('a successful mutating tool result resets a failing path counter', () => {
 test('successful reads do not reset repeated write failures for the same path', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit', { file_path: 'E:\\project\\nui.lua' })], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
-  update(state, [toolUse('b', 'Read', { file_path: 'E:/project/nui.lua' })], [
-    toolResult('b', 'file contents', false),
-  ])
-  update(state, [toolUse('c', 'Write', { file_path: 'E:/project/nui.lua' })], [
-    toolResult('c', 'Invalid tool parameters: malformed fallback script'),
-  ])
-  update(state, [toolUse('d', 'Read', { file_path: 'E:/project/nui.lua' })], [
-    toolResult('d', 'file contents', false),
-  ])
-  const decision = update(state, [
-    toolUse('e', 'Edit', { file_path: 'E:/project/nui.lua' }),
-  ], [
-    toolResult('e', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit', { file_path: 'E:\\project\\nui.lua' })],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Read', { file_path: 'E:/project/nui.lua' })],
+    [toolResult('b', 'file contents', false)],
+  )
+  update(
+    state,
+    [toolUse('c', 'Write', { file_path: 'E:/project/nui.lua' })],
+    [toolResult('c', 'Invalid tool parameters: malformed fallback script')],
+  )
+  update(
+    state,
+    [toolUse('d', 'Read', { file_path: 'E:/project/nui.lua' })],
+    [toolResult('d', 'file contents', false)],
+  )
+  const decision = update(
+    state,
+    [toolUse('e', 'Edit', { file_path: 'E:/project/nui.lua' })],
+    [toolResult('e', 'Error writing file: failed to replace text')],
+  )
 
   if (!decision.tripped) {
     throw new Error('Expected repeated path failures to survive Read successes')
   }
-  expect(decision.message).toContain('The path `E:/project/nui.lua` failed 3 times.')
+  expect(decision.message).toContain(
+    'The path `E:/project/nui.lua` failed 3 times.',
+  )
 })
 
 test('unrelated successes in the same batch do not hide repeated path failures', () => {
@@ -379,7 +433,9 @@ test('unrelated successes in the same batch do not hide repeated path failures',
   )
 
   if (!decision.tripped) {
-    throw new Error('Expected repeated path failures to survive batch successes')
+    throw new Error(
+      'Expected repeated path failures to survive batch successes',
+    )
   }
   expect(decision.message).toContain('The path `src/a.ts` failed 3 times.')
 })
@@ -387,19 +443,27 @@ test('unrelated successes in the same batch do not hide repeated path failures',
 test('unrelated successful tools do not reset repeated same-tool failure signatures', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
   update(state, [toolUse('b', 'Read')], [toolResult('b', 'ok', false)])
-  update(state, [toolUse('c', 'Edit')], [
-    toolResult('c', 'Error writing file: failed to replace text'),
-  ])
-  update(state, [toolUse('d', 'Bash')], [
-    toolResult('d', 'Python 3.13.7', false),
-  ])
-  const decision = update(state, [toolUse('e', 'Edit')], [
-    toolResult('e', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('c', 'Edit')],
+    [toolResult('c', 'Error writing file: failed to replace text')],
+  )
+  update(
+    state,
+    [toolUse('d', 'Bash')],
+    [toolResult('d', 'Python 3.13.7', false)],
+  )
+  const decision = update(
+    state,
+    [toolUse('e', 'Edit')],
+    [toolResult('e', 'Error writing file: failed to replace text')],
+  )
 
   if (!decision.tripped) {
     throw new Error('Expected unrelated successes not to reset Edit failures')
@@ -411,16 +475,22 @@ test('unrelated successful tools do not reset repeated same-tool failure signatu
 test('a successful result from the same tool resets persistent signatures', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [toolResult('a', 'Error writing file: failed to replace text')],
+  )
   update(state, [toolUse('b', 'Edit')], [toolResult('b', 'ok', false)])
-  update(state, [toolUse('c', 'Edit')], [
-    toolResult('c', 'Error writing file: failed to replace text'),
-  ])
-  const decision = update(state, [toolUse('d', 'Edit')], [
-    toolResult('d', 'Error writing file: failed to replace text'),
-  ])
+  update(
+    state,
+    [toolUse('c', 'Edit')],
+    [toolResult('c', 'Error writing file: failed to replace text')],
+  )
+  const decision = update(
+    state,
+    [toolUse('d', 'Edit')],
+    [toolResult('d', 'Error writing file: failed to replace text')],
+  )
 
   expect(decision.tripped).toBe(false)
 })
@@ -428,17 +498,31 @@ test('a successful result from the same tool resets persistent signatures', () =
 test('repeated invalid fallback commands trip despite unrelated successful reads', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Bash')], [
-    toolResult('a', 'Invalid tool parameters: malformed Python heredoc'),
-  ])
-  update(state, [toolUse('b', 'Read')], [toolResult('b', 'file contents', false)])
-  update(state, [toolUse('c', 'Bash')], [
-    toolResult('c', 'Invalid tool parameters: malformed Python heredoc'),
-  ])
-  update(state, [toolUse('d', 'Read')], [toolResult('d', 'file contents', false)])
-  const decision = update(state, [toolUse('e', 'Bash')], [
-    toolResult('e', 'Invalid tool parameters: malformed Python heredoc'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Bash')],
+    [toolResult('a', 'Invalid tool parameters: malformed Python heredoc')],
+  )
+  update(
+    state,
+    [toolUse('b', 'Read')],
+    [toolResult('b', 'file contents', false)],
+  )
+  update(
+    state,
+    [toolUse('c', 'Bash')],
+    [toolResult('c', 'Invalid tool parameters: malformed Python heredoc')],
+  )
+  update(
+    state,
+    [toolUse('d', 'Read')],
+    [toolResult('d', 'file contents', false)],
+  )
+  const decision = update(
+    state,
+    [toolUse('e', 'Bash')],
+    [toolResult('e', 'Invalid tool parameters: malformed Python heredoc')],
+  )
 
   if (!decision.tripped) {
     throw new Error('Expected repeated Bash validation failures to trip')
@@ -450,15 +534,26 @@ test('repeated invalid fallback commands trip despite unrelated successful reads
 test('same error category across repeated no-success failures trips the guard', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'Edit')], [
-    toolResult('a', '<tool_use_error>Error writing file: one</tool_use_error>'),
-  ])
-  update(state, [toolUse('b', 'Write')], [
-    toolResult('b', 'Error writing file: two'),
-  ])
-  const decision = update(state, [toolUse('c', 'NotebookEdit')], [
-    toolResult('c', 'Error writing file: three'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'Edit')],
+    [
+      toolResult(
+        'a',
+        '<tool_use_error>Error writing file: one</tool_use_error>',
+      ),
+    ],
+  )
+  update(
+    state,
+    [toolUse('b', 'Write')],
+    [toolResult('b', 'Error writing file: two')],
+  )
+  const decision = update(
+    state,
+    [toolUse('c', 'NotebookEdit')],
+    [toolResult('c', 'Error writing file: three')],
+  )
 
   if (!decision.tripped) {
     throw new Error('Expected repeated category failures to trip the guard')
@@ -470,9 +565,11 @@ test('same error category across repeated no-success failures trips the guard', 
 test('repeated invalid fallback tool calls trip as no-such-tool failures', () => {
   const state = createToolFailureLoopGuardState()
 
-  update(state, [toolUse('a', 'ReadFile')], [
-    toolResult('a', 'No such tool available: ReadFile'),
-  ])
+  update(
+    state,
+    [toolUse('a', 'ReadFile')],
+    [toolResult('a', 'No such tool available: ReadFile')],
+  )
   const decision = update(
     state,
     [toolUse('b', 'ReadFile')],
@@ -481,7 +578,9 @@ test('repeated invalid fallback tool calls trip as no-such-tool failures', () =>
   )
 
   if (!decision.tripped) {
-    throw new Error('Expected repeated invalid fallback tools to trip the guard')
+    throw new Error(
+      'Expected repeated invalid fallback tools to trip the guard',
+    )
   }
   expect(decision.message).toContain('`ReadFile` failed 2 times')
   expect(decision.message).toContain('`NoSuchTool`')

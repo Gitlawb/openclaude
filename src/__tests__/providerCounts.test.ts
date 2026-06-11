@@ -5,7 +5,13 @@
 import { describe, test, expect } from 'bun:test'
 import { resolve } from 'path'
 
-const SRC = resolve(import.meta.dir, '..', 'tools', 'WebSearchTool', 'providers')
+const SRC = resolve(
+  import.meta.dir,
+  '..',
+  'tools',
+  'WebSearchTool',
+  'providers',
+)
 const file = (name: string) => Bun.file(resolve(SRC, name))
 
 describe('Provider result counts', () => {

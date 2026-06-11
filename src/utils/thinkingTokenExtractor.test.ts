@@ -86,7 +86,9 @@ describe('ThinkingTokenAnalyzer', () => {
         },
       } as any
 
-      expect(ThinkingTokenAnalyzer.hasSignificantThinking(message, 20)).toBe(true)
+      expect(ThinkingTokenAnalyzer.hasSignificantThinking(message, 20)).toBe(
+        true,
+      )
     })
 
     it('rejects minimal thinking', () => {
@@ -95,12 +97,17 @@ describe('ThinkingTokenAnalyzer', () => {
         message: {
           content: [
             { type: 'thinking', thinking: 'a' },
-            { type: 'text', text: 'much longer output text here with more content' },
+            {
+              type: 'text',
+              text: 'much longer output text here with more content',
+            },
           ],
         },
       } as any
 
-      expect(ThinkingTokenAnalyzer.hasSignificantThinking(message, 20)).toBe(false)
+      expect(ThinkingTokenAnalyzer.hasSignificantThinking(message, 20)).toBe(
+        false,
+      )
     })
   })
 })

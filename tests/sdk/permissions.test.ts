@@ -66,12 +66,18 @@ describe('buildPermissionContext', () => {
   })
 
   test('maps auto-accept to acceptEdits', () => {
-    const ctx = buildPermissionContext({ cwd: '/tmp', permissionMode: 'auto-accept' })
+    const ctx = buildPermissionContext({
+      cwd: '/tmp',
+      permissionMode: 'auto-accept',
+    })
     expect(ctx.mode).toBe('acceptEdits')
   })
 
   test('maps acceptEdits mode', () => {
-    const ctx = buildPermissionContext({ cwd: '/tmp', permissionMode: 'acceptEdits' })
+    const ctx = buildPermissionContext({
+      cwd: '/tmp',
+      permissionMode: 'acceptEdits',
+    })
     expect(ctx.mode).toBe('acceptEdits')
   })
 
@@ -158,12 +164,18 @@ describe('buildPermissionContext', () => {
   })
 
   test('empty additionalDirectories does nothing', () => {
-    const ctx = buildPermissionContext({ cwd: '/tmp', additionalDirectories: [] })
+    const ctx = buildPermissionContext({
+      cwd: '/tmp',
+      additionalDirectories: [],
+    })
     expect(ctx.additionalWorkingDirectories.size).toBe(0)
   })
 
   test('disallowedTools sets alwaysDenyRules.cliArg', () => {
-    const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash', 'Edit'] })
+    const ctx = buildPermissionContext({
+      cwd: '/tmp',
+      disallowedTools: ['Bash', 'Edit'],
+    })
     expect(ctx.alwaysDenyRules.cliArg).toEqual(['Bash', 'Edit'])
   })
 
@@ -177,13 +189,19 @@ describe('disallowedTools tool filtering', () => {
   const baseTools = [{ name: 'Bash' }, { name: 'Read' }]
 
   test('Bash is excluded from the tool list when disallowed', () => {
-    const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash'] })
+    const ctx = buildPermissionContext({
+      cwd: '/tmp',
+      disallowedTools: ['Bash'],
+    })
     const tools = filterToolsByDenyRules(baseTools, ctx)
     expect(tools.some(t => t.name === 'Bash')).toBe(false)
   })
 
   test('disallowedTools does not affect other tools', () => {
-    const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash'] })
+    const ctx = buildPermissionContext({
+      cwd: '/tmp',
+      disallowedTools: ['Bash'],
+    })
     const tools = filterToolsByDenyRules(baseTools, ctx)
     // Read tool should still be present
     expect(tools.some(t => t.name === 'Read')).toBe(true)
@@ -292,7 +310,9 @@ describe('createDefaultCanUseTool', () => {
     )
 
     expect(result.behavior).toBe('deny')
-    expect(result.message).toContain('no canUseTool or onPermissionRequest callback provided')
+    expect(result.message).toContain(
+      'no canUseTool or onPermissionRequest callback provided',
+    )
   })
 
   test('fullAccess remains fail-closed without callbacks', async () => {
@@ -310,7 +330,9 @@ describe('createDefaultCanUseTool', () => {
     )
 
     expect(result.behavior).toBe('deny')
-    expect(result.message).toContain('no canUseTool or onPermissionRequest callback provided')
+    expect(result.message).toContain(
+      'no canUseTool or onPermissionRequest callback provided',
+    )
   })
 })
 
@@ -322,7 +344,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
 
     const onPermissionRequest = vi.fn((message: any) => {
       // Simulate a host that resolves synchronously from the callback
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       expect(pending).toBeDefined() // Must be registered before this callback fires
       pending!.resolve({ behavior: 'allow' as const })
     })
@@ -352,7 +376,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
   test('fullAccess still routes forced ask through host permission callbacks', async () => {
     const permissionTarget = createPermissionTarget()
     const onPermissionRequest = vi.fn((message: any) => {
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -423,7 +449,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
   test('fullAccess preserves forced guidance prompts for SDK callbacks', async () => {
     const permissionTarget = createPermissionTarget()
     const onPermissionRequest = vi.fn((message: any) => {
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({
         behavior: 'allow' as const,
         updatedInput: { answer: 'option-b' },
@@ -512,7 +540,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
   test('fullAccess preserves SDK callbacks for guidance prompts', async () => {
     const permissionTarget = createPermissionTarget()
     const onPermissionRequest = vi.fn((message: any) => {
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({
         behavior: 'allow' as const,
         updatedInput: { answer: 'option-a' },
@@ -561,7 +591,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
       expect(message.session_id).toBeDefined() // Required by schema
 
       // Resolve to complete the test
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -587,7 +619,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
     expect(result.behavior).toBe('allow')
     expect(onPermissionRequest).toHaveBeenCalledTimes(1)
     // Verify session_id was passed through
-    expect(onPermissionRequest.mock.calls[0][0].session_id).toBe('test-session-123')
+    expect(onPermissionRequest.mock.calls[0][0].session_id).toBe(
+      'test-session-123',
+    )
   })
 
   test('permission request uses no-session placeholder when sessionId not provided', async () => {
@@ -598,7 +632,9 @@ describe('createExternalCanUseTool synchronous host response', () => {
 
     const onPermissionRequest = vi.fn((message: any) => {
       expect(message.session_id).toBe(NO_SESSION_PLACEHOLDER)
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -626,7 +662,6 @@ describe('createExternalCanUseTool synchronous host response', () => {
     expect(onPermissionRequest).toHaveBeenCalledTimes(1)
   })
 })
-
 
 describe('createExternalCanUseTool race condition', () => {
   test('handles simultaneous timeout and response correctly', async () => {
@@ -680,7 +715,9 @@ describe('createExternalCanUseTool race condition', () => {
       result = await resultPromise
     } catch (e) {
       errorThrown = e as Error
-      throw new Error(`Expected no error during race condition, but got: ${errorThrown.message}`)
+      throw new Error(
+        `Expected no error during race condition, but got: ${errorThrown.message}`,
+      )
     }
 
     // Explicitly verify no error was thrown
@@ -722,7 +759,10 @@ describe('createExternalCanUseTool race condition', () => {
     // This tests that the first response wins, not the timeout
     const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
     if (pending) {
-      pending.resolve({ behavior: 'allow' as const, updatedInput: { test: true } })
+      pending.resolve({
+        behavior: 'allow' as const,
+        updatedInput: { test: true },
+      })
     }
 
     // Wait for result
@@ -761,7 +801,8 @@ describe('createExternalCanUseTool race condition', () => {
 
     // Grab a reference to the resolve BEFORE timeout fires — simulates host
     // capturing the callback while the permission prompt is still pending
-    const staleResolve = permissionTarget.pendingPermissionPrompts.get(toolUseID)
+    const staleResolve =
+      permissionTarget.pendingPermissionPrompts.get(toolUseID)
     expect(staleResolve).toBeDefined()
 
     // Wait LONGER than the 50ms timeout — timeout fires first, resolves with deny
@@ -780,7 +821,10 @@ describe('createExternalCanUseTool race condition', () => {
     // Wrap in try/catch to explicitly verify no error from double-resolve attempt.
     let lateResponseError: Error | null = null
     try {
-      staleResolve!.resolve({ behavior: 'allow' as const, updatedInput: { injected: true } })
+      staleResolve!.resolve({
+        behavior: 'allow' as const,
+        updatedInput: { injected: true },
+      })
     } catch (e) {
       lateResponseError = e as Error
     }
@@ -906,7 +950,11 @@ describe('createPermissionTarget', () => {
 
     // Calling resolve twice should only resolve once (onceOnlyResolve behavior)
     pending!.resolve({ behavior: 'allow' as const })
-    pending!.resolve({ behavior: 'deny' as const, message: 'should not happen', decisionReason: { type: 'mode', mode: 'default' } })
+    pending!.resolve({
+      behavior: 'deny' as const,
+      message: 'should not happen',
+      decisionReason: { type: 'mode', mode: 'default' },
+    })
 
     // Promise should resolve with 'allow' (first call)
     const result = await promise
@@ -978,7 +1026,9 @@ describe('createExternalCanUseTool error handling', () => {
     expect(throwingCallback).toHaveBeenCalledTimes(1)
 
     // Critical: pending resolver must be cleaned up, not leaked
-    expect(permissionTarget.pendingPermissionPrompts.has('throw-id')).toBe(false)
+    expect(permissionTarget.pendingPermissionPrompts.has('throw-id')).toBe(
+      false,
+    )
   })
 })
 
@@ -997,7 +1047,14 @@ describe('createExternalCanUseTool warning suppression', () => {
       permissionTarget,
     )
 
-    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+    await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
 
     // User callback allowed the tool — default fallback warning should NOT fire
     expect(logger.warn).not.toHaveBeenCalled()
@@ -1010,7 +1067,9 @@ describe('createExternalCanUseTool warning suppression', () => {
 
     const permissionTarget = createPermissionTarget()
     const onPermissionRequest = vi.fn((message: any) => {
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -1023,7 +1082,14 @@ describe('createExternalCanUseTool warning suppression', () => {
       50,
     )
 
-    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+    await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
 
     // onPermissionRequest resolved — default fallback warning should NOT fire
     expect(logger.warn).not.toHaveBeenCalled()
@@ -1112,7 +1178,9 @@ describe('permission session_id dynamic resolution', () => {
 
     const onPermissionRequest = vi.fn((message: any) => {
       capturedSessionId = message.session_id
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -1126,7 +1194,14 @@ describe('permission session_id dynamic resolution', () => {
       'static-session-123', // Static value
     )
 
-    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+    await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
 
     expect(capturedSessionId).toBe('static-session-123')
   })
@@ -1138,7 +1213,9 @@ describe('permission session_id dynamic resolution', () => {
 
     const onPermissionRequest = vi.fn((message: any) => {
       capturedSessionId = message.session_id
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -1156,7 +1233,14 @@ describe('permission session_id dynamic resolution', () => {
     // Change sessionId BEFORE the permission request is emitted
     currentSessionId = 'updated-session'
 
-    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+    await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
 
     // Should use the value at event emission time, not initial value
     expect(capturedSessionId).toBe('updated-session')
@@ -1168,7 +1252,9 @@ describe('permission session_id dynamic resolution', () => {
 
     const onPermissionRequest = vi.fn((message: any) => {
       capturedSessionId = message.session_id
-      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      const pending = permissionTarget.pendingPermissionPrompts.get(
+        message.tool_use_id,
+      )
       pending!.resolve({ behavior: 'allow' as const })
     })
 
@@ -1182,7 +1268,14 @@ describe('permission session_id dynamic resolution', () => {
       () => undefined, // Getter returns undefined
     )
 
-    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+    await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
 
     expect(capturedSessionId).toBe(NO_SESSION_PLACEHOLDER)
   })
@@ -1210,7 +1303,14 @@ describe('permission session_id dynamic resolution', () => {
       () => currentSessionId,
     )
 
-    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+    await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
 
     // Timeout message should use dynamic sessionId
     expect(capturedTimeoutSessionId).toBe('timeout-session')

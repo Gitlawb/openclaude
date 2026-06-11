@@ -1,7 +1,5 @@
 // @ts-nocheck
-import {
-  resolveCodexApiCredentials,
-} from '../src/services/api/providerConfig.js'
+import { resolveCodexApiCredentials } from '../src/services/api/providerConfig.js'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
@@ -38,7 +36,15 @@ function parseArg(name: string): string | null {
 
 function parseProviderArg(): ProviderProfile | 'auto' {
   const p = parseArg('--provider')?.toLowerCase()
-  if (p === 'openai' || p === 'ollama' || p === 'codex' || p === 'gemini' || p === 'mistral' || p === 'atomic-chat') return p
+  if (
+    p === 'openai' ||
+    p === 'ollama' ||
+    p === 'codex' ||
+    p === 'gemini' ||
+    p === 'mistral' ||
+    p === 'atomic-chat'
+  )
+    return p
   return 'auto'
 }
 
@@ -86,7 +92,9 @@ async function main(): Promise<void> {
     })
 
     if (!builtEnv) {
-      console.error('Gemini profile requires an API key. Use --api-key or set GEMINI_API_KEY.')
+      console.error(
+        'Gemini profile requires an API key. Use --api-key or set GEMINI_API_KEY.',
+      )
       console.error('Get a free key at: https://aistudio.google.com/apikey')
       process.exit(1)
     }
@@ -101,8 +109,12 @@ async function main(): Promise<void> {
     })
 
     if (!builtEnv) {
-      console.error('Mistral profile requires an API key. Use --api-key or set MISTRAL_API_KEY.')
-      console.error('Get a free key at: https://admin.mistral.ai/organization/api-keys')
+      console.error(
+        'Mistral profile requires an API key. Use --api-key or set MISTRAL_API_KEY.',
+      )
+      console.error(
+        'Get a free key at: https://admin.mistral.ai/organization/api-keys',
+      )
       process.exit(1)
     }
 
@@ -110,24 +122,28 @@ async function main(): Promise<void> {
   } else if (selected === 'ollama') {
     resolvedOllamaModel ??= await resolveOllamaModel(argModel, argBaseUrl, goal)
     if (!resolvedOllamaModel) {
-      console.error('No viable Ollama chat model was discovered. Pull a chat model first or pass --model explicitly.')
+      console.error(
+        'No viable Ollama chat model was discovered. Pull a chat model first or pass --model explicitly.',
+      )
       process.exit(1)
     }
 
-    env = buildOllamaProfileEnv(
-      resolvedOllamaModel,
-      {
-        baseUrl: argBaseUrl,
-        getOllamaChatBaseUrl,
-      },
-    )
+    env = buildOllamaProfileEnv(resolvedOllamaModel, {
+      baseUrl: argBaseUrl,
+      getOllamaChatBaseUrl,
+    })
   } else if (selected === 'atomic-chat') {
-    const model = argModel || (await listAtomicChatModels(argBaseUrl || undefined))[0]
+    const model =
+      argModel || (await listAtomicChatModels(argBaseUrl || undefined))[0]
     if (!model) {
       if (!(await hasLocalAtomicChat(argBaseUrl || undefined))) {
-        console.error('Atomic Chat is not running (could not connect to 127.0.0.1:1337).\n  Download from https://atomic.chat/ and launch the application.')
+        console.error(
+          'Atomic Chat is not running (could not connect to 127.0.0.1:1337).\n  Download from https://atomic.chat/ and launch the application.',
+        )
       } else {
-        console.error('Atomic Chat is running but no model is loaded. Open Atomic Chat and download or start a model first.')
+        console.error(
+          'Atomic Chat is running but no model is loaded. Open Atomic Chat and download or start a model first.',
+        )
       }
       process.exit(1)
     }
@@ -146,9 +162,7 @@ async function main(): Promise<void> {
 
     if (!builtEnv) {
       const credentials = resolveCodexApiCredentials(
-        argApiKey
-          ? { ...process.env, CODEX_API_KEY: argApiKey }
-          : process.env,
+        argApiKey ? { ...process.env, CODEX_API_KEY: argApiKey } : process.env,
       )
       const authHint = credentials.authPath
         ? ` or make sure ${credentials.authPath} exists`
@@ -156,7 +170,9 @@ async function main(): Promise<void> {
       if (!credentials.apiKey) {
         console.error(`Codex profile requires CODEX_API_KEY${authHint}.`)
       } else {
-        console.error('Codex profile requires CHATGPT_ACCOUNT_ID or an auth.json that includes it.')
+        console.error(
+          'Codex profile requires CHATGPT_ACCOUNT_ID or an auth.json that includes it.',
+        )
       }
       process.exit(1)
     }
@@ -172,7 +188,9 @@ async function main(): Promise<void> {
     })
 
     if (!builtEnv) {
-      console.error('OpenAI profile requires a real API key. Use --api-key or set OPENAI_API_KEY.')
+      console.error(
+        'OpenAI profile requires a real API key. Use --api-key or set OPENAI_API_KEY.',
+      )
       process.exit(1)
     }
 
@@ -185,7 +203,9 @@ async function main(): Promise<void> {
 
   console.log(`Saved profile: ${selected}`)
   console.log(`Goal: ${goal}`)
-  console.log(`Model: ${profile.env.GEMINI_MODEL || profile.env.MISTRAL_MODEL || profile.env.OPENAI_MODEL || getGoalDefaultOpenAIModel(goal)}`)
+  console.log(
+    `Model: ${profile.env.GEMINI_MODEL || profile.env.MISTRAL_MODEL || profile.env.OPENAI_MODEL || getGoalDefaultOpenAIModel(goal)}`,
+  )
   console.log(`Path: ${outputPath}`)
   console.log('Next: bun run dev:profile')
 }

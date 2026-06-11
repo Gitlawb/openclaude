@@ -161,9 +161,10 @@ function isLocalOrPrivateUrl(url: string): boolean {
     )
   }
   // Unwrap IPv6 literal brackets that URL.hostname leaves attached.
-  const h = hostname.startsWith('[') && hostname.endsWith(']')
-    ? hostname.slice(1, -1)
-    : hostname
+  const h =
+    hostname.startsWith('[') && hostname.endsWith(']')
+      ? hostname.slice(1, -1)
+      : hostname
   // Reserved TLDs and `localhost` itself — all guaranteed never to
   // resolve to public infrastructure. Sources:
   //   - RFC 6761 §6.3  — `.localhost` (Chrome/Firefox/systemd-resolved
@@ -246,7 +247,12 @@ export function resolveCacheProvider(
   if (provider === 'github') {
     return hints?.githubNativeAnthropic ? 'copilot-claude' : 'copilot'
   }
-  if (provider === 'firstParty' || provider === 'bedrock' || provider === 'vertex' || provider === 'foundry') {
+  if (
+    provider === 'firstParty' ||
+    provider === 'bedrock' ||
+    provider === 'vertex' ||
+    provider === 'foundry'
+  ) {
     return 'anthropic'
   }
   if (provider === 'gemini') return 'gemini'
@@ -382,11 +388,9 @@ export function buildAnthropicUsageFromRawUsage(
 ): NormalizedShimUsage {
   const cacheRead = extractCacheReadFromRawUsage(raw)
   const u = (raw ?? {}) as Record<string, unknown>
-  const rawInput =
-    asNumber(u.input_tokens) || asNumber(u.prompt_tokens)
+  const rawInput = asNumber(u.input_tokens) || asNumber(u.prompt_tokens)
   const fresh = rawInput >= cacheRead ? rawInput - cacheRead : rawInput
-  const output =
-    asNumber(u.output_tokens) || asNumber(u.completion_tokens)
+  const output = asNumber(u.output_tokens) || asNumber(u.completion_tokens)
   return {
     input_tokens: fresh,
     output_tokens: output,
@@ -519,7 +523,10 @@ function formatCompactNumber(n: number): string {
 }
 
 /** Sum two CacheMetrics, preserving `supported` as true only if both are. */
-export function addCacheMetrics(a: CacheMetrics, b: CacheMetrics): CacheMetrics {
+export function addCacheMetrics(
+  a: CacheMetrics,
+  b: CacheMetrics,
+): CacheMetrics {
   // Copy elision: if either side is the unsupported sentinel, return the
   // other as-is so aggregates on a purely-unsupported session stay cheap.
   if (!a.supported && !b.supported) return UNSUPPORTED

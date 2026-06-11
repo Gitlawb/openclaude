@@ -169,9 +169,7 @@ describe('formatOutput', () => {
 
 describe('createContentSummary', () => {
   test('summarizes text blocks', () => {
-    const content = [
-      { type: 'text' as const, text: 'Hello world' },
-    ]
+    const content = [{ type: 'text' as const, text: 'Hello world' }]
     const result = createContentSummary(content)
     expect(result).toContain('MCP Result')
     expect(result).toContain('1 text block')
@@ -201,9 +199,7 @@ describe('createContentSummary', () => {
 
   test('truncates long text preview at 200 chars', () => {
     const longText = 'x'.repeat(300)
-    const content = [
-      { type: 'text' as const, text: longText },
-    ]
+    const content = [{ type: 'text' as const, text: longText }]
     const result = createContentSummary(content)
     expect(result).toContain('...')
     expect(result).toContain('x'.repeat(200))
@@ -221,8 +217,13 @@ describe('createContentSummary', () => {
 
 describe('selectFailureOutput (#1231)', () => {
   test('prefers the accumulator when it has content', () => {
-    expect(selectFailureOutput('build failed\nerror: missing tsc', 'unused', 'also unused'))
-      .toBe('build failed\nerror: missing tsc')
+    expect(
+      selectFailureOutput(
+        'build failed\nerror: missing tsc',
+        'unused',
+        'also unused',
+      ),
+    ).toBe('build failed\nerror: missing tsc')
   })
 
   test('falls back to result.stdout when accumulator is empty', () => {
@@ -230,12 +231,15 @@ describe('selectFailureOutput (#1231)', () => {
   })
 
   test('falls back to result.stdout when accumulator is whitespace-only', () => {
-    expect(selectFailureOutput('   \n\n  ', 'real stdout', 'unused')).toBe('real stdout')
+    expect(selectFailureOutput('   \n\n  ', 'real stdout', 'unused')).toBe(
+      'real stdout',
+    )
   })
 
   test('recovers from progress.fullOutput when accumulator and result.stdout are both empty', () => {
-    expect(selectFailureOutput('', '', 'streamed line 1\nstreamed line 2'))
-      .toBe('streamed line 1\nstreamed line 2')
+    expect(
+      selectFailureOutput('', '', 'streamed line 1\nstreamed line 2'),
+    ).toBe('streamed line 1\nstreamed line 2')
   })
 
   test('recovers from progress.fullOutput when result.stdout is undefined (shell runner left slot empty)', () => {
@@ -243,8 +247,9 @@ describe('selectFailureOutput (#1231)', () => {
     // result.stdout was empty because the shell runner streamed everything
     // through progress callbacks, but lastProgressFullOutput captured every
     // line on the way through.
-    expect(selectFailureOutput('', undefined, 'tsc error TS2305\nbuild halted'))
-      .toBe('tsc error TS2305\nbuild halted')
+    expect(
+      selectFailureOutput('', undefined, 'tsc error TS2305\nbuild halted'),
+    ).toBe('tsc error TS2305\nbuild halted')
   })
 
   test('returns empty string when all three sources are empty', () => {

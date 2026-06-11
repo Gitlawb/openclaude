@@ -14,8 +14,8 @@
 export function parseModelList(modelField: string): string[] {
   return modelField
     .split(/[;,]/)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
+    .map(part => part.trim())
+    .filter(part => part.length > 0)
 }
 
 /**

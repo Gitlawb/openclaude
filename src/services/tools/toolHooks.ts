@@ -33,7 +33,10 @@ import {
 } from '../../utils/permissions/permissions.js'
 import { formatError } from '../../utils/toolErrors.js'
 import { getAutoFixConfig } from '../autoFix/autoFixConfig.js'
-import { shouldRunAutoFix, buildAutoFixContext } from '../autoFix/autoFixHook.js'
+import {
+  shouldRunAutoFix,
+  buildAutoFixContext,
+} from '../autoFix/autoFixHook.js'
 import { runAutoFixCheck } from '../autoFix/autoFixRunner.js'
 
 // Track auto-fix retry count per query chain to enforce maxRetries cap.
@@ -199,14 +202,17 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
     // Auto-fix: run lint/test if configured for this tool
     const autoFixSettings = toolUseContext.getAppState().settings
     const autoFixConfig = getAutoFixConfig(
-      autoFixSettings && typeof autoFixSettings === 'object' && 'autoFix' in autoFixSettings
+      autoFixSettings &&
+        typeof autoFixSettings === 'object' &&
+        'autoFix' in autoFixSettings
         ? (autoFixSettings as Record<string, unknown>).autoFix
         : undefined,
     )
     if (shouldRunAutoFix(tool.name, autoFixConfig) && autoFixConfig) {
       // Enforce maxRetries cap to prevent unbounded auto-fix loops.
       // Uses queryChainId to scope the counter to the current conversation turn.
-      const chainKey = (toolUseContext.queryTracking?.chainId as string) ?? 'default'
+      const chainKey =
+        (toolUseContext.queryTracking?.chainId as string) ?? 'default'
       const currentRetries = autoFixRetryCount.get(chainKey) ?? 0
 
       if (currentRetries >= autoFixConfig.maxRetries) {
@@ -216,7 +222,7 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
             type: 'hook_additional_context',
             content: [
               `<auto_fix_feedback>\nAUTO-FIX: Maximum retry limit (${autoFixConfig.maxRetries}) reached. ` +
-              `Skipping further auto-fix attempts. Please review the errors manually.\n</auto_fix_feedback>`,
+                `Skipping further auto-fix attempts. Please review the errors manually.\n</auto_fix_feedback>`,
             ],
             hookName: `AutoFix:${tool.name}`,
             toolUseID,

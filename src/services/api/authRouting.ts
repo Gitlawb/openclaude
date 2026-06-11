@@ -4,7 +4,11 @@ import {
   isFirstPartyAnthropicBaseUrl,
 } from 'src/utils/model/providers.js'
 
-export type ProviderOverride = { model: string; baseURL: string; apiKey: string }
+export type ProviderOverride = {
+  model: string
+  baseURL: string
+  apiKey: string
+}
 
 export function shouldUseFirstPartyAnthropicAuthForProvider({
   providerOverride,
@@ -15,7 +19,9 @@ export function shouldUseFirstPartyAnthropicAuthForProvider({
   apiProvider: APIProvider
   isFirstPartyBaseUrl: boolean
 }): boolean {
-  return !providerOverride && apiProvider === 'firstParty' && isFirstPartyBaseUrl
+  return (
+    !providerOverride && apiProvider === 'firstParty' && isFirstPartyBaseUrl
+  )
 }
 
 export function shouldUseFirstPartyAnthropicAuth(

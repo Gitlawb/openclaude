@@ -32,7 +32,9 @@ export function clearToolSchemaCache(): void {
  *
  * @param retainedToolNames - Set of tool names that should keep their cache entries
  */
-export function invalidateRemovedToolSchemas(retainedToolNames: Set<string>): void {
+export function invalidateRemovedToolSchemas(
+  retainedToolNames: Set<string>,
+): void {
   for (const key of TOOL_SCHEMA_CACHE.keys()) {
     // Cache key format: either "toolName" or "toolName:{...schemaJSON...}"
     // Extract the tool name portion (before the colon if present)

@@ -8,10 +8,7 @@ import type {
   ResolvedProviderRequest,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
-import {
-  createThinkTagFilter,
-  stripThinkTags,
-} from './thinkTagSanitizer.js'
+import { createThinkTagFilter, stripThinkTags } from './thinkTagSanitizer.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -126,15 +123,17 @@ export function convertSystemPrompt(system: unknown): string {
   if (!system) return ''
   if (typeof system === 'string') return system
   if (Array.isArray(system)) {
-    return system
-      .map((block: { type?: string; text?: string }) =>
-        block.type === 'text' ? (block.text ?? '') : '',
-      )
-      // Drop the Anthropic billing/attribution block — Codex's Responses API
-      // doesn't parse it and the per-build fingerprint just churns the
-      // upstream prompt cache.
-      .filter(text => !text.startsWith('x-anthropic-billing-header'))
-      .join('\n\n')
+    return (
+      system
+        .map((block: { type?: string; text?: string }) =>
+          block.type === 'text' ? (block.text ?? '') : '',
+        )
+        // Drop the Anthropic billing/attribution block — Codex's Responses API
+        // doesn't parse it and the per-build fingerprint just churns the
+        // upstream prompt cache.
+        .filter(text => !text.startsWith('x-anthropic-billing-header'))
+        .join('\n\n')
+    )
   }
   return String(system)
 }
@@ -171,7 +170,11 @@ function convertContentBlocksToResponsesParts(
   role: 'user' | 'assistant',
   forceTextChunks: boolean,
 ): ResponsesInputPart[] {
-  const textType = !forceTextChunks ? (role === 'assistant' ? 'output_text' : 'input_text') : 'text'
+  const textType = !forceTextChunks
+    ? role === 'assistant'
+      ? 'output_text'
+      : 'input_text'
+    : 'text'
   if (typeof content === 'string') {
     return [{ type: textType, text: content }]
   }
@@ -264,7 +267,11 @@ export function convertAnthropicMessagesToResponsesInput(
           })
         }
 
-        const parts = convertContentBlocksToResponsesParts(otherContent, 'user', forceTextChunks)
+        const parts = convertContentBlocksToResponsesParts(
+          otherContent,
+          'user',
+          forceTextChunks,
+        )
         if (parts.length > 0) {
           items.push({
             type: 'message',
@@ -278,17 +285,27 @@ export function convertAnthropicMessagesToResponsesInput(
       items.push({
         type: 'message',
         role: 'user',
-        content: convertContentBlocksToResponsesParts(content, 'user', forceTextChunks),
+        content: convertContentBlocksToResponsesParts(
+          content,
+          'user',
+          forceTextChunks,
+        ),
       })
       continue
     }
 
     if (role === 'assistant') {
       const textBlocks = Array.isArray(content)
-        ? content.filter((block: { type?: string }) =>
-            block.type !== 'tool_use' && block.type !== 'thinking')
+        ? content.filter(
+            (block: { type?: string }) =>
+              block.type !== 'tool_use' && block.type !== 'thinking',
+          )
         : content
-      const parts = convertContentBlocksToResponsesParts(textBlocks, 'assistant', forceTextChunks)
+      const parts = convertContentBlocksToResponsesParts(
+        textBlocks,
+        'assistant',
+        forceTextChunks,
+      )
       if (parts.length > 0) {
         items.push({
           type: 'message',
@@ -317,8 +334,8 @@ export function convertAnthropicMessagesToResponsesInput(
     }
   }
 
-  return items.filter(item =>
-    item.type !== 'message' || item.content.length > 0,
+  return items.filter(
+    item => item.type !== 'message' || item.content.length > 0,
   )
 }
 
@@ -343,9 +360,11 @@ function ensureSchemaType(record: Record<string, unknown>): void {
     record.type = 'array'
     return
   }
-  if (Array.isArray((record as Record<string, unknown>).anyOf) ||
-      Array.isArray((record as Record<string, unknown>).oneOf) ||
-      Array.isArray((record as Record<string, unknown>).allOf)) {
+  if (
+    Array.isArray((record as Record<string, unknown>).anyOf) ||
+    Array.isArray((record as Record<string, unknown>).oneOf) ||
+    Array.isArray((record as Record<string, unknown>).allOf)
+  ) {
     // Combinator-only schemas keep their semantics; forcing a `type` here
     // would silently narrow the alternatives.
     return
@@ -357,7 +376,9 @@ function ensureSchemaType(record: Record<string, unknown>): void {
       return
     }
     if (sample === 'number') {
-      record.type = record.enum.every(v => Number.isInteger(v)) ? 'integer' : 'number'
+      record.type = record.enum.every(v => Number.isInteger(v))
+        ? 'integer'
+        : 'number'
       return
     }
   }
@@ -413,14 +434,15 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
         const strictValue = enforceStrictSchema(value)
         // If the resulting schema is an empty object (no properties), OpenAI structured outputs will likely
         // strip it silently and then complain about a 'required' mismatch if it remains in the required list.
-        // E.g. z.record() objects (like AskUserQuestion.answers) lose their schema due to additionalProperties 
+        // E.g. z.record() objects (like AskUserQuestion.answers) lose their schema due to additionalProperties
         // restrictions. We can safely drop these from the schema sent to the LLM.
         if (
           strictValue &&
           typeof strictValue === 'object' &&
           strictValue.type === 'object' &&
           strictValue.additionalProperties === false &&
-          (!strictValue.properties || Object.keys(strictValue.properties).length === 0)
+          (!strictValue.properties ||
+            Object.keys(strictValue.properties).length === 0)
         ) {
           continue
         }
@@ -438,7 +460,9 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
   // Recurse into array items
   if ('items' in record) {
     if (Array.isArray(record.items)) {
-      record.items = (record.items as unknown[]).map(item => enforceStrictSchema(item))
+      record.items = (record.items as unknown[]).map(item =>
+        enforceStrictSchema(item),
+      )
     } else {
       record.items = enforceStrictSchema(record.items)
     }
@@ -447,7 +471,9 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
   // Recurse into combinators
   for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
     if (key in record && Array.isArray(record[key])) {
-      record[key] = (record[key] as unknown[]).map(item => enforceStrictSchema(item))
+      record[key] = (record[key] as unknown[]).map(item =>
+        enforceStrictSchema(item),
+      )
     }
   }
 
@@ -455,12 +481,19 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
 }
 
 export function convertToolsToResponsesTools(
-  tools: Array<{ name?: string; description?: string; input_schema?: Record<string, unknown> }>,
+  tools: Array<{
+    name?: string
+    description?: string
+    input_schema?: Record<string, unknown>
+  }>,
 ): ResponsesTool[] {
   return tools
     .filter(tool => tool.name && tool.name !== 'ToolSearchTool')
     .map(tool => {
-      const rawParameters = tool.input_schema ?? { type: 'object', properties: {} }
+      const rawParameters = tool.input_schema ?? {
+        type: 'object',
+        properties: {},
+      }
       // Codex requires strict schemas: all properties must be required
       const parameters = enforceStrictSchema(rawParameters)
 
@@ -484,13 +517,17 @@ function isStrictResponsesSchema(schema: unknown): boolean {
 
   if (type === 'object') {
     const properties =
-      record.properties && typeof record.properties === 'object' && !Array.isArray(record.properties)
+      record.properties &&
+      typeof record.properties === 'object' &&
+      !Array.isArray(record.properties)
         ? (record.properties as Record<string, unknown>)
         : {}
 
     const propertyKeys = Object.keys(properties)
     const required = Array.isArray(record.required)
-      ? record.required.filter((value): value is string => typeof value === 'string')
+      ? record.required.filter(
+          (value): value is string => typeof value === 'string',
+        )
       : null
 
     if (propertyKeys.length > 0) {
@@ -515,7 +552,10 @@ function isStrictResponsesSchema(schema: unknown): boolean {
   for (const key of combinators) {
     if (key in record) {
       const value = record[key]
-      if (!Array.isArray(value) || value.some(item => !isStrictResponsesSchema(item))) {
+      if (
+        !Array.isArray(value) ||
+        value.some(item => !isStrictResponsesSchema(item))
+      ) {
         return false
       }
     }
@@ -565,15 +605,16 @@ export async function performCodexRequest(options: {
   const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
   const body: Record<string, unknown> = {
     model: options.request.resolvedModel,
-    input: input.length > 0
-      ? input
-      : [
-          {
-            type: 'message',
-            role: 'user',
-            content: [{ type: 'input_text', text: '' }],
-          },
-        ],
+    input:
+      input.length > 0
+        ? input
+        : [
+            {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: '' }],
+            },
+          ],
     store: false,
     stream: true,
   }
@@ -646,9 +687,14 @@ export async function performCodexRequest(options: {
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'unknown error')
     let errorResponse: object | undefined
-    try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
+    try {
+      errorResponse = JSON.parse(errorBody)
+    } catch {
+      /* raw text */
+    }
     throw APIError.generate(
-      response.status, errorResponse,
+      response.status,
+      errorResponse,
       `Codex API error ${response.status}: ${errorBody}`,
       response.headers as unknown as Headers,
     )
@@ -657,7 +703,10 @@ export async function performCodexRequest(options: {
   return response
 }
 
-async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGenerator<CodexSseEvent> {
+async function* readSseEvents(
+  response: Response,
+  signal?: AbortSignal,
+): AsyncGenerator<CodexSseEvent> {
   const reader = response.body?.getReader()
   if (!reader) return
 
@@ -671,13 +720,17 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
    * AbortSignal — clears the idle timer on abort so the AbortError
    * surfaces cleanly instead of a spurious idle timeout.
    */
-  async function readWithTimeout(): Promise<Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>> {
+  async function readWithTimeout(): Promise<
+    Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>
+  > {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-        reject(new Error(
-          `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
-        ))
+        reject(
+          new Error(
+            `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+          ),
+        )
       }, STREAM_IDLE_TIMEOUT_MS)
 
       let abortCleanup: (() => void) | undefined
@@ -692,13 +745,15 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
       reader!.read().then(
         result => {
           clearTimeout(timeoutId)
-          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (signal && abortCleanup)
+            signal.removeEventListener('abort', abortCleanup)
           if (result.value) lastDataTime = Date.now()
           resolve(result)
         },
         err => {
           clearTimeout(timeoutId)
-          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (signal && abortCleanup)
+            signal.removeEventListener('abort', abortCleanup)
           reject(err)
         },
       )
@@ -773,8 +828,10 @@ export async function collectCodexCompletedResponse(
 
   for await (const event of readSseEvents(response, signal)) {
     if (event.event === 'response.failed') {
-      const msg = event.data?.response?.error?.message ??
-        event.data?.error?.message ?? 'Codex response failed'
+      const msg =
+        event.data?.response?.error?.message ??
+        event.data?.error?.message ??
+        'Codex response failed'
       throw APIError.generate(500, undefined, msg, new Headers())
     }
 
@@ -789,7 +846,9 @@ export async function collectCodexCompletedResponse(
 
   if (!completedResponse) {
     throw APIError.generate(
-      500, undefined, 'Codex response ended without a completed payload',
+      500,
+      undefined,
+      'Codex response ended without a completed payload',
       new Headers(),
     )
   }
@@ -1012,8 +1071,10 @@ export async function* codexStreamToAnthropic(
     }
 
     if (event.event === 'response.failed') {
-      const msg = payload?.response?.error?.message ??
-        payload?.error?.message ?? 'Codex response failed'
+      const msg =
+        payload?.response?.error?.message ??
+        payload?.error?.message ??
+        'Codex response failed'
       throw APIError.generate(500, undefined, msg, new Headers())
     }
   }
@@ -1087,7 +1148,10 @@ export function convertCodexResponseToAnthropicMessage(
     role: 'assistant',
     content,
     model: data.model ?? model,
-    stop_reason: determineStopReason(data, content.some(item => item.type === 'tool_use')),
+    stop_reason: determineStopReason(
+      data,
+      content.some(item => item.type === 'tool_use'),
+    ),
     stop_sequence: null,
     usage: makeUsage(data.usage),
   }

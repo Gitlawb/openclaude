@@ -46,12 +46,16 @@ describe('Content Type Detection', () => {
     })
 
     it('detects code', () => {
-      expect(detectContentType('function test() { return 1 + 2; }')).toBe('code')
+      expect(detectContentType('function test() { return 1 + 2; }')).toBe(
+        'code',
+      )
       expect(detectContentType('const x = () => {}')).toBe('code')
     })
 
     it('detects prose', () => {
-      expect(detectContentType('This is a natural language response.')).toBe('prose')
+      expect(detectContentType('This is a natural language response.')).toBe(
+        'prose',
+      )
       expect(detectContentType('Hello world how are you?')).toBe('prose')
     })
 
@@ -84,7 +88,7 @@ describe('Compression Ratio', () => {
   describe('estimateWithBounds', () => {
     it('returns estimate with bounds', () => {
       const result = estimateWithBounds('Hello world')
-      
+
       expect(result.min).toBeLessThanOrEqual(result.estimate)
       expect(result.max).toBeGreaterThanOrEqual(result.estimate)
       expect(result.min).toBeLessThan(result.max)
@@ -92,7 +96,7 @@ describe('Compression Ratio', () => {
 
     it('handles JSON with tighter bounds', () => {
       const result = estimateWithBounds('{"key": "value"}')
-      
+
       // JSON has smaller ratio range
       expect(result.max).toBeLessThan(10)
     })

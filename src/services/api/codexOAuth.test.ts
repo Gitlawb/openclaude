@@ -1,6 +1,9 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 import type { ServerResponse } from 'node:http'
-import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
+import {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} from '../../entrypoints/sdk/shared.js'
 import { asMockFetch } from '../../test/typedMocks.js'
 import { CodexOAuthService } from './codexOAuth.js'
 
@@ -49,7 +52,9 @@ let activeSnapshot: CodexOAuthTestSnapshot | null = null
 let fakeListenerInstance: FakeAuthCodeListenerInstance | null = null
 let nextFakePort = 41000
 
-function createFakeServerResponse(capture: FakeResponseCapture): FakeServerResponse {
+function createFakeServerResponse(
+  capture: FakeResponseCapture,
+): FakeServerResponse {
   return {
     destroyed: false,
     headersSent: false,
@@ -68,7 +73,9 @@ function createFakeServerResponse(capture: FakeResponseCapture): FakeServerRespo
   }
 }
 
-function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerInstance {
+function createFakeAuthCodeListener(
+  callbackPath: string,
+): FakeAuthCodeListenerInstance {
   fakeListenerInstance = null
   class FakeAuthCodeListener {
     callbackPath: string
@@ -123,9 +130,7 @@ function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerI
       this.pending = false
     }
 
-    handleErrorRedirect(
-      customHandler?: (res: ServerResponse) => void,
-    ): void {
+    handleErrorRedirect(customHandler?: (res: ServerResponse) => void): void {
       if (!this.pending || !this.capture) {
         return
       }
@@ -310,9 +315,7 @@ test('cancellation during token exchange returns a cancelled page and rejects th
     expect(fakeListenerInstance?.capture?.body).toContain(
       'Codex login cancelled',
     )
-    expect(fakeListenerInstance?.capture?.body).toContain(
-      'retry in OpenClaude',
-    )
+    expect(fakeListenerInstance?.capture?.body).toContain('retry in OpenClaude')
   } finally {
     restoreCodexOAuthTestIsolation()
   }

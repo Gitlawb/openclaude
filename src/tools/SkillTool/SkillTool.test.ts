@@ -33,10 +33,13 @@ describe('SkillTool missing parameter handling', () => {
   })
 
   test('validateInput still returns an actionable error when called with missing skill', async () => {
-    const result = await SkillTool.validateInput?.({} as never, {
-      options: { tools: [] },
-      messages: [],
-    } as never)
+    const result = await SkillTool.validateInput?.(
+      {} as never,
+      {
+        options: { tools: [] },
+        messages: [],
+      } as never,
+    )
 
     expect(result).toEqual({
       result: false,

@@ -52,7 +52,12 @@ describe('interpretCommandResult', () => {
     })
 
     test('exit code 2 = real error', () => {
-      const result = interpretCommandResult('grep foo file.txt', 2, '', 'No such file')
+      const result = interpretCommandResult(
+        'grep foo file.txt',
+        2,
+        '',
+        'No such file',
+      )
       expect(result.isError).toBe(true)
     })
   })
@@ -73,18 +78,33 @@ describe('interpretCommandResult', () => {
   // --- find: 0=success, 1=partial, 2+=error ---
   describe('find', () => {
     test('exit code 0 = success', () => {
-      const result = interpretCommandResult('find . -name "*.ts"', 0, 'file.ts\n', '')
+      const result = interpretCommandResult(
+        'find . -name "*.ts"',
+        0,
+        'file.ts\n',
+        '',
+      )
       expect(result.isError).toBe(false)
     })
 
     test('exit code 1 = partial success (not error)', () => {
-      const result = interpretCommandResult('find . -name "*.ts"', 1, 'file.ts\n', '')
+      const result = interpretCommandResult(
+        'find . -name "*.ts"',
+        1,
+        'file.ts\n',
+        '',
+      )
       expect(result.isError).toBe(false)
       expect(result.message).toContain('inaccessible')
     })
 
     test('exit code 2 = error', () => {
-      const result = interpretCommandResult('find . -name "*.ts"', 2, '', 'Permission denied')
+      const result = interpretCommandResult(
+        'find . -name "*.ts"',
+        2,
+        '',
+        'Permission denied',
+      )
       expect(result.isError).toBe(true)
     })
   })
@@ -97,13 +117,23 @@ describe('interpretCommandResult', () => {
     })
 
     test('exit code 1 = files differ (not error)', () => {
-      const result = interpretCommandResult('diff a.txt b.txt', 1, '< line1\n> line2', '')
+      const result = interpretCommandResult(
+        'diff a.txt b.txt',
+        1,
+        '< line1\n> line2',
+        '',
+      )
       expect(result.isError).toBe(false)
       expect(result.message).toContain('differ')
     })
 
     test('exit code 2 = error', () => {
-      const result = interpretCommandResult('diff a.txt b.txt', 2, '', 'No such file')
+      const result = interpretCommandResult(
+        'diff a.txt b.txt',
+        2,
+        '',
+        'No such file',
+      )
       expect(result.isError).toBe(true)
     })
   })
@@ -130,13 +160,23 @@ describe('interpretCommandResult', () => {
   // --- Compound commands ---
   describe('compound commands', () => {
     test('last command determines semantics: grep last', () => {
-      const result = interpretCommandResult('cd /tmp && grep foo file.txt', 1, '', '')
+      const result = interpretCommandResult(
+        'cd /tmp && grep foo file.txt',
+        1,
+        '',
+        '',
+      )
       // grep exit code 1 = no matches, not error
       expect(result.isError).toBe(false)
     })
 
     test('last command determines semantics: python last', () => {
-      const result = interpretCommandResult('cd /tmp && python script.py', 1, '', '')
+      const result = interpretCommandResult(
+        'cd /tmp && python script.py',
+        1,
+        '',
+        '',
+      )
       // python exit code 1 = error
       expect(result.isError).toBe(true)
     })
@@ -145,18 +185,33 @@ describe('interpretCommandResult', () => {
   // --- systemctl, apt, docker (real-world commands) ---
   describe('system/service commands', () => {
     test('systemctl failure = error', () => {
-      const result = interpretCommandResult('systemctl start nginx', 1, '', 'Job for nginx.service failed')
+      const result = interpretCommandResult(
+        'systemctl start nginx',
+        1,
+        '',
+        'Job for nginx.service failed',
+      )
       expect(result.isError).toBe(true)
       expect(result.message).toContain('exit code 1')
     })
 
     test('apt failure = error', () => {
-      const result = interpretCommandResult('apt install foo', 100, '', 'Unable to locate package')
+      const result = interpretCommandResult(
+        'apt install foo',
+        100,
+        '',
+        'Unable to locate package',
+      )
       expect(result.isError).toBe(true)
     })
 
     test('docker failure = error', () => {
-      const result = interpretCommandResult('docker run ubuntu', 1, '', 'Unable to find image')
+      const result = interpretCommandResult(
+        'docker run ubuntu',
+        1,
+        '',
+        'Unable to find image',
+      )
       expect(result.isError).toBe(true)
     })
   })

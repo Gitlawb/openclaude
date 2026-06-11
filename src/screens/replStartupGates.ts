@@ -24,12 +24,12 @@
  * with, so no recommendation dialog can steal focus before the first keystroke.
  */
 export function shouldRunStartupChecks(options: {
-  isRemoteSession: boolean;
-  hasStarted: boolean;
-  hasHadFirstSubmission: boolean;
+  isRemoteSession: boolean
+  hasStarted: boolean
+  hasHadFirstSubmission: boolean
 }): boolean {
-  if (options.isRemoteSession) return false;
-  if (options.hasStarted) return false;
-  if (!options.hasHadFirstSubmission) return false;
-  return true;
+  if (options.isRemoteSession) return false
+  if (options.hasStarted) return false
+  if (!options.hasHadFirstSubmission) return false
+  return true
 }

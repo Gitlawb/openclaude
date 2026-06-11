@@ -162,12 +162,10 @@ function isModelNotFoundMessage(body: string): boolean {
   const lower = body.toLowerCase()
   return (
     lower.includes('model') &&
-    (
-      lower.includes('not found') ||
+    (lower.includes('not found') ||
       lower.includes('does not exist') ||
       lower.includes('unknown model') ||
-      lower.includes('unavailable model')
-    )
+      lower.includes('unavailable model'))
   )
 }
 
@@ -195,7 +193,9 @@ export function extractOpenAICategoryMarker(
 }
 
 export function extractOpenAICategoryHost(message: string): string | undefined {
-  const match = message.match(/\[openai_category=[a-z_]+,host=([A-Za-z0-9.\-:]+)]/)
+  const match = message.match(
+    /\[openai_category=[a-z_]+,host=([A-Za-z0-9.\-:]+)]/,
+  )
   return match?.[1]
 }
 
@@ -203,7 +203,9 @@ export function buildOpenAICompatibilityErrorMessage(
   baseMessage: string,
   failure: Pick<OpenAICompatibilityFailure, 'category' | 'hint' | 'requestUrl'>,
 ): string {
-  const host = failure.requestUrl ? getHostname(failure.requestUrl) ?? undefined : undefined
+  const host = failure.requestUrl
+    ? (getHostname(failure.requestUrl) ?? undefined)
+    : undefined
   const marker = formatOpenAICategoryMarker(failure.category, host)
   const hint = failure.hint ? ` Hint: ${failure.hint}` : ''
   return `${baseMessage} ${marker}${hint}`
@@ -238,12 +240,10 @@ export function classifyOpenAINetworkFailure(
 
   if (
     isLocalHost &&
-    (
-      code === 'ENOTFOUND' ||
+    (code === 'ENOTFOUND' ||
       code === 'EAI_AGAIN' ||
       lowerMessage.includes('getaddrinfo') ||
-      (code === undefined && lowerMessage.includes('fetch failed'))
-    )
+      (code === undefined && lowerMessage.includes('fetch failed')))
   ) {
     return {
       source: 'network',

@@ -114,9 +114,8 @@ test('shows and marks the active session agent', async () => {
   )
 
   try {
-    const output = await waitForOutput(
-      getOutput,
-      frame => frame.includes('Current session agent: reviewer'),
+    const output = await waitForOutput(getOutput, frame =>
+      frame.includes('Current session agent: reviewer'),
     )
     expect(output).toContain('reviewer')
     expect(output).toContain('active')
@@ -168,7 +167,10 @@ test('does not mark shadowed agent rows as active', async () => {
     <AgentsList
       source="all"
       agents={[
-        { ...createAgent('reviewer', 'built-in'), overriddenBy: 'userSettings' },
+        {
+          ...createAgent('reviewer', 'built-in'),
+          overriddenBy: 'userSettings',
+        },
         createAgent('reviewer'),
       ]}
       activeAgentName="reviewer"

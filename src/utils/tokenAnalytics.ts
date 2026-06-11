@@ -1,6 +1,6 @@
 /**
  * Token Analytics - Historical token usage tracking and analysis
- * 
+ *
  * Tracks token usage patterns over time for cost optimization
  * and capacity planning.
  */
@@ -32,7 +32,7 @@ export interface TokenAnalytics {
 
 /**
  * Historical Token Analytics Tracker
- * 
+ *
  * Tracks token usage patterns over time for analytics,
  * cost optimization, and capacity planning.
  */
@@ -126,7 +126,8 @@ export class TokenUsageTracker {
     const totalRequests = this.history.length
     const totalCache = totalCacheRead + totalCacheCreation
     const totalTokens = totalInput + totalOutput + totalCache
-    const cacheHitRate = totalTokens > 0 ? (totalCacheRead / totalTokens) * 100 : 0
+    const cacheHitRate =
+      totalTokens > 0 ? (totalCacheRead / totalTokens) * 100 : 0
 
     return {
       totalRequests,
@@ -163,12 +164,12 @@ export class TokenUsageTracker {
    */
   estimateCost(): { input: number; output: number; cache: number } {
     const analytics = this.getAnalytics()
-    
+
     // Approximate pricing (adjust as needed)
     const inputCost = analytics.totalInputTokens * 0.00015
     const outputCost = analytics.totalOutputTokens * 0.0006
     const cacheCost = analytics.totalCacheRead * 0.000075
-    
+
     return {
       input: Math.round(inputCost * 100) / 100,
       output: Math.round(outputCost * 100) / 100,

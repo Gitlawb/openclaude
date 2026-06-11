@@ -5,7 +5,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 export const linkupProvider: SearchProvider = {
   name: 'linkup',
@@ -14,7 +18,10 @@ export const linkupProvider: SearchProvider = {
     return Boolean(process.env.LINKUP_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const res = await fetch('https://api.linkup.so/v1/search', {
@@ -32,7 +39,9 @@ export const linkupProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`Linkup search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Linkup search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

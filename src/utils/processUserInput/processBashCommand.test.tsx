@@ -23,7 +23,9 @@ import { processBashCommand } from './processBashCommand.js'
 const originalCall = BashTool.call
 
 beforeEach(async () => {
-  await acquireSharedMutationLock('utils/processUserInput/processBashCommand.test.tsx')
+  await acquireSharedMutationLock(
+    'utils/processUserInput/processBashCommand.test.tsx',
+  )
 })
 
 afterEach(async () => {

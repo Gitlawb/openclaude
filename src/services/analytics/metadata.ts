@@ -742,7 +742,6 @@ export async function getEventMetadata(
   return metadata
 }
 
-
 /**
  * Core event metadata for 1P event logging (snake_case format).
  */

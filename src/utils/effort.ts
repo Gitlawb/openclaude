@@ -5,7 +5,10 @@ import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
-import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
+import {
+  getAntModelOverrideConfig,
+  resolveAntModel,
+} from './model/antModels.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import { isEnvTruthy } from './envUtils.js'
 import type { EffortLevel } from 'src/entrypoints/sdk/runtimeTypes.js'
@@ -20,14 +23,9 @@ export const EFFORT_LEVELS = [
   'max',
 ] as const satisfies readonly EffortLevel[]
 
-export const OPENAI_EFFORT_LEVELS = [
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-] as const
+export const OPENAI_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh'] as const
 
-export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
+export type OpenAIEffortLevel = (typeof OPENAI_EFFORT_LEVELS)[number]
 export type EffortValue = EffortLevel | number
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
@@ -50,9 +48,13 @@ export function modelSupportsEffort(model: string): boolean {
   // high/max, so advertising effort for them would silently drop
   // low/medium on the wire. The substring match also covers prefix
   // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`).
-  if (m.includes('opus-4-5') || m.includes('opus-4-6') ||
-      m.includes('opus-4-7') || m.includes('opus-4-8') ||
-      m.includes('sonnet-4-6')) {
+  if (
+    m.includes('opus-4-5') ||
+    m.includes('opus-4-6') ||
+    m.includes('opus-4-7') ||
+    m.includes('opus-4-8') ||
+    m.includes('sonnet-4-6')
+  ) {
     return true
   }
   // OpenCode Gemini models that support thinking via /models/gemini-* endpoint
@@ -81,7 +83,11 @@ export function modelSupportsMaxEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+  if (
+    model.toLowerCase().includes('opus-4-6') ||
+    model.toLowerCase().includes('opus-4-7') ||
+    model.toLowerCase().includes('opus-4-8')
+  ) {
     return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
@@ -104,7 +110,10 @@ export function modelSupportsXHighEffort(model: string): boolean {
   if (modelUsesOpenAIEffort(model)) {
     return true
   }
-  if (model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+  if (
+    model.toLowerCase().includes('opus-4-7') ||
+    model.toLowerCase().includes('opus-4-8')
+  ) {
     return true
   }
   return false
@@ -141,11 +150,13 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] {
   // (Anthropic/Google format) even though getAPIProvider() returns 'openai'.
   // Show standard levels (max) not OpenAI levels (xhigh).
   const m = model.toLowerCase()
-  const isOpenCodeNativeFormat = (
-    m.includes('claude-opus-4') || m.includes('claude-sonnet-4') ||
-    m.includes('opus-4') || m.includes('sonnet-4') ||
-    m.includes('gemini-3')
-  ) && getAPIProvider() === 'openai'
+  const isOpenCodeNativeFormat =
+    (m.includes('claude-opus-4') ||
+      m.includes('claude-sonnet-4') ||
+      m.includes('opus-4') ||
+      m.includes('sonnet-4') ||
+      m.includes('gemini-3')) &&
+    getAPIProvider() === 'openai'
   if (modelUsesOpenAIEffort(model) && !isOpenCodeNativeFormat) {
     return [...OPENAI_EFFORT_LEVELS] as EffortLevel[]
   }
@@ -159,7 +170,9 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] {
   return levels
 }
 
-export function getEffortLevelLabel(level: EffortLevel | OpenAIEffortLevel): string {
+export function getEffortLevelLabel(
+  level: EffortLevel | OpenAIEffortLevel,
+): string {
   if (level === 'xhigh') return 'Extra High'
   if (level === 'max') return 'Max'
   return capitalize(level)
@@ -348,7 +361,9 @@ export function convertEffortValueToLevel(value: EffortValue): EffortLevel {
  * @param level The effort level to describe
  * @returns Human-readable description
  */
-export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel): string {
+export function getEffortLevelDescription(
+  level: EffortLevel | OpenAIEffortLevel,
+): string {
   switch (level) {
     case 'low':
       return 'Quick, straightforward implementation with minimal overhead'

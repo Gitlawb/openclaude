@@ -280,13 +280,20 @@ export function sdkErrorFromType(
   message?: string,
 ): SDKError | ClaudeError {
   switch (errorType) {
-    case 'authentication_failed': return new SDKAuthenticationError(message)
-    case 'billing_error': return new SDKBillingError(message)
-    case 'rate_limit': return new SDKRateLimitError(message)
-    case 'invalid_request': return new SDKInvalidRequestError(message)
-    case 'server_error': return new SDKServerError(message)
-    case 'max_output_tokens': return new SDKMaxOutputTokensError(message)
-    default: return new ClaudeError(message ?? 'Unknown error')
+    case 'authentication_failed':
+      return new SDKAuthenticationError(message)
+    case 'billing_error':
+      return new SDKBillingError(message)
+    case 'rate_limit':
+      return new SDKRateLimitError(message)
+    case 'invalid_request':
+      return new SDKInvalidRequestError(message)
+    case 'server_error':
+      return new SDKServerError(message)
+    case 'max_output_tokens':
+      return new SDKMaxOutputTokensError(message)
+    default:
+      return new ClaudeError(message ?? 'Unknown error')
   }
 }
 

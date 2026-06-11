@@ -22,9 +22,7 @@ import {
 } from '../utils/inProcessTeammateHelpers.js'
 import { createAssistantMessage } from '../utils/messages.js'
 import { requestPermissionModeChange } from '../utils/permissions/permissionModeChange.js'
-import {
-  applyPermissionModeChange,
-} from '../utils/permissions/permissionSetup.js'
+import { applyPermissionModeChange } from '../utils/permissions/permissionSetup.js'
 import {
   permissionModeFromString,
   toExternalPermissionMode,

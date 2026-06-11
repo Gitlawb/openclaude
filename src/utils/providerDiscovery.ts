@@ -93,7 +93,9 @@ async function fetchOllamaModelsProbe(
       }
     }
 
-    const payload = (await response.json().catch(() => ({}))) as OllamaTagsPayload
+    const payload = (await response
+      .json()
+      .catch(() => ({}))) as OllamaTagsPayload
     return {
       reachable: true,
       models: normalizeOllamaModels(payload),
@@ -154,11 +156,15 @@ export function getAtomicChatChatBaseUrl(baseUrl?: string): string {
 
 export function getOpenAICompatibleModelsBaseUrl(baseUrl?: string): string {
   return (
-    baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL
+    baseUrl ||
+    process.env.OPENAI_BASE_URL ||
+    DEFAULT_OPENAI_BASE_URL
   ).replace(/\/+$/, '')
 }
 
-export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string {
+export function getLocalOpenAICompatibleProviderLabel(
+  baseUrl?: string,
+): string {
   try {
     const parsed = new URL(getOpenAICompatibleModelsBaseUrl(baseUrl))
     const host = parsed.host.toLowerCase()
@@ -191,10 +197,7 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (haystack.includes('vllm')) {
       return 'vLLM'
     }
-    if (
-      haystack.includes('open-webui') ||
-      haystack.includes('openwebui')
-    ) {
+    if (haystack.includes('open-webui') || haystack.includes('openwebui')) {
       return 'Open WebUI'
     }
     if (
@@ -204,7 +207,11 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
       return 'text-generation-webui'
     }
     // Check for NVIDIA NIM
-    if (host.includes('nvidia') || haystack.includes('nvidia') || host.includes('integrate.api.nvidia')) {
+    if (
+      host.includes('nvidia') ||
+      haystack.includes('nvidia') ||
+      host.includes('integrate.api.nvidia')
+    ) {
       return 'NVIDIA NIM'
     }
     // Check for MiniMax (both api.minimax.io and api.minimax.chat)
@@ -276,14 +283,11 @@ export async function listOpenAICompatibleModels(options?: {
           : { Authorization: `Bearer ${options.apiKey}` }
         : {}),
     }
-    const response = await fetch(
-      `${baseUrl}/models`,
-      {
-        method: 'GET',
-        headers: Object.keys(headers).length > 0 ? headers : undefined,
-        signal,
-      },
-    )
+    const response = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      signal,
+    })
     if (!response.ok) {
       return null
     }
@@ -347,10 +351,13 @@ export async function fetchOpenAICompatibleModelsRaw(options?: {
 export async function hasLocalAtomicChat(baseUrl?: string): Promise<boolean> {
   const { signal, clear } = withTimeoutSignal(1200)
   try {
-    const response = await fetch(`${getAtomicChatChatBaseUrl(baseUrl)}/models`, {
-      method: 'GET',
-      signal,
-    })
+    const response = await fetch(
+      `${getAtomicChatChatBaseUrl(baseUrl)}/models`,
+      {
+        method: 'GET',
+        signal,
+      },
+    )
     return response.ok
   } catch {
     return false
@@ -364,10 +371,13 @@ export async function listAtomicChatModels(
 ): Promise<string[]> {
   const { signal, clear } = withTimeoutSignal(5000)
   try {
-    const response = await fetch(`${getAtomicChatChatBaseUrl(baseUrl)}/models`, {
-      method: 'GET',
-      signal,
-    })
+    const response = await fetch(
+      `${getAtomicChatChatBaseUrl(baseUrl)}/models`,
+      {
+        method: 'GET',
+        signal,
+      },
+    )
     if (!response.ok) {
       return []
     }
@@ -477,22 +487,25 @@ export async function probeOllamaGenerationReadiness(options?: {
   const { signal, clear } = withTimeoutSignal(timeoutMs)
 
   try {
-    const response = await fetch(`${getOllamaApiBaseUrl(options?.baseUrl)}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal,
-      body: JSON.stringify({
-        model: probeModel,
-        stream: false,
-        messages: [{ role: 'user', content: 'Reply with OK.' }],
-        options: {
-          temperature: 0,
-          num_predict: 8,
+    const response = await fetch(
+      `${getOllamaApiBaseUrl(options?.baseUrl)}/api/chat`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
-    })
+        signal,
+        body: JSON.stringify({
+          model: probeModel,
+          stream: false,
+          messages: [{ role: 'user', content: 'Reply with OK.' }],
+          options: {
+            temperature: 0,
+            num_predict: 8,
+          },
+        }),
+      },
+    )
 
     if (!response.ok) {
       const responseBody = await response.text().catch(() => '')

@@ -139,12 +139,11 @@ export class DiagnosticTrackingService {
    * Ensure a file is opened in the IDE before processing.
    * This is important for language services like diagnostics to work properly.
    */
-  async ensureFileOpened(fileUri: string, mcpClient: MCPServerConnection): Promise<void> {
-    if (
-      !this.initialized ||
-      !mcpClient ||
-      mcpClient.type !== 'connected'
-    ) {
+  async ensureFileOpened(
+    fileUri: string,
+    mcpClient: MCPServerConnection,
+  ): Promise<void> {
+    if (!this.initialized || !mcpClient || mcpClient.type !== 'connected') {
       return
     }
 
@@ -171,12 +170,11 @@ export class DiagnosticTrackingService {
    * Capture baseline diagnostics for a specific file before editing.
    * This is called before editing a file to ensure we have a baseline to compare against.
    */
-  async beforeFileEdited(filePath: string, mcpClient: MCPServerConnection): Promise<void> {
-    if (
-      !this.initialized ||
-      !mcpClient ||
-      mcpClient.type !== 'connected'
-    ) {
+  async beforeFileEdited(
+    filePath: string,
+    mcpClient: MCPServerConnection,
+  ): Promise<void> {
+    if (!this.initialized || !mcpClient || mcpClient.type !== 'connected') {
       return
     }
 
@@ -224,12 +222,10 @@ export class DiagnosticTrackingService {
    * Get new diagnostics from file://, _claude_fs_right, and _claude_fs_ URIs that aren't in the baseline.
    * Only processes diagnostics for files that have been edited.
    */
-  async getNewDiagnostics(mcpClient: MCPServerConnection): Promise<DiagnosticFile[]> {
-    if (
-      !this.initialized ||
-      !mcpClient ||
-      mcpClient.type !== 'connected'
-    ) {
+  async getNewDiagnostics(
+    mcpClient: MCPServerConnection,
+  ): Promise<DiagnosticFile[]> {
+    if (!this.initialized || !mcpClient || mcpClient.type !== 'connected') {
       return []
     }
 

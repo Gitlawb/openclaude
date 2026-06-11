@@ -5,12 +5,12 @@
  */
 
 export async function logOTelEvent(
-	_eventName: string,
-	_metadata: { [key: string]: string | undefined } = {},
+  _eventName: string,
+  _metadata: { [key: string]: string | undefined } = {},
 ): Promise<void> {
-	// no-op
+  // no-op
 }
 
 export function redactIfDisabled(_content: string): string {
-	return '<REDACTED>'
+  return '<REDACTED>'
 }

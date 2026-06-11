@@ -1,6 +1,11 @@
 import { join } from 'path'
 import { existsSync, mkdirSync, unlinkSync, statSync } from 'fs'
-import type { Entity, Relation, SemanticSummary, KnowledgeGraph } from '../knowledgeGraph.js'
+import type {
+  Entity,
+  Relation,
+  SemanticSummary,
+  KnowledgeGraph,
+} from '../knowledgeGraph.js'
 import { registerCleanup } from '../cleanupRegistry.js'
 
 /**
@@ -51,7 +56,10 @@ export class SQLiteProvider {
       this.isInitialized = true
     } catch (e) {
       if (!String(e).includes('disk I/O error')) {
-        console.error(`Failed to initialize SQLite database at ${this.dbPath}:`, e)
+        console.error(
+          `Failed to initialize SQLite database at ${this.dbPath}:`,
+          e,
+        )
       }
       await this.selfHeal()
     }
@@ -64,7 +72,9 @@ export class SQLiteProvider {
       const sidecars = [this.dbPath, `${this.dbPath}-wal`, `${this.dbPath}-shm`]
       for (const file of sidecars) {
         if (existsSync(file)) {
-          try { unlinkSync(file) } catch {}
+          try {
+            unlinkSync(file)
+          } catch {}
         }
       }
 
@@ -77,7 +87,10 @@ export class SQLiteProvider {
       }
       this.isInitialized = true
     } catch (e) {
-      console.warn(`Critical SQLite failure during self-heal at ${this.dbPath}. Falling back to JSON:`, e)
+      console.warn(
+        `Critical SQLite failure during self-heal at ${this.dbPath}. Falling back to JSON:`,
+        e,
+      )
       this.isInitialized = true
       this.db = null
     }
@@ -115,7 +128,7 @@ export class SQLiteProvider {
       `CREATE TABLE IF NOT EXISTS sync_meta (
         key TEXT PRIMARY KEY,
         value TEXT
-      );`
+      );`,
     ]
 
     for (const stmt of statements) {
@@ -170,7 +183,7 @@ export class SQLiteProvider {
             $type: entity.type,
             $name: entity.name,
             $attributes: JSON.stringify(entity.attributes),
-            $last_updated: graph.lastUpdateTime
+            $last_updated: graph.lastUpdateTime,
           })
         }
 
@@ -178,7 +191,7 @@ export class SQLiteProvider {
           upsertRelation.run({
             $source_id: rel.sourceId,
             $target_id: rel.targetId,
-            $type: rel.type
+            $type: rel.type,
           })
         }
 
@@ -187,19 +200,20 @@ export class SQLiteProvider {
             $id: summary.id,
             $content: summary.content,
             $keywords: JSON.stringify(summary.keywords),
-            $timestamp: summary.timestamp
+            $timestamp: summary.timestamp,
           })
         }
 
         for (const rule of graph.rules) {
           upsertRule.run({
             $content: rule,
-            $timestamp: Date.now()
+            $timestamp: Date.now(),
           })
         }
 
-        this.db!.prepare('INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)')
-          .run('last_update_time', graph.lastUpdateTime.toString())
+        this.db!.prepare(
+          'INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)',
+        ).run('last_update_time', graph.lastUpdateTime.toString())
       })()
     } catch (e) {
       console.error('Failed to save graph to SQLite:', e)
@@ -212,15 +226,21 @@ export class SQLiteProvider {
 
     try {
       const entitiesRaw = this.db.query('SELECT * FROM entities').all() as any[]
-      const summariesRaw = this.db.query('SELECT * FROM summaries').all() as any[]
+      const summariesRaw = this.db
+        .query('SELECT * FROM summaries')
+        .all() as any[]
 
       if (entitiesRaw.length === 0 && summariesRaw.length === 0) {
         return null
       }
 
-      const relationsRaw = this.db.query('SELECT * FROM relations').all() as any[]
+      const relationsRaw = this.db
+        .query('SELECT * FROM relations')
+        .all() as any[]
       const rulesRaw = this.db.query('SELECT * FROM rules').all() as any[]
-      const meta = this.db.query('SELECT value FROM sync_meta WHERE key = "last_update_time"').get() as any
+      const meta = this.db
+        .query('SELECT value FROM sync_meta WHERE key = "last_update_time"')
+        .get() as any
 
       const entities: Record<string, Entity> = {}
       for (const row of entitiesRaw) {
@@ -228,21 +248,21 @@ export class SQLiteProvider {
           id: row.id,
           type: row.type,
           name: row.name,
-          attributes: JSON.parse(row.attributes)
+          attributes: JSON.parse(row.attributes),
         }
       }
 
       const relations: Relation[] = relationsRaw.map((row: any) => ({
         sourceId: row.source_id,
         targetId: row.target_id,
-        type: row.type
+        type: row.type,
       }))
 
       const summaries: SemanticSummary[] = summariesRaw.map((row: any) => ({
         id: row.id,
         content: row.content,
         keywords: JSON.parse(row.keywords),
-        timestamp: row.timestamp
+        timestamp: row.timestamp,
       }))
 
       const rules: string[] = rulesRaw.map((row: any) => row.content)
@@ -252,7 +272,7 @@ export class SQLiteProvider {
         relations,
         summaries,
         rules,
-        lastUpdateTime: meta ? parseInt(meta.value) : Date.now()
+        lastUpdateTime: meta ? parseInt(meta.value) : Date.now(),
       }
     } catch (e) {
       return null

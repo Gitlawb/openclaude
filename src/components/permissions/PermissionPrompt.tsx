@@ -108,8 +108,10 @@ export function PermissionPrompt<T extends string>({
         }
 
         const { type, placeholder } = option.feedbackConfig
-        const isInputMode = type === 'accept' ? acceptInputMode : rejectInputMode
-        const onChange = type === 'accept' ? setAcceptFeedback : setRejectFeedback
+        const isInputMode =
+          type === 'accept' ? acceptInputMode : rejectInputMode
+        const onChange =
+          type === 'accept' ? setAcceptFeedback : setRejectFeedback
 
         if (!isInputMode) {
           return {

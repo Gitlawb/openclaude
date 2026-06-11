@@ -1,6 +1,6 @@
 /**
  * Streaming Token Counter - Accurate token counting during generation
- * 
+ *
  * Accumulates raw content and counts tokens at consistent boundaries
  * to avoid dependency on arbitrary chunk boundaries.
  */
@@ -72,7 +72,9 @@ export class StreamingTokenCounter {
    */
   finalize(): number {
     if (this.accumulatedContent.length > this.lastCountedIndex) {
-      this.cachedOutputTokens = roughTokenCountEstimation(this.accumulatedContent)
+      this.cachedOutputTokens = roughTokenCountEstimation(
+        this.accumulatedContent,
+      )
       this.lastCountedIndex = this.accumulatedContent.length
     }
     return this.cachedOutputTokens

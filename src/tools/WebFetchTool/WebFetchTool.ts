@@ -24,7 +24,10 @@ import {
 import { firecrawlScrape } from '../firecrawl/client.js'
 
 function isFirecrawlEnabled(): boolean {
-  return Boolean(process.env.FIRECRAWL_API_KEY) || Boolean(process.env.FIRECRAWL_API_URL)
+  return (
+    Boolean(process.env.FIRECRAWL_API_KEY) ||
+    Boolean(process.env.FIRECRAWL_API_URL)
+  )
 }
 
 async function scrapeWithFirecrawl(
@@ -232,7 +235,10 @@ ${DESCRIPTION}`
     const start = Date.now()
 
     if (isFirecrawlEnabled()) {
-      const { markdown, bytes } = await scrapeWithFirecrawl(url, abortController.signal)
+      const { markdown, bytes } = await scrapeWithFirecrawl(
+        url,
+        abortController.signal,
+      )
       const result = await applyPromptToMarkdown(
         prompt,
         markdown,

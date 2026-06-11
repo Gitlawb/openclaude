@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { afterEach, beforeEach } from 'node:test'
@@ -33,13 +40,17 @@ import {
 } from './providerProfile.js'
 
 function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
-    .toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'none', typ: 'JWT' }),
+  ).toString('base64url')
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `${header}.${body}.signature`
 }
 
-function profile(profile: ProfileFile['profile'], env: ProfileFile['env']): ProfileFile {
+function profile(
+  profile: ProfileFile['profile'],
+  env: ProfileFile['env'],
+): ProfileFile {
   return {
     profile,
     env,
@@ -52,7 +63,10 @@ async function importFreshProviderProfileModule() {
   return import(`./providerProfile.js?ts=${nonce}`)
 }
 
-const missingCodexAuthPath = join(tmpdir(), 'openclaude-missing-codex-auth.json')
+const missingCodexAuthPath = join(
+  tmpdir(),
+  'openclaude-missing-codex-auth.json',
+)
 
 beforeEach(async () => {
   await acquireEnvMutex()
@@ -384,14 +398,11 @@ test('openai env variables take precedence over gemini', async () => {
     },
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, undefined) 
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, undefined)
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
   assert.equal(env.GEMINI_MODEL, undefined)
   assert.equal(env.GEMINI_API_KEY, undefined)
-  assert.equal(
-    env.GEMINI_BASE_URL,
-    undefined,
-  )
+  assert.equal(env.GEMINI_BASE_URL, undefined)
   assert.equal(env.GOOGLE_API_KEY, undefined)
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
   assert.equal(env.CODEX_API_KEY, undefined)
@@ -732,10 +743,7 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
     const filePath = saveProfileFile(persisted, { cwd })
 
     assert.equal(filePath, join(cwd, PROFILE_FILE_NAME))
-    assert.equal(
-      JSON.parse(readFileSync(filePath, 'utf8')).profile,
-      'openai',
-    )
+    assert.equal(JSON.parse(readFileSync(filePath, 'utf8')).profile, 'openai')
     assert.deepEqual(loadProfileFile({ cwd }), persisted)
   } finally {
     rmSync(cwd, { recursive: true, force: true })
@@ -761,7 +769,10 @@ test('saveProfileFile defaults to user config instead of the working directory',
     const filePath = saveProfileFile(persisted, { configDir })
 
     assert.equal(filePath, join(configDir, PROFILE_FILE_NAME))
-    assert.equal(getDefaultProfileFilePath(configDir), join(configDir, PROFILE_FILE_NAME))
+    assert.equal(
+      getDefaultProfileFilePath(configDir),
+      join(configDir, PROFILE_FILE_NAME),
+    )
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
     const configDirStat = statSync(configDir)
     assert.equal(configDirStat.isDirectory(), true)
@@ -783,7 +794,9 @@ test('saveProfileFile defaults to user config instead of the working directory',
 
 test('loadProfileFile keeps project-local files as a legacy fallback', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-legacy-profile-'))
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-empty-config-profile-'))
+  const configDir = mkdtempSync(
+    join(tmpdir(), 'openclaude-empty-config-profile-'),
+  )
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   const previousCwd = process.cwd()
 
@@ -816,7 +829,9 @@ test('loadProfileFile keeps project-local files as a legacy fallback', () => {
 
 test('loadProfileFile does not fall back when user config profile is invalid', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-invalid-profile-'))
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-invalid-config-profile-'))
+  const configDir = mkdtempSync(
+    join(tmpdir(), 'openclaude-invalid-config-profile-'),
+  )
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   const previousCwd = process.cwd()
 
@@ -850,7 +865,9 @@ test('loadProfileFile does not fall back when user config profile is invalid', (
 
 test('deleteProfileFile clears the default profile and legacy workspace fallback', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-delete-profile-'))
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-delete-config-profile-'))
+  const configDir = mkdtempSync(
+    join(tmpdir(), 'openclaude-delete-config-profile-'),
+  )
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   const previousCwd = process.cwd()
 
@@ -892,7 +909,9 @@ test('deleteProfileFile clears the default profile and legacy workspace fallback
 
 test('deleteProfileFile with configDir and cwd clears both user config and legacy fallback', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-delete-mixed-profile-'))
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-delete-mixed-config-profile-'))
+  const configDir = mkdtempSync(
+    join(tmpdir(), 'openclaude-delete-mixed-config-profile-'),
+  )
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   const previousCwd = process.cwd()
 
@@ -1004,7 +1023,9 @@ test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profile
 
 test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-profile-'))
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-config-'))
+  const configDir = mkdtempSync(
+    join(tmpdir(), 'openclaude-clear-oauth-config-'),
+  )
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   const previousCwd = process.cwd()
 
@@ -1244,7 +1265,8 @@ test('buildStartupEnvFromProfile preserves explicit GitHub provider settings whe
 })
 
 test('applySavedProfileToCurrentSession can switch away from GitHub provider env', async () => {
-  const { applySavedProfileToCurrentSession } = await importFreshProviderProfileModule()
+  const { applySavedProfileToCurrentSession } =
+    await importFreshProviderProfileModule()
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_GITHUB: '1',
     OPENAI_MODEL: 'github:copilot',
@@ -1267,7 +1289,8 @@ test('applySavedProfileToCurrentSession can switch away from GitHub provider env
 })
 
 test('applySavedProfileToCurrentSession replaces empty active OpenAI key for Codex OAuth', async () => {
-  const { applySavedProfileToCurrentSession } = await importFreshProviderProfileModule()
+  const { applySavedProfileToCurrentSession } =
+    await importFreshProviderProfileModule()
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
     CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'provider_codex_oauth',
@@ -1330,7 +1353,10 @@ test('buildStartupEnvFromProfile preserves plural-profile env when the legacy fi
   // Plural markers are retained — downstream code uses them to verify the
   // env still belongs to the profile it was applied from.
   assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED, '1')
-  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, 'saved_moonshot')
+  assert.equal(
+    env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+    'saved_moonshot',
+  )
 })
 
 test('buildStartupEnvFromProfile ignores the legacy file when startup already has concrete env', async () => {
@@ -1435,7 +1461,10 @@ test('buildStartupEnvFromProfile treats explicit falsey provider flags as user i
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
   assert.equal(env.GEMINI_API_KEY, 'gem-persisted')
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
-  assert.equal(env.GEMINI_BASE_URL, 'https://generativelanguage.googleapis.com/v1beta/openai')
+  assert.equal(
+    env.GEMINI_BASE_URL,
+    'https://generativelanguage.googleapis.com/v1beta/openai',
+  )
   assert.equal(env.GEMINI_AUTH_MODE, 'api-key')
 })
 

@@ -1,5 +1,8 @@
 import { afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
-import { ensureIntegrationsLoaded, getAllGateways } from '../integrations/index.js'
+import {
+  ensureIntegrationsLoaded,
+  getAllGateways,
+} from '../integrations/index.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,

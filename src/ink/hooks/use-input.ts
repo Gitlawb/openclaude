@@ -126,4 +126,3 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
 }
 
 export default useInput
-

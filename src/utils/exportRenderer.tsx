@@ -1,12 +1,12 @@
-import React, { useRef } from 'react';
-import { stripVTControlCharacters as stripAnsi } from 'node:util';
-import { Messages } from '../components/Messages.js';
-import { KeybindingProvider } from '../keybindings/KeybindingContext.js';
-import { loadKeybindingsSyncWithWarnings } from '../keybindings/loadUserBindings.js';
-import type { KeybindingContextName } from '../keybindings/types.js';
-import { AppStateProvider } from '../state/AppState.js';
-import type { Tools } from '../Tool.js';
-import type { Message } from '../types/message.js';
+import React, { useRef } from 'react'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
+import { Messages } from '../components/Messages.js'
+import { KeybindingProvider } from '../keybindings/KeybindingContext.js'
+import { loadKeybindingsSyncWithWarnings } from '../keybindings/loadUserBindings.js'
+import type { KeybindingContextName } from '../keybindings/types.js'
+import { AppStateProvider } from '../state/AppState.js'
+import type { Tools } from '../Tool.js'
+import type { Message } from '../types/message.js'
 import {
   BASH_INPUT_TAG,
   BASH_STDERR_TAG,
@@ -22,10 +22,10 @@ import {
   TASK_NOTIFICATION_TAG,
   TEAMMATE_MESSAGE_TAG,
   TICK_TAG,
-} from '../constants/xml.js';
-import type { ExportFormat } from './exportFormats.js';
-import { renderToAnsiString } from './staticRender.js';
-import { unescapeXml } from './xml.js';
+} from '../constants/xml.js'
+import type { ExportFormat } from './exportFormats.js'
+import { renderToAnsiString } from './staticRender.js'
+import { unescapeXml } from './xml.js'
 
 /**
  * Minimal keybinding provider for static/headless renders.
@@ -33,19 +33,28 @@ import { unescapeXml } from './xml.js';
  * and would hang in headless renders with no stdin).
  */
 function StaticKeybindingProvider({
-  children
+  children,
 }: {
-  children: React.ReactNode;
+  children: React.ReactNode
 }): React.ReactNode {
-  const {
-    bindings
-  } = loadKeybindingsSyncWithWarnings();
-  const pendingChordRef = useRef(null);
-  const handlerRegistryRef = useRef(new Map());
-  const activeContexts = useRef(new Set<KeybindingContextName>()).current;
-  return <KeybindingProvider bindings={bindings} pendingChordRef={pendingChordRef} pendingChord={null} setPendingChord={() => {}} activeContexts={activeContexts} registerActiveContext={() => {}} unregisterActiveContext={() => {}} handlerRegistryRef={handlerRegistryRef}>
+  const { bindings } = loadKeybindingsSyncWithWarnings()
+  const pendingChordRef = useRef(null)
+  const handlerRegistryRef = useRef(new Map())
+  const activeContexts = useRef(new Set<KeybindingContextName>()).current
+  return (
+    <KeybindingProvider
+      bindings={bindings}
+      pendingChordRef={pendingChordRef}
+      pendingChord={null}
+      setPendingChord={() => {}}
+      activeContexts={activeContexts}
+      registerActiveContext={() => {}}
+      unregisterActiveContext={() => {}}
+      handlerRegistryRef={handlerRegistryRef}
+    >
       {children}
-    </KeybindingProvider>;
+    </KeybindingProvider>
+  )
 }
 
 // Upper-bound how many NormalizedMessages a Message can produce.
@@ -53,9 +62,9 @@ function StaticKeybindingProvider({
 // NormalizedMessages — 1:1 with block count. String content = 1 block.
 // AttachmentMessage etc. have no .message and normalize to ≤1.
 function normalizedUpperBound(m: Message): number {
-  if (!('message' in m)) return 1;
-  const c = m.message.content;
-  return Array.isArray(c) ? c.length : 1;
+  if (!('message' in m)) return 1
+  const c = m.message.content
+  return Array.isArray(c) ? c.length : 1
 }
 
 /**
@@ -70,35 +79,59 @@ function normalizedUpperBound(m: Message): number {
  * the full normalized array so tool_use↔tool_result resolves regardless of
  * which chunk each landed in.
  */
-export async function streamRenderedMessages(messages: Message[], tools: Tools, sink: (ansiChunk: string) => void | Promise<void>, {
-  columns,
-  verbose = false,
-  chunkSize = 40,
-  onProgress
-}: {
-  columns?: number;
-  verbose?: boolean;
-  chunkSize?: number;
-  onProgress?: (rendered: number) => void;
-} = {}): Promise<void> {
-  const renderChunk = (range: readonly [number, number]) => renderToAnsiString(<AppStateProvider>
+export async function streamRenderedMessages(
+  messages: Message[],
+  tools: Tools,
+  sink: (ansiChunk: string) => void | Promise<void>,
+  {
+    columns,
+    verbose = false,
+    chunkSize = 40,
+    onProgress,
+  }: {
+    columns?: number
+    verbose?: boolean
+    chunkSize?: number
+    onProgress?: (rendered: number) => void
+  } = {},
+): Promise<void> {
+  const renderChunk = (range: readonly [number, number]) =>
+    renderToAnsiString(
+      <AppStateProvider>
         <StaticKeybindingProvider>
-          <Messages messages={messages} tools={tools} commands={[]} verbose={verbose} toolJSX={null} toolUseConfirmQueue={[]} inProgressToolUseIDs={new Set()} isMessageSelectorVisible={false} conversationId="export" screen="prompt" streamingToolUses={[]} showAllInTranscript={true} isLoading={false} renderRange={range} />
+          <Messages
+            messages={messages}
+            tools={tools}
+            commands={[]}
+            verbose={verbose}
+            toolJSX={null}
+            toolUseConfirmQueue={[]}
+            inProgressToolUseIDs={new Set()}
+            isMessageSelectorVisible={false}
+            conversationId="export"
+            screen="prompt"
+            streamingToolUses={[]}
+            showAllInTranscript={true}
+            isLoading={false}
+            renderRange={range}
+          />
         </StaticKeybindingProvider>
-      </AppStateProvider>, columns);
+      </AppStateProvider>,
+      columns,
+    )
 
   // renderRange indexes into the post-collapse array whose length we can't
   // see from here — normalize splits each Message into one NormalizedMessage
   // per content block (unbounded per message), collapse merges some back.
   // Ceiling is the exact normalize output count + chunkSize so the loop
   // always reaches the empty slice where break fires (collapse only shrinks).
-  let ceiling = chunkSize;
-  for (const m of messages) ceiling += normalizedUpperBound(m);
+  let ceiling = chunkSize
+  for (const m of messages) ceiling += normalizedUpperBound(m)
   for (let offset = 0; offset < ceiling; offset += chunkSize) {
-    const ansi = await renderChunk([offset, offset + chunkSize]);
-    if (stripAnsi(ansi).trim() === '') break;
-    await sink(ansi);
-    onProgress?.(offset + chunkSize);
+    const ansi = await renderChunk([offset, offset + chunkSize])
+    if (stripAnsi(ansi).trim() === '') break
+    await sink(ansi)
+    onProgress?.(offset + chunkSize)
   }
 }
 
@@ -106,12 +139,21 @@ export async function streamRenderedMessages(messages: Message[], tools: Tools, 
  * Renders messages to a plain text string suitable for export.
  * Uses the same React rendering logic as the interactive UI.
  */
-export async function renderMessagesToPlainText(messages: Message[], tools: Tools = [], columns?: number): Promise<string> {
-  const parts: string[] = [];
-  await streamRenderedMessages(messages, tools, chunk => void parts.push(stripAnsi(chunk)), {
-    columns
-  });
-  return parts.join('');
+export async function renderMessagesToPlainText(
+  messages: Message[],
+  tools: Tools = [],
+  columns?: number,
+): Promise<string> {
+  const parts: string[] = []
+  await streamRenderedMessages(
+    messages,
+    tools,
+    chunk => void parts.push(stripAnsi(chunk)),
+    {
+      columns,
+    },
+  )
+  return parts.join('')
 }
 
 /**
@@ -135,16 +177,23 @@ const INTERNAL_TEXT_TAGS = [
   CHANNEL_MESSAGE_TAG,
   CROSS_SESSION_MESSAGE_TAG,
 ]
-const INTERNAL_TEXT_TAG_REGEXES = INTERNAL_TEXT_TAGS.map(tag => internalTagRegex(tag))
+const INTERNAL_TEXT_TAG_REGEXES = INTERNAL_TEXT_TAGS.map(tag =>
+  internalTagRegex(tag),
+)
 
-const SYNTHETIC_TOOL_RESULT_PLACEHOLDER = '[Tool result missing due to internal error]'
+const SYNTHETIC_TOOL_RESULT_PLACEHOLDER =
+  '[Tool result missing due to internal error]'
 
 /**
  * Render messages as human-readable Markdown.
  * Produces structured output directly from Message[] without relying on
  * the terminal UI renderer (which is optimized for ANSI display).
  */
-export function renderMessagesToMarkdown(messages: Message[], _tools?: Tools, _columns?: number): string {
+export function renderMessagesToMarkdown(
+  messages: Message[],
+  _tools?: Tools,
+  _columns?: number,
+): string {
   const lines: string[] = []
 
   lines.push('# Conversation Export')
@@ -173,10 +222,14 @@ export function renderMessagesToMarkdown(messages: Message[], _tools?: Tools, _c
     // Determine the display heading — tool_result blocks inside user messages
     // should show as "Tool Result" not "User"
     const terminalOutputs = getTerminalOutputs(content)
-    const isToolResultMessage = (msgType === 'user' || msgType === 'tool') && isToolResultMessageContent(content)
+    const isToolResultMessage =
+      (msgType === 'user' || msgType === 'tool') &&
+      isToolResultMessageContent(content)
     const heading = terminalOutputs
       ? terminalHeading(terminalOutputs)
-      : isToolResultMessage ? 'Tool Result' : messageHeading(msgType)
+      : isToolResultMessage
+        ? 'Tool Result'
+        : messageHeading(msgType)
 
     if (typeof content === 'string') {
       renderTextMarkdown(content, contentLines)
@@ -186,7 +239,11 @@ export function renderMessagesToMarkdown(messages: Message[], _tools?: Tools, _c
           renderUnknownContentMarkdown(block, contentLines)
           continue
         }
-        renderContentBlockMarkdown(block as Record<string, unknown>, contentLines, isToolResultMessage)
+        renderContentBlockMarkdown(
+          block as Record<string, unknown>,
+          contentLines,
+          isToolResultMessage,
+        )
       }
       if (contentLines.length > 0) contentLines.push('')
     } else {
@@ -206,15 +263,24 @@ export function renderMessagesToMarkdown(messages: Message[], _tools?: Tools, _c
 
 function messageHeading(type: string): string {
   switch (type) {
-    case 'user': return 'User'
-    case 'assistant': return 'Assistant'
-    case 'system': return 'System'
-    case 'tool': return 'Tool Result'
-    default: return type.charAt(0).toUpperCase() + type.slice(1)
+    case 'user':
+      return 'User'
+    case 'assistant':
+      return 'Assistant'
+    case 'system':
+      return 'System'
+    case 'tool':
+      return 'Tool Result'
+    default:
+      return type.charAt(0).toUpperCase() + type.slice(1)
   }
 }
 
-function renderContentBlockMarkdown(block: Record<string, unknown>, lines: string[], skipSubheading = false): void {
+function renderContentBlockMarkdown(
+  block: Record<string, unknown>,
+  lines: string[],
+  skipSubheading = false,
+): void {
   const type = block.type as string | undefined
 
   if (type === 'text') {
@@ -246,9 +312,10 @@ function renderContentBlockMarkdown(block: Record<string, unknown>, lines: strin
     }
     const resultContent = block.content
     if (resultContent != null) {
-      const asString = typeof resultContent === 'string'
-        ? stripSystemReminderBlocks(resultContent)
-        : safeStringify(resultContent, 2)
+      const asString =
+        typeof resultContent === 'string'
+          ? stripSystemReminderBlocks(resultContent)
+          : safeStringify(resultContent, 2)
       const fence = looksLikeJson(asString) ? 'json' : 'text'
       const marker = markdownFenceFor(asString)
       lines.push(`${marker}${fence}`)
@@ -301,8 +368,10 @@ function extractMessageContent(msg: Record<string, unknown>): unknown {
 
 function looksLikeJson(s: string): boolean {
   const trimmed = s.trim()
-  return (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
     (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  )
 }
 
 function markdownFenceFor(content: string): string {
@@ -325,12 +394,18 @@ function safeStringify(value: unknown, indent?: number): string {
  * Render messages as versioned, pretty-printed JSON suitable for
  * programmatic consumption.
  */
-export function renderMessagesToJSON(messages: Message[], _tools?: Tools): string {
+export function renderMessagesToJSON(
+  messages: Message[],
+  _tools?: Tools,
+): string {
   // Filter out internal UI message types
   const filtered = messages.flatMap((msg, sourceIndex) => {
     if (!msg || typeof msg !== 'object') return []
     const msgType = String((msg as Record<string, unknown>).type ?? '')
-    return shouldExportStructuredMessage(msg as Record<string, unknown>, msgType)
+    return shouldExportStructuredMessage(
+      msg as Record<string, unknown>,
+      msgType,
+    )
       ? [{ msg, sourceIndex }]
       : []
   })
@@ -344,7 +419,9 @@ export function renderMessagesToJSON(messages: Message[], _tools?: Tools): strin
     const role = toRoleForContent(msgType, content)
 
     const exportedContent = serializeContentBlocks(content)
-    const timestamp = (msg as Record<string, unknown>).timestamp as string | undefined
+    const timestamp = (msg as Record<string, unknown>).timestamp as
+      | string
+      | undefined
 
     const result: Record<string, unknown> = {
       index,
@@ -359,9 +436,13 @@ export function renderMessagesToJSON(messages: Message[], _tools?: Tools): strin
     const subtype = (msg as Record<string, unknown>).subtype
     if (terminalOutputs) {
       result.subtype = terminalOutputs.every(output => output.source === 'bash')
-        ? terminalOutputs.every(output => output.stream === 'stdin') ? 'bash_input' : 'bash_output'
+        ? terminalOutputs.every(output => output.stream === 'stdin')
+          ? 'bash_input'
+          : 'bash_output'
         : 'local_command'
-      result.stream = terminalOutputs.every(output => output.stream === terminalOutputs[0]!.stream)
+      result.stream = terminalOutputs.every(
+        output => output.stream === terminalOutputs[0]!.stream,
+      )
         ? terminalOutputs[0]!.stream
         : 'mixed'
     } else if (typeof subtype === 'string') {
@@ -399,7 +480,12 @@ function toRole(type: string): string {
 function toExportedMessageType(msgType: string, content: unknown): string {
   if (getTerminalOutputs(content)) return 'system'
   if (isToolResultMessageContent(content)) return 'tool'
-  if (msgType === 'user' || msgType === 'assistant' || msgType === 'system' || msgType === 'tool') {
+  if (
+    msgType === 'user' ||
+    msgType === 'assistant' ||
+    msgType === 'system' ||
+    msgType === 'tool'
+  ) {
     return msgType
   }
   if (msgType !== 'unknown') return 'unknown'
@@ -420,18 +506,26 @@ function isToolResultMessageContent(content: unknown): boolean {
   if (!Array.isArray(content)) return false
   const hasToolResult = content.some(isToolResultBlock)
   if (!hasToolResult) return false
-  return content.every(block => isToolResultBlock(block) || isInternalTextBlock(block))
+  return content.every(
+    block => isToolResultBlock(block) || isInternalTextBlock(block),
+  )
 }
 
 function isToolResultBlock(block: unknown): boolean {
-  return !!block && typeof block === 'object' && (block as Record<string, unknown>).type === 'tool_result'
+  return (
+    !!block &&
+    typeof block === 'object' &&
+    (block as Record<string, unknown>).type === 'tool_result'
+  )
 }
 
 function isTextBlock(block: unknown): block is { type: 'text'; text: string } {
-  return !!block &&
+  return (
+    !!block &&
     typeof block === 'object' &&
     (block as Record<string, unknown>).type === 'text' &&
     typeof (block as Record<string, unknown>).text === 'string'
+  )
 }
 
 function isInternalTextBlock(block: unknown): boolean {
@@ -442,7 +536,8 @@ function serializeContentBlocks(content: unknown): unknown[] {
   if (content == null) return []
   const terminalOutputs = getTerminalOutputs(content)
   if (terminalOutputs) return serializeTerminalOutputs(terminalOutputs)
-  if (typeof content === 'string') return [{ type: 'text', text: stripTopLevelInternalText(content) }]
+  if (typeof content === 'string')
+    return [{ type: 'text', text: stripTopLevelInternalText(content) }]
 
   if (!Array.isArray(content)) {
     return [{ type: 'unknown', value: safeJsonValue(content) }]
@@ -496,7 +591,10 @@ function serializeContentBlock(block: unknown): unknown | unknown[] {
         ...(isError != null ? { isError: !!isError } : {}),
       }
     case 'image':
-      return { type: 'image', ...(b.source != null ? { source: safeJsonValue(b.source) } : {}) }
+      return {
+        type: 'image',
+        ...(b.source != null ? { source: safeJsonValue(b.source) } : {}),
+      }
     case 'thinking':
     case 'redacted_thinking':
       return []
@@ -506,7 +604,12 @@ function serializeContentBlock(block: unknown): unknown | unknown[] {
 }
 
 function safeJsonValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+  if (
+    value == null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
     if (typeof value === 'string') return stripSystemReminderBlocks(value)
     return value
   }
@@ -552,7 +655,10 @@ function safeJsonValue(value: unknown, seen = new WeakSet<object>()): unknown {
       }
       for (const key of keys) {
         try {
-          result[key] = safeJsonValue((value as Record<string, unknown>)[key], seen)
+          result[key] = safeJsonValue(
+            (value as Record<string, unknown>)[key],
+            seen,
+          )
         } catch {
           result[key] = '[Unserializable]'
         }
@@ -566,9 +672,16 @@ function safeJsonValue(value: unknown, seen = new WeakSet<object>()): unknown {
   return String(value)
 }
 
-function shouldExportStructuredMessage(msg: Record<string, unknown>, msgType: string): boolean {
+function shouldExportStructuredMessage(
+  msg: Record<string, unknown>,
+  msgType: string,
+): boolean {
   if (SKIP_MESSAGE_TYPES.has(msgType)) return false
-  if (msgType === 'system' && SKIP_SYSTEM_SUBTYPES.has(String(msg.subtype ?? ''))) return false
+  if (
+    msgType === 'system' &&
+    SKIP_SYSTEM_SUBTYPES.has(String(msg.subtype ?? ''))
+  )
+    return false
   if (msg.isMeta === true || msg.isCompactSummary === true) return false
 
   const content = extractMessageContent(msg)
@@ -581,13 +694,19 @@ function isSyntheticContent(content: unknown): boolean {
   if (!Array.isArray(content)) return false
   const first = content[0]
   const hasSyntheticToolResult = content.some(isSyntheticToolResultBlock)
-  return (isTextBlock(first) &&
-    (first.text === '[Request interrupted by user]' ||
-      first.text === '[Request interrupted by user for tool use]' ||
-      first.text === '[Request cancelled]' ||
-      first.text === '[Tool use rejected]' ||
-      first.text === '[No response requested]')) ||
-    (hasSyntheticToolResult && content.every(block => isSyntheticToolResultBlock(block) || isInternalTextBlock(block)))
+  return (
+    (isTextBlock(first) &&
+      (first.text === '[Request interrupted by user]' ||
+        first.text === '[Request interrupted by user for tool use]' ||
+        first.text === '[Request cancelled]' ||
+        first.text === '[Tool use rejected]' ||
+        first.text === '[No response requested]')) ||
+    (hasSyntheticToolResult &&
+      content.every(
+        block =>
+          isSyntheticToolResultBlock(block) || isInternalTextBlock(block),
+      ))
+  )
 }
 
 function isInternalText(text: string): boolean {
@@ -597,8 +716,14 @@ function isInternalText(text: string): boolean {
 function isSyntheticToolResultBlock(block: unknown): boolean {
   if (!isToolResultBlock(block)) return false
   const content = (block as Record<string, unknown>).content
-  return content === SYNTHETIC_TOOL_RESULT_PLACEHOLDER ||
-    (Array.isArray(content) && content.every(item => isTextBlock(item) && item.text === SYNTHETIC_TOOL_RESULT_PLACEHOLDER))
+  return (
+    content === SYNTHETIC_TOOL_RESULT_PLACEHOLDER ||
+    (Array.isArray(content) &&
+      content.every(
+        item =>
+          isTextBlock(item) && item.text === SYNTHETIC_TOOL_RESULT_PLACEHOLDER,
+      ))
+  )
 }
 
 type TerminalOutput = {
@@ -610,7 +735,10 @@ type TerminalOutput = {
 function getTerminalOutputs(content: unknown): TerminalOutput[] | null {
   if (typeof content === 'string') return parseTerminalOutputs(content)
   if (!Array.isArray(content)) return null
-  const visibleBlocks = content.filter(block => block != null && !(isTextBlock(block) && isInternalText(block.text)))
+  const visibleBlocks = content.filter(
+    block =>
+      block != null && !(isTextBlock(block) && isInternalText(block.text)),
+  )
   if (visibleBlocks.length !== 1) return null
   const [block] = visibleBlocks
   return isTextBlock(block) ? parseTerminalOutputs(block.text) : null
@@ -631,7 +759,9 @@ function parseTerminalOutputs(text: string): TerminalOutput[] | null {
   return outputs.length > 0 ? outputs : null
 }
 
-function parseWrappedOutputPrefix(text: string): { output: TerminalOutput; rest: string } | null {
+function parseWrappedOutputPrefix(
+  text: string,
+): { output: TerminalOutput; rest: string } | null {
   for (const { tag, source, stream } of TERMINAL_OUTPUT_DEFINITIONS) {
     const openTagPrefix = `<${tag}`
     const closeTag = `</${tag}>`
@@ -673,7 +803,9 @@ const TERMINAL_OUTPUT_DEFINITIONS: ReadonlyArray<{
 
 function terminalHeading(outputs: TerminalOutput[]): string {
   if (outputs.every(output => output.source === 'bash')) {
-    return outputs.every(output => output.stream === 'stdin') ? 'Bash Input' : 'Bash Output'
+    return outputs.every(output => output.stream === 'stdin')
+      ? 'Bash Input'
+      : 'Bash Output'
   }
   return 'Local Command Output'
 }
@@ -682,7 +814,9 @@ function renderTextMarkdown(text: string, lines: string[]): void {
   if (!text) return
   const withoutReminders = stripSystemReminderBlocks(text)
   const terminalOutputs = parseTerminalOutputs(withoutReminders)
-  const strippedText = terminalOutputs ? withoutReminders : stripTopLevelInternalText(text)
+  const strippedText = terminalOutputs
+    ? withoutReminders
+    : stripTopLevelInternalText(text)
   if (!strippedText) return
   if (!terminalOutputs) {
     lines.push(strippedText)
@@ -721,7 +855,9 @@ function renderUnknownContentMarkdown(content: unknown, lines: string[]): void {
 }
 
 function stripSystemReminderBlocks(text: string): string {
-  return text.replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/g, '').trim()
+  return text
+    .replace(/<system-reminder\b[^>]*>[\s\S]*?<\/system-reminder>/g, '')
+    .trim()
 }
 
 function stripTopLevelInternalText(text: string): string {
@@ -742,7 +878,12 @@ function escapeRegExp(value: string): string {
 }
 
 function isKnownMessageType(type: string): boolean {
-  return type === 'user' || type === 'assistant' || type === 'system' || type === 'tool'
+  return (
+    type === 'user' ||
+    type === 'assistant' ||
+    type === 'system' ||
+    type === 'tool'
+  )
 }
 
 function hasExportableStructuredContent(content: unknown): boolean {

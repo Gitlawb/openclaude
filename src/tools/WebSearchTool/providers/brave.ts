@@ -8,7 +8,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 export const braveProvider: SearchProvider = {
   name: 'brave',
@@ -17,7 +21,10 @@ export const braveProvider: SearchProvider = {
     return Boolean(process.env.BRAVE_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const url = new URL('https://api.search.brave.com/res/v1/web/search')
@@ -33,7 +40,9 @@ export const braveProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`Brave search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Brave search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

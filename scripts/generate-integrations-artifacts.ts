@@ -1,4 +1,7 @@
-import { generatedIntegrationArtifactsAreCurrent, writeIntegrationArtifacts } from '../src/integrations/artifactGenerator.js'
+import {
+  generatedIntegrationArtifactsAreCurrent,
+  writeIntegrationArtifacts,
+} from '../src/integrations/artifactGenerator.js'
 
 const shouldCheck = process.argv.includes('--check')
 

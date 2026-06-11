@@ -1,6 +1,6 @@
 /**
  * Structured Request Logging
- * 
+ *
  * Uses existing logForDebugging for structured logging.
  */
 
@@ -82,8 +82,7 @@ export function logApiCallEnd(
     logData.error = error
   }
 
-  logForDebugging(
-    JSON.stringify(logData),
-    { level: status === 'error' ? 'error' : 'debug' },
-  )
+  logForDebugging(JSON.stringify(logData), {
+    level: status === 'error' ? 'error' : 'debug',
+  })
 }

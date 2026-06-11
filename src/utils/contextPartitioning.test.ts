@@ -7,9 +7,19 @@ import {
   type PriorityZone,
 } from './contextPartitioning.js'
 
-function createMessage(role: string, content: string, createdAt: number = Date.now()): any {
+function createMessage(
+  role: string,
+  content: string,
+  createdAt: number = Date.now(),
+): any {
   return {
-    message: { role, content, id: 'test', type: 'message', created_at: createdAt },
+    message: {
+      role,
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: createdAt,
+    },
     sender: role,
   }
 }
@@ -73,9 +83,7 @@ describe('contextPartitioning', () => {
 
   describe('getAvailableSpace', () => {
     it('returns non-negative space', () => {
-      const messages = [
-        createMessage('user', 'Test message'),
-      ]
+      const messages = [createMessage('user', 'Test message')]
 
       const context = partitionContext(messages, { contextWindow: 100000 })
       const available = getAvailableSpace(context, 100000)

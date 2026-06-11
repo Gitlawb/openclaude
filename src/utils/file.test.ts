@@ -34,7 +34,8 @@ afterAll(() => {
 
 describe('addLineNumbers', () => {
   test('uses unambiguous arrow compact prefix and preserves leading tabs', async () => {
-    const { addLineNumbers } = await importFileModuleWithKillswitchEnabled(false)
+    const { addLineNumbers } =
+      await importFileModuleWithKillswitchEnabled(false)
 
     const result = addLineNumbers({
       content: '\tfirst\n\t\tsecond',
@@ -58,9 +59,8 @@ describe('addLineNumbers', () => {
 
 describe('stripLineNumberPrefix', () => {
   test('strips compact arrow, padded arrow, and legacy tab prefixes', async () => {
-    const { stripLineNumberPrefix } = await importFileModuleWithKillswitchEnabled(
-      false,
-    )
+    const { stripLineNumberPrefix } =
+      await importFileModuleWithKillswitchEnabled(false)
 
     expect(stripLineNumberPrefix('41→\tfirst')).toBe('\tfirst')
     expect(stripLineNumberPrefix('     2→beta')).toBe('beta')

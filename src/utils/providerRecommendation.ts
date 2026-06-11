@@ -31,14 +31,7 @@ const CODING_HINTS = [
   'qwen-coder',
 ]
 
-const GENERAL_HINTS = [
-  'llama',
-  'qwen',
-  'mistral',
-  'gemma',
-  'phi',
-  'deepseek',
-]
+const GENERAL_HINTS = ['llama', 'qwen', 'mistral', 'gemma', 'phi', 'deepseek']
 
 const INSTRUCT_HINTS = ['instruct', 'chat', 'assistant']
 const NON_CHAT_HINTS = ['embed', 'embedding', 'rerank', 'bge', 'whisper']
@@ -63,9 +56,9 @@ export function isViableOllamaChatModel(model: OllamaModelDescriptor): boolean {
   return !includesAny(modelHaystack(model), NON_CHAT_HINTS)
 }
 
-export function selectRecommendedOllamaModel<
-  T extends OllamaModelDescriptor,
->(models: T[]): T | null {
+export function selectRecommendedOllamaModel<T extends OllamaModelDescriptor>(
+  models: T[],
+): T | null {
   return models.find(isViableOllamaChatModel) ?? null
 }
 
@@ -285,33 +278,35 @@ export function applyBenchmarkLatency(
   benchmarkMs: Record<string, number | null>,
   goal: RecommendationGoal,
 ): BenchmarkedOllamaModel[] {
-  const divisor =
-    goal === 'latency' ? 120 : goal === 'coding' ? 500 : 240
+  const divisor = goal === 'latency' ? 120 : goal === 'coding' ? 500 : 240
 
-  const scoredModels = models
-    .map(model => {
-      const latency = benchmarkMs[model.name] ?? null
-      const benchmarkPenalty = latency === null ? 0 : latency / divisor
-      const reasons =
-        latency === null
-          ? model.reasons
-          : [`benchmarked at ${Math.round(latency)}ms`, ...model.reasons]
+  const scoredModels = models.map(model => {
+    const latency = benchmarkMs[model.name] ?? null
+    const benchmarkPenalty = latency === null ? 0 : latency / divisor
+    const reasons =
+      latency === null
+        ? model.reasons
+        : [`benchmarked at ${Math.round(latency)}ms`, ...model.reasons]
 
-      return {
-        ...model,
-        benchmarkMs: latency,
-        reasons,
-        summary: reasons.slice(0, 3).join(', '),
-        score: Number((model.score - benchmarkPenalty).toFixed(2)),
-      }
-    })
+    return {
+      ...model,
+      benchmarkMs: latency,
+      reasons,
+      summary: reasons.slice(0, 3).join(', '),
+      score: Number((model.score - benchmarkPenalty).toFixed(2)),
+    }
+  })
 
-  const benchmarkedModels = scoredModels.filter(model => model.benchmarkMs !== null)
+  const benchmarkedModels = scoredModels.filter(
+    model => model.benchmarkMs !== null,
+  )
   if (benchmarkedModels.length === 0) {
     return scoredModels.sort((a, b) => compareRankedModels(a, b, goal))
   }
 
-  const unbenchmarkedModels = scoredModels.filter(model => model.benchmarkMs === null)
+  const unbenchmarkedModels = scoredModels.filter(
+    model => model.benchmarkMs === null,
+  )
   benchmarkedModels.sort((a, b) => compareRankedModels(a, b, goal))
   return [...benchmarkedModels, ...unbenchmarkedModels]
 }

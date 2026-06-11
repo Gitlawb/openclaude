@@ -5,7 +5,10 @@
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
  */
 
-import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
+import {
+  isLocalProviderUrl,
+  resolveProviderRequest,
+} from '../services/api/providerConfig.js'
 import {
   getRouteLabel,
   isMiniMaxBaseUrl,
@@ -17,10 +20,7 @@ import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
-import {
-  resolveLogoPalette,
-  type RGB,
-} from './StartupScreen.palettes.js'
+import { resolveLogoPalette, type RGB } from './StartupScreen.palettes.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -43,10 +43,15 @@ function gradAt(stops: readonly RGB[], t: number): RGB {
   return lerp(stops[i], stops[i + 1], s - i)
 }
 
-export function paintLine(text: string, stops: readonly RGB[], lineT: number): string {
+export function paintLine(
+  text: string,
+  stops: readonly RGB[],
+  lineT: number,
+): string {
   let out = ''
   for (let i = 0; i < text.length; i++) {
-    const t = text.length > 1 ? lineT * 0.5 + (i / (text.length - 1)) * 0.5 : lineT
+    const t =
+      text.length > 1 ? lineT * 0.5 + (i / (text.length - 1)) * 0.5 : lineT
     const [r, g, b] = gradAt(stops, t)
     out += `${ansiRgb(r, g, b)}${text[i]}`
   }
@@ -75,20 +80,37 @@ const LOGO_CLAUDE = [
 
 // ─── Provider detection ───────────────────────────────────────────────────────
 
-export function detectProvider(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
-  const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
-  const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
-  const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
-  const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
+export function detectProvider(modelOverride?: string): {
+  name: string
+  model: string
+  baseUrl: string
+  isLocal: boolean
+} {
+  const useGemini =
+    process.env.CLAUDE_CODE_USE_GEMINI === '1' ||
+    process.env.CLAUDE_CODE_USE_GEMINI === 'true'
+  const useGithub =
+    process.env.CLAUDE_CODE_USE_GITHUB === '1' ||
+    process.env.CLAUDE_CODE_USE_GITHUB === 'true'
+  const useOpenAI =
+    process.env.CLAUDE_CODE_USE_OPENAI === '1' ||
+    process.env.CLAUDE_CODE_USE_OPENAI === 'true'
+  const useMistral =
+    process.env.CLAUDE_CODE_USE_MISTRAL === '1' ||
+    process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
 
   if (useGemini) {
-    const model = modelOverride || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
-    const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
+    const model =
+      modelOverride || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
+    const baseUrl =
+      process.env.GEMINI_BASE_URL ||
+      'https://generativelanguage.googleapis.com/v1beta/openai'
     return { name: 'Google Gemini', model, baseUrl, isLocal: false }
   }
 
   if (useMistral) {
-    const model = modelOverride || process.env.MISTRAL_MODEL || 'devstral-latest'
+    const model =
+      modelOverride || process.env.MISTRAL_MODEL || 'devstral-latest'
     const baseUrl = process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1'
     return { name: 'Mistral', model, baseUrl, isLocal: false }
   }
@@ -148,19 +170,24 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/bankr/i.test(rawModel)) name = 'Bankr'
     else if (/atlas\.cloud/i.test(rawModel)) name = 'Atlas Cloud'
     else if (isLocal) name = getLocalOpenAICompatibleProviderLabel(baseUrl)
-    
+
     // Resolve model alias to actual model name + reasoning effort
     let displayModel = resolvedRequest.resolvedModel
     if (resolvedRequest.reasoning?.effort) {
       displayModel = `${displayModel} (${resolvedRequest.reasoning.effort})`
     }
-    
+
     return { name, model: displayModel, baseUrl, isLocal }
   }
 
   // Default: Anthropic - check settings.model first, then env vars
   const settings = getSettings_DEPRECATED() || {}
-  const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
+  const modelSetting =
+    modelOverride ||
+    process.env.ANTHROPIC_MODEL ||
+    process.env.CLAUDE_MODEL ||
+    settings.model ||
+    'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
@@ -170,7 +197,12 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────
 
-function boxRow(content: string, width: number, rawLen: number, border: RGB): string {
+function boxRow(
+  content: string,
+  width: number,
+  rawLen: number,
+  border: RGB,
+): string {
   const pad = Math.max(0, width - 2 - rawLen)
   return `${ansiRgb(...border)}\u2502${RESET}${content}${' '.repeat(pad)}${ansiRgb(...border)}\u2502${RESET}`
 }
@@ -209,7 +241,9 @@ export function printStartupScreen(modelOverride?: string): void {
   out.push('')
 
   // Tagline
-  out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
+  out.push(
+    `  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`,
+  )
   out.push('')
 
   // Provider info box
@@ -217,7 +251,10 @@ export function printStartupScreen(modelOverride?: string): void {
 
   const lbl = (k: string, v: string, c: RGB = CREAM): [string, number] => {
     const padK = k.padEnd(9)
-    return [` ${DIM}${ansiRgb(...DIMCOL)}${padK}${RESET} ${ansiRgb(...c)}${v}${RESET}`, ` ${padK} ${v}`.length]
+    return [
+      ` ${DIM}${ansiRgb(...DIMCOL)}${padK}${RESET} ${ansiRgb(...c)}${v}${RESET}`,
+      ` ${padK} ${v}`.length,
+    ]
   }
 
   const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
@@ -238,7 +275,9 @@ export function printStartupScreen(modelOverride?: string): void {
   out.push(boxRow(sRow, W, sLen, BORDER))
 
   out.push(`${ansiRgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
-  out.push(`  ${DIM}${ansiRgb(...DIMCOL)}openclaude ${RESET}${ansiRgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
+  out.push(
+    `  ${DIM}${ansiRgb(...DIMCOL)}openclaude ${RESET}${ansiRgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`,
+  )
   out.push('')
 
   process.stdout.write(out.join('\n') + '\n')

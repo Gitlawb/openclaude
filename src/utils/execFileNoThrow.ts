@@ -46,9 +46,7 @@ const SAFE_BARE_EXECUTABLE_PATTERN = /^[A-Za-z0-9_.-]+$/
 
 function hasPathSyntax(value: string): boolean {
   return (
-    value.includes(path.sep) ||
-    value.includes('/') ||
-    path.isAbsolute(value)
+    value.includes(path.sep) || value.includes('/') || path.isAbsolute(value)
   )
 }
 
@@ -88,9 +86,10 @@ function validateWorkingDirectory(cwd: string | undefined): string | null {
   return null
 }
 
-function sanitizeEnvironment(
-  env: NodeJS.ProcessEnv | undefined,
-): { value?: NodeJS.ProcessEnv; error?: string } {
+function sanitizeEnvironment(env: NodeJS.ProcessEnv | undefined): {
+  value?: NodeJS.ProcessEnv
+  error?: string
+} {
   if (!env) {
     return {}
   }
@@ -211,7 +210,7 @@ export function execFileNoThrowWithCwd(
   }
 
   return new Promise(resolve => {
-    const stdinMode = finalInput !== undefined ? 'pipe' : finalStdin ?? 'pipe'
+    const stdinMode = finalInput !== undefined ? 'pipe' : (finalStdin ?? 'pipe')
     const child = spawn(file, args, {
       cwd: finalCwd,
       env: sanitizedEnv.value,

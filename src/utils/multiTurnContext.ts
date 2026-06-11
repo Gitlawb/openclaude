@@ -1,6 +1,6 @@
 /**
  * Multi-Turn Context Tracking - Production Grade
- * 
+ *
  * Tracks context across multiple tool use cycles.
  * Preserves state between tool invocations.
  */
@@ -66,11 +66,12 @@ export function getCurrentTurn(): TurnContext | null {
 export function addMessageToTurn(message: Message): void {
   const turn = currentTurn || startNewTurn()
   turn.messages.push(message)
-  
+
   // Update token estimate
-  const content = typeof message.message.content === 'string' 
-    ? message.message.content 
-    : JSON.stringify(message.message.content)
+  const content =
+    typeof message.message.content === 'string'
+      ? message.message.content
+      : JSON.stringify(message.message.content)
   turn.tokens += roughTokenCountEstimation(content)
 }
 
@@ -100,9 +101,13 @@ export function getMultiTurnStats() {
   return {
     totalTurns: turnHistory.length,
     totalTokens: turnHistory.reduce((acc, t) => acc + t.tokens, 0),
-    avgTokensPerTurn: turnHistory.length > 0 
-      ? Math.round(turnHistory.reduce((acc, t) => acc + t.tokens, 0) / turnHistory.length) 
-      : 0,
+    avgTokensPerTurn:
+      turnHistory.length > 0
+        ? Math.round(
+            turnHistory.reduce((acc, t) => acc + t.tokens, 0) /
+              turnHistory.length,
+          )
+        : 0,
   }
 }
 

@@ -11,7 +11,9 @@ import {
 const haikuMock = mock()
 
 beforeEach(async () => {
-  await acquireSharedMutationLock('tools/WebFetchTool/applyPromptFallback.test.ts')
+  await acquireSharedMutationLock(
+    'tools/WebFetchTool/applyPromptFallback.test.ts',
+  )
   haikuMock.mockReset()
   const actual = await import('../../services/api/claude.js')
   mock.module('../../services/api/claude.js', () => ({
@@ -28,10 +30,12 @@ afterEach(() => {
   }
 })
 
-async function runApply(markdown = 'Hello world.', signal?: AbortSignal): Promise<string> {
+async function runApply(
+  markdown = 'Hello world.',
+  signal?: AbortSignal,
+): Promise<string> {
   const nonce = `${Date.now()}-${Math.random()}`
-  const { applyPromptToMarkdown } =
-    await import(`./utils.js?ts=${nonce}`)
+  const { applyPromptToMarkdown } = await import(`./utils.js?ts=${nonce}`)
   const ctrl = new AbortController()
   return applyPromptToMarkdown(
     'summarize',
@@ -56,7 +60,9 @@ test('returns raw truncated markdown when queryHaiku simulates a timeout', async
   // Simulating raceWithTimeout's rejection path directly — we can't actually
   // wait 45s in a test. The error shape matches what raceWithTimeout produces.
   haikuMock.mockImplementation(async () => {
-    const err = new Error('Secondary-model summarization timed out after 45000ms')
+    const err = new Error(
+      'Secondary-model summarization timed out after 45000ms',
+    )
     ;(err as NodeJS.ErrnoException).code = 'SECONDARY_MODEL_TIMEOUT'
     throw err
   })
@@ -69,7 +75,12 @@ test('returns raw truncated markdown when queryHaiku simulates a timeout', async
 test('returns the model response when queryHaiku succeeds', async () => {
   haikuMock.mockImplementation(async () => ({
     message: {
-      content: [{ type: 'text', text: 'This page is about GitLawb, an AI legal platform.' }],
+      content: [
+        {
+          type: 'text',
+          text: 'This page is about GitLawb, an AI legal platform.',
+        },
+      ],
     },
   }))
 

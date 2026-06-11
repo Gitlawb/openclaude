@@ -10,7 +10,9 @@ import { AppStateProvider } from 'src/state/AppState.js'
 
 describe('PromptInputQueuedCommands', () => {
   beforeEach(async () => {
-    await acquireSharedMutationLock('components/PromptInput/PromptInputQueuedCommands.test.tsx')
+    await acquireSharedMutationLock(
+      'components/PromptInput/PromptInputQueuedCommands.test.tsx',
+    )
     mock.module('../../hooks/useCommandQueue.js', () => ({
       useCommandQueue: () => [
         {
@@ -19,7 +21,6 @@ describe('PromptInputQueuedCommands', () => {
         },
       ],
     }))
-
   })
 
   afterEach(() => {
@@ -32,7 +33,9 @@ describe('PromptInputQueuedCommands', () => {
   })
 
   it('shows a next-turn guidance banner for queued prompt messages', async () => {
-    const { PromptInputQueuedCommands } = await import('./PromptInputQueuedCommands.js')
+    const { PromptInputQueuedCommands } = await import(
+      './PromptInputQueuedCommands.js'
+    )
 
     const output = await renderToString(
       <AppStateProvider>

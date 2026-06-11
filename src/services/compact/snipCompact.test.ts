@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { createAssistantMessage, createUserMessage, deriveShortMessageId } from '../../utils/messages.js'
+import {
+  createAssistantMessage,
+  createUserMessage,
+  deriveShortMessageId,
+} from '../../utils/messages.js'
 import {
   _resetForTesting,
   isSnipRuntimeEnabled,
@@ -49,7 +53,10 @@ describe('snipCompactIfNeeded', () => {
   test('removes a message whose short ID was marked for snip', () => {
     const uuid = 'a1b2c3d4-0000-0000-0000-000000000001'
     const shortId = deriveShortMessageId(uuid)
-    const messages = [makeUser(uuid, 'old stuff'), makeUser('keep-uuid', 'keep me')]
+    const messages = [
+      makeUser(uuid, 'old stuff'),
+      makeUser('keep-uuid', 'keep me'),
+    ]
     markForSnip([shortId], messages)
     const result = snipCompactIfNeeded(messages)
     expect(result.messages.map((m: any) => m.uuid)).toEqual(['keep-uuid'])
@@ -89,17 +96,28 @@ describe('snipCompactIfNeeded', () => {
     }
     const toolResultMsg = {
       ...createUserMessage({
-        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: 'file contents',
+          },
+        ],
       }),
       uuid: 'bbbb0041-0000-0000-0000-000000000041',
     }
     const messages = [assistantMsg, toolResultMsg, makeUser('survivor')]
     markForSnip([shortId], messages)
     const result = snipCompactIfNeeded(messages)
-    expect(result.messages.map((m: any) => m.uuid ?? 'noid')).not.toContain(assistantUuid)
-    const hasToolResult = result.messages.some((m: any) =>
-      Array.isArray(m.message?.content) &&
-      m.message.content.some((b: any) => b.type === 'tool_result' && b.tool_use_id === toolUseId)
+    expect(result.messages.map((m: any) => m.uuid ?? 'noid')).not.toContain(
+      assistantUuid,
+    )
+    const hasToolResult = result.messages.some(
+      (m: any) =>
+        Array.isArray(m.message?.content) &&
+        m.message.content.some(
+          (b: any) => b.type === 'tool_result' && b.tool_use_id === toolUseId,
+        ),
     )
     expect(hasToolResult).toBe(false)
     expect(result.messages.some((m: any) => m.uuid === 'survivor')).toBe(true)
@@ -116,11 +134,19 @@ describe('snipCompactIfNeeded', () => {
     const shortId = deriveShortMessageId(assistantUuid)
     const assistantMsg = {
       ...makeAssistant(assistantUuid),
-      message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }] },
+      message: {
+        content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }],
+      },
     }
     const toolResultMsg = {
       ...createUserMessage({
-        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: 'file contents',
+          },
+        ],
       }),
       uuid: toolResultUuid,
     }
@@ -144,11 +170,19 @@ describe('snipCompactIfNeeded', () => {
     const shortId = deriveShortMessageId(toolResultUuid)
     const assistantMsg = {
       ...makeAssistant(assistantUuid),
-      message: { content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }] },
+      message: {
+        content: [{ type: 'tool_use', id: toolUseId, name: 'Read', input: {} }],
+      },
     }
     const toolResultMsg = {
       ...createUserMessage({
-        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: 'file contents',
+          },
+        ],
       }),
       uuid: toolResultUuid,
     }
@@ -157,9 +191,12 @@ describe('snipCompactIfNeeded', () => {
     const result = snipCompactIfNeeded(messages)
     // Both the tool-result user message and the assistant tool-use are gone from live context.
     expect(result.messages.map((m: any) => m.uuid)).toEqual(['survivor'])
-    const hasToolUse = result.messages.some((m: any) =>
-      Array.isArray(m.message?.content) &&
-      m.message.content.some((b: any) => b.type === 'tool_use' && b.id === toolUseId)
+    const hasToolUse = result.messages.some(
+      (m: any) =>
+        Array.isArray(m.message?.content) &&
+        m.message.content.some(
+          (b: any) => b.type === 'tool_use' && b.id === toolUseId,
+        ),
     )
     expect(hasToolUse).toBe(false)
     // Both UUIDs are persisted so replay drops the same set.
@@ -188,7 +225,13 @@ describe('snipCompactIfNeeded', () => {
     }
     const toolResultMsg = {
       ...createUserMessage({
-        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file contents' }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: 'file contents',
+          },
+        ],
       }),
       uuid: toolResultUuid,
     }
@@ -225,11 +268,15 @@ describe('snipCompactIfNeeded', () => {
       },
     }
     const resultA = {
-      ...createUserMessage({ content: [{ type: 'tool_result', tool_use_id: 'tu-A', content: 'a' }] }),
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: 'tu-A', content: 'a' }],
+      }),
       uuid: resultAUuid,
     }
     const resultB = {
-      ...createUserMessage({ content: [{ type: 'tool_result', tool_use_id: 'tu-B', content: 'b' }] }),
+      ...createUserMessage({
+        content: [{ type: 'tool_result', tool_use_id: 'tu-B', content: 'b' }],
+      }),
       uuid: resultBUuid,
     }
     const messages = [assistantMsg, resultA, resultB]
@@ -249,10 +296,16 @@ describe('snipCompactIfNeeded', () => {
     // first with its own (unrelated) messages. B must NOT consume or lose A's
     // pending removal, and must NOT prune one of its own messages by mistake.
     const aUuid = 'cccc00a1-0000-0000-0000-0000000000a1'
-    const aMessages = [makeUser(aUuid, 'session A stale'), makeUser('a-keep', 'keep')]
+    const aMessages = [
+      makeUser(aUuid, 'session A stale'),
+      makeUser('a-keep', 'keep'),
+    ]
     markForSnip([deriveShortMessageId(aUuid)], aMessages)
 
-    const bMessages = [makeUser('b1', 'session B one'), makeUser('b2', 'session B two')]
+    const bMessages = [
+      makeUser('b1', 'session B one'),
+      makeUser('b2', 'session B two'),
+    ]
     const bResult = snipCompactIfNeeded(bMessages)
     expect(bResult.tokensFreed).toBe(0)
     expect(bResult.boundaryMessage).toBeUndefined()
@@ -282,7 +335,10 @@ describe('markForSnip', () => {
     // request length.
     const realUuid = 'a1b2c3d4-0000-0000-0000-0000000000aa'
     const messages = [makeUser(realUuid)]
-    const matched = markForSnip([deriveShortMessageId(realUuid), 'xxxxxx'], messages)
+    const matched = markForSnip(
+      [deriveShortMessageId(realUuid), 'xxxxxx'],
+      messages,
+    )
     expect(matched).toEqual([realUuid])
   })
 })

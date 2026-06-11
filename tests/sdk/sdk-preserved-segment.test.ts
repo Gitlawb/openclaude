@@ -61,7 +61,10 @@ function createCompactTranscriptWithPreservedSegment(
   })
   entries.push({
     type: 'assistant',
-    message: { role: 'assistant', content: [{ type: 'text', text: 'stale response' }] },
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'stale response' }],
+    },
     uuid: staleAssistantUuid,
     parentUuid: staleUserUuid,
     sessionId,
@@ -88,7 +91,10 @@ function createCompactTranscriptWithPreservedSegment(
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: `preserved response ${i + 1}` }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: `preserved response ${i + 1}` }],
+      },
       uuid: assistantUuid,
       parentUuid: userUuid,
       sessionId,
@@ -137,7 +143,10 @@ function createCompactTranscriptWithPreservedSegment(
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: `post-boundary response ${i + 1}` }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: `post-boundary response ${i + 1}` }],
+      },
       uuid: assistantUuid,
       parentUuid: userUuid,
       sessionId,
@@ -220,7 +229,9 @@ describe('Compact preserved segment regression', () => {
     createCompactTranscriptWithPreservedSegment(dir, sessionId, 2, 2)
 
     // First verify transcript file exists and has correct content
-    const { resolveSessionFilePath } = await import('../../src/utils/sessionStoragePortable.js')
+    const { resolveSessionFilePath } = await import(
+      '../../src/utils/sessionStoragePortable.js'
+    )
     const resolved = await resolveSessionFilePath(sessionId, dir)
     expect(resolved).toBeDefined()
 
@@ -237,18 +248,24 @@ describe('Compact preserved segment regression', () => {
     // Verify content: stale USER message should NOT appear
     // Note: The anchor (stale assistant) MAY appear because it's the preserved segment anchor
     const contents = messages.map(m => {
-      const msg = (m as Record<string, unknown>).message as Record<string, unknown> | undefined
+      const msg = (m as Record<string, unknown>).message as
+        | Record<string, unknown>
+        | undefined
       if (!msg) return ''
       const content = msg.content
       if (typeof content === 'string') return content
       if (Array.isArray(content)) {
-        const textBlock = content.find((b: Record<string, unknown>) => b.type === 'text')
+        const textBlock = content.find(
+          (b: Record<string, unknown>) => b.type === 'text',
+        )
         return (textBlock?.text as string) ?? ''
       }
       return ''
     })
     // Stale pre-compact messages must not appear in loaded history
-    expect(contents.some(c => c.includes('stale pre-compact message'))).toBe(false)
+    expect(contents.some(c => c.includes('stale pre-compact message'))).toBe(
+      false,
+    )
     // At least some preserved content should be present
     expect(contents.some(c => c.includes('preserved'))).toBe(true)
 
@@ -278,7 +295,10 @@ describe('Compact preserved segment regression', () => {
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'stale response' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'stale response' }],
+      },
       uuid: staleAssistantUuid,
       parentUuid: staleUserUuid,
       sessionId,
@@ -298,7 +318,10 @@ describe('Compact preserved segment regression', () => {
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'preserved response' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'preserved response' }],
+      },
       uuid: preservedAssistantUuid,
       parentUuid: preservedUserUuid,
       sessionId,
@@ -334,7 +357,11 @@ describe('Compact preserved segment regression', () => {
       isSidechain: false,
     })
 
-    writeFileSync(filePath, entries.map(e => JSON.stringify(e)).join('\n') + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      entries.map(e => JSON.stringify(e)).join('\n') + '\n',
+      { encoding: 'utf8' },
+    )
 
     const session = await unstable_v2_resumeSession(sessionId, { cwd: dir })
     const messages = session.getMessages()
@@ -371,7 +398,10 @@ describe('Compact preserved segment regression', () => {
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'stale response' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'stale response' }],
+      },
       uuid: staleAssistantUuid,
       parentUuid: staleUserUuid,
       sessionId,
@@ -395,7 +425,10 @@ describe('Compact preserved segment regression', () => {
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'preserved response 1' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'preserved response 1' }],
+      },
       uuid: preservedAssistantUuid1,
       parentUuid: preservedUserUuid1,
       sessionId,
@@ -413,7 +446,10 @@ describe('Compact preserved segment regression', () => {
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'preserved response 2' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'preserved response 2' }],
+      },
       uuid: preservedAssistantUuid2,
       parentUuid: preservedUserUuid2,
       sessionId,
@@ -457,7 +493,10 @@ describe('Compact preserved segment regression', () => {
     })
     entries.push({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'text', text: 'post-boundary response' }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'post-boundary response' }],
+      },
       uuid: postAssistantUuid,
       parentUuid: postUserUuid,
       sessionId,
@@ -465,7 +504,11 @@ describe('Compact preserved segment regression', () => {
       timestamp: '2025-01-04T00:01:00Z',
     })
 
-    writeFileSync(filePath, entries.map(e => JSON.stringify(e)).join('\n') + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      entries.map(e => JSON.stringify(e)).join('\n') + '\n',
+      { encoding: 'utf8' },
+    )
 
     const session = await unstable_v2_resumeSession(sessionId, { cwd: dir })
     const messages = session.getMessages()
@@ -477,16 +520,22 @@ describe('Compact preserved segment regression', () => {
     expect(messages.length).toBe(6) // Exact: preserved(4) + post(2), no stale, no system
 
     // No system entries in final messages
-    expect(messages.every(m => (m as Record<string, unknown>).type !== 'system')).toBe(true)
+    expect(
+      messages.every(m => (m as Record<string, unknown>).type !== 'system'),
+    ).toBe(true)
 
     // Extract content properly: message is {role, content}, access .content
     const contents = messages.map(m => {
-      const msg = (m as Record<string, unknown>).message as Record<string, unknown> | undefined
+      const msg = (m as Record<string, unknown>).message as
+        | Record<string, unknown>
+        | undefined
       if (!msg) return ''
       const content = msg.content
       if (typeof content === 'string') return content
       if (Array.isArray(content)) {
-        const textBlock = content.find((b: Record<string, unknown>) => b.type === 'text')
+        const textBlock = content.find(
+          (b: Record<string, unknown>) => b.type === 'text',
+        )
         return (textBlock?.text as string) ?? ''
       }
       return ''

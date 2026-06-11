@@ -15,9 +15,7 @@ export function getProjectInstructionFilePath(
   existsSync: (path: string) => boolean,
 ): string {
   const [primaryPath, fallbackPath] = getProjectInstructionFilePaths(dir)
-  return existsSync(primaryPath)
-    ? primaryPath
-    : fallbackPath
+  return existsSync(primaryPath) ? primaryPath : fallbackPath
 }
 
 export function hasProjectInstructionFile(

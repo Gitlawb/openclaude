@@ -16,7 +16,9 @@ describe('startup logo palettes', () => {
   })
 
   test('missing and invalid palette names fall back to the default', () => {
-    expect(resolveLogoPalette(undefined)).toBe(LOGO_PALETTES[DEFAULT_LOGO_PALETTE])
+    expect(resolveLogoPalette(undefined)).toBe(
+      LOGO_PALETTES[DEFAULT_LOGO_PALETTE],
+    )
     expect(resolveLogoPalette('not-a-palette')).toBe(
       LOGO_PALETTES[DEFAULT_LOGO_PALETTE],
     )

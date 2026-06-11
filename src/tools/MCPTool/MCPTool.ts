@@ -45,7 +45,10 @@ const ajv = new Ajv({ strict: false })
 // AJV compilation is expensive — schemas don't change between calls.
 // Uses WeakMap to allow garbage collection of schemas from disconnected/refreshed
 // MCP tools, preventing memory leaks from accumulating strong references.
-const compiledValidatorCache = new WeakMap<object, ReturnType<typeof ajv.compile>>()
+const compiledValidatorCache = new WeakMap<
+  object,
+  ReturnType<typeof ajv.compile>
+>()
 
 function getCompiledValidator(schema: object) {
   let validator = compiledValidatorCache.get(schema)
@@ -155,4 +158,3 @@ export const MCPTool = buildTool({
     }
   },
 } satisfies ToolDef<InputSchema, Output>)
-

@@ -57,7 +57,10 @@ test('buildChildEnv includes PATH and HOME from parent', () => {
 })
 
 test('buildChildEnv sets CLAUDE_CODE_SESSION_ACCESS_TOKEN from opts', () => {
-  const env = buildChildEnv({ PATH: '/usr/bin' }, { ...baseOpts, accessToken: 'my-token' })
+  const env = buildChildEnv(
+    { PATH: '/usr/bin' },
+    { ...baseOpts, accessToken: 'my-token' },
+  )
   expect(env.CLAUDE_CODE_SESSION_ACCESS_TOKEN).toBe('my-token')
 })
 

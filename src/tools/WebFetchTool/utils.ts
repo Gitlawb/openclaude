@@ -296,10 +296,10 @@ export async function getWithPermittedRedirects(
     // (Bun/Node bundled contexts occasionally hang with axios + custom lookup.)
     const isTimeoutLike =
       axios.isAxiosError(error) &&
-      (!error.response &&
-        (error.code === 'ECONNABORTED' ||
-          error.code === 'ETIMEDOUT' ||
-          error.message?.toLowerCase().includes('timeout')))
+      !error.response &&
+      (error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.message?.toLowerCase().includes('timeout'))
     if (isTimeoutLike && !signal.aborted) {
       try {
         const fetchResponse = await fetch(url, {
@@ -500,7 +500,8 @@ export async function getURLMarkdownContent(
   // builds its DOM tree (which can be 3-5x the HTML size).
   ;(response as { data: unknown }).data = null
   const contentTypeHeader = response.headers['content-type']
-  const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : ''
+  const contentType =
+    typeof contentTypeHeader === 'string' ? contentTypeHeader : ''
 
   // Binary content: save raw bytes to disk with a proper extension so Claude
   // can inspect the file later. We still fall through to the utf-8 decode +
@@ -565,7 +566,9 @@ function raceWithTimeout<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      const err = new Error(`Secondary-model summarization timed out after ${timeoutMs}ms`)
+      const err = new Error(
+        `Secondary-model summarization timed out after ${timeoutMs}ms`,
+      )
       ;(err as NodeJS.ErrnoException).code = 'SECONDARY_MODEL_TIMEOUT'
       reject(err)
     }, timeoutMs)

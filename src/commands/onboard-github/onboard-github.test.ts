@@ -9,12 +9,16 @@ import {
 } from './onboard-github.js'
 
 describe('shouldForceGithubRelogin', () => {
-  test.each(['force', '--force', 'relogin', '--relogin', 'reauth', '--reauth'])(
-    'treats %s as force re-login',
-    arg => {
-      expect(shouldForceGithubRelogin(arg)).toBe(true)
-    },
-  )
+  test.each([
+    'force',
+    '--force',
+    'relogin',
+    '--relogin',
+    'reauth',
+    '--reauth',
+  ])('treats %s as force re-login', arg => {
+    expect(shouldForceGithubRelogin(arg)).toBe(true)
+  })
 
   test('returns false for empty or unknown args', () => {
     expect(shouldForceGithubRelogin('')).toBe(false)
@@ -37,9 +41,9 @@ describe('hasExistingGithubModelsLoginToken', () => {
   })
 
   test('returns true when GH_TOKEN is present', () => {
-    expect(
-      hasExistingGithubModelsLoginToken({ GH_TOKEN: 'token' }, ''),
-    ).toBe(true)
+    expect(hasExistingGithubModelsLoginToken({ GH_TOKEN: 'token' }, '')).toBe(
+      true,
+    )
   })
 
   test('returns true when stored token exists', () => {

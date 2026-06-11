@@ -143,7 +143,9 @@ describe('request size breakdown', () => {
   test('MCP tool schemas are grouped by server', () => {
     const report = createRequestSizeReport(
       makeContextData({
-        categories: [{ name: 'MCP tools', tokens: 30_000, color: 'permission' }],
+        categories: [
+          { name: 'MCP tools', tokens: 30_000, color: 'permission' },
+        ],
         mcpTools: [
           {
             name: 'mcp__github__search',
@@ -295,7 +297,9 @@ describe('request size breakdown', () => {
     const output = formatRequestSizeReport(
       createRequestSizeReport(
         makeContextData({
-          categories: [{ name: 'MCP tools', tokens: 4_000, color: 'permission' }],
+          categories: [
+            { name: 'MCP tools', tokens: 4_000, color: 'permission' },
+          ],
           mcpTools: [
             {
               name: 'mcp__github__tool',
@@ -399,7 +403,9 @@ describe('request size breakdown', () => {
     const output = formatRequestSizeReport(
       createRequestSizeReport(
         makeContextData({
-          categories: [{ name: 'Messages', tokens: 8_000, color: 'permission' }],
+          categories: [
+            { name: 'Messages', tokens: 8_000, color: 'permission' },
+          ],
           messageBreakdown: {
             toolCallTokens: 0,
             toolResultTokens: 0,

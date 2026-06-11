@@ -14,7 +14,10 @@ export const bingProvider: SearchProvider = {
     return Boolean(process.env.BING_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const url = new URL('https://api.bing.microsoft.com/v7.0/search')
@@ -27,7 +30,9 @@ export const bingProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`Bing search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `Bing search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

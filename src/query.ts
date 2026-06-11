@@ -571,13 +571,17 @@ async function* queryLoop(
         getGlobalConfig().maxMessagesCompactionThreshold,
       )
       const envSetting = process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
-      const maxActiveMessages = configSetting !== 'off'
-        ? Number.parseInt(configSetting, 10)
-        : envSetting
-          ? Number.parseInt(envSetting, 10)
-          : 0
+      const maxActiveMessages =
+        configSetting !== 'off'
+          ? Number.parseInt(configSetting, 10)
+          : envSetting
+            ? Number.parseInt(envSetting, 10)
+            : 0
 
-      if (maxActiveMessages > 0 && messagesForQuery.length > maxActiveMessages) {
+      if (
+        maxActiveMessages > 0 &&
+        messagesForQuery.length > maxActiveMessages
+      ) {
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
           forceReason: 'message-count',
@@ -819,12 +823,12 @@ async function* queryLoop(
     // of burning an oversized API call.
     if (
       tracking?.consecutiveFailures !== undefined &&
-      tracking.consecutiveFailures >=
-        MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES &&
+      tracking.consecutiveFailures >= MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES &&
       isAutoCompactEnabled()
     ) {
       const model = toolUseContext.options.mainLoopModel
-      const tokenUsage = tokenCountWithEstimation(messagesForQuery) - snipTokensFreed
+      const tokenUsage =
+        tokenCountWithEstimation(messagesForQuery) - snipTokensFreed
       const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
         tokenUsage,
         model,
@@ -1429,8 +1433,7 @@ async function* queryLoop(
           logEvent('tengu_provider_max_tokens_cap_retry', {
             cap: providerMaxTokensCap,
             ...(effectiveMaxOutputTokensOverride !== undefined && {
-              previousMaxOutputTokensOverride:
-                effectiveMaxOutputTokensOverride,
+              previousMaxOutputTokensOverride: effectiveMaxOutputTokensOverride,
             }),
           })
           yield createSystemMessage(
@@ -1753,9 +1756,8 @@ async function* queryLoop(
             .join(' ')
             .toLowerCase()
 
-          const { shouldNudge, reason: nudgeReason } = analyzeContinuationIntent(
-            lastText,
-          )
+          const { shouldNudge, reason: nudgeReason } =
+            analyzeContinuationIntent(lastText)
 
           if (shouldNudge) {
             logForDebugging(
@@ -1794,7 +1796,6 @@ async function* queryLoop(
     let updatedToolUseContext = toolUseContext
 
     queryCheckpoint('query_tool_execution_start')
-
 
     if (streamingToolExecutor) {
       logEvent('tengu_streaming_tool_execution_used', {
@@ -1932,8 +1933,7 @@ async function* queryLoop(
         isSignatureTrip: toolFailureLoopDecision.kind === 'signature',
         isCategoryTrip: toolFailureLoopDecision.kind === 'category',
         hasToolName: toolFailureLoopDecision.toolName !== undefined,
-        hasErrorCategory:
-          toolFailureLoopDecision.errorCategory !== undefined,
+        hasErrorCategory: toolFailureLoopDecision.errorCategory !== undefined,
         hasPath: toolFailureLoopDecision.path !== undefined,
         queryDepth: queryTracking.depth,
       })
@@ -2112,7 +2112,6 @@ async function* queryLoop(
       }
       pendingMemoryPrefetch.consumedOnIteration = turnCount - 1
     }
-
 
     // Inject prefetched skill discovery. collectSkillDiscoveryPrefetch emits
     // hidden_by_main_turn — true when the prefetch resolved before this point

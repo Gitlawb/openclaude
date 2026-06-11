@@ -56,7 +56,10 @@ test('loads flat and nested skills with colon namespaces', async () => {
 
     const nestedSkill = promptSkills.find(skill => skill.name === 'git:commit')
     assert.ok(nestedSkill)
-    assert.equal(nestedSkill.skillRoot, join(configDir, '.claude', 'skills', 'git', 'commit'))
+    assert.equal(
+      nestedSkill.skillRoot,
+      join(configDir, '.claude', 'skills', 'git', 'commit'),
+    )
 
     const deepSkill = promptSkills.find(
       skill => skill.name === 'frontend:react:form',

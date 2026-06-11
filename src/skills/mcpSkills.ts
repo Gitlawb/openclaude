@@ -3,7 +3,10 @@ import { parseFrontmatter } from '../utils/frontmatterParser.js'
 import { memoizeWithLRU } from '../utils/memoize.js'
 import { recursivelySanitizeUnicode } from '../utils/sanitization.js'
 import { normalizeNameForMCP } from '../services/mcp/normalization.js'
-import type { MCPServerConnection, ServerResource } from '../services/mcp/types.js'
+import type {
+  MCPServerConnection,
+  ServerResource,
+} from '../services/mcp/types.js'
 import { getMCPSkillBuilders } from './mcpSkillBuilders.js'
 import { logForDebugging } from '../utils/debug.js'
 import {
@@ -15,7 +18,10 @@ import {
 const SKILL_URI_PREFIX = 'skill://'
 const MCP_SKILL_CACHE_SIZE = 20
 
-export function isSkillResource(resource: { uri: string; name?: string }): boolean {
+export function isSkillResource(resource: {
+  uri: string
+  name?: string
+}): boolean {
   return resource.uri.toLowerCase().startsWith(SKILL_URI_PREFIX)
 }
 
@@ -52,8 +58,13 @@ async function readSkillResource(
     const { frontmatter, content: markdownContent } = parseFrontmatter(markdown)
 
     const skillName = deriveMcpSkillName(client.name, resource.uri)
-    const { createSkillCommand, parseSkillFrontmatterFields } = getMCPSkillBuilders()
-    const parsed = parseSkillFrontmatterFields(frontmatter, markdownContent, skillName)
+    const { createSkillCommand, parseSkillFrontmatterFields } =
+      getMCPSkillBuilders()
+    const parsed = parseSkillFrontmatterFields(
+      frontmatter,
+      markdownContent,
+      skillName,
+    )
 
     return createSkillCommand({
       ...parsed,

@@ -144,7 +144,9 @@ describe('stableStringify — primitive wrapper unboxing', () => {
     }
     expect(stableStringify(input)).toBe('{"a":"x","m":false,"z":1}')
     // Native form: same primitive shape (without sort guarantee).
-    expect(JSON.parse(stableStringifyJson(input))).toEqual(JSON.parse(JSON.stringify(input)))
+    expect(JSON.parse(stableStringifyJson(input))).toEqual(
+      JSON.parse(JSON.stringify(input)),
+    )
   })
 })
 

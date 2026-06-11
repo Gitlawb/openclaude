@@ -57,7 +57,8 @@ export function clearStartupProviderOverrides(options?: {
     updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv,
   ) => unknown
 }): string | null {
-  const updateUserSettings = options?.updateUserSettings ?? updateSettingsForSource
+  const updateUserSettings =
+    options?.updateUserSettings ?? updateSettingsForSource
   const saveConfig =
     options?.saveConfig ??
     ((updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv) =>

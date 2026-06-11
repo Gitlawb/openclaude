@@ -47,10 +47,20 @@ export interface SearchProvider {
 const TITLE_KEYS = ['title', 'headline', 'name', 'heading'] as const
 const URL_KEYS = ['url', 'link', 'href', 'uri', 'permalink'] as const
 const DESC_KEYS = [
-  'description', 'snippet', 'content', 'preview', 'summary', 'text', 'body',
+  'description',
+  'snippet',
+  'content',
+  'preview',
+  'summary',
+  'text',
+  'body',
 ] as const
 const SOURCE_KEYS = [
-  'source', 'domain', 'displayLink', 'displayed_link', 'engine',
+  'source',
+  'domain',
+  'displayLink',
+  'displayed_link',
+  'engine',
 ] as const
 
 function firstMatch(obj: any, keys: readonly string[]): string | undefined {
@@ -81,7 +91,11 @@ export function normalizeHit(raw: any): SearchHit | null {
 /** Safely extract hostname from a URL string. Returns undefined on parse failure. */
 export function safeHostname(url: string | undefined): string | undefined {
   if (!url) return undefined
-  try { return new URL(url).hostname } catch { return undefined }
+  try {
+    return new URL(url).hostname
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -116,4 +130,3 @@ export function applyDomainFilters(
   }
   return out
 }
-

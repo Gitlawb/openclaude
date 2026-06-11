@@ -58,11 +58,7 @@ test('buildMcpStdioCommand — no prefix passes command and args through unchang
 })
 
 test('buildMcpStdioCommand — empty string prefix is treated as no prefix', () => {
-  const { command, args } = buildMcpStdioCommand(
-    'uvx',
-    ['mcp-server'],
-    '',
-  )
+  const { command, args } = buildMcpStdioCommand('uvx', ['mcp-server'], '')
   assert.equal(command, 'uvx')
   assert.deepEqual(args, ['mcp-server'])
 })
@@ -127,12 +123,15 @@ test('buildMcpStdioCommand — shell -c prefix escapes args to prevent injection
   assert.equal(command, 'sh')
   // The semicolon and spaces inside the arg are inside single quotes,
   // so the shell treats them as a literal string, not as syntax.
-  assert.deepEqual(args, ['-c', "'some-server' '--path=/tmp; touch /tmp/pwned' 'normal-arg'"])
+  assert.deepEqual(args, [
+    '-c',
+    "'some-server' '--path=/tmp; touch /tmp/pwned' 'normal-arg'",
+  ])
 })
 
 test('buildMcpStdioCommand — shell -c prefix escapes embedded single quotes', () => {
   const { command, args } = buildMcpStdioCommand(
-    "some-server",
+    'some-server',
     ["it's a test"],
     'sh -c',
   )

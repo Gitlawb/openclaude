@@ -1,4 +1,7 @@
-import type { MCPServerConnection, ConfigScope } from '../../services/mcp/types.js'
+import type {
+  MCPServerConnection,
+  ConfigScope,
+} from '../../services/mcp/types.js'
 import type { LoadedPlugin, PluginError } from '../../types/plugin.js'
 import type { PersistablePluginScope } from '../../utils/plugins/pluginIdentifier.js'
 

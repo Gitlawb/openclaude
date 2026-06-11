@@ -27,9 +27,12 @@ test('classifies localhost ECONNREFUSED as connection_refused', () => {
 })
 
 test('classifies localhost ENOTFOUND as localhost_resolution_failed', () => {
-  const error = Object.assign(new TypeError('getaddrinfo ENOTFOUND localhost'), {
-    code: 'ENOTFOUND',
-  })
+  const error = Object.assign(
+    new TypeError('getaddrinfo ENOTFOUND localhost'),
+    {
+      code: 'ENOTFOUND',
+    },
+  )
 
   const failure = classifyOpenAINetworkFailure(error, {
     url: 'http://localhost:11434/v1/chat/completions',
@@ -119,10 +122,13 @@ test('embeds and extracts category markers in formatted messages', () => {
   const marker = formatOpenAICategoryMarker('endpoint_not_found')
   expect(marker).toBe('[openai_category=endpoint_not_found]')
 
-  const formatted = buildOpenAICompatibilityErrorMessage('OpenAI API error 404: Not Found', {
-    category: 'endpoint_not_found',
-    hint: 'Confirm OPENAI_BASE_URL includes /v1.',
-  })
+  const formatted = buildOpenAICompatibilityErrorMessage(
+    'OpenAI API error 404: Not Found',
+    {
+      category: 'endpoint_not_found',
+      hint: 'Confirm OPENAI_BASE_URL includes /v1.',
+    },
+  )
 
   expect(formatted).toContain('[openai_category=endpoint_not_found]')
   expect(formatted).toContain('Hint: Confirm OPENAI_BASE_URL includes /v1.')
@@ -130,7 +136,8 @@ test('embeds and extracts category markers in formatted messages', () => {
 })
 
 test('ignores unknown category markers during extraction', () => {
-  const malformed = 'OpenAI API error 500 [openai_category=totally_fake_category]'
+  const malformed =
+    'OpenAI API error 500 [openai_category=totally_fake_category]'
   expect(extractOpenAICategoryMarker(malformed)).toBeUndefined()
 })
 
@@ -142,7 +149,9 @@ test('endpoint_not_found 404 from a remote host gets a host-aware hint (issue #9
   })
 
   expect(failure.category).toBe('endpoint_not_found')
-  expect(failure.requestUrl).toBe('https://integrate.api.nvidia.com/v1/chat/completions')
+  expect(failure.requestUrl).toBe(
+    'https://integrate.api.nvidia.com/v1/chat/completions',
+  )
   expect(failure.hint).toContain('integrate.api.nvidia.com')
   expect(failure.hint).not.toContain('local providers')
 })
@@ -168,7 +177,9 @@ test('marker round-trip preserves host segment', () => {
     },
   )
 
-  expect(formatted).toContain('[openai_category=endpoint_not_found,host=integrate.api.nvidia.com]')
+  expect(formatted).toContain(
+    '[openai_category=endpoint_not_found,host=integrate.api.nvidia.com]',
+  )
   expect(extractOpenAICategoryMarker(formatted)).toBe('endpoint_not_found')
   expect(extractOpenAICategoryHost(formatted)).toBe('integrate.api.nvidia.com')
 })
@@ -181,12 +192,24 @@ test('marker without host stays backward-compatible', () => {
 })
 
 test('reports retryability for extracted category markers', () => {
-  expect(isRetryableOpenAICompatibilityFailureCategory('auth_invalid')).toBe(false)
-  expect(isRetryableOpenAICompatibilityFailureCategory('model_not_found')).toBe(false)
-  expect(isRetryableOpenAICompatibilityFailureCategory('context_overflow')).toBe(false)
-  expect(isRetryableOpenAICompatibilityFailureCategory('rate_limited')).toBe(true)
-  expect(isRetryableOpenAICompatibilityFailureCategory('provider_unavailable')).toBe(true)
-  expect(isRetryableOpenAICompatibilityFailureCategory('network_error')).toBe(true)
+  expect(isRetryableOpenAICompatibilityFailureCategory('auth_invalid')).toBe(
+    false,
+  )
+  expect(isRetryableOpenAICompatibilityFailureCategory('model_not_found')).toBe(
+    false,
+  )
+  expect(
+    isRetryableOpenAICompatibilityFailureCategory('context_overflow'),
+  ).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('rate_limited')).toBe(
+    true,
+  )
+  expect(
+    isRetryableOpenAICompatibilityFailureCategory('provider_unavailable'),
+  ).toBe(true)
+  expect(isRetryableOpenAICompatibilityFailureCategory('network_error')).toBe(
+    true,
+  )
 })
 
 test('isLocalhostLikeHost matches loopback variants', () => {

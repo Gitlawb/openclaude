@@ -11,9 +11,9 @@ describe('openclaude launcher heap guard', () => {
     expect(source).toContain('--max-old-space-size=')
     expect(source).toContain('--expose-gc')
     expect(source).toContain('spawnSync(process.execPath')
-    expect(source.indexOf('relaunchWithLongSessionHeapIfNeeded()')).toBeLessThan(
-      source.indexOf("await import(pathToFileURL(distPath).href)"),
-    )
+    expect(
+      source.indexOf('relaunchWithLongSessionHeapIfNeeded()'),
+    ).toBeLessThan(source.indexOf('await import(pathToFileURL(distPath).href)'))
   })
 
   test('keeps user and troubleshooting escape hatches', () => {

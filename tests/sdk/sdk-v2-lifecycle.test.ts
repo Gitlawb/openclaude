@@ -1,4 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from 'bun:test'
 import { randomUUID } from 'crypto'
 import { rmSync } from 'fs'
 import {
@@ -90,7 +98,9 @@ afterEach(() => {
   setCwdState(originalCwd)
   setOriginalCwd(originalOriginalCwd)
   for (const dir of tempDirs) {
-    try { rmSync(dir, { recursive: true, force: true }) } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {}
   }
   tempDirs.length = 0
 })
@@ -121,9 +131,7 @@ describe('V2: session creation', () => {
   })
 
   test('createSession() with no cwd throws', () => {
-    expect(() =>
-      unstable_v2_createSession({} as any)
-    ).toThrow()
+    expect(() => unstable_v2_createSession({} as any)).toThrow()
   })
 
   test('createSession() with model option — session created without error', () => {
@@ -169,7 +177,7 @@ describe('V2: session interrupt', () => {
 
 describe('V2: session resume', () => {
   test('resumeSession() loads prior messages from JSONL', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       const entries = createMinimalConversation(sid)
@@ -185,20 +193,22 @@ describe('V2: session resume', () => {
 
   test('resumeSession() with invalid sessionId throws', async () => {
     await expect(
-      unstable_v2_resumeSession('not-a-uuid', { cwd: process.cwd() })
+      unstable_v2_resumeSession('not-a-uuid', { cwd: process.cwd() }),
     ).rejects.toThrow('Invalid session ID')
   })
 
   test('resumeSession() with non-existent session — creates session with empty messages', async () => {
     const fakeSid = randomUUID()
-    const session = await unstable_v2_resumeSession(fakeSid, { cwd: process.cwd() })
+    const session = await unstable_v2_resumeSession(fakeSid, {
+      cwd: process.cwd(),
+    })
     expect(session.sessionId).toBe(fakeSid)
     const messages = session.getMessages()
     expect(messages.length).toBe(0)
   })
 
   test('resumeSession() preserves multi-turn conversation order', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       const entries = createMultiTurnConversation(sid, 3)
@@ -212,7 +222,7 @@ describe('V2: session resume', () => {
   })
 
   test('resumeSession() sets sessionProjectDir via switchSession', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       createSessionJsonl(dir, sid, createMinimalConversation(sid))
@@ -235,7 +245,7 @@ describe('V2: permission handling', () => {
     expect(() =>
       session.respondToPermission('unknown-id', {
         behavior: 'allow',
-      })
+      }),
     ).not.toThrow()
   })
 
@@ -253,7 +263,7 @@ describe('V2: permission handling', () => {
   test('createSession() with onPermissionRequest callback — session created successfully', () => {
     const session = unstable_v2_createSession({
       cwd: process.cwd(),
-      onPermissionRequest: (_msg) => {
+      onPermissionRequest: _msg => {
         // No-op — just verify it doesn't throw during construction
       },
     })
@@ -276,21 +286,21 @@ describe('V2: unstable_v2_prompt', () => {
   })
 
   test('throws when cwd is missing', () => {
-    expect(() =>
-      unstable_v2_prompt('test', {} as any),
-    ).toThrow()
+    expect(() => unstable_v2_prompt('test', {} as any)).toThrow()
   })
 })
 
 describe('E2E: transcript placement — resume sets project dir and resolve still finds file', () => {
   test('resumeSession sets projectDir so resolveSessionFilePath finds the file', async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async dir => {
       tempDirs.push(dir)
       const sid = randomUUID()
       createSessionJsonl(dir, sid, createMinimalConversation(sid))
 
       // Before resume: file exists on disk
-      const { resolveSessionFilePath } = await import('../../src/utils/sessionStoragePortable.js')
+      const { resolveSessionFilePath } = await import(
+        '../../src/utils/sessionStoragePortable.js'
+      )
       const before = await resolveSessionFilePath(sid, dir)
       expect(before).toBeDefined()
       expect(before!.filePath).toContain(sid)

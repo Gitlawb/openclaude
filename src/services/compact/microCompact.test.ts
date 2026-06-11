@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { Message } from '../../types/message.js'
-import { createAssistantMessage, createUserMessage } from '../../utils/messages.js'
+import {
+  createAssistantMessage,
+  createUserMessage,
+} from '../../utils/messages.js'
 
 // We test the exported collectCompactableToolIds behavior indirectly via
 // the public microcompactMessages + time-based path. But first we need to
@@ -98,7 +101,13 @@ describe('microCompact MCP tool compaction', () => {
       assistantWithToolUse('mcp__slack__send_message', 'tool-mcp-2'),
       userWithToolResult('tool-mcp-2', 'Message sent successfully'),
       assistantWithToolUse('mcp__github__create_pull_request', 'tool-mcp-3'),
-      userWithToolResult('tool-mcp-3', JSON.stringify({ number: 42, url: 'https://github.com/org/repo/pull/42' })),
+      userWithToolResult(
+        'tool-mcp-3',
+        JSON.stringify({
+          number: 42,
+          url: 'https://github.com/org/repo/pull/42',
+        }),
+      ),
     ]
 
     // Should not throw — MCP tools should be handled gracefully
@@ -115,7 +124,10 @@ describe('microCompact MCP tool compaction', () => {
       assistantWithToolUse('Read', 'tool-read-1'),
       userWithToolResult('tool-read-1', 'some file content'),
       assistantWithToolUse('mcp__playwright__screenshot', 'tool-mcp-4'),
-      userWithToolResult('tool-mcp-4', 'base64-encoded-screenshot-data'.repeat(100)),
+      userWithToolResult(
+        'tool-mcp-4',
+        'base64-encoded-screenshot-data'.repeat(100),
+      ),
       assistantWithToolUse('Bash', 'tool-bash-1'),
       userWithToolResult('tool-bash-1', 'command output'),
     ]

@@ -8,17 +8,22 @@ import type { NpmDistTags } from '../utils/autoUpdater.js'
 import type { DiagnosticInfo } from '../utils/doctorDiagnostic.js'
 
 const getDoctorDiagnostic = mock(
-  async (): Promise<{ installationType: DiagnosticInfo['installationType'] }> =>
-    ({ installationType: 'npm-global' }),
+  async (): Promise<{
+    installationType: DiagnosticInfo['installationType']
+  }> => ({ installationType: 'npm-global' }),
 )
-const getNpmDistTags = mock(async (): Promise<NpmDistTags> => ({
-  latest: '9.9.9',
-  stable: '8.8.8',
-}))
-const getGcsDistTags = mock(async (): Promise<NpmDistTags> => ({
-  latest: '7.7.7',
-  stable: '6.6.6',
-}))
+const getNpmDistTags = mock(
+  async (): Promise<NpmDistTags> => ({
+    latest: '9.9.9',
+    stable: '8.8.8',
+  }),
+)
+const getGcsDistTags = mock(
+  async (): Promise<NpmDistTags> => ({
+    latest: '7.7.7',
+    stable: '6.6.6',
+  }),
+)
 
 const deps: DoctorDistTagsDependencies = {
   getDoctorDiagnostic,

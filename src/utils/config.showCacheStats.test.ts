@@ -60,7 +60,9 @@ describe('showCacheStats — Zod validation', () => {
 describe('showCacheStats — GlobalConfig type surface', () => {
   test('assignable to each accepted mode without casting', () => {
     const a: Pick<GlobalConfig, 'showCacheStats'> = { showCacheStats: 'off' }
-    const b: Pick<GlobalConfig, 'showCacheStats'> = { showCacheStats: 'compact' }
+    const b: Pick<GlobalConfig, 'showCacheStats'> = {
+      showCacheStats: 'compact',
+    }
     const c: Pick<GlobalConfig, 'showCacheStats'> = { showCacheStats: 'full' }
     expect([a.showCacheStats, b.showCacheStats, c.showCacheStats]).toEqual([
       'off',

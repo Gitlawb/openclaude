@@ -81,7 +81,10 @@ async function writeJsonlEntries(entries: unknown[]): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-conversation-recovery-'))
   tempDirs.push(dir)
   const filePath = join(dir, 'resume.jsonl')
-  await writeFile(filePath, entries.map(entry => JSON.stringify(entry)).join('\n') + '\n')
+  await writeFile(
+    filePath,
+    entries.map(entry => JSON.stringify(entry)).join('\n') + '\n',
+  )
   return filePath
 }
 
@@ -194,10 +197,8 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
   process.env.CLAUDE_CODE_SIMPLE = '1'
   const hugeContent = 'x'.repeat(8 * 1024 * 1024 + 32 * 1024)
   const path = await writeJsonl(user(id(2), hugeContent))
-  const {
-    loadConversationForResume,
-    ResumeTranscriptTooLargeError,
-  } = await importFreshConversationRecovery()
+  const { loadConversationForResume, ResumeTranscriptTooLargeError } =
+    await importFreshConversationRecovery()
 
   let caught: unknown
   try {

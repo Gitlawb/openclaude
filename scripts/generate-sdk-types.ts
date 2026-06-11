@@ -20,7 +20,12 @@ import * as schemas from '../src/entrypoints/sdk/coreSchemas.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const outPath = resolve(
-  __dirname, '..', 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts',
+  __dirname,
+  '..',
+  'src',
+  'entrypoints',
+  'sdk',
+  'coreTypes.generated.ts',
 )
 
 // ---------------------------------------------------------------------------
@@ -35,8 +40,7 @@ const TypeOverrideMap: Record<string, string> = {
     'Record<string, unknown> & { role: "user", content: string | Array<unknown> }',
   APIAssistantMessagePlaceholder:
     'Record<string, unknown> & { role: "assistant", content: Array<unknown> }',
-  RawMessageStreamEventPlaceholder:
-    'Record<string, unknown>',
+  RawMessageStreamEventPlaceholder: 'Record<string, unknown>',
   UUIDPlaceholder: 'string',
   // Self-contained structural stand-in for NonNullableUsage: the generated
   // file ships to external consumers without sdkUtilityTypes or
@@ -60,7 +64,9 @@ for (const name of Object.keys(TypeOverrideMap)) {
   if (typeof thunk === 'function') {
     try {
       placeholderInstances.set(thunk(), TypeOverrideMap[name])
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 }
 

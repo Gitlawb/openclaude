@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
 import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata.ts'
-import {
-  getContextWindowForModel,
-  getModelMaxOutputTokens,
-} from './context.ts'
+import { getContextWindowForModel, getModelMaxOutputTokens } from './context.ts'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -472,12 +472,16 @@ test('prefixed OpenGateway Gemini Flash Lite uses integration metadata', () => {
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
-  expect(getContextWindowForModel('google/gemini-3.1-flash-lite')).toBe(1_048_576)
+  expect(getContextWindowForModel('google/gemini-3.1-flash-lite')).toBe(
+    1_048_576,
+  )
   expect(getModelMaxOutputTokens('google/gemini-3.1-flash-lite')).toEqual({
     default: 65_536,
     upperLimit: 65_536,
   })
-  expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite')).toBe(65_536)
+  expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite')).toBe(
+    65_536,
+  )
 })
 
 test('OpenAI-compatible custom model limits honor documented env overrides', () => {

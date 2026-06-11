@@ -132,10 +132,7 @@ export async function executeShellCommandsInPrompt(
           const output =
             typeof toolResultBlock.content === 'string'
               ? toolResultBlock.content
-              : formatBashOutput(
-                  normalizedData.stdout,
-                  normalizedData.stderr,
-                )
+              : formatBashOutput(normalizedData.stdout, normalizedData.stderr)
           // Function replacer — String.replace interprets $$, $&, $`, $' in
           // the replacement string even with a string search pattern. Shell
           // output (especially PowerShell: $env:PATH, $$, $PSVersionTable)

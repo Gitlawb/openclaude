@@ -7,7 +7,10 @@ import { type UnaryEvent, usePermissionRequestLogging } from './hooks.js'
 import { PermissionDecisionDebugInfo } from './PermissionDecisionDebugInfo.js'
 import { PermissionExplainerContent } from './PermissionExplanation.js'
 import { PermissionScaffold } from './PermissionScaffold.js'
-import type { PermissionRequestProps, ToolUseConfirm } from './PermissionRequest.js'
+import type {
+  PermissionRequestProps,
+  ToolUseConfirm,
+} from './PermissionRequest.js'
 
 type ExplainerState = {
   visible: boolean
@@ -91,7 +94,9 @@ export function SharedShellPermissionRequest<T extends string>({
       subtitle={subtitle}
       header={
         <Box flexDirection="column" paddingX={2} paddingY={1}>
-          <Text dimColor={explainerState.visible || isContentDimmed}>{message}</Text>
+          <Text dimColor={explainerState.visible || isContentDimmed}>
+            {message}
+          </Text>
           {!explainerState.visible && description ? (
             <Text dimColor>{description}</Text>
           ) : null}

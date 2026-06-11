@@ -40,7 +40,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+    for (const key of Object.keys(originalEnv) as Array<
+      keyof typeof originalEnv
+    >) {
       restoreEnv(key)
     }
     resetModelStringsForTestingOnly()
@@ -67,5 +69,7 @@ test('GitHub provider model strings are safe to parse', () => {
 
   const modelStrings = getModelStrings()
 
-  expect(() => parseUserSpecifiedModel(modelStrings.sonnet46 as any)).not.toThrow()
+  expect(() =>
+    parseUserSpecifiedModel(modelStrings.sonnet46 as any),
+  ).not.toThrow()
 })

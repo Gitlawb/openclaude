@@ -15,10 +15,7 @@ import { parseCustomHeadersEnv } from '../providerCustomHeaders.js'
 
 const ROUTE = 'nvidia-nim'
 
-function withEnv<T>(
-  patch: Record<string, string | undefined>,
-  fn: () => T,
-): T {
+function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
   const saved: Record<string, string | undefined> = {}
   for (const key of Object.keys(patch)) {
     saved[key] = process.env[key]
@@ -78,18 +75,14 @@ describe('nvidia-nim discovery cache key parity', () => {
         const pickerKey = getDiscoveryCacheKey(ROUTE, {
           baseUrl,
           apiKey,
-          headers: parseCustomHeadersEnv(
-            process.env.ANTHROPIC_CUSTOM_HEADERS,
-          ),
+          headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
         })
 
         // Mirror what `getDiscoveredNvidiaNimModelIds()` now does.
         const inlineKey = getDiscoveryCacheKey(ROUTE, {
           baseUrl,
           apiKey,
-          headers: parseCustomHeadersEnv(
-            process.env.ANTHROPIC_CUSTOM_HEADERS,
-          ),
+          headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
         })
 
         expect(inlineKey).toBe(pickerKey)

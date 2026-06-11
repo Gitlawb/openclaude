@@ -12,8 +12,7 @@ import {
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-  CLAUDE_CODE_AUTO_COMPACT_WINDOW:
-    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
 }
 
@@ -62,7 +61,9 @@ afterEach(() => {
   try {
     mockState.enabled = true
     mockState.effectiveWindow = 100_000
-    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+    for (const key of Object.keys(originalEnv) as Array<
+      keyof typeof originalEnv
+    >) {
       restoreEnv(key)
     }
     saveGlobalConfig(current => ({
@@ -109,7 +110,10 @@ function buildToolExchange(id: number, resultLength: number): Msg[] {
   ]
 }
 
-function buildConversation(numToolExchanges: number, resultLength = 5_000): Msg[] {
+function buildConversation(
+  numToolExchanges: number,
+  resultLength = 5_000,
+): Msg[] {
   const out: Msg[] = [{ role: 'user', content: 'Initial request' }]
   for (let i = 0; i < numToolExchanges; i++) {
     out.push(...buildToolExchange(i, resultLength))
@@ -119,12 +123,16 @@ function buildConversation(numToolExchanges: number, resultLength = 5_000): Msg[
 
 function getResultMessages(messages: Msg[]): Msg[] {
   return messages.filter(
-    m => Array.isArray(m.content) && m.content.some((b: any) => b.type === 'tool_result'),
+    m =>
+      Array.isArray(m.content) &&
+      m.content.some((b: any) => b.type === 'tool_result'),
   )
 }
 
 function getResultBlock(msg: Msg): Block {
-  return (msg.content as Block[]).find((b: any) => b.type === 'tool_result') as Block
+  return (msg.content as Block[]).find(
+    (b: any) => b.type === 'tool_result',
+  ) as Block
 }
 
 function getResultText(msg: Msg): string {
@@ -148,11 +156,7 @@ function compressToolHistoryForTest<
     message?: { role?: string; content?: unknown }
     content?: unknown
   },
->(
-  messages: T[],
-  model = 'gpt-4o',
-  effectiveContextWindowSize = 100_000,
-): T[] {
+>(messages: T[], model = 'gpt-4o', effectiveContextWindowSize = 100_000): T[] {
   return compressToolHistory(messages, model, { effectiveContextWindowSize })
 }
 
@@ -337,13 +341,17 @@ test('text blocks always preserved', () => {
     },
     {
       role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: bigText(5000) }],
+      content: [
+        { type: 'tool_result', tool_use_id: 'toolu_1', content: bigText(5000) },
+      ],
     },
     ...buildConversation(20, 5_000).slice(1),
   ]
   const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const assistantMsg = (result as Msg[])[1]
-  const textBlock = (assistantMsg.content as Block[]).find((b: any) => b.type === 'text')
+  const textBlock = (assistantMsg.content as Block[]).find(
+    (b: any) => b.type === 'text',
+  )
 
   expect(textBlock).toEqual({ type: 'text', text: 'reasoning before tool' })
 })
@@ -360,13 +368,17 @@ test('thinking blocks always preserved', () => {
     },
     {
       role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: bigText(5000) }],
+      content: [
+        { type: 'tool_result', tool_use_id: 'toolu_1', content: bigText(5000) },
+      ],
     },
     ...buildConversation(20, 5_000).slice(1),
   ]
   const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const assistantMsg = (result as Msg[])[1]
-  const thinking = (assistantMsg.content as Block[]).find((b: any) => b.type === 'thinking')
+  const thinking = (assistantMsg.content as Block[]).find(
+    (b: any) => b.type === 'thinking',
+  )
 
   expect(thinking).toEqual({
     type: 'thinking',
@@ -396,7 +408,9 @@ test('empty content array handled gracefully', () => {
 
 test('wrapped shape ({ message: { role, content } }) handled', () => {
   type WrappedMsg = { message: { role: string; content: Block[] | string } }
-  const wrap = (m: Msg): WrappedMsg => ({ message: { role: m.role, content: m.content } })
+  const wrap = (m: Msg): WrappedMsg => ({
+    message: { role: m.role, content: m.content },
+  })
   const messages = buildConversation(20, 5_000).map(wrap)
   const result = compressToolHistoryForTest(messages as any, 'gpt-4o')
 
@@ -418,7 +432,9 @@ test('flat shape ({ role, content }) handled', () => {
   const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
 
-  expect(getResultText(resultMsgs[0])).toMatch(/^\[Read args=.*→ 5000 chars omitted\]$/)
+  expect(getResultText(resultMsgs[0])).toMatch(
+    /^\[Read args=.*→ 5000 chars omitted\]$/,
+  )
 })
 
 // ---------- tier boundary correctness ----------
@@ -490,7 +506,10 @@ test('is_error flag preserved in mid tier', () => {
   ]
   const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
-  const block = getResultBlock(resultMsgs[0]) as { is_error?: boolean; content: unknown }
+  const block = getResultBlock(resultMsgs[0]) as {
+    is_error?: boolean
+    content: unknown
+  }
 
   expect(block.is_error).toBe(true)
   expect(getResultText(resultMsgs[0])).toContain('[…truncated')
@@ -518,7 +537,10 @@ test('is_error flag preserved in old tier (stub)', () => {
   ]
   const result = compressToolHistoryForTest(messages, 'gpt-4o')
   const resultMsgs = getResultMessages(result)
-  const block = getResultBlock(resultMsgs[0]) as { is_error?: boolean; content: unknown }
+  const block = getResultBlock(resultMsgs[0]) as {
+    is_error?: boolean
+    content: unknown
+  }
 
   expect(block.is_error).toBe(true)
   expect(getResultText(resultMsgs[0])).toMatch(/^\[Bash .*chars omitted\]$/)
@@ -533,7 +555,12 @@ test('non-compactable tool (e.g. Task/Agent) is NEVER compressed', () => {
     {
       role: 'assistant',
       content: [
-        { type: 'tool_use', id: 'task_1', name: 'Task', input: { goal: 'plan' } },
+        {
+          type: 'tool_use',
+          id: 'task_1',
+          name: 'Task',
+          input: { goal: 'plan' },
+        },
       ],
     },
     {
@@ -560,7 +587,12 @@ test('mcp__ prefixed tools ARE compactable (matches microCompact behavior)', () 
     {
       role: 'assistant',
       content: [
-        { type: 'tool_use', id: 'mcp_1', name: 'mcp__github__get_issue', input: {} },
+        {
+          type: 'tool_use',
+          id: 'mcp_1',
+          name: 'mcp__github__get_issue',
+          input: {},
+        },
       ],
     },
     {
@@ -575,7 +607,9 @@ test('mcp__ prefixed tools ARE compactable (matches microCompact behavior)', () 
   const resultMsgs = getResultMessages(result)
 
   // MCP tool result is compressed (gets stub since it's in old tier)
-  expect(getResultText(resultMsgs[0])).toMatch(/^\[mcp__github__get_issue .*chars omitted\]$/)
+  expect(getResultText(resultMsgs[0])).toMatch(
+    /^\[mcp__github__get_issue .*chars omitted\]$/,
+  )
 })
 
 // ---------- skip already-cleared blocks ----------

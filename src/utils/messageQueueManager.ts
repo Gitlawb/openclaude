@@ -348,7 +348,9 @@ type TuplePermutations<T extends string> = [T] extends [never]
 
 const NON_EDITABLE_MODES = new Set<PromptInputMode>([
   'task-notification',
-] satisfies TuplePermutations<Exclude<PromptInputMode, EditablePromptInputMode>>)
+] satisfies TuplePermutations<
+  Exclude<PromptInputMode, EditablePromptInputMode>
+>)
 
 export function isPromptInputModeEditable(
   mode: PromptInputMode,

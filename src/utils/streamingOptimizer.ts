@@ -1,6 +1,6 @@
 /**
  * Streaming Stats Tracker
- * 
+ *
  * Observational stats tracking for streaming responses.
  * No buffering - purely tracks metrics for monitoring.
  */
@@ -38,9 +38,7 @@ export function flushStreamBuffer(_state: StreamState): string {
 
 export function getStreamStats(state: StreamState): StreamStats {
   const now = Date.now()
-  const firstTokenMs = state.firstTokenTime
-    ? now - state.firstTokenTime
-    : null
+  const firstTokenMs = state.firstTokenTime ? now - state.firstTokenTime : null
   const durationMs = now - state.startTime
 
   return {

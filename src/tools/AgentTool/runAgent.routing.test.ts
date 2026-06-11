@@ -9,9 +9,7 @@ import {
   READ_FILE_STATE_CACHE_SIZE,
 } from '../../utils/fileStateCache.js'
 import { createUserMessage } from '../../utils/messages.js'
-import {
-  resetSettingsCache,
-} from '../../utils/settings/settingsCache.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import type { AgentDefinition } from './loadAgentsDir.js'
 import type { runAgent as runAgentFn } from './runAgent.js'
@@ -67,10 +65,16 @@ describe('runAgent provider routing', () => {
     allowedModelsForTest = undefined
     settingsForTest = {}
     if (actualSettingsModule) {
-      mock.module('../../utils/settings/settings.js', () => actualSettingsModule!)
+      mock.module(
+        '../../utils/settings/settings.js',
+        () => actualSettingsModule!,
+      )
     }
     if (actualModelAllowlistModule) {
-      mock.module('../../utils/model/modelAllowlist.js', () => actualModelAllowlistModule!)
+      mock.module(
+        '../../utils/model/modelAllowlist.js',
+        () => actualModelAllowlistModule!,
+      )
     }
     releaseSharedMutationLock()
   })

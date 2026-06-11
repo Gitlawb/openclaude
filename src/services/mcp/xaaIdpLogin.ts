@@ -28,9 +28,7 @@ import { getPlatform } from '../../utils/platform.js'
 import { getSecureStorage } from '../../utils/secureStorage/index.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 import { jsonParse } from '../../utils/slowOperations.js'
-import {
-  validateXaaIdpCallbackParams,
-} from './xaaIdpCallback.js'
+import { validateXaaIdpCallbackParams } from './xaaIdpCallback.js'
 import { buildRedirectUri, findAvailablePort } from './oauthPort.js'
 
 export function isXaaEnabled(): boolean {
@@ -480,9 +478,12 @@ export async function acquireIdpIdToken(
     codeVerifier,
     redirectUri,
     fetchFn: (url, init) => {
-      const { signal, cleanup } = createCombinedAbortSignal(init?.signal ?? undefined, {
-        timeoutMs: IDP_REQUEST_TIMEOUT_MS,
-      })
+      const { signal, cleanup } = createCombinedAbortSignal(
+        init?.signal ?? undefined,
+        {
+          timeoutMs: IDP_REQUEST_TIMEOUT_MS,
+        },
+      )
       // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
       return fetch(url, {
         ...init,

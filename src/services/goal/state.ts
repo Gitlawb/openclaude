@@ -21,9 +21,9 @@ export function normalizeGoalCondition(input: string): string {
   return trimmed
 }
 
-export function validateGoalCondition(input: string):
-  | { ok: true; condition: string }
-  | { ok: false; error: string } {
+export function validateGoalCondition(
+  input: string,
+): { ok: true; condition: string } | { ok: false; error: string } {
   const condition = normalizeGoalCondition(input)
   if (!condition) {
     return { ok: false, error: 'Goal condition cannot be empty.' }

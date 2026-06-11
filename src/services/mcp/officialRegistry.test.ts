@@ -26,7 +26,10 @@ afterEach(() => {
     axios.get = originalAxiosGet
     mock.restore()
     if (originalProvidersModule) {
-      mock.module('../../utils/model/providers.js', () => originalProvidersModule!)
+      mock.module(
+        '../../utils/model/providers.js',
+        () => originalProvidersModule!,
+      )
     }
   } finally {
     releaseSharedMutationLock()
@@ -81,13 +84,16 @@ describe('prefetchOfficialMcpUrls', () => {
     const getSpy = mock(() =>
       Promise.resolve({
         data: {
-          servers: [{ server: { remotes: [{ url: 'https://example.com/mcp' }] } }],
+          servers: [
+            { server: { remotes: [{ url: 'https://example.com/mcp' }] } },
+          ],
         },
       }),
     )
     axios.get = getSpy as typeof axios.get
 
-    const { prefetchOfficialMcpUrls, isOfficialMcpUrl } = await importFreshModule()
+    const { prefetchOfficialMcpUrls, isOfficialMcpUrl } =
+      await importFreshModule()
     await prefetchOfficialMcpUrls()
 
     expect(getSpy).toHaveBeenCalledTimes(1)

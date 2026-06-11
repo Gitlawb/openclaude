@@ -39,11 +39,15 @@ async function importFreshInstallCommand() {
 }
 
 async function importFreshInstaller() {
-  return import(`./nativeInstaller/installer.ts?ts=${Date.now()}-${Math.random()}`)
+  return import(
+    `./nativeInstaller/installer.ts?ts=${Date.now()}-${Math.random()}`
+  )
 }
 
 async function mockEnvPlatform(platform: 'darwin' | 'win32') {
-  const actualEnvModule = await import(`./env.js?ts=${Date.now()}-${Math.random()}`)
+  const actualEnvModule = await import(
+    `./env.js?ts=${Date.now()}-${Math.random()}`
+  )
   mock.module('../utils/env.js', () => ({
     ...actualEnvModule,
     env: {

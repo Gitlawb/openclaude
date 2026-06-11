@@ -41,11 +41,14 @@ const SAVED_API_KEY = process.env.ANTHROPIC_API_KEY
 beforeEach(() => {
   // Reset argv each test so the dangerously-skip-permissions detector starts
   // from a known baseline.
-  process.argv = [...SAVED_ARGV.filter(a => a !== '--dangerously-skip-permissions')]
+  process.argv = [
+    ...SAVED_ARGV.filter(a => a !== '--dangerously-skip-permissions'),
+  ]
   // Other status notices read auth state via getAnthropicApiKeyWithSource,
   // which throws when no key/token is present. Seed a dummy so getActiveNotices
   // can iterate every notice without unrelated failures crashing the test.
-  process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'sk-test-dummy'
+  process.env.ANTHROPIC_API_KEY =
+    process.env.ANTHROPIC_API_KEY ?? 'sk-test-dummy'
 })
 
 afterEach(() => {
@@ -69,7 +72,10 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
     const { getActiveNotices: freshGetActiveNotices } = await import(
       `./statusNoticeDefinitions.js?ts=${Date.now()}`
     )
-    const ctx = buildContext({ permissionMode: 'acceptEdits', mainLoopModel: 'gpt-5.4' })
+    const ctx = buildContext({
+      permissionMode: 'acceptEdits',
+      mainLoopModel: 'gpt-5.4',
+    })
     const ids = freshGetActiveNotices(ctx).map((n: { id: string }) => n.id)
     expect(ids).toContain('third-party-permissive-mode')
   })
@@ -84,7 +90,10 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
     const { getActiveNotices: freshGetActiveNotices } = await import(
       `./statusNoticeDefinitions.js?ts=${Date.now()}`
     )
-    const ctx = buildContext({ permissionMode: 'bypassPermissions', mainLoopModel: 'llama3.1' })
+    const ctx = buildContext({
+      permissionMode: 'bypassPermissions',
+      mainLoopModel: 'llama3.1',
+    })
     const ids = freshGetActiveNotices(ctx).map((n: { id: string }) => n.id)
     expect(ids).toContain('third-party-permissive-mode')
   })
@@ -99,7 +108,10 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
     const { getActiveNotices: freshGetActiveNotices } = await import(
       `./statusNoticeDefinitions.js?ts=${Date.now()}`
     )
-    const ctx = buildContext({ permissionMode: 'default', mainLoopModel: 'gpt-5.4' })
+    const ctx = buildContext({
+      permissionMode: 'default',
+      mainLoopModel: 'gpt-5.4',
+    })
     const ids = freshGetActiveNotices(ctx).map((n: { id: string }) => n.id)
     expect(ids).not.toContain('third-party-permissive-mode')
   })
@@ -114,7 +126,10 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
     const { getActiveNotices: freshGetActiveNotices } = await import(
       `./statusNoticeDefinitions.js?ts=${Date.now()}`
     )
-    const ctx = buildContext({ permissionMode: 'acceptEdits', mainLoopModel: 'claude-opus-4-7' })
+    const ctx = buildContext({
+      permissionMode: 'acceptEdits',
+      mainLoopModel: 'claude-opus-4-7',
+    })
     const ids = freshGetActiveNotices(ctx).map((n: { id: string }) => n.id)
     expect(ids).not.toContain('third-party-permissive-mode')
   })
@@ -129,7 +144,10 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
     const { getActiveNotices: freshGetActiveNotices } = await import(
       `./statusNoticeDefinitions.js?ts=${Date.now()}`
     )
-    const ctx = buildContext({ permissionMode: 'acceptEdits', mainLoopModel: 'mystery-model' })
+    const ctx = buildContext({
+      permissionMode: 'acceptEdits',
+      mainLoopModel: 'mystery-model',
+    })
     const ids = freshGetActiveNotices(ctx).map((n: { id: string }) => n.id)
     expect(ids).not.toContain('third-party-permissive-mode')
   })
@@ -138,19 +156,21 @@ describe('third-party permissive mode notice (#244 finding 1)', () => {
 describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
   test('fires when --dangerously-skip-permissions is in argv', () => {
     process.argv = [...process.argv, '--dangerously-skip-permissions']
-    expect(activeIds(buildContext())).toContain('dangerously-skip-permissions-no-sandbox')
+    expect(activeIds(buildContext())).toContain(
+      'dangerously-skip-permissions-no-sandbox',
+    )
   })
 
   test('fires when permission mode is bypassPermissions (e.g. settings defaultMode)', () => {
-    expect(activeIds(buildContext({ permissionMode: 'bypassPermissions' }))).toContain(
-      'dangerously-skip-permissions-no-sandbox',
-    )
+    expect(
+      activeIds(buildContext({ permissionMode: 'bypassPermissions' })),
+    ).toContain('dangerously-skip-permissions-no-sandbox')
   })
 
   test('does not fire in default mode without the flag', () => {
-    expect(activeIds(buildContext({ permissionMode: 'default' }))).not.toContain(
-      'dangerously-skip-permissions-no-sandbox',
-    )
+    expect(
+      activeIds(buildContext({ permissionMode: 'default' })),
+    ).not.toContain('dangerously-skip-permissions-no-sandbox')
   })
 })
 

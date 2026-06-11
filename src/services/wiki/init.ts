@@ -122,8 +122,16 @@ export async function initializeWiki(cwd: string): Promise<WikiInitResult> {
   const projectName = basename(cwd)
   const timestamp = new Date().toISOString()
 
-  await ensureFile(paths.schemaFile, buildSchemaTemplate(projectName), createdFiles)
-  await ensureFile(paths.indexFile, buildIndexTemplate(projectName), createdFiles)
+  await ensureFile(
+    paths.schemaFile,
+    buildSchemaTemplate(projectName),
+    createdFiles,
+  )
+  await ensureFile(
+    paths.indexFile,
+    buildIndexTemplate(projectName),
+    createdFiles,
+  )
   await ensureFile(paths.logFile, buildLogTemplate(timestamp), createdFiles)
   await ensureFile(
     `${paths.pagesDir}/architecture.md`,

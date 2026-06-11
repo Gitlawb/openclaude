@@ -1,4 +1,7 @@
-import type { ContentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
+import type {
+  ContentBlockParam,
+  TextBlockParam,
+} from '@anthropic-ai/sdk/resources/index.mjs'
 import type { Message, UserMessage } from '../types/message.js'
 import {
   BASH_STDERR_TAG,
@@ -15,11 +18,16 @@ function isTextBlock(block: ContentBlockParam): block is TextBlockParam {
   return block.type === 'text'
 }
 
-export function selectableUserMessagesFilter(message: Message): message is UserMessage {
+export function selectableUserMessagesFilter(
+  message: Message,
+): message is UserMessage {
   if (message.type !== 'user') {
     return false
   }
-  if (Array.isArray(message.message.content) && message.message.content[0]?.type === 'tool_result') {
+  if (
+    Array.isArray(message.message.content) &&
+    message.message.content[0]?.type === 'tool_result'
+  ) {
     return false
   }
   if (isSyntheticMessage(message)) {
@@ -32,11 +40,25 @@ export function selectableUserMessagesFilter(message: Message): message is UserM
     return false
   }
   const content = message.message.content
-  const lastBlock = typeof content === 'string' ? null : content[content.length - 1]
-  const messageText = typeof content === 'string' ? content.trim() : lastBlock && isTextBlock(lastBlock) ? lastBlock.text.trim() : ''
+  const lastBlock =
+    typeof content === 'string' ? null : content[content.length - 1]
+  const messageText =
+    typeof content === 'string'
+      ? content.trim()
+      : lastBlock && isTextBlock(lastBlock)
+        ? lastBlock.text.trim()
+        : ''
 
   // Filter out non-user-authored messages (command outputs, task notifications, ticks).
-  if (messageText.indexOf(`<${LOCAL_COMMAND_STDOUT_TAG}>`) !== -1 || messageText.indexOf(`<${LOCAL_COMMAND_STDERR_TAG}>`) !== -1 || messageText.indexOf(`<${BASH_STDOUT_TAG}>`) !== -1 || messageText.indexOf(`<${BASH_STDERR_TAG}>`) !== -1 || messageText.indexOf(`<${TASK_NOTIFICATION_TAG}>`) !== -1 || messageText.indexOf(`<${TICK_TAG}>`) !== -1 || messageText.indexOf(`<${TEAMMATE_MESSAGE_TAG}`) !== -1) {
+  if (
+    messageText.indexOf(`<${LOCAL_COMMAND_STDOUT_TAG}>`) !== -1 ||
+    messageText.indexOf(`<${LOCAL_COMMAND_STDERR_TAG}>`) !== -1 ||
+    messageText.indexOf(`<${BASH_STDOUT_TAG}>`) !== -1 ||
+    messageText.indexOf(`<${BASH_STDERR_TAG}>`) !== -1 ||
+    messageText.indexOf(`<${TASK_NOTIFICATION_TAG}>`) !== -1 ||
+    messageText.indexOf(`<${TICK_TAG}>`) !== -1 ||
+    messageText.indexOf(`<${TEAMMATE_MESSAGE_TAG}`) !== -1
+  ) {
     return false
   }
   return true
@@ -47,7 +69,10 @@ export function selectableUserMessagesFilter(message: Message): message is UserM
  * or non-meaningful content. Returns true if there's nothing meaningful to confirm -
  * for example, if the user hit enter then immediately cancelled.
  */
-export function messagesAfterAreOnlySynthetic(messages: Message[], fromIndex: number): boolean {
+export function messagesAfterAreOnlySynthetic(
+  messages: Message[],
+  fromIndex: number,
+): boolean {
   for (let i = fromIndex + 1; i < messages.length; i++) {
     const msg = messages[i]
     if (!msg) continue
@@ -64,7 +89,11 @@ export function messagesAfterAreOnlySynthetic(messages: Message[], fromIndex: nu
     if (msg.type === 'assistant') {
       const content = msg.message.content
       if (Array.isArray(content)) {
-        const hasMeaningfulContent = content.some(block => block.type === 'text' && block.text.trim() || block.type === 'tool_use')
+        const hasMeaningfulContent = content.some(
+          block =>
+            (block.type === 'text' && block.text.trim()) ||
+            block.type === 'tool_use',
+        )
         if (hasMeaningfulContent) return false
       }
       continue

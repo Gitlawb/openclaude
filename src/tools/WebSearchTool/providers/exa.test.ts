@@ -89,18 +89,24 @@ describe('exaProvider response mapping', () => {
   })
 
   test('maps highlights[] into description (joined with ellipsis)', async () => {
-    globalThis.fetch = (async (_input: any, _init: any) => new Response(JSON.stringify({
-      results: [{
-        title: 'Nvidia post-Blackwell roadmap',
-        url: 'https://example.com/nv',
-        highlights: [
-          'Nvidia announced its next-gen GPU.',
-          'Performance gains of ~2x over the prior generation.',
-          'Shipping in Q4.',
-        ],
-        highlightScores: [0.91, 0.84, 0.71],
-      }],
-    }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'Nvidia post-Blackwell roadmap',
+              url: 'https://example.com/nv',
+              highlights: [
+                'Nvidia announced its next-gen GPU.',
+                'Performance gains of ~2x over the prior generation.',
+                'Shipping in Q4.',
+              ],
+              highlightScores: [0.91, 0.84, 0.71],
+            },
+          ],
+        }),
+        { status: 200 },
+      )) as typeof fetch
 
     const out = await exaProvider.search({ query: 'q' })
 
@@ -114,33 +120,51 @@ describe('exaProvider response mapping', () => {
   })
 
   test('caps the joined description at 3 highlights', async () => {
-    globalThis.fetch = (async (_input: any, _init: any) => new Response(JSON.stringify({
-      results: [{
-        title: 't', url: 'https://e.com/x',
-        highlights: ['a', 'b', 'c', 'd', 'e'],
-      }],
-    }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 't',
+              url: 'https://e.com/x',
+              highlights: ['a', 'b', 'c', 'd', 'e'],
+            },
+          ],
+        }),
+        { status: 200 },
+      )) as typeof fetch
 
     const out = await exaProvider.search({ query: 'q' })
     expect(out.hits[0].description).toBe('a … b … c')
   })
 
   test('falls back to text when highlights is empty/missing', async () => {
-    globalThis.fetch = (async (_input: any, _init: any) => new Response(JSON.stringify({
-      results: [{
-        title: 't', url: 'https://e.com/x',
-        text: 'Full page body content.',
-      }],
-    }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 't',
+              url: 'https://e.com/x',
+              text: 'Full page body content.',
+            },
+          ],
+        }),
+        { status: 200 },
+      )) as typeof fetch
 
     const out = await exaProvider.search({ query: 'q' })
     expect(out.hits[0].description).toBe('Full page body content.')
   })
 
   test('description is undefined when neither highlights nor text is present', async () => {
-    globalThis.fetch = (async (_input: any, _init: any) => new Response(JSON.stringify({
-      results: [{ title: 't', url: 'https://e.com/x' }],
-    }), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async (_input: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          results: [{ title: 't', url: 'https://e.com/x' }],
+        }),
+        { status: 200 },
+      )) as typeof fetch
 
     const out = await exaProvider.search({ query: 'q' })
     expect(out.hits[0].description).toBeUndefined()

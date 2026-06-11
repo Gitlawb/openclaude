@@ -5,19 +5,22 @@ import { clearStartupProviderOverrides } from './providerStartupOverrides.js'
 describe('clearStartupProviderOverrides', () => {
   test('removes stale provider env from user settings and global config env', () => {
     const updateUserSettings = mock(() => ({ error: null }))
-    const saveConfig = mock((updater: (current: {
-      env: Record<string, string>
-    }) => { env: Record<string, string> }) =>
-      updater({
-        env: {
-          CLAUDE_CODE_USE_OPENAI: '1',
-          OPENAI_BASE_URL: 'https://api.minimax.io/v1',
-          OPENAI_MODEL: 'minimax-m2.7',
-          MINIMAX_API_KEY: 'sk-minimax',
-          VENICE_API_KEY: 'sk-venice',
-          KEEP_ME: '1',
+    const saveConfig = mock(
+      (
+        updater: (current: { env: Record<string, string> }) => {
+          env: Record<string, string>
         },
-      }),
+      ) =>
+        updater({
+          env: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: 'https://api.minimax.io/v1',
+            OPENAI_MODEL: 'minimax-m2.7',
+            MINIMAX_API_KEY: 'sk-minimax',
+            VENICE_API_KEY: 'sk-venice',
+            KEEP_ME: '1',
+          },
+        }),
     )
 
     const error = clearStartupProviderOverrides({
@@ -39,7 +42,8 @@ describe('clearStartupProviderOverrides', () => {
       }),
     )
     expect(
-      (saveConfig.mock.results[0]?.value as { env: Record<string, string> }).env,
+      (saveConfig.mock.results[0]?.value as { env: Record<string, string> })
+        .env,
     ).toEqual({ KEEP_ME: '1' })
   })
 })

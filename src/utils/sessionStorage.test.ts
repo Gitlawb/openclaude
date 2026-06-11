@@ -127,7 +127,10 @@ async function writeJsonl(entries: unknown[]): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
   tempDirs.push(dir)
   const filePath = join(dir, 'session.jsonl')
-  await writeFile(filePath, `${entries.map(e => JSON.stringify(e)).join('\n')}\n`)
+  await writeFile(
+    filePath,
+    `${entries.map(e => JSON.stringify(e)).join('\n')}\n`,
+  )
   return filePath
 }
 
@@ -152,10 +155,7 @@ function readGoalStateEntries(text: string): Array<{ goal: GoalState | null }> {
   return text
     .split('\n')
     .filter(Boolean)
-    .map(
-      line =>
-        JSON.parse(line) as { type?: string; goal?: GoalState | null },
-    )
+    .map(line => JSON.parse(line) as { type?: string; goal?: GoalState | null })
     .filter(
       (entry): entry is { goal: GoalState | null } =>
         entry.type === 'goal-state',
@@ -186,7 +186,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   try {
-    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+    await Promise.all(
+      tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
+    )
   } finally {
     releaseSharedMutationLock()
   }
@@ -343,19 +345,22 @@ test('stripPersistedToolUseResultsFromJSONLBuffer drops raw toolUseResult while 
       content: '<persisted-output>\nPreview text\n</persisted-output>',
     },
   ])
-  ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult = {
-    stdout: 'x'.repeat(200_000),
-    stderr: '',
-  }
+  ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult =
+    {
+      stdout: 'x'.repeat(200_000),
+      stderr: '',
+    }
 
   const raw = Buffer.from(`${JSON.stringify(persisted)}\n`)
   const sanitized = stripPersistedToolUseResultsFromJSONLBuffer(raw)
-  const [parsed] = JSON.parse(`[${sanitized.toString('utf8').trim()}]`) as Array<
-    typeof persisted & { toolUseResult?: unknown }
-  >
+  const [parsed] = JSON.parse(
+    `[${sanitized.toString('utf8').trim()}]`,
+  ) as Array<typeof persisted & { toolUseResult?: unknown }>
 
   expect(parsed?.toolUseResult).toBeUndefined()
-  expect(getToolResultContent(parsed?.message.content)).toContain('Preview text')
+  expect(getToolResultContent(parsed?.message.content)).toContain(
+    'Preview text',
+  )
 })
 
 test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript entries', async () => {
@@ -367,20 +372,25 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
       content: '<persisted-output>\nPreview text\n</persisted-output>',
     },
   ])
-  ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult = {
-    stdout: 'y'.repeat(200_000),
-    stderr: '',
-  }
+  ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult =
+    {
+      stdout: 'y'.repeat(200_000),
+      stderr: '',
+    }
 
   const filePath = await writeJsonl([persisted])
   const { messages } = await loadTranscriptFile(filePath)
-  const loaded = messages.get(id(41)) as (typeof persisted & {
-    toolUseResult?: unknown
-  }) | undefined
+  const loaded = messages.get(id(41)) as
+    | (typeof persisted & {
+        toolUseResult?: unknown
+      })
+    | undefined
 
   expect(loaded).toBeDefined()
   expect(loaded?.toolUseResult).toBeUndefined()
-  expect(getToolResultContent(loaded?.message.content)).toContain('Preview text')
+  expect(getToolResultContent(loaded?.message.content)).toContain(
+    'Preview text',
+  )
 })
 
 test('loadTranscriptFile restores last goal-state metadata entry', async () => {

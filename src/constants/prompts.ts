@@ -100,8 +100,7 @@ const skillSearchFeatureCheck = feature('EXPERIMENTAL_SKILL_SEARCH')
 import type { OutputStyleConfig } from './outputStyles.js'
 import { CYBER_RISK_INSTRUCTION } from './cyberRiskInstruction.js'
 
-export const CLAUDE_CODE_DOCS_MAP_URL =
-  'https://github.com/Gitlawb/openclaude'
+export const CLAUDE_CODE_DOCS_MAP_URL = 'https://github.com/Gitlawb/openclaude'
 
 /**
  * Boundary marker separating static (cross-org cacheable) content from dynamic content.
@@ -513,7 +512,9 @@ ${CYBER_RISK_INSTRUCTION}`,
       'MCP servers connect/disconnect between turns',
     ),
     systemPromptSection('scratchpad', () => getScratchpadInstructions()),
-    systemPromptSection(`frc:${model}`, () => getFunctionResultClearingSection(model)),
+    systemPromptSection(`frc:${model}`, () =>
+      getFunctionResultClearingSection(model),
+    ),
     systemPromptSection(
       'summarize_tool_results',
       () => SUMMARIZE_TOOL_RESULTS_SECTION,

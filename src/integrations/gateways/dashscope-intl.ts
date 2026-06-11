@@ -27,7 +27,12 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'qwen-intl-3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen 3.6 Plus', modelDescriptorId: 'qwen3.6-plus' },
+      {
+        id: 'qwen-intl-3.6-plus',
+        apiName: 'qwen3.6-plus',
+        label: 'Qwen 3.6 Plus',
+        modelDescriptorId: 'qwen3.6-plus',
+      },
     ],
   },
   usage: { supported: false },

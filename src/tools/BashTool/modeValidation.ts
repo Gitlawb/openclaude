@@ -17,7 +17,7 @@ const ACCEPT_EDITS_WRITE_COMMANDS = [
   'mv',
   'cp',
   'sed',
- ] as const
+] as const
 
 const ACCEPT_EDITS_READ_ONLY_COMMANDS = [
   // Safe read-only commands — cannot modify files or cause data loss.
@@ -44,7 +44,9 @@ type AcceptEditsReadOnlyCommand =
 function isAcceptEditsWriteCommand(
   command: string,
 ): command is AcceptEditsWriteCommand {
-  return ACCEPT_EDITS_WRITE_COMMANDS.includes(command as AcceptEditsWriteCommand)
+  return ACCEPT_EDITS_WRITE_COMMANDS.includes(
+    command as AcceptEditsWriteCommand,
+  )
 }
 
 function isAcceptEditsReadOnlyCommand(
@@ -98,7 +100,11 @@ function validateCommandForMode(
     // which is otherwise skipped when acceptEdits returns allow early.
     if (baseCmd === 'rm' || baseCmd === 'rmdir') {
       const args = trimmedCmd.split(/\s+/).slice(1)
-      const dangerousResult = checkDangerousRemovalPaths(baseCmd, args, getCwd())
+      const dangerousResult = checkDangerousRemovalPaths(
+        baseCmd,
+        args,
+        getCwd(),
+      )
       if (dangerousResult.behavior !== 'passthrough') {
         return dangerousResult
       }
@@ -192,7 +198,11 @@ export function checkPermissionMode(
 
   // Check each subcommand
   for (const cmd of commands) {
-    const result = validateCommandForMode(cmd, toolPermissionContext, input.command)
+    const result = validateCommandForMode(
+      cmd,
+      toolPermissionContext,
+      input.command,
+    )
 
     // If any command triggers mode-specific behavior, return that result
     if (result.behavior !== 'passthrough') {

@@ -41,9 +41,7 @@ import { z } from 'zod/v4'
 import { notifyCommandLifecycle } from '../utils/commandLifecycle.js'
 import { normalizeControlMessageKeys } from '../utils/controlMessageCompat.js'
 import { executePermissionRequestHooks } from '../utils/hooks.js'
-import {
-  persistPermissionUpdates,
-} from '../utils/permissions/PermissionUpdate.js'
+import { persistPermissionUpdates } from '../utils/permissions/PermissionUpdate.js'
 import { applyPermissionUpdatesToLiveContext } from '../utils/permissions/permissionSetup.js'
 import {
   notifySessionStateChanged,
@@ -550,12 +548,12 @@ export class StructuredIO {
         forceDecision !== undefined && !shouldBypassForcedAsk
           ? forceDecision
           : await hasPermissionsToUseTool(
-          tool,
-          input,
-          toolUseContext,
-          assistantMessage,
-          toolUseID,
-        )
+              tool,
+              input,
+              toolUseContext,
+              assistantMessage,
+              toolUseID,
+            )
       // If the tool is allowed or denied, return the result
       if (
         mainPermissionResult.behavior === 'allow' ||
@@ -824,7 +822,8 @@ async function executePermissionRequestHooksForSDK(
         // Apply permission updates if provided by hook ("always allow")
         const permissionUpdates = decision.updatedPermissions ?? []
         if (permissionUpdates.length > 0) {
-          let updatedContext = toolUseContext.getAppState().toolPermissionContext
+          let updatedContext =
+            toolUseContext.getAppState().toolPermissionContext
           // Update permission context via setAppState
           toolUseContext.setAppState(prev => {
             updatedContext = applyPermissionUpdatesToLiveContext(

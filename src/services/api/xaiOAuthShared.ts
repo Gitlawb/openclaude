@@ -14,7 +14,8 @@ import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 
 export const XAI_OAUTH_ISSUER = 'https://auth.x.ai'
 export const XAI_OAUTH_DISCOVERY_URL = `${XAI_OAUTH_ISSUER}/.well-known/openid-configuration`
-export const DEFAULT_XAI_OAUTH_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828'
+export const DEFAULT_XAI_OAUTH_CLIENT_ID =
+  'b1a00492-073a-47ea-816f-4c329264a828'
 export const DEFAULT_XAI_OAUTH_CALLBACK_PORT = 56121
 export const DEFAULT_XAI_OAUTH_CALLBACK_HOST = '127.0.0.1'
 export const XAI_OAUTH_CALLBACK_PATH = '/callback'
@@ -41,9 +42,7 @@ export function asTrimmedString(value: unknown): string | undefined {
 export function getXaiOAuthClientId(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return (
-    asTrimmedString(env.XAI_OAUTH_CLIENT_ID) ?? DEFAULT_XAI_OAUTH_CLIENT_ID
-  )
+  return asTrimmedString(env.XAI_OAUTH_CLIENT_ID) ?? DEFAULT_XAI_OAUTH_CLIENT_ID
 }
 
 export function getXaiOAuthCallbackPort(
@@ -169,9 +168,7 @@ export async function fetchXaiOAuthDiscovery(options?: {
     cleanup()
   }
   if (!response.ok) {
-    throw new Error(
-      `xAI OAuth discovery failed with status ${response.status}`,
-    )
+    throw new Error(`xAI OAuth discovery failed with status ${response.status}`)
   }
   const json = (await response.json()) as Record<string, unknown>
   const authorizationEndpoint = json.authorization_endpoint

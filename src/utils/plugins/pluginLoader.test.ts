@@ -17,7 +17,10 @@ import {
   resolveExistingPluginComponentPath,
   resolvePluginComponentPath,
 } from './pluginLoader.js'
-import { clearPluginSkillsCache, getPluginSkills } from './loadPluginCommands.js'
+import {
+  clearPluginSkillsCache,
+  getPluginSkills,
+} from './loadPluginCommands.js'
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/plugins/pluginLoader.test.ts')
@@ -108,10 +111,14 @@ describe('mergeHooksSettings', () => {
   // the concat-not-replace contract the call site depends on.
   test('concatenates per-event matcher arrays instead of replacing them', () => {
     const base = {
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'A' }] }],
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'A' }] },
+      ],
     } as never
     const additional = {
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'B' }] }],
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'B' }] },
+      ],
     } as never
 
     const merged = mergeHooksSettings(base, additional) as never as {
@@ -125,10 +132,14 @@ describe('mergeHooksSettings', () => {
 
   test('keeps disjoint events from both inputs', () => {
     const base = {
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'pre' }] }],
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'pre' }] },
+      ],
     } as never
     const additional = {
-      PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'post' }] }],
+      PostToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'post' }] },
+      ],
     } as never
 
     const merged = mergeHooksSettings(base, additional) as never as {
@@ -142,7 +153,9 @@ describe('mergeHooksSettings', () => {
 
   test('returns additional unchanged when base is undefined', () => {
     const additional = {
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'X' }] }],
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: 'X' }] },
+      ],
     } as never
 
     expect(mergeHooksSettings(undefined, additional)).toBe(additional)

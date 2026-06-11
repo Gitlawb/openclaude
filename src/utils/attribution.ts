@@ -1,7 +1,10 @@
 import { feature } from 'bun:bundle'
 import { stat } from 'fs/promises'
 import { getClientType } from '../bootstrap/state.js'
-import { getRemoteSessionUrl, isRemoteSessionLocal } from '../constants/product.js'
+import {
+  getRemoteSessionUrl,
+  isRemoteSessionLocal,
+} from '../constants/product.js'
 import { isEnvTruthy } from './envUtils.js'
 import { TERMINAL_OUTPUT_TAGS } from '../constants/xml.js'
 import type { AppState } from '../state/AppState.js'

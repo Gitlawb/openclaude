@@ -9,7 +9,11 @@
  * connection". This mirrors openclaw's `waitForLocalOAuthCallback`.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http'
 
 function escapeHtml(value: string): string {
   return value.replace(
@@ -59,9 +63,8 @@ function applyCors(
   res: ServerResponse,
   allowlist: readonly string[],
 ): void {
-  const origin = typeof req.headers.origin === 'string'
-    ? req.headers.origin
-    : undefined
+  const origin =
+    typeof req.headers.origin === 'string' ? req.headers.origin : undefined
   if (!isAllowedOrigin(origin, allowlist)) return
   res.setHeader('Access-Control-Allow-Origin', origin!)
   res.setHeader(
@@ -96,9 +99,7 @@ export async function startXaiOAuthCallback(params: {
   const allowlist = params.corsOriginAllowlist ?? DEFAULT_CORS_ALLOWLIST
   const successTitle = params.successTitle ?? 'xAI OAuth complete'
 
-  let resolveCallback:
-    | ((result: XaiOAuthCallbackResult) => void)
-    | null = null
+  let resolveCallback: ((result: XaiOAuthCallbackResult) => void) | null = null
   let rejectCallback: ((error: Error) => void) | null = null
   let settled = false
 
@@ -114,10 +115,7 @@ export async function startXaiOAuthCallback(params: {
   // / await; this only neutralizes the "no listener attached yet" case.
   callbackPromise.catch(() => undefined)
 
-  function settle(
-    next: () => void,
-    handler: () => void,
-  ): void {
+  function settle(next: () => void, handler: () => void): void {
     if (settled) return
     settled = true
     try {
@@ -130,7 +128,10 @@ export async function startXaiOAuthCallback(params: {
   const server = createServer((req, res) => {
     try {
       applyCors(req, res, allowlist)
-      const url = new URL(req.url ?? '/', `http://${params.host}:${params.port}`)
+      const url = new URL(
+        req.url ?? '/',
+        `http://${params.host}:${params.port}`,
+      )
 
       if (req.method === 'OPTIONS') {
         res.statusCode = 204
@@ -174,7 +175,10 @@ export async function startXaiOAuthCallback(params: {
         res.end('Missing code or state')
         settle(
           () => undefined,
-          () => rejectCallback?.(new Error('xAI OAuth callback missing code or state')),
+          () =>
+            rejectCallback?.(
+              new Error('xAI OAuth callback missing code or state'),
+            ),
         )
         return
       }

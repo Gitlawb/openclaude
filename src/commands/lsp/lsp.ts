@@ -193,8 +193,7 @@ const BINARY_INSTALL_HINTS: Record<string, BinaryInstallHint> = {
   'kotlin-lsp': {
     install: {
       macos: 'brew install JetBrains/utils/kotlin-lsp',
-      generic:
-        'Install kotlin-lsp manually and ensure kotlin-lsp is on PATH',
+      generic: 'Install kotlin-lsp manually and ensure kotlin-lsp is on PATH',
     },
     verify: 'kotlin-lsp --version',
     notes: ['Requires Java 17+.'],
@@ -507,11 +506,7 @@ function binaryInstallHint(command: string): string {
     ].join('\n')
   }
 
-  const lines: string[] = [
-    `Binary missing: ${command}`,
-    '',
-    'Install:',
-  ]
+  const lines: string[] = [`Binary missing: ${command}`, '', 'Install:']
 
   if (hint.install?.archManjaro) {
     lines.push(`  Arch/Manjaro: ${hint.install.archManjaro}`)

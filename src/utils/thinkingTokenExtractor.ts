@@ -1,6 +1,6 @@
 /**
  * Thinking Token Extractor - Production-grade thinking token analysis
- * 
+ *
  * Extracts and analyzes thinking tokens from assistant messages.
  * Provides detailed breakdown, statistics, and insights.
  */
@@ -114,13 +114,17 @@ export class ThinkingTokenAnalyzer {
     const thinkingPercentage = total > 0 ? (thinking / total) * 100 : 0
     const outputPercentage = total > 0 ? (output / total) * 100 : 0
 
-    const avgThinkingBlockSize = thinkingBlocks.length > 0
-      ? thinkingBlocks.reduce((sum, b) => sum + b.tokens, 0) / thinkingBlocks.length
-      : 0
+    const avgThinkingBlockSize =
+      thinkingBlocks.length > 0
+        ? thinkingBlocks.reduce((sum, b) => sum + b.tokens, 0) /
+          thinkingBlocks.length
+        : 0
 
-    const avgOutputBlockSize = outputBlocks.length > 0
-      ? outputBlocks.reduce((sum, b) => sum + b.tokens, 0) / outputBlocks.length
-      : 0
+    const avgOutputBlockSize =
+      outputBlocks.length > 0
+        ? outputBlocks.reduce((sum, b) => sum + b.tokens, 0) /
+          outputBlocks.length
+        : 0
 
     const totalTextLength = [...thinkingBlocks, ...outputBlocks].reduce(
       (sum, b) => sum + b.content.length,
@@ -180,9 +184,11 @@ export class ThinkingTokenAnalyzer {
 /**
  * Legacy export for backward compatibility
  */
-export function extractThinkingTokens(
-  message: AssistantMessage,
-): { thinking: number; output: number; total: number } {
+export function extractThinkingTokens(message: AssistantMessage): {
+  thinking: number
+  output: number
+  total: number
+} {
   const result = ThinkingTokenAnalyzer.extract(message)
   return {
     thinking: result.thinking,

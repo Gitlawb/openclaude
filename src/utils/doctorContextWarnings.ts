@@ -67,7 +67,9 @@ async function safeWarning(
 async function checkClaudeMdFiles(
   memoryFiles?: MemoryFileInfo[],
 ): Promise<ContextWarning | null> {
-  const largeFiles = getLargeMemoryFiles(memoryFiles ?? (await getMemoryFiles()))
+  const largeFiles = getLargeMemoryFiles(
+    memoryFiles ?? (await getMemoryFiles()),
+  )
 
   // This already filters for files > 40k chars each
   if (largeFiles.length === 0) {

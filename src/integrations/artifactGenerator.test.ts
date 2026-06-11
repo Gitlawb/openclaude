@@ -84,7 +84,9 @@ describe('integration artifact generator', () => {
       async repoRoot => {
         const [{ content }] = await generateIntegrationArtifacts({ repoRoot })
 
-        expect(content).toContain("import gatewayAcme from '../gateways/acme.js'")
+        expect(content).toContain(
+          "import gatewayAcme from '../gateways/acme.js'",
+        )
         expect(content).toContain('"preset": "acme-gateway"')
         expect(content).toContain('"gatewayId": "acme"')
         expect(content).toContain('"routeId": "acme"')
@@ -221,7 +223,12 @@ describe('integration artifact generator', () => {
           match => match[1]!,
         )
 
-        expect(orderedPresetIds).toEqual(['anthropic', 'alpha', 'zeta', 'custom'])
+        expect(orderedPresetIds).toEqual([
+          'anthropic',
+          'alpha',
+          'zeta',
+          'custom',
+        ])
       },
     )
   })

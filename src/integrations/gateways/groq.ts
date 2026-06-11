@@ -30,18 +30,28 @@ export default defineGateway({
     discovery: {
       kind: 'openai-compatible',
       mapModel(raw: unknown) {
-        const model = raw as { id?: string; active?: boolean; context_window?: number }
+        const model = raw as {
+          id?: string
+          active?: boolean
+          context_window?: number
+        }
         if (!model.id || model.active === false) {
           return null
         }
-        if (/(whisper|distil-whisper|llama-guard|prompt-guard|safeguard|playai|orpheus)/i.test(model.id)) {
+        if (
+          /(whisper|distil-whisper|llama-guard|prompt-guard|safeguard|playai|orpheus)/i.test(
+            model.id,
+          )
+        ) {
           return null
         }
         return {
           id: model.id,
           apiName: model.id,
           label: model.id,
-          ...(model.context_window ? { contextWindow: model.context_window } : {}),
+          ...(model.context_window
+            ? { contextWindow: model.context_window }
+            : {}),
         }
       },
     },
@@ -49,7 +59,12 @@ export default defineGateway({
     discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
     models: [
-      { id: 'groq-llama-3.3-70b', apiName: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', modelDescriptorId: 'llama-3.3-70b-versatile' },
+      {
+        id: 'groq-llama-3.3-70b',
+        apiName: 'llama-3.3-70b-versatile',
+        label: 'Llama 3.3 70B',
+        modelDescriptorId: 'llama-3.3-70b-versatile',
+      },
     ],
   },
   usage: { supported: false },

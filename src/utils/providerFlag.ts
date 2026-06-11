@@ -56,7 +56,12 @@ function buildValidProviders(): string[] {
     discovered.has(provider),
   )
   const remainder = Array.from(discovered)
-    .filter(provider => !preferred.includes(provider as (typeof PREFERRED_PROVIDER_ORDER)[number]))
+    .filter(
+      provider =>
+        !preferred.includes(
+          provider as (typeof PREFERRED_PROVIDER_ORDER)[number],
+        ),
+    )
     .sort()
 
   return [...preferred, ...remainder]
@@ -66,12 +71,10 @@ export const VALID_PROVIDERS = buildValidProviders()
 
 export type ProviderFlagName = string
 
-let rememberedProviderFlag:
-  | {
-      provider: string
-      model?: string
-    }
-  | null = null
+let rememberedProviderFlag: {
+  provider: string
+  model?: string
+} | null = null
 
 /**
  * Extract the value of --provider from argv.
@@ -171,9 +174,7 @@ function getConfiguredOpenAIBaseUrl(): string | undefined {
 }
 
 function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
-  const currentRouteId = resolveRouteIdFromBaseUrl(
-    getConfiguredOpenAIBaseUrl(),
-  )
+  const currentRouteId = resolveRouteIdFromBaseUrl(getConfiguredOpenAIBaseUrl())
   if (!currentRouteId) {
     return false
   }
@@ -286,7 +287,8 @@ export function applyProviderFlag(
                   process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
                 ? 'minimax'
                 : process.env.OPENAI_API_KEY !== undefined &&
-                    process.env.OPENAI_API_KEY === process.env.ATLAS_CLOUD_API_KEY
+                    process.env.OPENAI_API_KEY ===
+                      process.env.ATLAS_CLOUD_API_KEY
                   ? 'atlas-cloud'
                   : process.env.OPENAI_API_KEY !== undefined &&
                       opengatewayApiKey !== undefined &&
@@ -344,7 +346,8 @@ export function applyProviderFlag(
 
     case 'ollama':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'http://localhost:11434/v1'
+      process.env.OPENAI_BASE_URL ??=
+        defaultBaseUrl ?? 'http://localhost:11434/v1'
       if (!process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = 'ollama'
       }
@@ -353,7 +356,8 @@ export function applyProviderFlag(
 
     case 'nvidia-nim':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://integrate.api.nvidia.com/v1'
+      process.env.OPENAI_BASE_URL ??=
+        defaultBaseUrl ?? 'https://integrate.api.nvidia.com/v1'
       process.env.NVIDIA_NIM = '1'
       if (process.env.NVIDIA_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.NVIDIA_API_KEY
@@ -364,7 +368,8 @@ export function applyProviderFlag(
 
     case 'bankr':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://llm.bankr.bot/v1'
+      process.env.OPENAI_BASE_URL ??=
+        defaultBaseUrl ?? 'https://llm.bankr.bot/v1'
       process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -380,7 +385,8 @@ export function applyProviderFlag(
       delete process.env.OPENAI_AUTH_HEADER
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
-      process.env.ANTHROPIC_BASE_URL = defaultBaseUrl ?? 'https://api.minimax.io/anthropic'
+      process.env.ANTHROPIC_BASE_URL =
+        defaultBaseUrl ?? 'https://api.minimax.io/anthropic'
       process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M3'
       if (model) process.env.ANTHROPIC_MODEL = model
       if (process.env.MINIMAX_API_KEY && !process.env.ANTHROPIC_API_KEY) {
@@ -429,7 +435,8 @@ export function applyProviderFlag(
 
     case 'xiaomi-mimo':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1'
+      process.env.OPENAI_BASE_URL ??=
+        defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1'
       process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -439,7 +446,8 @@ export function applyProviderFlag(
 
     case 'venice':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.venice.ai/api/v1'
+      process.env.OPENAI_BASE_URL ??=
+        defaultBaseUrl ?? 'https://api.venice.ai/api/v1'
       process.env.OPENAI_MODEL ??= defaultModel ?? 'venice-uncensored'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.VENICE_API_KEY && !process.env.OPENAI_API_KEY) {

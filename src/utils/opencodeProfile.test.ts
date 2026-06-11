@@ -4,14 +4,20 @@ import assert from 'node:assert/strict'
 import test, { afterEach, beforeEach } from 'node:test'
 
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
-import { DEFAULT_OPENCODE_BASE_URL, DEFAULT_OPENCODE_GO_BASE_URL } from '../services/api/providerConfig.js'
+import {
+  DEFAULT_OPENCODE_BASE_URL,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+} from '../services/api/providerConfig.js'
 import {
   buildLaunchEnv,
   isProviderProfile,
   type ProfileFile,
 } from './providerProfile.js'
 
-function profile(profile: ProfileFile['profile'], env: ProfileFile['env']): ProfileFile {
+function profile(
+  profile: ProfileFile['profile'],
+  env: ProfileFile['env'],
+): ProfileFile {
   return {
     profile,
     env,
@@ -247,7 +253,7 @@ test('opencode profile handles concurrent access', async () => {
       }),
       goal: 'balanced',
       processEnv: {},
-    })
+    }),
   )
 
   const results = await Promise.all(promises)

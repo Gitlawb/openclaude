@@ -32,7 +32,9 @@ import {
 import type { ThemeSetting } from '../../utils/theme.js'
 import { ThemeProvider, usePreviewTheme } from './ThemeProvider.js'
 
-await acquireSharedMutationLock('components/design-system/ThemeProvider.test.tsx')
+await acquireSharedMutationLock(
+  'components/design-system/ThemeProvider.test.tsx',
+)
 
 mock.module('../StructuredDiff.js', () => ({
   StructuredDiff: function StructuredDiffPreview(): React.ReactNode {
@@ -77,7 +79,9 @@ function createTestStreams() {
   stdin.ref = () => {}
   stdin.unref = () => {}
   ;(stdout as unknown as { columns: number }).columns = 120
-  stdout.on('data', chunk => { output += chunk.toString() })
+  stdout.on('data', chunk => {
+    output += chunk.toString()
+  })
   return { stdout, stdin, getOutput: () => output }
 }
 
@@ -137,7 +141,9 @@ test('useTheme() reflects updated currentTheme after setThemeSetting call', asyn
   let setThemeFn: ((s: ThemeSetting) => void) | null = null
   function ThemeSetter() {
     const [, setter] = useTheme()
-    useEffect(() => { setThemeFn = setter })
+    useEffect(() => {
+      setThemeFn = setter
+    })
     return null
   }
 
@@ -154,19 +160,25 @@ test('useTheme() reflects updated currentTheme after setThemeSetting call', asyn
 
   try {
     // Initial render
-    const initial = await waitForFrame(getOutput, f => f.includes('current:dark'))
+    const initial = await waitForFrame(getOutput, f =>
+      f.includes('current:dark'),
+    )
     expect(initial).toContain('current:dark')
 
     // Change theme — useTheme() must reflect the new value
     setThemeFn!('light')
-    const afterLight = await waitForFrame(getOutput, f => f.includes('current:light'))
+    const afterLight = await waitForFrame(getOutput, f =>
+      f.includes('current:light'),
+    )
     expect(afterLight).toContain('current:light')
 
     // Change again to confirm no stale caching. 'ansi' is not a declared
     // ThemeSetting; the provider stores it verbatim, which is exactly what
     // this staleness check needs — cast at the boundary.
     setThemeFn!('ansi' as ThemeSetting)
-    const afterAnsi = await waitForFrame(getOutput, f => f.includes('current:ansi'))
+    const afterAnsi = await waitForFrame(getOutput, f =>
+      f.includes('current:ansi'),
+    )
     expect(afterAnsi).toContain('current:ansi')
   } finally {
     root.unmount()
@@ -193,7 +205,9 @@ test('usePreviewTheme() setPreviewTheme changes displayed theme', async () => {
   function ThemeDisplay() {
     const [theme] = useTheme()
     const actions = usePreviewTheme()
-    useEffect(() => { previewActions = actions })
+    useEffect(() => {
+      previewActions = actions
+    })
     return <Text>current:{theme}</Text>
   }
 
@@ -213,12 +227,16 @@ test('usePreviewTheme() setPreviewTheme changes displayed theme', async () => {
 
     // setPreviewTheme should change the displayed theme
     previewActions!.setPreviewTheme('light')
-    const afterPreview = await waitForFrame(getOutput, f => f.includes('current:light'))
+    const afterPreview = await waitForFrame(getOutput, f =>
+      f.includes('current:light'),
+    )
     expect(afterPreview).toContain('current:light')
 
     // cancelPreview should revert to the saved setting
     previewActions!.cancelPreview()
-    const afterCancel = await waitForFrame(getOutput, f => f.includes('current:dark'))
+    const afterCancel = await waitForFrame(getOutput, f =>
+      f.includes('current:dark'),
+    )
     expect(afterCancel).toContain('current:dark')
   } finally {
     root.unmount()

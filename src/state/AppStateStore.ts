@@ -462,9 +462,7 @@ export type AppStateStore = Store<AppState>
 export function getDefaultAppState(): AppState {
   // Determine initial permission mode for teammates spawned with plan_mode_required
   const initialMode: PermissionMode =
-    isTeammate() && isPlanModeRequired()
-      ? 'plan'
-      : 'default'
+    isTeammate() && isPlanModeRequired() ? 'plan' : 'default'
 
   return {
     settings: getInitialSettings(),

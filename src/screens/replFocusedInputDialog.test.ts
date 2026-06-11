@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'bun:test'
 
-import { resolveCriticalInputDialog } from './replFocusedInputDialog.js';
+import { resolveCriticalInputDialog } from './replFocusedInputDialog.js'
 
 const idle = {
   sandboxPermissionPending: false,
@@ -10,7 +10,7 @@ const idle = {
   elicitationPending: false,
   showingCostDialog: false,
   allowDialogsWithAnimation: true,
-};
+}
 
 describe('resolveCriticalInputDialog', () => {
   it('returns tool-permission even when typing suppression would block lower dialogs', () => {
@@ -19,8 +19,8 @@ describe('resolveCriticalInputDialog', () => {
         ...idle,
         toolUseConfirmPending: true,
       }),
-    ).toBe('tool-permission');
-  });
+    ).toBe('tool-permission')
+  })
 
   it('returns hook prompt when pending', () => {
     expect(
@@ -28,8 +28,8 @@ describe('resolveCriticalInputDialog', () => {
         ...idle,
         promptPending: true,
       }),
-    ).toBe('prompt');
-  });
+    ).toBe('prompt')
+  })
 
   it('respects allowDialogsWithAnimation for non-sandbox dialogs', () => {
     expect(
@@ -38,8 +38,8 @@ describe('resolveCriticalInputDialog', () => {
         toolUseConfirmPending: true,
         allowDialogsWithAnimation: false,
       }),
-    ).toBeUndefined();
-  });
+    ).toBeUndefined()
+  })
 
   it('always returns sandbox-permission regardless of animation gate', () => {
     expect(
@@ -48,8 +48,8 @@ describe('resolveCriticalInputDialog', () => {
         sandboxPermissionPending: true,
         allowDialogsWithAnimation: false,
       }),
-    ).toBe('sandbox-permission');
-  });
+    ).toBe('sandbox-permission')
+  })
 
   it('prioritizes sandbox permission over tool permission', () => {
     expect(
@@ -58,6 +58,6 @@ describe('resolveCriticalInputDialog', () => {
         sandboxPermissionPending: true,
         toolUseConfirmPending: true,
       }),
-    ).toBe('sandbox-permission');
-  });
-});
+    ).toBe('sandbox-permission')
+  })
+})

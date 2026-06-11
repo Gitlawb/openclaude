@@ -1,6 +1,6 @@
 /**
  * Model Caching for OpenClaude
- * 
+ *
  * Caches model lists to disk for faster startup and offline access.
  * Uses async fs operations to avoid blocking the event loop.
  */
@@ -37,12 +37,17 @@ function getCacheFilePath(provider: string): string {
 
 function isOpenAICompatibleProvider(): boolean {
   const baseUrl = process.env.OPENAI_BASE_URL || ''
-  return baseUrl.includes('localhost') || baseUrl.includes('nvidia') || baseUrl.includes('minimax') || getAPIProvider() === 'openai'
+  return (
+    baseUrl.includes('localhost') ||
+    baseUrl.includes('nvidia') ||
+    baseUrl.includes('minimax') ||
+    getAPIProvider() === 'openai'
+  )
 }
 
 export async function isModelCacheValid(provider: string): Promise<boolean> {
   const cachePath = getCacheFilePath(provider)
-  
+
   try {
     await access(cachePath)
   } catch {
@@ -68,16 +73,18 @@ export async function isModelCacheValid(provider: string): Promise<boolean> {
 export async function getCachedModelsFromDisk<T>(): Promise<T[] | null> {
   const provider = getAPIProvider()
   const baseUrl = process.env.OPENAI_BASE_URL || ''
-  const isLocalOllama = baseUrl.includes('localhost:11434') || baseUrl.includes('localhost:11435')
-  const isNvidia = baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')
+  const isLocalOllama =
+    baseUrl.includes('localhost:11434') || baseUrl.includes('localhost:11435')
+  const isNvidia =
+    baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')
   const isMiniMax = baseUrl.includes('minimax')
-  
+
   if (!isLocalOllama && !isNvidia && !isMiniMax && provider !== 'openai') {
     return null
   }
 
   const cachePath = getCacheFilePath(provider)
-  
+
   if (!(await isModelCacheValid(provider))) {
     return null
   }
@@ -103,7 +110,7 @@ export async function saveModelsToCache(
     provider,
     models,
   }
-  
+
   try {
     await writeFile(cachePath, JSON.stringify(cacheData, null, 2), 'utf-8')
   } catch (error) {
@@ -131,10 +138,13 @@ export async function clearModelCache(provider?: string): Promise<void> {
   }
 }
 
-export async function getModelCacheInfo(): Promise<{ provider: string; age: string } | null> {
+export async function getModelCacheInfo(): Promise<{
+  provider: string
+  age: string
+} | null> {
   const provider = getAPIProvider()
   const cachePath = getCacheFilePath(provider)
-  
+
   try {
     await access(cachePath)
   } catch {
@@ -146,7 +156,7 @@ export async function getModelCacheInfo(): Promise<{ provider: string; age: stri
     const ageMs = Date.now() - data.timestamp
     const ageHours = Math.floor(ageMs / (1000 * 60 * 60))
     const ageMins = Math.floor((ageMs % (1000 * 60 * 60)) / (1000 * 60))
-    
+
     return {
       provider: data.provider,
       age: ageHours > 0 ? `${ageHours}h ${ageMins}m` : `${ageMins}m`,
@@ -158,8 +168,10 @@ export async function getModelCacheInfo(): Promise<{ provider: string; age: stri
 
 export function isCacheAvailable(): boolean {
   const baseUrl = process.env.OPENAI_BASE_URL || ''
-  const isLocalOllama = baseUrl.includes('localhost:11434') || baseUrl.includes('localhost:11435')
-  const isNvidia = baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')
+  const isLocalOllama =
+    baseUrl.includes('localhost:11434') || baseUrl.includes('localhost:11435')
+  const isNvidia =
+    baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')
   const isMiniMax = baseUrl.includes('minimax')
   return isLocalOllama || isNvidia || isMiniMax || getAPIProvider() === 'openai'
 }

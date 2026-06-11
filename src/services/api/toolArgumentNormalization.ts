@@ -59,7 +59,10 @@ export function normalizeToolArguments(
     return parsed
   } catch {
     // rawArguments is not valid JSON — treat as a plain string
-    if (isBlankString(rawArguments) || isLikelyStructuredObjectLiteral(rawArguments)) {
+    if (
+      isBlankString(rawArguments) ||
+      isLikelyStructuredObjectLiteral(rawArguments)
+    ) {
       // Blank or looks like a malformed object literal — don't wrap into
       // a tool field to avoid turning garbage into executable input
       return {}

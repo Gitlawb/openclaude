@@ -20,9 +20,9 @@ export type CodexOAuthFlowStatus =
       message: string
     }
 
-type PersistCodexOAuthCredentials = (options?: {
-  profileId?: string
-}) => { warning?: string }
+type PersistCodexOAuthCredentials = (options?: { profileId?: string }) => {
+  warning?: string
+}
 
 type CodexOAuthFlowDependencies = {
   createOAuthService?: () => Pick<

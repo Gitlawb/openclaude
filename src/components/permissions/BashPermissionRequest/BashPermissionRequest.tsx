@@ -94,8 +94,14 @@ function ClassifierCheckingSubtitle() {
 }
 
 export function BashPermissionRequest(props: PermissionRequestProps) {
-  const { toolUseConfirm, toolUseContext, onDone, onReject, verbose, workerBadge } =
-    props
+  const {
+    toolUseConfirm,
+    toolUseContext,
+    onDone,
+    onReject,
+    verbose,
+    workerBadge,
+  } = props
   const { command, description } = BashTool.inputSchema.parse(
     toolUseConfirm.input,
   )
@@ -173,29 +179,30 @@ function BashPermissionRequestInner({
     useDangerousModeConfirmation()
 
   const isCompound =
-    toolUseConfirm.permissionResult.decisionReason?.type ===
-    'subcommandResults'
+    toolUseConfirm.permissionResult.decisionReason?.type === 'subcommandResults'
 
-  const [editablePrefix, setEditablePrefix] = useState<string | undefined>(() => {
-    if (isCompound) {
-      const backendBashRules = extractRules(
-        'suggestions' in toolUseConfirm.permissionResult
-          ? toolUseConfirm.permissionResult.suggestions
-          : undefined,
-      ).filter(rule => rule.toolName === BashTool.name && rule.ruleContent)
-      return backendBashRules.length === 1
-        ? backendBashRules[0]!.ruleContent
-        : undefined
-    }
+  const [editablePrefix, setEditablePrefix] = useState<string | undefined>(
+    () => {
+      if (isCompound) {
+        const backendBashRules = extractRules(
+          'suggestions' in toolUseConfirm.permissionResult
+            ? toolUseConfirm.permissionResult.suggestions
+            : undefined,
+        ).filter(rule => rule.toolName === BashTool.name && rule.ruleContent)
+        return backendBashRules.length === 1
+          ? backendBashRules[0]!.ruleContent
+          : undefined
+      }
 
-    const twoWordPrefix = getSimpleCommandPrefix(command)
-    if (twoWordPrefix) return `${twoWordPrefix}:*`
+      const twoWordPrefix = getSimpleCommandPrefix(command)
+      if (twoWordPrefix) return `${twoWordPrefix}:*`
 
-    const oneWordPrefix = getFirstWordPrefix(command)
-    if (oneWordPrefix) return `${oneWordPrefix}:*`
+      const oneWordPrefix = getFirstWordPrefix(command)
+      if (oneWordPrefix) return `${oneWordPrefix}:*`
 
-    return command
-  })
+      return command
+    },
+  )
   const hasUserEditedPrefix = useRef(false)
   const onEditablePrefixChange = useCallback((value: string) => {
     hasUserEditedPrefix.current = true
@@ -300,10 +307,9 @@ function BashPermissionRequestInner({
       explainer_visible: explainerState.visible,
     })
 
-    const toolNameForAnalytics =
-      sanitizeToolNameForAnalytics(
-        toolUseConfirm.tool.name,
-      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+    const toolNameForAnalytics = sanitizeToolNameForAnalytics(
+      toolUseConfirm.tool.name,
+    ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
 
     handleBaseShellSelection({
       value,
@@ -328,22 +334,22 @@ function BashPermissionRequestInner({
     return dangerousModeDialog
   }
 
-  const classifierSubtitle = feature('BASH_CLASSIFIER')
-    ? toolUseConfirm.classifierAutoApproved
-      ? (
-          <Text>
-            <Text color="success">{figures.tick} Auto-approved</Text>
-            {toolUseConfirm.classifierMatchedRule ? (
-              <Text dimColor>{` | matched "${toolUseConfirm.classifierMatchedRule}"`}</Text>
-            ) : null}
-          </Text>
-        )
-      : toolUseConfirm.classifierCheckInProgress
-        ? <ClassifierCheckingSubtitle />
-        : classifierWasChecking
-          ? <Text dimColor>Requires manual approval</Text>
-          : undefined
-    : undefined
+  const classifierSubtitle = feature('BASH_CLASSIFIER') ? (
+    toolUseConfirm.classifierAutoApproved ? (
+      <Text>
+        <Text color="success">{figures.tick} Auto-approved</Text>
+        {toolUseConfirm.classifierMatchedRule ? (
+          <Text
+            dimColor
+          >{` | matched "${toolUseConfirm.classifierMatchedRule}"`}</Text>
+        ) : null}
+      </Text>
+    ) : toolUseConfirm.classifierCheckInProgress ? (
+      <ClassifierCheckingSubtitle />
+    ) : classifierWasChecking ? (
+      <Text dimColor>Requires manual approval</Text>
+    ) : undefined
+  ) : undefined
 
   const classifierAutoApproved = feature('BASH_CLASSIFIER')
     ? !!toolUseConfirm.classifierAutoApproved

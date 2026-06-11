@@ -48,7 +48,7 @@ describe('knowledge command', () => {
       }
     }
   })
-  
+
   const knowledgeCallWithCapture = async (args: string) => {
     const result = await knowledgeCall(args, mockContext)
     if (result.type === 'text') {
@@ -62,7 +62,7 @@ describe('knowledge command', () => {
     try {
       saveGlobalConfig(current => ({
         ...current,
-        knowledgeGraphEnabled: true
+        knowledgeGraphEnabled: true,
       }))
     } catch {
       // Ignore if config is heavily mocked
@@ -74,7 +74,7 @@ describe('knowledge command', () => {
     // Test Disable
     const res1 = await knowledgeCallWithCapture('enable no')
     expect(res1.toLowerCase()).toContain('disabled')
-    
+
     // Safety check: only verify state if property is actually present (avoid CI mock interference)
     const config1 = getGlobalConfig()
     if (config1 && 'knowledgeGraphEnabled' in config1) {
@@ -84,7 +84,7 @@ describe('knowledge command', () => {
     // Test Enable
     const res2 = await knowledgeCallWithCapture('enable yes')
     expect(res2.toLowerCase()).toContain('enabled')
-    
+
     const config2 = getGlobalConfig()
     if (config2 && 'knowledgeGraphEnabled' in config2) {
       expect(config2.knowledgeGraphEnabled).toBe(true)

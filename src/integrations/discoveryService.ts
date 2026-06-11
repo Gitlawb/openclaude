@@ -66,24 +66,18 @@ export function resolveDiscoveryRouteIdFromBaseUrl(
   return resolveRouteIdFromBaseUrl(baseUrl, { requireDiscovery: true })
 }
 
-function getCatalogEntries(
-  routeId: string,
-): ModelCatalogEntry[] {
+function getCatalogEntries(routeId: string): ModelCatalogEntry[] {
   return getRouteCatalog(routeId)?.models ?? []
 }
 
-function getDiscoveryCacheTtlMs(
-  routeId: string,
-): number {
+function getDiscoveryCacheTtlMs(routeId: string): number {
   const ttl = getRouteCatalog(routeId)?.discoveryCacheTtl ?? 0
   return typeof ttl === 'string' || typeof ttl === 'number'
     ? parseDurationString(ttl)
     : 0
 }
 
-function normalizeDiscoveryCacheBaseUrl(
-  baseUrl: string | undefined,
-): string {
+function normalizeDiscoveryCacheBaseUrl(baseUrl: string | undefined): string {
   if (!baseUrl?.trim()) {
     return ''
   }
@@ -415,25 +409,20 @@ export async function refreshStartupDiscoveryForRoute(
   })
 }
 
-export async function refreshStartupDiscoveryForActiveRoute(
-  options?: {
-    processEnv?: NodeJS.ProcessEnv
-    activeProfileProvider?: string
-    baseUrl?: string
-    apiKey?: string
-    headers?: Record<string, string>
-  },
-): Promise<RouteDiscoveryResult | null> {
+export async function refreshStartupDiscoveryForActiveRoute(options?: {
+  processEnv?: NodeJS.ProcessEnv
+  activeProfileProvider?: string
+  baseUrl?: string
+  apiKey?: string
+  headers?: Record<string, string>
+}): Promise<RouteDiscoveryResult | null> {
   const processEnv = options?.processEnv ?? process.env
   const baseUrl =
-    options?.baseUrl ??
-    processEnv.OPENAI_BASE_URL ??
-    processEnv.OPENAI_API_BASE
+    options?.baseUrl ?? processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
   const routeId =
     resolveActiveRouteIdFromEnv(processEnv, {
       activeProfileProvider: options?.activeProfileProvider,
-    }) ??
-    resolveRouteIdFromBaseUrl(baseUrl)
+    }) ?? resolveRouteIdFromBaseUrl(baseUrl)
 
   if (!routeId || routeId === 'anthropic' || routeId === 'custom') {
     return null

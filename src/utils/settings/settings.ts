@@ -910,14 +910,10 @@ export function hasSkipDangerousModePermissionPrompt(): boolean {
  */
 export function hasSkipFullAccessModePermissionPrompt(): boolean {
   return !!(
-    getSettingsForSource('userSettings')
-      ?.skipFullAccessModePermissionPrompt ||
-    getSettingsForSource('localSettings')
-      ?.skipFullAccessModePermissionPrompt ||
-    getSettingsForSource('flagSettings')
-      ?.skipFullAccessModePermissionPrompt ||
-    getSettingsForSource('policySettings')
-      ?.skipFullAccessModePermissionPrompt
+    getSettingsForSource('userSettings')?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('localSettings')?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('flagSettings')?.skipFullAccessModePermissionPrompt ||
+    getSettingsForSource('policySettings')?.skipFullAccessModePermissionPrompt
   )
 }
 

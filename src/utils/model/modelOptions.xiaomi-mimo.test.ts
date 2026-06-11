@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
-import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
+import {
+  acquireEnvMutex,
+  releaseEnvMutex,
+} from '../../entrypoints/sdk/shared.js'
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
 import { saveGlobalConfig } from '../config.js'
 import {
@@ -57,7 +60,9 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     resetSettingsCache()
-    for (const key of Object.keys(originalEnv) as (keyof typeof originalEnv)[]) {
+    for (const key of Object.keys(
+      originalEnv,
+    ) as (keyof typeof originalEnv)[]) {
       restoreEnvValue(key)
     }
     saveGlobalConfig(current => ({
@@ -87,9 +92,7 @@ test('Xiaomi MiMo provider exposes MiMo catalog models in /model options', async
   expect(isXiaomiMimoProvider()).toBe(true)
   expect(values).toContain('mimo-v2.5-pro')
   expect(values).toContain('mimo-v2-flash')
-  expect(
-    options.some(option => option.label === 'MiMo V2.5 Pro'),
-  ).toBe(true)
+  expect(options.some(option => option.label === 'MiMo V2.5 Pro')).toBe(true)
 })
 
 test('Xiaomi MiMo provider does not activate for unrelated OpenAI-compatible mimo-prefixed models', async () => {

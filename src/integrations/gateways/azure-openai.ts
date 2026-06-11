@@ -27,7 +27,11 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'azure-deployment', apiName: 'YOUR-DEPLOYMENT-NAME', label: 'Azure Deployment' },
+      {
+        id: 'azure-deployment',
+        apiName: 'YOUR-DEPLOYMENT-NAME',
+        label: 'Azure Deployment',
+      },
     ],
   },
   usage: { supported: false },

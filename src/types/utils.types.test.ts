@@ -1,11 +1,10 @@
 import type { DeepImmutable } from './utils.js'
 
 type Assert<T extends true> = T
-type IsEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends <
-  T,
->() => T extends B ? 1 : 2
-  ? true
-  : false
+type IsEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false
 
 type ImmutableReadonlyMap = DeepImmutable<
   ReadonlyMap<string, { items: string[] }>

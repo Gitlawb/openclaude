@@ -38,7 +38,9 @@ export function getProviderFallbackChain(
   if (!Array.isArray(chain)) {
     return []
   }
-  return chain.filter((id): id is string => typeof id === 'string' && id.length > 0)
+  return chain.filter(
+    (id): id is string => typeof id === 'string' && id.length > 0,
+  )
 }
 
 /**
@@ -66,7 +68,8 @@ export function resolveNextFallbackProvider(
   }
 
   const profilesById = new Map(profiles.map(p => [p.id, p]))
-  const activeIdx = activeProfileId === null ? -1 : chain.indexOf(activeProfileId)
+  const activeIdx =
+    activeProfileId === null ? -1 : chain.indexOf(activeProfileId)
   // -1 covers both "no active profile" and "active not in chain"; both fall
   // through to "start from chain[0]" per the doc comment above.
   const startIdx = activeIdx === -1 ? 0 : activeIdx + 1

@@ -360,9 +360,12 @@ const proactiveModule =
   feature('PROACTIVE') || feature('KAIROS')
     ? (require('../proactive/index.js') as typeof import('../proactive/index.js'))
     : null
-const cronSchedulerModule = require('../utils/cronScheduler.js') as typeof import('../utils/cronScheduler.js')
-const cronJitterConfigModule = require('../utils/cronJitterConfig.js') as typeof import('../utils/cronJitterConfig.js')
-const cronGate = require('../tools/ScheduleCronTool/prompt.js') as typeof import('../tools/ScheduleCronTool/prompt.js')
+const cronSchedulerModule =
+  require('../utils/cronScheduler.js') as typeof import('../utils/cronScheduler.js')
+const cronJitterConfigModule =
+  require('../utils/cronJitterConfig.js') as typeof import('../utils/cronJitterConfig.js')
+const cronGate =
+  require('../tools/ScheduleCronTool/prompt.js') as typeof import('../tools/ScheduleCronTool/prompt.js')
 const extractMemoriesModule = feature('EXTRACT_MEMORIES')
   ? (require('../services/extractMemories/extractMemories.js') as typeof import('../services/extractMemories/extractMemories.js'))
   : null
@@ -4160,12 +4163,12 @@ export function createCanUseToolWithPermissionPrompt(
       forceDecision !== undefined && !shouldBypassForcedAsk
         ? forceDecision
         : await hasPermissionsToUseTool(
-        tool,
-        input,
-        toolUseContext,
-        assistantMessage,
-        toolUseId,
-      )
+            tool,
+            input,
+            toolUseContext,
+            assistantMessage,
+            toolUseId,
+          )
 
     // If the tool is allowed or denied, return the result
     if (
@@ -4288,12 +4291,12 @@ export function getCanUseToolFn(
       return forceDecision !== undefined && !shouldBypassForcedAsk
         ? forceDecision
         : await hasPermissionsToUseTool(
-        tool,
-        input,
-        toolUseContext,
-        assistantMessage,
-        toolUseId,
-      )
+            tool,
+            input,
+            toolUseContext,
+            assistantMessage,
+            toolUseId,
+          )
     }
   }
   // Lazy lookup: MCP connects are per-server incremental in print mode, so

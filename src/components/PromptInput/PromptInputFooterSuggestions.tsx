@@ -60,7 +60,9 @@ const SuggestionItemRow = memo(function SuggestionItemRow({
   const rowBackgroundColor: keyof Theme | undefined = isSelected
     ? 'suggestion'
     : undefined
-  const textColor: keyof Theme | undefined = isSelected ? 'inverseText' : undefined
+  const textColor: keyof Theme | undefined = isSelected
+    ? 'inverseText'
+    : undefined
 
   if (isUnifiedSuggestion(item.id)) {
     const icon = getIcon(item.id)
@@ -111,7 +113,12 @@ const SuggestionItemRow = memo(function SuggestionItemRow({
 
     return (
       <Box width="100%" opaque={true} backgroundColor={rowBackgroundColor}>
-        <Text color={textColor} dimColor={dimColor} bold={isSelected} wrap="truncate">
+        <Text
+          color={textColor}
+          dimColor={dimColor}
+          bold={isSelected}
+          wrap="truncate"
+        >
           {lineContent}
         </Text>
       </Box>
@@ -172,7 +179,9 @@ export function PromptInputFooterSuggestions({
   overlay,
 }: Props): ReactNode {
   const { rows } = useTerminalSize()
-  const maxVisibleItems = overlay ? OVERLAY_MAX_ITEMS : Math.min(6, Math.max(1, rows - 3))
+  const maxVisibleItems = overlay
+    ? OVERLAY_MAX_ITEMS
+    : Math.min(6, Math.max(1, rows - 3))
 
   if (suggestions.length === 0) {
     return null

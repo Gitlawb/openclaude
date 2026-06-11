@@ -388,14 +388,16 @@ export function generateCommandSuggestions(
 
     // Combine with built-in commands prioritized after recently used,
     // so they remain visible even when many skills are installed
-    return ensureUniqueSuggestionIds([
-      ...recentlyUsed,
-      ...builtinCommands,
-      ...userCommands,
-      ...projectCommands,
-      ...policyCommands,
-      ...otherCommands,
-    ].map(cmd => createCommandSuggestionItem(cmd)))
+    return ensureUniqueSuggestionIds(
+      [
+        ...recentlyUsed,
+        ...builtinCommands,
+        ...userCommands,
+        ...projectCommands,
+        ...policyCommands,
+        ...otherCommands,
+      ].map(cmd => createCommandSuggestionItem(cmd)),
+    )
   }
 
   // The Fuse index filters isHidden at build time and is keyed on the

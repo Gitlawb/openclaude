@@ -7,9 +7,19 @@ import {
   hasErrors,
 } from './relevancePruning.js'
 
-function createMessage(role: string, content: string, createdAt: number = Date.now()): any {
+function createMessage(
+  role: string,
+  content: string,
+  createdAt: number = Date.now(),
+): any {
   return {
-    message: { role, content, id: 'test', type: 'message', created_at: createdAt },
+    message: {
+      role,
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: createdAt,
+    },
     sender: role,
   }
 }
@@ -34,7 +44,10 @@ describe('relevancePruning', () => {
         createMessage('user', 'Recent message', Date.now()),
       ]
 
-      const result = pruneByRelevance(messages, { targetTokens: 100, preserveRecent: 1 })
+      const result = pruneByRelevance(messages, {
+        targetTokens: 100,
+        preserveRecent: 1,
+      })
 
       expect(result.length).toBeGreaterThan(0)
     })
@@ -42,9 +55,30 @@ describe('relevancePruning', () => {
     it('preserves message id groups together', () => {
       // Messages with same ID should be kept together
       const messages = [
-        { message: { role: 'assistant', content: 'Hello', id: 'msg1', created_at: 1000 } },
-        { message: { role: 'tool_result', content: 'Result', id: 'msg1', created_at: 1001 } },
-        { message: { role: 'user', content: 'New request', id: 'msg2', created_at: 2000 } },
+        {
+          message: {
+            role: 'assistant',
+            content: 'Hello',
+            id: 'msg1',
+            created_at: 1000,
+          },
+        },
+        {
+          message: {
+            role: 'tool_result',
+            content: 'Result',
+            id: 'msg1',
+            created_at: 1001,
+          },
+        },
+        {
+          message: {
+            role: 'user',
+            content: 'New request',
+            id: 'msg2',
+            created_at: 2000,
+          },
+        },
       ] as any[]
 
       const result = pruneByRelevance(messages, { targetTokens: 500 })
@@ -60,18 +94,68 @@ describe('relevancePruning', () => {
     it('preserves API-round groups (tool_use + tool_result) together', () => {
       // Simulate tool_use + tool_result in same API round (same assistant message.id)
       const messages = [
-        { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Read' }], id: 'api-round-1', created_at: 1000 } },
-        { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'file contents' }], created_at: 1001 } },
-        { type: 'assistant', message: { role: 'assistant', content: 'Response 1', id: 'api-round-2', created_at: 2000 } },
-        { type: 'user', message: { role: 'user', content: 'User question', id: 'api-round-3', created_at: 3000 } },
-        { type: 'assistant', message: { role: 'assistant', content: 'Response 2', id: 'api-round-4', created_at: 4000 } },
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 'tu1', name: 'Read' }],
+            id: 'api-round-1',
+            created_at: 1000,
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu1',
+                content: 'file contents',
+              },
+            ],
+            created_at: 1001,
+          },
+        },
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: 'Response 1',
+            id: 'api-round-2',
+            created_at: 2000,
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: 'User question',
+            id: 'api-round-3',
+            created_at: 3000,
+          },
+        },
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: 'Response 2',
+            id: 'api-round-4',
+            created_at: 4000,
+          },
+        },
       ] as any[]
 
-      const result = pruneByRelevance(messages, { targetTokens: 200, preserveRecent: 1 })
+      const result = pruneByRelevance(messages, {
+        targetTokens: 200,
+        preserveRecent: 1,
+      })
 
       const round1Msgs = result.filter(m => m.message?.id === 'api-round-1')
-      const toolResultForTu1 = result.filter(m => 
-        m.message?.content?.[0]?.type === 'tool_result' && m.message.content[0].tool_use_id === 'tu1'
+      const toolResultForTu1 = result.filter(
+        m =>
+          m.message?.content?.[0]?.type === 'tool_result' &&
+          m.message.content[0].tool_use_id === 'tu1',
       )
 
       // Both tool_use and its tool_result should be kept together or neither
@@ -116,7 +200,7 @@ describe('relevancePruning', () => {
       const result = getTopRelevantMessages(
         messages,
         { targetTokens: 100, taskContext: 'python' },
-        2
+        2,
       )
 
       expect(result.length).toBeLessThanOrEqual(2)

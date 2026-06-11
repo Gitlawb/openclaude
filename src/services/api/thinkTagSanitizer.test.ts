@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  createThinkTagFilter,
-  stripThinkTags,
-} from './thinkTagSanitizer.ts'
+import { createThinkTagFilter, stripThinkTags } from './thinkTagSanitizer.ts'
 
 describe('stripThinkTags — whole-text cleanup', () => {
   test('strips closed think pair', () => {
@@ -19,8 +16,9 @@ describe('stripThinkTags — whole-text cleanup', () => {
   })
 
   test('strips REASONING_SCRATCHPAD pair', () => {
-    expect(stripThinkTags('<REASONING_SCRATCHPAD>plan</REASONING_SCRATCHPAD>Answer'))
-      .toBe('Answer')
+    expect(
+      stripThinkTags('<REASONING_SCRATCHPAD>plan</REASONING_SCRATCHPAD>Answer'),
+    ).toBe('Answer')
   })
 
   test('is case-insensitive', () => {
@@ -38,8 +36,9 @@ describe('stripThinkTags — whole-text cleanup', () => {
 
   test('strips unterminated open tag after newline', () => {
     // Block-boundary match consumes the leading newline, same as hermes.
-    expect(stripThinkTags('Answer: 42\n<think>second-guess myself'))
-      .toBe('Answer: 42')
+    expect(stripThinkTags('Answer: 42\n<think>second-guess myself')).toBe(
+      'Answer: 42',
+    )
   })
 
   test('strips orphan close tag', () => {
@@ -51,8 +50,9 @@ describe('stripThinkTags — whole-text cleanup', () => {
   })
 
   test('handles reasoning mid-response after content', () => {
-    expect(stripThinkTags('Answer: 42\n<think>double-check</think>\nDone'))
-      .toBe('Answer: 42\n\nDone')
+    expect(
+      stripThinkTags('Answer: 42\n<think>double-check</think>\nDone'),
+    ).toBe('Answer: 42\n\nDone')
   })
 
   test('handles nested-looking tags (lazy match + orphan cleanup)', () => {

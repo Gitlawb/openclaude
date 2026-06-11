@@ -23,13 +23,28 @@ const MAX_STDERR_LINES = 10
  */
 const CHILD_ENV_ALLOWLIST = new Set([
   // System / shell
-  'PATH', 'HOME', 'USERPROFILE', 'HOMEPATH', 'HOMEDRIVE',
-  'USERNAME', 'USER', 'LOGNAME',
-  'TEMP', 'TMP', 'TMPDIR',
-  'SYSTEMROOT', 'SYSTEMDRIVE', 'COMSPEC', 'WINDIR',
-  'LANG', 'LC_ALL', 'LC_CTYPE',
+  'PATH',
+  'HOME',
+  'USERPROFILE',
+  'HOMEPATH',
+  'HOMEDRIVE',
+  'USERNAME',
+  'USER',
+  'LOGNAME',
+  'TEMP',
+  'TMP',
+  'TMPDIR',
+  'SYSTEMROOT',
+  'SYSTEMDRIVE',
+  'COMSPEC',
+  'WINDIR',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
   // Node.js runtime
-  'NODE_OPTIONS', 'NODE_PATH', 'NODE_ENV',
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'NODE_ENV',
   // OpenClaude session / bridge (non-secret)
   'CLAUDE_CODE_ENVIRONMENT_KIND',
   'CLAUDE_CODE_FORCE_SANDBOX',
@@ -39,7 +54,10 @@ const CHILD_ENV_ALLOWLIST = new Set([
   'CLAUDE_CODE_PERMISSIONS_VERSION',
   'CLAUDE_CODE_PERMISSIONS_SETTING',
   // Display / terminal
-  'TERM', 'COLORTERM', 'FORCE_COLOR', 'NO_COLOR',
+  'TERM',
+  'COLORTERM',
+  'FORCE_COLOR',
+  'NO_COLOR',
 ])
 
 type BuildChildEnvOpts = {

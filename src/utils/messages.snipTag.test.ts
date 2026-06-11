@@ -96,7 +96,11 @@ describe('appendMessageTagToUserMessage', () => {
     const msg = {
       ...createUserMessage({
         content: [
-          { type: 'tool_result', tool_use_id: 'toolu_abc', content: 'big read' },
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_abc',
+            content: 'big read',
+          },
         ],
       }),
       uuid: UUID,

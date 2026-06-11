@@ -95,12 +95,7 @@ test('formatReleaseNotesForDisplay renders section headers and bullets', () => {
 test('sliceReleaseNotesForDisplay preserves headers without counting them', () => {
   expect(
     sliceReleaseNotesForDisplay(
-      [
-        '__section__:Features',
-        'add thing',
-        '__section__:Bug Fixes',
-        'fix bug',
-      ],
+      ['__section__:Features', 'add thing', '__section__:Bug Fixes', 'fix bug'],
       1,
     ),
   ).toEqual([])
@@ -109,12 +104,7 @@ test('sliceReleaseNotesForDisplay preserves headers without counting them', () =
 test('sliceReleaseNotesForDisplay keeps total rendered lines within budget', () => {
   expect(
     sliceReleaseNotesForDisplay(
-      [
-        '__section__:Features',
-        'add thing',
-        '__section__:Bug Fixes',
-        'fix bug',
-      ],
+      ['__section__:Features', 'add thing', '__section__:Bug Fixes', 'fix bug'],
       3,
     ),
   ).toEqual(['__section__:Features', 'add thing'])

@@ -28,9 +28,7 @@ import { clearStartupProviderOverrides } from '../../utils/providerStartupOverri
 
 export type XaiLoginFlow = 'browser' | 'device-code'
 
-export async function xaiLogin(options: {
-  flow: XaiLoginFlow
-}): Promise<void> {
+export async function xaiLogin(options: { flow: XaiLoginFlow }): Promise<void> {
   if (isBareMode()) {
     process.stderr.write(
       'xAI OAuth is unavailable in --bare mode (secure storage is disabled).\n',
@@ -203,8 +201,7 @@ export async function xaiLogout(deps?: XaiLogoutDeps): Promise<void> {
   const _clearXaiCredentials = deps?.clearXaiCredentials ?? clearXaiCredentials
   const _clearPersistedXaiOAuthProfile =
     deps?.clearPersistedXaiOAuthProfile ?? clearPersistedXaiOAuthProfile
-  const _getProviderProfiles =
-    deps?.getProviderProfiles ?? getProviderProfiles
+  const _getProviderProfiles = deps?.getProviderProfiles ?? getProviderProfiles
   const _deleteProviderProfile =
     deps?.deleteProviderProfile ?? deleteProviderProfile
   const _clearStartupProviderOverrides =
@@ -235,8 +232,7 @@ export async function xaiLogout(deps?: XaiLogoutDeps): Promise<void> {
   // — the /provider UI always uses this exact name.
   const xaiOAuthProfile = _getProviderProfiles().find(
     profile =>
-      profile.provider === 'xai' &&
-      profile.name === XAI_OAUTH_PROVIDER_NAME,
+      profile.provider === 'xai' && profile.name === XAI_OAUTH_PROVIDER_NAME,
   )
   let activeProfileWasCleared = false
   if (xaiOAuthProfile) {

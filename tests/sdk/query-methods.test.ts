@@ -92,10 +92,7 @@ describe('QueryImpl.supportedCommands', () => {
       ...(q as any).appStateStore.getState(),
       mcp: {
         ...(q as any).appStateStore.getState().mcp,
-        commands: [
-          { name: '/help' },
-          { name: '/clear' },
-        ],
+        commands: [{ name: '/help' }, { name: '/clear' }],
       },
     }))
 
@@ -208,7 +205,7 @@ describe('QueryImpl.respondToPermission', () => {
     const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
     // Should not throw
     expect(() =>
-      q.respondToPermission('nonexistent', { behavior: 'allow' })
+      q.respondToPermission('nonexistent', { behavior: 'allow' }),
     ).not.toThrow()
     q.interrupt()
   })

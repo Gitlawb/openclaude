@@ -28,31 +28,43 @@ describe('firecrawl client', () => {
     process.env.FIRECRAWL_API_KEY = 'fc-test-key'
     delete process.env.FIRECRAWL_API_URL
 
-    globalThis.fetch = asMockFetch(mock(async (input, init) => {
-      expect(String(input)).toBe('https://api.firecrawl.dev/v2/search')
-      expect(init?.method).toBe('POST')
-      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer fc-test-key')
+    globalThis.fetch = asMockFetch(
+      mock(async (input, init) => {
+        expect(String(input)).toBe('https://api.firecrawl.dev/v2/search')
+        expect(init?.method).toBe('POST')
+        expect((init?.headers as Record<string, string>).Authorization).toBe(
+          'Bearer fc-test-key',
+        )
 
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
-      expect(body).toMatchObject({
-        query: 'openclaude',
-        limit: 7,
-        origin: 'openclaude',
-      })
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+        expect(body).toMatchObject({
+          query: 'openclaude',
+          limit: 7,
+          origin: 'openclaude',
+        })
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            web: [{ url: 'https://example.com', title: 'Example', description: 'desc' }],
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )
-    }))
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              web: [
+                {
+                  url: 'https://example.com',
+                  title: 'Example',
+                  description: 'desc',
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }),
+    )
 
     await expect(firecrawlSearch('openclaude', { limit: 7 })).resolves.toEqual({
-      web: [{ url: 'https://example.com', title: 'Example', description: 'desc' }],
+      web: [
+        { url: 'https://example.com', title: 'Example', description: 'desc' },
+      ],
     })
   })
 
@@ -60,27 +72,33 @@ describe('firecrawl client', () => {
     delete process.env.FIRECRAWL_API_KEY
     process.env.FIRECRAWL_API_URL = 'https://self-hosted.firecrawl.dev'
 
-    globalThis.fetch = asMockFetch(mock(async (input, init) => {
-      expect(String(input)).toBe('https://self-hosted.firecrawl.dev/v2/scrape')
-      expect((init?.headers as Record<string, string>).Authorization).toBeUndefined()
+    globalThis.fetch = asMockFetch(
+      mock(async (input, init) => {
+        expect(String(input)).toBe(
+          'https://self-hosted.firecrawl.dev/v2/scrape',
+        )
+        expect(
+          (init?.headers as Record<string, string>).Authorization,
+        ).toBeUndefined()
 
-      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
-      expect(body).toMatchObject({
-        url: 'https://example.com',
-        formats: ['markdown'],
-        origin: 'openclaude',
-      })
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+        expect(body).toMatchObject({
+          url: 'https://example.com',
+          formats: ['markdown'],
+          origin: 'openclaude',
+        })
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            markdown: '# Example',
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )
-    }))
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              markdown: '# Example',
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }),
+    )
 
     await expect(firecrawlScrape('https://example.com')).resolves.toEqual({
       markdown: '# Example',
@@ -101,28 +119,30 @@ describe('firecrawl client', () => {
     delete process.env.FIRECRAWL_API_URL
 
     let attempts = 0
-    globalThis.fetch = asMockFetch(mock(async () => {
-      attempts += 1
-      if (attempts < 3) {
+    globalThis.fetch = asMockFetch(
+      mock(async () => {
+        attempts += 1
+        if (attempts < 3) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'temporary upstream failure',
+            }),
+            { status: 502, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+
         return new Response(
           JSON.stringify({
-            success: false,
-            error: 'temporary upstream failure',
+            success: true,
+            data: {
+              web: [{ url: 'https://example.com/retried' }],
+            },
           }),
-          { status: 502, headers: { 'Content-Type': 'application/json' } },
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            web: [{ url: 'https://example.com/retried' }],
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )
-    }))
+      }),
+    )
 
     await expect(
       firecrawlSearch('openclaude', { maxRetries: 3, backoffFactorSeconds: 0 }),
@@ -136,16 +156,18 @@ describe('firecrawl client', () => {
     process.env.FIRECRAWL_API_KEY = 'fc-test-key'
     delete process.env.FIRECRAWL_API_URL
 
-    globalThis.fetch = asMockFetch(mock(async (_input, init) => {
-      const signal = init?.signal
-      expect(signal).toBeInstanceOf(AbortSignal)
+    globalThis.fetch = asMockFetch(
+      mock(async (_input, init) => {
+        const signal = init?.signal
+        expect(signal).toBeInstanceOf(AbortSignal)
 
-      return new Promise<Response>((_resolve, reject) => {
-        signal?.addEventListener('abort', () => reject(signal.reason), {
-          once: true,
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), {
+            once: true,
+          })
         })
-      })
-    }))
+      }),
+    )
 
     await expect(
       Promise.race([
@@ -166,18 +188,20 @@ describe('firecrawl client', () => {
     delete process.env.FIRECRAWL_API_URL
 
     let requestSignal: AbortSignal | undefined
-    globalThis.fetch = asMockFetch(mock(async (_input, init) => {
-      requestSignal = init?.signal
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            web: [{ url: 'https://example.com/cleanup' }],
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      )
-    }))
+    globalThis.fetch = asMockFetch(
+      mock(async (_input, init) => {
+        requestSignal = init?.signal
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              web: [{ url: 'https://example.com/cleanup' }],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }),
+    )
 
     await expect(
       firecrawlSearch('openclaude', { maxRetries: 1, timeoutMs: 20 }),

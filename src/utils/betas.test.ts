@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import {
-  CLAUDE_CODE_20250219_BETA_HEADER,
-} from '../constants/betas.js'
+import { CLAUDE_CODE_20250219_BETA_HEADER } from '../constants/betas.js'
 import { setSdkBetas } from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,

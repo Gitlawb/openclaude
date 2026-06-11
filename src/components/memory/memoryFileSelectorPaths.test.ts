@@ -63,10 +63,7 @@ describe('getProjectMemoryPathForSelector', () => {
     const outsideRepoPath = join('/other-worktree', 'AGENTS.md')
     const cwd = join('/repo', 'packages', 'app')
     expect(
-      getProjectMemoryPathForSelector(
-        [projectFile(outsideRepoPath)],
-        cwd,
-      ),
+      getProjectMemoryPathForSelector([projectFile(outsideRepoPath)], cwd),
     ).toBe(join(cwd, 'AGENTS.md'))
   })
 })

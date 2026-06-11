@@ -317,17 +317,16 @@ function handleChange(path: string): void {
   // Fire ConfigChange hook first — if blocked (exit code 2 or decision: 'block'),
   // skip applying the change to the session
   const generation = nextSettingsSourceGeneration(source)
-  void dependencies.executeConfigChangeHooks(
-    settingSourceToConfigChangeSource(source),
-    path,
-  ).then(results => {
-    if (dependencies.hasBlockingResult(results)) {
-      logForDebugging(`ConfigChange hook blocked change to ${path}`)
-      return
-    }
-    if (disposed) return
-    scheduleFanOut(source, generation)
-  })
+  void dependencies
+    .executeConfigChangeHooks(settingSourceToConfigChangeSource(source), path)
+    .then(results => {
+      if (dependencies.hasBlockingResult(results)) {
+        logForDebugging(`ConfigChange hook blocked change to ${path}`)
+        return
+      }
+      if (disposed) return
+      scheduleFanOut(source, generation)
+    })
 }
 
 /**
@@ -374,17 +373,16 @@ function handleDelete(path: string): void {
       pendingDeletions.delete(p)
 
       // Fire ConfigChange hook first — if blocked, skip applying the deletion
-      void dependencies.executeConfigChangeHooks(
-        settingSourceToConfigChangeSource(src),
-        p,
-      ).then(results => {
-        if (dependencies.hasBlockingResult(results)) {
-          logForDebugging(`ConfigChange hook blocked deletion of ${p}`)
-          return
-        }
-        if (disposed) return
-        scheduleFanOut(src, gen)
-      })
+      void dependencies
+        .executeConfigChangeHooks(settingSourceToConfigChangeSource(src), p)
+        .then(results => {
+          if (dependencies.hasBlockingResult(results)) {
+            logForDebugging(`ConfigChange hook blocked deletion of ${p}`)
+            return
+          }
+          if (disposed) return
+          scheduleFanOut(src, gen)
+        })
     },
     testOverrides?.deletionGrace ?? DELETION_GRACE_MS,
     path,

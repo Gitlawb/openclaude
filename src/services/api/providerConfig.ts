@@ -11,10 +11,7 @@ import {
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
-import {
-  asTrimmedString,
-  parseChatgptAccountId,
-} from './codexOAuthShared.js'
+import { asTrimmedString, parseChatgptAccountId } from './codexOAuthShared.js'
 import {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
@@ -33,12 +30,17 @@ export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
 
-function normalizeGitlawbOpengatewayBaseUrl(baseUrl: string | undefined): string | undefined {
+function normalizeGitlawbOpengatewayBaseUrl(
+  baseUrl: string | undefined,
+): string | undefined {
   if (!baseUrl) return undefined
   try {
     const parsed = new URL(baseUrl)
     const hostname = parsed.hostname.toLowerCase()
-    if (hostname !== 'opengateway.gitlawb.com' && hostname !== 'opengateway.fly.dev') {
+    if (
+      hostname !== 'opengateway.gitlawb.com' &&
+      hostname !== 'opengateway.fly.dev'
+    ) {
       return baseUrl
     }
     const path = parsed.pathname.replace(/\/+$/, '').toLowerCase()
@@ -113,8 +115,15 @@ type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
 
-export type ProviderTransport = 'chat_completions' | 'responses' | 'responses_compat' | 'codex_responses'
-export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses' | 'responses_compat'
+export type ProviderTransport =
+  | 'chat_completions'
+  | 'responses'
+  | 'responses_compat'
+  | 'codex_responses'
+export type OpenAICompatibleApiFormat =
+  | 'chat_completions'
+  | 'responses'
+  | 'responses_compat'
 
 export type ResolvedProviderRequest = {
   transport: ProviderTransport
@@ -234,10 +243,17 @@ function readNestedString(
   return undefined
 }
 
-function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
+function parseReasoningEffort(
+  value: string | undefined,
+): ReasoningEffort | undefined {
   if (!value) return undefined
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'low' || normalized === 'medium' || normalized === 'high' || normalized === 'xhigh') {
+  if (
+    normalized === 'low' ||
+    normalized === 'medium' ||
+    normalized === 'high' ||
+    normalized === 'xhigh'
+  ) {
     return normalized
   }
   return undefined
@@ -305,7 +321,8 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   return {
     raw: trimmed,
     baseModel: resolvedBaseModel,
-    reasoning: typeof reasoning === 'string' ? { effort: reasoning } : reasoning,
+    reasoning:
+      typeof reasoning === 'string' ? { effort: reasoning } : reasoning,
   }
 }
 
@@ -326,7 +343,9 @@ export function shouldUseCodexTransport(
   baseUrl: string | undefined,
 ): boolean {
   const explicitBaseUrl = asEnvUrl(baseUrl)
-  return isCodexBaseUrl(explicitBaseUrl) || (!explicitBaseUrl && isCodexAlias(model))
+  return (
+    isCodexBaseUrl(explicitBaseUrl) || (!explicitBaseUrl && isCodexAlias(model))
+  )
 }
 
 function shouldUseGithubResponsesApi(model: string): boolean {
@@ -429,7 +448,9 @@ const LOCAL_FAST_PATH_ON: LocalFastPathConfig = {
   skipToolHistoryCompression: true,
 }
 
-function parseLocalFastPathOverride(raw: string | undefined): boolean | undefined {
+function parseLocalFastPathOverride(
+  raw: string | undefined,
+): boolean | undefined {
   if (raw === undefined) return undefined
   const v = raw.trim().toLowerCase()
   if (v === '' || v === 'auto') return undefined
@@ -475,10 +496,7 @@ export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
       return true
     }
 
-    return (
-      hostname.includes('ollama') ||
-      pathname.includes('ollama')
-    )
+    return hostname.includes('ollama') || pathname.includes('ollama')
   } catch {
     return false
   }
@@ -562,8 +580,9 @@ export function isCodexBaseUrl(baseUrl: string | undefined): boolean {
  */
 export function normalizeGithubCopilotModel(requestedModel: string): string {
   const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
-  const segment =
-    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
+  const segment = noQuery.includes(':')
+    ? noQuery.split(':', 2)[1]!.trim()
+    : noQuery.trim()
   if (!segment || segment.toLowerCase() === 'copilot') {
     return DEFAULT_GITHUB_MODELS_API_MODEL
   }
@@ -581,8 +600,9 @@ export function normalizeGithubCopilotModel(requestedModel: string): string {
  */
 export function normalizeGithubModelsApiModel(requestedModel: string): string {
   const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
-  const segment =
-    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
+  const segment = noQuery.includes(':')
+    ? noQuery.split(':', 2)[1]!.trim()
+    : noQuery.trim()
   // Only normalize the default alias for GitHub Models
   if (!segment || segment.toLowerCase() === 'copilot') {
     return DEFAULT_GITHUB_MODELS_API_MODEL
@@ -649,32 +669,34 @@ export function resolveProviderRequest(options?: {
   const primaryEnvBaseUrl = isMistralMode
     ? normalizedMistralEnvBaseUrl
     : isGeminiMode
-    ? normalizedGeminiEnvBaseUrl
-    : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
+      ? normalizedGeminiEnvBaseUrl
+      : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
   // In Mistral mode, a literal "undefined" MISTRAL_BASE_URL is treated as
   // misconfiguration and falls back to OPENAI_API_BASE, then
   // DEFAULT_MISTRAL_BASE_URL for a safe default endpoint.
   const fallbackEnvBaseUrl = isMistralMode
-    ? (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
-      : undefined)
+    ? primaryEnvBaseUrl === undefined
+      ? (asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ??
+        DEFAULT_MISTRAL_BASE_URL)
+      : undefined
     : isGeminiMode
-    ? (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
-      : undefined)
-    : (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
-      : undefined)
+      ? primaryEnvBaseUrl === undefined
+        ? (asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ??
+          DEFAULT_GEMINI_BASE_URL)
+        : undefined
+      : primaryEnvBaseUrl === undefined
+        ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
+        : undefined
 
   const envBaseUrlRaw =
-    explicitBaseUrl ??
-    primaryEnvBaseUrl ??
-    fallbackEnvBaseUrl
+    explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
 
   const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
   const envBaseUrl =
-    isCodexModelForGithub && envBaseUrlRaw && getGithubEndpointType(envBaseUrlRaw) === 'custom'
+    isCodexModelForGithub &&
+    envBaseUrlRaw &&
+    getGithubEndpointType(envBaseUrlRaw) === 'custom'
       ? undefined
       : envBaseUrlRaw
 
@@ -690,7 +712,8 @@ export function resolveProviderRequest(options?: {
     Boolean(envResolvedCodexModel) &&
     descriptor.baseModel === envResolvedCodexModel
   const isCodexAliasModel =
-    isOpenAICodexShortcutAlias(requestedModel) || requestedMatchesEnvCodexShortcut
+    isOpenAICodexShortcutAlias(requestedModel) ||
+    requestedMatchesEnvCodexShortcut
   const hasUserSetBaseUrl = rawBaseUrl && rawBaseUrl !== DEFAULT_OPENAI_BASE_URL
   const finalBaseUrlRaw =
     !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
@@ -709,13 +732,13 @@ export function resolveProviderRequest(options?: {
     ? normalizeGithubModelsApiModel(requestedModel)
     : requestedModel
 
-  const requestedApiFormat =
-    isGithubMode
-      ? undefined
-      : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
-        parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+  const requestedApiFormat = isGithubMode
+    ? undefined
+    : (parseOpenAICompatibleApiFormat(options?.apiFormat) ??
+      parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT))
   const supportsRequestedApiFormat =
-    (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||
+    (requestedApiFormat !== 'responses' &&
+      requestedApiFormat !== 'responses_compat') ||
     (() => {
       const runtimeShimContext = resolveOpenAIShimRuntimeContext({
         processEnv: process.env,
@@ -732,9 +755,11 @@ export function resolveProviderRequest(options?: {
     })()
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
-      (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
+    (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
-      : (requestedApiFormat === 'responses' || requestedApiFormat === 'responses_compat') && supportsRequestedApiFormat
+      : (requestedApiFormat === 'responses' ||
+            requestedApiFormat === 'responses_compat') &&
+          supportsRequestedApiFormat
         ? requestedApiFormat
         : 'chat_completions'
 
@@ -744,9 +769,9 @@ export function resolveProviderRequest(options?: {
   //   - Preserve provider-qualified models (openai/gpt-4.1 stays as-is)
   const resolvedModel = isGithubCopilot
     ? normalizeGithubCopilotModel(descriptor.baseModel)
-    : (isGithubModels || isGithubCustom
+    : isGithubModels || isGithubCustom
       ? normalizeGithubModelsApiModel(descriptor.baseModel)
-      : descriptor.baseModel)
+      : descriptor.baseModel
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
@@ -756,26 +781,28 @@ export function resolveProviderRequest(options?: {
     transport,
     requestedModel,
     resolvedModel,
-    baseUrl:
-      (finalBaseUrl ??
-        (isGithubCopilot && transport === 'codex_responses'
+    baseUrl: (
+      finalBaseUrl ??
+      (isGithubCopilot && transport === 'codex_responses'
+        ? GITHUB_COPILOT_BASE_URL
+        : isGithubMode
           ? GITHUB_COPILOT_BASE_URL
-          : (isGithubMode
-            ? GITHUB_COPILOT_BASE_URL
-            : DEFAULT_OPENAI_BASE_URL))
-      ).replace(/\/+$/, ''),
+          : DEFAULT_OPENAI_BASE_URL)
+    ).replace(/\/+$/, ''),
     reasoning,
   }
 }
 
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+    if (
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+    ) {
       return 'firstParty'
     }
     return null
@@ -792,10 +819,18 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
 
   const partition = hashCacheScopePartition({
     apiKey: normalizeCacheScopeHeaderValue(process.env.OPENAI_API_KEY),
-    authHeader: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER).toLowerCase(),
-    authScheme: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_SCHEME).toLowerCase(),
-    authHeaderValue: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER_VALUE),
-    customHeaders: normalizeCacheScopeHeaderValue(process.env.ANTHROPIC_CUSTOM_HEADERS),
+    authHeader: normalizeCacheScopeHeaderValue(
+      process.env.OPENAI_AUTH_HEADER,
+    ).toLowerCase(),
+    authScheme: normalizeCacheScopeHeaderValue(
+      process.env.OPENAI_AUTH_SCHEME,
+    ).toLowerCase(),
+    authHeaderValue: normalizeCacheScopeHeaderValue(
+      process.env.OPENAI_AUTH_HEADER_VALUE,
+    ),
+    customHeaders: normalizeCacheScopeHeaderValue(
+      process.env.ANTHROPIC_CUSTOM_HEADERS,
+    ),
   })
 
   return `openai:${request.baseUrl.toLowerCase()}:${partition}`
@@ -934,7 +969,8 @@ function resolveEnvOrAuthJsonCodexCredentials(
   }
 
   const explicitAuthPathConfigured = Boolean(
-    asTrimmedString(env.CODEX_AUTH_JSON_PATH) ?? asTrimmedString(env.CODEX_HOME),
+    asTrimmedString(env.CODEX_AUTH_JSON_PATH) ??
+      asTrimmedString(env.CODEX_HOME),
   )
 
   if (!explicitAuthPathConfigured && options?.explicitAuthPathOnly) {
@@ -966,7 +1002,8 @@ export function resolveRuntimeCodexCredentials(options?: {
     explicitAuthPathOnly: true,
   })
   const explicitAuthPathConfigured = Boolean(
-    asTrimmedString(env.CODEX_AUTH_JSON_PATH) ?? asTrimmedString(env.CODEX_HOME),
+    asTrimmedString(env.CODEX_AUTH_JSON_PATH) ??
+      asTrimmedString(env.CODEX_HOME),
   )
   const hasStoredCredentialsOption = Boolean(
     options &&
@@ -1056,7 +1093,9 @@ export function resolveCodexApiCredentials(
   return resolveEnvOrAuthJsonCodexCredentials(env)
 }
 
-export function getReasoningEffortForModel(model: string): ReasoningEffort | undefined {
+export function getReasoningEffortForModel(
+  model: string,
+): ReasoningEffort | undefined {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
   const alias = base as CodexAlias

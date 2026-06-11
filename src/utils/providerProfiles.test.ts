@@ -127,7 +127,9 @@ afterEach(() => {
 
 async function importFreshProviderProfileModules() {
   mock.restore()
-  const actualConfig = await import(`./config.js?ts=${Date.now()}-${Math.random()}`)
+  const actualConfig = await import(
+    `./config.js?ts=${Date.now()}-${Math.random()}`
+  )
   mock.module('./config.js', () => ({
     ...actualConfig,
     // Spread the real config so the mock stays a COMPLETE GlobalConfig and only
@@ -159,7 +161,9 @@ async function importFreshProviderProfileModules() {
   }
 }
 
-function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return {
     id: 'provider_test',
     name: 'Test Provider',
@@ -170,7 +174,9 @@ function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile
   }
 }
 
-function buildMistralProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildMistralProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return buildProfile({
     provider: 'mistral',
     baseUrl: 'https://api.mistral.ai/v1',
@@ -179,7 +185,9 @@ function buildMistralProfile(overrides: Partial<ProviderProfile> = {}): Provider
   })
 }
 
-function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildGeminiProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return buildProfile({
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -188,7 +196,9 @@ function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
   })
 }
 
-function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildXaiProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return buildProfile({
     provider: 'openai',
     baseUrl: 'https://api.x.ai/v1',
@@ -198,7 +208,9 @@ function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProf
   })
 }
 
-function buildVeniceProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildVeniceProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return buildProfile({
     provider: 'venice',
     name: 'Venice',
@@ -209,7 +221,9 @@ function buildVeniceProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
   })
 }
 
-function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildXiaomiMimoProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return buildProfile({
     provider: 'xiaomi-mimo',
     name: 'Xiaomi MiMo',
@@ -220,7 +234,9 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
-function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildAtlasCloudProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return buildProfile({
     provider: 'atlas-cloud',
     name: 'Atlas Cloud',
@@ -522,7 +538,9 @@ describe('applyProviderProfileToProcessEnv', () => {
       }),
     )
 
-    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.minimax.io/anthropic',
+    )
     expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M2.7')
     expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-live-key')
     expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
@@ -592,9 +610,11 @@ describe('applyProviderProfileToProcessEnv', () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
 
-    applyProviderProfileToProcessEnv(buildXiaomiMimoProfile({
-      baseUrl: 'https://api.mimo-v2.com/v1',
-    }))
+    applyProviderProfileToProcessEnv(
+      buildXiaomiMimoProfile({
+        baseUrl: 'https://api.mimo-v2.com/v1',
+      }),
+    )
     const { getAPIProvider: getFreshAPIProvider } =
       await importFreshProvidersModule()
 
@@ -942,8 +962,10 @@ describe('applyActiveProviderProfileFromConfig', () => {
   })
 
   test('re-applies active profile when profile-managed env drifts', async () => {
-    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
-      await importFreshProviderProfileModules()
+    const {
+      applyActiveProviderProfileFromConfig,
+      applyProviderProfileToProcessEnv,
+    } = await importFreshProviderProfileModules()
     applyProviderProfileToProcessEnv(
       buildProfile({
         id: 'saved_openai',
@@ -972,8 +994,10 @@ describe('applyActiveProviderProfileFromConfig', () => {
   })
 
   test('does not re-apply active profile when flags conflict with current provider', async () => {
-    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
-      await importFreshProviderProfileModules()
+    const {
+      applyActiveProviderProfileFromConfig,
+      applyProviderProfileToProcessEnv,
+    } = await importFreshProviderProfileModules()
     applyProviderProfileToProcessEnv(
       buildProfile({
         id: 'saved_openai',
@@ -1002,8 +1026,10 @@ describe('applyActiveProviderProfileFromConfig', () => {
   })
 
   test('re-applies xai active profile when XAI_API_KEY is missing (env drift)', async () => {
-    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
-      await importFreshProviderProfileModules()
+    const {
+      applyActiveProviderProfileFromConfig,
+      applyProviderProfileToProcessEnv,
+    } = await importFreshProviderProfileModules()
     const xaiProfile = buildXaiProfile({ id: 'saved_xai' })
     applyProviderProfileToProcessEnv(xaiProfile)
 
@@ -1020,8 +1046,10 @@ describe('applyActiveProviderProfileFromConfig', () => {
   })
 
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
-    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
-      await importFreshProviderProfileModules()
+    const {
+      applyActiveProviderProfileFromConfig,
+      applyProviderProfileToProcessEnv,
+    } = await importFreshProviderProfileModules()
     const xaiProfile = buildXaiProfile({ id: 'saved_xai' })
     applyProviderProfileToProcessEnv(xaiProfile)
 
@@ -1079,10 +1107,8 @@ describe('persistActiveProviderProfileModel', () => {
   // docstring in providerProfiles.ts. Coverage below locks the no-op
   // contract for both single- and multi-model profiles.
   test('returns the active profile unchanged for a single-model profile', async () => {
-    const {
-      getProviderProfiles,
-      persistActiveProviderProfileModel,
-    } = await importFreshProviderProfileModules()
+    const { getProviderProfiles, persistActiveProviderProfileModel } =
+      await importFreshProviderProfileModules()
     const activeProfile = buildProfile({
       id: 'saved_openai',
       baseUrl: 'http://192.168.33.108:11434/v1',
@@ -1150,10 +1176,8 @@ describe('persistActiveProviderProfileModel', () => {
   test('preserves comma-separated multi-model list when chosen model is already a member', async () => {
     // Switching between models already in the list is a session-level
     // choice. The list itself must be preserved exactly as configured.
-    const {
-      getProviderProfiles,
-      persistActiveProviderProfileModel,
-    } = await importFreshProviderProfileModules()
+    const { getProviderProfiles, persistActiveProviderProfileModel } =
+      await importFreshProviderProfileModules()
     const activeProfile = buildMistralProfile({
       id: 'saved_mistral',
       baseUrl: 'https://api.mistral.ai/v1',
@@ -1182,7 +1206,8 @@ describe('persistActiveProviderProfileModel', () => {
 
 describe('getProviderPresetDefaults', () => {
   test('ollama preset defaults to a local Ollama model', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL
 
     const defaults = getProviderPresetDefaults('ollama')
@@ -1192,7 +1217,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('atomic-chat preset defaults to a local Atomic Chat endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL
 
     const defaults = getProviderPresetDefaults('atomic-chat')
@@ -1204,7 +1230,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('kimi-code preset defaults to the Kimi Code coding endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('kimi-code')
 
@@ -1216,7 +1243,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('moonshotai preset keeps the direct API under the renamed display label', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('moonshotai')
 
@@ -1225,7 +1253,8 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.model).toBe('kimi-k2.5')
   })
   test('deepseek preset defaults to DeepSeek V4 Pro', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('deepseek')
 
@@ -1237,7 +1266,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('hicap preset defaults to the Hicap endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
     process.env.HICAP_API_KEY = 'hicap-live-key'
 
     const defaults = getProviderPresetDefaults('hicap')
@@ -1251,7 +1281,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('minimax preset defaults to MiniMax M3', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('minimax')
 
@@ -1263,7 +1294,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('venice preset defaults to the official Venice endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
     process.env.VENICE_API_KEY = 'venice-live-key'
 
     const defaults = getProviderPresetDefaults('venice')
@@ -1277,7 +1309,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('xiaomi mimo preset defaults to the official Xiaomi MiMo endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
     process.env.MIMO_API_KEY = 'mimo-live-key'
 
     const defaults = getProviderPresetDefaults('xiaomi-mimo')
@@ -1291,7 +1324,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('xai preset ignores stale generic OpenAI model when creating defaults', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
     process.env.OPENAI_MODEL = 'gpt-5.4'
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
     process.env.XAI_API_KEY = 'xai-live-key'
@@ -1307,7 +1341,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('zai preset defaults to Z.AI GLM Coding Plan endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('zai')
 
@@ -1928,10 +1963,8 @@ describe('deleteProviderProfile', () => {
   })
 
   test('deleting final profile clears provider env when active profile applied it', async () => {
-    const {
-      applyProviderProfileToProcessEnv,
-      deleteProviderProfile,
-    } = await importFreshProviderProfileModules()
+    const { applyProviderProfileToProcessEnv, deleteProviderProfile } =
+      await importFreshProviderProfileModules()
     applyProviderProfileToProcessEnv(
       buildProfile({
         id: 'only_profile',
@@ -2085,8 +2118,7 @@ describe('getProfileModelOptions', () => {
   })
 
   test('generates options for multi-model profile', async () => {
-    const { getProfileModelOptions } =
-      await importFreshProviderProfileModules()
+    const { getProfileModelOptions } = await importFreshProviderProfileModules()
 
     const options = getProfileModelOptions(
       buildProfile({
@@ -2096,15 +2128,26 @@ describe('getProfileModelOptions', () => {
     )
 
     expect(options).toEqual([
-      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
-      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
-      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Provider: Test Provider' },
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Test Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Test Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Provider: Test Provider',
+      },
     ])
   })
 
   test('generates options for semicolon-separated multi-model profile', async () => {
-    const { getProfileModelOptions } =
-      await importFreshProviderProfileModules()
+    const { getProfileModelOptions } = await importFreshProviderProfileModules()
 
     const options = getProfileModelOptions(
       buildProfile({
@@ -2114,15 +2157,26 @@ describe('getProfileModelOptions', () => {
     )
 
     expect(options).toEqual([
-      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
-      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
-      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Provider: Test Provider' },
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Test Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Test Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Provider: Test Provider',
+      },
     ])
   })
 
   test('returns single option for single-model profile', async () => {
-    const { getProfileModelOptions } =
-      await importFreshProviderProfileModules()
+    const { getProfileModelOptions } = await importFreshProviderProfileModules()
 
     const options = getProfileModelOptions(
       buildProfile({
@@ -2132,13 +2186,16 @@ describe('getProfileModelOptions', () => {
     )
 
     expect(options).toEqual([
-      { value: 'llama3.1:8b', label: 'llama3.1:8b', description: 'Provider: Single Model' },
+      {
+        value: 'llama3.1:8b',
+        label: 'llama3.1:8b',
+        description: 'Provider: Single Model',
+      },
     ])
   })
 
   test('appends discovered model cache entries for the same profile without duplicates', async () => {
-    const { getProfileModelOptions } =
-      await importFreshProviderProfileModules()
+    const { getProfileModelOptions } = await importFreshProviderProfileModules()
 
     mockConfigState = {
       ...createMockConfigState(),
@@ -2167,15 +2224,26 @@ describe('getProfileModelOptions', () => {
     )
 
     expect(options).toEqual([
-      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
-      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
-      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Discovered from API' },
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Test Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Test Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
     ])
   })
 
   test('returns empty array for empty model field', async () => {
-    const { getProfileModelOptions } =
-      await importFreshProviderProfileModules()
+    const { getProfileModelOptions } = await importFreshProviderProfileModules()
 
     const options = getProfileModelOptions(
       buildProfile({
@@ -2190,10 +2258,8 @@ describe('getProfileModelOptions', () => {
 
 describe('setActiveProviderProfile model cache', () => {
   test('populates model cache with all models from multi-model profile on activation', async () => {
-    const {
-      setActiveProviderProfile,
-      getActiveOpenAIModelOptionsCache,
-    } = await importFreshProviderProfileModules()
+    const { setActiveProviderProfile, getActiveOpenAIModelOptionsCache } =
+      await importFreshProviderProfileModules()
 
     mockConfigState = {
       ...createMockConfigState(),
@@ -2219,10 +2285,8 @@ describe('setActiveProviderProfile model cache', () => {
   })
 
   test('merges configured profile models with discovered cache on activation', async () => {
-    const {
-      setActiveProviderProfile,
-      getActiveOpenAIModelOptionsCache,
-    } = await importFreshProviderProfileModules()
+    const { setActiveProviderProfile, getActiveOpenAIModelOptionsCache } =
+      await importFreshProviderProfileModules()
 
     mockConfigState = {
       ...createMockConfigState(),
@@ -2325,9 +2389,8 @@ describe('setActiveProviderProfile model cache', () => {
   })
 
   test('falls back to configured profile models when no discovery cache exists yet', async () => {
-    const {
-      getActiveOpenAIModelOptionsCache,
-    } = await importFreshProviderProfileModules()
+    const { getActiveOpenAIModelOptionsCache } =
+      await importFreshProviderProfileModules()
 
     mockConfigState = {
       ...createMockConfigState(),
@@ -2359,7 +2422,9 @@ describe('setActiveProviderProfile model cache', () => {
 
 test('DEFAULT_MISTRAL_MODEL matches the mistral gateway defaultModel', async () => {
   const { DEFAULT_MISTRAL_MODEL } = await import('./providerProfile.js')
-  const { default: mistralGateway } = await import('../integrations/gateways/mistral.js')
+  const { default: mistralGateway } = await import(
+    '../integrations/gateways/mistral.js'
+  )
   expect(mistralGateway.defaultModel).toBeDefined()
   expect(DEFAULT_MISTRAL_MODEL).toBe(mistralGateway.defaultModel!)
 })

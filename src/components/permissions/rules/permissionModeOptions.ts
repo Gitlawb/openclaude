@@ -25,8 +25,7 @@ const MODE_DESCRIPTIONS: Record<ManageablePermissionMode, string> = {
   auto: 'Use classifier-driven approvals when available.',
   bypassPermissions:
     'Skip normal permission prompts while preserving hard safety prompts.',
-  fullAccess:
-    'Skip normal permission prompts and hard safety-check prompts.',
+  fullAccess: 'Skip normal permission prompts and hard safety-check prompts.',
 }
 
 export function getManageablePermissionModes(

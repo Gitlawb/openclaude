@@ -352,7 +352,11 @@ function findCommandFindings(line: DiffLine): Finding[] {
     }
   }
 
-  if (LONG_BASE64_REGEX.test(line.content) && !lower.includes('sha256') && !lower.includes('sha512')) {
+  if (
+    LONG_BASE64_REGEX.test(line.content) &&
+    !lower.includes('sha256') &&
+    !lower.includes('sha512')
+  ) {
     findings.push({
       severity: 'medium',
       code: 'long-encoded-payload',
@@ -370,10 +374,10 @@ export function scanAddedLines(lines: DiffLine[]): Finding[] {
   const findings = lines
     .filter(line => !SELF_EXCLUDED_FILES.has(line.file))
     .flatMap(line => [
-    ...findUrlFindings(line),
-    ...findCommandFindings(line),
-    ...findSensitivePathFindings(line),
-  ])
+      ...findUrlFindings(line),
+      ...findCommandFindings(line),
+      ...findSensitivePathFindings(line),
+    ])
   return uniqueFindings(findings)
 }
 
@@ -396,7 +400,9 @@ export function getGitDiff(baseRef: string, headRef = 'HEAD'): string {
   )
 
   if (diff.status !== 0) {
-    throw new Error(`git diff failed: ${diff.stderr.trim() || diff.stdout.trim()}`)
+    throw new Error(
+      `git diff failed: ${diff.stderr.trim() || diff.stdout.trim()}`,
+    )
   }
 
   return diff.stdout

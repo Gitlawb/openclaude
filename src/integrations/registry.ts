@@ -72,7 +72,9 @@ export function getGateway(id: string): GatewayDescriptor | undefined {
   return _gateways.get(id)
 }
 
-export function getAnthropicProxy(id: string): AnthropicProxyDescriptor | undefined {
+export function getAnthropicProxy(
+  id: string,
+): AnthropicProxyDescriptor | undefined {
   return _anthropicProxies.get(id)
 }
 
@@ -108,15 +110,21 @@ export function getAllModels(): ModelDescriptor[] {
 // Catalog helpers
 // ---------------------------------------------------------------------------
 
-export function getCatalogForGateway(gatewayId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
+export function getCatalogForGateway(
+  gatewayId: string,
+): import('./descriptors.js').ModelCatalogConfig | undefined {
   return _gateways.get(gatewayId)?.catalog
 }
 
-export function getCatalogForVendor(vendorId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
+export function getCatalogForVendor(
+  vendorId: string,
+): import('./descriptors.js').ModelCatalogConfig | undefined {
   return _vendors.get(vendorId)?.catalog
 }
 
-export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] {
+export function getCatalogEntriesForRoute(
+  routeId: string,
+): ModelCatalogEntry[] {
   const gateway = _gateways.get(routeId)
   if (gateway?.catalog?.models) {
     return gateway.catalog.models
@@ -205,7 +213,9 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 
     const presetId = preset.id.trim()
     if (!presetId) {
-      errors.push(`Route "${route.id}" opted into presets with an empty preset id`)
+      errors.push(
+        `Route "${route.id}" opted into presets with an empty preset id`,
+      )
       continue
     }
 
@@ -275,7 +285,10 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
   }
 
   // Validate catalog entries on gateways and vendors
-  const routes: Array<{ id: string; catalog?: import('./descriptors.js').ModelCatalogConfig }> = [
+  const routes: Array<{
+    id: string
+    catalog?: import('./descriptors.js').ModelCatalogConfig
+  }> = [
     ...allGateways.map(g => ({ id: g.id, catalog: g.catalog })),
     ...allVendors.map(v => ({ id: v.id, catalog: v.catalog })),
   ]
@@ -295,7 +308,9 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
     for (const entry of catalog.models ?? []) {
       // Duplicate entry ids within route
       if (entryIds.has(entry.id)) {
-        errors.push(`Duplicate catalog entry id "${entry.id}" in route "${route.id}"`)
+        errors.push(
+          `Duplicate catalog entry id "${entry.id}" in route "${route.id}"`,
+        )
       }
       entryIds.add(entry.id)
 
@@ -322,7 +337,9 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
       // Allow explicitly empty only if there's a discovery config or explicit marker
       // For now, warn if truly empty with no discovery
       if (!catalog.discovery) {
-        warnings.push(`Static catalog for route "${route.id}" has no models and no discovery config`)
+        warnings.push(
+          `Static catalog for route "${route.id}" has no models and no discovery config`,
+        )
       }
     }
 
@@ -334,7 +351,9 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 
     // Multiple defaults check
     if (defaultCount > 1) {
-      warnings.push(`Route "${route.id}" has ${defaultCount} default catalog entries`)
+      warnings.push(
+        `Route "${route.id}" has ${defaultCount} default catalog entries`,
+      )
     }
 
     // Unsupported transport/config combinations
@@ -351,12 +370,18 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 
   // Validate usage metadata delegates
   for (const gateway of allGateways) {
-    if (gateway.usage?.delegateToVendorId && !_vendors.has(gateway.usage.delegateToVendorId)) {
+    if (
+      gateway.usage?.delegateToVendorId &&
+      !_vendors.has(gateway.usage.delegateToVendorId)
+    ) {
       errors.push(
         `Gateway "${gateway.id}" delegates usage to missing vendor "${gateway.usage.delegateToVendorId}"`,
       )
     }
-    if (gateway.usage?.delegateToGatewayId && !_gateways.has(gateway.usage.delegateToGatewayId)) {
+    if (
+      gateway.usage?.delegateToGatewayId &&
+      !_gateways.has(gateway.usage.delegateToGatewayId)
+    ) {
       errors.push(
         `Gateway "${gateway.id}" delegates usage to missing gateway "${gateway.usage.delegateToGatewayId}"`,
       )
@@ -364,12 +389,18 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
   }
 
   for (const vendor of allVendors) {
-    if (vendor.usage?.delegateToVendorId && !_vendors.has(vendor.usage.delegateToVendorId)) {
+    if (
+      vendor.usage?.delegateToVendorId &&
+      !_vendors.has(vendor.usage.delegateToVendorId)
+    ) {
       errors.push(
         `Vendor "${vendor.id}" delegates usage to missing vendor "${vendor.usage.delegateToVendorId}"`,
       )
     }
-    if (vendor.usage?.delegateToGatewayId && !_gateways.has(vendor.usage.delegateToGatewayId)) {
+    if (
+      vendor.usage?.delegateToGatewayId &&
+      !_gateways.has(vendor.usage.delegateToGatewayId)
+    ) {
       errors.push(
         `Vendor "${vendor.id}" delegates usage to missing gateway "${vendor.usage.delegateToGatewayId}"`,
       )

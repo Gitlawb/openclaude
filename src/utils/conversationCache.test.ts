@@ -10,9 +10,7 @@ describe('conversationCache', () => {
 
   describe('basic operations', () => {
     it('stores and retrieves messages', () => {
-      const messages: Message[] = [
-        { role: 'user', content: 'hello' },
-      ]
+      const messages: Message[] = [{ role: 'user', content: 'hello' }]
       cache.set('session1', messages)
       expect(cache.get('session1')).toEqual(messages)
     })
@@ -34,7 +32,7 @@ describe('conversationCache', () => {
       cache.set('b', [{ role: 'user', content: 'b' }])
       cache.set('c', [{ role: 'user', content: 'c' }])
       cache.set('d', [{ role: 'user', content: 'd' }]) // should evict 'a'
-      
+
       expect(cache.get('a')).toBeUndefined()
       expect(cache.get('d')).toBeDefined()
     })
@@ -45,7 +43,7 @@ describe('conversationCache', () => {
       cache.get('a') // access 'a' to update order
       cache.set('c', [{ role: 'user', content: 'c' }])
       cache.set('d', [{ role: 'user', content: 'd' }]) // should evict 'b'
-      
+
       expect(cache.get('b')).toBeUndefined()
       expect(cache.get('a')).toBeDefined()
     })
@@ -55,9 +53,9 @@ describe('conversationCache', () => {
     it('evicts expired entries', async () => {
       const shortCache = createConversationCache({ ttlMs: 1 })
       shortCache.set('x', [{ role: 'user', content: 'x' }])
-      
+
       await new Promise(r => setTimeout(r, 10))
-      
+
       expect(shortCache.get('x')).toBeUndefined()
     })
   })

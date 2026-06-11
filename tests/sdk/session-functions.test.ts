@@ -32,23 +32,28 @@ describe('SDK session functions', () => {
   })
 
   test('getSessionMessages returns empty array for non-existent session', async () => {
-    const messages = await getSessionMessages('00000000-0000-0000-0000-000000000000')
+    const messages = await getSessionMessages(
+      '00000000-0000-0000-0000-000000000000',
+    )
     expect(messages).toEqual([])
   })
 
   test('renameSession throws for non-existent session', async () => {
-    await expect(renameSession('00000000-0000-0000-0000-000000000000', 'test'))
-      .rejects.toThrow('Session not found')
+    await expect(
+      renameSession('00000000-0000-0000-0000-000000000000', 'test'),
+    ).rejects.toThrow('Session not found')
   })
 
   test('forkSession throws for non-existent session', async () => {
-    await expect(forkSession('00000000-0000-0000-0000-000000000000'))
-      .rejects.toThrow('Session not found')
+    await expect(
+      forkSession('00000000-0000-0000-0000-000000000000'),
+    ).rejects.toThrow('Session not found')
   })
 
   test('session ID validation rejects invalid UUID', async () => {
-    await expect(getSessionInfo('not-a-uuid'))
-      .rejects.toThrow('Invalid session ID')
+    await expect(getSessionInfo('not-a-uuid')).rejects.toThrow(
+      'Invalid session ID',
+    )
   })
 })
 
@@ -138,14 +143,18 @@ describe('renameSession', () => {
   test('appends custom-title entry to existing session', async () => {
     const sid = randomUUID()
     const filePath = join(sessionDir, `${sid}.jsonl`)
-    writeFileSync(filePath, JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: 'hello' },
-      uuid: randomUUID(),
-      parentUuid: null,
-      sessionId: sid,
-      isSidechain: false,
-    }) + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        uuid: randomUUID(),
+        parentUuid: null,
+        sessionId: sid,
+        isSidechain: false,
+      }) + '\n',
+      { encoding: 'utf8' },
+    )
 
     await renameSession(sid, 'My Renamed Session', { dir: testProjectDir })
 
@@ -158,14 +167,16 @@ describe('renameSession', () => {
 
   test('throws for non-existent session', async () => {
     await expect(
-      renameSession('00000000-0000-0000-0000-000000000000', 'test', { dir: testProjectDir }),
+      renameSession('00000000-0000-0000-0000-000000000000', 'test', {
+        dir: testProjectDir,
+      }),
     ).rejects.toThrow('Session not found')
   })
 
   test('throws for invalid session ID', async () => {
-    await expect(
-      renameSession('not-a-uuid', 'test'),
-    ).rejects.toThrow('Invalid session ID')
+    await expect(renameSession('not-a-uuid', 'test')).rejects.toThrow(
+      'Invalid session ID',
+    )
   })
 })
 
@@ -185,14 +196,18 @@ describe('tagSession', () => {
   test('appends tag entry to existing session', async () => {
     const sid = randomUUID()
     const filePath = join(sessionDir, `${sid}.jsonl`)
-    writeFileSync(filePath, JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: 'hello' },
-      uuid: randomUUID(),
-      parentUuid: null,
-      sessionId: sid,
-      isSidechain: false,
-    }) + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        uuid: randomUUID(),
+        parentUuid: null,
+        sessionId: sid,
+        isSidechain: false,
+      }) + '\n',
+      { encoding: 'utf8' },
+    )
 
     await tagSession(sid, 'important', { dir: testProjectDir })
 
@@ -206,14 +221,18 @@ describe('tagSession', () => {
   test('clears tag when null is passed', async () => {
     const sid = randomUUID()
     const filePath = join(sessionDir, `${sid}.jsonl`)
-    writeFileSync(filePath, JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: 'hello' },
-      uuid: randomUUID(),
-      parentUuid: null,
-      sessionId: sid,
-      isSidechain: false,
-    }) + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        uuid: randomUUID(),
+        parentUuid: null,
+        sessionId: sid,
+        isSidechain: false,
+      }) + '\n',
+      { encoding: 'utf8' },
+    )
 
     await tagSession(sid, null, { dir: testProjectDir })
 
@@ -224,9 +243,9 @@ describe('tagSession', () => {
   })
 
   test('throws for invalid session ID', async () => {
-    await expect(
-      tagSession('not-a-uuid', 'tag'),
-    ).rejects.toThrow('Invalid session ID')
+    await expect(tagSession('not-a-uuid', 'tag')).rejects.toThrow(
+      'Invalid session ID',
+    )
   })
 })
 
@@ -246,14 +265,18 @@ describe('deleteSession', () => {
   test('deletes existing session file', async () => {
     const sid = randomUUID()
     const filePath = join(sessionDir, `${sid}.jsonl`)
-    writeFileSync(filePath, JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: 'hello' },
-      uuid: randomUUID(),
-      parentUuid: null,
-      sessionId: sid,
-      isSidechain: false,
-    }) + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        uuid: randomUUID(),
+        parentUuid: null,
+        sessionId: sid,
+        isSidechain: false,
+      }) + '\n',
+      { encoding: 'utf8' },
+    )
 
     // Verify file exists before deletion
     const { statSync } = await import('fs')
@@ -268,14 +291,18 @@ describe('deleteSession', () => {
   test('deleted session is no longer found by getSessionInfo', async () => {
     const sid = randomUUID()
     const filePath = join(sessionDir, `${sid}.jsonl`)
-    writeFileSync(filePath, JSON.stringify({
-      type: 'user',
-      message: { role: 'user', content: 'hello' },
-      uuid: randomUUID(),
-      parentUuid: null,
-      sessionId: sid,
-      isSidechain: false,
-    }) + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        uuid: randomUUID(),
+        parentUuid: null,
+        sessionId: sid,
+        isSidechain: false,
+      }) + '\n',
+      { encoding: 'utf8' },
+    )
 
     await deleteSession(sid, { dir: testProjectDir })
 
@@ -285,14 +312,16 @@ describe('deleteSession', () => {
 
   test('throws for non-existent session', async () => {
     await expect(
-      deleteSession('00000000-0000-0000-0000-000000000000', { dir: testProjectDir }),
+      deleteSession('00000000-0000-0000-0000-000000000000', {
+        dir: testProjectDir,
+      }),
     ).rejects.toThrow('Session not found')
   })
 
   test('throws for invalid session ID', async () => {
-    await expect(
-      deleteSession('not-a-uuid'),
-    ).rejects.toThrow('Invalid session ID')
+    await expect(deleteSession('not-a-uuid')).rejects.toThrow(
+      'Invalid session ID',
+    )
   })
 })
 
@@ -316,24 +345,31 @@ describe('E2E: session lifecycle — create → read → mutate → fork → del
     // Step 1: Create session with conversation
     const userUuid = randomUUID()
     const assistantUuid = randomUUID()
-    writeFileSync(filePath, [
-      JSON.stringify({
-        type: 'user',
-        message: { role: 'user', content: 'hello from e2e' },
-        uuid: userUuid,
-        parentUuid: null,
-        sessionId: sid,
-        isSidechain: false,
-      }),
-      JSON.stringify({
-        type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'hi from assistant' }] },
-        uuid: assistantUuid,
-        parentUuid: userUuid,
-        sessionId: sid,
-        isSidechain: false,
-      }),
-    ].join('\n') + '\n', { encoding: 'utf8' })
+    writeFileSync(
+      filePath,
+      [
+        JSON.stringify({
+          type: 'user',
+          message: { role: 'user', content: 'hello from e2e' },
+          uuid: userUuid,
+          parentUuid: null,
+          sessionId: sid,
+          isSidechain: false,
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'hi from assistant' }],
+          },
+          uuid: assistantUuid,
+          parentUuid: userUuid,
+          sessionId: sid,
+          isSidechain: false,
+        }),
+      ].join('\n') + '\n',
+      { encoding: 'utf8' },
+    )
 
     // Step 2: Read messages — should find 2
     const messages = await getSessionMessages(sid, { dir: testProjectDir })
@@ -352,7 +388,10 @@ describe('E2E: session lifecycle — create → read → mutate → fork → del
     expect(tagEntry.tag).toBe('e2e-tag')
 
     // Step 5: Fork — should create new session with remapped UUIDs
-    const forked = await forkSession(sid, { dir: testProjectDir, title: 'Forked Copy' })
+    const forked = await forkSession(sid, {
+      dir: testProjectDir,
+      title: 'Forked Copy',
+    })
     expect(forked.sessionId).not.toBe(sid)
     const forkedPath = join(sessionDir, `${forked.sessionId}.jsonl`)
     const forkedEntries = await readJSONLFile<any>(forkedPath)
@@ -379,7 +418,9 @@ describe('E2E: session lifecycle — create → read → mutate → fork → del
     expect(deletedInfo).toBeUndefined()
 
     // Forked session should still be readable
-    const forkedMessages = await getSessionMessages(forked.sessionId, { dir: testProjectDir })
+    const forkedMessages = await getSessionMessages(forked.sessionId, {
+      dir: testProjectDir,
+    })
     expect(forkedMessages.length).toBeGreaterThanOrEqual(2)
   })
 })

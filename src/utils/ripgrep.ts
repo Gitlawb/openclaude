@@ -184,7 +184,9 @@ export function wrapRipgrepUnavailableError(
         ? 'A working system ripgrep binary was not found on PATH.'
         : 'The embedded ripgrep binary could not be started.'
 
-  const originalMessage = error.message ? ` Original error: ${error.message}` : ''
+  const originalMessage = error.message
+    ? ` Original error: ${error.message}`
+    : ''
 
   return new RipgrepUnavailableError(
     `ripgrep (rg) is required for file search but could not be started. ${modeExplanation} ${getRipgrepInstallHint(platform)}${originalMessage}`,

@@ -123,7 +123,9 @@ describe('agent definition loading', () => {
     const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
     const agent = activeAgents.find(agent => agent.agentType === 'shared-agent')
 
-    expect(agent?.source === 'projectSettings' ? agent.getSystemPrompt() : undefined).toBe('openclaude prompt')
+    expect(
+      agent?.source === 'projectSettings' ? agent.getSystemPrompt() : undefined,
+    ).toBe('openclaude prompt')
   })
 
   test('accepts worktree isolation in markdown agent frontmatter', async () => {
@@ -136,7 +138,9 @@ describe('agent definition loading', () => {
     )
 
     const { activeAgents } = await getAgentDefinitionsWithOverrides(projectDir)
-    const agent = activeAgents.find(agent => agent.agentType === 'worktree-agent')
+    const agent = activeAgents.find(
+      agent => agent.agentType === 'worktree-agent',
+    )
 
     expect(agent?.isolation).toBe('worktree')
   })

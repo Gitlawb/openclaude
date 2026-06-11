@@ -267,9 +267,12 @@ export async function normalizeOAuthErrorBody(
 function createAuthFetch(): FetchLike {
   return async (url: string | URL, init?: RequestInit) => {
     const isPost = init?.method?.toUpperCase() === 'POST'
-    const { signal, cleanup } = createCombinedAbortSignal(init?.signal ?? undefined, {
-      timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
-    })
+    const { signal, cleanup } = createCombinedAbortSignal(
+      init?.signal ?? undefined,
+      {
+        timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+      },
+    )
     try {
       // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
       const response = await fetch(url, { ...init, signal })
@@ -1107,8 +1110,7 @@ export async function performMCPOAuthFlow(
                 code: parsed.searchParams.get('code'),
                 state: parsed.searchParams.get('state'),
                 error: parsed.searchParams.get('error'),
-                error_description:
-                  parsed.searchParams.get('error_description'),
+                error_description: parsed.searchParams.get('error_description'),
                 error_uri: parsed.searchParams.get('error_uri'),
               },
               oauthState,

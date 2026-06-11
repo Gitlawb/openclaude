@@ -21,7 +21,10 @@ export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
 // Override via CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW env var to avoid
 // hardcoding when deploying models not yet in integration model metadata.
 export const OPENAI_FALLBACK_CONTEXT_WINDOW = (() => {
-  const v = parseInt(process.env.CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW ?? '', 10)
+  const v = parseInt(
+    process.env.CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW ?? '',
+    10,
+  )
   return !isNaN(v) && v > 0 ? v : 128_000
 })()
 

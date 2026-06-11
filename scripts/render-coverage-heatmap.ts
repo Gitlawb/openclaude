@@ -58,8 +58,9 @@ function summarizeDirectories(files: FileCoverage[]): DirectoryCoverage[] {
   const dirs = new Map<string, DirectoryCoverage>()
 
   for (const file of files) {
-    const dir =
-      file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.'
+    const dir = file.path.includes('/')
+      ? file.path.slice(0, file.path.lastIndexOf('/'))
+      : '.'
     const current = dirs.get(dir) ?? { path: dir, found: 0, hit: 0 }
     current.found += file.found
     current.hit += file.hit

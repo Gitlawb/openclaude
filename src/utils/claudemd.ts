@@ -1251,7 +1251,8 @@ export async function getManagedAndUserConditionalRules(
     // as unconditional User rules, so declining approval blocks the
     // conditional path too.
     const userClaudeRulesDir = getUserClaudeRulesDir()
-    const includeExternalForUser = config.hasClaudeMdExternalIncludesApprovedForUser ?? false
+    const includeExternalForUser =
+      config.hasClaudeMdExternalIncludesApprovedForUser ?? false
     result.push(
       ...(await processConditionedMdRules(
         targetPath,
@@ -1447,7 +1448,10 @@ export function getExternalClaudeMdIncludes(
   return externals
 }
 
-export function hasExternalClaudeMdIncludes(files: MemoryFileInfo[], types?: MemoryType[]): boolean {
+export function hasExternalClaudeMdIncludes(
+  files: MemoryFileInfo[],
+  types?: MemoryType[],
+): boolean {
   return getExternalClaudeMdIncludes(files, types).length > 0
 }
 

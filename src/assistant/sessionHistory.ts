@@ -102,7 +102,11 @@ export async function fetchLatestEvents(
 ): Promise<HistoryPage | null> {
   const sessionId = extractSessionId(ctx.baseUrl)
 
-  const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
+  const page = await fetchPage(
+    ctx,
+    { limit, anchor_to_latest: true },
+    'fetchLatestEvents',
+  )
 
   if (page && page.events.length > 0) {
     await cacheSession(sessionId, page.events, page.hasMore, page.firstId)
@@ -132,7 +136,10 @@ export async function fetchOlderEvents(
 
 const lastSavedCounts = new Map<string, number>()
 const lastSavedIds = new Map<string, Set<string>>()
-const sessionMetadataCache = new Map<string, { hasMore: boolean; lastId: string | null }>()
+const sessionMetadataCache = new Map<
+  string,
+  { hasMore: boolean; lastId: string | null }
+>()
 
 export async function cacheSession(
   sessionId: string,
@@ -162,10 +169,9 @@ export async function cacheSession(
     lastSavedCounts.set(sessionId, newCount)
     lastSavedIds.set(sessionId, newUuids)
 
-    const session = createSession(
-      messages as never,
-      { model: process.env.OPENAI_MODEL },
-    )
+    const session = createSession(messages as never, {
+      model: process.env.OPENAI_MODEL,
+    })
     session.id = sessionId
     session.pagination = { hasMore, lastId }
     await saveSession(session)

@@ -39,14 +39,17 @@ function getMiniMaxModelEnv(): string | undefined {
   return process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL
 }
 
-function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefined {
+function normalizeModelSetting(
+  value: unknown,
+): ModelName | ModelAlias | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
 }
 
 export function getSmallFastModel(): ModelName {
-  if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
+  if (process.env.ANTHROPIC_SMALL_FAST_MODEL)
+    return process.env.ANTHROPIC_SMALL_FAST_MODEL
   // For Gemini provider, use a fast model
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'

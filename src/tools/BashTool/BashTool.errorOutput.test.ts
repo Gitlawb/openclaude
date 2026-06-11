@@ -18,7 +18,7 @@ function makeCtx() {
   return {
     abortController: new AbortController(),
     options: { isNonInteractiveSession: false },
-    getAppState: () => ({ toolPermissionContext } as never),
+    getAppState: () => ({ toolPermissionContext }) as never,
     setAppState: () => undefined,
     setToolJSX: undefined,
     toolUseId: 'test-bash-error-output',

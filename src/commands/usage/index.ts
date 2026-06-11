@@ -95,7 +95,11 @@ function getTargetLabel(
   activeId: string,
   target: UsageDescriptorTarget | undefined,
 ): string {
-  return target?.descriptor.label ?? RUNTIME_USAGE_LABELS[activeId] ?? 'this provider'
+  return (
+    target?.descriptor.label ??
+    RUNTIME_USAGE_LABELS[activeId] ??
+    'this provider'
+  )
 }
 
 export function getUsageDescriptor(
@@ -117,7 +121,8 @@ export function getUsageDescriptor(
   const seen = new Set<string>()
 
   while (resolvedTarget) {
-    const currentUsage = resolvedTarget.descriptor.usage ?? DEFAULT_UNSUPPORTED_USAGE
+    const currentUsage =
+      resolvedTarget.descriptor.usage ?? DEFAULT_UNSUPPORTED_USAGE
     const visitKey = `${resolvedTarget.kind}:${resolvedTarget.descriptor.id}`
     if (seen.has(visitKey)) {
       usage = DEFAULT_UNSUPPORTED_USAGE
@@ -126,7 +131,9 @@ export function getUsageDescriptor(
     seen.add(visitKey)
 
     if (currentUsage.delegateToVendorId) {
-      const delegatedVendor = registry.getVendor(currentUsage.delegateToVendorId)
+      const delegatedVendor = registry.getVendor(
+        currentUsage.delegateToVendorId,
+      )
       if (!delegatedVendor) {
         usage = DEFAULT_UNSUPPORTED_USAGE
         break
@@ -140,7 +147,9 @@ export function getUsageDescriptor(
     }
 
     if (currentUsage.delegateToGatewayId) {
-      const delegatedGateway = registry.getGateway(currentUsage.delegateToGatewayId)
+      const delegatedGateway = registry.getGateway(
+        currentUsage.delegateToGatewayId,
+      )
       if (!delegatedGateway) {
         usage = DEFAULT_UNSUPPORTED_USAGE
         break

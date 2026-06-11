@@ -105,9 +105,10 @@ function normalizeDiscoveryCacheEntry(
   }
 }
 
-function migrateDiscoveryCache(
-  parsed: { version?: unknown; entries?: unknown },
-): PersistedDiscoveryCache | null {
+function migrateDiscoveryCache(parsed: {
+  version?: unknown
+  entries?: unknown
+}): PersistedDiscoveryCache | null {
   if (
     typeof parsed.version !== 'number' ||
     parsed.version < MIN_MIGRATABLE_VERSION ||
@@ -122,7 +123,9 @@ function migrateDiscoveryCache(
   const entries = Object.fromEntries(
     Object.entries(parsed.entries)
       .map(([routeId, entry]) => [routeId, normalizeDiscoveryCacheEntry(entry)])
-      .filter((value): value is [string, DiscoveryCacheEntry] => value[1] !== null),
+      .filter(
+        (value): value is [string, DiscoveryCacheEntry] => value[1] !== null,
+      ),
   )
 
   return {

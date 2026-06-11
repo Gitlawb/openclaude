@@ -359,8 +359,9 @@ function normalizeSnapshot(
 ): MiniMaxUsageSnapshot | undefined {
   if (!isRecord(value)) return undefined
 
-  const windows = WINDOW_SPECS.map(spec => normalizeWindowFromSpec(value, spec))
-    .filter((window): window is MiniMaxUsageWindow => window !== undefined)
+  const windows = WINDOW_SPECS.map(spec =>
+    normalizeWindowFromSpec(value, spec),
+  ).filter((window): window is MiniMaxUsageWindow => window !== undefined)
 
   if (windows.length === 0) {
     const generic = normalizeGenericWindow(value)
@@ -415,7 +416,9 @@ function normalizeSnapshotsFromValue(
 
   return Object.entries(value)
     .map(([key, entry]) => normalizeSnapshot(entry, key))
-    .filter((snapshot): snapshot is MiniMaxUsageSnapshot => snapshot !== undefined)
+    .filter(
+      (snapshot): snapshot is MiniMaxUsageSnapshot => snapshot !== undefined,
+    )
 }
 
 function buildUnavailableResult(
@@ -430,7 +433,9 @@ function buildUnavailableResult(
   }
 }
 
-export function normalizeMiniMaxUsagePayload(payload: unknown): MiniMaxUsageData {
+export function normalizeMiniMaxUsagePayload(
+  payload: unknown,
+): MiniMaxUsageData {
   if (!isRecord(payload)) {
     return buildUnavailableResult()
   }

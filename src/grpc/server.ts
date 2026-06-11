@@ -6,11 +6,17 @@ import { QueryEngine } from '../QueryEngine.js'
 import { getTools } from '../tools.js'
 import { getDefaultAppState } from '../state/AppStateStore.js'
 import { AppState } from '../state/AppState.js'
-import { FileStateCache, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js'
+import {
+  FileStateCache,
+  READ_FILE_STATE_CACHE_SIZE,
+} from '../utils/fileStateCache.js'
 import { getBuiltInAgents } from '../tools/AgentTool/builtInAgents.js'
 import type { Message } from '../types/message.js'
 
-const PROTO_PATH = path.resolve(import.meta.dirname, '../proto/openclaude.proto')
+const PROTO_PATH = path.resolve(
+  import.meta.dirname,
+  '../proto/openclaude.proto',
+)
 
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: true,
@@ -51,12 +57,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object'
 }
 
-function isTextDeltaEvent(event: Record<string, unknown>): event is TextDeltaEvent {
+function isTextDeltaEvent(
+  event: Record<string, unknown>,
+): event is TextDeltaEvent {
   if (event.type !== 'content_block_delta' || !isRecord(event.delta)) {
     return false
   }
 
-  return event.delta.type === 'text_delta' && typeof event.delta.text === 'string'
+  return (
+    event.delta.type === 'text_delta' && typeof event.delta.text === 'string'
+  )
 }
 
 function isToolResultBlock(block: unknown): block is ToolResultBlock {
@@ -68,16 +78,22 @@ function isToolResultBlock(block: unknown): block is ToolResultBlock {
 }
 
 function isTextContentBlock(block: unknown): block is TextContentBlock {
-  return isRecord(block) && block.type === 'text' && typeof block.text === 'string'
+  return (
+    isRecord(block) && block.type === 'text' && typeof block.text === 'string'
+  )
 }
 
-function toolResultContentToString(content: ToolResultBlock['content']): string {
+function toolResultContentToString(
+  content: ToolResultBlock['content'],
+): string {
   if (typeof content === 'string') {
     return content
   }
 
   if (Array.isArray(content)) {
-    return content.map(block => (isTextContentBlock(block) ? block.text : '')).join('\n')
+    return content
+      .map(block => (isTextContentBlock(block) ? block.text : ''))
+      .join('\n')
   }
 
   return ''
@@ -104,14 +120,17 @@ export class GrpcServer {
           return
         }
         console.log(`gRPC Server running at ${host}:${boundPort}`)
-      }
+      },
     )
   }
 
   private handleChat(call: grpc.ServerDuplexStream<any, any>) {
     let engine: QueryEngine | null = null
     let appState: AppState = getDefaultAppState()
-    const fileCache: FileStateCache = new FileStateCache(READ_FILE_STATE_CACHE_SIZE, 25 * 1024 * 1024)
+    const fileCache: FileStateCache = new FileStateCache(
+      READ_FILE_STATE_CACHE_SIZE,
+      25 * 1024 * 1024,
+    )
 
     // To handle ActionRequired (ask user for permission)
     const pendingRequests = new Map<string, (reply: string) => void>()
@@ -121,15 +140,15 @@ export class GrpcServer {
     let sessionId = ''
     let interrupted = false
 
-    call.on('data', async (clientMessage) => {
+    call.on('data', async clientMessage => {
       try {
         if (clientMessage.request) {
           if (engine) {
             call.write({
               error: {
                 message: 'A request is already in progress on this stream',
-                code: 'ALREADY_EXISTS'
-              }
+                code: 'ALREADY_EXISTS',
+              },
             })
             return
           }
@@ -155,9 +174,17 @@ export class GrpcServer {
             // tool throws "Agent type 'general-purpose' not found" the moment
             // the model tries to spawn a subagent for investigation.
             agents: getBuiltInAgents(),
-            ...(previousMessages.length > 0 ? { initialMessages: previousMessages } : {}),
+            ...(previousMessages.length > 0
+              ? { initialMessages: previousMessages }
+              : {}),
             includePartialMessages: true,
-            canUseTool: async (tool, input, context, assistantMsg, toolUseID) => {
+            canUseTool: async (
+              tool,
+              input,
+              context,
+              assistantMsg,
+              toolUseID,
+            ) => {
               if (toolUseID) {
                 toolNameById.set(toolUseID, tool.name)
               }
@@ -166,8 +193,8 @@ export class GrpcServer {
                 tool_start: {
                   tool_name: tool.name,
                   arguments_json: JSON.stringify(input),
-                  tool_use_id: toolUseID
-                }
+                  tool_use_id: toolUseID,
+                },
               })
 
               // Ask user for permission
@@ -177,13 +204,16 @@ export class GrpcServer {
                 action_required: {
                   prompt_id: promptId,
                   question,
-                  type: 'CONFIRM_COMMAND'
-                }
+                  type: 'CONFIRM_COMMAND',
+                },
               })
 
-              return new Promise((resolve) => {
-                pendingRequests.set(promptId, (reply) => {
-                  if (reply.toLowerCase() === 'yes' || reply.toLowerCase() === 'y') {
+              return new Promise(resolve => {
+                pendingRequests.set(promptId, reply => {
+                  if (
+                    reply.toLowerCase() === 'yes' ||
+                    reply.toLowerCase() === 'y'
+                  ) {
                     resolve({ behavior: 'allow' })
                   } else {
                     resolve({
@@ -199,7 +229,9 @@ export class GrpcServer {
               })
             },
             getAppState: () => appState,
-            setAppState: (updater) => { appState = updater(appState) },
+            setAppState: updater => {
+              appState = updater(appState)
+            },
             readFileCache: fileCache,
             userSpecifiedModel: req.model,
             fallbackModel: req.model,
@@ -217,8 +249,8 @@ export class GrpcServer {
               if (isTextDeltaEvent(msg.event)) {
                 call.write({
                   text_chunk: {
-                    text: msg.event.delta.text
-                  }
+                    text: msg.event.delta.text,
+                  },
                 })
                 fullText += msg.event.delta.text
               }
@@ -231,11 +263,13 @@ export class GrpcServer {
                     const outputStr = toolResultContentToString(block.content)
                     call.write({
                       tool_result: {
-                        tool_name: toolNameById.get(block.tool_use_id) ?? block.tool_use_id,
+                        tool_name:
+                          toolNameById.get(block.tool_use_id) ??
+                          block.tool_use_id,
                         tool_use_id: block.tool_use_id,
                         output: outputStr,
-                        is_error: block.is_error || false
-                      }
+                        is_error: block.is_error || false,
+                      },
                     })
                   }
                 }
@@ -258,7 +292,10 @@ export class GrpcServer {
 
             // Persist to session store for cross-stream resumption
             if (sessionId) {
-              if (!this.sessions.has(sessionId) && this.sessions.size >= MAX_SESSIONS) {
+              if (
+                !this.sessions.has(sessionId) &&
+                this.sessions.size >= MAX_SESSIONS
+              ) {
                 // Evict oldest session (Map preserves insertion order)
                 const oldestSessionId = this.sessions.keys().next().value
                 if (oldestSessionId !== undefined) {
@@ -272,13 +309,12 @@ export class GrpcServer {
               done: {
                 full_text: fullText,
                 prompt_tokens: promptTokens,
-                completion_tokens: completionTokens
-              }
+                completion_tokens: completionTokens,
+              },
             })
           }
 
           engine = null
-
         } else if (clientMessage.input) {
           const promptId = clientMessage.input.prompt_id
           const reply = clientMessage.input.reply
@@ -297,9 +333,9 @@ export class GrpcServer {
         console.error('Error processing stream')
         call.write({
           error: {
-            message: err.message || "Internal server error",
-            code: "INTERNAL"
-          }
+            message: err.message || 'Internal server error',
+            code: 'INTERNAL',
+          },
         })
         call.end()
       }

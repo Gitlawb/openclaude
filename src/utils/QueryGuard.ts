@@ -137,7 +137,9 @@ export class QueryGuard {
     this._clearTimeout()
     this._timeoutId = setTimeout(() => {
       if (this._status === 'running') {
-        console.error(`[QueryGuard] Query timeout after ${QUERY_TIMEOUT_MS}ms — force-ending to prevent infinite spinner`)
+        console.error(
+          `[QueryGuard] Query timeout after ${QUERY_TIMEOUT_MS}ms — force-ending to prevent infinite spinner`,
+        )
         this.forceEnd()
       }
     }, QUERY_TIMEOUT_MS)

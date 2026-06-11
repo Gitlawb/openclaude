@@ -139,10 +139,14 @@ export function executeFilePermissionAction(
   logSubmissionEvent(isReject ? 'reject' : 'accept', toolUseConfirm, options)
 
   if (isReject) {
-    executePermissionAction(toolUseConfirm, { onDone, onReject }, {
-      behavior: 'reject',
-      feedback: options?.feedback,
-    })
+    executePermissionAction(
+      toolUseConfirm,
+      { onDone, onReject },
+      {
+        behavior: 'reject',
+        feedback: options?.feedback,
+      },
+    )
     return
   }
 
@@ -158,10 +162,14 @@ export function executeFilePermissionAction(
             options?.scope,
           )
 
-  executePermissionAction(toolUseConfirm, { onDone }, {
-    behavior: 'allow',
-    input: options?.input,
-    updates,
-    feedback: optionType === 'accept-once' ? options?.feedback : undefined,
-  })
+  executePermissionAction(
+    toolUseConfirm,
+    { onDone },
+    {
+      behavior: 'allow',
+      input: options?.input,
+      updates,
+      feedback: optionType === 'accept-once' ? options?.feedback : undefined,
+    },
+  )
 }

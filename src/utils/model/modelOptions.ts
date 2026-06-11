@@ -38,10 +38,22 @@ import {
   getActiveProviderProfile,
   getProfileModelOptions,
 } from '../providerProfiles.js'
-import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
-import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
-import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
-import { getCachedXiaomiMimoModelOptions, isXiaomiMimoProvider } from './xiaomi-mimoModels.js'
+import {
+  getCachedOllamaModelOptions,
+  isOllamaProvider,
+} from './ollamaModels.js'
+import {
+  getCachedNvidiaNimModelOptions,
+  isNvidiaNimProvider,
+} from './nvidiaNimModels.js'
+import {
+  getCachedMiniMaxModelOptions,
+  isMiniMaxProvider,
+} from './minimaxModels.js'
+import {
+  getCachedXiaomiMimoModelOptions,
+  isXiaomiMimoProvider,
+} from './xiaomi-mimoModels.js'
 import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
@@ -290,8 +302,7 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
     description: `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode) : ''}`,
-    descriptionForModel:
-      `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context - most capable for complex work`,
+    descriptionForModel: `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context - most capable for complex work`,
   }
 }
 
@@ -412,7 +423,8 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       return [defaultOption, ...ollamaModels]
     }
     // Fallback: if models not yet fetched, show current model instead of Claude models
-    const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
+    const currentModel =
+      getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
     if (currentModel != null) {
       return [
         defaultOption,
@@ -524,7 +536,8 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // can be appended to the standard picker options below.
   // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
   // getActiveProviderProfile which would affect users with inactive profiles.
-  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const profileEnvApplied =
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
   const profileModelOptions: ModelOption[] = []
   if (profileEnvApplied) {
     const activeProfile = getActiveProviderProfile()
@@ -761,9 +774,10 @@ function filterModelOptionsByAllowlist(options: ModelOption[]): ModelOption[] {
   const filtered = !settings.availableModels
     ? options // No restrictions
     : options.filter(
-    opt =>
-      opt.value === null || (opt.value !== null && isModelAllowed(opt.value)),
-  )
+        opt =>
+          opt.value === null ||
+          (opt.value !== null && isModelAllowed(opt.value)),
+      )
 
   // Select state uses option values as identity keys. If two entries share the
   // same value (e.g. provider-specific aliases collapsing to one model ID),

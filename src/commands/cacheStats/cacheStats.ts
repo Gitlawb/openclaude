@@ -50,7 +50,9 @@ export const call: LocalCommandCall = async () => {
   lines.push(summarize('Current turn:', turn))
   lines.push(summarize('Session total:', session))
   lines.push('')
-  lines.push(`Recent requests (${recent.length}${omitted > 0 ? ` of ${history.length}, ${omitted} older omitted` : ''}):`)
+  lines.push(
+    `Recent requests (${recent.length}${omitted > 0 ? ` of ${history.length}, ${omitted} older omitted` : ''}):`,
+  )
   lines.push(`  #     time      model                         cache`)
   for (const [i, entry] of recent.entries()) {
     lines.push(formatRow(entry, history.length - recent.length + i))
@@ -59,7 +61,7 @@ export const call: LocalCommandCall = async () => {
   // Honesty footnote — providers without cache reporting (vanilla Copilot,
   // Ollama) show [Cache: N/A] rather than a fake 0%. Tell the user so they
   // don't read "N/A" as "broken".
-  const hasUnsupported = recent.some((e) => !e.metrics.supported)
+  const hasUnsupported = recent.some(e => !e.metrics.supported)
   if (hasUnsupported) {
     lines.push('')
     lines.push(

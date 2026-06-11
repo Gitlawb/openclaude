@@ -16,9 +16,9 @@ describe('getSchemaValidationErrorOverride', () => {
   })
 
   test('does not override unrelated tool schema failures', () => {
-    expect(getSchemaValidationErrorOverride({ name: 'Read' } as never, {})).toBe(
-      null,
-    )
+    expect(
+      getSchemaValidationErrorOverride({ name: 'Read' } as never, {}),
+    ).toBe(null)
   })
 
   test('does not override SkillTool when skill is present', () => {
@@ -87,7 +87,9 @@ describe('normalizeToolInputForValidation', () => {
       multiSelect: false,
     })
 
-    expect(AskUserQuestionTool.inputSchema.safeParse(normalized).success).toBe(true)
+    expect(AskUserQuestionTool.inputSchema.safeParse(normalized).success).toBe(
+      true,
+    )
     expect(normalized).toEqual({
       questions: [
         {
@@ -124,7 +126,9 @@ describe('normalizeToolInputForValidation', () => {
       ],
     }
 
-    expect(normalizeToolInputForValidation(AskUserQuestionTool, input)).toBe(input)
+    expect(normalizeToolInputForValidation(AskUserQuestionTool, input)).toBe(
+      input,
+    )
   })
 
   test('does not normalize unrelated tool inputs', () => {
@@ -134,6 +138,8 @@ describe('normalizeToolInputForValidation', () => {
       options: [],
     }
 
-    expect(normalizeToolInputForValidation({ name: 'Read' } as never, input)).toBe(input)
+    expect(
+      normalizeToolInputForValidation({ name: 'Read' } as never, input),
+    ).toBe(input)
   })
 })

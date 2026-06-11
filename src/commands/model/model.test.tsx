@@ -43,9 +43,7 @@ const originalEnv = {
 async function importFreshModelModule(
   suffix: string,
 ): Promise<typeof import('./model.js')> {
-  return import(`./model.js?${suffix}`) as Promise<
-    typeof import('./model.js')
-  >
+  return import(`./model.js?${suffix}`) as Promise<typeof import('./model.js')>
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -282,7 +280,8 @@ function mockDescriptorDiscovery(options: {
         baseUrl?: string
         headers?: Record<string, string>
       },
-    ) => `${routeId}|${requestOptions?.baseUrl ?? ''}|${requestOptions?.apiKey ?? ''}|${JSON.stringify(requestOptions?.headers ?? {})}`,
+    ) =>
+      `${routeId}|${requestOptions?.baseUrl ?? ''}|${requestOptions?.apiKey ?? ''}|${JSON.stringify(requestOptions?.headers ?? {})}`,
     discoverModelsForRoute: mock(async () => ({
       routeId: options.routeId ?? 'openrouter',
       models: options.discoveredModels ?? options.cachedModels,
@@ -317,9 +316,7 @@ async function mockScopedLocalOpenAIModelCache(
   mock.module('../../utils/config.js', () => ({
     ...actualConfig,
     getGlobalConfig: () => state,
-    saveGlobalConfig: (
-      updater: (current: typeof state) => typeof state,
-    ) => {
+    saveGlobalConfig: (updater: (current: typeof state) => typeof state) => {
       state = updater(state)
     },
   }))
@@ -389,12 +386,10 @@ test('opens the model picker without awaiting local model discovery refresh', as
   process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
   process.env.OPENAI_MODEL = 'qwen2.5-coder-7b-instruct'
 
-  const discoverOpenAICompatibleModelOptions = mock(
-    async () => {
-      await new Promise(resolve => setTimeout(resolve, 1_000))
-      return []
-    },
-  )
+  const discoverOpenAICompatibleModelOptions = mock(async () => {
+    await new Promise(resolve => setTimeout(resolve, 1_000))
+    return []
+  })
 
   mock.module('../../utils/model/openaiModelDiscovery.js', () => ({
     discoverOpenAICompatibleModelOptions,
@@ -440,8 +435,13 @@ test('opens the model picker without awaiting descriptor-backed route refresh', 
   mock.module('../../integrations/discoveryService.js', () => ({
     getDiscoveryCacheKey: (
       routeId: string,
-      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
-    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
     discoverModelsForRoute: mock(
       () =>
         new Promise(() => {
@@ -462,8 +462,9 @@ test('opens the model picker without awaiting descriptor-backed route refresh', 
 })
 
 test('shouldAutoRefreshRouteCatalog respects discovery refresh modes', async () => {
-  const { shouldAutoRefreshRouteCatalog } =
-    await importFreshModelModule('descriptor-refresh-modes')
+  const { shouldAutoRefreshRouteCatalog } = await importFreshModelModule(
+    'descriptor-refresh-modes',
+  )
 
   expect(
     shouldAutoRefreshRouteCatalog({
@@ -535,20 +536,18 @@ test('descriptor model options include active profile configured models', async 
     setActiveOpenAIModelOptionsCache: () => {},
   })
 
-  const { mergeActiveProfileModelOptions } =
-    await importFreshModelModule('descriptor-profile-model-merge')
+  const { mergeActiveProfileModelOptions } = await importFreshModelModule(
+    'descriptor-profile-model-merge',
+  )
 
   expect(
-    mergeActiveProfileModelOptions(
-      'mistral',
-      [
-        {
-          value: 'devstral-latest',
-          label: 'Devstral Latest',
-          description: 'Recommended · Provider: Mistral AI',
-        },
-      ],
-    ),
+    mergeActiveProfileModelOptions('mistral', [
+      {
+        value: 'devstral-latest',
+        label: 'Devstral Latest',
+        description: 'Recommended · Provider: Mistral AI',
+      },
+    ]),
   ).toEqual([
     {
       value: 'devstral-latest',
@@ -593,25 +592,23 @@ test('descriptor model options omit route defaults outside active profile models
     setActiveOpenAIModelOptionsCache: () => {},
   })
 
-  const { mergeActiveProfileModelOptions } =
-    await importFreshModelModule('descriptor-profile-model-filter')
+  const { mergeActiveProfileModelOptions } = await importFreshModelModule(
+    'descriptor-profile-model-filter',
+  )
 
   expect(
-    mergeActiveProfileModelOptions(
-      'mistral',
-      [
-        {
-          value: 'devstral-latest',
-          label: 'Devstral Latest',
-          description: 'Recommended · Provider: Mistral AI',
-        },
-        {
-          value: 'mistral-small-latest',
-          label: 'Mistral Small Latest',
-          description: 'Provider: Mistral AI',
-        },
-      ],
-    ),
+    mergeActiveProfileModelOptions('mistral', [
+      {
+        value: 'devstral-latest',
+        label: 'Devstral Latest',
+        description: 'Recommended · Provider: Mistral AI',
+      },
+      {
+        value: 'mistral-small-latest',
+        label: 'Mistral Small Latest',
+        description: 'Provider: Mistral AI',
+      },
+    ]),
   ).toEqual([
     {
       value: 'mistral-medium-latest',
@@ -651,8 +648,9 @@ test('descriptor model options preserve discovered route models for discovery-ba
     setActiveOpenAIModelOptionsCache: () => {},
   })
 
-  const { mergeActiveProfileModelOptions } =
-    await importFreshModelModule('descriptor-profile-model-discovery-merge')
+  const { mergeActiveProfileModelOptions } = await importFreshModelModule(
+    'descriptor-profile-model-discovery-merge',
+  )
 
   expect(
     mergeActiveProfileModelOptions(
@@ -713,11 +711,16 @@ test('native vendor routes show the full catalog regardless of the profile model
       getConfiguredProfileModelOptionsForTest(activeProfile),
   })
 
-  const { mergeActiveProfileModelOptions } =
-    await importFreshModelModule('native-vendor-full-catalog')
+  const { mergeActiveProfileModelOptions } = await importFreshModelModule(
+    'native-vendor-full-catalog',
+  )
 
   const routeOptions = [
-    { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: '256K context' },
+    {
+      value: 'MiniMax-M2.7',
+      label: 'MiniMax M2.7',
+      description: '256K context',
+    },
     { value: 'MiniMax-M3', label: 'MiniMax M3', description: '1M context' },
   ]
 
@@ -747,7 +750,8 @@ test('auto profile model picker mode uses explicit multi-model profiles as the p
       {
         value: 'devstral-latest',
         label: 'Devstral Latest',
-        description: 'Cached discovery result that is not explicitly configured',
+        description:
+          'Cached discovery result that is not explicitly configured',
       },
     ],
   })
@@ -964,10 +968,8 @@ test('provider profile model picker mode override keeps catalog first for multi-
     getActiveProviderProfile: () => activeProfile,
   })
 
-  const {
-    mergeActiveProfileModelOptions,
-    resolveProviderProfileModelSurface,
-  } = await importFreshModelModule('descriptor-profile-model-provider-override')
+  const { mergeActiveProfileModelOptions, resolveProviderProfileModelSurface } =
+    await importFreshModelModule('descriptor-profile-model-provider-override')
   const profileModelSurface = resolveProviderProfileModelSurface({
     activeProfile,
     settingsMode: 'provider',
@@ -1055,8 +1057,13 @@ test('/model applies providerProfileModelPickerMode profile override on descript
   mock.module('../../integrations/discoveryService.js', () => ({
     getDiscoveryCacheKey: (
       routeId: string,
-      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
-    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
     discoverModelsForRoute: mock(async () => ({
       routeId: 'openrouter',
       models: [],
@@ -2090,20 +2097,18 @@ test('descriptor model options skip saved profile models for env-selected routes
     setActiveOpenAIModelOptionsCache: () => {},
   })
 
-  const { mergeActiveProfileModelOptions } =
-    await importFreshModelModule('descriptor-profile-model-env-skip')
+  const { mergeActiveProfileModelOptions } = await importFreshModelModule(
+    'descriptor-profile-model-env-skip',
+  )
 
   expect(
-    mergeActiveProfileModelOptions(
-      'openrouter',
-      [
-        {
-          value: 'openai/gpt-5-mini',
-          label: 'GPT-5 Mini',
-          description: 'Provider: OpenRouter',
-        },
-      ],
-    ),
+    mergeActiveProfileModelOptions('openrouter', [
+      {
+        value: 'openai/gpt-5-mini',
+        label: 'GPT-5 Mini',
+        description: 'Provider: OpenRouter',
+      },
+    ]),
   ).toEqual([
     {
       value: 'openai/gpt-5-mini',
@@ -2134,16 +2139,13 @@ test('descriptor model options ignore active profile when applied profile id doe
   )
 
   expect(
-    mergeActiveProfileModelOptions(
-      'mistral',
-      [
-        {
-          value: 'devstral-latest',
-          label: 'Devstral Latest',
-          description: 'Recommended · Provider: Mistral AI',
-        },
-      ],
-    ),
+    mergeActiveProfileModelOptions('mistral', [
+      {
+        value: 'devstral-latest',
+        label: 'Devstral Latest',
+        description: 'Recommended · Provider: Mistral AI',
+      },
+    ]),
   ).toEqual([
     {
       value: 'devstral-latest',
@@ -2174,16 +2176,13 @@ test('descriptor model options ignore active profile when route does not match',
   )
 
   expect(
-    mergeActiveProfileModelOptions(
-      'openrouter',
-      [
-        {
-          value: 'openai/gpt-5-mini',
-          label: 'GPT-5 Mini',
-          description: 'Provider: OpenRouter',
-        },
-      ],
-    ),
+    mergeActiveProfileModelOptions('openrouter', [
+      {
+        value: 'openai/gpt-5-mini',
+        label: 'GPT-5 Mini',
+        description: 'Provider: OpenRouter',
+      },
+    ]),
   ).toEqual([
     {
       value: 'openai/gpt-5-mini',
@@ -2226,8 +2225,13 @@ test('/model refresh clears descriptor cache and reports updates', async () => {
   mock.module('../../integrations/discoveryService.js', () => ({
     getDiscoveryCacheKey: (
       routeId: string,
-      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
-    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
     discoverModelsForRoute: mock(async () => ({
       routeId: 'openrouter',
       models: [
@@ -2253,9 +2257,7 @@ test('/model refresh clears descriptor cache and reports updates', async () => {
   })
 
   const messages: string[] = []
-  const { call } = await importFreshModelModule(
-    'descriptor-refresh-manual',
-  )
+  const { call } = await importFreshModelModule('descriptor-refresh-manual')
   await call(
     (message?: string) => {
       if (message) {
@@ -2315,8 +2317,13 @@ test('/model refresh reports discovered model changes for dynamic active profile
   mock.module('../../integrations/discoveryService.js', () => ({
     getDiscoveryCacheKey: (
       routeId: string,
-      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
-    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
     discoverModelsForRoute: mock(async () => ({
       routeId: 'lmstudio',
       models: [
@@ -2390,8 +2397,13 @@ test('/model refresh compares already allowlist-filtered descriptor options', as
   mock.module('../../integrations/discoveryService.js', () => ({
     getDiscoveryCacheKey: (
       routeId: string,
-      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
-    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
     discoverModelsForRoute: mock(async () => ({
       routeId: 'lmstudio',
       models: [
@@ -2645,8 +2657,13 @@ test('/model does not auto-refresh descriptor models when nonessential traffic i
   mock.module('../../integrations/discoveryService.js', () => ({
     getDiscoveryCacheKey: (
       routeId: string,
-      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
-    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
     discoverModelsForRoute,
   }))
 

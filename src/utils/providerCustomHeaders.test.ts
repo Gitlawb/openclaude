@@ -9,7 +9,9 @@ import {
 describe('parseProfileCustomHeadersInput', () => {
   test('accepts semicolon and newline separated custom headers', () => {
     expect(
-      parseProfileCustomHeadersInput('X-Team: devtools; X-Trace: enabled\nX-Env: test'),
+      parseProfileCustomHeadersInput(
+        'X-Team: devtools; X-Trace: enabled\nX-Env: test',
+      ),
     ).toEqual({
       headers: {
         'X-Team': 'devtools',
@@ -23,7 +25,9 @@ describe('parseProfileCustomHeadersInput', () => {
     expect(parseProfileCustomHeadersInput('Not A Header')).toMatchObject({
       error: expect.stringContaining('Name: value'),
     })
-    expect(parseProfileCustomHeadersInput('Authorization: Bearer token')).toMatchObject({
+    expect(
+      parseProfileCustomHeadersInput('Authorization: Bearer token'),
+    ).toMatchObject({
       error: expect.stringContaining('managed by OpenClaude'),
     })
     expect(parseProfileCustomHeadersInput('api-key: token')).toMatchObject({
@@ -32,7 +36,9 @@ describe('parseProfileCustomHeadersInput', () => {
     expect(parseProfileCustomHeadersInput('x-api-key: token')).toMatchObject({
       error: expect.stringContaining('managed by OpenClaude'),
     })
-    expect(parseProfileCustomHeadersInput('x-anthropic-danger: yes')).toMatchObject({
+    expect(
+      parseProfileCustomHeadersInput('x-anthropic-danger: yes'),
+    ).toMatchObject({
       error: expect.stringContaining('managed by OpenClaude'),
     })
   })

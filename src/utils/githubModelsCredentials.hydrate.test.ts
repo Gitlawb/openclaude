@@ -35,7 +35,9 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
   }
 
   beforeEach(async () => {
-    await acquireSharedMutationLock('utils/githubModelsCredentials.hydrate.test.ts')
+    await acquireSharedMutationLock(
+      'utils/githubModelsCredentials.hydrate.test.ts',
+    )
   })
 
   afterEach(() => {

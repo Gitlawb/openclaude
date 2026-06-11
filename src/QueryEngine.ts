@@ -44,7 +44,12 @@ import { SYNTHETIC_OUTPUT_TOOL_NAME } from './tools/SyntheticOutputTool/Syntheti
 import type { Message } from './types/message.js'
 import type { OrphanedPermission } from './types/textInputTypes.js'
 import { createAbortController } from './utils/abortController.js'
-import { validateArrayOf, assertNonEmptyString, assertObject, assertFunction } from './utils/validation.js'
+import {
+  validateArrayOf,
+  assertNonEmptyString,
+  assertObject,
+  assertFunction,
+} from './utils/validation.js'
 import { invalidateRemovedToolSchemas } from './utils/toolSchemaCache.js'
 import type { AttributionState } from './utils/commitAttribution.js'
 import { getGlobalConfig } from './utils/config.js'
@@ -1215,23 +1220,31 @@ export class QueryEngine {
    * Used by SDK query() when fork=true to resume from a forked session.
    */
   injectMessages(messages: Message[]): void {
-    const validated = validateArrayOf(messages, (msg, _i) => {
-      const m = msg as Record<string, unknown>
-      assertNonEmptyString(m.type, 'type')
-      if (m.message !== undefined) {
-        assertObject(m.message, 'message')
-        const inner = m.message as Record<string, unknown>
-        if (inner.role !== undefined) {
-          assertNonEmptyString(inner.role, 'message.role')
+    const validated = validateArrayOf(
+      messages,
+      (msg, _i) => {
+        const m = msg as Record<string, unknown>
+        assertNonEmptyString(m.type, 'type')
+        if (m.message !== undefined) {
+          assertObject(m.message, 'message')
+          const inner = m.message as Record<string, unknown>
+          if (inner.role !== undefined) {
+            assertNonEmptyString(inner.role, 'message.role')
+          }
+          if (
+            inner.content !== undefined &&
+            typeof inner.content !== 'string' &&
+            !Array.isArray(inner.content)
+          ) {
+            throw new TypeError("'message.content' must be a string or array")
+          }
         }
-        if (inner.content !== undefined && typeof inner.content !== 'string' && !Array.isArray(inner.content)) {
-          throw new TypeError("'message.content' must be a string or array")
-        }
-      }
-      // `messages` is declared Message[]; the runtime checks above only guard
-      // untyped SDK callers. The validator param is `unknown` by design.
-      return msg as Message
-    }, 'injectMessages')
+        // `messages` is declared Message[]; the runtime checks above only guard
+        // untyped SDK callers. The validator param is `unknown` by design.
+        return msg as Message
+      },
+      'injectMessages',
+    )
     this.mutableMessages.push(...validated)
   }
 
@@ -1243,29 +1256,35 @@ export class QueryEngine {
    * are converted to this format before injection.
    */
   injectAgents(agents: AgentDefinition[]): void {
-    const validated = validateArrayOf(agents, (agent, _i) => {
-      const a = agent as Record<string, unknown>
-      assertNonEmptyString(a.agentType, 'agentType')
-      assertNonEmptyString(a.whenToUse, 'whenToUse')
-      if (typeof a.getSystemPrompt !== 'function') {
-        throw new TypeError("missing or invalid 'getSystemPrompt' (expected function)")
-      }
-      if (a.tools !== undefined) {
-        const validToolNames = new Set(this.config.tools.map(t => t.name))
-        for (const toolSpec of a.tools as string[]) {
-          // Wildcard '*' means all tools are allowed - skip validation
-          if (toolSpec === '*') continue
-          // Parse tool spec to get base tool name (may contain permission rules)
-          const toolName = toolSpec.split(':')[0] ?? toolSpec
-          if (!validToolNames.has(toolName)) {
-            throw new TypeError(`agent references unknown tool '${toolSpec}'`)
+    const validated = validateArrayOf(
+      agents,
+      (agent, _i) => {
+        const a = agent as Record<string, unknown>
+        assertNonEmptyString(a.agentType, 'agentType')
+        assertNonEmptyString(a.whenToUse, 'whenToUse')
+        if (typeof a.getSystemPrompt !== 'function') {
+          throw new TypeError(
+            "missing or invalid 'getSystemPrompt' (expected function)",
+          )
+        }
+        if (a.tools !== undefined) {
+          const validToolNames = new Set(this.config.tools.map(t => t.name))
+          for (const toolSpec of a.tools as string[]) {
+            // Wildcard '*' means all tools are allowed - skip validation
+            if (toolSpec === '*') continue
+            // Parse tool spec to get base tool name (may contain permission rules)
+            const toolName = toolSpec.split(':')[0] ?? toolSpec
+            if (!validToolNames.has(toolName)) {
+              throw new TypeError(`agent references unknown tool '${toolSpec}'`)
+            }
           }
         }
-      }
-      // `agents` is declared AgentDefinition[]; the runtime checks above only
-      // guard untyped SDK callers. The validator param is `unknown` by design.
-      return agent as AgentDefinition
-    }, 'injectAgents')
+        // `agents` is declared AgentDefinition[]; the runtime checks above only
+        // guard untyped SDK callers. The validator param is `unknown` by design.
+        return agent as AgentDefinition
+      },
+      'injectAgents',
+    )
     this.config.agents = validated
   }
 
@@ -1280,15 +1299,21 @@ export class QueryEngine {
     const toolArray = Array.from(tools as Iterable<unknown>)
 
     // Phase 1: Validate new tools
-    validateArrayOf(toolArray, (tool, _i) => {
-      const t = tool as Record<string, unknown>
-      assertNonEmptyString(t.name, 'name')
-      assertFunction(t.call, 'call')
-      return tool
-    }, 'updateTools')
+    validateArrayOf(
+      toolArray,
+      (tool, _i) => {
+        const t = tool as Record<string, unknown>
+        assertNonEmptyString(t.name, 'name')
+        assertFunction(t.call, 'call')
+        return tool
+      },
+      'updateTools',
+    )
 
     // Phase 2: Validate agent compatibility BEFORE commit (transactional)
-    const validToolNames = new Set(toolArray.map(t => (t as Record<string, unknown>).name as string))
+    const validToolNames = new Set(
+      toolArray.map(t => (t as Record<string, unknown>).name as string),
+    )
     for (const agent of this.config.agents) {
       if (agent.tools) {
         for (const toolSpec of agent.tools) {
@@ -1296,7 +1321,7 @@ export class QueryEngine {
           const toolName = toolSpec.split(':')[0] ?? toolSpec
           if (!validToolNames.has(toolName)) {
             throw new TypeError(
-              `updateTools: agent '${agent.agentType}' references tool '${toolSpec}' which is not in the new tool set`
+              `updateTools: agent '${agent.agentType}' references tool '${toolSpec}' which is not in the new tool set`,
             )
           }
         }

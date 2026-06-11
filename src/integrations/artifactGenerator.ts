@@ -57,7 +57,10 @@ const PRESET_DESCRIPTION_COLLATOR = new Intl.Collator(undefined, {
 
 const INTEGRATIONS_DIR = ['src', 'integrations'] as const
 const GENERATED_DIR = [...INTEGRATIONS_DIR, 'generated'] as const
-const GENERATED_ARTIFACT_PATH = [...GENERATED_DIR, 'integrationArtifacts.generated.ts'] as const
+const GENERATED_ARTIFACT_PATH = [
+  ...GENERATED_DIR,
+  'integrationArtifacts.generated.ts',
+] as const
 
 const VENDOR_DIR = 'vendors'
 const GATEWAY_DIR = 'gateways'
@@ -81,9 +84,7 @@ function isDescriptorFile(fileName: string): boolean {
 
 function toImportIdentifier(prefix: string, fileName: string): string {
   const baseName = fileName.replace(/\.ts$/, '')
-  const words = `${prefix}-${baseName}`
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
+  const words = `${prefix}-${baseName}`.split(/[^a-zA-Z0-9]+/).filter(Boolean)
   const [first = 'descriptor', ...rest] = words
 
   return [
@@ -139,7 +140,9 @@ async function loadDescriptorModules(
   }
 
   const brandDirectory = path.join(integrationsRoot, BRAND_DIR)
-  const brandFiles = (await fs.readdir(brandDirectory)).filter(isDescriptorFile).sort()
+  const brandFiles = (await fs.readdir(brandDirectory))
+    .filter(isDescriptorFile)
+    .sort()
   for (const fileName of brandFiles) {
     const absolutePath = path.join(brandDirectory, fileName)
     brandModules.push({
@@ -150,7 +153,9 @@ async function loadDescriptorModules(
   }
 
   const modelDirectory = path.join(integrationsRoot, MODEL_DIR)
-  const modelFiles = (await fs.readdir(modelDirectory)).filter(isDescriptorFile).sort()
+  const modelFiles = (await fs.readdir(modelDirectory))
+    .filter(isDescriptorFile)
+    .sort()
   for (const fileName of modelFiles) {
     const absolutePath = path.join(modelDirectory, fileName)
     modelModules.push({
@@ -178,7 +183,9 @@ function toGeneratedValue(value: unknown, indent = 0): string {
   }
 
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value).filter(([, entry]) => entry !== undefined)
+    const entries = Object.entries(value).filter(
+      ([, entry]) => entry !== undefined,
+    )
     if (entries.length === 0) {
       return '{}'
     }
@@ -207,9 +214,7 @@ function buildPresetManifestEntry(
         ? routeModule.descriptor.id
         : preset.vendorId,
     gatewayId:
-      routeModule.kind === 'gateway'
-        ? routeModule.descriptor.id
-        : undefined,
+      routeModule.kind === 'gateway' ? routeModule.descriptor.id : undefined,
     description: preset.description,
     label: preset.label,
     name: preset.name,
@@ -269,7 +274,9 @@ function compareProviderPresetEntries(
 
 function validatePresetMetadata(routeModules: RouteModule[]): void {
   const presetIds = new Map<string, string>()
-  const routeIds = new Set(routeModules.map(routeModule => routeModule.descriptor.id))
+  const routeIds = new Set(
+    routeModules.map(routeModule => routeModule.descriptor.id),
+  )
   const vendorIds = new Set(
     routeModules
       .filter(routeModule => routeModule.kind === 'vendor')
@@ -285,7 +292,9 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
     }
 
     if (!preset.id.trim()) {
-      throw new Error(`Route "${descriptor.id}" opted into presets with an empty preset id.`)
+      throw new Error(
+        `Route "${descriptor.id}" opted into presets with an empty preset id.`,
+      )
     }
     if (!preset.description.trim()) {
       throw new Error(
@@ -312,7 +321,8 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
     }
 
     const hasDefaultBaseUrl =
-      'defaultBaseUrl' in descriptor && typeof descriptor.defaultBaseUrl === 'string'
+      'defaultBaseUrl' in descriptor &&
+      typeof descriptor.defaultBaseUrl === 'string'
         ? descriptor.defaultBaseUrl.trim().length > 0
         : false
     if (!hasDefaultBaseUrl && !preset.fallbackBaseUrl) {
@@ -358,7 +368,9 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
     }
 
     if (!routeIds.has(descriptor.id)) {
-      throw new Error(`Preset route "${descriptor.id}" is not part of the known route set.`)
+      throw new Error(
+        `Preset route "${descriptor.id}" is not part of the known route set.`,
+      )
     }
   }
 }
@@ -385,18 +397,28 @@ function renderIntegrationArtifacts(
   )
 
   const importLines = [
-    ...vendorModules.map(module => `import ${module.importName} from '${module.importPath}'`),
-    ...gatewayModules.map(module => `import ${module.importName} from '${module.importPath}'`),
+    ...vendorModules.map(
+      module => `import ${module.importName} from '${module.importPath}'`,
+    ),
+    ...gatewayModules.map(
+      module => `import ${module.importName} from '${module.importPath}'`,
+    ),
     ...anthropicProxyModules.map(
       module => `import ${module.importName} from '${module.importPath}'`,
     ),
-    ...brandModules.map(module => `import ${module.importName} from '${module.importPath}'`),
-    ...modelModules.map(module => `import ${module.importName} from '${module.importPath}'`),
+    ...brandModules.map(
+      module => `import ${module.importName} from '${module.importPath}'`,
+    ),
+    ...modelModules.map(
+      module => `import ${module.importName} from '${module.importPath}'`,
+    ),
   ]
 
   const presetManifest = loadedModules.routeModules
     .filter(routeModule => routeModule.descriptor.preset)
-    .map(routeModule => buildPresetManifestEntry(routeModule, routeModule.descriptor.preset!))
+    .map(routeModule =>
+      buildPresetManifestEntry(routeModule, routeModule.descriptor.preset!),
+    )
     .sort(compareProviderPresetEntries)
 
   const orderedProviderPresets = presetManifest.map(entry => entry.preset)
@@ -426,7 +448,8 @@ function renderIntegrationArtifacts(
 export async function generateIntegrationArtifacts(
   options: GenerateIntegrationArtifactsOptions = {},
 ): Promise<GeneratedArtifact[]> {
-  const repoRoot = options.repoRoot ?? path.resolve(path.join(import.meta.dir, '..', '..'))
+  const repoRoot =
+    options.repoRoot ?? path.resolve(path.join(import.meta.dir, '..', '..'))
   const loadedModules = await loadDescriptorModules(repoRoot)
   const content = renderIntegrationArtifacts(loadedModules)
 
@@ -443,9 +466,15 @@ export async function writeIntegrationArtifacts(
 ): Promise<GeneratedArtifact[]> {
   const artifacts = await generateIntegrationArtifacts(options)
 
-  await fs.mkdir(path.join(options.repoRoot ?? path.resolve(path.join(import.meta.dir, '..', '..')), ...GENERATED_DIR), {
-    recursive: true,
-  })
+  await fs.mkdir(
+    path.join(
+      options.repoRoot ?? path.resolve(path.join(import.meta.dir, '..', '..')),
+      ...GENERATED_DIR,
+    ),
+    {
+      recursive: true,
+    },
+  )
 
   for (const artifact of artifacts) {
     await fs.writeFile(artifact.path, artifact.content, 'utf8')
@@ -461,7 +490,9 @@ export async function generatedIntegrationArtifactsAreCurrent(
 
   for (const artifact of artifacts) {
     const existing = await fs.readFile(artifact.path, 'utf8').catch(() => '')
-    if (normalizeLineEndings(existing) !== normalizeLineEndings(artifact.content)) {
+    if (
+      normalizeLineEndings(existing) !== normalizeLineEndings(artifact.content)
+    ) {
       return false
     }
   }

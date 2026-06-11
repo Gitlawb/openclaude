@@ -3,7 +3,9 @@ import { expect, test } from 'bun:test'
 
 import { getAssistantMessageFromError } from './errors.js'
 
-function getFirstText(message: ReturnType<typeof getAssistantMessageFromError>): string {
+function getFirstText(
+  message: ReturnType<typeof getAssistantMessageFromError>,
+): string {
   const first = message.message.content[0]
   if (!first || typeof first !== 'object' || !('text' in first)) {
     return ''
@@ -54,7 +56,10 @@ test('endpoint_not_found from a remote host shows the actual host, not Ollama (i
     new Headers(),
   )
 
-  const message = getAssistantMessageFromError(error, 'moonshotai/kimi-k2.5-thinking')
+  const message = getAssistantMessageFromError(
+    error,
+    'moonshotai/kimi-k2.5-thinking',
+  )
   const text = getFirstText(message)
 
   expect(text).toContain('integrate.api.nvidia.com')

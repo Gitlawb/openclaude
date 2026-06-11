@@ -15,7 +15,11 @@ import {
   getArcStats,
   finalizeArcTurn,
 } from './conversationArc.js'
-import { getGlobalGraph, resetGlobalGraph, clearMemoryOnly } from './knowledgeGraph.js'
+import {
+  getGlobalGraph,
+  resetGlobalGraph,
+  clearMemoryOnly,
+} from './knowledgeGraph.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -23,7 +27,13 @@ import {
 
 function createMessage(role: string, content: string): any {
   return {
-    message: { role, content, id: 'test', type: 'message', created_at: Date.now() },
+    message: {
+      role,
+      content,
+      id: 'test',
+      type: 'message',
+      created_at: Date.now(),
+    },
     sender: role,
   }
 }
@@ -149,7 +159,12 @@ describe('conversationArc', () => {
       const blockMessage = {
         message: {
           role: 'assistant',
-          content: [{ type: 'text', text: 'I will now implement the requested changes.' }],
+          content: [
+            {
+              type: 'text',
+              text: 'I will now implement the requested changes.',
+            },
+          ],
           id: 'test',
           type: 'message',
           created_at: Date.now(),

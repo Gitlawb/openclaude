@@ -87,9 +87,8 @@ export function MonitorPermissionRequest({
     options.push({
       label: (
         <Text>
-          Yes, and don&apos;t ask again for{' '}
-          <Text bold>Monitor</Text> commands in{' '}
-          <Text bold>{originalCwd}</Text>
+          Yes, and don&apos;t ask again for <Text bold>Monitor</Text> commands
+          in <Text bold>{originalCwd}</Text>
         </Text>
       ),
       value: 'yes-dont-ask-again',
@@ -120,9 +119,7 @@ export function MonitorPermissionRequest({
       title="Monitor"
       header={
         <Box flexDirection="column" paddingX={2} paddingY={1}>
-          <Text>
-            Monitor({command ?? ''})
-          </Text>
+          <Text>Monitor({command ?? ''})</Text>
           {description ? <Text dimColor>{description}</Text> : null}
         </Box>
       }

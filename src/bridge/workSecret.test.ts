@@ -5,7 +5,10 @@ import { buildSdkUrl } from './workSecret.ts'
 // so a remote URL containing "localhost" in its path gets ws:// (unencrypted).
 
 test('buildSdkUrl uses wss for remote URL that contains localhost in path', () => {
-  const url = buildSdkUrl('https://remote.example.com/proxy/localhost/api', 'sess-1')
+  const url = buildSdkUrl(
+    'https://remote.example.com/proxy/localhost/api',
+    'sess-1',
+  )
   expect(url).toContain('wss://')
   expect(url).not.toContain('ws://')
 })

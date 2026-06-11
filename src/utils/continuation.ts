@@ -23,7 +23,8 @@ export const CONTINUATION_SIGNALS = [
   /◻/,
 ]
 
-export const COMPLETION_MARKERS = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if|no issues|lgtm)\b/i
+export const COMPLETION_MARKERS =
+  /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if|no issues|lgtm)\b/i
 
 export type ContinuationResult = {
   shouldNudge: boolean
@@ -44,30 +45,36 @@ export const UNFINISHED_SENTIMENT_SIGNALS = [
 /**
  * Analyzes assistant text to determine if a continuation nudge is required.
  */
-export function analyzeContinuationIntent(
-  text: string,
-): ContinuationResult {
+export function analyzeContinuationIntent(text: string): ContinuationResult {
   const lastText = text.trim()
   if (lastText.length === 0) return { shouldNudge: false }
-  
+
   const lowerText = lastText.toLowerCase()
 
   // 1. High-Confidence Structural Truncation signals (Strongest - Ignore completion markers)
-  
+
   // Check for unclosed markdown code blocks
   const codeBlockCount = (lastText.match(/```/g) || []).length
   const hasUnclosedCodeBlock = codeBlockCount % 2 !== 0
 
   // Check for unclosed structural elements (brackets, parens, braces)
-  const unclosedPairs = [['(', ')'], ['[', ']'], ['{', '}']]
+  const unclosedPairs = [
+    ['(', ')'],
+    ['[', ']'],
+    ['{', '}'],
+  ]
   const hasUnclosedPair = unclosedPairs.some(([open, close]) => {
-    const openCount = (lastText.match(new RegExp('\\' + open, 'g')) || []).length
-    const closeCount = (lastText.match(new RegExp('\\' + close, 'g')) || []).length
+    const openCount = (lastText.match(new RegExp('\\' + open, 'g')) || [])
+      .length
+    const closeCount = (lastText.match(new RegExp('\\' + close, 'g')) || [])
+      .length
     return openCount > closeCount
   })
 
   // Check for trailing connectors (e.g., "... and", "... with")
-  const hasUnfinishedSuffix = UNFINISHED_SENTIMENT_SIGNALS.some(re => re.test(lastText))
+  const hasUnfinishedSuffix = UNFINISHED_SENTIMENT_SIGNALS.some(re =>
+    re.test(lastText),
+  )
 
   if (hasUnclosedCodeBlock || hasUnclosedPair || hasUnfinishedSuffix) {
     // Structural cut-offs always trigger a nudge, even if "done" was said earlier.
@@ -79,28 +86,34 @@ export function analyzeContinuationIntent(
   // Check if continuation signals match in the last 120 characters
   const lateWindowSize = 120
   const lateText = lowerText.slice(-lateWindowSize)
-  
+
   const hasLateContinuationSignal = CONTINUATION_SIGNALS.some(re => {
     const match = lateText.match(re)
     if (!match) return false
-    
+
     // Check if any completion marker follows THIS specific continuation signal in the late window
     const afterMatch = lateText.slice(match.index! + match[0].length)
     const hasLaterCompletion = COMPLETION_MARKERS.test(afterMatch)
-    
+
     // Very strong action intents (I will now, Let me, Je vais) override any later markers
-    const strongAction = /\b(let me|i will|i'll|je vais|je suis en train)\b/i.test(match[0])
-    
+    const strongAction =
+      /\b(let me|i will|i'll|je vais|je suis en train)\b/i.test(match[0])
+
     return strongAction || !hasLaterCompletion
   })
 
   if (hasLateContinuationSignal) {
-    // If the sentence is punctuated but has a transition word, only nudge if 
+    // If the sentence is punctuated but has a transition word, only nudge if
     // it's a strong 1st person intent or open tasks are present.
-    const hasTerminalPunctuation = /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
+    const hasTerminalPunctuation =
+      /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
     if (hasTerminalPunctuation) {
-      const strongIntent = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|next step is to)\b/i.test(lowerText) || 
-                           /je suis en train d'/i.test(lowerText) || /◻/.test(lastText)
+      const strongIntent =
+        /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|next step is to)\b/i.test(
+          lowerText,
+        ) ||
+        /je suis en train d'/i.test(lowerText) ||
+        /◻/.test(lastText)
       const endsWithColon = /:\s*$/.test(lastText)
       if (strongIntent || endsWithColon) {
         return { shouldNudge: true, reason: 'continuation_signal' }
@@ -116,9 +129,10 @@ export function analyzeContinuationIntent(
   }
 
   // Global fallback for unpunctuated signals (must be a clear transition)
-  const hasTerminalPunctuation = /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
+  const hasTerminalPunctuation =
+    /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
   if (
-    CONTINUATION_SIGNALS.some(re => re.test(lowerText)) && 
+    CONTINUATION_SIGNALS.some(re => re.test(lowerText)) &&
     !hasTerminalPunctuation
   ) {
     return { shouldNudge: true, reason: 'continuation_signal' }

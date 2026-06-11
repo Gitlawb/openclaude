@@ -40,7 +40,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    for (const key of Object.keys(originalEnv) as Array<keyof typeof originalEnv>) {
+    for (const key of Object.keys(originalEnv) as Array<
+      keyof typeof originalEnv
+    >) {
       restoreEnv(key)
     }
   } finally {
@@ -90,18 +92,15 @@ test.each([
   ['CLAUDE_CODE_USE_BEDROCK', 'bedrock'],
   ['CLAUDE_CODE_USE_VERTEX', 'vertex'],
   ['CLAUDE_CODE_USE_FOUNDRY', 'foundry'],
-] as const)(
-  '%s disables Anthropic account setup flow',
-  async (envKey, provider) => {
-    clearProviderEnv()
-    process.env[envKey] = '1'
-    const { getAPIProvider, usesAnthropicAccountFlow } =
-      await importFreshProvidersModule()
+] as const)('%s disables Anthropic account setup flow', async (envKey, provider) => {
+  clearProviderEnv()
+  process.env[envKey] = '1'
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
 
-    expect(getAPIProvider()).toBe(provider)
-    expect(usesAnthropicAccountFlow()).toBe(false)
-  },
-)
+  expect(getAPIProvider()).toBe(provider)
+  expect(usesAnthropicAccountFlow()).toBe(false)
+})
 
 test('GEMINI takes precedence over GitHub when both are set', async () => {
   clearProviderEnv()

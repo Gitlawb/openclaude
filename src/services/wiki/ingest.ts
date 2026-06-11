@@ -42,7 +42,11 @@ ${excerpt}
 `
 }
 
-function buildLogEntry(sourcePath: string, title: string, ingestedAt: string): string {
+function buildLogEntry(
+  sourcePath: string,
+  title: string,
+  ingestedAt: string,
+): string {
   return `- ${ingestedAt}: Ingested \`${sourcePath}\` into source note "${title}"`
 }
 
@@ -65,7 +69,8 @@ export async function ingestLocalWikiSource(
   const title = extractTitleFromText(baseName, content)
   const summary = summarizeText(content)
   const excerpt = content.split('\n').slice(0, 20).join('\n').trim()
-  const slug = sanitizeWikiSlug(`${baseName}-${Date.now()}`) || `source-${Date.now()}`
+  const slug =
+    sanitizeWikiSlug(`${baseName}-${Date.now()}`) || `source-${Date.now()}`
 
   const paths = getWikiPaths(cwd)
   const sourceNotePath = `${paths.sourcesDir}/${slug}.md`
@@ -81,7 +86,11 @@ export async function ingestLocalWikiSource(
     }),
     'utf8',
   )
-  await appendFile(paths.logFile, `${buildLogEntry(relSourcePath, title, ingestedAt)}\n`, 'utf8')
+  await appendFile(
+    paths.logFile,
+    `${buildLogEntry(relSourcePath, title, ingestedAt)}\n`,
+    'utf8',
+  )
   await rebuildWikiIndex(cwd)
 
   return {

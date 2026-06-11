@@ -20,7 +20,9 @@ export type EffortLevel = 'low' | 'medium' | 'high' | 'max' | 'xhigh'
 export type AnyZodRawShape = z.ZodRawShape
 
 /** Infer the parsed args type for a tool() input shape. */
-export type InferShape<Shape extends AnyZodRawShape> = z.infer<z.ZodObject<Shape>>
+export type InferShape<Shape extends AnyZodRawShape> = z.infer<
+  z.ZodObject<Shape>
+>
 
 // ============================================================================
 // Re-exports from the SDK implementation modules

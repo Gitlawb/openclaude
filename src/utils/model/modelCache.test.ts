@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import { isModelCacheValid, getCachedModelsFromDisk, saveModelsToCache } from '../model/modelCache.js'
+import {
+  isModelCacheValid,
+  getCachedModelsFromDisk,
+  saveModelsToCache,
+} from '../model/modelCache.js'
 
 describe('modelCache', () => {
-  const mockModel = { value: 'llama3', label: 'Llama 3', description: 'Test model' }
+  const mockModel = {
+    value: 'llama3',
+    label: 'Llama 3',
+    description: 'Test model',
+  }
 
   describe('isModelCacheValid', () => {
     it('returns false for non-existent cache', async () => {

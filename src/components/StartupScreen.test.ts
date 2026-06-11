@@ -1,4 +1,13 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from 'bun:test'
 
 const actualSettings = await import('../utils/settings/settings.js')
 import {
@@ -64,7 +73,9 @@ const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalIsTTY = process.stdout.isTTY
 const originalWrite = process.stdout.write
 // `model` is a legacy loose key not declared on GlobalConfig.
-const originalModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
+const originalModel = (
+  getGlobalConfig() as GlobalConfig & Record<string, unknown>
+).model
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {
@@ -149,7 +160,10 @@ describe('detectProvider — aggregator URL authoritative over model-name substr
   })
 
   test('OpenRouter + meta-llama/llama-3.3 labels as OpenRouter', () => {
-    setupOpenAIMode('https://openrouter.ai/api/v1', 'meta-llama/llama-3.3-70b-instruct')
+    setupOpenAIMode(
+      'https://openrouter.ai/api/v1',
+      'meta-llama/llama-3.3-70b-instruct',
+    )
     expect(detectProvider().name).toBe('OpenRouter')
   })
 
@@ -159,12 +173,18 @@ describe('detectProvider — aggregator URL authoritative over model-name substr
   })
 
   test('Together + meta-llama/Llama-3.3 labels as Together AI', () => {
-    setupOpenAIMode('https://api.together.xyz/v1', 'meta-llama/Llama-3.3-70B-Instruct-Turbo')
+    setupOpenAIMode(
+      'https://api.together.xyz/v1',
+      'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    )
     expect(detectProvider().name).toBe('Together AI')
   })
 
   test('Groq + deepseek-r1-distill-llama-70b labels as Groq', () => {
-    setupOpenAIMode('https://api.groq.com/openai/v1', 'deepseek-r1-distill-llama-70b')
+    setupOpenAIMode(
+      'https://api.groq.com/openai/v1',
+      'deepseek-r1-distill-llama-70b',
+    )
     expect(detectProvider().name).toBe('Groq')
   })
 
@@ -252,7 +272,10 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
   })
 
   test('DashScope lowercase glm ID is not mislabeled as Z.AI', () => {
-    setupOpenAIMode('https://dashscope.aliyuncs.com/compatible-mode/v1', 'glm-5.1')
+    setupOpenAIMode(
+      'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      'glm-5.1',
+    )
     expect(detectProvider().name).toBe('OpenAI')
   })
 })

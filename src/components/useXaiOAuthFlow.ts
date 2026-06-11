@@ -24,10 +24,7 @@ export type XaiOAuthFlowStatus =
 
 type XaiPersistFn = () => void
 
-type XaiOAuthServiceLike = Pick<
-  XaiOAuthService,
-  'beginOAuthFlow' | 'cleanup'
->
+type XaiOAuthServiceLike = Pick<XaiOAuthService, 'beginOAuthFlow' | 'cleanup'>
 
 type XaiOAuthFlowDependencies = {
   createOAuthService?: () => XaiOAuthServiceLike
@@ -51,8 +48,7 @@ export function useXaiOAuthFlow(options: {
   const createOAuthService =
     options.deps?.createOAuthService ?? createDefaultOAuthService
   const openBrowserFn = options.deps?.openBrowser ?? openBrowser
-  const persistFn =
-    options.deps?.persistXaiOAuthTokens ?? persistXaiOAuthTokens
+  const persistFn = options.deps?.persistXaiOAuthTokens ?? persistXaiOAuthTokens
   const isBareModeFn = options.deps?.isBareMode ?? isBareMode
   const [status, setStatus] = React.useState<XaiOAuthFlowStatus>({
     state: 'starting',

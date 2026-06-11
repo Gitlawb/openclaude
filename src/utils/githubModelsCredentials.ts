@@ -47,7 +47,10 @@ export function readGithubModelsToken(): string | undefined {
   if (isBareMode()) return undefined
   try {
     const data = getSecureStorage().read() as
-      | ({ githubModels?: GithubModelsCredentialBlob } & Record<string, unknown>)
+      | ({ githubModels?: GithubModelsCredentialBlob } & Record<
+          string,
+          unknown
+        >)
       | null
     const t = data?.githubModels?.accessToken?.trim()
     return t || undefined
@@ -56,11 +59,16 @@ export function readGithubModelsToken(): string | undefined {
   }
 }
 
-export async function readGithubModelsTokenAsync(): Promise<string | undefined> {
+export async function readGithubModelsTokenAsync(): Promise<
+  string | undefined
+> {
   if (isBareMode()) return undefined
   try {
     const data = (await getSecureStorage().readAsync()) as
-      | ({ githubModels?: GithubModelsCredentialBlob } & Record<string, unknown>)
+      | ({ githubModels?: GithubModelsCredentialBlob } & Record<
+          string,
+          unknown
+        >)
       | null
     const t = data?.githubModels?.accessToken?.trim()
     return t || undefined
@@ -116,7 +124,10 @@ export async function refreshGithubModelsTokenIfNeeded(): Promise<boolean> {
   try {
     const secureStorage = getSecureStorage()
     const data = secureStorage.read() as
-      | ({ githubModels?: GithubModelsCredentialBlob } & Record<string, unknown>)
+      | ({ githubModels?: GithubModelsCredentialBlob } & Record<
+          string,
+          unknown
+        >)
       | null
     const blob = data?.githubModels
     const accessToken = blob?.accessToken?.trim() || ''
@@ -186,7 +197,10 @@ export function saveGithubModelsToken(
   return secureStorage.update(merged as typeof prev)
 }
 
-export function clearGithubModelsToken(): { success: boolean; warning?: string } {
+export function clearGithubModelsToken(): {
+  success: boolean
+  warning?: string
+} {
   if (isBareMode()) {
     return { success: true }
   }

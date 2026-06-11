@@ -31,7 +31,10 @@ function collectFiles(dir: string): string[] {
   return files
 }
 
-function findMatchingFunctionEnd(source: string, functionStart: number): number {
+function findMatchingFunctionEnd(
+  source: string,
+  functionStart: number,
+): number {
   const bodyStart = source.indexOf('{', functionStart)
   if (bodyStart === -1) {
     throw new Error('Could not find function body start')
@@ -120,7 +123,10 @@ test('open build source does not reintroduce Ant employee gate helpers', () => {
 })
 
 test('initial plan messages do not seed pending plan verification state', () => {
-  const replSource = readFileSync(join(REPO_ROOT, 'src/screens/REPL.tsx'), 'utf8')
+  const replSource = readFileSync(
+    join(REPO_ROOT, 'src/screens/REPL.tsx'),
+    'utf8',
+  )
   const initialMessageHandlerStart = replSource.indexOf(
     'async function processInitialMessage',
   )

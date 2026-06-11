@@ -125,7 +125,8 @@ export async function startMCPServer(
                 tools,
                 agents: [],
               }),
-              inputSchema: (tool.inputJSONSchema ?? zodToJsonSchema(tool.inputSchema)) as ToolInput,
+              inputSchema: (tool.inputJSONSchema ??
+                zodToJsonSchema(tool.inputSchema)) as ToolInput,
               outputSchema,
             }
           }),
@@ -197,7 +198,14 @@ export async function startMCPServer(
         )
 
         let content: CallToolResult['content']
-        const data = finalResult.data as string | { type: string; text?: string; source?: { type: string; media_type: string; data: string } }[] | unknown
+        const data = finalResult.data as
+          | string
+          | {
+              type: string
+              text?: string
+              source?: { type: string; media_type: string; data: string }
+            }[]
+          | unknown
 
         if (typeof data === 'string') {
           content = [{ type: 'text', text: data }]
@@ -213,7 +221,9 @@ export async function startMCPServer(
               }
             } else {
               // eslint-disable-next-line custom-rules/no-top-level-side-effects, no-console
-              console.warn(`Unmapped content block type from tool ${name}: ${block.type || 'unknown'}`)
+              console.warn(
+                `Unmapped content block type from tool ${name}: ${block.type || 'unknown'}`,
+              )
               return { type: 'text', text: jsonStringify(block) }
             }
           }) as CallToolResult['content']
@@ -264,4 +274,3 @@ export async function startMCPServer(
 
   return await runServer()
 }
-

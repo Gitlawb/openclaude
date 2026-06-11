@@ -434,9 +434,7 @@ function toCompactBlock(
     if (encoded === '') return ''
     if (isJsonlTranscriptEnabled()) {
       const jsonlValue =
-        typeof encoded === 'string'
-          ? truncateClassifierValue(encoded)
-          : encoded
+        typeof encoded === 'string' ? truncateClassifierValue(encoded) : encoded
       return jsonStringify({ [block.name]: jsonlValue }) + '\n'
     }
     const s =
@@ -471,8 +469,9 @@ function serializeTranscriptForClassifier(
   truncated: boolean
 } {
   const lookup = buildToolLookup(tools)
-  const keptEntries: Array<Array<{ role: TranscriptEntry['role']; text: string }>> =
-    []
+  const keptEntries: Array<
+    Array<{ role: TranscriptEntry['role']; text: string }>
+  > = []
   let totalChars = 0
   let truncated = false
 

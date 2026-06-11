@@ -9,7 +9,10 @@ import {
   getGlobalConfig,
   saveGlobalConfig,
 } from '../config.js'
-import { getDefaultMainLoopModelSetting, getUserSpecifiedModelSetting } from './model.js'
+import {
+  getDefaultMainLoopModelSetting,
+  getUserSpecifiedModelSetting,
+} from './model.js'
 
 const env = {
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -21,7 +24,9 @@ const env = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
 // `model` is a legacy loose key not declared on GlobalConfig.
-const originalModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
+const originalModel = (
+  getGlobalConfig() as GlobalConfig & Record<string, unknown>
+).model
 
 function restoreEnv(key: keyof typeof env): void {
   if (env[key] === undefined) {
@@ -42,7 +47,7 @@ beforeEach(async () => {
   delete process.env.OPENAI_MODEL
   saveGlobalConfig(current => ({
     ...current,
-    model: ({ bad: true } as unknown) as string,
+    model: { bad: true } as unknown as string,
   }))
 })
 

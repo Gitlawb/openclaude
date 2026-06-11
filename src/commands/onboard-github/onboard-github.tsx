@@ -15,7 +15,10 @@ import {
   readGithubModelsToken,
   saveGithubModelsToken,
 } from '../../utils/githubModelsCredentials.js'
-import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
+import {
+  getSettingsForSource,
+  updateSettingsForSource,
+} from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 const FORCE_RELOGIN_ARGS = new Set([
@@ -55,7 +58,7 @@ export function shouldForceGithubRelogin(args?: string): boolean {
   return normalized.split(/\s+/).some(arg => FORCE_RELOGIN_ARGS.has(arg))
 }
 
-const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_','ghs_', 'ghr_', 'github_pat_']
+const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghs_', 'ghr_', 'github_pat_']
 
 function isGithubPat(token: string): boolean {
   return GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))
@@ -158,7 +161,8 @@ export function activateGithubOnboardingMode(
 ): { ok: boolean; detail?: string } {
   const normalizedModel = model.trim() || DEFAULT_MODEL
   const mergeSettingsEnv = options?.mergeSettingsEnv ?? mergeUserSettingsEnv
-  const applyProcessEnv = options?.applyProcessEnv ?? applyGithubOnboardingProcessEnv
+  const applyProcessEnv =
+    options?.applyProcessEnv ?? applyGithubOnboardingProcessEnv
   const hydrateToken =
     options?.hydrateToken ?? hydrateGithubModelsTokenFromSecureStorage
 
@@ -315,9 +319,9 @@ function OnboardGithub(props: {
     <Box flexDirection="column" gap={1}>
       <Text bold>GitHub Copilot setup</Text>
       <Text dimColor>
-        Stores your token in the OS credential store (macOS Keychain when available)
-        and enables CLAUDE_CODE_USE_GITHUB in your user settings - no export
-        GITHUB_TOKEN needed for future runs.
+        Stores your token in the OS credential store (macOS Keychain when
+        available) and enables CLAUDE_CODE_USE_GITHUB in your user settings - no
+        export GITHUB_TOKEN needed for future runs.
       </Text>
       <Select
         options={menuOptions}
@@ -356,9 +360,6 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   }
 
   return (
-    <OnboardGithub
-      onDone={onDone}
-      onChangeAPIKey={context.onChangeAPIKey}
-    />
+    <OnboardGithub onDone={onDone} onChangeAPIKey={context.onChangeAPIKey} />
   )
 }

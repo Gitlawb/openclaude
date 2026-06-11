@@ -117,7 +117,10 @@ function formatProviderOutput(po: ProviderOutput, query: string): Output {
   }
 }
 
-function buildEmptyAdapterResultHint(provider: string, providerName: string): string {
+function buildEmptyAdapterResultHint(
+  provider: string,
+  providerName: string,
+): string {
   return (
     `No results from "${providerName}" search backend for provider "${provider}". ` +
     `The default DuckDuckGo backend is rate-limited from many networks (datacenter IPs, VPNs, repeated requests) and returns 0 results when blocked. ` +
@@ -207,7 +210,9 @@ function buildCodexWebSearchInputText(input: Input): string {
   return `${input.query} ${excludedSites.join(' ')}`
 }
 
-function buildCodexWebSearchInput(input: Input): Array<Record<string, unknown>> {
+function buildCodexWebSearchInput(
+  input: Input,
+): Array<Record<string, unknown>> {
   return [
     {
       type: 'message',
@@ -267,7 +272,9 @@ function getCodexSources(item: Record<string, any>): unknown[] {
   return []
 }
 
-function extractCodexWebSearchFailure(item: Record<string, any>): string | undefined {
+function extractCodexWebSearchFailure(
+  item: Record<string, any>,
+): string | undefined {
   // Codex web_search_call items can carry a status field. When the tool
   // call fails (rate limit, upstream error, model-side guardrail), the
   // parser should surface a meaningful error rather than the generic
@@ -391,7 +398,9 @@ async function runCodexWebSearch(
   const credentials = resolveCodexApiCredentials()
 
   if (!credentials.apiKey) {
-    throw new Error('Codex web search requires CODEX_API_KEY or a valid auth.json.')
+    throw new Error(
+      'Codex web search requires CODEX_API_KEY or a valid auth.json.',
+    )
   }
   if (!credentials.accountId) {
     throw new Error(
@@ -527,7 +536,12 @@ function isTransientError(err: unknown): boolean {
   // Transient errors — safe to fall through
   if (err.name === 'AbortError') return true
   if (msg.includes('timed out')) return true
-  if (msg.includes('fetch failed') || msg.includes('econnrefused') || msg.includes('enotfound')) return true
+  if (
+    msg.includes('fetch failed') ||
+    msg.includes('econnrefused') ||
+    msg.includes('enotfound')
+  )
+    return true
   if (msg.includes('returned 5')) return true // HTTP 5xx
   // Unknown — treat as transient to preserve auto-mode fallback semantics
   return true
@@ -549,7 +563,11 @@ function shouldUseAdapterProvider(): boolean {
   // Auto mode: native/first-party/Codex take precedence over adapter
   if (isCodexResponsesWebSearchEnabled()) return false
   const provider = getAPIProvider()
-  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+  if (
+    provider === 'firstParty' ||
+    provider === 'vertex' ||
+    provider === 'foundry'
+  ) {
     return false
   }
   // No native path available — fall back to adapter
@@ -566,7 +584,9 @@ function shouldUseAdapterProvider(): boolean {
 function hasNativeSearchFallback(): boolean {
   if (isCodexResponsesWebSearchEnabled()) return true
   const provider = getAPIProvider()
-  return provider === 'firstParty' || provider === 'vertex' || provider === 'foundry'
+  return (
+    provider === 'firstParty' || provider === 'vertex' || provider === 'foundry'
+  )
 }
 
 // ---------------------------------------------------------------------------

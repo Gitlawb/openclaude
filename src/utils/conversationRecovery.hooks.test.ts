@@ -18,7 +18,8 @@ const tempDirs: string[] = []
 const originalEnv = { ...process.env }
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
-let providerForTest: ReturnType<typeof realProviders.getAPIProvider> = 'firstParty'
+let providerForTest: ReturnType<typeof realProviders.getAPIProvider> =
+  'firstParty'
 
 function id(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -44,7 +45,9 @@ function user(uuid: string, content: string) {
 }
 
 async function writeJsonl(entry: unknown): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'openclaude-conversation-recovery-hooks-'))
+  const dir = await mkdtemp(
+    join(tmpdir(), 'openclaude-conversation-recovery-hooks-'),
+  )
   tempDirs.push(dir)
   const filePath = join(dir, 'resume.jsonl')
   await writeFile(filePath, `${JSON.stringify(entry)}\n`)
@@ -70,7 +73,9 @@ afterEach(async () => {
     mock.module('./sessionStart.js', () => realSessionStart)
     providerForTest = 'firstParty'
     process.env = { ...originalEnv }
-    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+    await Promise.all(
+      tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
+    )
   } finally {
     releaseSharedMutationLock()
   }
@@ -87,13 +92,12 @@ test('loadConversationForResume rejects oversized transcripts before resume hook
     processSessionStartHooks: hookSpy,
   }))
 
-  const { loadConversationForResume, ResumeTranscriptTooLargeError } = await import(
-    './conversationRecovery.ts'
-  )
+  const { loadConversationForResume, ResumeTranscriptTooLargeError } =
+    await import('./conversationRecovery.ts')
 
-  await expect(loadConversationForResume('fixture', path)).rejects.toBeInstanceOf(
-    ResumeTranscriptTooLargeError,
-  )
+  await expect(
+    loadConversationForResume('fixture', path),
+  ).rejects.toBeInstanceOf(ResumeTranscriptTooLargeError)
   expect(hookSpy).not.toHaveBeenCalled()
 })
 
@@ -137,8 +141,12 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_MODEL = 'gpt-5-mini'
 
-  const openaiModule = await import(`./conversationRecovery.ts?provider=openai-${Date.now()}`)
-  const thirdParty = openaiModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const openaiModule = await import(
+    `./conversationRecovery.ts?provider=openai-${Date.now()}`
+  )
+  const thirdParty = openaiModule.deserializeMessagesWithInterruptDetection(
+    serializedMessages as never[],
+  )
   const thirdPartyAssistantMessages = thirdParty.messages.filter(
     message => message.type === 'assistant',
   )
@@ -148,16 +156,24 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     { type: 'text', text: 'visible reply' },
   ])
   expect(
-    JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
+    JSON.stringify(
+      thirdPartyAssistantMessages.map(message => message.message?.content),
+    ),
   ).not.toContain('secret reasoning')
   expect(
-    JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
+    JSON.stringify(
+      thirdPartyAssistantMessages.map(message => message.message?.content),
+    ),
   ).not.toContain('only hidden reasoning')
 
   process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
 
-  const mimoModule = await import(`./conversationRecovery.ts?provider=mimo-${Date.now()}`)
-  const mimo = mimoModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const mimoModule = await import(
+    `./conversationRecovery.ts?provider=mimo-${Date.now()}`
+  )
+  const mimo = mimoModule.deserializeMessagesWithInterruptDetection(
+    serializedMessages as never[],
+  )
   const mimoAssistantMessages = mimo.messages.filter(
     message => message.type === 'assistant',
   )
@@ -168,10 +184,14 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     { type: 'text', text: 'visible reply' },
   ])
   expect(
-    JSON.stringify(mimoAssistantMessages.map(message => message.message?.content)),
+    JSON.stringify(
+      mimoAssistantMessages.map(message => message.message?.content),
+    ),
   ).toContain('secret reasoning')
   expect(
-    JSON.stringify(mimoAssistantMessages.map(message => message.message?.content)),
+    JSON.stringify(
+      mimoAssistantMessages.map(message => message.message?.content),
+    ),
   ).not.toContain('only hidden reasoning')
   delete process.env.OPENAI_MODEL
 
@@ -180,8 +200,13 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_MODEL
 
-  const bedrockModule = await import(`./conversationRecovery.ts?provider=bedrock-${Date.now()}`)
-  const anthropicCompatible = bedrockModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const bedrockModule = await import(
+    `./conversationRecovery.ts?provider=bedrock-${Date.now()}`
+  )
+  const anthropicCompatible =
+    bedrockModule.deserializeMessagesWithInterruptDetection(
+      serializedMessages as never[],
+    )
   const anthropicAssistantMessages = anthropicCompatible.messages.filter(
     message => message.type === 'assistant',
   )
@@ -192,9 +217,13 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     { type: 'text', text: 'visible reply' },
   ])
   expect(
-    JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
+    JSON.stringify(
+      anthropicAssistantMessages.map(message => message.message?.content),
+    ),
   ).toContain('secret reasoning')
   expect(
-    JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
+    JSON.stringify(
+      anthropicAssistantMessages.map(message => message.message?.content),
+    ),
   ).not.toContain('only hidden reasoning')
 })

@@ -114,9 +114,8 @@ async function renderProviderWizardFrame(): Promise<string> {
   )
 
   try {
-    return await waitForOutput(
-      getOutput,
-      output => output.includes('Set up a provider profile'),
+    return await waitForOutput(getOutput, output =>
+      output.includes('Set up a provider profile'),
     )
   } finally {
     root.unmount()
@@ -276,7 +275,8 @@ test('wizard step remount prevents a typed API key from leaking into the next fi
 
   const output = await waitForOutput(
     getOutput,
-    frame => frame.includes('Model step') && !frame.includes('sk-secret-12345678'),
+    frame =>
+      frame.includes('Model step') && !frame.includes('sk-secret-12345678'),
   )
   root.unmount()
   stdin.end()
@@ -388,7 +388,8 @@ test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly',
     {
       GEMINI_AUTH_MODE: 'access-token',
       GEMINI_MODEL: 'gemini-2.5-flash',
-      GEMINI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      GEMINI_BASE_URL:
+        'https://generativelanguage.googleapis.com/v1beta/openai',
     },
     'D:/codings/Opensource/openclaude/.openclaude-profile.json',
   )
@@ -457,7 +458,9 @@ test('buildCodexOAuthProfileEnv uses the fresh OAuth account id without persisti
 })
 
 test('buildCodexProfileEnv derives oauth source from secure storage when no explicit source is provided', async () => {
-  const actualProviderConfig = await import('../../services/api/providerConfig.js')
+  const actualProviderConfig = await import(
+    '../../services/api/providerConfig.js'
+  )
 
   mock.module('../../services/api/providerConfig.js', () => ({
     ...actualProviderConfig,
@@ -487,9 +490,7 @@ test('buildCodexProfileEnv derives oauth source from secure storage when no expl
 
 test('explicitly declared env takes precedence over applySavedProfileToCurrentSession', async () => {
   const { applySavedProfileToCurrentSession } =
-    await importFreshProviderProfileModule(
-      'apply-saved-profile-codex',
-    )
+    await importFreshProviderProfileModule('apply-saved-profile-codex')
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_OPENAI: '1',
     OPENAI_MODEL: 'gpt-4o',
@@ -515,21 +516,17 @@ test('explicitly declared env takes precedence over applySavedProfileToCurrentSe
   expect(warning).toBeNull()
   expect(processEnv.CLAUDE_CODE_USE_OPENAI).toBe('1')
   expect(processEnv.OPENAI_MODEL).toBe('gpt-4o')
-  expect(processEnv.OPENAI_BASE_URL).toBe(
-    "https://api.openai.com/v1",
-  )
+  expect(processEnv.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
   expect(processEnv.CODEX_API_KEY).toBeUndefined()
   expect(processEnv.CHATGPT_ACCOUNT_ID).toBeUndefined()
-  expect(processEnv.OPENAI_API_KEY).toBe("sk-openai")
+  expect(processEnv.OPENAI_API_KEY).toBe('sk-openai')
   expect(processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
   expect(processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBeUndefined()
 })
 
 test('explicitly declared env takes precedence over applySavedProfileToCurrentSession for oauth codex profiles', async () => {
   const { applySavedProfileToCurrentSession } =
-    await importFreshProviderProfileModule(
-      'apply-saved-profile-codex-oauth',
-    )
+    await importFreshProviderProfileModule('apply-saved-profile-codex-oauth')
   const processEnv: NodeJS.ProcessEnv = {
     CLAUDE_CODE_USE_OPENAI: '1',
     OPENAI_MODEL: 'gpt-4o',
@@ -551,10 +548,8 @@ test('explicitly declared env takes precedence over applySavedProfileToCurrentSe
 
   expect(warning).not.toBeUndefined()
   expect(processEnv.OPENAI_MODEL).toBe('gpt-4o')
-  expect(processEnv.OPENAI_BASE_URL).toBe(
-    "https://api.openai.com/v1",
-  )
-  expect(processEnv.CODEX_API_KEY).toBe("stale-codex-key")
+  expect(processEnv.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+  expect(processEnv.CODEX_API_KEY).toBe('stale-codex-key')
   expect(processEnv.CHATGPT_ACCOUNT_ID).toBe('acct_stale')
   expect(processEnv.CHATGPT_ACCOUNT_ID).toBeTruthy()
 })

@@ -394,7 +394,9 @@ export interface ToolUseSummaryMessage {
 }
 
 /** Message produced by a hook (yielded into the conversation stream). */
-export type HookResultMessage = AttachmentMessage | ProgressMessage<HookProgress>
+export type HookResultMessage =
+  | AttachmentMessage
+  | ProgressMessage<HookProgress>
 
 // ---------------------------------------------------------------------------
 // Normalized messages (one content block per message; see normalizeMessages)

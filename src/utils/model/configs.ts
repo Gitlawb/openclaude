@@ -16,9 +16,9 @@ export type ModelConfig = LegacyProviderModelConfig
 // Override with OPENAI_MODEL, ANTHROPIC_MODEL, or settings.model
 // ---------------------------------------------------------------------------
 export const OPENAI_MODEL_DEFAULTS = {
-  opus: 'gpt-4o',           // best reasoning
-  sonnet: 'gpt-4o-mini',    // balanced
-  haiku: 'gpt-4o-mini',     // fast & cheap
+  opus: 'gpt-4o', // best reasoning
+  sonnet: 'gpt-4o-mini', // balanced
+  haiku: 'gpt-4o-mini', // fast & cheap
 } as const
 
 // ---------------------------------------------------------------------------
@@ -27,9 +27,9 @@ export const OPENAI_MODEL_DEFAULTS = {
 // Override with GEMINI_MODEL env var.
 // ---------------------------------------------------------------------------
 export const GEMINI_MODEL_DEFAULTS = {
-  opus: 'gemini-2.5-pro',   // most capable
-  sonnet: 'gemini-2.0-flash',              // balanced
-  haiku: 'gemini-2.0-flash-lite',          // fast & cheap
+  opus: 'gemini-2.5-pro', // most capable
+  sonnet: 'gemini-2.0-flash', // balanced
+  haiku: 'gemini-2.0-flash-lite', // fast & cheap
 } as const
 
 // @[MODEL LAUNCH]: Add a new CLAUDE_*_CONFIG constant here. Double check the correct model strings
@@ -253,9 +253,9 @@ export type CanonicalModelId =
   (typeof LEGACY_PROVIDER_MODEL_CONFIGS)[ModelKey]['firstParty']
 
 /** Runtime list of canonical model IDs — used by comprehensiveness tests. */
-export const CANONICAL_MODEL_IDS = Object.values(LEGACY_PROVIDER_MODEL_CONFIGS).map(
-  c => c.firstParty,
-) as [CanonicalModelId, ...CanonicalModelId[]]
+export const CANONICAL_MODEL_IDS = Object.values(
+  LEGACY_PROVIDER_MODEL_CONFIGS,
+).map(c => c.firstParty) as [CanonicalModelId, ...CanonicalModelId[]]
 
 /** Map canonical ID → internal short key. Used to apply settings-based modelOverrides. */
 export const CANONICAL_ID_TO_KEY: Record<CanonicalModelId, ModelKey> =
@@ -265,7 +265,5 @@ export const CANONICAL_ID_TO_KEY: Record<CanonicalModelId, ModelKey> =
         ModelKey,
         LegacyProviderModelConfig,
       ][]
-    ).map(
-      ([key, cfg]) => [cfg.firstParty, key],
-    ),
+    ).map(([key, cfg]) => [cfg.firstParty, key]),
   ) as Record<CanonicalModelId, ModelKey>

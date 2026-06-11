@@ -452,12 +452,10 @@ export const SettingsSchema = lazySchema(() =>
       hooks: HooksSchema()
         .optional()
         .describe('Custom commands to run before/after tool executions'),
-      autoFix: AutoFixConfigSchema
-        .optional()
-        .describe(
-          'Auto-fix configuration: automatically run lint/test after AI file edits ' +
+      autoFix: AutoFixConfigSchema.optional().describe(
+        'Auto-fix configuration: automatically run lint/test after AI file edits ' +
           'and feed errors back for self-repair.',
-        ),
+      ),
       worktree: z
         .object({
           symlinkDirectories: z
@@ -580,10 +578,7 @@ export const SettingsSchema = lazySchema(() =>
         .describe('Custom status line display configuration'),
       // Enabled plugins using marketplace-first format
       enabledPlugins: z
-        .record(
-          z.string(),
-          z.union([z.array(z.string()), z.boolean()]),
-        )
+        .record(z.string(), z.union([z.array(z.string()), z.boolean()]))
         .optional()
         .describe(
           'Enabled plugins using plugin-id@marketplace-id format. Example: { "formatter@anthropic-tools": true }. Also supports extended format with version constraints.',
@@ -753,8 +748,15 @@ export const SettingsSchema = lazySchema(() =>
             model: z
               .string()
               .optional()
-              .describe('Actual model name to send to the API. Defaults to the surrounding agentModels key.'),
-            base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
+              .describe(
+                'Actual model name to send to the API. Defaults to the surrounding agentModels key.',
+              ),
+            base_url: z
+              .string()
+              .url()
+              .describe(
+                'OpenAI-compatible API endpoint (must be https:// or http://)',
+              ),
             api_key: z.string().describe('API key for this provider'),
           }),
         )
@@ -1036,9 +1038,7 @@ export const SettingsSchema = lazySchema(() =>
       skipFullAccessModePermissionPrompt: z
         .boolean()
         .optional()
-        .describe(
-          'Whether the user has accepted the full access mode dialog',
-        ),
+        .describe('Whether the user has accepted the full access mode dialog'),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {
             skipAutoPermissionPrompt: z

@@ -19,9 +19,21 @@ export function isXiaomiMimoProvider(): boolean {
 
 function getXiaomiMimoModels(): ModelOption[] {
   return [
-    { value: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro', description: 'Flagship - 1M context - 128K output - Chat/Code/Reasoning' },
-    { value: 'mimo-v2.5', label: 'MiMo V2.5', description: 'General - 1M context - 128K output - Vision/Chat/Code' },
-    { value: 'mimo-v2-flash', label: 'MiMo V2 Flash', description: 'Fast - 256K context - 64K output - Chat/Code/Reasoning' },
+    {
+      value: 'mimo-v2.5-pro',
+      label: 'MiMo V2.5 Pro',
+      description: 'Flagship - 1M context - 128K output - Chat/Code/Reasoning',
+    },
+    {
+      value: 'mimo-v2.5',
+      label: 'MiMo V2.5',
+      description: 'General - 1M context - 128K output - Vision/Chat/Code',
+    },
+    {
+      value: 'mimo-v2-flash',
+      label: 'MiMo V2 Flash',
+      description: 'Fast - 256K context - 64K output - Chat/Code/Reasoning',
+    },
   ]
 }
 

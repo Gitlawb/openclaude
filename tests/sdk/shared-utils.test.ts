@@ -7,12 +7,18 @@ import {
 
 describe('assertValidSessionId', () => {
   test('accepts valid UUID v4', () => {
-    expect(() => assertValidSessionId('00000000-0000-0000-0000-000000000000')).not.toThrow()
-    expect(() => assertValidSessionId('550e8400-e29b-41d4-a716-446655440000')).not.toThrow()
+    expect(() =>
+      assertValidSessionId('00000000-0000-0000-0000-000000000000'),
+    ).not.toThrow()
+    expect(() =>
+      assertValidSessionId('550e8400-e29b-41d4-a716-446655440000'),
+    ).not.toThrow()
   })
 
   test('rejects non-UUID string', () => {
-    expect(() => assertValidSessionId('not-a-uuid')).toThrow('Invalid session ID')
+    expect(() => assertValidSessionId('not-a-uuid')).toThrow(
+      'Invalid session ID',
+    )
   })
 
   test('rejects empty string', () => {
@@ -20,11 +26,15 @@ describe('assertValidSessionId', () => {
   })
 
   test('rejects UUID with wrong format', () => {
-    expect(() => assertValidSessionId('00000000-0000-0000-0000')).toThrow('Invalid session ID')
+    expect(() => assertValidSessionId('00000000-0000-0000-0000')).toThrow(
+      'Invalid session ID',
+    )
   })
 
   test('rejects path traversal attempts', () => {
-    expect(() => assertValidSessionId('../../etc/passwd')).toThrow('Invalid session ID')
+    expect(() => assertValidSessionId('../../etc/passwd')).toThrow(
+      'Invalid session ID',
+    )
   })
 })
 
@@ -66,7 +76,9 @@ describe('mapMessageToSDK', () => {
 
   test('throws TypeError for null input', () => {
     expect(() => mapMessageToSDK(null as any)).toThrow(TypeError)
-    expect(() => mapMessageToSDK(null as any)).toThrow('expected non-null object')
+    expect(() => mapMessageToSDK(null as any)).toThrow(
+      'expected non-null object',
+    )
   })
 
   test('throws TypeError for non-object input', () => {
@@ -76,7 +88,9 @@ describe('mapMessageToSDK', () => {
 
   test('throws TypeError for invalid type field', () => {
     expect(() => mapMessageToSDK({ type: 123 })).toThrow(TypeError)
-    expect(() => mapMessageToSDK({ type: 123 })).toThrow("'type' field must be string")
+    expect(() => mapMessageToSDK({ type: 123 })).toThrow(
+      "'type' field must be string",
+    )
   })
 })
 

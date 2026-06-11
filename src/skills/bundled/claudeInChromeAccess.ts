@@ -15,8 +15,7 @@ export function shouldEnableClaudeInChromeSkill(options?: {
 // wiring shared Chrome-in-Claude state.
 function defaultShouldAutoEnableClaudeInChrome(): boolean {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { shouldAutoEnableClaudeInChrome } = require(
-    '../../utils/claudeInChrome/setup.js',
-  ) as typeof import('../../utils/claudeInChrome/setup.js')
+  const { shouldAutoEnableClaudeInChrome } =
+    require('../../utils/claudeInChrome/setup.js') as typeof import('../../utils/claudeInChrome/setup.js')
   return shouldAutoEnableClaudeInChrome()
 }

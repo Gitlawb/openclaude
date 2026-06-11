@@ -6,10 +6,16 @@ export const firecrawlProvider: SearchProvider = {
   name: 'firecrawl',
 
   isConfigured() {
-    return Boolean(process.env.FIRECRAWL_API_KEY) || Boolean(process.env.FIRECRAWL_API_URL)
+    return (
+      Boolean(process.env.FIRECRAWL_API_KEY) ||
+      Boolean(process.env.FIRECRAWL_API_URL)
+    )
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 

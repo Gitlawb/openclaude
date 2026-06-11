@@ -96,7 +96,9 @@ function DelayedControlledTextInput(): React.ReactNode {
   const [value, setValue] = React.useState('')
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const valueTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const offsetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const offsetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  )
 
   React.useEffect(() => {
     return () => {
@@ -145,7 +147,9 @@ function DelayedControlledVimTextInput(): React.ReactNode {
   const [value, setValue] = React.useState('')
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const valueTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const offsetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const offsetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  )
 
   React.useEffect(() => {
     return () => {

@@ -47,10 +47,7 @@ import {
   resolveRouteCredentialValue,
 } from '../../integrations/routeMetadata.js'
 import { getSessionId } from '../../bootstrap/state.js'
-import {
-  createThinkTagFilter,
-  stripThinkTags,
-} from './thinkTagSanitizer.js'
+import { createThinkTagFilter, stripThinkTags } from './thinkTagSanitizer.js'
 import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
@@ -178,7 +175,9 @@ function geminiThoughtSignatureFromExtraContent(
   const google = (extraContent as Record<string, unknown>).google
   if (!google || typeof google !== 'object') return undefined
   const signature = (google as Record<string, unknown>).thought_signature
-  return typeof signature === 'string' && signature.length > 0 ? signature : undefined
+  return typeof signature === 'string' && signature.length > 0
+    ? signature
+    : undefined
 }
 
 function mergeGeminiThoughtSignature(
@@ -188,7 +187,7 @@ function mergeGeminiThoughtSignature(
   if (!signature) return extraContent
   const existingGoogle =
     extraContent?.google && typeof extraContent.google === 'object'
-      ? extraContent.google as Record<string, unknown>
+      ? (extraContent.google as Record<string, unknown>)
       : {}
   return {
     ...extraContent,
@@ -238,14 +237,23 @@ function redactUrlForDiagnostics(url: string): string {
     }
 
     const serialized = parsed.toString()
-    return redactSecretValueForDisplay(serialized, process.env as SecretValueSource) ?? serialized
+    return (
+      redactSecretValueForDisplay(
+        serialized,
+        process.env as SecretValueSource,
+      ) ?? serialized
+    )
   } catch {
-    return redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? url
+    return (
+      redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? url
+    )
   }
 }
 
 function redactUrlsInMessage(message: string): string {
-  return message.replace(/https?:\/\/\S+/g, match => redactUrlForDiagnostics(match))
+  return message.replace(/https?:\/\/\S+/g, match =>
+    redactUrlForDiagnostics(match),
+  )
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -295,22 +303,22 @@ interface OpenAITool {
   }
 }
 
-function convertSystemPrompt(
-  system: unknown,
-): string {
+function convertSystemPrompt(system: unknown): string {
   if (!system) return ''
   if (typeof system === 'string') return system
   if (Array.isArray(system)) {
-    return system
-      .map((block: { type?: string; text?: string }) =>
-        block.type === 'text' ? block.text ?? '' : '',
-      )
-      // Drop the Anthropic billing/attribution block — it's only meaningful to
-      // Anthropic's `_parse_cc_header` and is dead weight (plus a churning
-      // per-build fingerprint that busts prefix KV cache) for OpenAI-compat
-      // providers like local Ollama / llama.cpp / Codex pass-throughs.
-      .filter(text => !text.startsWith('x-anthropic-billing-header'))
-      .join('\n\n')
+    return (
+      system
+        .map((block: { type?: string; text?: string }) =>
+          block.type === 'text' ? (block.text ?? '') : '',
+        )
+        // Drop the Anthropic billing/attribution block — it's only meaningful to
+        // Anthropic's `_parse_cc_header` and is dead weight (plus a churning
+        // per-build fingerprint that busts prefix KV cache) for OpenAI-compat
+        // providers like local Ollama / llama.cpp / Codex pass-throughs.
+        .filter(text => !text.startsWith('x-anthropic-billing-header'))
+        .join('\n\n')
+    )
   }
   return String(system)
 }
@@ -334,7 +342,7 @@ function ensureTextPartForImageContent(
 }
 
 function joinTextContentParts(parts: OpenAIContentPart[]): string {
-  return parts.map(part => part.type === 'text' ? part.text : '').join('')
+  return parts.map(part => (part.type === 'text' ? part.text : '')).join('')
 }
 
 function convertToolResultContent(
@@ -360,7 +368,11 @@ function convertToolResultContent(
       const source = block.source
       if (source?.type === 'url' && source.url) {
         parts.push({ type: 'image_url', image_url: { url: source.url } })
-      } else if (source?.type === 'base64' && source.media_type && source.data) {
+      } else if (
+        source?.type === 'base64' &&
+        source.media_type &&
+        source.data
+      ) {
         parts.push({
           type: 'image_url',
           image_url: {
@@ -399,9 +411,7 @@ function convertToolResultContent(
   return parts
 }
 
-function convertContentBlocks(
-  content: unknown,
-): string | OpenAIContentPart[] {
+function convertContentBlocks(content: unknown): string | OpenAIContentPart[] {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
 
@@ -473,8 +483,7 @@ function hydrateOpenAIShimCompatibilityEnv(
   // through resolveProviderRequest(). The shim still needs a few legacy
   // credential aliases because downstream auth/header paths read OPENAI_*.
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
-    const geminiApiKey =
-      processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY
+    const geminiApiKey = processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY
     if (geminiApiKey && !processEnv.OPENAI_API_KEY) {
       processEnv.OPENAI_API_KEY = geminiApiKey
     }
@@ -525,7 +534,8 @@ function convertMessages(
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
   const reasoningContentFallback = options?.reasoningContentFallback
-  const preserveGeminiThoughtSignature = options?.preserveGeminiThoughtSignature === true
+  const preserveGeminiThoughtSignature =
+    options?.preserveGeminiThoughtSignature === true
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -611,8 +621,7 @@ function convertMessages(
         )
         const thinkingBlock = content.find(
           (b: { type?: string }) =>
-            b.type === 'thinking' ||
-            b.type === 'redacted_thinking',
+            b.type === 'thinking' || b.type === 'redacted_thinking',
         )
         const textContent = content.filter(
           (b: { type?: string }) =>
@@ -650,15 +659,13 @@ function convertMessages(
             | { type?: string; thinking?: string; data?: string }
             | undefined
           const thinkingText =
-            block?.type === 'redacted_thinking'
-              ? block?.data
-              : block?.thinking
-          if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
-            assistantMsg.reasoning_content = thinkingText
-          } else if (
-            toolUses.length > 0 &&
-            reasoningContentFallback === ''
+            block?.type === 'redacted_thinking' ? block?.data : block?.thinking
+          if (
+            typeof thinkingText === 'string' &&
+            thinkingText.trim().length > 0
           ) {
+            assistantMsg.reasoning_content = thinkingText
+          } else if (toolUses.length > 0 && reasoningContentFallback === '') {
             assistantMsg.reasoning_content = ''
           }
         }
@@ -673,7 +680,8 @@ function convertMessages(
                 extra_content?: Record<string, unknown>
                 signature?: string
               }) => {
-                const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+                const id =
+                  tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
 
                 // Only keep tool calls that have a corresponding result in the history,
                 // or if it's the last message (prefill scenario).
@@ -710,7 +718,8 @@ function convertMessages(
                   const signature =
                     tu.signature ??
                     geminiThoughtSignatureFromExtraContent(tu.extra_content) ??
-                    (thinkingBlock as { signature?: string } | undefined)?.signature
+                    (thinkingBlock as { signature?: string } | undefined)
+                      ?.signature
 
                   toolCall.extra_content = mergeGeminiThoughtSignature(
                     toolCall.extra_content,
@@ -827,8 +836,13 @@ function normalizeSchemaForOpenAI(
   const record = sanitizeSchemaForOpenAICompat(schema)
 
   if (record.type === 'object' && record.properties) {
-    const properties = record.properties as Record<string, Record<string, unknown>>
-    const existingRequired = Array.isArray(record.required) ? record.required as string[] : []
+    const properties = record.properties as Record<
+      string,
+      Record<string, unknown>
+    >
+    const existingRequired = Array.isArray(record.required)
+      ? (record.required as string[])
+      : []
 
     // Recurse into each property
     const normalizedProps: Record<string, unknown> = {}
@@ -858,19 +872,22 @@ function normalizeSchemaForOpenAI(
   // Recurse into array items
   if ('items' in record) {
     if (Array.isArray(record.items)) {
-      record.items = (record.items as unknown[]).map(
-        item => normalizeSchemaForOpenAI(item as Record<string, unknown>, strict),
+      record.items = (record.items as unknown[]).map(item =>
+        normalizeSchemaForOpenAI(item as Record<string, unknown>, strict),
       )
     } else {
-      record.items = normalizeSchemaForOpenAI(record.items as Record<string, unknown>, strict)
+      record.items = normalizeSchemaForOpenAI(
+        record.items as Record<string, unknown>,
+        strict,
+      )
     }
   }
 
   // Recurse into combinators
   for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
     if (key in record && Array.isArray(record[key])) {
-      record[key] = (record[key] as unknown[]).map(
-        item => normalizeSchemaForOpenAI(item as Record<string, unknown>, strict),
+      record[key] = (record[key] as unknown[]).map(item =>
+        normalizeSchemaForOpenAI(item as Record<string, unknown>, strict),
       )
     }
   }
@@ -879,7 +896,11 @@ function normalizeSchemaForOpenAI(
 }
 
 function convertTools(
-  tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
+  tools: Array<{
+    name: string
+    description?: string
+    input_schema?: Record<string, unknown>
+  }>,
   options: { skipStrict?: boolean } = {},
 ): OpenAITool[] {
   const isGemini = isGeminiMode()
@@ -891,7 +912,9 @@ function convertTools(
   return tools
     .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
     .map(t => {
-      const schema = { ...(t.input_schema ?? { type: 'object', properties: {} }) } as Record<string, unknown>
+      const schema = {
+        ...(t.input_schema ?? { type: 'object', properties: {} }),
+      } as Record<string, unknown>
 
       // For Codex/OpenAI: promote known Agent sub-fields into required[] only if
       // they actually exist in properties (Gemini rejects required keys absent from properties).
@@ -967,7 +990,16 @@ function convertChunkUsage(
 }
 
 const JSON_REPAIR_SUFFIXES = [
-  '}', '"}', ']}', '"]}', '}}', '"}}', ']}}', '"]}}', '"]}]}', '}]}'
+  '}',
+  '"}',
+  ']}',
+  '"]}',
+  '}}',
+  '"}}',
+  ']}}',
+  '"]}}',
+  '"]}]}',
+  '}]}',
 ]
 
 const RAW_TOOL_CALLS_REQUESTED_PREFIX = 'Tool calls requested:'
@@ -986,7 +1018,9 @@ function couldBeRawToolCallsRequestedPrefix(text: string): boolean {
   )
 }
 
-function parseRawToolCallsRequestedText(text: string): ParsedRawToolCall[] | null {
+function parseRawToolCallsRequestedText(
+  text: string,
+): ParsedRawToolCall[] | null {
   const trimmed = text.trim()
   if (!trimmed.startsWith(RAW_TOOL_CALLS_REQUESTED_PREFIX)) {
     return null
@@ -1069,8 +1103,14 @@ async function* anthropicSsePassthrough(
       const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
       signal.addEventListener('abort', onAbort, { once: true })
       reader.read().then(
-        result => { signal.removeEventListener('abort', onAbort); resolve(result) },
-        err => { signal.removeEventListener('abort', onAbort); reject(err) },
+        result => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(result)
+        },
+        err => {
+          signal.removeEventListener('abort', onAbort)
+          reject(err)
+        },
       )
     })
   }
@@ -1085,7 +1125,10 @@ async function* anthropicSsePassthrough(
       buffer = chunks.pop() ?? ''
 
       for (const chunk of chunks) {
-        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
+        const lines = chunk
+          .split('\n')
+          .map(l => l.trim())
+          .filter(Boolean)
         if (lines.length === 0) continue
 
         const dataLines = lines.filter(l => l.startsWith('data: '))
@@ -1118,7 +1161,8 @@ async function* geminiSseToAnthropic(
   model: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader()
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined =
+    response.body?.getReader()
   if (!reader) throw new Error('Response body is not readable')
   const decoder = new TextDecoder()
   let buffer = ''
@@ -1131,18 +1175,28 @@ async function* geminiSseToAnthropic(
   let finishReason: string | undefined
 
   function readWithAbort(): Promise<ReadableStreamReadResult<Uint8Array>> {
-    if (!signal) return reader!.read() as Promise<ReadableStreamReadResult<Uint8Array>>
+    if (!signal)
+      return reader!.read() as Promise<ReadableStreamReadResult<Uint8Array>>
     return new Promise((resolve, reject) => {
       const onAbort = () => reject(new DOMException('Aborted', 'AbortError'))
       signal.addEventListener('abort', onAbort, { once: true })
       reader!.read().then(
-        result => { signal.removeEventListener('abort', onAbort); resolve(result as ReadableStreamReadResult<Uint8Array>) },
-        err => { signal.removeEventListener('abort', onAbort); reject(err) },
+        result => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(result as ReadableStreamReadResult<Uint8Array>)
+        },
+        err => {
+          signal.removeEventListener('abort', onAbort)
+          reject(err)
+        },
       )
     })
   }
 
-  function mapFinishReason(reason: string | undefined, hasToolUse: boolean): string {
+  function mapFinishReason(
+    reason: string | undefined,
+    hasToolUse: boolean,
+  ): string {
     if (hasToolUse) return 'tool_use'
     if (reason === 'MAX_TOKENS') return 'max_tokens'
     return 'end_turn'
@@ -1158,7 +1212,10 @@ async function* geminiSseToAnthropic(
       buffer = chunks.pop() ?? ''
 
       for (const chunk of chunks) {
-        const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean)
+        const lines = chunk
+          .split('\n')
+          .map(l => l.trim())
+          .filter(Boolean)
         const dataLines = lines.filter(l => l.startsWith('data: '))
         if (dataLines.length === 0) continue
 
@@ -1169,7 +1226,9 @@ async function* geminiSseToAnthropic(
           }
           yield {
             type: 'message_delta',
-            delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
+            delta: {
+              stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool),
+            },
             usage: usage ?? {},
           }
           yield { type: 'message_stop' }
@@ -1204,11 +1263,14 @@ async function* geminiSseToAnthropic(
           const um = parsed.usageMetadata as Record<string, number>
           usage = buildAnthropicUsageFromRawUsage({
             input_tokens: um.promptTokenCount ?? 0,
-            output_tokens: (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0),
+            output_tokens:
+              (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0),
           })
         }
 
-        const candidates = parsed.candidates as Array<Record<string, unknown>> | undefined
+        const candidates = parsed.candidates as
+          | Array<Record<string, unknown>>
+          | undefined
         if (!candidates || candidates.length === 0) continue
         const candidate = candidates[0]
 
@@ -1216,12 +1278,16 @@ async function* geminiSseToAnthropic(
           finishReason = candidate.finishReason
         }
 
-        const content = candidate.content as { role?: string; parts?: Array<Record<string, unknown>> } | undefined
+        const content = candidate.content as
+          | { role?: string; parts?: Array<Record<string, unknown>> }
+          | undefined
         if (!content || !content.parts) continue
 
         for (const part of content.parts) {
           const text = part.text as string | undefined
-          const fc = part.functionCall as { name?: string; args?: unknown } | undefined
+          const fc = part.functionCall as
+            | { name?: string; args?: unknown }
+            | undefined
 
           if (text) {
             if (hasEmittedCurrentTool) {
@@ -1265,7 +1331,10 @@ async function* geminiSseToAnthropic(
               index: contentBlockIndex,
               delta: {
                 type: 'input_json_delta',
-                partial_json: typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args ?? {}),
+                partial_json:
+                  typeof fc.args === 'string'
+                    ? fc.args
+                    : JSON.stringify(fc.args ?? {}),
               },
             }
           }
@@ -1278,7 +1347,9 @@ async function* geminiSseToAnthropic(
     }
     yield {
       type: 'message_delta',
-      delta: { stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool) },
+      delta: {
+        stop_reason: mapFinishReason(finishReason, hasEmittedCurrentTool),
+      },
       usage: usage ?? {},
     }
     yield { type: 'message_stop' }
@@ -1356,9 +1427,11 @@ async function* openaiStreamToAnthropic(
     return new Promise<ReadResult>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-        reject(new Error(
-          `OpenAI/Gemini SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
-        ))
+        reject(
+          new Error(
+            `OpenAI/Gemini SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+          ),
+        )
       }, STREAM_IDLE_TIMEOUT_MS)
 
       // If the caller aborts, clear the timer so the AbortError surfaces
@@ -1374,13 +1447,15 @@ async function* openaiStreamToAnthropic(
       reader.read().then(
         result => {
           clearTimeout(timeoutId)
-          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (signal && abortCleanup)
+            signal.removeEventListener('abort', abortCleanup)
           if (result.value) lastDataTime = Date.now()
           resolve(result)
         },
         err => {
           clearTimeout(timeoutId)
-          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (signal && abortCleanup)
+            signal.removeEventListener('abort', abortCleanup)
           reject(err)
         },
       )
@@ -1477,348 +1552,370 @@ async function* openaiStreamToAnthropic(
       buffer = lines.pop() ?? ''
 
       for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed === 'data: [DONE]') continue
-      if (!trimmed.startsWith('data: ')) continue
+        const trimmed = line.trim()
+        if (!trimmed || trimmed === 'data: [DONE]') continue
+        if (!trimmed.startsWith('data: ')) continue
 
-      let chunk: OpenAIStreamChunk
-      try {
-        chunk = JSON.parse(trimmed.slice(6))
-      } catch {
-        continue
-      }
+        let chunk: OpenAIStreamChunk
+        try {
+          chunk = JSON.parse(trimmed.slice(6))
+        } catch {
+          continue
+        }
 
-      // In-stream error event. Used by OpenAI when a stream fails after
-      // headers have been sent, and by intermediaries (e.g. gateways) that
-      // want to signal a structured failure without dropping the TCP
-      // connection. Surface it as an APIError so callers see a clean
-      // message instead of "stream ended without [DONE]".
-      const inStreamError = (chunk as unknown as { error?: { message?: string; type?: string; code?: string } }).error
-      if (inStreamError && typeof inStreamError === 'object') {
-        const message =
-          typeof inStreamError.message === 'string'
-            ? inStreamError.message
-            : 'Provider returned an in-stream error'
-        const errorPayload = {
-          error: {
+        // In-stream error event. Used by OpenAI when a stream fails after
+        // headers have been sent, and by intermediaries (e.g. gateways) that
+        // want to signal a structured failure without dropping the TCP
+        // connection. Surface it as an APIError so callers see a clean
+        // message instead of "stream ended without [DONE]".
+        const inStreamError = (
+          chunk as unknown as {
+            error?: { message?: string; type?: string; code?: string }
+          }
+        ).error
+        if (inStreamError && typeof inStreamError === 'object') {
+          const message =
+            typeof inStreamError.message === 'string'
+              ? inStreamError.message
+              : 'Provider returned an in-stream error'
+          const errorPayload = {
+            error: {
+              message,
+              type: inStreamError.type ?? 'api_error',
+              code: inStreamError.code ?? null,
+            },
+          }
+          throw APIError.generate(
+            (response.status ?? 200) as number,
+            errorPayload,
             message,
-            type: inStreamError.type ?? 'api_error',
-            code: inStreamError.code ?? null,
-          },
-        }
-        throw APIError.generate(
-          (response.status ?? 200) as number,
-          errorPayload,
-          message,
-          response.headers as unknown as Headers,
-        )
-      }
-
-      const chunkUsage = convertChunkUsage(chunk.usage)
-
-      for (const choice of chunk.choices ?? []) {
-        const delta = choice.delta
-
-        // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
-        // in `reasoning_content` before the actual reply appears in `content`.
-        // Emit reasoning as a thinking block and content as a text block.
-        if (delta.reasoning_content != null && delta.reasoning_content !== '') {
-          if (!hasEmittedThinkingStart) {
-            yield {
-              type: 'content_block_start',
-              index: contentBlockIndex,
-              content_block: { type: 'thinking', thinking: '' },
-            }
-            hasEmittedThinkingStart = true
-          }
-          yield {
-            type: 'content_block_delta',
-            index: contentBlockIndex,
-            delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
-          }
+            response.headers as unknown as Headers,
+          )
         }
 
-        // Text content — use != null to distinguish absent field from empty string,
-        // some providers send "" as first delta to signal streaming start
-        if (delta.content != null && delta.content !== '') {
-          // Close thinking block if transitioning from reasoning to content
-          if (hasEmittedThinkingStart && !hasClosedThinking) {
-            yield { type: 'content_block_stop', index: contentBlockIndex }
-            contentBlockIndex++
-            hasClosedThinking = true
-          }
+        const chunkUsage = convertChunkUsage(chunk.usage)
 
+        for (const choice of chunk.choices ?? []) {
+          const delta = choice.delta
+
+          // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
+          // in `reasoning_content` before the actual reply appears in `content`.
+          // Emit reasoning as a thinking block and content as a text block.
           if (
-            !hasEmittedContentStart &&
-            bufferedRawToolCallsText === null &&
-            couldBeRawToolCallsRequestedPrefix(delta.content)
+            delta.reasoning_content != null &&
+            delta.reasoning_content !== ''
           ) {
-            bufferedRawToolCallsText = delta.content
-            processStreamChunk(streamState, delta.content)
-          } else if (bufferedRawToolCallsText !== null) {
-            bufferedRawToolCallsText += delta.content
-            processStreamChunk(streamState, delta.content)
-            if (!couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)) {
+            if (!hasEmittedThinkingStart) {
+              yield {
+                type: 'content_block_start',
+                index: contentBlockIndex,
+                content_block: { type: 'thinking', thinking: '' },
+              }
+              hasEmittedThinkingStart = true
+            }
+            yield {
+              type: 'content_block_delta',
+              index: contentBlockIndex,
+              delta: {
+                type: 'thinking_delta',
+                thinking: delta.reasoning_content,
+              },
+            }
+          }
+
+          // Text content — use != null to distinguish absent field from empty string,
+          // some providers send "" as first delta to signal streaming start
+          if (delta.content != null && delta.content !== '') {
+            // Close thinking block if transitioning from reasoning to content
+            if (hasEmittedThinkingStart && !hasClosedThinking) {
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+              hasClosedThinking = true
+            }
+
+            if (
+              !hasEmittedContentStart &&
+              bufferedRawToolCallsText === null &&
+              couldBeRawToolCallsRequestedPrefix(delta.content)
+            ) {
+              bufferedRawToolCallsText = delta.content
+              processStreamChunk(streamState, delta.content)
+            } else if (bufferedRawToolCallsText !== null) {
+              bufferedRawToolCallsText += delta.content
+              processStreamChunk(streamState, delta.content)
+              if (
+                !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)
+              ) {
+                yield* emitTextDelta(bufferedRawToolCallsText)
+                bufferedRawToolCallsText = null
+              }
+            } else {
+              yield* emitTextDelta(delta.content)
+            }
+          }
+
+          // Tool calls
+          if (delta.tool_calls) {
+            if (bufferedRawToolCallsText !== null) {
+              const parsedBufferedToolCalls = parseRawToolCallsRequestedText(
+                bufferedRawToolCallsText,
+              )
+              if (
+                !parsedBufferedToolCalls &&
+                !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)
+              ) {
+                yield* emitTextDelta(bufferedRawToolCallsText)
+              }
+              bufferedRawToolCallsText = null
+            }
+            for (const tc of delta.tool_calls) {
+              if (tc.id && tc.function?.name) {
+                // New tool call starting — close any open thinking block first
+                if (hasEmittedThinkingStart && !hasClosedThinking) {
+                  yield { type: 'content_block_stop', index: contentBlockIndex }
+                  contentBlockIndex++
+                  hasClosedThinking = true
+                }
+                if (hasEmittedContentStart) {
+                  yield* closeActiveContentBlock()
+                }
+
+                const toolBlockIndex = contentBlockIndex
+                const initialArguments = tc.function.arguments ?? ''
+                const normalizeAtStop = hasToolFieldMapping(tc.function.name)
+                const toolExtraContent = tc.extra_content ?? delta.extra_content
+                const toolSignature =
+                  geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
+                  geminiThoughtSignatureFromExtraContent(delta.extra_content)
+                const mergedToolExtraContent = mergeGeminiThoughtSignature(
+                  toolExtraContent,
+                  toolSignature,
+                )
+                processStreamChunk(streamState, tc.function.arguments ?? '')
+                activeToolCalls.set(tc.index, {
+                  id: tc.id,
+                  name: tc.function.name,
+                  index: toolBlockIndex,
+                  jsonBuffer: initialArguments,
+                  normalizeAtStop,
+                })
+
+                yield {
+                  type: 'content_block_start',
+                  index: toolBlockIndex,
+                  content_block: {
+                    type: 'tool_use',
+                    id: tc.id,
+                    name: tc.function.name,
+                    input: {},
+                    ...(mergedToolExtraContent
+                      ? { extra_content: mergedToolExtraContent }
+                      : {}),
+                    ...(toolSignature ? { signature: toolSignature } : {}),
+                  },
+                }
+                contentBlockIndex++
+
+                // Emit any initial arguments
+                if (tc.function.arguments && !normalizeAtStop) {
+                  yield {
+                    type: 'content_block_delta',
+                    index: toolBlockIndex,
+                    delta: {
+                      type: 'input_json_delta',
+                      partial_json: tc.function.arguments,
+                    },
+                  }
+                }
+              } else if (tc.function?.arguments) {
+                // Continuation of existing tool call
+                const active = activeToolCalls.get(tc.index)
+                if (active) {
+                  if (tc.function.arguments) {
+                    active.jsonBuffer += tc.function.arguments
+                  }
+
+                  if (active.normalizeAtStop) {
+                    continue
+                  }
+
+                  yield {
+                    type: 'content_block_delta',
+                    index: active.index,
+                    delta: {
+                      type: 'input_json_delta',
+                      partial_json: tc.function.arguments,
+                    },
+                  }
+                }
+              }
+            }
+          }
+
+          // Finish — guard ensures we only process finish_reason once even if
+          // multiple chunks arrive with finish_reason set (some providers do this)
+          if (choice.finish_reason && !hasProcessedFinishReason) {
+            hasProcessedFinishReason = true
+
+            // Close any open thinking block that wasn't closed by content transition
+            if (hasEmittedThinkingStart && !hasClosedThinking) {
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+              hasClosedThinking = true
+            }
+            const parsedBufferedToolCalls = bufferedRawToolCallsText
+              ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
+              : null
+            if (parsedBufferedToolCalls) {
+              yield* emitParsedRawToolCalls(parsedBufferedToolCalls)
+              bufferedRawToolCallsText = null
+            } else if (bufferedRawToolCallsText !== null) {
               yield* emitTextDelta(bufferedRawToolCallsText)
               bufferedRawToolCallsText = null
             }
-          } else {
-            yield* emitTextDelta(delta.content)
-          }
-        }
-
-        // Tool calls
-        if (delta.tool_calls) {
-          if (bufferedRawToolCallsText !== null) {
-            const parsedBufferedToolCalls = parseRawToolCallsRequestedText(
-              bufferedRawToolCallsText,
-            )
-            if (
-              !parsedBufferedToolCalls &&
-              !couldBeRawToolCallsRequestedPrefix(bufferedRawToolCallsText)
-            ) {
-              yield* emitTextDelta(bufferedRawToolCallsText)
+            // Close any open content blocks
+            if (hasEmittedContentStart) {
+              yield* closeActiveContentBlock()
             }
-            bufferedRawToolCallsText = null
-          }
-          for (const tc of delta.tool_calls) {
-            if (tc.id && tc.function?.name) {
-              // New tool call starting — close any open thinking block first
-              if (hasEmittedThinkingStart && !hasClosedThinking) {
-                yield { type: 'content_block_stop', index: contentBlockIndex }
-                contentBlockIndex++
-                hasClosedThinking = true
-              }
-              if (hasEmittedContentStart) {
-                yield* closeActiveContentBlock()
-              }
-
-              const toolBlockIndex = contentBlockIndex
-              const initialArguments = tc.function.arguments ?? ''
-              const normalizeAtStop = hasToolFieldMapping(tc.function.name)
-              const toolExtraContent = tc.extra_content ?? delta.extra_content
-              const toolSignature =
-                geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
-                geminiThoughtSignatureFromExtraContent(delta.extra_content)
-              const mergedToolExtraContent = mergeGeminiThoughtSignature(
-                toolExtraContent,
-                toolSignature,
-              )
-              processStreamChunk(streamState, tc.function.arguments ?? '')
-              activeToolCalls.set(tc.index, {
-                id: tc.id,
-                name: tc.function.name,
-                index: toolBlockIndex,
-                jsonBuffer: initialArguments,
-                normalizeAtStop,
-              })
-
-              yield {
-                type: 'content_block_start',
-                index: toolBlockIndex,
-                content_block: {
-                  type: 'tool_use',
-                  id: tc.id,
-                  name: tc.function.name,
-                  input: {},
-                  ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
-                  ...(toolSignature ? { signature: toolSignature } : {}),
-                },
-              }
-              contentBlockIndex++
-
-              // Emit any initial arguments
-              if (tc.function.arguments && !normalizeAtStop) {
-                yield {
-                  type: 'content_block_delta',
-                  index: toolBlockIndex,
-                  delta: {
-                    type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
-                  },
-                }
-              }
-            } else if (tc.function?.arguments) {
-              // Continuation of existing tool call
-              const active = activeToolCalls.get(tc.index)
-              if (active) {
-                if (tc.function.arguments) {
-                  active.jsonBuffer += tc.function.arguments
-                }
-
-                if (active.normalizeAtStop) {
-                  continue
-                }
-
-                yield {
-                  type: 'content_block_delta',
-                  index: active.index,
-                  delta: {
-                    type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
-                  },
-                }
-              }
-            }
-          }
-        }
-
-        // Finish — guard ensures we only process finish_reason once even if
-        // multiple chunks arrive with finish_reason set (some providers do this)
-        if (choice.finish_reason && !hasProcessedFinishReason) {
-          hasProcessedFinishReason = true
-
-          // Close any open thinking block that wasn't closed by content transition
-          if (hasEmittedThinkingStart && !hasClosedThinking) {
-            yield { type: 'content_block_stop', index: contentBlockIndex }
-            contentBlockIndex++
-            hasClosedThinking = true
-          }
-          const parsedBufferedToolCalls = bufferedRawToolCallsText
-            ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
-            : null
-          if (parsedBufferedToolCalls) {
-            yield* emitParsedRawToolCalls(parsedBufferedToolCalls)
-            bufferedRawToolCallsText = null
-          } else if (bufferedRawToolCallsText !== null) {
-            yield* emitTextDelta(bufferedRawToolCallsText)
-            bufferedRawToolCallsText = null
-          }
-          // Close any open content blocks
-          if (hasEmittedContentStart) {
-            yield* closeActiveContentBlock()
-          }
-          // Close active tool calls
-          for (const [, tc] of activeToolCalls) {
-            if (tc.normalizeAtStop) {
-              let partialJson: string
-              if (choice.finish_reason === 'length') {
-                // Truncated by max tokens — preserve raw buffer to avoid
-                // turning an incomplete tool call into an executable command
-                partialJson = tc.jsonBuffer
-              } else {
-                const repairedStructuredJson = repairPossiblyTruncatedObjectJson(
-                  tc.jsonBuffer,
-                )
-                if (repairedStructuredJson) {
-                  partialJson = repairedStructuredJson
+            // Close active tool calls
+            for (const [, tc] of activeToolCalls) {
+              if (tc.normalizeAtStop) {
+                let partialJson: string
+                if (choice.finish_reason === 'length') {
+                  // Truncated by max tokens — preserve raw buffer to avoid
+                  // turning an incomplete tool call into an executable command
+                  partialJson = tc.jsonBuffer
                 } else {
-                  partialJson = JSON.stringify(
-                    normalizeToolArguments(tc.name, tc.jsonBuffer),
-                  )
+                  const repairedStructuredJson =
+                    repairPossiblyTruncatedObjectJson(tc.jsonBuffer)
+                  if (repairedStructuredJson) {
+                    partialJson = repairedStructuredJson
+                  } else {
+                    partialJson = JSON.stringify(
+                      normalizeToolArguments(tc.name, tc.jsonBuffer),
+                    )
+                  }
+                }
+
+                yield {
+                  type: 'content_block_delta',
+                  index: tc.index,
+                  delta: {
+                    type: 'input_json_delta',
+                    partial_json: partialJson,
+                  },
+                }
+                yield { type: 'content_block_stop', index: tc.index }
+                continue
+              }
+
+              let suffixToAdd = ''
+              if (tc.jsonBuffer) {
+                try {
+                  JSON.parse(tc.jsonBuffer)
+                } catch {
+                  const str = tc.jsonBuffer.trimEnd()
+                  for (const combo of JSON_REPAIR_SUFFIXES) {
+                    try {
+                      JSON.parse(str + combo)
+                      suffixToAdd = combo
+                      break
+                    } catch {}
+                  }
                 }
               }
 
-              yield {
-                type: 'content_block_delta',
-                index: tc.index,
-                delta: {
-                  type: 'input_json_delta',
-                  partial_json: partialJson,
-                },
+              if (suffixToAdd) {
+                yield {
+                  type: 'content_block_delta',
+                  index: tc.index,
+                  delta: {
+                    type: 'input_json_delta',
+                    partial_json: suffixToAdd,
+                  },
+                }
               }
+
               yield { type: 'content_block_stop', index: tc.index }
-              continue
             }
 
-            let suffixToAdd = ''
-            if (tc.jsonBuffer) {
-              try {
-                JSON.parse(tc.jsonBuffer)
-              } catch {
-                const str = tc.jsonBuffer.trimEnd()
-                for (const combo of JSON_REPAIR_SUFFIXES) {
-                  try {
-                    JSON.parse(str + combo)
-                    suffixToAdd = combo
-                    break
-                  } catch {}
+            const stopReason =
+              parsedBufferedToolCalls || choice.finish_reason === 'tool_calls'
+                ? 'tool_use'
+                : choice.finish_reason === 'length'
+                  ? 'max_tokens'
+                  : 'end_turn'
+            if (
+              choice.finish_reason === 'content_filter' ||
+              choice.finish_reason === 'safety'
+            ) {
+              // Gemini/Azure content safety filter blocked the response.
+              // Emit a visible text block so the user knows why output was truncated.
+              if (!hasEmittedContentStart) {
+                yield {
+                  type: 'content_block_start',
+                  index: contentBlockIndex,
+                  content_block: { type: 'text', text: '' },
                 }
+                hasEmittedContentStart = true
               }
-            }
-
-            if (suffixToAdd) {
               yield {
                 type: 'content_block_delta',
-                index: tc.index,
+                index: contentBlockIndex,
                 delta: {
-                  type: 'input_json_delta',
-                  partial_json: suffixToAdd,
+                  type: 'text_delta',
+                  text: '\n\n[Content blocked by provider safety filter]',
+                },
+              }
+            } else if (choice.finish_reason === 'length') {
+              // Response was truncated — either the model hit max_tokens, or
+              // an upstream/gateway watchdog synthesized a graceful end after
+              // detecting a stalled stream. Either way, the user should know
+              // the answer they're seeing isn't complete.
+              if (!hasEmittedContentStart) {
+                yield {
+                  type: 'content_block_start',
+                  index: contentBlockIndex,
+                  content_block: { type: 'text', text: '' },
+                }
+                hasEmittedContentStart = true
+              }
+              yield {
+                type: 'content_block_delta',
+                index: contentBlockIndex,
+                delta: {
+                  type: 'text_delta',
+                  text: '\n\n[Response truncated — reached length limit or upstream stalled. Ask the model to continue.]',
                 },
               }
             }
+            lastStopReason = stopReason
 
-            yield { type: 'content_block_stop', index: tc.index }
-          }
-
-          const stopReason =
-            parsedBufferedToolCalls || choice.finish_reason === 'tool_calls'
-              ? 'tool_use'
-              : choice.finish_reason === 'length'
-                ? 'max_tokens'
-                : 'end_turn'
-          if (choice.finish_reason === 'content_filter' || choice.finish_reason === 'safety') {
-            // Gemini/Azure content safety filter blocked the response.
-            // Emit a visible text block so the user knows why output was truncated.
-            if (!hasEmittedContentStart) {
-              yield {
-                type: 'content_block_start',
-                index: contentBlockIndex,
-                content_block: { type: 'text', text: '' },
-              }
-              hasEmittedContentStart = true
-            }
             yield {
-              type: 'content_block_delta',
-              index: contentBlockIndex,
-              delta: { type: 'text_delta', text: '\n\n[Content blocked by provider safety filter]' },
+              type: 'message_delta',
+              delta: { stop_reason: stopReason, stop_sequence: null },
+              ...(chunkUsage ? { usage: chunkUsage } : {}),
             }
-          } else if (choice.finish_reason === 'length') {
-            // Response was truncated — either the model hit max_tokens, or
-            // an upstream/gateway watchdog synthesized a graceful end after
-            // detecting a stalled stream. Either way, the user should know
-            // the answer they're seeing isn't complete.
-            if (!hasEmittedContentStart) {
-              yield {
-                type: 'content_block_start',
-                index: contentBlockIndex,
-                content_block: { type: 'text', text: '' },
-              }
-              hasEmittedContentStart = true
-            }
-            yield {
-              type: 'content_block_delta',
-              index: contentBlockIndex,
-              delta: { type: 'text_delta', text: '\n\n[Response truncated — reached length limit or upstream stalled. Ask the model to continue.]' },
+            if (chunkUsage) {
+              hasEmittedFinalUsage = true
             }
           }
-          lastStopReason = stopReason
+        }
 
+        if (
+          !hasEmittedFinalUsage &&
+          chunkUsage &&
+          (chunk.choices?.length ?? 0) === 0 &&
+          lastStopReason !== null
+        ) {
           yield {
             type: 'message_delta',
-            delta: { stop_reason: stopReason, stop_sequence: null },
-            ...(chunkUsage ? { usage: chunkUsage } : {}),
+            delta: { stop_reason: lastStopReason, stop_sequence: null },
+            usage: chunkUsage,
           }
-          if (chunkUsage) {
-            hasEmittedFinalUsage = true
-          }
+          hasEmittedFinalUsage = true
         }
       }
-
-      if (
-        !hasEmittedFinalUsage &&
-        chunkUsage &&
-        (chunk.choices?.length ?? 0) === 0 &&
-        lastStopReason !== null
-      ) {
-        yield {
-          type: 'message_delta',
-          delta: { stop_reason: lastStopReason, stop_sequence: null },
-          usage: chunkUsage,
-        }
-        hasEmittedFinalUsage = true
-      }
-    }
     }
   } finally {
     reader.releaseLock()
@@ -1864,7 +1961,11 @@ class OpenAIShimMessages {
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(
+    defaultHeaders: Record<string, string>,
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh',
+    providerOverride?: { model: string; baseURL: string; apiKey: string },
+  ) {
     this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
@@ -1879,7 +1980,11 @@ class OpenAIShimMessages {
     let httpResponse: Response | undefined
 
     const promise = (async () => {
-      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
+      const request = resolveProviderRequest({
+        model: self.providerOverride?.model ?? params.model,
+        baseUrl: self.providerOverride?.baseURL,
+        reasoningEffortOverride: self.reasoningEffort,
+      })
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -1888,22 +1993,39 @@ class OpenAIShimMessages {
         const isMessagesStream = response.url?.includes('/messages')
         const isGeminiStream = response.url?.includes('/models/gemini-')
         return new OpenAIShimStream(
-          (
-            request.transport === 'codex_responses' ||
+          request.transport === 'codex_responses' ||
             request.transport === 'responses' ||
             isResponsesStream
-          )
-            ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
+            ? codexStreamToAnthropic(
+                response,
+                request.resolvedModel,
+                options?.signal,
+              )
             : isMessagesStream
-              ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
+              ? anthropicSsePassthrough(
+                  response,
+                  request.resolvedModel,
+                  options?.signal,
+                )
               : isGeminiStream
-                ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
-                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+                ? geminiSseToAnthropic(
+                    response,
+                    request.resolvedModel,
+                    options?.signal,
+                  )
+                : openaiStreamToAnthropic(
+                    response,
+                    request.resolvedModel,
+                    options?.signal,
+                  ),
         )
       }
 
       if (request.transport === 'codex_responses') {
-        const data = await collectCodexCompletedResponse(response, options?.signal)
+        const data = await collectCodexCompletedResponse(
+          response,
+          options?.signal,
+        )
         return convertCodexResponseToAnthropicMessage(
           data,
           request.resolvedModel,
@@ -1920,7 +2042,7 @@ class OpenAIShimMessages {
       ) {
         const contentType = response.headers.get('content-type') ?? ''
         if (contentType.includes('application/json')) {
-          const parsed = await response.json() as Record<string, unknown>
+          const parsed = (await response.json()) as Record<string, unknown>
           if (
             parsed &&
             typeof parsed === 'object' &&
@@ -1931,7 +2053,10 @@ class OpenAIShimMessages {
               request.resolvedModel,
             )
           }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+          return self._convertNonStreamingResponse(
+            parsed,
+            request.resolvedModel,
+          )
         }
       }
 
@@ -1940,7 +2065,7 @@ class OpenAIShimMessages {
       if (isMessagesNonStream) {
         const contentType = response.headers.get('content-type') ?? ''
         if (contentType.includes('application/json')) {
-          return await response.json() as Record<string, unknown>
+          return (await response.json()) as Record<string, unknown>
         }
       }
 
@@ -1948,8 +2073,11 @@ class OpenAIShimMessages {
       if (isGeminiNonStream) {
         const contentType = response.headers.get('content-type') ?? ''
         if (contentType.includes('application/json')) {
-          const parsed = await response.json() as Record<string, unknown>
-          return self._convertGeminiToAnthropicResponse(parsed, request.resolvedModel)
+          const parsed = (await response.json()) as Record<string, unknown>
+          return self._convertGeminiToAnthropicResponse(
+            parsed,
+            request.resolvedModel,
+          )
         }
       }
 
@@ -1968,16 +2096,16 @@ class OpenAIShimMessages {
       )
     })()
 
-      ; (promise as unknown as Record<string, unknown>).withResponse =
-        async () => {
-          const data = await promise
-          return {
-            data,
-            response: httpResponse ?? new Response(),
-            request_id:
-              httpResponse?.headers.get('x-request-id') ?? makeMessageId(),
-          }
+    ;(promise as unknown as Record<string, unknown>).withResponse =
+      async () => {
+        const data = await promise
+        return {
+          data,
+          response: httpResponse ?? new Response(),
+          request_id:
+            httpResponse?.headers.get('x-request-id') ?? makeMessageId(),
         }
+      }
 
     return promise
   }
@@ -1989,10 +2117,12 @@ class OpenAIShimMessages {
   ): Promise<Response> {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
-    const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
+    const isGithubWithCodexTransport =
+      isGithubMode && request.transport === 'codex_responses'
 
     if (isGithubWithCodexTransport) {
-      const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+      const apiKey =
+        this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
       if (!apiKey) {
         throw new Error(
           'GitHub Copilot auth is required. Run /onboard-github to sign in.',
@@ -2032,13 +2162,17 @@ class OpenAIShimMessages {
         storedCredentials: refreshResult.credentials,
       })
       if (!credentials.apiKey) {
-        const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
+        const oauthHint = isBareMode()
+          ? ''
+          : ', choose Codex OAuth in /provider'
         const authHint = credentials.authPath
           ? `${oauthHint} or place a Codex auth.json at ${credentials.authPath}`
           : oauthHint
         const safeModel =
-          redactSecretValueForDisplay(request.requestedModel, process.env as SecretValueSource) ??
-          'the requested model'
+          redactSecretValueForDisplay(
+            request.requestedModel,
+            process.env as SecretValueSource,
+          ) ?? 'the requested model'
         throw new Error(
           `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`,
         )
@@ -2073,7 +2207,9 @@ class OpenAIShimMessages {
     // the cloud-side caching/strict-validation behaviours that several of our
     // pre-send transforms target. Computing the fast-path config once here
     // lets us skip those transforms uniformly. See providerConfig.ts.
-    const fastPath: LocalFastPathConfig = getLocalFastPathConfig(request.baseUrl)
+    const fastPath: LocalFastPathConfig = getLocalFastPathConfig(
+      request.baseUrl,
+    )
 
     const rawMessages = params.messages as Array<{
       role: string
@@ -2095,13 +2231,14 @@ class OpenAIShimMessages {
     // - /responses         → OpenAI Responses API (input, max_output_tokens, instructions)
     // - /messages          → Anthropic Messages API (system, max_tokens, content blocks)
     // - /models/gemini-*   → Google AI SDK (contents, systemInstruction, generationConfig)
-    const effectiveTransport = shimConfig.endpointPath === '/responses'
-      ? 'responses'
-      : shimConfig.endpointPath === '/messages'
-        ? 'anthropic_messages'
-        : shimConfig.endpointPath?.startsWith('/models/gemini-')
-          ? 'gemini'
-          : request.transport
+    const effectiveTransport =
+      shimConfig.endpointPath === '/responses'
+        ? 'responses'
+        : shimConfig.endpointPath === '/messages'
+          ? 'anthropic_messages'
+          : shimConfig.endpointPath?.startsWith('/models/gemini-')
+            ? 'gemini'
+            : request.transport
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
@@ -2118,21 +2255,24 @@ class OpenAIShimMessages {
       store: false,
     }
     // Emit reasoning_effort for chat_completions when the resolved provider
-     // request carries a reasoning effort (set via /effort, model alias default,
-     // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
-     // most OpenAI-compatible endpoints read it from this top-level field.
+    // request carries a reasoning effort (set via /effort, model alias default,
+    // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
+    // most OpenAI-compatible endpoints read it from this top-level field.
     if (request.reasoning) {
       body.reasoning_effort = request.reasoning.effort
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
     // Ensure max_tokens is a valid positive number before using it.
-    const maxTokensValue = typeof params.max_tokens === 'number' && params.max_tokens > 0
-      ? params.max_tokens
-      : undefined
-    const maxCompletionTokensValue = typeof (params as Record<string, unknown>).max_completion_tokens === 'number'
-      ? (params as Record<string, unknown>).max_completion_tokens as number
-      : undefined
+    const maxTokensValue =
+      typeof params.max_tokens === 'number' && params.max_tokens > 0
+        ? params.max_tokens
+        : undefined
+    const maxCompletionTokensValue =
+      typeof (params as Record<string, unknown>).max_completion_tokens ===
+      'number'
+        ? ((params as Record<string, unknown>).max_completion_tokens as number)
+        : undefined
 
     if (maxTokensValue !== undefined) {
       body.max_completion_tokens = maxTokensValue
@@ -2149,7 +2289,9 @@ class OpenAIShimMessages {
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
-    const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
+    const isGithubModels =
+      isGithub &&
+      (githubEndpointType === 'models' || githubEndpointType === 'custom')
     const shouldStripResponsesStore =
       (shimConfig.removeBodyFields ?? []).includes('store') ||
       isGeminiMode() ||
@@ -2177,11 +2319,14 @@ class OpenAIShimMessages {
     if (params.top_p !== undefined) body.top_p = params.top_p
 
     if (shimConfig.thinkingRequestFormat === 'deepseek-compatible') {
-      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
+      const requestedThinkingType = (
+        params.thinking as { type?: string } | undefined
+      )?.type
       const deepSeekThinkingType =
         requestedThinkingType === 'disabled'
           ? 'disabled'
-          : requestedThinkingType === 'enabled' || requestedThinkingType === 'adaptive'
+          : requestedThinkingType === 'enabled' ||
+              requestedThinkingType === 'adaptive'
             ? 'enabled'
             : undefined
 
@@ -2246,12 +2391,23 @@ class OpenAIShimMessages {
         delete responsesBody.store
       }
 
-      if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
+      if (
+        !Array.isArray(responsesBody.input) ||
+        responsesBody.input.length === 0
+      ) {
         responsesBody.input = [
           {
             type: 'message',
             role: 'user',
-            content: [{ type: effectiveTransport === 'responses_compat' ? 'text' : 'input_text', text: '' }],
+            content: [
+              {
+                type:
+                  effectiveTransport === 'responses_compat'
+                    ? 'text'
+                    : 'input_text',
+                text: '',
+              },
+            ],
           },
         ]
       }
@@ -2267,7 +2423,8 @@ class OpenAIShimMessages {
         responsesBody.max_output_tokens = body.max_completion_tokens
       }
 
-      if (params.temperature !== undefined) responsesBody.temperature = params.temperature
+      if (params.temperature !== undefined)
+        responsesBody.temperature = params.temperature
       if (params.top_p !== undefined) responsesBody.top_p = params.top_p
       if (request.reasoning?.effort) {
         responsesBody.reasoning_effort = request.reasoning.effort
@@ -2309,12 +2466,23 @@ class OpenAIShimMessages {
       // accepts either a string or an array of content blocks (with optional
       // cache_control markers). Only filter the billing header block.
       if (Array.isArray(params.system)) {
-        const filtered = (params.system as Array<{ type?: string; text?: string }>)
-          .filter(block => !(block.type === 'text' && (block.text ?? '').startsWith('x-anthropic-billing-header')))
+        const filtered = (
+          params.system as Array<{ type?: string; text?: string }>
+        ).filter(
+          block =>
+            !(
+              block.type === 'text' &&
+              (block.text ?? '').startsWith('x-anthropic-billing-header')
+            ),
+        )
         if (filtered.length > 0) anthropicBody.system = filtered
       } else if (params.system) {
-        const text = typeof params.system === 'string' ? params.system : String(params.system)
-        if (text && !text.startsWith('x-anthropic-billing-header')) anthropicBody.system = text
+        const text =
+          typeof params.system === 'string'
+            ? params.system
+            : String(params.system)
+        if (text && !text.startsWith('x-anthropic-billing-header'))
+          anthropicBody.system = text
       }
 
       if (!omitAnthropicTools && params.tools && params.tools.length > 0) {
@@ -2327,14 +2495,22 @@ class OpenAIShimMessages {
       if (request.reasoning?.effort) {
         // Shim receives OpenAI effort levels (xhigh) from client.ts, but
         // Anthropic API expects 'max' not 'xhigh'. Convert for the effort field.
-        const effort = request.reasoning.effort === 'xhigh' ? 'max' : request.reasoning.effort
+        const effort =
+          request.reasoning.effort === 'xhigh'
+            ? 'max'
+            : request.reasoning.effort
         const modelLower = request.resolvedModel.toLowerCase()
-        const isAdaptive = modelLower.includes('opus-4-7') || modelLower.includes('opus-4-6') ||
+        const isAdaptive =
+          modelLower.includes('opus-4-7') ||
+          modelLower.includes('opus-4-6') ||
           modelLower.includes('opus-4-8') ||
-          modelLower.includes('opus-4.6') || modelLower.includes('opus-4.7') ||
+          modelLower.includes('opus-4.6') ||
+          modelLower.includes('opus-4.7') ||
           modelLower.includes('opus-4.8') ||
-          modelLower.includes('sonnet-4-6') || modelLower.includes('sonnet-4.6')
-        const isOpus45 = modelLower.includes('opus-4-5') || modelLower.includes('opus-4.5')
+          modelLower.includes('sonnet-4-6') ||
+          modelLower.includes('sonnet-4.6')
+        const isOpus45 =
+          modelLower.includes('opus-4-5') || modelLower.includes('opus-4.5')
 
         if (isAdaptive) {
           anthropicBody.thinking = { type: 'adaptive' }
@@ -2356,7 +2532,10 @@ class OpenAIShimMessages {
     // Converts Anthropic-format params to Google AI SDK format.
     let omitGeminiTools = false
     const buildGeminiBody = (): Record<string, unknown> => {
-      const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
+      const contents: Array<{
+        role: string
+        parts: Array<Record<string, unknown>>
+      }> = []
 
       // Build a lookup from tool_use_id → function name so tool_result
       // blocks can emit the correct functionResponse.name (Gemini requires
@@ -2368,7 +2547,11 @@ class OpenAIShimMessages {
       }>
       for (const msg of messages) {
         if (!Array.isArray(msg.content)) continue
-        for (const block of msg.content as Array<{ type?: string; id?: string; name?: string }>) {
+        for (const block of msg.content as Array<{
+          type?: string
+          id?: string
+          name?: string
+        }>) {
           if (block.type === 'tool_use' && block.id && block.name) {
             toolUseIdToName.set(block.id, block.name)
           }
@@ -2382,7 +2565,16 @@ class OpenAIShimMessages {
         if (typeof msg.content === 'string') {
           parts.push({ text: msg.content })
         } else if (Array.isArray(msg.content)) {
-          for (const block of msg.content as Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
+          for (const block of msg.content as Array<{
+            type?: string
+            text?: string
+            id?: string
+            name?: string
+            input?: unknown
+            tool_use_id?: string
+            content?: unknown
+            is_error?: boolean
+          }>) {
             if (block.type === 'text' && block.text) {
               parts.push({ text: block.text })
             } else if (block.type === 'tool_use' && block.id && block.name) {
@@ -2393,15 +2585,17 @@ class OpenAIShimMessages {
                 },
               })
             } else if (block.type === 'tool_result' && block.tool_use_id) {
-              const funcName = toolUseIdToName.get(block.tool_use_id) ?? block.tool_use_id
-              let resultContent = typeof block.content === 'string'
-                ? block.content
-                : Array.isArray(block.content)
-                  ? (block.content as Array<{ type?: string; text?: string }>)
-                    .filter(b => b.type === 'text')
-                    .map(b => b.text ?? '')
-                    .join('\n')
-                  : ''
+              const funcName =
+                toolUseIdToName.get(block.tool_use_id) ?? block.tool_use_id
+              let resultContent =
+                typeof block.content === 'string'
+                  ? block.content
+                  : Array.isArray(block.content)
+                    ? (block.content as Array<{ type?: string; text?: string }>)
+                        .filter(b => b.type === 'text')
+                        .map(b => b.text ?? '')
+                        .join('\n')
+                    : ''
               if (block.is_error) {
                 resultContent = `Error: ${resultContent}`
               }
@@ -2440,11 +2634,18 @@ class OpenAIShimMessages {
       } else if (maxCompletionTokensValue !== undefined) {
         genConfig.maxOutputTokens = maxCompletionTokensValue
       }
-      if (params.temperature !== undefined) genConfig.temperature = params.temperature
+      if (params.temperature !== undefined)
+        genConfig.temperature = params.temperature
       if (params.top_p !== undefined) genConfig.topP = params.top_p
       if (request.reasoning?.effort) {
-        const level = request.reasoning.effort === 'xhigh' ? 'high' : request.reasoning.effort
-        genConfig.thinkingConfig = { includeThoughts: true, thinkingLevel: level }
+        const level =
+          request.reasoning.effort === 'xhigh'
+            ? 'high'
+            : request.reasoning.effort
+        genConfig.thinkingConfig = {
+          includeThoughts: true,
+          thinkingLevel: level,
+        }
       }
       if (Object.keys(genConfig).length > 0) {
         geminiBody.generationConfig = genConfig
@@ -2452,11 +2653,13 @@ class OpenAIShimMessages {
 
       // Tools — convert Anthropic tool format to Google functionDeclarations
       if (!omitGeminiTools && params.tools && params.tools.length > 0) {
-        const functionDeclarations = (params.tools as Array<{
-          name?: string
-          description?: string
-          input_schema?: Record<string, unknown>
-        }>).map(tool => ({
+        const functionDeclarations = (
+          params.tools as Array<{
+            name?: string
+            description?: string
+            input_schema?: Record<string, unknown>
+          }>
+        ).map(tool => ({
           name: tool.name ?? '',
           description: tool.description ?? '',
           ...(tool.input_schema ? { parameters: tool.input_schema } : {}),
@@ -2500,14 +2703,17 @@ class OpenAIShimMessages {
       process.env.OPENAI_API_KEY ??
       xaiOAuthToken ??
       ''
-    const configuredAuthHeaderValue = process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
+    const configuredAuthHeaderValue =
+      process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
     if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
-      throw new Error('OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters')
+      throw new Error(
+        'OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters',
+      )
     }
     const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
     const hasCustomAuthHeader = Boolean(
       customAuthHeader &&
-      /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
+        /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
     )
     const authValue = hasCustomAuthHeader
       ? configuredAuthHeaderValue || apiKey
@@ -2534,7 +2740,9 @@ class OpenAIShimMessages {
       isBankr =
         runtimeShimContext.routeId === 'bankr' ||
         request.baseUrl.toLowerCase().includes('bankr')
-    } catch { /* malformed URL — not Bankr */ }
+    } catch {
+      /* malformed URL — not Bankr */
+    }
 
     if (authValue) {
       if (hasCustomAuthHeader && customAuthHeader) {
@@ -2546,9 +2754,7 @@ class OpenAIShimMessages {
             ? process.env.OPENAI_AUTH_SCHEME
             : defaultCustomAuthScheme
         headers[customAuthHeader] =
-          customAuthScheme === 'bearer'
-            ? `Bearer ${authValue}`
-            : authValue
+          customAuthScheme === 'bearer' ? `Bearer ${authValue}` : authValue
       } else if (isAzure) {
         // Azure uses api-key header instead of Bearer token
         headers['api-key'] = authValue
@@ -2567,7 +2773,11 @@ class OpenAIShimMessages {
       const geminiCredential = await resolveGeminiCredential(process.env)
       if (geminiCredential.kind !== 'none') {
         headers.Authorization = `Bearer ${geminiCredential.credential}`
-        if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
+        if (
+          geminiCredential.kind !== 'api-key' &&
+          'projectId' in geminiCredential &&
+          geminiCredential.projectId
+        ) {
           headers['x-goog-user-project'] = geminiCredential.projectId
         }
       }
@@ -2592,8 +2802,11 @@ class OpenAIShimMessages {
       // Azure Cognitive Services / Azure OpenAI require a deployment-specific
       // path and an api-version query parameter.
       if (isAzure) {
-        const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-        const deployment = encodeURIComponent(request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o')
+        const apiVersion =
+          process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
+        const deployment = encodeURIComponent(
+          request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o',
+        )
 
         // If base URL already contains /deployments/, use it as-is with api-version.
         if (/\/deployments\//i.test(baseUrl)) {
@@ -2620,7 +2833,8 @@ class OpenAIShimMessages {
       if (shimConfig.endpointPath) {
         return `${baseUrl}${shimConfig.endpointPath}`
       }
-      return request.transport === 'responses' || request.transport === 'responses_compat'
+      return request.transport === 'responses' ||
+        request.transport === 'responses_compat'
         ? `${baseUrl}/responses`
         : buildChatCompletionsUrl(baseUrl)
     }
@@ -2657,19 +2871,30 @@ class OpenAIShimMessages {
     const bodyContainsImages = (): boolean => {
       if (request.transport === 'responses') {
         const responsesBody = buildResponsesBody()
-        const input = responsesBody.input as Array<Record<string, unknown>> | undefined
+        const input = responsesBody.input as
+          | Array<Record<string, unknown>>
+          | undefined
         if (!Array.isArray(input)) return false
         return input.some(item => {
-          const content = item.content as Array<Record<string, unknown>> | undefined
-          return Array.isArray(content) && content.some(part => part.type === 'input_image')
+          const content = item.content as
+            | Array<Record<string, unknown>>
+            | undefined
+          return (
+            Array.isArray(content) &&
+            content.some(part => part.type === 'input_image')
+          )
         })
       }
-      const messages = body.messages as Array<Record<string, unknown>> | undefined
+      const messages = body.messages as
+        | Array<Record<string, unknown>>
+        | undefined
       if (!Array.isArray(messages)) return false
       return messages.some(msg => {
         const content = msg.content
         if (!Array.isArray(content)) return false
-        return content.some((part: Record<string, unknown>) => part.type === 'image_url')
+        return content.some(
+          (part: Record<string, unknown>) => part.type === 'image_url',
+        )
       })
     }
 
@@ -2684,10 +2909,14 @@ class OpenAIShimMessages {
     // `JSON.stringify` fast path when the fast-path config opts out.
     const serializeBody = (): string => {
       const payload =
-        effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' ? buildResponsesBody()
-          : effectiveTransport === 'anthropic_messages' ? buildAnthropicMessagesBody()
-          : effectiveTransport === 'gemini' ? buildGeminiBody()
-          : body
+        effectiveTransport === 'responses' ||
+        effectiveTransport === 'responses_compat'
+          ? buildResponsesBody()
+          : effectiveTransport === 'anthropic_messages'
+            ? buildAnthropicMessagesBody()
+            : effectiveTransport === 'gemini'
+              ? buildGeminiBody()
+              : body
       return fastPath.skipStableStringify
         ? JSON.stringify(payload)
         : stableStringifyJson(payload)
@@ -2705,10 +2934,9 @@ class OpenAIShimMessages {
       signal: options?.signal,
     })
 
-    const maxSelfHealAttempts = isLocal
-      ? localRetryBaseUrls.length + 1
-      : 0
-    const maxAttempts = (isGithub ? GITHUB_429_MAX_RETRIES : 1) + maxSelfHealAttempts
+    const maxSelfHealAttempts = isLocal ? localRetryBaseUrls.length + 1 : 0
+    const maxAttempts =
+      (isGithub ? GITHUB_429_MAX_RETRIES : 1) + maxSelfHealAttempts
 
     const throwClassifiedTransportError = (
       error: unknown,
@@ -2764,7 +2992,10 @@ class OpenAIShimMessages {
           url: requestUrl,
           hasImages: bodyContainsImages(),
         })
-      const failureWithUrl = { ...failure, requestUrl: failure.requestUrl ?? requestUrl }
+      const failureWithUrl = {
+        ...failure,
+        requestUrl: failure.requestUrl ?? requestUrl,
+      }
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
 
       logForDebugging(
@@ -2784,19 +3015,26 @@ class OpenAIShimMessages {
     }
 
     let response: Response | undefined
-    const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
-      : request.baseUrl.includes('minimax') ? 'minimax'
-      : request.baseUrl.includes('xiaomimimo') || request.baseUrl.includes('mimo-v2') ? 'xiaomi-mimo'
-      : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
-      : request.baseUrl.includes('anthropic') ? 'anthropic'
-      : 'openai'
-    const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
+    const provider = request.baseUrl.includes('nvidia')
+      ? 'nvidia-nim'
+      : request.baseUrl.includes('minimax')
+        ? 'minimax'
+        : request.baseUrl.includes('xiaomimimo') ||
+            request.baseUrl.includes('mimo-v2')
+          ? 'xiaomi-mimo'
+          : request.baseUrl.includes('localhost:11434') ||
+              request.baseUrl.includes('localhost:11435')
+            ? 'ollama'
+            : request.baseUrl.includes('anthropic')
+              ? 'anthropic'
+              : 'openai'
+    const { correlationId, startTime } = logApiCallStart(
+      provider,
+      request.resolvedModel,
+    )
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        response = await fetchWithProxyRetry(
-          requestUrl,
-          buildFetchInit(),
-        )
+        response = await fetchWithProxyRetry(requestUrl, buildFetchInit())
       } catch (error) {
         const isAbortError =
           options?.signal?.aborted === true ||
@@ -2843,17 +3081,23 @@ class OpenAIShimMessages {
             const data = await clone.json()
             tokensIn = data.usage?.prompt_tokens ?? 0
             tokensOut = data.usage?.completion_tokens ?? 0
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
-        logApiCallEnd(correlationId, startTime, request.resolvedModel, 'success', tokensIn, tokensOut, false)
+        logApiCallEnd(
+          correlationId,
+          startTime,
+          request.resolvedModel,
+          'success',
+          tokensIn,
+          tokensOut,
+          false,
+        )
         return response
       }
 
-      if (
-        isGithub &&
-        response.status === 429 &&
-        attempt < maxAttempts - 1
-      ) {
+      if (isGithub && response.status === 429 && attempt < maxAttempts - 1) {
         await response.text().catch(() => {})
         const delaySec = Math.min(
           GITHUB_429_BASE_DELAY_SEC * 2 ** attempt,
@@ -2866,12 +3110,17 @@ class OpenAIShimMessages {
       // be consumed a single time.
       const errorBody = await response.text().catch(() => 'unknown error')
       const rateHint =
-        isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
+        isGithub && response.status === 429
+          ? formatRetryAfterHint(response)
+          : ''
 
       // If GitHub Copilot returns error about /chat/completions,
       // try the /responses endpoint (needed for GPT-5+ models)
       if (isGithub && response.status === 400) {
-        if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
+        if (
+          errorBody.includes('/chat/completions') ||
+          errorBody.includes('not accessible')
+        ) {
           const responsesUrl = `${request.baseUrl}/responses`
           const responsesBody = buildResponsesBody()
 
@@ -2890,14 +3139,20 @@ class OpenAIShimMessages {
           if (responsesResponse.ok) {
             return responsesResponse
           }
-          const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
+          const responsesErrorBody = await responsesResponse
+            .text()
+            .catch(() => 'unknown error')
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,
             hasImages: bodyContainsImages(),
           })
           let responsesErrorResponse: object | undefined
-          try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
+          try {
+            responsesErrorResponse = JSON.parse(responsesErrorBody)
+          } catch {
+            /* raw text */
+          }
           throwClassifiedHttpError(
             responsesResponse.status,
             responsesErrorBody,
@@ -2925,7 +3180,10 @@ class OpenAIShimMessages {
       }
 
       const hasToolsPayload =
-        effectiveTransport === 'responses' || effectiveTransport === 'responses_compat' || effectiveTransport === 'anthropic_messages' || effectiveTransport === 'gemini'
+        effectiveTransport === 'responses' ||
+        effectiveTransport === 'responses_compat' ||
+        effectiveTransport === 'anthropic_messages' ||
+        effectiveTransport === 'gemini'
           ? Array.isArray(params.tools) && params.tools.length > 0
           : Array.isArray(body.tools) && body.tools.length > 0
 
@@ -2953,7 +3211,11 @@ class OpenAIShimMessages {
       }
 
       let errorResponse: object | undefined
-      try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
+      try {
+        errorResponse = JSON.parse(errorBody)
+      } catch {
+        /* raw text */
+      }
       throwClassifiedHttpError(
         response.status,
         errorBody,
@@ -2966,7 +3228,9 @@ class OpenAIShimMessages {
     }
 
     throw APIError.generate(
-      500, undefined, 'OpenAI shim: request loop exited unexpectedly',
+      500,
+      undefined,
+      'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
   }
@@ -2978,10 +3242,7 @@ class OpenAIShimMessages {
       choices?: Array<{
         message?: {
           role?: string
-          content?:
-            | string
-            | null
-            | Array<{ type?: string; text?: string }>
+          content?: string | null | Array<{ type?: string; text?: string }>
           reasoning_content?: string | null
           extra_content?: Record<string, unknown>
           tool_calls?: Array<{
@@ -3078,7 +3339,8 @@ class OpenAIShimMessages {
           tc.function.name,
           tc.function.arguments,
         )
-        const toolExtraContent = tc.extra_content ?? choice.message.extra_content
+        const toolExtraContent =
+          tc.extra_content ?? choice.message.extra_content
         const toolSignature =
           geminiThoughtSignatureFromExtraContent(tc.extra_content) ??
           geminiThoughtSignatureFromExtraContent(choice.message.extra_content)
@@ -3091,7 +3353,9 @@ class OpenAIShimMessages {
           id: tc.id,
           name: tc.function.name,
           input,
-          ...(mergedToolExtraContent ? { extra_content: mergedToolExtraContent } : {}),
+          ...(mergedToolExtraContent
+            ? { extra_content: mergedToolExtraContent }
+            : {}),
           ...(toolSignature ? { signature: toolSignature } : {}),
         })
       }
@@ -3105,7 +3369,10 @@ class OpenAIShimMessages {
           ? 'max_tokens'
           : 'end_turn'
 
-    if (choice?.finish_reason === 'content_filter' || choice?.finish_reason === 'safety') {
+    if (
+      choice?.finish_reason === 'content_filter' ||
+      choice?.finish_reason === 'safety'
+    ) {
       content.push({
         type: 'text',
         text: '\n\n[Content blocked by provider safety filter]',
@@ -3132,9 +3399,13 @@ class OpenAIShimMessages {
   ) {
     const content: Array<Record<string, unknown>> = []
     let hasToolUse = false
-    const candidates = data.candidates as Array<Record<string, unknown>> | undefined
+    const candidates = data.candidates as
+      | Array<Record<string, unknown>>
+      | undefined
     const candidate = candidates?.[0]
-    const candidateContent = candidate?.content as { parts?: Array<Record<string, unknown>> } | undefined
+    const candidateContent = candidate?.content as
+      | { parts?: Array<Record<string, unknown>> }
+      | undefined
 
     if (candidateContent?.parts) {
       for (const part of candidateContent.parts) {
@@ -3142,7 +3413,9 @@ class OpenAIShimMessages {
         if (text) {
           content.push({ type: 'text', text })
         }
-        const fc = part.functionCall as { name?: string; args?: unknown } | undefined
+        const fc = part.functionCall as
+          | { name?: string; args?: unknown }
+          | undefined
         if (fc?.name) {
           hasToolUse = true
           content.push({
@@ -3155,17 +3428,20 @@ class OpenAIShimMessages {
       }
     }
 
-    const stopReason =
-      hasToolUse
-        ? 'tool_use'
-        : candidate?.finishReason === 'MAX_TOKENS'
-          ? 'max_tokens'
-          : 'end_turn'
+    const stopReason = hasToolUse
+      ? 'tool_use'
+      : candidate?.finishReason === 'MAX_TOKENS'
+        ? 'max_tokens'
+        : 'end_turn'
 
-    const usageMetadata = data.usageMetadata as Record<string, number> | undefined
+    const usageMetadata = data.usageMetadata as
+      | Record<string, number>
+      | undefined
     const usage = buildAnthropicUsageFromRawUsage({
       input_tokens: usageMetadata?.promptTokenCount ?? 0,
-      output_tokens: (usageMetadata?.candidatesTokenCount ?? 0) + (usageMetadata?.thoughtsTokenCount ?? 0),
+      output_tokens:
+        (usageMetadata?.candidatesTokenCount ?? 0) +
+        (usageMetadata?.thoughtsTokenCount ?? 0),
     } as unknown as Record<string, unknown>)
 
     return {
@@ -3185,8 +3461,16 @@ class OpenAIShimBeta {
   messages: OpenAIShimMessages
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
-    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
+  constructor(
+    defaultHeaders: Record<string, string>,
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh',
+    providerOverride?: { model: string; baseURL: string; apiKey: string },
+  ) {
+    this.messages = new OpenAIShimMessages(
+      defaultHeaders,
+      reasoningEffort,
+      providerOverride,
+    )
     this.reasoningEffort = reasoningEffort
   }
 }
@@ -3202,9 +3486,13 @@ export function createOpenAIShimClient(options: {
   hydrateGithubModelsTokenFromSecureStorage()
   hydrateOpenAIShimCompatibilityEnv()
 
-  const beta = new OpenAIShimBeta({
-    ...(options.defaultHeaders ?? {}),
-  }, options.reasoningEffort, options.providerOverride)
+  const beta = new OpenAIShimBeta(
+    {
+      ...(options.defaultHeaders ?? {}),
+    },
+    options.reasoningEffort,
+    options.providerOverride,
+  )
 
   return {
     beta,

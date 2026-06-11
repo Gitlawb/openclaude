@@ -204,7 +204,7 @@ describe('SDK context isolation', () => {
       expect(getParentSessionId()).toBeUndefined()
     })
 
-    test('sequential SDK contexts do not overwrite each other\'s parentSessionId', () => {
+    test("sequential SDK contexts do not overwrite each other's parentSessionId", () => {
       const ctxA = {
         sessionId: '11111111-1111-4111-8111-111111111111' as SessionId,
         sessionProjectDir: null,

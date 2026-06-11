@@ -79,7 +79,8 @@ mock.module('./installedPluginsManager.js', () => ({
   removePluginInstallation: mock(() => {}),
   resetInMemoryState: mock(() => {}),
   isPluginInstalled: (pluginId: string) => installedPlugins.has(pluginId),
-  isPluginGloballyInstalled: (pluginId: string) => installedPlugins.has(pluginId),
+  isPluginGloballyInstalled: (pluginId: string) =>
+    installedPlugins.has(pluginId),
   updateInstallationPathOnDisk: mock(() => {}),
 }))
 
@@ -105,9 +106,11 @@ mock.module('../config.js', () => ({
   isProjectConfigKey: () => false,
   resetTrustDialogAcceptedCacheForTesting: mock(() => {}),
   shouldSkipPluginAutoupdate: () => false,
-  saveGlobalConfig: mock((updater: (current: typeof config) => typeof config) => {
-    config = updater(config)
-  }),
+  saveGlobalConfig: mock(
+    (updater: (current: typeof config) => typeof config) => {
+      config = updater(config)
+    },
+  ),
   saveCurrentProjectConfig: mock(() => {}),
 }))
 
@@ -227,10 +230,7 @@ describe('listLspPluginCandidates', () => {
 
 describe('getMatchingLspPlugins', () => {
   test('keeps passive recommendations limited to installable non-installed plugins', async () => {
-    installedBinaries = new Set([
-      'typescript-language-server',
-      'rust-analyzer',
-    ])
+    installedBinaries = new Set(['typescript-language-server', 'rust-analyzer'])
     installedPlugins = new Set(['typescript-lsp@claude-plugins-official'])
 
     const matches = await getMatchingLspPlugins('src/main.rs')

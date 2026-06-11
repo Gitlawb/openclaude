@@ -5,7 +5,12 @@
  * Run as part of the build to catch missing externals early.
  */
 import { readFileSync } from 'fs'
-import { CLI_EXTERNALS, SDK_EXTERNALS, INTENTIONALLY_BUNDLED, OPTIONAL_RUNTIME_EXTERNALS } from './externals.js'
+import {
+  CLI_EXTERNALS,
+  SDK_EXTERNALS,
+  INTENTIONALLY_BUNDLED,
+  OPTIONAL_RUNTIME_EXTERNALS,
+} from './externals.js'
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
 const allDeps = new Set([
@@ -33,15 +38,21 @@ function validate(bundleName: string, externals: string[]): boolean {
   }
 
   const optionalSet = new Set(OPTIONAL_RUNTIME_EXTERNALS)
-  const extra = [...externalSet].filter(d => !allDeps.has(d) && !optionalSet.has(d))
+  const extra = [...externalSet].filter(
+    d => !allDeps.has(d) && !optionalSet.has(d),
+  )
   if (extra.length > 0) {
-    console.warn(`⚠️  ${bundleName}: External entries not in package.json (may be ok):`)
+    console.warn(
+      `⚠️  ${bundleName}: External entries not in package.json (may be ok):`,
+    )
     for (const dep of extra) {
       console.warn(`   - ${dep}`)
     }
   }
 
-  console.log(`✓ ${bundleName}: All dependencies accounted for (${missing.length} missing, ${externalSet.size} external)`)
+  console.log(
+    `✓ ${bundleName}: All dependencies accounted for (${missing.length} missing, ${externalSet.size} external)`,
+  )
   return true
 }
 
@@ -59,7 +70,9 @@ function validateIntentionallyBundled(): boolean {
     return false
   }
 
-  console.log(`✓ INTENTIONALLY_BUNDLED: All entries still exist in package.json (${INTENTIONALLY_BUNDLED.length} entries)`)
+  console.log(
+    `✓ INTENTIONALLY_BUNDLED: All entries still exist in package.json (${INTENTIONALLY_BUNDLED.length} entries)`,
+  )
   return true
 }
 
@@ -68,7 +81,9 @@ const sdkOk = validate('SDK bundle', SDK_EXTERNALS)
 const intentionallyBundledOk = validateIntentionallyBundled()
 
 if (!cliOk || !sdkOk || !intentionallyBundledOk) {
-  console.error(`\n❌ External list validation failed. Fix scripts/externals.ts before committing.`)
+  console.error(
+    `\n❌ External list validation failed. Fix scripts/externals.ts before committing.`,
+  )
   process.exit(1)
 }
 
@@ -87,7 +102,10 @@ function extractExportNames(filePath: string): Set<string> {
   // Match: export { name1, name2 } / export type { name1 } / export class/function/interface/const/type Name
   for (const match of content.matchAll(/export\s+(?:type\s+)?\{([^}]+)\}/g)) {
     for (const name of match[1].split(',')) {
-      const trimmed = name.trim().split(/\s+as\s+/)[0].trim()
+      const trimmed = name
+        .trim()
+        .split(/\s+as\s+/)[0]
+        .trim()
       if (trimmed) names.add(trimmed)
     }
   }
@@ -119,4 +137,6 @@ if (inDtsNotIndex.length > 0 || inIndexNotDts.length > 0) {
   process.exit(1)
 }
 
-console.log(`✓ SDK type declarations in sync (${dtsExports.size} exports match).`)
+console.log(
+  `✓ SDK type declarations in sync (${dtsExports.size} exports match).`,
+)

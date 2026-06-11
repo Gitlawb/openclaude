@@ -50,10 +50,8 @@ afterEach(() => {
 })
 
 test('saveGeminiAccessToken stores and reads back the token', async () => {
-  const {
-    readGeminiAccessToken,
-    saveGeminiAccessToken,
-  } = await importFreshModule()
+  const { readGeminiAccessToken, saveGeminiAccessToken } =
+    await importFreshModule()
 
   const result = saveGeminiAccessToken('token-123')
   expect(result.success).toBe(true)

@@ -140,7 +140,10 @@ describe('extractCacheReadFromRawUsage — single source of truth for shim layer
 
   test('Kimi / Moonshot: top-level cached_tokens', () => {
     expect(
-      extractCacheReadFromRawUsage({ prompt_tokens: 1_000, cached_tokens: 400 }),
+      extractCacheReadFromRawUsage({
+        prompt_tokens: 1_000,
+        cached_tokens: 400,
+      }),
     ).toBe(400)
   })
 
@@ -219,9 +222,9 @@ describe('extractCacheMetrics — bad/empty input', () => {
   })
 
   test('non-object usage returns unsupported', () => {
-    expect(extractCacheMetrics('oops' as unknown as never, 'openai').supported).toBe(
-      false,
-    )
+    expect(
+      extractCacheMetrics('oops' as unknown as never, 'openai').supported,
+    ).toBe(false)
   })
 })
 
@@ -248,16 +251,22 @@ describe('resolveCacheProvider', () => {
     // (could be vLLM, LM Studio, LocalAI, text-generation-webui).
     // Both buckets collapse to supported=false downstream.
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://localhost:8080/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://localhost:8080/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://127.0.0.1:1234/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://127.0.0.1:1234/v1',
+      }),
     ).toBe('self-hosted')
     // Localhost:11434 hits the self-hosted branch first — 'ollama' only
     // kicks in when the :11434 port appears on a public-looking URL
     // (which would be unusual but still deserves honest classification).
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://localhost:11434/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://localhost:11434/v1',
+      }),
     ).toBe('self-hosted')
     expect(
       resolveCacheProvider('openai', { openAiBaseUrl: 'http://[::1]:5000/v1' }),
@@ -272,22 +281,32 @@ describe('resolveCacheProvider', () => {
     // didn't report cache fields. Now they land in 'self-hosted' and
     // /cache-stats shows '[Cache: N/A]'.
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://192.168.1.50:8000/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://192.168.1.50:8000/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://10.0.0.7:8080/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://10.0.0.7:8080/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://172.20.0.3:5000/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://172.20.0.3:5000/v1',
+      }),
     ).toBe('self-hosted')
   })
 
   test('openai on link-local / CGNAT → self-hosted', () => {
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://169.254.169.254/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://169.254.169.254/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://100.64.1.5:8000/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://100.64.1.5:8000/v1',
+      }),
     ).toBe('self-hosted')
   })
 
@@ -295,28 +314,42 @@ describe('resolveCacheProvider', () => {
     // Per RFC 6761 (.local/mDNS), RFC 8375 (.home.arpa), and widely
     // used .internal / .lan conventions. These never resolve publicly.
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://llm.internal:5000/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://llm.internal:5000/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://llm.local:8080/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://llm.local:8080/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://vllm.home.arpa/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://vllm.home.arpa/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://box.lan:1234/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://box.lan:1234/v1',
+      }),
     ).toBe('self-hosted')
   })
 
   test('openai on IPv6 local / link-local → self-hosted', () => {
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fe80::1]:8000/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://[fe80::1]:8000/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fd12:3456::7]:8080/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://[fd12:3456::7]:8080/v1',
+      }),
     ).toBe('self-hosted')
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fc00::1]:8080/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://[fc00::1]:8080/v1',
+      }),
     ).toBe('self-hosted')
   })
 
@@ -356,12 +389,16 @@ describe('resolveCacheProvider', () => {
 
   test('openai with moonshot URL → kimi', () => {
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'https://api.moonshot.ai/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://api.moonshot.ai/v1',
+      }),
     ).toBe('kimi')
   })
   test('openai with deepseek URL → deepseek', () => {
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'https://api.deepseek.com/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://api.deepseek.com/v1',
+      }),
     ).toBe('deepseek')
   })
   test('private IP beats hosted-keyword matching (self-hosted takes priority)', () => {
@@ -377,7 +414,9 @@ describe('resolveCacheProvider', () => {
   })
   test('plain openai remains openai', () => {
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'https://api.openai.com/v1' }),
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://api.openai.com/v1',
+      }),
     ).toBe('openai')
   })
   test('unparseable base URL falls back to substring heuristic', () => {
@@ -389,16 +428,14 @@ describe('resolveCacheProvider', () => {
     ).toBe('self-hosted')
     // An unparseable and opaque string falls through to plain 'openai'
     // (best-effort — nothing we can infer from "foo-bar-baz").
-    expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: '???' }),
-    ).toBe('openai')
+    expect(resolveCacheProvider('openai', { openAiBaseUrl: '???' })).toBe(
+      'openai',
+    )
   })
   test('empty base URL → plain openai', () => {
     // No hint at all: assume the canonical api.openai.com.
     expect(resolveCacheProvider('openai')).toBe('openai')
-    expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: '' }),
-    ).toBe('openai')
+    expect(resolveCacheProvider('openai', { openAiBaseUrl: '' })).toBe('openai')
   })
   test('codex → codex', () => {
     expect(resolveCacheProvider('codex')).toBe('codex')
@@ -556,10 +593,7 @@ describe('formatCacheMetrics — defensive null/undefined guards', () => {
 
 describe('formatCacheMetricsCompact — self-hosted display paths', () => {
   test('vanilla self-hosted (no cache data) renders as N/A', () => {
-    const metrics = extractCacheMetrics(
-      { input_tokens: 500 },
-      'self-hosted',
-    )
+    const metrics = extractCacheMetrics({ input_tokens: 500 }, 'self-hosted')
     expect(formatCacheMetricsCompact(metrics)).toBe('[Cache: N/A]')
     expect(formatCacheMetricsFull(metrics)).toBe('[Cache: N/A]')
   })
@@ -576,7 +610,9 @@ describe('formatCacheMetricsCompact — self-hosted display paths', () => {
       },
       'self-hosted',
     )
-    expect(formatCacheMetricsCompact(metrics)).toBe('[Cache: 1.2k read • hit 60%]')
+    expect(formatCacheMetricsCompact(metrics)).toBe(
+      '[Cache: 1.2k read • hit 60%]',
+    )
     expect(formatCacheMetricsFull(metrics)).toBe(
       '[Cache: read=1.2k created=0 hit=60%]',
     )
@@ -674,7 +710,11 @@ describe('hit-rate edge cases (plan-mandated coverage)', () => {
 
   test('read only (no created) computes proportion correctly', () => {
     const m = extractCacheMetrics(
-      { input_tokens: 0, cache_read_input_tokens: 800, cache_creation_input_tokens: 0 },
+      {
+        input_tokens: 0,
+        cache_read_input_tokens: 800,
+        cache_creation_input_tokens: 0,
+      },
       'anthropic',
     )
     expect(m.read).toBe(800)

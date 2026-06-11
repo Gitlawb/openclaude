@@ -11,7 +11,10 @@ import type { SettingsJson } from '../../utils/settings/types.js'
 
 const baseSettings = {
   agentModels: {
-    'deepseek-chat': { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds' },
+    'deepseek-chat': {
+      base_url: 'https://api.deepseek.com/v1',
+      api_key: 'sk-ds',
+    },
     'gpt-4o': { base_url: 'https://api.openai.com/v1', api_key: 'sk-oai' },
   },
   agentRouting: {
@@ -83,7 +86,11 @@ describe('resolveAgentProvider', () => {
   })
 
   test('hyphen and underscore are equivalent', () => {
-    const result = resolveAgentProvider(undefined, 'general_purpose', baseSettings)
+    const result = resolveAgentProvider(
+      undefined,
+      'general_purpose',
+      baseSettings,
+    )
     expect(result?.model).toBe('gpt-4o')
   })
 
@@ -103,12 +110,16 @@ describe('resolveAgentProvider', () => {
   })
 
   test('returns null when agentRouting is missing', () => {
-    const settings = { agentModels: baseSettings.agentModels } as unknown as SettingsJson
+    const settings = {
+      agentModels: baseSettings.agentModels,
+    } as unknown as SettingsJson
     expect(resolveAgentProvider(undefined, 'Explore', settings)).toBeNull()
   })
 
   test('returns null when agentModels is missing', () => {
-    const settings = { agentRouting: baseSettings.agentRouting } as unknown as SettingsJson
+    const settings = {
+      agentRouting: baseSettings.agentRouting,
+    } as unknown as SettingsJson
     expect(resolveAgentProvider(undefined, 'Explore', settings)).toBeNull()
   })
 
@@ -165,7 +176,6 @@ describe('resolveAgentProvider', () => {
 
     expect(resolveAgentProvider(undefined, undefined, settings)).toBeNull()
   })
-
 })
 
 describe('resolveAgentModelProvider', () => {
@@ -174,7 +184,9 @@ describe('resolveAgentModelProvider', () => {
   })
 
   test('returns null when agentModels is missing', () => {
-    const settings = { agentRouting: baseSettings.agentRouting } as unknown as SettingsJson
+    const settings = {
+      agentRouting: baseSettings.agentRouting,
+    } as unknown as SettingsJson
     expect(resolveAgentModelProvider('deepseek-chat', settings)).toBeNull()
   })
 

@@ -34,7 +34,9 @@ export function serializeProfileCustomHeaders(
   if (entries.length === 0) {
     return undefined
   }
-  return entries.map(([name, value]) => `${name.trim()}: ${value.trim()}`).join('\n')
+  return entries
+    .map(([name, value]) => `${name.trim()}: ${value.trim()}`)
+    .join('\n')
 }
 
 export function parseProfileCustomHeadersInput(input: string): {

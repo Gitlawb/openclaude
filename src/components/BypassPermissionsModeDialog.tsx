@@ -66,8 +66,8 @@ export function BypassPermissionsModeDialog({
     >
       <Box flexDirection="column" gap={1}>
         <Text>
-          In {modeTitle} mode, {PRODUCT_DISPLAY_NAME} will not ask for your approval
-          before running potentially dangerous commands.
+          In {modeTitle} mode, {PRODUCT_DISPLAY_NAME} will not ask for your
+          approval before running potentially dangerous commands.
           <Newline />
           This mode should only be used in a sandboxed container/VM that has
           restricted internet access and can easily be restored if damaged.

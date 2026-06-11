@@ -14,9 +14,9 @@ describe('normalizeToolArguments', () => {
     })
 
     test('passes through structured JSON object', () => {
-      expect(
-        normalizeToolArguments('Bash', '{"command":"echo hi"}'),
-      ).toEqual({ command: 'echo hi' })
+      expect(normalizeToolArguments('Bash', '{"command":"echo hi"}')).toEqual({
+        command: 'echo hi',
+      })
     })
 
     test('returns empty object for blank string', () => {
@@ -37,12 +37,9 @@ describe('normalizeToolArguments', () => {
       ['{command:"pwd"}'],
       ["{'command':'pwd'}"],
       ['{command: pwd}'],
-    ])(
-      'returns empty object for malformed object-shaped string %s (does not wrap into command)',
-      (input) => {
-        expect(normalizeToolArguments('Bash', input)).toEqual({})
-      },
-    )
+    ])('returns empty object for malformed object-shaped string %s (does not wrap into command)', input => {
+      expect(normalizeToolArguments('Bash', input)).toEqual({})
+    })
 
     test.each([
       ['false', false],
@@ -51,12 +48,9 @@ describe('normalizeToolArguments', () => {
       ['0', 0],
       ['true', true],
       ['123', 123],
-    ])(
-      'preserves JSON literal %s as-is (does not wrap into command)',
-      (input, expected) => {
-        expect(normalizeToolArguments('Bash', input)).toEqual(expected)
-      },
-    )
+    ])('preserves JSON literal %s as-is (does not wrap into command)', (input, expected) => {
+      expect(normalizeToolArguments('Bash', input)).toEqual(expected)
+    })
 
     test('wraps JSON-encoded string into { command }', () => {
       expect(normalizeToolArguments('Bash', '"pwd"')).toEqual({
@@ -160,9 +154,9 @@ describe('normalizeToolArguments', () => {
     })
 
     test('passes through structured JSON object', () => {
-      expect(
-        normalizeToolArguments('UnknownTool', '{"key":"val"}'),
-      ).toEqual({ key: 'val' })
+      expect(normalizeToolArguments('UnknownTool', '{"key":"val"}')).toEqual({
+        key: 'val',
+      })
     })
 
     test('preserves JSON literals as-is', () => {
@@ -172,9 +166,7 @@ describe('normalizeToolArguments', () => {
     })
 
     test('returns parsed string for JSON-encoded string on unknown tools', () => {
-      expect(normalizeToolArguments('UnknownTool', '"hello"')).toEqual(
-        'hello',
-      )
+      expect(normalizeToolArguments('UnknownTool', '"hello"')).toEqual('hello')
     })
   })
 })

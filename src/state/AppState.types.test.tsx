@@ -8,18 +8,19 @@ import {
 
 type Assert<T extends true> = T
 type IsAny<T> = 0 extends 1 & T ? true : false
-type IsEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends <
-  T,
->() => T extends B ? 1 : 2
-  ? true
-  : false
+type IsEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false
 
 function assertAppStateHookTypes(): void {
   const anySelector = ((state: unknown) => state) as any
 
   const verbose = useAppState(state => state.verbose)
   type _VerboseIsBoolean = Assert<IsEqual<typeof verbose, boolean>>
-  type _VerboseIsNotAny = Assert<IsAny<typeof verbose> extends false ? true : false>
+  type _VerboseIsNotAny = Assert<
+    IsAny<typeof verbose> extends false ? true : false
+  >
 
   const anySelected = useAppState(anySelector)
   type _AnySelectorStaysAny = Assert<
@@ -29,9 +30,7 @@ function assertAppStateHookTypes(): void {
   // @ts-expect-error Compatibility overload is reserved for compiler-erased `any` selectors.
   useAppState((state: { missing: string }) => state.missing)
 
-  const maybeVerbose = useAppStateMaybeOutsideOfProvider(
-    state => state.verbose,
-  )
+  const maybeVerbose = useAppStateMaybeOutsideOfProvider(state => state.verbose)
   type _MaybeVerboseIsOptionalBoolean = Assert<
     IsEqual<typeof maybeVerbose, boolean | undefined>
   >
@@ -44,6 +43,9 @@ function assertAppStateHookTypes(): void {
     IsAny<typeof maybeAnySelected> extends true ? true : false
   >
 
+  // The call must stay on one line: @ts-expect-error suppresses the next
+  // line only, and tsc reports the overload error at the argument position.
+  // biome-ignore format: keep the erroring expression adjacent to the directive
   // @ts-expect-error Compatibility overload is reserved for compiler-erased `any` selectors.
   useAppStateMaybeOutsideOfProvider((state: { missing: string }) => state.missing)
 

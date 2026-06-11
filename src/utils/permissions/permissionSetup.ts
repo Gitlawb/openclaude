@@ -682,10 +682,7 @@ export function applyPermissionUpdatesToLiveContext(
 ): ToolPermissionContext {
   let updatedContext = context
   for (const update of updates) {
-    updatedContext = applyPermissionUpdateToLiveContext(
-      updatedContext,
-      update,
-    )
+    updatedContext = applyPermissionUpdateToLiveContext(updatedContext, update)
   }
 
   return updatedContext
@@ -897,8 +894,7 @@ export function initialPermissionModeFromCLI({
         logForDebugging(`${mode} mode is disabled by Statsig gate`, {
           level: 'warn',
         })
-        notification =
-          `${permissionModeTitle(mode)} mode was disabled by your organization policy`
+        notification = `${permissionModeTitle(mode)} mode was disabled by your organization policy`
       } else {
         logForDebugging(`${mode} mode is disabled by settings`, {
           level: 'warn',

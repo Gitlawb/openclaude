@@ -11,7 +11,9 @@ export function snakeToCamel(s: string): string {
   // Handle dunder names like __proto__ - strip leading and trailing __ and capitalize first letter
   if (s.startsWith('__') && s.endsWith('__') && s.length > 4) {
     const inner = s.slice(2, -2)
-    const converted = inner.replace(/_+([a-z])/g, (_, c: string) => c.toUpperCase())
+    const converted = inner.replace(/_+([a-z])/g, (_, c: string) =>
+      c.toUpperCase(),
+    )
     // Capitalize first letter for dunder names
     return converted.charAt(0).toUpperCase() + converted.slice(1)
   }

@@ -204,11 +204,11 @@ describe('AgentTool output status contract', () => {
 
   test('does not render the removed remote-launched status', async () => {
     const output = await renderToString(
-      renderToolResultMessage(
-        { status: 'remote_launched' } as never,
-        [],
-        { tools: [], verbose: false, theme: 'dark' },
-      ),
+      renderToolResultMessage({ status: 'remote_launched' } as never, [], {
+        tools: [],
+        verbose: false,
+        theme: 'dark',
+      }),
       80,
     )
 

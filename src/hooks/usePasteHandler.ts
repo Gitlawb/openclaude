@@ -18,9 +18,7 @@ const PASTE_COMPLETION_TIMEOUT_MS = 100
 export function supportsClipboardImageFallback(
   platform: ReturnType<typeof getPlatform>,
 ): boolean {
-  return (
-    platform === 'macos' || platform === 'windows' || platform === 'linux'
-  )
+  return platform === 'macos' || platform === 'windows' || platform === 'linux'
 }
 
 type PasteHandlerProps = {

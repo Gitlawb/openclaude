@@ -29,16 +29,24 @@ export function validateArrayOf<T>(
 /**
  * Assert that a value is a non-empty string.
  */
-export function assertNonEmptyString(value: unknown, field: string): asserts value is string {
+export function assertNonEmptyString(
+  value: unknown,
+  field: string,
+): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new TypeError(`missing or empty '${field}' (expected non-empty string)`)
+    throw new TypeError(
+      `missing or empty '${field}' (expected non-empty string)`,
+    )
   }
 }
 
 /**
  * Assert that a value is a non-null object (but not an array).
  */
-export function assertObject(value: unknown, field: string): asserts value is Record<string, unknown> {
+export function assertObject(
+  value: unknown,
+  field: string,
+): asserts value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`missing or invalid '${field}' (expected object)`)
   }
@@ -47,7 +55,10 @@ export function assertObject(value: unknown, field: string): asserts value is Re
 /**
  * Assert that a value is a function.
  */
-export function assertFunction(value: unknown, field: string): asserts value is (...args: any[]) => any {
+export function assertFunction(
+  value: unknown,
+  field: string,
+): asserts value is (...args: any[]) => any {
   if (typeof value !== 'function') {
     throw new TypeError(`missing or invalid '${field}' (expected function)`)
   }

@@ -77,7 +77,8 @@ describe('requestDeviceCode', () => {
       if (body instanceof URLSearchParams) {
         capturedScope = body.get('scope') ?? ''
       } else {
-        capturedScope = new URLSearchParams(String(body ?? '')).get('scope') ?? ''
+        capturedScope =
+          new URLSearchParams(String(body ?? '')).get('scope') ?? ''
       }
 
       return Promise.resolve(
@@ -105,8 +106,8 @@ describe('requestDeviceCode', () => {
       const body = init?.body
       const scope =
         body instanceof URLSearchParams
-          ? body.get('scope') ?? ''
-          : new URLSearchParams(String(body ?? '')).get('scope') ?? ''
+          ? (body.get('scope') ?? '')
+          : (new URLSearchParams(String(body ?? '')).get('scope') ?? '')
       scopesSeen.push(scope)
       callCount++
 

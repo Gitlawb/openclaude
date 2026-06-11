@@ -237,7 +237,9 @@ describe('OpenCode model catalog', () => {
   })
 
   test('zen claude models have correct classification', () => {
-    const models = getAllModels().filter(m => m.id.startsWith('opencode-claude-'))
+    const models = getAllModels().filter(m =>
+      m.id.startsWith('opencode-claude-'),
+    )
     for (const model of models) {
       expect(model.classification).toContain('chat')
     }
@@ -253,12 +255,13 @@ describe('OpenCode model catalog', () => {
 
   test('reasoning models have reasoning classification', () => {
     const models = getAllModels().filter(m => m.id.startsWith('opencode-'))
-    const reasoningModels = models.filter(m =>
-      m.defaultModel.includes('opus') ||
-      m.defaultModel === 'gpt-5.5-pro' ||
-      m.defaultModel === 'gpt-5.4-pro' ||
-      m.defaultModel === 'deepseek-v4-pro' ||
-      m.defaultModel === 'gemini-3.1-pro'
+    const reasoningModels = models.filter(
+      m =>
+        m.defaultModel.includes('opus') ||
+        m.defaultModel === 'gpt-5.5-pro' ||
+        m.defaultModel === 'gpt-5.4-pro' ||
+        m.defaultModel === 'deepseek-v4-pro' ||
+        m.defaultModel === 'gemini-3.1-pro',
     )
     for (const model of reasoningModels) {
       expect(model.classification).toContain('reasoning')
@@ -446,11 +449,15 @@ describe('OpenCode edge cases', () => {
 
   test('zen gateway validation message mentions OPENCODE_API_KEY', () => {
     const gateway = getGateway('opencode')
-    expect(gateway!.validation!.missingCredentialMessage).toContain('OPENCODE_API_KEY')
+    expect(gateway!.validation!.missingCredentialMessage).toContain(
+      'OPENCODE_API_KEY',
+    )
   })
 
   test('zen gateway validation message mentions opencode.ai', () => {
     const gateway = getGateway('opencode')
-    expect(gateway!.validation!.missingCredentialMessage).toContain('opencode.ai')
+    expect(gateway!.validation!.missingCredentialMessage).toContain(
+      'opencode.ai',
+    )
   })
 })

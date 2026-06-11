@@ -75,10 +75,10 @@ describe('TokenUsageTracker', () => {
     expect(smallTracker.size).toBe(3)
   })
 
-it('clears history', () => {
-      tracker.record({ input_tokens: 1000, output_tokens: 100, model: 'test' })
-      tracker.clear()
+  it('clears history', () => {
+    tracker.record({ input_tokens: 1000, output_tokens: 100, model: 'test' })
+    tracker.clear()
 
-      expect(tracker.size).toBe(0)
-    })
+    expect(tracker.size).toBe(0)
+  })
 })

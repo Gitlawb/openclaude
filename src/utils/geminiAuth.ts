@@ -44,7 +44,9 @@ type ResolveGeminiCredentialDeps = {
   createGoogleAuth?: () => Promise<GoogleAuthLike>
 }
 
-function sanitizeCredential(value: string | undefined | null): string | undefined {
+function sanitizeCredential(
+  value: string | undefined | null,
+): string | undefined {
   const trimmed = value?.trim()
   return trimmed ? trimmed : undefined
 }
@@ -83,7 +85,14 @@ export function getGeminiAdcCredentialPaths(
     paths.add(explicit)
   }
 
-  paths.add(join(homedir(), '.config', 'gcloud', 'application_default_credentials.json'))
+  paths.add(
+    join(
+      homedir(),
+      '.config',
+      'gcloud',
+      'application_default_credentials.json',
+    ),
+  )
 
   const appData = sanitizeCredential(env.APPDATA)
   if (appData) {
@@ -118,7 +127,13 @@ async function createDefaultGoogleAuth(): Promise<GoogleAuthLike> {
 async function resolveGeminiAdcCredentialUncached(
   env: NodeJS.ProcessEnv,
   deps: ResolveGeminiCredentialDeps,
-): Promise<Exclude<GeminiResolvedCredential, { kind: 'none' | 'api-key' | 'access-token' }> | { kind: 'none' }> {
+): Promise<
+  | Exclude<
+      GeminiResolvedCredential,
+      { kind: 'none' | 'api-key' | 'access-token' }
+    >
+  | { kind: 'none' }
+> {
   if (!mayHaveGeminiAdcCredentials(env)) {
     return { kind: 'none' }
   }
@@ -177,8 +192,8 @@ export async function resolveGeminiCredential(
   const apiKey =
     authMode === 'access-token' || authMode === 'adc'
       ? undefined
-      : sanitizeCredential(env.GEMINI_API_KEY) ??
-        sanitizeCredential(env.GOOGLE_API_KEY)
+      : (sanitizeCredential(env.GEMINI_API_KEY) ??
+        sanitizeCredential(env.GOOGLE_API_KEY))
   if (apiKey && (authMode === undefined || authMode === 'api-key')) {
     return {
       kind: 'api-key',

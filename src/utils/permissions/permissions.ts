@@ -23,10 +23,7 @@ import {
   SETTING_SOURCES,
 } from '../settings/constants.js'
 import { plural } from '../stringUtils.js'
-import {
-  type PermissionMode,
-  permissionModeTitle,
-} from './PermissionMode.js'
+import { type PermissionMode, permissionModeTitle } from './PermissionMode.js'
 import type {
   PermissionAskDecision,
   PermissionDecision,
@@ -498,7 +495,6 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   toolUseID,
 ): Promise<PermissionDecision> => {
   const result = await hasPermissionsToUseToolInner(tool, input, context)
-
 
   // Reset consecutive denials on any allowed tool use in auto mode.
   // This ensures that a successful tool use (even one auto-allowed by rules)

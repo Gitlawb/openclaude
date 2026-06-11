@@ -94,9 +94,7 @@ export const ClaudeCodeInternalEvent = {
     return message ?? {}
   },
 
-  create<I extends ClaudeCodeInternalEvent>(
-    base?: I,
-  ): ClaudeCodeInternalEvent {
+  create<I extends ClaudeCodeInternalEvent>(base?: I): ClaudeCodeInternalEvent {
     return base ?? {}
   },
 

@@ -3,7 +3,10 @@ import { getEmptyToolPermissionContext, type Tool } from '../Tool.js'
 import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../tools/ToolSearchTool/constants.js'
 import type { MemoryFileInfo } from '../utils/claudemd.js'
-import type { ContextWarning, ContextWarnings } from '../utils/doctorContextWarnings.js'
+import type {
+  ContextWarning,
+  ContextWarnings,
+} from '../utils/doctorContextWarnings.js'
 import {
   statusNoticeDefinitions,
   type StatusNoticeContext,
@@ -146,9 +149,12 @@ describe('buildLocalModelContextLoad', () => {
       mcpWarning: warning('mcp_tools', 31_200, 'Large MCP tools context', [
         'github: 21 tools (~31,200 tokens)',
       ]),
-      agentWarning: warning('agent_descriptions', 16_500, 'Large agent descriptions', [
-        'planner: ~9,000 tokens',
-      ]),
+      agentWarning: warning(
+        'agent_descriptions',
+        16_500,
+        'Large agent descriptions',
+        ['planner: ~9,000 tokens'],
+      ),
       claudeMdWarning: warning('claudemd_files', 2, 'Large CLAUDE.md files', [
         '/repo/CLAUDE.md: 51,200 chars',
         '/repo/.claude/CLAUDE.md: 44,000 chars',
@@ -163,9 +169,7 @@ describe('buildLocalModelContextLoad', () => {
       'Agent descriptions: ~16.5k tokens',
       'CLAUDE.md: 2 large files',
     ])
-    expect(result?.contributors[1]?.details).toEqual([
-      'planner: ~9,000 tokens',
-    ])
+    expect(result?.contributors[1]?.details).toEqual(['planner: ~9,000 tokens'])
   })
 })
 

@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -58,9 +64,9 @@ afterEach(() => {
 
 async function freshHandlerModules() {
   const nonce = `${Date.now()}-${Math.random()}`
-  const handlers = (await import(`./xaiAuth.js?ts=${nonce}`)) as typeof import(
-    './xaiAuth.js'
-  )
+  const handlers = (await import(
+    `./xaiAuth.js?ts=${nonce}`
+  )) as typeof import('./xaiAuth.js')
   const profileUtils = (await import(
     `../../utils/providerProfile.js?ts=${nonce}`
   )) as typeof import('../../utils/providerProfile.js')
@@ -97,7 +103,10 @@ async function freshHandlerModules() {
   return { handlers, profileUtils, profilesUtils, xaiLogoutDeps }
 }
 
-function readProfileFile(): { profile?: string; env?: Record<string, unknown> } | null {
+function readProfileFile(): {
+  profile?: string
+  env?: Record<string, unknown>
+} | null {
   const path = join(tempConfigDir, '.openclaude-profile.json')
   if (!existsSync(path)) return null
   return JSON.parse(readFileSync(path, 'utf8'))

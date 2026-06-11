@@ -442,8 +442,10 @@ function isScratchpadPath(absolutePath: string): boolean {
 }
 
 function pathsEqualForPermission(a: string, b: string): boolean {
-  return normalizeCaseForComparison(normalize(a)) ===
+  return (
+    normalizeCaseForComparison(normalize(a)) ===
     normalizeCaseForComparison(normalize(b))
+  )
 }
 
 export function isOpenClaudeCommitMessagePath(absolutePath: string): boolean {

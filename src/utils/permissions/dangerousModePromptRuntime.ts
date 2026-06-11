@@ -23,8 +23,7 @@ export function getStartupDangerousPermissionPromptState({
   return getDangerousPermissionPromptState({
     permissionMode,
     allowDangerouslySkipPermissions,
-    hasAcceptedBypassPermissionsPrompt:
-      hasSkipDangerousModePermissionPrompt(),
+    hasAcceptedBypassPermissionsPrompt: hasSkipDangerousModePermissionPrompt(),
     hasAcceptedFullAccessPrompt: hasSkipFullAccessModePermissionPrompt(),
   })
 }
@@ -32,5 +31,8 @@ export function getStartupDangerousPermissionPromptState({
 export function persistDangerousModeAcceptance(
   mode: DangerousPermissionMode,
 ): void {
-  updateSettingsForSource('userSettings', getDangerousModeAcceptanceUpdate(mode))
+  updateSettingsForSource(
+    'userSettings',
+    getDangerousModeAcceptanceUpdate(mode),
+  )
 }

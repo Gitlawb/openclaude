@@ -8,9 +8,7 @@ import {
   setFlagSettingsInline,
   setFlagSettingsPath,
 } from '../../bootstrap/state.js'
-import {
-  resolveOutOfProcessTeammateProviderFromCliArgs,
-} from '../../services/api/agentRouting.js'
+import { resolveOutOfProcessTeammateProviderFromCliArgs } from '../../services/api/agentRouting.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -29,7 +27,9 @@ beforeEach(async () => {
   // realpathSync so the temp path matches what the settings loader stores:
   // on macOS tmpdir() lives under /tmp, a symlink to /private/tmp, and the
   // loader canonicalises the --settings path, which would otherwise mismatch.
-  tempDir = realpathSync(mkdtempSync(join(tmpdir(), 'openclaude-flag-settings-')))
+  tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-flag-settings-')),
+  )
   resetSettingsBootstrapState()
   setAllowedSettingSources(['flagSettings'])
 })
@@ -72,10 +72,7 @@ test('loads --settings before resolving out-of-process teammate model routes', a
   expect(loadResult).toEqual({ ok: true })
   expect(getFlagSettingsPath()).toBe(settingsPath)
   expect(
-    resolveOutOfProcessTeammateProviderFromCliArgs(
-      args,
-      getInitialSettings(),
-    ),
+    resolveOutOfProcessTeammateProviderFromCliArgs(args, getInitialSettings()),
   ).toEqual({
     model: routedModel,
     baseURL: 'https://api.deepseek.example/v1',

@@ -27,7 +27,9 @@ describe('Gemini store field fix', () => {
   test('descriptor-backed shim config strips store for Gemini and Mistral routes', async () => {
     const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
     const geminiDescriptor = await file('integrations/vendors/gemini.ts').text()
-    const mistralDescriptor = await file('integrations/gateways/mistral.ts').text()
+    const mistralDescriptor = await file(
+      'integrations/gateways/mistral.ts',
+    ).text()
 
     expect(runtimeMetadata).toContain('removeBodyFields')
     expect(geminiDescriptor).toContain("removeBodyFields: ['store']")
@@ -102,37 +104,97 @@ describe('Agent loop continuation nudge', () => {
   })
 
   test('analyzeContinuationIntent behavior follows project standards', async () => {
-    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+    const { analyzeContinuationIntent } = await import(
+      '../utils/continuation.js'
+    )
 
     // Transition intent detected (requires explicit action verb or transition phrase)
-    expect(analyzeContinuationIntent("So now I will start task 2").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("I will now do the following").shouldNudge).toBe(true)
-    
+    expect(
+      analyzeContinuationIntent('So now I will start task 2').shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent('I will now do the following').shouldNudge,
+    ).toBe(true)
+
     // Completion marker suppresses nudge
-    expect(analyzeContinuationIntent("Task finished").shouldNudge).toBe(false)
-    
+    expect(analyzeContinuationIntent('Task finished').shouldNudge).toBe(false)
+
     // Punctuation-less completion suppresses nudge (Reviewer Feedback)
-    expect(analyzeContinuationIntent("The analysis is complete and no code changes are needed here").shouldNudge).toBe(false)
-    expect(analyzeContinuationIntent("I changed package.json and src/query.ts and added tests").shouldNudge).toBe(false)
-    expect(analyzeContinuationIntent("Updated src/query.ts and added coverage in bugfixes.test.ts").shouldNudge).toBe(false)
-    expect(analyzeContinuationIntent("This should be ready after the latest test updates").shouldNudge).toBe(false)
+    expect(
+      analyzeContinuationIntent(
+        'The analysis is complete and no code changes are needed here',
+      ).shouldNudge,
+    ).toBe(false)
+    expect(
+      analyzeContinuationIntent(
+        'I changed package.json and src/query.ts and added tests',
+      ).shouldNudge,
+    ).toBe(false)
+    expect(
+      analyzeContinuationIntent(
+        'Updated src/query.ts and added coverage in bugfixes.test.ts',
+      ).shouldNudge,
+    ).toBe(false)
+    expect(
+      analyzeContinuationIntent(
+        'This should be ready after the latest test updates',
+      ).shouldNudge,
+    ).toBe(false)
 
     // Mixed Intent: Late continuation survives earlier completion (Reviewer Feedback)
-    expect(analyzeContinuationIntent("Task 1 is done. Let me update the status.").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("Task 1 finished. I will now run tests.").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("Analysis complete. Now I will edit src/query.ts").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("No issues in the first file. I will now inspect the next one.").shouldNudge).toBe(true)
+    expect(
+      analyzeContinuationIntent('Task 1 is done. Let me update the status.')
+        .shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent('Task 1 finished. I will now run tests.')
+        .shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent(
+        'Analysis complete. Now I will edit src/query.ts',
+      ).shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent(
+        'No issues in the first file. I will now inspect the next one.',
+      ).shouldNudge,
+    ).toBe(true)
 
     // Structural truncation survives earlier completion (Reviewer Feedback)
-    expect(analyzeContinuationIntent("Setup is complete. Here is the code:\n```typescript\nfunction run() {").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("Task complete. Please inspect (src/query.ts").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("The analysis is done and now I am editing files and").shouldNudge).toBe(true)
+    expect(
+      analyzeContinuationIntent(
+        'Setup is complete. Here is the code:\n```typescript\nfunction run() {',
+      ).shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent('Task complete. Please inspect (src/query.ts')
+        .shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent(
+        'The analysis is done and now I am editing files and',
+      ).shouldNudge,
+    ).toBe(true)
 
     // Structural truncation detection (Supreme Logic)
-    expect(analyzeContinuationIntent("I am currently updating the following files and").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("Please check the results in (src/query.ts").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("The plan is as follows:").shouldNudge).toBe(true)
-    expect(analyzeContinuationIntent("Here is the code:\n```typescript\nfunction test() {").shouldNudge).toBe(true)
+    expect(
+      analyzeContinuationIntent(
+        'I am currently updating the following files and',
+      ).shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent('Please check the results in (src/query.ts')
+        .shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent('The plan is as follows:').shouldNudge,
+    ).toBe(true)
+    expect(
+      analyzeContinuationIntent(
+        'Here is the code:\n```typescript\nfunction test() {',
+      ).shouldNudge,
+    ).toBe(true)
   })
 
   test('nudge creates a meta user message to continue', async () => {
@@ -149,25 +211,19 @@ describe('Agent loop continuation nudge', () => {
 // ---------------------------------------------------------------------------
 describe('Web search result count improvements', () => {
   test('Bing provider requests at least 15 results', async () => {
-    const content = await file(
-      'tools/WebSearchTool/providers/bing.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/providers/bing.ts').text()
 
     expect(content).toMatch(/count.*['"]15['"]/)
   })
 
   test('Tavily provider requests at least 15 results', async () => {
-    const content = await file(
-      'tools/WebSearchTool/providers/tavily.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/providers/tavily.ts').text()
 
     expect(content).toMatch(/max_results:\s*15/)
   })
 
   test('Exa provider requests at least 15 results', async () => {
-    const content = await file(
-      'tools/WebSearchTool/providers/exa.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/providers/exa.ts').text()
 
     expect(content).toMatch(/numResults:\s*15/)
   })
@@ -181,42 +237,32 @@ describe('Web search result count improvements', () => {
   })
 
   test('Mojeek provider requests at least 10 results', async () => {
-    const content = await file(
-      'tools/WebSearchTool/providers/mojeek.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/providers/mojeek.ts').text()
 
     // Mojeek uses 't' param for result count — verify it's set to 10
     expect(content).toMatch(/searchParams\.set\('t',\s*'10'\)/)
   })
 
   test('You.com provider requests at least 10 results', async () => {
-    const content = await file(
-      'tools/WebSearchTool/providers/you.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/providers/you.ts').text()
 
     expect(content).toMatch(/num_web_results.*['"]10['"]/)
   })
 
   test('Jina provider requests at least 10 results', async () => {
-    const content = await file(
-      'tools/WebSearchTool/providers/jina.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/providers/jina.ts').text()
 
     expect(content).toMatch(/count.*['"]10['"]/)
   })
 
   test('Native Anthropic web search max_uses increased to 15', async () => {
-    const content = await file(
-      'tools/WebSearchTool/WebSearchTool.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/WebSearchTool.ts').text()
 
     expect(content).toMatch(/max_uses:\s*15/)
   })
 
   test('codex web search path guarantees a non-empty result body', async () => {
-    const content = await file(
-      'tools/WebSearchTool/WebSearchTool.ts',
-    ).text()
+    const content = await file('tools/WebSearchTool/WebSearchTool.ts').text()
 
     expect(content).toContain("results.push('No results found.')")
   })
@@ -328,7 +374,9 @@ describe('Regression checks', () => {
     const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
 
     expect(openaiShim).toMatch(/store:\s*false/)
-    expect(openaiShim).toContain('for (const field of shimConfig.removeBodyFields ?? [])')
+    expect(openaiShim).toContain(
+      'for (const field of shimConfig.removeBodyFields ?? [])',
+    )
     expect(runtimeMetadata).toContain('mergeRemoveBodyFields')
   })
 })
@@ -338,12 +386,16 @@ describe('Regression checks', () => {
 // ---------------------------------------------------------------------------
 describe('SendMessageTool race condition fix', () => {
   test('SendMessageTool has double-check for concurrent resume', async () => {
-    const content = await file('tools/SendMessageTool/SendMessageTool.ts').text()
+    const content = await file(
+      'tools/SendMessageTool/SendMessageTool.ts',
+    ).text()
 
     // Should have a second status check before resuming to prevent race
     expect(content).toContain('was concurrently resumed')
     // The freshTask check should re-read from getAppState
-    expect(content).toMatch(/const freshTask = context\.getAppState\(\)\.tasks\[agentId\]/)
+    expect(content).toMatch(
+      /const freshTask = context\.getAppState\(\)\.tasks\[agentId\]/,
+    )
   })
 })
 
@@ -356,7 +408,9 @@ describe('AgentTool cleanup fix', () => {
 
     // The backgrounded agent's finally block should clean up regardless
     // of whether the agent crashed or completed normally
-    expect(content).toContain('Defensive cleanup: wrap each call so one failure')
+    expect(content).toContain(
+      'Defensive cleanup: wrap each call so one failure',
+    )
     // Verify cleanup is wrapped in try/catch for defensive execution
     expect(content).toMatch(/try\s*\{\s*clearInvokedSkillsForAgent/)
     expect(content).toMatch(/try\s*\{\s*clearDumpState/)
@@ -395,13 +449,18 @@ describe('Project-scope MCP approval — third-party providers (issue #696)', ()
     // `if (usesAnthropicSetup) { ... }` block, or third-party providers will
     // never get the dialog and project-scope .mcp.json servers will be silently
     // dropped from /mcp listings (issue #696).
-    const approvalCallIdx = content.indexOf('await handleMcpjsonServerApprovals(root)')
+    const approvalCallIdx = content.indexOf(
+      'await handleMcpjsonServerApprovals(root)',
+    )
     expect(approvalCallIdx).toBeGreaterThan(-1)
 
     // Look at the 800 chars BEFORE the call site for any `if (usesAnthropicSetup)`
     // block that would still be open. Pick a window that's definitely inside the
     // showSetupScreens function but not in earlier dialogs.
-    const before = content.slice(Math.max(0, approvalCallIdx - 800), approvalCallIdx)
+    const before = content.slice(
+      Math.max(0, approvalCallIdx - 800),
+      approvalCallIdx,
+    )
     expect(before).not.toMatch(/if\s*\(\s*usesAnthropicSetup\s*\)\s*{[^}]*$/)
   })
 

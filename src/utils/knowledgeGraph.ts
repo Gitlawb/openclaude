@@ -3,7 +3,14 @@ import { join } from 'path'
 import { getProjectsDir } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getFsImplementation } from './fsOperations.js'
-import { create, insert, search, type Orama, remove, getByID } from '@orama/orama'
+import {
+  create,
+  insert,
+  search,
+  type Orama,
+  remove,
+  getByID,
+} from '@orama/orama'
 import { persist, restore } from '@orama/plugin-data-persistence'
 import { AsyncLocalStorage } from 'async_hooks'
 import { SQLiteProvider } from './storage/SQLiteProvider.js'
@@ -47,7 +54,10 @@ let oramaDb: Orama<any> | null = null
 let oramaInitPromise: Promise<void> | null = null
 
 // Storage Providers (Cached per project directory to handle CWD changes)
-const providerCache = new Map<string, { sqlite: SQLiteProvider; json: JSONProvider }>()
+const providerCache = new Map<
+  string,
+  { sqlite: SQLiteProvider; json: JSONProvider }
+>()
 
 function sleepSync(ms: number): void {
   const shared = new SharedArrayBuffer(4)
@@ -111,7 +121,7 @@ function getProviders(): { sqlite: SQLiteProvider; json: JSONProvider } {
   if (!providers) {
     providers = {
       sqlite: new SQLiteProvider(projectDir),
-      json: new JSONProvider(projectDir)
+      json: new JSONProvider(projectDir),
     }
     providerCache.set(projectDir, providers)
   }
@@ -164,18 +174,23 @@ async function isOramaInSync(graph: KnowledgeGraph): Promise<boolean> {
   return (doc as any).content === graph.lastUpdateTime.toString()
 }
 
-async function updateOramaSyncMetadata(cwd: string, graph: KnowledgeGraph): Promise<void> {
+async function updateOramaSyncMetadata(
+  cwd: string,
+  graph: KnowledgeGraph,
+): Promise<void> {
   if (!oramaDb) return
   try {
     await remove(oramaDb, 'meta:sync')
-  } catch { /* ignore if not found */ }
+  } catch {
+    /* ignore if not found */
+  }
 
   await insert(oramaDb, {
     id: 'meta:sync',
     type: 'meta',
     name: 'sync',
     content: graph.lastUpdateTime.toString(),
-    attributes: JSON.stringify({ lastUpdateTime: graph.lastUpdateTime })
+    attributes: JSON.stringify({ lastUpdateTime: graph.lastUpdateTime }),
   })
   await saveOrama(cwd)
 }
@@ -215,7 +230,9 @@ export async function initOrama(cwd: string): Promise<void> {
       } catch (e) {
         try {
           renameSync(path, `${path}.corrupted.${Date.now()}`)
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -224,7 +241,9 @@ export async function initOrama(cwd: string): Promise<void> {
       const graph = projectGraph || loadProjectGraph(cwd)
 
       for (const entity of Object.values(graph.entities)) {
-        try { await remove(oramaDb, entity.id) } catch {}
+        try {
+          await remove(oramaDb, entity.id)
+        } catch {}
         await insert(oramaDb, {
           id: entity.id,
           type: entity.type,
@@ -234,7 +253,9 @@ export async function initOrama(cwd: string): Promise<void> {
         })
       }
       for (const summary of graph.summaries) {
-        try { await remove(oramaDb, summary.id) } catch {}
+        try {
+          await remove(oramaDb, summary.id)
+        } catch {}
         await insert(oramaDb, {
           id: summary.id,
           type: 'summary',
@@ -353,13 +374,18 @@ export async function addGlobalEntity(
         return existingEntity
       }
 
-      existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
+      existingEntity.attributes = {
+        ...existingEntity.attributes,
+        ...attributes,
+      }
       graph.lastUpdateTime = Date.now()
       saveProjectGraph(cwd)
 
       await initOrama(cwd)
       if (oramaDb) {
-        try { await remove(oramaDb, existingEntity.id) } catch {}
+        try {
+          await remove(oramaDb, existingEntity.id)
+        } catch {}
         await insert(oramaDb, {
           id: existingEntity.id,
           type: existingEntity.type,
@@ -381,7 +407,9 @@ export async function addGlobalEntity(
 
     await initOrama(cwd)
     if (oramaDb) {
-      try { await remove(oramaDb, id) } catch {}
+      try {
+        await remove(oramaDb, id)
+      } catch {}
       await insert(oramaDb, {
         id,
         type,
@@ -438,7 +466,9 @@ export async function addGlobalSummary(
 
     await initOrama(cwd)
     if (oramaDb) {
-      try { await remove(oramaDb, id) } catch {}
+      try {
+        await remove(oramaDb, id)
+      } catch {}
       await insert(oramaDb, {
         id,
         type: 'summary',
@@ -544,7 +574,9 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
           } else {
             try {
               const attrs = JSON.parse(doc.attributes)
-              hitsContent += `- [${doc.type}] ${doc.name}: ${Object.entries(attrs)
+              hitsContent += `- [${doc.type}] ${doc.name}: ${Object.entries(
+                attrs,
+              )
                 .map(([k, v]) => `${k}: ${v}`)
                 .join(', ')}\n`
             } catch {
@@ -590,22 +622,41 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
       const aAttrValues = Object.values(a.attributes).map(v => v.toLowerCase())
       const bAttrValues = Object.values(b.attributes).map(v => v.toLowerCase())
 
-      const aPerfect = queryWords.some(qw => aName === qw || aAttrValues.some(av => av === qw)) ? 1 : 0
-      const bPerfect = queryWords.some(qw => bName === qw || bAttrValues.some(av => av === qw)) ? 1 : 0
+      const aPerfect = queryWords.some(
+        qw => aName === qw || aAttrValues.some(av => av === qw),
+      )
+        ? 1
+        : 0
+      const bPerfect = queryWords.some(
+        qw => bName === qw || bAttrValues.some(av => av === qw),
+      )
+        ? 1
+        : 0
       if (aPerfect !== bPerfect) return bPerfect - aPerfect
 
       const aTime = parseInt(a.id.split('_')[1]) || 0
       const bTime = parseInt(b.id.split('_')[1]) || 0
       if (Math.abs(aTime - bTime) > 1000) return bTime - aTime
 
-      const aSub = queryWords.some(qw => aName.includes(qw) || aAttrValues.some(av => av.includes(qw))) ? 1 : 0
-      const bSub = queryWords.some(qw => bName.includes(qw) || bAttrValues.some(av => av.includes(qw))) ? 1 : 0
+      const aSub = queryWords.some(
+        qw => aName.includes(qw) || aAttrValues.some(av => av.includes(qw)),
+      )
+        ? 1
+        : 0
+      const bSub = queryWords.some(
+        qw => bName.includes(qw) || bAttrValues.some(av => av.includes(qw)),
+      )
+        ? 1
+        : 0
       return bSub - aSub
     })
     .slice(0, 15)
 
   const scoredSummaries = graph.summaries
-    .map(s => ({ ...s, score: calculateBM25Score(queryWords, s, graph.summaries) }))
+    .map(s => ({
+      ...s,
+      score: calculateBM25Score(queryWords, s, graph.summaries),
+    }))
     .filter(s => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
@@ -621,7 +672,9 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
     if (matchingEntities.length > 0) {
       output += 'Relevant Technical Entities:\n'
       for (const e of matchingEntities) {
-        output += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k, v]) => `${k}: ${v}`).join(', ')}\n`
+        output += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(', ')}\n`
       }
       if (scoredSummaries.length > 0) output += '\n'
     }
@@ -647,7 +700,12 @@ export async function searchGlobalGraph(query: string): Promise<string> {
 export function getGlobalGraphSummary(): string {
   const graph = getGlobalGraph()
   const entities = Object.values(graph.entities)
-  if (entities.length === 0 && graph.summaries.length === 0 && graph.rules.length === 0) return ''
+  if (
+    entities.length === 0 &&
+    graph.summaries.length === 0 &&
+    graph.rules.length === 0
+  )
+    return ''
 
   let summary = '\nKnowledge Graph Snapshot (Most Recent):\n'
   const recentEntities = entities
@@ -689,7 +747,7 @@ export function resetGlobalGraph(): void {
   const sqliteCleared = sqlite.clear()
   sqlite.close()
   const jsonResetSucceeded = sqliteCleared
-    ? (json.delete() || json.saveGraph(emptyGraph))
+    ? json.delete() || json.saveGraph(emptyGraph)
     : json.saveGraph(emptyGraph)
 
   if (!jsonResetSucceeded) {
@@ -702,7 +760,9 @@ export function resetGlobalGraph(): void {
     join(projectDir, 'knowledge.db-wal'),
     join(projectDir, 'knowledge.db-shm'),
   ]) {
-    removePathWithRetry(sqlitePath, { requireMissingAfterCleanup: !sqliteCleared })
+    removePathWithRetry(sqlitePath, {
+      requireMissingAfterCleanup: !sqliteCleared,
+    })
   }
 
   const oramaPath = getOramaPersistencePath(cwd)

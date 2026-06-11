@@ -54,7 +54,10 @@ import {
   getDefaultOptionForUser,
   type ModelOption,
 } from '../../utils/model/modelOptions.js'
-import { buildRouteCatalogModelOptions, mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
+import {
+  buildRouteCatalogModelOptions,
+  mergeRouteCatalogEntries,
+} from '../../utils/model/routeCatalogOptions.js'
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
   getDefaultMainLoopModelSetting,
@@ -109,7 +112,10 @@ function renderModelLabel(model: string | null): string {
   return model === null ? `${rendered} (default)` : rendered
 }
 
-function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolean {
+function haveSameModelOptions(
+  left: ModelOption[],
+  right: ModelOption[],
+): boolean {
   if (left.length !== right.length) {
     return false
   }
@@ -307,13 +313,9 @@ function getLegacyOpenAIOptionsOverride(options: {
     ])
   }
 
-  return mergeActiveProfileModelOptions(
-    options.routeId,
-    scopedOptions,
-    {
-      profileModelSurface: options.profileModelSurface,
-    },
-  )
+  return mergeActiveProfileModelOptions(options.routeId, scopedOptions, {
+    profileModelSurface: options.profileModelSurface,
+  })
 }
 
 function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
@@ -417,12 +419,13 @@ async function loadDescriptorDiscoveryContext(
   const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
   const cached = await getCachedModels(cacheKey, ttlMs, { includeStale: true })
   const stale = await isCacheStale(cacheKey, ttlMs)
-  const autoRefresh = shouldAutoRefreshRouteCatalog({
-    catalog,
-    hasCachedModels: cached !== null,
-    staticEntryCount: staticEntries.length,
-    stale,
-  }) && !trafficRestricted
+  const autoRefresh =
+    shouldAutoRefreshRouteCatalog({
+      catalog,
+      hasCachedModels: cached !== null,
+      staticEntryCount: staticEntries.length,
+      stale,
+    }) && !trafficRestricted
   const mergedEntries = mergeRouteCatalogEntries(
     staticEntries,
     cached?.models ?? [],
@@ -581,7 +584,10 @@ function ModelPickerWrapper({
   onDone,
 }: {
   discoveryContext: ModelDiscoveryContext | null
-  onDone: (result?: string, options?: { display?: CommandResultDisplay }) => void
+  onDone: (
+    result?: string,
+    options?: { display?: CommandResultDisplay },
+  ) => void
 }) {
   const mainLoopModel = useAppState((s: AppState) => s.mainLoopModel)
   const mainLoopModelForSession = useAppState(
@@ -589,26 +595,31 @@ function ModelPickerWrapper({
   )
   const isFastMode = useAppState((s: AppState) => s.fastMode)
   const setAppState = useSetAppState()
-  const [optionsOverride, setOptionsOverride] = React.useState<ModelOption[] | undefined>(
+  const [optionsOverride, setOptionsOverride] = React.useState<
+    ModelOption[] | undefined
+  >(
     discoveryContext && 'optionsOverride' in discoveryContext
       ? discoveryContext.optionsOverride
       : undefined,
   )
-  const [discoveryState, setDiscoveryState] =
-    React.useState<ModelPickerDiscoveryState | undefined>(
-      discoveryContext?.discoveryState,
-    )
+  const [discoveryState, setDiscoveryState] = React.useState<
+    ModelPickerDiscoveryState | undefined
+  >(discoveryContext?.discoveryState)
 
   const handleCancel = () => {
     logEvent('tengu_model_command_menu', {
-      action: 'cancel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      action:
+        'cancel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
     onDone(`Kept model as ${chalk.bold(renderModelLabel(mainLoopModel))}`, {
       display: 'system',
     })
   }
 
-  const handleSelect = (model: string | null, effort: EffortLevel | undefined) => {
+  const handleSelect = (
+    model: string | null,
+    effort: EffortLevel | undefined,
+  ) => {
     if (model && !isModelAllowed(model)) {
       onDone(
         `Model '${model}' is not available. Your organization restricts model selection.`,
@@ -618,9 +629,15 @@ function ModelPickerWrapper({
     }
 
     logEvent('tengu_model_command_menu', {
-      action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-      from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-      to_model: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      action: String(
+        model,
+      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      from_model: String(
+        mainLoopModel,
+      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      to_model: String(
+        model,
+      ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
 
     setAppState(prev => ({
@@ -691,13 +708,10 @@ function ModelPickerWrapper({
         )
       }
 
-      const result = await discoverModelsForRoute(
-        discoveryContext.routeId,
-        {
-          ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
-          forceRefresh: true,
-        },
-      )
+      const result = await discoverModelsForRoute(discoveryContext.routeId, {
+        ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+        forceRefresh: true,
+      })
 
       const nextOptions = mergeActiveProfileModelOptions(
         discoveryContext.routeId,
@@ -759,10 +773,14 @@ function ModelPickerWrapper({
             getDefaultOptionForUser(),
             ...discoveredOptions,
           ])
-      const changed =
-        !haveSameModelOptions(optionsOverride ?? currentRawOptions, nextOptions)
-      const rawChanged =
-        !haveSameModelOptions(currentRawOptions, discoveredOptions)
+      const changed = !haveSameModelOptions(
+        optionsOverride ?? currentRawOptions,
+        nextOptions,
+      )
+      const rawChanged = !haveSameModelOptions(
+        currentRawOptions,
+        discoveredOptions,
+      )
 
       if (rawChanged) {
         setActiveOpenAIRouteModelOptionsCache(discoveredOptions)
@@ -832,7 +850,10 @@ function SetModelAndClose({
   onDone,
 }: {
   args: string
-  onDone: (result?: string, options?: { display?: CommandResultDisplay }) => void
+  onDone: (
+    result?: string,
+    options?: { display?: CommandResultDisplay },
+  ) => void
 }) {
   const isFastMode = useAppState((s: AppState) => s.fastMode)
   const setAppState = useSetAppState()
@@ -961,15 +982,17 @@ function isSonnet1mUnavailable(model: string): boolean {
   const normalized = model.toLowerCase()
   return (
     !checkSonnet1mAccess() &&
-    (normalized.includes('sonnet[1m]') ||
-      normalized.includes('sonnet-4-6[1m]'))
+    (normalized.includes('sonnet[1m]') || normalized.includes('sonnet-4-6[1m]'))
   )
 }
 
 function ShowModelAndClose({
   onDone,
 }: {
-  onDone: (result?: string, options?: { display?: CommandResultDisplay }) => void
+  onDone: (
+    result?: string,
+    options?: { display?: CommandResultDisplay },
+  ) => void
 }) {
   const mainLoopModel = useAppState((s: AppState) => s.mainLoopModel)
   const mainLoopModelForSession = useAppState(
@@ -1068,13 +1091,14 @@ async function refreshModelsAndSummarize(): Promise<string> {
           getDefaultOptionForUser(),
           ...discoveredOptions,
         ])
-    const changed =
-      !haveSameModelOptions(
-        discoveryContext.optionsOverride ?? currentRawOptions,
-        nextOptions,
-      )
-    const rawChanged =
-      !haveSameModelOptions(currentRawOptions, discoveredOptions)
+    const changed = !haveSameModelOptions(
+      discoveryContext.optionsOverride ?? currentRawOptions,
+      nextOptions,
+    )
+    const rawChanged = !haveSameModelOptions(
+      currentRawOptions,
+      discoveredOptions,
+    )
 
     if (rawChanged) {
       setActiveOpenAIRouteModelOptionsCache(discoveredOptions)
@@ -1133,5 +1157,7 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   }
 
   const discoveryContext = await loadModelDiscoveryContext()
-  return <ModelPickerWrapper discoveryContext={discoveryContext} onDone={onDone} />
+  return (
+    <ModelPickerWrapper discoveryContext={discoveryContext} onDone={onDone} />
+  )
 }

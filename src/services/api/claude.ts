@@ -165,7 +165,11 @@ import {
 } from 'src/utils/betas.js'
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from 'src/utils/claudeInChrome/common.js'
 import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt.js'
-import { COMPACT_MAX_OUTPUT_TOKENS, getContextWindowForModel, getMaxThinkingTokensForModel } from 'src/utils/context.js'
+import {
+  COMPACT_MAX_OUTPUT_TOKENS,
+  getContextWindowForModel,
+  getMaxThinkingTokensForModel,
+} from 'src/utils/context.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import { type EffortValue, modelSupportsEffort } from 'src/utils/effort.js'
@@ -337,7 +341,12 @@ export function getPromptCachingEnabled(model: string): boolean {
   // format, so cache_control blocks are supported.
   const provider = getAPIProvider()
   const isNativeGithub = isGithubNativeAnthropicMode(model)
-  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && !isNativeGithub) {
+  if (
+    provider !== 'firstParty' &&
+    provider !== 'bedrock' &&
+    provider !== 'vertex' &&
+    !isNativeGithub
+  ) {
     return false
   }
 
@@ -1285,7 +1294,9 @@ async function* queryModel(
 
   // Apply hybrid context strategy for optimal cache/fresh balance
   if (feature('HYBRID_CONTEXT_STRATEGY')) {
-    const { applyHybridStrategy } = await import('../../utils/hybridContextStrategy.js')
+    const { applyHybridStrategy } = await import(
+      '../../utils/hybridContextStrategy.js'
+    )
     // Cap at 200k to avoid edge case with very large context windows
     const strategyResult = applyHybridStrategy(messagesForAPI, {
       cacheWeight: 0.4,
@@ -1293,7 +1304,8 @@ async function* queryModel(
       maxTotalTokens: Math.max(
         0,
         Math.min(
-          getContextWindowForModel(options.model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
+          getContextWindowForModel(options.model, getSdkBetas()) -
+            COMPACT_MAX_OUTPUT_TOKENS,
           200000,
         ),
       ),
@@ -1612,7 +1624,10 @@ async function* queryModel(
       options.maxOutputTokensOverride ||
       getMaxOutputTokensForModel(options.model)
 
-    const hasThinking = shouldUseThinkingForModel(retryContext.model, thinkingConfig)
+    const hasThinking = shouldUseThinkingForModel(
+      retryContext.model,
+      thinkingConfig,
+    )
     let thinking: BetaMessageStreamParams['thinking'] | undefined = undefined
 
     // IMPORTANT: Do not change the adaptive-vs-budget thinking selection below
@@ -2577,7 +2592,12 @@ async function* queryModel(
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       const result = yield* executeNonStreamingRequest(
-        { model: options.model, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
+        {
+          model: options.model,
+          source: options.querySource,
+          providerOverride: options.providerOverride,
+          effortValue: effort,
+        },
         {
           model: options.model,
           fallbackModel: options.fallbackModel,
@@ -2676,7 +2696,11 @@ async function* queryModel(
       try {
         // Fall back to non-streaming mode
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource, effortValue: effort },
+          {
+            model: options.model,
+            source: options.querySource,
+            effortValue: effort,
+          },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,

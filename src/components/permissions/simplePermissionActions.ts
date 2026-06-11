@@ -59,11 +59,15 @@ export function allowPermission(
   feedback?: string,
 ): void {
   logUnaryPermissionEvent('tool_use_single', toolUseConfirm, 'accept')
-  executePermissionAction(toolUseConfirm, { onDone }, {
-    behavior: 'allow',
-    updates,
-    feedback,
-  })
+  executePermissionAction(
+    toolUseConfirm,
+    { onDone },
+    {
+      behavior: 'allow',
+      updates,
+      feedback,
+    },
+  )
 }
 
 export function rejectPermission(
@@ -77,16 +81,23 @@ export function rejectPermission(
     'reject',
     !!feedback,
   )
-  executePermissionAction(toolUseConfirm, { onDone, onReject }, {
-    behavior: 'reject',
-    feedback,
-  })
+  executePermissionAction(
+    toolUseConfirm,
+    { onDone, onReject },
+    {
+      behavior: 'reject',
+      feedback,
+    },
+  )
 }
 
 export function createSimplePermissionHandlers<T extends string>(
   toolUseConfirm: ToolUseConfirm,
   handlers: DoneHandlers,
-  outcomes: Record<T, SimplePermissionOutcome | (() => SimplePermissionOutcome)>,
+  outcomes: Record<
+    T,
+    SimplePermissionOutcome | (() => SimplePermissionOutcome)
+  >,
 ): {
   onSelect: (value: T, feedback?: string) => void
   onCancel: () => void
@@ -102,7 +113,7 @@ export function createSimplePermissionHandlers<T extends string>(
       const resolvedUpdates =
         typeof outcome.updates === 'function'
           ? outcome.updates()
-          : outcome.updates ?? []
+          : (outcome.updates ?? [])
       allowPermission(
         toolUseConfirm,
         handlers,

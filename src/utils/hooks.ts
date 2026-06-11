@@ -233,7 +233,8 @@ export function isFallbackAgentLaunchSuccessStatus(
   status: unknown,
 ): status is FallbackAgentLaunchSuccessStatus {
   return (
-    typeof status === 'string' && fallbackAgentLaunchSuccessStatusSet.has(status)
+    typeof status === 'string' &&
+    fallbackAgentLaunchSuccessStatusSet.has(status)
   )
 }
 
@@ -1678,7 +1679,6 @@ function getPluginHookCounts(
   }
   return counts
 }
-
 
 /**
  * Build a map of {hookType: count} from matched hooks.

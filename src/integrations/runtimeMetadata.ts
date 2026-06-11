@@ -19,9 +19,7 @@ import {
   type RouteDescriptor,
 } from './routeMetadata.js'
 
-function normalizeModelApiName(
-  value: string | undefined,
-): string | null {
+function normalizeModelApiName(value: string | undefined): string | null {
   const trimmed = value?.trim().toLowerCase()
   return trimmed ? trimmed : null
 }
@@ -117,9 +115,7 @@ export function openAIShimSupportsApiFormatForModel(
 ): boolean {
   const prefixes =
     apiFormat === 'responses'
-      ? config?.responsesApiModelPrefixes
-          ?.map(normalizePrefix)
-          .filter(Boolean)
+      ? config?.responsesApiModelPrefixes?.map(normalizePrefix).filter(Boolean)
       : undefined
 
   if (!prefixes || prefixes.length === 0) {
@@ -166,10 +162,10 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
-   const hasKimiMoonshot = segments.some(
-     s => s.startsWith('kimi') || s.startsWith('moonshot'),
-   )
-   if (hasKimiMoonshot) {
+  const hasKimiMoonshot = segments.some(
+    s => s.startsWith('kimi') || s.startsWith('moonshot'),
+  )
+  if (hasKimiMoonshot) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
@@ -220,13 +216,13 @@ export function resolveOpenAIShimRuntimeContext(options?: {
   const baseUrlRouteId = resolveRouteIdFromBaseUrl(options?.baseUrl)
   const routeId =
     baseUrlRouteId &&
-    (!activeRouteId || activeRouteId === 'anthropic' || activeRouteId === 'openai')
+    (!activeRouteId ||
+      activeRouteId === 'anthropic' ||
+      activeRouteId === 'openai')
       ? baseUrlRouteId
       : activeRouteId
   const descriptor =
-    routeId && routeId !== 'anthropic'
-      ? getRouteDescriptor(routeId)
-      : null
+    routeId && routeId !== 'anthropic' ? getRouteDescriptor(routeId) : null
   const catalogEntry =
     descriptor && routeId
       ? getCatalogEntryForModel(routeId, options?.model)
@@ -276,11 +272,9 @@ function findModelDescriptorForApiName(
         : undefined
       return {
         model,
-        names: [
-          model.id,
-          model.defaultModel,
-          routeMappedModel,
-        ].filter((value): value is string => Boolean(value?.trim())),
+        names: [model.id, model.defaultModel, routeMappedModel].filter(
+          (value): value is string => Boolean(value?.trim()),
+        ),
       }
     })
     .sort((left, right) => {

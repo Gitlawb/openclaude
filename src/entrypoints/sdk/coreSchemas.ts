@@ -371,7 +371,6 @@ export const PermissionModeSchema = lazySchema(() =>
     ),
 )
 
-
 // ============================================================================
 // Hook Types
 // ============================================================================
@@ -1190,7 +1189,10 @@ export const AgentDefinitionSchema = lazySchema(() =>
           "Scope for auto-loading agent memory files. 'user' - ~/.claude/agent-memory/<agentType>/, 'project' - .claude/agent-memory/<agentType>/, 'local' - .claude/agent-memory-local/<agentType>/",
         ),
       effort: z
-        .union([z.enum(['low', 'medium', 'high', 'xhigh', 'max']), z.number().int()])
+        .union([
+          z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
+          z.number().int(),
+        ])
         .optional()
         .describe(
           'Reasoning effort level for this agent. Either a named level or an integer',
@@ -1770,7 +1772,6 @@ export const SDKSessionStateChangedMessageSchema = lazySchema(() =>
     ),
 )
 
-
 export const SDKTaskProgressMessageSchema = lazySchema(() =>
   z.object({
     type: z.literal('system'),
@@ -1878,9 +1879,13 @@ export const SDKSessionInfoSchema = lazySchema(() =>
 export const SDKPermissionRequestMessageSchema = lazySchema(() =>
   z.object({
     type: z.literal('permission_request'),
-    request_id: z.string().describe('Unique request ID for this permission prompt'),
+    request_id: z
+      .string()
+      .describe('Unique request ID for this permission prompt'),
     tool_name: z.string().describe('Name of the tool requesting permission'),
-    tool_use_id: z.string().describe('Tool use ID for matching with respondToPermission'),
+    tool_use_id: z
+      .string()
+      .describe('Tool use ID for matching with respondToPermission'),
     input: z.record(z.string(), z.unknown()).describe('Tool input parameters'),
     uuid: UUIDPlaceholder(),
     session_id: z.string(),

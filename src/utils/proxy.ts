@@ -97,9 +97,9 @@ export function shouldBypassProxy(
   try {
     const url = new URL(urlString)
     const hostname = url.hostname.toLowerCase()
-    const port = url.port || (
-      url.protocol === 'https:' || url.protocol === 'wss:' ? '443' : '80'
-    )
+    const port =
+      url.port ||
+      (url.protocol === 'https:' || url.protocol === 'wss:' ? '443' : '80')
     const hostWithPort = `${hostname}:${port}`
 
     // Split by comma or space and trim each entry

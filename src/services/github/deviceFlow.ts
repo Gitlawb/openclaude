@@ -10,7 +10,8 @@ export const DEFAULT_GITHUB_DEVICE_FLOW_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
 export const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
 export const GITHUB_DEVICE_ACCESS_TOKEN_URL =
   'https://github.com/login/oauth/access_token'
-export const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token'
+export const COPILOT_TOKEN_URL =
+  'https://api.github.com/copilot_internal/v2/token'
 
 /** Only read:user scope — required for Copilot OAuth */
 export const DEFAULT_GITHUB_DEVICE_SCOPE = 'read:user'
@@ -46,7 +47,10 @@ export type DeviceCodeResult = {
   interval: number
 }
 
-type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>
 
 export function getGithubDeviceFlowClientId(): string {
   return (
@@ -71,8 +75,7 @@ export async function requestDeviceCode(options?: {
     )
   }
   const fetchFn = options?.fetchImpl ?? fetch
-  const requestedScope =
-    options?.scope?.trim() || DEFAULT_GITHUB_DEVICE_SCOPE
+  const requestedScope = options?.scope?.trim() || DEFAULT_GITHUB_DEVICE_SCOPE
   const scopesToTry =
     requestedScope === DEFAULT_GITHUB_DEVICE_SCOPE
       ? [requestedScope]

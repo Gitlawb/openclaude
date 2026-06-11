@@ -673,7 +673,10 @@ async function loadMarkdownFiles(dir: string): Promise<
             return null
           }
           const rawContent = await readFile(filePath, { encoding: 'utf-8' })
-          const { frontmatter, content } = parseFrontmatter(rawContent, filePath)
+          const { frontmatter, content } = parseFrontmatter(
+            rawContent,
+            filePath,
+          )
 
           return {
             filePath,

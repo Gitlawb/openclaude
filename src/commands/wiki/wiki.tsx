@@ -25,7 +25,9 @@ Examples:
   /wiki ingest README.md`
 }
 
-function formatInitResult(result: Awaited<ReturnType<typeof initializeWiki>>): string {
+function formatInitResult(
+  result: Awaited<ReturnType<typeof initializeWiki>>,
+): string {
   const lines = [`Initialized OpenClaude wiki at ${result.root}`]
 
   if (result.alreadyExisted) {
@@ -43,7 +45,9 @@ function formatInitResult(result: Awaited<ReturnType<typeof initializeWiki>>): s
   return lines.join('\n')
 }
 
-function formatStatus(status: Awaited<ReturnType<typeof getWikiStatus>>): string {
+function formatStatus(
+  status: Awaited<ReturnType<typeof getWikiStatus>>,
+): string {
   if (!status.initialized) {
     return `OpenClaude wiki is not initialized in this project.\n\nRun /wiki init to create ${status.root}.`
   }
@@ -80,7 +84,10 @@ async function runWikiCommand(
   const cwd = getCwd()
   const normalized = args.trim().toLowerCase()
 
-  if (COMMON_HELP_ARGS.includes(normalized) || COMMON_INFO_ARGS.includes(normalized)) {
+  if (
+    COMMON_HELP_ARGS.includes(normalized) ||
+    COMMON_INFO_ARGS.includes(normalized)
+  ) {
     onDone(renderHelp(), { display: 'system' })
     return
   }

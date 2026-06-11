@@ -21,9 +21,10 @@ export function resolveMiniMaxUsageBaseUrl(
   return trimmed ? trimTrailingSlash(trimmed) : DEFAULT_MINIMAX_BASE_URL
 }
 
-function resolveConfiguredMiniMaxUsageBaseUrl(
-  baseUrl?: string,
-): { baseUrl: string; usedDefault: boolean } {
+function resolveConfiguredMiniMaxUsageBaseUrl(baseUrl?: string): {
+  baseUrl: string
+  usedDefault: boolean
+} {
   const configuredBaseUrl =
     baseUrl ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
 
@@ -63,13 +64,14 @@ export function getMiniMaxUsageUrls(baseUrl?: string): string[] {
       const fallbackBase = new URL(`${DEFAULT_MINIMAX_BASE_URL}/`)
       return [
         new URL('token_plan/remains', fallbackBase).toString(),
-        new URL('api/openplatform/coding_plan/remains', fallbackBase).toString(),
+        new URL(
+          'api/openplatform/coding_plan/remains',
+          fallbackBase,
+        ).toString(),
       ]
     }
 
-    throw new Error(
-      `MiniMax usage base URL is invalid: ${resolvedBaseUrl}`,
-    )
+    throw new Error(`MiniMax usage base URL is invalid: ${resolvedBaseUrl}`)
   }
 }
 

@@ -3,5 +3,5 @@
  * issues via /issue. Appears when friction is detected in the conversation.
  */
 export function IssueFlagBanner() {
-  return null;
+  return null
 }

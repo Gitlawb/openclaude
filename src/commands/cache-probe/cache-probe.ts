@@ -109,22 +109,17 @@ async function sendProbe(
   for (const chunk of text.split('\n\n')) {
     const lines = chunk
       .split('\n')
-      .map((l) => l.trim())
+      .map(l => l.trim())
       .filter(Boolean)
 
     if (isResponses) {
-      const eventLine = lines.find((l) => l.startsWith('event: '))
-      const dataLines = lines.filter((l) => l.startsWith('data: '))
+      const eventLine = lines.find(l => l.startsWith('event: '))
+      const dataLines = lines.filter(l => l.startsWith('data: '))
       if (!eventLine || !dataLines.length) continue
       const event = eventLine.slice(7).trim()
-      if (
-        event === 'response.completed' ||
-        event === 'response.incomplete'
-      ) {
+      if (event === 'response.completed' || event === 'response.incomplete') {
         try {
-          const data = JSON.parse(
-            dataLines.map((l) => l.slice(6)).join('\n'),
-          )
+          const data = JSON.parse(dataLines.map(l => l.slice(6)).join('\n'))
           usage = (data?.response?.usage as Record<string, unknown>) ?? null
           responseId = (data?.response?.id as string) ?? null
         } catch {}
@@ -145,7 +140,15 @@ async function sendProbe(
     }
   }
 
-  return { label, status: response.status, elapsed, headers: respHeaders, usage, responseId, error: null }
+  return {
+    label,
+    status: response.status,
+    elapsed,
+    headers: respHeaders,
+    usage,
+    responseId,
+    error: null,
+  }
 }
 
 function formatResult(r: ProbeResult): string {
@@ -159,7 +162,9 @@ function formatResult(r: ProbeResult): string {
 
   if (r.usage) {
     lines.push('  Usage:')
-    lines.push(`    ${JSON.stringify(r.usage, null, 2).replace(/\n/g, '\n    ')}`)
+    lines.push(
+      `    ${JSON.stringify(r.usage, null, 2).replace(/\n/g, '\n    ')}`,
+    )
   } else {
     lines.push('  Usage: null')
   }
@@ -178,10 +183,10 @@ function formatResult(r: ProbeResult): string {
   return lines.join('\n')
 }
 
-export const call: LocalCommandCall = async (args) => {
+export const call: LocalCommandCall = async args => {
   const parts = (args ?? '').trim().split(/\s+/).filter(Boolean)
   const noKey = parts.includes('--no-key')
-  const modelOverride = parts.find((p) => !p.startsWith('--')) || undefined
+  const modelOverride = parts.find(p => !p.startsWith('--')) || undefined
   const modelStr = modelOverride ?? getMainLoopModel()
   const request = resolveProviderRequest({ model: modelStr })
   const isGithub = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -235,11 +240,13 @@ export const call: LocalCommandCall = async (args) => {
         },
       ],
       stream: true,
-      ...(noKey ? {} : {
-        store: false,
-        prompt_cache_key: cacheKey,
-        prompt_cache_retention: '24h',
-      }),
+      ...(noKey
+        ? {}
+        : {
+            store: false,
+            prompt_cache_key: cacheKey,
+            prompt_cache_retention: '24h',
+          }),
     }
   } else {
     body = {
@@ -251,10 +258,12 @@ export const call: LocalCommandCall = async (args) => {
       stream: true,
       stream_options: { include_usage: true },
       max_tokens: 20,
-      ...(noKey ? {} : {
-        store: false,
-        prompt_cache_key: cacheKey,
-      }),
+      ...(noKey
+        ? {}
+        : {
+            store: false,
+            prompt_cache_key: cacheKey,
+          }),
     }
   }
 
@@ -283,10 +292,15 @@ export const call: LocalCommandCall = async (args) => {
   }
 
   // Wait
-  await new Promise((r) => setTimeout(r, DELAY_MS))
+  await new Promise(r => setTimeout(r, DELAY_MS))
 
   // Call 2 — Warm
-  const r2 = await sendProbe(url, headers, body, 'CALL 2 — Warm (cache expected)')
+  const r2 = await sendProbe(
+    url,
+    headers,
+    body,
+    'CALL 2 — Warm (cache expected)',
+  )
   logForDebugging(`[cache-probe]\n${formatResult(r2)}`)
 
   // --- Comparison ---
@@ -311,8 +325,7 @@ export const call: LocalCommandCall = async (args) => {
     const v1 = getField(r1.usage, f)
     const v2 = getField(r2.usage, f)
     if (v1 === undefined && v2 === undefined) continue
-    const d =
-      typeof v1 === 'number' && typeof v2 === 'number' ? v2 - v1 : ''
+    const d = typeof v1 === 'number' && typeof v2 === 'number' ? v2 - v1 : ''
     comparison.push(
       `  ${f.padEnd(42)} ${String(v1 ?? '-').padStart(8)}  ${String(v2 ?? '-').padStart(8)}  ${String(d).padStart(8)}`,
     )
@@ -324,7 +337,11 @@ export const call: LocalCommandCall = async (args) => {
   )
 
   // Header comparison
-  for (const h of ['openai-processing-ms', 'x-ms-region', 'x-ratelimit-remaining']) {
+  for (const h of [
+    'openai-processing-ms',
+    'x-ms-region',
+    'x-ratelimit-remaining',
+  ]) {
     const v1 = r1.headers[h]
     const v2 = r2.headers[h]
     if (v1 || v2) {
@@ -363,7 +380,7 @@ export const call: LocalCommandCall = async (args) => {
       input_tokens: u?.input_tokens ?? 0,
       output_tokens: u?.output_tokens ?? 0,
       cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,  // ← main hardcodes this to 0
+      cache_read_input_tokens: 0, // ← main hardcodes this to 0
     }
   }
   // openaiShim.ts convertChunkUsage() — used for Chat Completions
@@ -381,20 +398,32 @@ export const call: LocalCommandCall = async (args) => {
   const shim2 = shimFn(r2.usage)
 
   comparison.push('')
-  comparison.push(`  --- What main's shim reports (${useResponses ? 'codexShim.makeUsage' : 'openaiShim.convertChunkUsage'}) ---`)
-  comparison.push(`  Call 1: cache_read_input_tokens=${shim1.cache_read_input_tokens}`)
-  comparison.push(`  Call 2: cache_read_input_tokens=${shim2.cache_read_input_tokens}`)
+  comparison.push(
+    `  --- What main's shim reports (${useResponses ? 'codexShim.makeUsage' : 'openaiShim.convertChunkUsage'}) ---`,
+  )
+  comparison.push(
+    `  Call 1: cache_read_input_tokens=${shim1.cache_read_input_tokens}`,
+  )
+  comparison.push(
+    `  Call 2: cache_read_input_tokens=${shim2.cache_read_input_tokens}`,
+  )
   if (useResponses && cached2 > 0) {
-    comparison.push(`  BUG: Server returned ${cached2} cached tokens but main's makeUsage() drops it → reports 0`)
+    comparison.push(
+      `  BUG: Server returned ${cached2} cached tokens but main's makeUsage() drops it → reports 0`,
+    )
   } else if (!useResponses && shim2.cache_read_input_tokens > 0) {
-    comparison.push(`  OK: Chat Completions path on main correctly reads cached_tokens`)
+    comparison.push(
+      `  OK: Chat Completions path on main correctly reads cached_tokens`,
+    )
   }
 
   logForDebugging(comparison.join('\n'))
 
   // User-facing summary
   const mode = noKey ? ' (NO cache key sent)' : ''
-  const shimLabel = useResponses ? 'codexShim.makeUsage()' : 'openaiShim.convertChunkUsage()'
+  const shimLabel = useResponses
+    ? 'codexShim.makeUsage()'
+    : 'openaiShim.convertChunkUsage()'
   const summary = [
     `Cache Probe — ${request.resolvedModel} via ${useResponses ? 'Responses API' : 'Chat Completions'}${mode}`,
     '',

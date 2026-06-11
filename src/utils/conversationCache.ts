@@ -1,9 +1,9 @@
 /**
  * Conversation Cache - LRU cache for conversation history
- * 
+ *
  * Provides efficient in-memory caching with LRU eviction
  * for conversation messages to reduce memory usage.
- * 
+ *
  * Uses Map for O(1) access order tracking (instead of array filtering).
  */
 

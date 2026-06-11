@@ -5,7 +5,11 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
-import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import {
+  applyDomainFilters,
+  safeHostname,
+  type ProviderOutput,
+} from './types.js'
 
 export const youProvider: SearchProvider = {
   name: 'you',
@@ -14,7 +18,10 @@ export const youProvider: SearchProvider = {
     return Boolean(process.env.YOU_API_KEY)
   },
 
-  async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
+  async search(
+    input: SearchInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderOutput> {
     const start = performance.now()
 
     const url = new URL('https://api.ydc-index.io/v1/search')
@@ -27,7 +34,9 @@ export const youProvider: SearchProvider = {
     })
 
     if (!res.ok) {
-      throw new Error(`You.com search error ${res.status}: ${await res.text().catch(() => '')}`)
+      throw new Error(
+        `You.com search error ${res.status}: ${await res.text().catch(() => '')}`,
+      )
     }
 
     const data = await res.json()

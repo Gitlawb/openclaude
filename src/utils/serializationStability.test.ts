@@ -15,7 +15,9 @@ describe('stableStringify', () => {
   })
 
   test('key order at the top level does not affect output', () => {
-    expect(stableStringify({ a: 1, b: 2 })).toBe(stableStringify({ b: 2, a: 1 }))
+    expect(stableStringify({ a: 1, b: 2 })).toBe(
+      stableStringify({ b: 2, a: 1 }),
+    )
   })
 
   test('key order at nested depths does not affect output', () => {
@@ -88,10 +90,7 @@ describe('sortKeysDeep', () => {
       a: { y: 2, x: { d: 3, c: 4 } },
     }) as Record<string, unknown>
     expect(Object.keys(sorted)).toEqual(['a', 'b'])
-    expect(Object.keys(sorted.a as Record<string, unknown>)).toEqual([
-      'x',
-      'y',
-    ])
+    expect(Object.keys(sorted.a as Record<string, unknown>)).toEqual(['x', 'y'])
   })
 
   test('arrays are preserved element-wise', () => {

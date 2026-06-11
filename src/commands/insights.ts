@@ -1,12 +1,6 @@
 import { execFileSync } from 'child_process'
 import { diffLines } from 'diff'
-import {
-  mkdir,
-  readdir,
-  readFile,
-  unlink,
-  writeFile,
-} from 'fs/promises'
+import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises'
 import { extname, join } from 'path'
 import type { Command } from '../commands.js'
 import { queryWithModel } from '../services/api/claude.js'
@@ -2860,7 +2854,6 @@ const usageReport: Command = {
       `${Math.round(data.total_duration_hours)}h`,
       `${data.git_commits} commits`,
     ].join(' · ')
-
 
     // Build markdown summary from insights
     const atAGlance = insights.at_a_glance

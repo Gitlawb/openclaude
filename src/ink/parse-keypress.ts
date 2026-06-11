@@ -211,10 +211,7 @@ function splitCompleteUtf8(input: Buffer): {
   }
 
   let sequenceStart = input.length - 1
-  while (
-    sequenceStart >= 0 &&
-    (input[sequenceStart]! & 0xc0) === 0x80
-  ) {
+  while (sequenceStart >= 0 && (input[sequenceStart]! & 0xc0) === 0x80) {
     sequenceStart--
   }
 
@@ -223,10 +220,7 @@ function splitCompleteUtf8(input: Buffer): {
   }
 
   const expectedLength = utf8SequenceLength(input[sequenceStart]!)
-  if (
-    expectedLength > 1 &&
-    input.length - sequenceStart < expectedLength
-  ) {
+  if (expectedLength > 1 && input.length - sequenceStart < expectedLength) {
     return {
       complete: input.subarray(0, sequenceStart),
       incomplete: input.subarray(sequenceStart),
@@ -241,9 +235,7 @@ function inputToString(
   pendingUtf8?: Buffer,
 ): { value: string; pendingUtf8?: Buffer } {
   if (Buffer.isBuffer(input)) {
-    const combined = pendingUtf8
-      ? Buffer.concat([pendingUtf8, input])
-      : input
+    const combined = pendingUtf8 ? Buffer.concat([pendingUtf8, input]) : input
     const { complete, incomplete } = splitCompleteUtf8(combined)
 
     if (complete.length === 0) {
@@ -289,7 +281,10 @@ export function parseMultipleKeypresses(
 
   // Tokenize the input
   const tokens = isFlush
-    ? [...(inputString ? tokenizer.feed(inputString) : []), ...tokenizer.flush()]
+    ? [
+        ...(inputString ? tokenizer.feed(inputString) : []),
+        ...tokenizer.flush(),
+      ]
     : tokenizer.feed(inputString)
 
   // Convert tokens to parsed keys, handling paste mode

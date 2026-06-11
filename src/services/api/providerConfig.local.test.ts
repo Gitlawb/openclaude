@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 import {
   getAdditionalModelOptionsCacheScope,
@@ -78,7 +81,9 @@ test('treats private IPv6 endpoints as local', () => {
 test('treats public hosts as remote', () => {
   expect(isLocalProviderUrl('http://203.0.113.1:11434/v1')).toBe(false)
   expect(isLocalProviderUrl('https://example.com/v1')).toBe(false)
-  expect(isLocalProviderUrl('http://[2001:4860:4860::8888]:11434/v1')).toBe(false)
+  expect(isLocalProviderUrl('http://[2001:4860:4860::8888]:11434/v1')).toBe(
+    false,
+  )
 })
 
 test('creates a cache scope for local openai-compatible providers', () => {
@@ -86,9 +91,11 @@ test('creates a cache scope for local openai-compatible providers', () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:1234/v1'
   process.env.OPENAI_MODEL = 'llama-3.2-3b-instruct'
 
-  expect(getAdditionalModelOptionsCacheScope()?.startsWith(
-    'openai:http://localhost:1234/v1:',
-  )).toBe(true)
+  expect(
+    getAdditionalModelOptionsCacheScope()?.startsWith(
+      'openai:http://localhost:1234/v1:',
+    ),
+  ).toBe(true)
 })
 
 test('keeps codex alias models on chat completions for local openai-compatible providers', () => {
@@ -102,9 +109,11 @@ test('keeps codex alias models on chat completions for local openai-compatible p
     resolvedModel: 'gpt-5.4',
     baseUrl: 'http://127.0.0.1:8080/v1',
   })
-  expect(getAdditionalModelOptionsCacheScope()?.startsWith(
-    'openai:http://127.0.0.1:8080/v1:',
-  )).toBe(true)
+  expect(
+    getAdditionalModelOptionsCacheScope()?.startsWith(
+      'openai:http://127.0.0.1:8080/v1:',
+    ),
+  ).toBe(true)
 })
 
 test('normalizes legacy Gitlawb Opengateway provider-prefixed base URLs to the smart route', () => {

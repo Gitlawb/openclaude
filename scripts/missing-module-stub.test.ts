@@ -18,9 +18,7 @@ test('/dream command is present in the CLI bundle', () => {
   const bundle = readFileSync(DIST, 'utf-8')
 
   expect(bundle).toContain('consolidating memories')
-  expect(bundle).not.toMatch(
-    /missing-module-stub:.*commands\/dream\/dream\.js/,
-  )
+  expect(bundle).not.toMatch(/missing-module-stub:.*commands\/dream\/dream\.js/)
 })
 
 // Regression for the WebFetch SSRF guard. WebFetchTool passes the real

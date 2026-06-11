@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'bun:test'
-import { tool, createSdkMcpServer, query } from '../../src/entrypoints/sdk/index.js'
+import {
+  tool,
+  createSdkMcpServer,
+  query,
+} from '../../src/entrypoints/sdk/index.js'
 import { connectSdkMcpServers } from '../../src/entrypoints/sdk/permissions.js'
 
 // Type-level test: SdkMcpSdkConfig accepts tools field
@@ -40,7 +44,10 @@ describe('SDK MCP type:sdk tools wiring', () => {
     const myTool = tool(
       'add',
       'Add two numbers',
-      { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } },
+      {
+        type: 'object',
+        properties: { a: { type: 'number' }, b: { type: 'number' } },
+      },
       async (args: { a: number; b: number }) => ({
         content: [{ type: 'text', text: String(args.a + args.b) }],
       }),

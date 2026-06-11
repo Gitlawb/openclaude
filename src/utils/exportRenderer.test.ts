@@ -8,8 +8,9 @@ import {
 // The renderers are defensive against malformed transcript entries, and these
 // tests deliberately feed minimal/invalid shapes (e.g. type: 'tool'). Loosen
 // the signatures type-side only so the fixtures don't need full envelopes.
-const renderMessagesToMarkdown =
-  renderMessagesToMarkdownStrict as unknown as (messages: unknown[]) => string
+const renderMessagesToMarkdown = renderMessagesToMarkdownStrict as unknown as (
+  messages: unknown[],
+) => string
 const renderMessagesToJSON = renderMessagesToJSONStrict as unknown as (
   messages: unknown[],
 ) => string
@@ -37,9 +38,7 @@ function toolUseMessage(toolName: string, input: Record<string, unknown>) {
     type: 'assistant',
     message: {
       role: 'assistant',
-      content: [
-        { type: 'tool_use', id: 'tool-123', name: toolName, input },
-      ],
+      content: [{ type: 'tool_use', id: 'tool-123', name: toolName, input }],
     },
     timestamp: '2026-05-13T12:00:02Z',
   }
@@ -51,7 +50,12 @@ function toolResultMessage(content: string, isError = false) {
     message: {
       role: 'tool',
       content: [
-        { type: 'tool_result', tool_use_id: 'tool-123', content, is_error: isError },
+        {
+          type: 'tool_result',
+          tool_use_id: 'tool-123',
+          content,
+          is_error: isError,
+        },
       ],
     },
     timestamp: '2026-05-13T12:00:03Z',
@@ -133,7 +137,9 @@ describe('renderMessagesToMarkdown', () => {
       type: 'user',
       message: {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'output text' }],
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-1', content: 'output text' },
+        ],
       },
     }
     const md = renderMessagesToMarkdown([runtimeToolResult])
@@ -193,7 +199,12 @@ describe('renderMessagesToMarkdown', () => {
       type: 'user',
       message: {
         role: 'user',
-        content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png' } }],
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png' },
+          },
+        ],
       },
     }
     const md = renderMessagesToMarkdown([msg])
@@ -201,28 +212,44 @@ describe('renderMessagesToMarkdown', () => {
   })
 
   test('skips progress messages', () => {
-    const progressMsg = { type: 'progress', message: { role: 'user', content: [{ type: 'text', text: 'Loading...' }] } }
+    const progressMsg = {
+      type: 'progress',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'Loading...' }],
+      },
+    }
     const md = renderMessagesToMarkdown([progressMsg, userMessage('hello')])
     expect(md).not.toContain('## Progress')
     expect(md).toContain('## User')
   })
 
   test('skips attachment messages', () => {
-    const attMsg = { type: 'attachment', attachment: { type: 'file', name: 'test.txt' } }
+    const attMsg = {
+      type: 'attachment',
+      attachment: { type: 'file', name: 'test.txt' },
+    }
     const md = renderMessagesToMarkdown([attMsg, userMessage('hello')])
     expect(md).not.toContain('## Attachment')
     expect(md).toContain('## User')
   })
 
   test('skips system api_metrics messages', () => {
-    const metricsMsg = { type: 'system', subtype: 'api_metrics', message: { role: 'system', content: [] } }
+    const metricsMsg = {
+      type: 'system',
+      subtype: 'api_metrics',
+      message: { role: 'system', content: [] },
+    }
     const md = renderMessagesToMarkdown([metricsMsg, userMessage('hello')])
     expect(md).not.toContain('## System')
     expect(md).toContain('## User')
   })
 
   test('skips messages with empty content', () => {
-    const emptyMsg = { type: 'system', message: { role: 'system', content: [] } }
+    const emptyMsg = {
+      type: 'system',
+      message: { role: 'system', content: [] },
+    }
     const md = renderMessagesToMarkdown([emptyMsg, userMessage('hello')])
     expect(md).not.toContain('## System')
     expect(md).toContain('## User')
@@ -273,7 +300,8 @@ describe('renderMessagesToMarkdown', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: '<local-command-stdout>command output</local-command-stdout>',
+          content:
+            '<local-command-stdout>command output</local-command-stdout>',
         },
       },
     ] as any)
@@ -288,7 +316,8 @@ describe('renderMessagesToMarkdown', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: '<bash-stdout>stdout text</bash-stdout><bash-stderr>stderr text</bash-stderr>',
+          content:
+            '<bash-stdout>stdout text</bash-stdout><bash-stderr>stderr text</bash-stderr>',
         },
       },
     ] as any)
@@ -324,7 +353,10 @@ describe('renderMessagesToMarkdown', () => {
           role: 'user',
           content: [
             { type: 'text', text: '<bash-stdout>stdout text</bash-stdout>' },
-            { type: 'text', text: '<system-reminder>hidden metadata</system-reminder>' },
+            {
+              type: 'text',
+              text: '<system-reminder>hidden metadata</system-reminder>',
+            },
           ],
         },
       },
@@ -341,7 +373,9 @@ describe('renderMessagesToMarkdown', () => {
         type: 'assistant',
         message: {
           role: 'assistant',
-          content: [{ type: 'server_tool_use', id: 'srv-1', name: 'web_search' }],
+          content: [
+            { type: 'server_tool_use', id: 'srv-1', name: 'web_search' },
+          ],
         },
       },
     ])
@@ -367,19 +401,36 @@ describe('renderMessagesToMarkdown', () => {
       {
         type: 'user',
         isMeta: true,
-        message: { role: 'user', content: [{ type: 'text', text: 'internal caveat' }] },
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'internal caveat' }],
+        },
       },
       {
         type: 'user',
-        message: { role: 'user', content: '<command-name>/model</command-name>' },
+        message: {
+          role: 'user',
+          content: '<command-name>/model</command-name>',
+        },
       },
       {
         type: 'user',
-        message: { role: 'user', content: '<system-reminder>hidden</system-reminder>' },
+        message: {
+          role: 'user',
+          content: '<system-reminder>hidden</system-reminder>',
+        },
       },
       {
         type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>hidden array</system-reminder>' }] },
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '<system-reminder>hidden array</system-reminder>',
+            },
+          ],
+        },
       },
       userMessage('visible user text'),
     ] as any)
@@ -413,7 +464,12 @@ describe('renderMessagesToMarkdown', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: [{ type: 'text', text: 'visible before <command-name>/export</command-name> visible after' }],
+          content: [
+            {
+              type: 'text',
+              text: 'visible before <command-name>/export</command-name> visible after',
+            },
+          ],
         },
       },
     ] as any)
@@ -424,7 +480,9 @@ describe('renderMessagesToMarkdown', () => {
 
   test('strips system reminders embedded in visible Markdown text', () => {
     const md = renderMessagesToMarkdown([
-      userMessage('visible before <system-reminder>hidden</system-reminder> visible after'),
+      userMessage(
+        'visible before <system-reminder>hidden</system-reminder> visible after',
+      ),
     ])
     expect(md).toContain('visible before  visible after')
     expect(md).not.toContain('<system-reminder>')
@@ -481,16 +539,20 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('includes messageCount', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([userMessage('a'), assistantMessage('b')]))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([userMessage('a'), assistantMessage('b')]),
+    )
     expect(parsed.messageCount).toBe(2)
   })
 
   test('preserves message order', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      userMessage('first'),
-      assistantMessage('second'),
-      userMessage('third'),
-    ]))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        userMessage('first'),
+        assistantMessage('second'),
+        userMessage('third'),
+      ]),
+    )
     expect(parsed.messages[0].content[0].text).toBe('first')
     expect(parsed.messages[1].content[0].text).toBe('second')
     expect(parsed.messages[2].content[0].text).toBe('third')
@@ -503,7 +565,9 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('handles tool_use content blocks', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([toolUseMessage('Read', { file_path: '/test.ts' })]))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([toolUseMessage('Read', { file_path: '/test.ts' })]),
+    )
     const content = parsed.messages[0].content[0]
     expect(content.type).toBe('tool_use')
     expect(content.name).toBe('Read')
@@ -511,7 +575,9 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('handles tool_result content blocks', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([toolResultMessage('result text', true)]))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([toolResultMessage('result text', true)]),
+    )
     expect(parsed.messages[0].role).toBe('tool')
     const content = parsed.messages[0].content[0]
     expect(content.type).toBe('tool_result')
@@ -524,7 +590,9 @@ describe('renderMessagesToJSON', () => {
       type: 'user',
       message: {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'output' }],
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu-1', content: 'output' },
+        ],
       },
     }
     const parsed = JSON.parse(renderMessagesToJSON([runtimeToolResult]))
@@ -550,10 +618,9 @@ describe('renderMessagesToJSON', () => {
     expect(parsed.messages[0].type).toBe('user')
     expect(parsed.messages[0].role).toBe('user')
     expect(parsed.messages[0].internalType).toBeUndefined()
-    expect(parsed.messages[0].content.map((block: { type: string }) => block.type)).toEqual([
-      'tool_result',
-      'text',
-    ])
+    expect(
+      parsed.messages[0].content.map((block: { type: string }) => block.type),
+    ).toEqual(['tool_result', 'text'])
   })
 
   test('keeps mixed non-text content and tool result content as a user message', () => {
@@ -563,17 +630,19 @@ describe('renderMessagesToJSON', () => {
         role: 'user',
         content: [
           { type: 'tool_result', tool_use_id: 'tu-1', content: 'tool output' },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } },
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: 'abc' },
+          },
         ],
       },
     }
     const parsed = JSON.parse(renderMessagesToJSON([mixedMessage]))
     expect(parsed.messages[0].type).toBe('user')
     expect(parsed.messages[0].role).toBe('user')
-    expect(parsed.messages[0].content.map((block: { type: string }) => block.type)).toEqual([
-      'tool_result',
-      'image',
-    ])
+    expect(
+      parsed.messages[0].content.map((block: { type: string }) => block.type),
+    ).toEqual(['tool_result', 'image'])
   })
 
   test('exports system-reminder siblings as semantic tool messages', () => {
@@ -602,7 +671,9 @@ describe('renderMessagesToJSON', () => {
       type: 'assistant',
       message: {
         role: 'assistant',
-        content: [{ type: 'tool_use', id: 'tool-1', name: 'Cyclic', input: cyclic }],
+        content: [
+          { type: 'tool_use', id: 'tool-1', name: 'Cyclic', input: cyclic },
+        ],
       },
     }
     const parsed = JSON.parse(renderMessagesToJSON([msg]))
@@ -624,7 +695,9 @@ describe('renderMessagesToJSON', () => {
       type: 'assistant',
       message: {
         role: 'assistant',
-        content: [{ type: 'tool_use', id: 'tool-1', name: 'Hostile', input: hostile }],
+        content: [
+          { type: 'tool_use', id: 'tool-1', name: 'Hostile', input: hostile },
+        ],
       },
     }
     const parsed = JSON.parse(renderMessagesToJSON([msg]))
@@ -648,15 +721,24 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('normalizes camelCase tool result ids', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'tool',
-        message: {
-          role: 'tool',
-          content: [{ type: 'tool_result', toolUseId: 'camel-id', content: 'ok', isError: false }],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'tool',
+          message: {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool_result',
+                toolUseId: 'camel-id',
+                content: 'ok',
+                isError: false,
+              },
+            ],
+          },
         },
-      },
-    ]))
+      ]),
+    )
     expect(parsed.messages[0].content[0].toolUseId).toBe('camel-id')
     expect(parsed.messages[0].content[0].isError).toBe(false)
   })
@@ -672,15 +754,25 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('filters out progress messages', () => {
-    const progressMsg = { type: 'progress', message: { role: 'user', content: [{ type: 'text', text: 'Loading...' }] } }
-    const parsed = JSON.parse(renderMessagesToJSON([progressMsg, userMessage('hello')]))
+    const progressMsg = {
+      type: 'progress',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'Loading...' }],
+      },
+    }
+    const parsed = JSON.parse(
+      renderMessagesToJSON([progressMsg, userMessage('hello')]),
+    )
     expect(parsed.messageCount).toBe(1)
     expect(parsed.messages[0].type).toBe('user')
   })
 
   test('filters out attachment messages', () => {
     const attMsg = { type: 'attachment', attachment: { type: 'file' } }
-    const parsed = JSON.parse(renderMessagesToJSON([attMsg, userMessage('hello')]))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([attMsg, userMessage('hello')]),
+    )
     expect(parsed.messageCount).toBe(1)
   })
 
@@ -709,14 +801,16 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('preserves top-level system message content', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'system',
-        subtype: 'local_command',
-        content: 'local command output',
-        timestamp: '2026-05-13T12:00:04Z',
-      },
-    ]))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'system',
+          subtype: 'local_command',
+          content: 'local command output',
+          timestamp: '2026-05-13T12:00:04Z',
+        },
+      ]),
+    )
     expect(parsed.messageCount).toBe(1)
     expect(parsed.messages[0].type).toBe('system')
     expect(parsed.messages[0].subtype).toBe('local_command')
@@ -727,15 +821,18 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('exports local command output wrappers as semantic system messages', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: '<local-command-stderr>command failed</local-command-stderr>',
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content:
+              '<local-command-stderr>command failed</local-command-stderr>',
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messages[0].type).toBe('system')
     expect(parsed.messages[0].role).toBe('system')
     expect(parsed.messages[0].subtype).toBe('local_command')
@@ -744,60 +841,77 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('exports terminal output wrappers with attributes', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: '<bash-stdout format="persisted">persisted output</bash-stdout>',
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content:
+              '<bash-stdout format="persisted">persisted output</bash-stdout>',
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messages[0].type).toBe('system')
     expect(parsed.messages[0].subtype).toBe('bash_output')
     expect(parsed.messages[0].content[0].text).toBe('persisted output')
   })
 
   test('strips system reminders embedded in visible JSON text', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      userMessage('visible before <system-reminder>hidden</system-reminder> visible after'),
-    ]))
-    expect(parsed.messages[0].content[0].text).toBe('visible before  visible after')
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        userMessage(
+          'visible before <system-reminder>hidden</system-reminder> visible after',
+        ),
+      ]),
+    )
+    expect(parsed.messages[0].content[0].text).toBe(
+      'visible before  visible after',
+    )
   })
 
   test('strips system reminders nested inside tool result content', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: 'tu-1',
-              content: [
-                { type: 'text', text: 'visible <system-reminder>hidden</system-reminder>' },
-              ],
-            },
-          ],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tu-1',
+                content: [
+                  {
+                    type: 'text',
+                    text: 'visible <system-reminder>hidden</system-reminder>',
+                  },
+                ],
+              },
+            ],
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messages[0].content[0].content[0].text).toBe('visible')
     expect(JSON.stringify(parsed)).not.toContain('system-reminder')
     expect(JSON.stringify(parsed)).not.toContain('hidden')
   })
 
   test('exports combined terminal output wrappers as semantic system messages', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: '<bash-stdout>stdout text</bash-stdout><bash-stderr>stderr text</bash-stderr>',
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content:
+              '<bash-stdout>stdout text</bash-stdout><bash-stderr>stderr text</bash-stderr>',
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messages[0].type).toBe('system')
     expect(parsed.messages[0].role).toBe('system')
     expect(parsed.messages[0].subtype).toBe('bash_output')
@@ -809,15 +923,19 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('exports bash input wrappers as semantic system messages', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: '<bash-input>npm test</bash-input>' }],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'text', text: '<bash-input>npm test</bash-input>' },
+            ],
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messages[0].type).toBe('system')
     expect(parsed.messages[0].role).toBe('system')
     expect(parsed.messages[0].subtype).toBe('bash_input')
@@ -826,89 +944,115 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('exports terminal wrappers with internal siblings as semantic system messages', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            { type: 'text', text: '<bash-stderr>stderr text</bash-stderr>' },
-            { type: 'text', text: '<system-reminder>hidden metadata</system-reminder>' },
-          ],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'text', text: '<bash-stderr>stderr text</bash-stderr>' },
+              {
+                type: 'text',
+                text: '<system-reminder>hidden metadata</system-reminder>',
+              },
+            ],
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messages[0].type).toBe('system')
     expect(parsed.messages[0].role).toBe('system')
     expect(parsed.messages[0].subtype).toBe('bash_output')
     expect(parsed.messages[0].stream).toBe('stderr')
-    expect(parsed.messages[0].content).toEqual([{ type: 'text', text: 'stderr text' }])
+    expect(parsed.messages[0].content).toEqual([
+      { type: 'text', text: 'stderr text' },
+    ])
   })
 
   test('preserves sourceIndex when internal messages are filtered', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      { type: 'progress', message: { role: 'user', content: [{ type: 'text', text: 'loading' }] } },
-      userMessage('visible'),
-    ] as any))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'progress',
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'loading' }],
+          },
+        },
+        userMessage('visible'),
+      ] as any),
+    )
     expect(parsed.messages[0].index).toBe(0)
     expect(parsed.messages[0].sourceIndex).toBe(1)
   })
 
   test('skips synthetic missing tool-result placeholders', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: 'missing',
-              content: '[Tool result missing due to internal error]',
-              is_error: true,
-            },
-          ],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'missing',
+                content: '[Tool result missing due to internal error]',
+                is_error: true,
+              },
+            ],
+          },
         },
-      },
-      userMessage('visible'),
-    ] as any))
+        userMessage('visible'),
+      ] as any),
+    )
     expect(parsed.messageCount).toBe(1)
     expect(parsed.messages[0].content[0].text).toBe('visible')
   })
 
   test('skips synthetic missing tool-result placeholders with internal siblings', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: 'missing',
-              content: '[Tool result missing due to internal error]',
-              is_error: true,
-            },
-            { type: 'text', text: '<system-reminder>hidden metadata</system-reminder>' },
-          ],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'missing',
+                content: '[Tool result missing due to internal error]',
+                is_error: true,
+              },
+              {
+                type: 'text',
+                text: '<system-reminder>hidden metadata</system-reminder>',
+              },
+            ],
+          },
         },
-      },
-      userMessage('visible'),
-    ] as any))
+        userMessage('visible'),
+      ] as any),
+    )
     expect(parsed.messageCount).toBe(1)
     expect(parsed.messages[0].content[0].text).toBe('visible')
   })
 
   test('preserves unknown content block type while sanitizing its value', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'assistant',
-        message: {
-          role: 'assistant',
-          content: [{ type: 'server_tool_use', id: 'srv-1', name: 'web_search' }],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'server_tool_use', id: 'srv-1', name: 'web_search' },
+            ],
+          },
         },
-      },
-    ]))
+      ]),
+    )
     expect(parsed.messages[0].content[0].type).toBe('server_tool_use')
     expect(parsed.messages[0].content[0].value).toEqual({
       type: 'server_tool_use',
@@ -918,59 +1062,91 @@ describe('renderMessagesToJSON', () => {
   })
 
   test('skips internal meta and command breadcrumb messages in JSON', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        isMeta: true,
-        message: { role: 'user', content: [{ type: 'text', text: 'internal caveat' }] },
-      },
-      {
-        type: 'user',
-        message: { role: 'user', content: '<command-name>/model</command-name>' },
-      },
-      {
-        type: 'user',
-        message: { role: 'user', content: '<system-reminder>hidden</system-reminder>' },
-      },
-      {
-        type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>hidden array</system-reminder>' }] },
-      },
-      userMessage('visible user text'),
-    ] as any))
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          isMeta: true,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'internal caveat' }],
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: '<command-name>/model</command-name>',
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: '<system-reminder>hidden</system-reminder>',
+          },
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: '<system-reminder>hidden array</system-reminder>',
+              },
+            ],
+          },
+        },
+        userMessage('visible user text'),
+      ] as any),
+    )
     expect(parsed.messageCount).toBe(1)
     expect(parsed.messages[0].content[0].text).toBe('visible user text')
   })
 
   test('filters internal text blocks while preserving mixed real content in JSON', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            { type: 'text', text: '<command-name>/export</command-name>' },
-            { type: 'text', text: 'real user content' },
-          ],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'text', text: '<command-name>/export</command-name>' },
+              { type: 'text', text: 'real user content' },
+            ],
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messageCount).toBe(1)
-    expect(parsed.messages[0].content).toEqual([{ type: 'text', text: 'real user content' }])
+    expect(parsed.messages[0].content).toEqual([
+      { type: 'text', text: 'real user content' },
+    ])
   })
 
   test('does not drop visible JSON text that contains internal tag wrappers', () => {
-    const parsed = JSON.parse(renderMessagesToJSON([
-      {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'visible before <command-name>/export</command-name> visible after' }],
+    const parsed = JSON.parse(
+      renderMessagesToJSON([
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'visible before <command-name>/export</command-name> visible after',
+              },
+            ],
+          },
         },
-      },
-    ] as any))
+      ] as any),
+    )
     expect(parsed.messageCount).toBe(1)
     expect(parsed.messages[0].type).toBe('user')
-    expect(parsed.messages[0].content[0].text).toBe('visible before  visible after')
+    expect(parsed.messages[0].content[0].text).toBe(
+      'visible before  visible after',
+    )
   })
 })

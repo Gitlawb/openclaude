@@ -154,9 +154,9 @@ describe('clipboard path behavior remains stable', () => {
 
     await setClipboard('Привет мир')
 
-    expect(execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'powershell')).toBe(
-      false,
-    )
+    expect(
+      execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'powershell'),
+    ).toBe(false)
   })
 
   test('local macOS clipboard fallback still uses pbcopy', async () => {
@@ -165,8 +165,8 @@ describe('clipboard path behavior remains stable', () => {
 
     await setClipboard('hello')
 
-    expect(execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'pbcopy')).toBe(
-      true,
-    )
+    expect(
+      execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'pbcopy'),
+    ).toBe(true)
   })
 })

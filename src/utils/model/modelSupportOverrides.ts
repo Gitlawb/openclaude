@@ -33,12 +33,9 @@ function buildCapabilityOverrideCacheKey(
     process.env[tier.capabilitiesEnvVar] ?? '',
   ])
 
-  return [
-    model.toLowerCase(),
-    capability,
-    getAPIProvider(),
-    ...envParts,
-  ].join('\0')
+  return [model.toLowerCase(), capability, getAPIProvider(), ...envParts].join(
+    '\0',
+  )
 }
 
 /**

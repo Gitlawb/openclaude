@@ -41,7 +41,6 @@ import {
 import { configureGlobalAgents } from '../utils/proxy.js'
 import { setShellIfWindows } from '../utils/windowsPaths.js'
 
-
 export const init = memoize(async (): Promise<void> => {
   const initStartTime = Date.now()
   logForDiagnosticsNoPII('info', 'init_started')

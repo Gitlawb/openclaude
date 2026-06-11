@@ -30,9 +30,7 @@ try {
   )
   const { QueryEngine } = await import('../../QueryEngine.js')
   const { createSystemMessage } = await import('../../utils/messages.js')
-  const { getDefaultAppState } = await import(
-    '../../state/AppStateStore.js'
-  )
+  const { getDefaultAppState } = await import('../../state/AppStateStore.js')
 
   setSessionPersistenceDisabled(true)
 
@@ -62,7 +60,9 @@ try {
   }
 
   const goalStatusMessage = emitted.find(
-    (message): message is {
+    (
+      message,
+    ): message is {
       type: 'assistant'
       message: { content: Array<{ type: string; text: string }> }
       parent_tool_use_id: null
@@ -70,12 +70,18 @@ try {
       typeof message === 'object' &&
       message !== null &&
       (message as { type?: unknown }).type === 'assistant' &&
-      (message as { message?: { content?: unknown } }).message?.content instanceof
-        Array &&
-      (message as { message: { content: Array<{ type?: unknown; text?: unknown }> } })
-        .message.content[0]?.type === 'text' &&
-      (message as { message: { content: Array<{ type?: unknown; text?: unknown }> } })
-        .message.content[0]?.text === 'Goal achieved: tests pass',
+      (message as { message?: { content?: unknown } }).message
+        ?.content instanceof Array &&
+      (
+        message as {
+          message: { content: Array<{ type?: unknown; text?: unknown }> }
+        }
+      ).message.content[0]?.type === 'text' &&
+      (
+        message as {
+          message: { content: Array<{ type?: unknown; text?: unknown }> }
+        }
+      ).message.content[0]?.text === 'Goal achieved: tests pass',
   )
 
   assert.ok(goalStatusMessage)

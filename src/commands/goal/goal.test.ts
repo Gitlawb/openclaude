@@ -67,7 +67,10 @@ describe('/goal command', () => {
     expect(activeResult.value).toContain('Turns: 0/50')
     expect(activeResult.value).toContain('Evaluator failures: 0')
 
-    context.setAppState(prev => ({ ...prev, goal: pauseGoal(getState().goal!) }))
+    context.setAppState(prev => ({
+      ...prev,
+      goal: pauseGoal(getState().goal!),
+    }))
     const pausedResult = expectTextResult(await call('', context))
     expect(pausedResult.value).toContain('Status: paused')
 

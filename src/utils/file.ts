@@ -302,9 +302,7 @@ export function addLineNumbers({
   const lines = content.split(/\r?\n/)
 
   if (isCompactLinePrefixEnabled()) {
-    return lines
-      .map((line, index) => `${index + startLine}→${line}`)
-      .join('\n')
+    return lines.map((line, index) => `${index + startLine}→${line}`).join('\n')
   }
 
   return lines

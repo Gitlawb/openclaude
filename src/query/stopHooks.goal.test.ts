@@ -93,9 +93,7 @@ describe('goal continuation stop-hook precedence', () => {
     expect(returned.preventContinuation).toBe(false)
     expect(returned.stopHookActive).toBe(true)
     expect(returned.blockingErrors).toHaveLength(1)
-    expect(returned.blockingErrors[0].message.content).toBe(
-      'stop hook blocked',
-    )
+    expect(returned.blockingErrors[0].message.content).toBe('stop hook blocked')
   })
 
   test('configured Stop hook preventContinuation wins before goal evaluation', async () => {

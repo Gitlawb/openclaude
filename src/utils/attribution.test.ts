@@ -15,16 +15,10 @@ import {
 import * as actualSettings from './settings/settings.js'
 import type { SettingsJson } from './settings/types.js'
 
-let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
-let getDefaultCommitCoAuthorEmail: (typeof import('./attribution.js'))[
-  'getDefaultCommitCoAuthorEmail'
-]
-let getDefaultCommitCoAuthorName: (typeof import('./attribution.js'))[
-  'getDefaultCommitCoAuthorName'
-]
-let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
-  'getEnhancedPRAttribution'
-]
+let getAttributionTexts: typeof import('./attribution.js')['getAttributionTexts']
+let getDefaultCommitCoAuthorEmail: typeof import('./attribution.js')['getDefaultCommitCoAuthorEmail']
+let getDefaultCommitCoAuthorName: typeof import('./attribution.js')['getDefaultCommitCoAuthorName']
+let getEnhancedPRAttribution: typeof import('./attribution.js')['getEnhancedPRAttribution']
 let testSettings: SettingsJson = {}
 
 const originalEnv = {
@@ -46,12 +40,9 @@ const originalEnv = {
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
-  ANTHROPIC_DEFAULT_OPUS_MODEL:
-    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
-  ANTHROPIC_DEFAULT_SONNET_MODEL:
-    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
-  ANTHROPIC_DEFAULT_HAIKU_MODEL:
-    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  ANTHROPIC_DEFAULT_OPUS_MODEL: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+  ANTHROPIC_DEFAULT_SONNET_MODEL: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   MISTRAL_MODEL: process.env.MISTRAL_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
@@ -349,7 +340,7 @@ describe('getEnhancedPRAttribution', () => {
   it('preserves includeCoAuthoredBy true as an explicit opt-in to generated PR attribution', async () => {
     useSettings({ includeCoAuthoredBy: true })
 
-    await expect(getEnhancedPRAttribution(() => ({} as never))).resolves.toBe(
+    await expect(getEnhancedPRAttribution(() => ({}) as never)).resolves.toBe(
       defaultPrAttribution,
     )
   })

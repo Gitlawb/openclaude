@@ -36,12 +36,12 @@ describe('commit-message command helpers', () => {
   })
 
   it('parses co-author trailers with angle-bracket emails', () => {
-    expect(parseCoAuthor('OpenClaude (gpt-5.5) <noreply@openclaude.dev>')).toEqual(
-      {
-        name: 'OpenClaude (gpt-5.5)',
-        email: 'noreply@openclaude.dev',
-      },
-    )
+    expect(
+      parseCoAuthor('OpenClaude (gpt-5.5) <noreply@openclaude.dev>'),
+    ).toEqual({
+      name: 'OpenClaude (gpt-5.5)',
+      email: 'noreply@openclaude.dev',
+    })
   })
 
   it('rejects co-author trailers with empty sanitized names', () => {

@@ -4,7 +4,10 @@ import test from 'node:test'
 import { extractGitHubRepoSlug } from './repoSlug.ts'
 
 test('keeps owner/repo input as-is', () => {
-  assert.equal(extractGitHubRepoSlug('Gitlawb/openclaude'), 'Gitlawb/openclaude')
+  assert.equal(
+    extractGitHubRepoSlug('Gitlawb/openclaude'),
+    'Gitlawb/openclaude',
+  )
 })
 
 test('extracts slug from https GitHub URLs', () => {
@@ -30,11 +33,19 @@ test('extracts slug from ssh GitHub URLs', () => {
 })
 
 test('rejects malformed or non-GitHub URLs', () => {
-  assert.equal(extractGitHubRepoSlug('https://gitlab.com/Gitlawb/openclaude'), null)
-  assert.equal(extractGitHubRepoSlug('https://github.com/Gitlawb'), null)
-  assert.equal(extractGitHubRepoSlug('not actually github.com/Gitlawb/openclaude'), null)
   assert.equal(
-    extractGitHubRepoSlug('https://evil.example/?next=github.com/Gitlawb/openclaude'),
+    extractGitHubRepoSlug('https://gitlab.com/Gitlawb/openclaude'),
+    null,
+  )
+  assert.equal(extractGitHubRepoSlug('https://github.com/Gitlawb'), null)
+  assert.equal(
+    extractGitHubRepoSlug('not actually github.com/Gitlawb/openclaude'),
+    null,
+  )
+  assert.equal(
+    extractGitHubRepoSlug(
+      'https://evil.example/?next=github.com/Gitlawb/openclaude',
+    ),
     null,
   )
   assert.equal(

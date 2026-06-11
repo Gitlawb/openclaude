@@ -250,9 +250,9 @@ test('returns a successful storage warning without entering the error state', as
   const onAuthenticated = mock(
     async (
       _tokens: typeof TOKENS,
-      persistCredentials: (
-        options?: { profileId?: string },
-      ) => { warning?: string } | void,
+      persistCredentials: (options?: {
+        profileId?: string
+      }) => { warning?: string } | void,
     ) => {
       const result = persistCredentials({
         profileId: 'profile_codex_oauth',
@@ -282,7 +282,9 @@ test('returns a successful storage warning without entering the error state', as
   )
 
   function Harness(): React.ReactNode {
-    const handleAuthenticated = React.useCallback(onAuthenticated, [onAuthenticated])
+    const handleAuthenticated = React.useCallback(onAuthenticated, [
+      onAuthenticated,
+    ])
     const status = useCodexOAuthFlow({
       onAuthenticated: handleAuthenticated,
       deps,
@@ -354,13 +356,17 @@ test('reports credential persistence failures without token values', async () =>
   )
 
   function Harness(): React.ReactNode {
-    const handleAuthenticated = React.useCallback(onAuthenticated, [onAuthenticated])
+    const handleAuthenticated = React.useCallback(onAuthenticated, [
+      onAuthenticated,
+    ])
     const status = useCodexOAuthFlow({
       onAuthenticated: handleAuthenticated,
       deps,
     })
 
-    return <Text>{status.state === 'error' ? status.message : status.state}</Text>
+    return (
+      <Text>{status.state === 'error' ? status.message : status.state}</Text>
+    )
   }
 
   const streams = createTestStreams()

@@ -83,7 +83,8 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
 
   test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    process.env.OPENAI_BASE_URL =
+      'https://dashscope.aliyuncs.com/compatible-mode/v1'
     const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-5.1')).toBe(false)
@@ -100,7 +101,8 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
 
   test('does not reuse stale capability overrides after env changes', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    process.env.OPENAI_BASE_URL =
+      'https://dashscope.aliyuncs.com/compatible-mode/v1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'GLM-5.1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES = ''
     const { modelSupportsThinking } = await importFreshThinkingModule()
@@ -122,8 +124,12 @@ describe('shouldUseThinkingForModel — Ollama', () => {
     const { shouldUseThinkingForModel } = await importFreshThinkingModule()
     const enabledThinking = { type: 'enabled' as const, budgetTokens: 1024 }
 
-    expect(shouldUseThinkingForModel('llama3.1:8b', enabledThinking)).toBe(false)
+    expect(shouldUseThinkingForModel('llama3.1:8b', enabledThinking)).toBe(
+      false,
+    )
     // Covers catalog-missing local names that would otherwise match Claude 4 heuristics.
-    expect(shouldUseThinkingForModel('claude-sonnet-4-local', enabledThinking)).toBe(false)
+    expect(
+      shouldUseThinkingForModel('claude-sonnet-4-local', enabledThinking),
+    ).toBe(false)
   })
 })

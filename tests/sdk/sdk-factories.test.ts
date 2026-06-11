@@ -1,8 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import {
-  tool,
-  createSdkMcpServer,
-} from '../../src/entrypoints/sdk/index.js'
+import { tool, createSdkMcpServer } from '../../src/entrypoints/sdk/index.js'
 
 describe('tool() factory', () => {
   test('creates SdkMcpToolDefinition with required fields', () => {

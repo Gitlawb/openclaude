@@ -36,9 +36,7 @@ afterEach(() => {
 describe('OpenClaude settings path surfaces', () => {
   test('isClaudeSettingsPath recognizes project .openclaude settings files', () => {
     expect(
-      isClaudeSettingsPath(
-        join(process.cwd(), '.openclaude', 'settings.json'),
-      ),
+      isClaudeSettingsPath(join(process.cwd(), '.openclaude', 'settings.json')),
     ).toBe(true)
 
     expect(
@@ -74,9 +72,7 @@ describe('OpenClaude settings path surfaces', () => {
     process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
 
     expect(
-      isInGlobalClaudeFolder(
-        join(homedir(), '.openclaude', 'settings.json'),
-      ),
+      isInGlobalClaudeFolder(join(homedir(), '.openclaude', 'settings.json')),
     ).toBe(true)
     expect(
       isInGlobalClaudeFolder(join(homedir(), '.claude', 'settings.json')),

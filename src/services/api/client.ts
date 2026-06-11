@@ -148,7 +148,8 @@ function shouldUseMiniMaxEnvOnlyProvider(
   }
 
   return (
-    (hasMiniMaxModelIntent(model) || getMiniMaxBaseUrlOverride() !== undefined) &&
+    (hasMiniMaxModelIntent(model) ||
+      getMiniMaxBaseUrlOverride() !== undefined) &&
     !hasConflictingOpenAIBaseUrlForMiniMax()
   )
 }
@@ -169,17 +170,14 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
     undefined
 
   const apiKey =
-    process.env.MINIMAX_API_KEY?.trim() ||
-    process.env.ANTHROPIC_API_KEY?.trim()
+    process.env.MINIMAX_API_KEY?.trim() || process.env.ANTHROPIC_API_KEY?.trim()
   if (apiKey) {
     process.env.ANTHROPIC_API_KEY = apiKey
   }
 
   process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
   process.env.ANTHROPIC_MODEL =
-    (isMiniMaxModelName(modelOverride)
-      ? modelOverride
-      : undefined) ??
+    (isMiniMaxModelName(modelOverride) ? modelOverride : undefined) ??
     getRouteDefaultModel('minimax')
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.OPENAI_API_FORMAT
@@ -207,8 +205,7 @@ function applyXiaomiMimoEnvOnlyDefaults(): void {
   process.env.OPENAI_MODEL =
     (hasBaseOverride || isXiaomiMimoModelName(modelOverride)
       ? modelOverride
-      : undefined) ??
-    getRouteDefaultModel('xiaomi-mimo')
+      : undefined) ?? getRouteDefaultModel('xiaomi-mimo')
   process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AUTH_HEADER
@@ -222,13 +219,11 @@ function applyXaiEnvOnlyDefaults(): void {
   const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL =
-    baseUrlOverride ?? getRouteDefaultBaseUrl('xai')
+  process.env.OPENAI_BASE_URL = baseUrlOverride ?? getRouteDefaultBaseUrl('xai')
   process.env.OPENAI_MODEL =
     (hasXaiBaseOverride || isXaiModelName(modelOverride)
       ? modelOverride
-      : undefined) ??
-    getRouteDefaultModel('xai')
+      : undefined) ?? getRouteDefaultModel('xai')
   process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AUTH_HEADER
@@ -321,8 +316,7 @@ export async function getAnthropicClient({
     logForDebugging('[API:auth] OAuth token check complete')
   }
 
-  const isClaudeAiSubscriber =
-    shouldUseFirstPartyAuth && isClaudeAISubscriber()
+  const isClaudeAiSubscriber = shouldUseFirstPartyAuth && isClaudeAISubscriber()
 
   if (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
@@ -350,7 +344,12 @@ export async function getAnthropicClient({
     const safeHeaders: Record<string, string> = {}
     for (const [k, v] of Object.entries(defaultHeaders)) {
       const lower = k.toLowerCase()
-      if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') continue
+      if (
+        lower === 'authorization' ||
+        lower === 'x-api-key' ||
+        lower === 'api-key'
+      )
+        continue
       safeHeaders[k] = v
     }
     return createOpenAIShimClient({
@@ -369,8 +368,7 @@ export async function getAnthropicClient({
     const githubBaseUrl =
       process.env.OPENAI_BASE_URL?.replace(/\/$/, '') ??
       'https://api.githubcopilot.com'
-    const githubToken =
-      process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+    const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
     const nativeArgs: ConstructorParameters<typeof Anthropic>[0] = {
       ...ARGS,
       baseURL: githubBaseUrl,

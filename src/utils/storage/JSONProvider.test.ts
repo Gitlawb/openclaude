@@ -18,7 +18,10 @@ const emptyGraph = {
   lastUpdateTime: 1,
 }
 
-function captureConsoleError<T>(run: () => T): { result: T; calls: unknown[][] } {
+function captureConsoleError<T>(run: () => T): {
+  result: T
+  calls: unknown[][]
+} {
   const originalConsoleError = console.error
   const calls: unknown[][] = []
   console.error = (...args: unknown[]) => {
@@ -64,7 +67,9 @@ describe('JSONProvider', () => {
 
     expect(result).toBe(false)
     expect(calls).toHaveLength(1)
-    expect(String(calls[0][0])).toContain('Failed to save project graph to JSON')
+    expect(String(calls[0][0])).toContain(
+      'Failed to save project graph to JSON',
+    )
   })
 
   it('reports delete failure when the graph path is a directory', () => {

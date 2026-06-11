@@ -234,9 +234,9 @@ describe('OpenClaude paths', () => {
     await acquireEnvMutex()
     const { getDefaultPlansDirectory } = await importFreshPlans()
 
-    expect(
-      getDefaultPlansDirectory({ homeDir: '/tmp/cafe\u0301' }),
-    ).toBe(join('/tmp/caf\u00e9', '.openclaude', 'plans'))
+    expect(getDefaultPlansDirectory({ homeDir: '/tmp/cafe\u0301' })).toBe(
+      join('/tmp/caf\u00e9', '.openclaude', 'plans'),
+    )
   })
 
   test('default plans directory normalizes explicit CLAUDE_CONFIG_DIR to NFC', async () => {
@@ -288,8 +288,7 @@ describe('OpenClaude paths', () => {
 
   test('local installation detection matches .openclaude path', async () => {
     await acquireEnvMutex()
-    const { isManagedLocalInstallationPath } =
-      await importFreshLocalInstaller()
+    const { isManagedLocalInstallationPath } = await importFreshLocalInstaller()
 
     expect(
       isManagedLocalInstallationPath(
@@ -300,8 +299,7 @@ describe('OpenClaude paths', () => {
 
   test('local installation detection still matches legacy .claude path', async () => {
     await acquireEnvMutex()
-    const { isManagedLocalInstallationPath } =
-      await importFreshLocalInstaller()
+    const { isManagedLocalInstallationPath } = await importFreshLocalInstaller()
 
     expect(
       isManagedLocalInstallationPath(
@@ -331,7 +329,8 @@ describe('OpenClaude paths', () => {
       ...fsPromises,
       access: async (path: string) => {
         if (
-          path === join(homedir(), '.claude', 'local', 'node_modules', '.bin', 'claude')
+          path ===
+          join(homedir(), '.claude', 'local', 'node_modules', '.bin', 'claude')
         ) {
           return
         }

@@ -7,77 +7,81 @@
 export type TraceEventPhase = 'B' | 'E' | 'I' | 'X'
 
 export type TraceEvent = {
-	name: string
-	phase: TraceEventPhase
-	timestamp: number
-	pid: number
-	tid: number
-	args?: Record<string, unknown>
-	id?: string
+  name: string
+  phase: TraceEventPhase
+  timestamp: number
+  pid: number
+  tid: number
+  args?: Record<string, unknown>
+  id?: string
 }
 
 export function initializePerfettoTracing(): void {}
 
 export function isPerfettoTracingEnabled(): boolean {
-	return false
+  return false
 }
 
 export function registerAgent(
-	_agentId: string,
-	_name: string,
-	_parentSessionId?: string,
+  _agentId: string,
+  _name: string,
+  _parentSessionId?: string,
 ): void {}
 
 export function unregisterAgent(_agentId: string): void {}
 
 export function startLLMRequestPerfettoSpan(_args: {
-	model: string
-	promptId: string
-	parentSessionId?: string
+  model: string
+  promptId: string
+  parentSessionId?: string
 }): string {
-	return ''
+  return ''
 }
 
 export function endLLMRequestPerfettoSpan(
-	_spanId: string,
-	_args?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number },
+  _spanId: string,
+  _args?: {
+    inputTokens?: number
+    outputTokens?: number
+    cacheReadTokens?: number
+  },
 ): void {}
 
 export function startToolPerfettoSpan(_args: {
-	toolName: string
-	agentId?: string
-	parentSessionId?: string
+  toolName: string
+  agentId?: string
+  parentSessionId?: string
 }): string {
-	return ''
+  return ''
 }
 
 export function endToolPerfettoSpan(_spanId: string): void {}
 
 export function startUserInputPerfettoSpan(_context?: string): string {
-	return ''
+  return ''
 }
 
 export function endUserInputPerfettoSpan(_spanId: string): void {}
 
 export function emitPerfettoInstant(
-	_name: string,
-	_args?: Record<string, unknown>,
+  _name: string,
+  _args?: Record<string, unknown>,
 ): void {}
 
 export function emitPerfettoCounter(
-	_name: string,
-	_value: number,
-	_args?: Record<string, unknown>,
+  _name: string,
+  _value: number,
+  _args?: Record<string, unknown>,
 ): void {}
 
 export function startInteractionPerfettoSpan(_userPrompt?: string): string {
-	return ''
+  return ''
 }
 
 export function endInteractionPerfettoSpan(_spanId: string): void {}
 
 export function getPerfettoEvents(): TraceEvent[] {
-	return []
+  return []
 }
 
 export function resetPerfettoTracer(): void {}

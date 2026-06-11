@@ -20,7 +20,9 @@ function importFreshProviderConfig(
 }
 
 beforeEach(async () => {
-  await acquireSharedMutationLock('services/api/providerConfig.runtimeCodexCredentials.test.ts')
+  await acquireSharedMutationLock(
+    'services/api/providerConfig.runtimeCodexCredentials.test.ts',
+  )
 })
 
 afterEach(() => {
@@ -32,8 +34,9 @@ afterEach(() => {
 })
 
 function makeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
-    .toString('base64url')
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'none', typ: 'JWT' }),
+  ).toString('base64url')
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `${header}.${body}.signature`
 }
@@ -105,7 +108,9 @@ test('runtime credential resolution avoids sync secure-storage reads when async 
     isCodexRefreshFailureCoolingDown: () => false,
     readCodexCredentials: () => {
       syncReadCalled = true
-      throw new Error('sync secure-storage read should not run in runtime resolution')
+      throw new Error(
+        'sync secure-storage read should not run in runtime resolution',
+      )
     },
   }))
 

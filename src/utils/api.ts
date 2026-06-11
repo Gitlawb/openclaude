@@ -141,9 +141,7 @@ function sanitizeSchemaRequired(
   const props = result.properties as Record<string, unknown> | undefined
 
   if (props && Array.isArray(result.required)) {
-    result.required = result.required.filter(
-      (key: string) => key in props,
-    )
+    result.required = result.required.filter((key: string) => key in props)
   }
 
   // Recurse into nested object properties
@@ -206,7 +204,9 @@ export async function toolToAPISchema(
     // Use tool's JSON schema directly if provided, otherwise convert Zod schema
     let input_schema = (
       'inputJSONSchema' in tool && tool.inputJSONSchema
-        ? sanitizeSchemaRequired(tool.inputJSONSchema as Anthropic.Tool.InputSchema)
+        ? sanitizeSchemaRequired(
+            tool.inputJSONSchema as Anthropic.Tool.InputSchema,
+          )
         : zodToJsonSchema(tool.inputSchema)
     ) as Anthropic.Tool.InputSchema
 

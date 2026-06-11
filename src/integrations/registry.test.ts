@@ -45,7 +45,10 @@ afterEach(() => {
 // Helpers to build minimal valid descriptors
 // ---------------------------------------------------------------------------
 
-function makeVendor(id: string, overrides?: Partial<import('./descriptors.js').VendorDescriptor>): import('./descriptors.js').VendorDescriptor {
+function makeVendor(
+  id: string,
+  overrides?: Partial<import('./descriptors.js').VendorDescriptor>,
+): import('./descriptors.js').VendorDescriptor {
   return {
     id,
     label: id,
@@ -58,7 +61,10 @@ function makeVendor(id: string, overrides?: Partial<import('./descriptors.js').V
   }
 }
 
-function makeGateway(id: string, overrides?: Partial<import('./descriptors.js').GatewayDescriptor>): import('./descriptors.js').GatewayDescriptor {
+function makeGateway(
+  id: string,
+  overrides?: Partial<import('./descriptors.js').GatewayDescriptor>,
+): import('./descriptors.js').GatewayDescriptor {
   return {
     id,
     label: id,
@@ -68,7 +74,10 @@ function makeGateway(id: string, overrides?: Partial<import('./descriptors.js').
   }
 }
 
-function makeBrand(id: string, overrides?: Partial<import('./descriptors.js').BrandDescriptor>): import('./descriptors.js').BrandDescriptor {
+function makeBrand(
+  id: string,
+  overrides?: Partial<import('./descriptors.js').BrandDescriptor>,
+): import('./descriptors.js').BrandDescriptor {
   return {
     id,
     label: id,
@@ -78,7 +87,10 @@ function makeBrand(id: string, overrides?: Partial<import('./descriptors.js').Br
   }
 }
 
-function makeModel(id: string, overrides?: Partial<import('./descriptors.js').ModelDescriptor>): import('./descriptors.js').ModelDescriptor {
+function makeModel(
+  id: string,
+  overrides?: Partial<import('./descriptors.js').ModelDescriptor>,
+): import('./descriptors.js').ModelDescriptor {
   return {
     id,
     label: id,
@@ -90,7 +102,10 @@ function makeModel(id: string, overrides?: Partial<import('./descriptors.js').Mo
   }
 }
 
-function makeAnthropicProxy(id: string, overrides?: Partial<import('./descriptors.js').AnthropicProxyDescriptor>): import('./descriptors.js').AnthropicProxyDescriptor {
+function makeAnthropicProxy(
+  id: string,
+  overrides?: Partial<import('./descriptors.js').AnthropicProxyDescriptor>,
+): import('./descriptors.js').AnthropicProxyDescriptor {
   return {
     id,
     label: id,
@@ -98,7 +113,10 @@ function makeAnthropicProxy(id: string, overrides?: Partial<import('./descriptor
     defaultBaseUrl: 'https://proxy.example.com',
     defaultModel: 'claude-sonnet',
     setup: { requiresAuth: true, authMode: 'api-key' },
-    envVarConfig: { authTokenEnvVar: 'PROXY_API_KEY', baseUrlEnvVar: 'PROXY_BASE_URL' },
+    envVarConfig: {
+      authTokenEnvVar: 'PROXY_API_KEY',
+      baseUrlEnvVar: 'PROXY_BASE_URL',
+    },
     capabilities: {},
     transportConfig: { kind: 'anthropic-proxy' },
     ...overrides,
@@ -142,29 +160,37 @@ describe('register and get', () => {
 
   test('duplicate vendor id throws', () => {
     registerVendor(makeVendor('dup'))
-    expect(() => registerVendor(makeVendor('dup'))).toThrow('Duplicate vendor id: dup')
+    expect(() => registerVendor(makeVendor('dup'))).toThrow(
+      'Duplicate vendor id: dup',
+    )
   })
 
   test('duplicate gateway id throws', () => {
     registerGateway(makeGateway('dup-gw'))
-    expect(() => registerGateway(makeGateway('dup-gw'))).toThrow('Duplicate gateway id: dup-gw')
+    expect(() => registerGateway(makeGateway('dup-gw'))).toThrow(
+      'Duplicate gateway id: dup-gw',
+    )
   })
 
   test('duplicate brand id throws', () => {
     registerBrand(makeBrand('dup-brand'))
-    expect(() => registerBrand(makeBrand('dup-brand'))).toThrow('Duplicate brand id: dup-brand')
+    expect(() => registerBrand(makeBrand('dup-brand'))).toThrow(
+      'Duplicate brand id: dup-brand',
+    )
   })
 
   test('duplicate model id throws', () => {
     registerModel(makeModel('dup-model'))
-    expect(() => registerModel(makeModel('dup-model'))).toThrow('Duplicate model id: dup-model')
+    expect(() => registerModel(makeModel('dup-model'))).toThrow(
+      'Duplicate model id: dup-model',
+    )
   })
 
   test('duplicate anthropic proxy id throws', () => {
     registerAnthropicProxy(makeAnthropicProxy('dup-proxy'))
-    expect(() => registerAnthropicProxy(makeAnthropicProxy('dup-proxy'))).toThrow(
-      'Duplicate anthropic proxy id: dup-proxy',
-    )
+    expect(() =>
+      registerAnthropicProxy(makeAnthropicProxy('dup-proxy')),
+    ).toThrow('Duplicate anthropic proxy id: dup-proxy')
   })
 })
 
@@ -218,7 +244,11 @@ describe('catalog helpers', () => {
         catalog: {
           source: 'static',
           models: [
-            { id: 'cm1', apiName: 'claude-model', modelDescriptorId: 'claude-sonnet' },
+            {
+              id: 'cm1',
+              apiName: 'claude-model',
+              modelDescriptorId: 'claude-sonnet',
+            },
           ],
         },
       }),
@@ -254,7 +284,9 @@ describe('validateIntegrationRegistry', () => {
       makeGateway('gw-bad', {
         catalog: {
           source: 'static',
-          models: [{ id: 'e1', apiName: 'a1', modelDescriptorId: 'missing-model' }],
+          models: [
+            { id: 'e1', apiName: 'a1', modelDescriptorId: 'missing-model' },
+          ],
         },
       }),
     )
@@ -277,7 +309,9 @@ describe('validateIntegrationRegistry', () => {
     )
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(e => e.includes('Duplicate catalog entry id'))).toBe(true)
+    expect(
+      result.errors.some(e => e.includes('Duplicate catalog entry id')),
+    ).toBe(true)
   })
 
   test('catches catalog default flags when route defaultModel is set', () => {
@@ -294,7 +328,9 @@ describe('validateIntegrationRegistry', () => {
     expect(result.valid).toBe(false)
     expect(
       result.errors.some(error =>
-        error.includes('must not set default because the route defines defaultModel'),
+        error.includes(
+          'must not set default because the route defines defaultModel',
+        ),
       ),
     ).toBe(true)
   })
@@ -309,7 +345,9 @@ describe('validateIntegrationRegistry', () => {
             {
               id: 'e1',
               apiName: 'a1',
-              transportOverrides: { openaiShim: { maxTokensField: 'max_tokens' } },
+              transportOverrides: {
+                openaiShim: { maxTokensField: 'max_tokens' },
+              },
             },
           ],
         },
@@ -317,7 +355,11 @@ describe('validateIntegrationRegistry', () => {
     )
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(e => e.includes('openaiShim overrides but route transport is'))).toBe(true)
+    expect(
+      result.errors.some(e =>
+        e.includes('openaiShim overrides but route transport is'),
+      ),
+    ).toBe(true)
   })
 
   test('catches usage delegate to missing vendor', () => {
@@ -328,7 +370,9 @@ describe('validateIntegrationRegistry', () => {
     )
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(e => e.includes('delegates usage to missing vendor'))).toBe(true)
+    expect(
+      result.errors.some(e => e.includes('delegates usage to missing vendor')),
+    ).toBe(true)
   })
 
   test('catches usage delegate to missing gateway', () => {
@@ -339,7 +383,9 @@ describe('validateIntegrationRegistry', () => {
     )
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(e => e.includes('delegates usage to missing gateway'))).toBe(true)
+    expect(
+      result.errors.some(e => e.includes('delegates usage to missing gateway')),
+    ).toBe(true)
   })
 
   test('warns on static catalog with no models and no discovery', () => {
@@ -349,7 +395,11 @@ describe('validateIntegrationRegistry', () => {
       }),
     )
     const result = validateIntegrationRegistry()
-    expect(result.warnings.some(w => w.includes('has no models and no discovery config'))).toBe(true)
+    expect(
+      result.warnings.some(w =>
+        w.includes('has no models and no discovery config'),
+      ),
+    ).toBe(true)
   })
 
   test('allows static catalog with no models when discovery is configured', () => {
@@ -363,7 +413,11 @@ describe('validateIntegrationRegistry', () => {
       }),
     )
     const result = validateIntegrationRegistry()
-    expect(result.warnings.some(w => w.includes('has no models and no discovery config'))).toBe(false)
+    expect(
+      result.warnings.some(w =>
+        w.includes('has no models and no discovery config'),
+      ),
+    ).toBe(false)
   })
 
   test('catches dynamic catalogs with curated models', () => {
@@ -408,7 +462,11 @@ describe('validateIntegrationRegistry', () => {
 
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(error => error.includes('Duplicate preset id "shared-preset"'))).toBe(true)
+    expect(
+      result.errors.some(error =>
+        error.includes('Duplicate preset id "shared-preset"'),
+      ),
+    ).toBe(true)
   })
 
   test('catches non-vendor preset routes without preset.vendorId', () => {
@@ -427,7 +485,11 @@ describe('validateIntegrationRegistry', () => {
 
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(error => error.includes('must declare preset.vendorId'))).toBe(true)
+    expect(
+      result.errors.some(error =>
+        error.includes('must declare preset.vendorId'),
+      ),
+    ).toBe(true)
   })
 
   test('catches preset routes without enough base-url metadata for UI defaults', () => {
@@ -444,6 +506,10 @@ describe('validateIntegrationRegistry', () => {
 
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
-    expect(result.errors.some(error => error.includes('defaultBaseUrl or preset.fallbackBaseUrl'))).toBe(true)
+    expect(
+      result.errors.some(error =>
+        error.includes('defaultBaseUrl or preset.fallbackBaseUrl'),
+      ),
+    ).toBe(true)
   })
 })

@@ -122,7 +122,8 @@ function estimateTokensLocally(
   )
   const toolTokens =
     tools.length > 0
-      ? TOOL_TOKEN_COUNT_OVERHEAD + roughTokenCountEstimation(jsonStringify(tools))
+      ? TOOL_TOKEN_COUNT_OVERHEAD +
+        roughTokenCountEstimation(jsonStringify(tools))
       : 0
 
   return messageTokens + toolTokens
@@ -726,7 +727,9 @@ export async function countMcpToolTokens(
       serverName: tool.name.split('__')[1] || 'unknown',
       tokens: mcpToolTokensByTool[i]!,
       isLoaded:
-        !isDeferred || loadedMcpToolNames.has(tool.name) || !isDeferredTool(tool),
+        !isDeferred ||
+        loadedMcpToolNames.has(tool.name) ||
+        !isDeferredTool(tool),
     })
   }
 

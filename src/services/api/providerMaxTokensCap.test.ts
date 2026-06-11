@@ -6,7 +6,9 @@ import {
   parseProviderMaxTokensCap,
 } from './errors.js'
 
-function textOf(message: ReturnType<typeof getAssistantMessageFromError>): string {
+function textOf(
+  message: ReturnType<typeof getAssistantMessageFromError>,
+): string {
   const first = message.message.content[0]
   return first && typeof first === 'object' && 'text' in first
     ? String(first.text)
@@ -48,7 +50,9 @@ test('parses provider maximum output token errors for max_completion_tokens', ()
 })
 
 test('does not parse malformed or unsafe provider caps', () => {
-  expect(parseProviderMaxTokensCap('max_tokens exceeds maximum output tokens')).toBeUndefined()
+  expect(
+    parseProviderMaxTokensCap('max_tokens exceeds maximum output tokens'),
+  ).toBeUndefined()
   expect(
     parseProviderMaxTokensCap(
       'input length and max_tokens exceed maximum context length: 32000 + 8192 > 32768',
@@ -108,7 +112,9 @@ test('classifies provider max token cap errors for query recovery', () => {
   expect(message.apiError).toBe('max_tokens_too_high')
   expect(message.error).toBe('invalid_request')
   expect(message.errorDetails).toContain('maximum output tokens')
-  expect(textOf(message)).toContain('Provider max_tokens limit was lower than requested')
+  expect(textOf(message)).toContain(
+    'Provider max_tokens limit was lower than requested',
+  )
 })
 
 test('classifies marker-wrapped maximum output token errors before generic markers', () => {

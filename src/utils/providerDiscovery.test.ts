@@ -40,42 +40,41 @@ afterEach(() => {
 test('lists models from a local openai-compatible /models endpoint', async () => {
   const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock((input, init) => {
-    const url = typeof input === 'string' ? input : input.url
-    expect(url).toBe('http://localhost:1234/v1/models')
-    expect(init?.headers).toEqual({ Authorization: 'Bearer local-key' })
+  globalThis.fetch = asMockFetch(
+    mock((input, init) => {
+      const url = typeof input === 'string' ? input : input.url
+      expect(url).toBe('http://localhost:1234/v1/models')
+      expect(init?.headers).toEqual({ Authorization: 'Bearer local-key' })
 
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [
-            { id: 'qwen2.5-coder-7b-instruct' },
-            { id: 'llama-3.2-3b-instruct' },
-            { id: 'qwen2.5-coder-7b-instruct' },
-          ],
-        }),
-        { status: 200 },
-      ),
-    )
-  }))
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'qwen2.5-coder-7b-instruct' },
+              { id: 'llama-3.2-3b-instruct' },
+              { id: 'qwen2.5-coder-7b-instruct' },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+    }),
+  )
 
   await expect(
     listOpenAICompatibleModels({
       baseUrl: 'http://localhost:1234/v1',
       apiKey: 'local-key',
     }),
-  ).resolves.toEqual([
-    'qwen2.5-coder-7b-instruct',
-    'llama-3.2-3b-instruct',
-  ])
+  ).resolves.toEqual(['qwen2.5-coder-7b-instruct', 'llama-3.2-3b-instruct'])
 })
 
 test('returns null when a local openai-compatible /models request fails', async () => {
   const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock(() =>
-    Promise.resolve(new Response('not available', { status: 503 })),
-  ))
+  globalThis.fetch = asMockFetch(
+    mock(() => Promise.resolve(new Response('not available', { status: 503 }))),
+  )
 
   await expect(
     listOpenAICompatibleModels({ baseUrl: 'http://localhost:1234/v1' }),
@@ -86,9 +85,9 @@ test('detects LM Studio from the default localhost port', async () => {
   const { getLocalOpenAICompatibleProviderLabel } =
     await loadProviderDiscoveryModule()
 
-  expect(getLocalOpenAICompatibleProviderLabel('http://localhost:1234/v1')).toBe(
-    'LM Studio',
-  )
+  expect(
+    getLocalOpenAICompatibleProviderLabel('http://localhost:1234/v1'),
+  ).toBe('LM Studio')
 })
 
 test('detects common local openai-compatible providers by hostname', async () => {
@@ -117,7 +116,9 @@ test('detects Z.AI from descriptor route metadata', async () => {
     await loadProviderDiscoveryModule()
 
   expect(
-    getLocalOpenAICompatibleProviderLabel('https://api.z.ai/api/coding/paas/v4'),
+    getLocalOpenAICompatibleProviderLabel(
+      'https://api.z.ai/api/coding/paas/v4',
+    ),
   ).toBe('Z.AI')
 })
 
@@ -134,9 +135,9 @@ test('detects xAI from api.x.ai hostname', async () => {
   const { getLocalOpenAICompatibleProviderLabel } =
     await loadProviderDiscoveryModule()
 
-  expect(
-    getLocalOpenAICompatibleProviderLabel('https://api.x.ai/v1'),
-  ).toBe('xAI')
+  expect(getLocalOpenAICompatibleProviderLabel('https://api.x.ai/v1')).toBe(
+    'xAI',
+  )
 })
 
 test('falls back to a generic local openai-compatible label', async () => {
@@ -152,11 +153,13 @@ test('ollama generation readiness reports unreachable when tags endpoint is down
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    calledUrls.push(url)
-    return Promise.resolve(new Response('not available', { status: 503 }))
-  }))
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      calledUrls.push(url)
+      return Promise.resolve(new Response('not available', { status: 503 }))
+    }),
+  )
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -167,25 +170,25 @@ test('ollama generation readiness reports unreachable when tags endpoint is down
     models: [],
   })
 
-  expect(calledUrls).toEqual([
-    'http://localhost:11434/api/tags',
-  ])
+  expect(calledUrls).toEqual(['http://localhost:11434/api/tags'])
 })
 
 test('ollama generation readiness reports no models when server is reachable', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    calledUrls.push(url)
-    return Promise.resolve(
-      new Response(JSON.stringify({ models: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-  }))
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      calledUrls.push(url)
+      return Promise.resolve(
+        new Response(JSON.stringify({ models: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }),
+  )
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -196,30 +199,30 @@ test('ollama generation readiness reports no models when server is reachable', a
     models: [],
   })
 
-  expect(calledUrls).toEqual([
-    'http://localhost:11434/api/tags',
-  ])
+  expect(calledUrls).toEqual(['http://localhost:11434/api/tags'])
 })
 
 test('ollama generation readiness reports generation_failed when requested model is missing', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    calledUrls.push(url)
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          models: [{ name: 'llama3.1:8b', size: 1024 }],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-  }))
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      calledUrls.push(url)
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            models: [{ name: 'llama3.1:8b', size: 1024 }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+    }),
+  )
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -238,24 +241,26 @@ test('ollama generation readiness reports generation_failed when requested model
 test('ollama generation readiness reports generation failures when chat probe fails', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    if (url.endsWith('/api/tags')) {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            models: [{ name: 'qwen2.5-coder:7b', size: 42 }],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
-      )
-    }
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url.endsWith('/api/tags')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              models: [{ name: 'qwen2.5-coder:7b', size: 42 }],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        )
+      }
 
-    return Promise.resolve(new Response('model not found', { status: 404 }))
-  }))
+      return Promise.resolve(new Response('model not found', { status: 404 }))
+    }),
+  )
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -271,29 +276,31 @@ test('ollama generation readiness reports generation failures when chat probe fa
 test('ollama generation readiness reports generation_failed when chat probe returns invalid JSON', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    if (url.endsWith('/api/tags')) {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            models: [{ name: 'llama3.1:8b', size: 1024 }],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
-      )
-    }
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url.endsWith('/api/tags')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              models: [{ name: 'llama3.1:8b', size: 1024 }],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        )
+      }
 
-    return Promise.resolve(
-      new Response('<html>proxy error</html>', {
-        status: 200,
-        headers: { 'Content-Type': 'text/html' },
-      }),
-    )
-  }))
+      return Promise.resolve(
+        new Response('<html>proxy error</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+      )
+    }),
+  )
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -309,13 +316,28 @@ test('ollama generation readiness reports generation_failed when chat probe retu
 test('ollama generation readiness reports ready when chat probe succeeds', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    if (url.endsWith('/api/tags')) {
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url.endsWith('/api/tags')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              models: [{ name: 'llama3.1:8b', size: 1024 }],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        )
+      }
+
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            models: [{ name: 'llama3.1:8b', size: 1024 }],
+            message: { role: 'assistant', content: 'OK' },
+            done: true,
           }),
           {
             status: 200,
@@ -323,21 +345,8 @@ test('ollama generation readiness reports ready when chat probe succeeds', async
           },
         ),
       )
-    }
-
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          message: { role: 'assistant', content: 'OK' },
-          done: true,
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-  }))
+    }),
+  )
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -353,11 +362,13 @@ test('atomic chat readiness reports unreachable when /v1/models is down', async 
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = asMockFetch(mock(input => {
-    const url = typeof input === 'string' ? input : input.url
-    calledUrls.push(url)
-    return Promise.resolve(new Response('unavailable', { status: 503 }))
-  }))
+  globalThis.fetch = asMockFetch(
+    mock(input => {
+      const url = typeof input === 'string' ? input : input.url
+      calledUrls.push(url)
+      return Promise.resolve(new Response('unavailable', { status: 503 }))
+    }),
+  )
 
   await expect(
     probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
@@ -369,14 +380,16 @@ test('atomic chat readiness reports unreachable when /v1/models is down', async 
 test('atomic chat readiness reports no_models when server is reachable but empty', async () => {
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock(() =>
-    Promise.resolve(
-      new Response(JSON.stringify({ data: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+  globalThis.fetch = asMockFetch(
+    mock(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
     ),
-  ))
+  )
 
   await expect(
     probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
@@ -386,22 +399,24 @@ test('atomic chat readiness reports no_models when server is reachable but empty
 test('atomic chat readiness returns loaded model ids when ready', async () => {
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = asMockFetch(mock(() =>
-    Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [
-            { id: 'Qwen3_5-4B_Q4_K_M' },
-            { id: 'llama-3.1-8b-instruct' },
-          ],
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
+  globalThis.fetch = asMockFetch(
+    mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'Qwen3_5-4B_Q4_K_M' },
+              { id: 'llama-3.1-8b-instruct' },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
       ),
     ),
-  ))
+  )
 
   await expect(
     probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),

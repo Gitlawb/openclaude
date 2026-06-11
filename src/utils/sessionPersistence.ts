@@ -1,9 +1,9 @@
 /**
  * Session Persistence - Save/restore conversation state
- * 
+ *
  * Provides session storage. Sessions are stored as plain JSON
  * in the config directory for simplicity.
- * 
+ *
  * Note: For production, consider adding proper encryption via
  * environment variable to enable encryption at rest.
  */
@@ -76,22 +76,22 @@ async function ensureSessionsDir(): Promise<string> {
 export async function saveSession(session: Session): Promise<string> {
   const sessionsPath = await ensureSessionsDir()
   const sessionPath = path.join(sessionsPath, session.id + SESSION_EXTENSION)
-  
+
   session.updatedAt = Date.now()
-  
+
   await writeFile(sessionPath, JSON.stringify(session, null, 2), 'utf-8')
-  
+
   return sessionPath
 }
 
 export async function loadSession(sessionId: string): Promise<Session | null> {
   const sessionsPath = await ensureSessionsDir()
   const sessionPath = path.join(sessionsPath, sessionId + SESSION_EXTENSION)
-  
+
   if (!existsSync(sessionPath)) {
     return null
   }
-  
+
   try {
     const data = await readFile(sessionPath, 'utf-8')
     return JSON.parse(data) as Session
@@ -102,17 +102,17 @@ export async function loadSession(sessionId: string): Promise<Session | null> {
 
 export async function listSessions(): Promise<SessionMetadata[]> {
   const sessionsPath = await ensureSessionsDir()
-  
+
   if (!existsSync(sessionsPath)) {
     return []
   }
-  
+
   const files = await readdir(sessionsPath)
   const sessions: SessionMetadata[] = []
-  
+
   for (const file of files) {
     if (!file.endsWith(SESSION_EXTENSION)) continue
-    
+
     try {
       const session = await loadSession(file.replace(SESSION_EXTENSION, ''))
       if (session) {
@@ -128,34 +128,36 @@ export async function listSessions(): Promise<SessionMetadata[]> {
       // Skip corrupted sessions
     }
   }
-  
+
   return sessions.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export async function deleteSession(sessionId: string): Promise<boolean> {
   const sessionsPath = await ensureSessionsDir()
   const sessionPath = path.join(sessionsPath, sessionId + SESSION_EXTENSION)
-  
+
   if (!existsSync(sessionPath)) {
     return false
   }
-  
+
   await unlink(sessionPath)
   return true
 }
 
-export async function deleteOldSessions(maxAgeDays: number = 30): Promise<number> {
+export async function deleteOldSessions(
+  maxAgeDays: number = 30,
+): Promise<number> {
   const sessions = await listSessions()
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
   let deleted = 0
-  
+
   for (const session of sessions) {
     if (session.updatedAt < cutoff) {
       await deleteSession(session.id)
       deleted++
     }
   }
-  
+
   return deleted
 }
 

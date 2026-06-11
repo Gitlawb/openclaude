@@ -2,7 +2,11 @@ import { expect, test } from 'bun:test'
 
 import { applySedSubstitution, type SedEditInfo } from './sedEditParser.js'
 
-function sedInfo(pattern: string, replacement: string, extendedRegex = false): SedEditInfo {
+function sedInfo(
+  pattern: string,
+  replacement: string,
+  extendedRegex = false,
+): SedEditInfo {
   return {
     filePath: 'example.txt',
     pattern,

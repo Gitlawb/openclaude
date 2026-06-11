@@ -92,15 +92,21 @@ describe('ensureExportFilenameExtension', () => {
   })
 
   test('handles name with dots', () => {
-    expect(ensureExportFilenameExtension('my.conversation.txt', 'json')).toBe('my.conversation.json')
+    expect(ensureExportFilenameExtension('my.conversation.txt', 'json')).toBe(
+      'my.conversation.json',
+    )
   })
 
   test('normalizes trailing dot filenames without duplicating separators', () => {
-    expect(ensureExportFilenameExtension('conversation.', 'json')).toBe('conversation.json')
+    expect(ensureExportFilenameExtension('conversation.', 'json')).toBe(
+      'conversation.json',
+    )
   })
 
   test('does not treat dots in directory names as filename extensions', () => {
-    expect(ensureExportFilenameExtension('logs.v1/transcript', 'json')).toBe('logs.v1/transcript.json')
+    expect(ensureExportFilenameExtension('logs.v1/transcript', 'json')).toBe(
+      'logs.v1/transcript.json',
+    )
   })
 
   test('does not treat a dotfile name as an extension-only filename', () => {
@@ -112,9 +118,11 @@ describe('ensureExportFilenameExtension', () => {
   })
 
   test('preserves supported .markdown extension', () => {
-    expect(ensureExportFilenameExtension('a.markdown', 'markdown', {
-      preserveMarkdownExtension: true,
-    })).toBe('a.markdown')
+    expect(
+      ensureExportFilenameExtension('a.markdown', 'markdown', {
+        preserveMarkdownExtension: true,
+      }),
+    ).toBe('a.markdown')
   })
 
   test('canonicalizes .markdown to .md by default', () => {
@@ -128,7 +136,9 @@ describe('parseExportArgs', () => {
   })
 
   test('filename only', () => {
-    expect(parseExportArgs('transcript.txt')).toEqual({ filename: 'transcript.txt' })
+    expect(parseExportArgs('transcript.txt')).toEqual({
+      filename: 'transcript.txt',
+    })
   })
 
   test('--format json with filename', () => {
@@ -240,6 +250,8 @@ describe('resolveExportFilepath', () => {
   })
 
   test('preserves absolute export filenames', () => {
-    expect(resolveExportFilepath('/work/project', '/tmp/transcript.md')).toBe('/tmp/transcript.md')
+    expect(resolveExportFilepath('/work/project', '/tmp/transcript.md')).toBe(
+      '/tmp/transcript.md',
+    )
   })
 })

@@ -89,11 +89,7 @@ export async function getSessionInfo(
   const lite = await readSessionLite(resolved.filePath)
   if (!lite) return undefined
 
-  const info = parseSessionInfoFromLite(
-    sessionId,
-    lite,
-    resolved.projectPath,
-  )
+  const info = parseSessionInfoFromLite(sessionId, lite, resolved.projectPath)
   if (!info) return undefined
 
   return toSDKSessionInfo(info)
@@ -106,7 +102,9 @@ export async function getSessionInfo(
 /**
  * Determine the role of a JSONL entry, or null if it's not a conversational message.
  */
-function entryToRole(entry: JsonlEntry): 'user' | 'assistant' | 'system' | null {
+function entryToRole(
+  entry: JsonlEntry,
+): 'user' | 'assistant' | 'system' | null {
   switch (entry.type) {
     case 'user':
       return 'user'
@@ -381,7 +379,9 @@ export async function forkSession(
   }
 
   if (mainEntries.length === 0) {
-    throw new Error(`No conversational messages to fork in session: ${sessionId}`)
+    throw new Error(
+      `No conversational messages to fork in session: ${sessionId}`,
+    )
   }
 
   if (options?.upToMessageId && !hitUpTo) {

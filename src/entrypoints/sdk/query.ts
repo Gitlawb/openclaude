@@ -9,10 +9,7 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { randomUUID } from 'crypto'
 import { dirname } from 'path'
 import { QueryEngine } from '../../QueryEngine.js'
-import {
-  getDefaultAppState,
-  type AppState,
-} from '../../state/AppStateStore.js'
+import { getDefaultAppState, type AppState } from '../../state/AppStateStore.js'
 import { createStore, type Store } from '../../state/store.js'
 import {
   getEmptyToolPermissionContext,
@@ -70,10 +67,7 @@ import {
   type PermissionResolveDecision,
   type PermissionTarget,
 } from './permissions.js'
-import {
-  listSessions,
-  forkSession,
-} from './sessions.js'
+import { listSessions, forkSession } from './sessions.js'
 import {
   parseJsonlEntries as parseJsonlLines,
   findLastCompactBoundary,
@@ -143,21 +137,26 @@ export type QueryOptions = {
    * If omitted, tools that require permission fall through to the default
    * permission logic immediately (no timeout).
    */
-  onPermissionRequest?: (message: import('./shared.js').SDKPermissionRequestMessage) => void
+  onPermissionRequest?: (
+    message: import('./shared.js').SDKPermissionRequestMessage,
+  ) => void
   /** System prompt override. */
   systemPrompt?:
     | string
     | { type: 'preset'; preset: string; append?: string }
     | { type: 'custom'; content: string }
   /** Agent definitions to register with the query engine. */
-  agents?: Record<string, {
-    description: string
-    prompt: string
-    tools?: string[]
-    disallowedTools?: string[]
-    model?: string
-    maxTurns?: number
-  }>
+  agents?: Record<
+    string,
+    {
+      description: string
+      prompt: string
+      tools?: string[]
+      disallowedTools?: string[]
+      model?: string
+      maxTurns?: number
+    }
+  >
   /** Setting sources to load. */
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */
@@ -241,7 +240,11 @@ async function loadAndInjectSessionMessages(
 
   // Step 1: Read entries — compact-aware for large files
   let entries: JsonlEntry[]
-  let preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null = null
+  let preservedSegment: {
+    headUuid: string
+    tailUuid: string
+    anchorUuid: string
+  } | null = null
   let boundaryIndex = -1
 
   const { size: fileSize } = await stat(resolved.filePath)
@@ -292,7 +295,11 @@ async function loadAndInjectSessionMessages(
     for (const uuid of byUuid.keys()) {
       if (!postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
     }
-  } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size > 0) {
+  } else if (
+    boundaryIndex >= 0 &&
+    preservedSegment &&
+    preservedUuids.size > 0
+  ) {
     // Preserved segment exists and relink succeeded — keep preserved + anchor + post-boundary
     const postBoundaryUuids = new Set<string>()
     for (const entry of entries.slice(boundaryIndex + 1)) {
@@ -302,11 +309,19 @@ async function loadAndInjectSessionMessages(
     // The anchor is needed because preserved head.parentUuid = anchor after relink
     const anchorUuid = preservedSegment.anchorUuid
     for (const uuid of byUuid.keys()) {
-      if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid) && uuid !== anchorUuid) {
+      if (
+        !preservedUuids.has(uuid) &&
+        !postBoundaryUuids.has(uuid) &&
+        uuid !== anchorUuid
+      ) {
         byUuid.delete(uuid)
       }
     }
-  } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size === 0) {
+  } else if (
+    boundaryIndex >= 0 &&
+    preservedSegment &&
+    preservedUuids.size === 0
+  ) {
     // Preserved segment exists but relink failed — fail closed, keep only post-boundary
     const postBoundaryUuids = new Set<string>()
     for (const entry of entries.slice(boundaryIndex + 1)) {
@@ -328,7 +343,9 @@ async function loadAndInjectSessionMessages(
   if (upToUuid) {
     leaf = byUuid.get(upToUuid)
     if (!leaf) {
-      throw new Error(`resumeSessionAt ${upToUuid} not found in session ${sessionId}`)
+      throw new Error(
+        `resumeSessionAt ${upToUuid} not found in session ${sessionId}`,
+      )
     }
   } else {
     // Find latest user/assistant leaf: highest timestamp among user/assistant entries
@@ -360,7 +377,9 @@ async function loadAndInjectSessionMessages(
   const messages = stripExtraFields(chain)
 
   if (messages.length > 0) {
-    engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
+    engine.injectMessages(
+      messages as Parameters<QueryEngine['injectMessages']>[0],
+    )
   }
   return { loaded: true, transcriptDir }
 }
@@ -375,16 +394,21 @@ class QueryImpl implements Query {
   private _engineWasInjected: boolean
   private get engine(): QueryEngine {
     if (!this._engine) {
-      throw new Error('QueryImpl: engine not initialized. Call setEngine() first.')
+      throw new Error(
+        'QueryImpl: engine not initialized. Call setEngine() first.',
+      )
     }
     return this._engine
   }
   private prompt: string | AsyncIterable<SDKUserMessage>
   private abortController: AbortController
   private appStateStore: Store<AppState>
-  private pendingPermissionPrompts = new Map<string, {
-    resolve: (decision: PermissionResolveDecision) => void
-  }>()
+  private pendingPermissionPrompts = new Map<
+    string,
+    {
+      resolve: (decision: PermissionResolveDecision) => void
+    }
+  >()
   private envOverrides: Record<string, string | undefined> | undefined
   private envSnapshot: Record<string, string | undefined> | undefined
   private _sessionId: string
@@ -447,7 +471,9 @@ class QueryImpl implements Query {
    * Returns a Promise that resolves when respondToPermission() is called
    * with the matching toolUseId.
    */
-  registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision> {
+  registerPendingPermission(
+    toolUseId: string,
+  ): Promise<PermissionResolveDecision> {
     return new Promise(resolve => {
       const wrappedResolve = createOnceOnlyResolve(resolve)
       this.pendingPermissionPrompts.set(toolUseId, { resolve: wrappedResolve })
@@ -497,7 +523,8 @@ class QueryImpl implements Query {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
-    const hasEnvOverrides = this.envOverrides && Object.keys(this.envOverrides).length > 0
+    const hasEnvOverrides =
+      this.envOverrides && Object.keys(this.envOverrides).length > 0
 
     const sdkContext = {
       sessionId: this._sessionId as SessionId,
@@ -520,195 +547,226 @@ class QueryImpl implements Query {
         }
 
         // Load agent definitions BEFORE creating engine context
-        let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
+        let agentDefs: { activeAgents: any[]; allAgents: any[] } = {
+          activeAgents: [],
+          allAgents: [],
+        }
+        try {
+          agentDefs = await getAgentDefinitionsWithOverrides(self.cwd)
+        } catch (err) {
+          // Agent loading failed — continue without agents but emit failure event
+          const errorMessage = err instanceof Error ? err.message : String(err)
+          console.warn('SDK: agent definitions loading failed:', errorMessage)
+          self.pushAgentFailure({
+            type: 'agent_load_failure',
+            stage: 'definitions',
+            error_message: errorMessage,
+          })
+        }
+
+        // Update AppState with agents
+        self.appStateStore.setState(prev => ({
+          ...prev,
+          agentDefinitions: agentDefs,
+        }))
+
+        // Inject agents into the engine
+        if (self.userAgents && Object.keys(self.userAgents).length > 0) {
+          const userAgents: Array<{
+            agentType: string
+            whenToUse: string
+            getSystemPrompt: () => string
+            tools?: string[]
+            disallowedTools?: string[]
+            model?: string
+            maxTurns?: number
+          }> = Object.entries(self.userAgents).map(([name, def]) => ({
+            agentType: name,
+            whenToUse: def.description ?? name,
+            getSystemPrompt: () => def.prompt ?? '',
+            ...(def.tools ? { tools: def.tools } : {}),
+            ...(def.disallowedTools
+              ? { disallowedTools: def.disallowedTools }
+              : {}),
+            ...(def.model ? { model: def.model } : {}),
+            ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
+          }))
+          agentDefs.activeAgents.push(...userAgents)
+        }
+        if (agentDefs.activeAgents.length > 0) {
           try {
-            agentDefs = await getAgentDefinitionsWithOverrides(self.cwd)
+            self.engine.injectAgents(agentDefs.activeAgents)
           } catch (err) {
-            // Agent loading failed — continue without agents but emit failure event
-            const errorMessage = err instanceof Error ? err.message : String(err)
-            console.warn('SDK: agent definitions loading failed:', errorMessage)
+            // Agent injection failed — continue without agents but emit failure event
+            const errorMessage =
+              err instanceof Error ? err.message : String(err)
+            console.warn('SDK: agent injection failed:', errorMessage)
             self.pushAgentFailure({
               type: 'agent_load_failure',
-              stage: 'definitions',
+              stage: 'injection',
               error_message: errorMessage,
             })
           }
+        }
 
-          // Update AppState with agents
-          self.appStateStore.setState(prev => ({
-            ...prev,
-            agentDefinitions: agentDefs,
-          }))
-
-          // Inject agents into the engine
-          if (self.userAgents && Object.keys(self.userAgents).length > 0) {
-            const userAgents: Array<{
-              agentType: string
-              whenToUse: string
-              getSystemPrompt: () => string
-              tools?: string[]
-              disallowedTools?: string[]
-              model?: string
-              maxTurns?: number
-            }> = Object.entries(self.userAgents).map(([name, def]) => ({
-              agentType: name,
-              whenToUse: def.description ?? name,
-              getSystemPrompt: () => def.prompt ?? '',
-              ...(def.tools ? { tools: def.tools } : {}),
-              ...(def.disallowedTools ? { disallowedTools: def.disallowedTools } : {}),
-              ...(def.model ? { model: def.model } : {}),
-              ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
-            }))
-            agentDefs.activeAgents.push(...userAgents)
+        // Apply env overrides AFTER init() with full-duration mutex (SEC-1)
+        if (hasEnvOverrides) {
+          await acquireEnvMutex()
+          self.envSnapshot = {}
+          for (const key of Object.keys(self.envOverrides!)) {
+            self.envSnapshot[key] = process.env[key]
           }
-          if (agentDefs.activeAgents.length > 0) {
+          for (const [key, value] of Object.entries(self.envOverrides!)) {
+            if (value === undefined) {
+              delete process.env[key]
+            } else {
+              process.env[key] = value
+            }
+          }
+        }
+
+        try {
+          // Connect MCP servers if provided
+          if (self.mcpServers && Object.keys(self.mcpServers).length > 0) {
             try {
-              self.engine.injectAgents(agentDefs.activeAgents)
-            } catch (err) {
-              // Agent injection failed — continue without agents but emit failure event
-              const errorMessage = err instanceof Error ? err.message : String(err)
-              console.warn('SDK: agent injection failed:', errorMessage)
-              self.pushAgentFailure({
-                type: 'agent_load_failure',
-                stage: 'injection',
-                error_message: errorMessage,
-              })
-            }
-          }
-
-          // Apply env overrides AFTER init() with full-duration mutex (SEC-1)
-          if (hasEnvOverrides) {
-            await acquireEnvMutex()
-            self.envSnapshot = {}
-            for (const key of Object.keys(self.envOverrides!)) {
-              self.envSnapshot[key] = process.env[key]
-            }
-            for (const [key, value] of Object.entries(self.envOverrides!)) {
-              if (value === undefined) {
-                delete process.env[key]
-              } else {
-                process.env[key] = value
+              const { clients: mcpClients, tools: mcpTools } =
+                await connectSdkMcpServers(self.mcpServers)
+              if (mcpClients.length > 0) {
+                self.engine.setMcpClients(mcpClients)
               }
-            }
-          }
-
-          try {
-            // Connect MCP servers if provided
-            if (self.mcpServers && Object.keys(self.mcpServers).length > 0) {
-              try {
-                const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
-                if (mcpClients.length > 0) {
-                  self.engine.setMcpClients(mcpClients)
-                }
-                if (mcpTools.length > 0) {
-                  const allTools = [...getTools(self.permissionContext)]  // Mutable copy
-                  for (const mcpTool of mcpTools) {
-                    if (!allTools.some(t => t.name === mcpTool.name)) {
-                      allTools.push(mcpTool)
-                    }
+              if (mcpTools.length > 0) {
+                const allTools = [...getTools(self.permissionContext)] // Mutable copy
+                for (const mcpTool of mcpTools) {
+                  if (!allTools.some(t => t.name === mcpTool.name)) {
+                    allTools.push(mcpTool)
                   }
-                  self.engine.updateTools(allTools)
                 }
-              } catch (err) {
-                // MCP connection failed — continue without MCP tools
-                console.warn('SDK: MCP server connection failed:', err instanceof Error ? err.message : String(err))
+                self.engine.updateTools(allTools)
               }
+            } catch (err) {
+              // MCP connection failed — continue without MCP tools
+              console.warn(
+                'SDK: MCP server connection failed:',
+                err instanceof Error ? err.message : String(err),
+              )
             }
+          }
 
-            // Handle continue/fork/resume session resolution
-            let effectiveSessionId: string | undefined = self._sessionId
-            let resolvedTranscriptDir: string | null = null
+          // Handle continue/fork/resume session resolution
+          let effectiveSessionId: string | undefined = self._sessionId
+          let resolvedTranscriptDir: string | null = null
 
-            if (self.continueSession && !self._sessionIdExplicitlyProvided) {
-              const sessions = await listSessions({ dir: self.cwd, limit: 1 })
-              if (sessions.length > 0) {
-                effectiveSessionId = sessions[0].sessionId
-                const result = await loadAndInjectSessionMessages(effectiveSessionId, self.cwd, self.engine, self.resumeSessionAt)
-                if (result.loaded) {
-                  resolvedTranscriptDir = result.transcriptDir
-                } else {
-                  effectiveSessionId = undefined
-                }
-              } else {
-                // No existing sessions — keep the constructor-created UUID for fresh query
-                effectiveSessionId = self._sessionId
-              }
-            } else if (self.shouldFork && self._sessionId) {
-              try {
-                const forkResult = await forkSession(self._sessionId, { dir: self.cwd })
-                effectiveSessionId = forkResult.sessionId
-                const result = await loadAndInjectSessionMessages(effectiveSessionId, self.cwd, self.engine, self.resumeSessionAt)
-                if (result.loaded) {
-                  resolvedTranscriptDir = result.transcriptDir
-                } else {
-                  effectiveSessionId = undefined
-                }
-              } catch {
-                effectiveSessionId = undefined
-              }
-            } else if (self._sessionId) {
-              const result = await loadAndInjectSessionMessages(self._sessionId, self.cwd, self.engine, self.resumeSessionAt)
+          if (self.continueSession && !self._sessionIdExplicitlyProvided) {
+            const sessions = await listSessions({ dir: self.cwd, limit: 1 })
+            if (sessions.length > 0) {
+              effectiveSessionId = sessions[0].sessionId
+              const result = await loadAndInjectSessionMessages(
+                effectiveSessionId,
+                self.cwd,
+                self.engine,
+                self.resumeSessionAt,
+              )
               if (result.loaded) {
                 resolvedTranscriptDir = result.transcriptDir
               } else {
-                // Session file not found — preserve constructor UUID for fresh session
-                effectiveSessionId = self._sessionId
+                effectiveSessionId = undefined
               }
+            } else {
+              // No existing sessions — keep the constructor-created UUID for fresh query
+              effectiveSessionId = self._sessionId
             }
-
-            // Switch session for transcript writes using the resolved transcript dir
-            if (!effectiveSessionId) {
-              regenerateSessionId()
-              effectiveSessionId = getSessionId()
+          } else if (self.shouldFork && self._sessionId) {
+            try {
+              const forkResult = await forkSession(self._sessionId, {
+                dir: self.cwd,
+              })
+              effectiveSessionId = forkResult.sessionId
+              const result = await loadAndInjectSessionMessages(
+                effectiveSessionId,
+                self.cwd,
+                self.engine,
+                self.resumeSessionAt,
+              )
+              if (result.loaded) {
+                resolvedTranscriptDir = result.transcriptDir
+              } else {
+                effectiveSessionId = undefined
+              }
+            } catch {
+              effectiveSessionId = undefined
             }
-            switchSession(effectiveSessionId as SessionId, resolvedTranscriptDir)
+          } else if (self._sessionId) {
+            const result = await loadAndInjectSessionMessages(
+              self._sessionId,
+              self.cwd,
+              self.engine,
+              self.resumeSessionAt,
+            )
+            if (result.loaded) {
+              resolvedTranscriptDir = result.transcriptDir
+            } else {
+              // Session file not found — preserve constructor UUID for fresh session
+              effectiveSessionId = self._sessionId
+            }
+          }
 
-            // Sync resolved sessionId and transcript dir back to authoritative fields
-            self._sessionId = effectiveSessionId
-            sdkContext.sessionId = effectiveSessionId as SessionId
-            sdkContext.sessionProjectDir = resolvedTranscriptDir
+          // Switch session for transcript writes using the resolved transcript dir
+          if (!effectiveSessionId) {
+            regenerateSessionId()
+            effectiveSessionId = getSessionId()
+          }
+          switchSession(effectiveSessionId as SessionId, resolvedTranscriptDir)
 
-            // Submit to engine
-            if (typeof self.prompt === 'string') {
-              for await (const engineMsg of self.engine.submitMessage(self.prompt)) {
+          // Sync resolved sessionId and transcript dir back to authoritative fields
+          self._sessionId = effectiveSessionId
+          sdkContext.sessionId = effectiveSessionId as SessionId
+          sdkContext.sessionProjectDir = resolvedTranscriptDir
+
+          // Submit to engine
+          if (typeof self.prompt === 'string') {
+            for await (const engineMsg of self.engine.submitMessage(
+              self.prompt,
+            )) {
+              yield engineMsg
+              yield* self.drainTimeoutQueue()
+              yield* self.drainAgentFailureQueue()
+            }
+          } else {
+            for await (const userMessage of self.prompt) {
+              if (self.abortController.signal.aborted) break
+              const content = extractPromptFromUserMessage(userMessage)
+              for await (const engineMsg of self.engine.submitMessage(content, {
+                uuid: userMessage.uuid,
+              })) {
                 yield engineMsg
                 yield* self.drainTimeoutQueue()
                 yield* self.drainAgentFailureQueue()
               }
-            } else {
-              for await (const userMessage of self.prompt) {
-                if (self.abortController.signal.aborted) break
-                const content = extractPromptFromUserMessage(userMessage)
-                for await (const engineMsg of self.engine.submitMessage(content, { uuid: userMessage.uuid })) {
-                  yield engineMsg
-                  yield* self.drainTimeoutQueue()
-                  yield* self.drainAgentFailureQueue()
-                }
-              }
-            }
-            // Final drain for timeout/failure messages that fired on the last engine yield
-            yield* self.drainTimeoutQueue()
-            yield* self.drainAgentFailureQueue()
-          } finally {
-            // Clean up timeout and agent failure queues
-            self.timeoutQueue.length = 0
-            self.agentFailureQueue.length = 0
-            // Restore env + release mutex (SEC-1)
-            if (self.envSnapshot) {
-              for (const key of Object.keys(self.envSnapshot)) {
-                const originalValue = self.envSnapshot[key]
-                if (originalValue === undefined) {
-                  delete process.env[key]
-                } else {
-                  process.env[key] = originalValue
-                }
-              }
-              self.envSnapshot = undefined
-            }
-            if (hasEnvOverrides) {
-              releaseEnvMutex()
             }
           }
+          // Final drain for timeout/failure messages that fired on the last engine yield
+          yield* self.drainTimeoutQueue()
+          yield* self.drainAgentFailureQueue()
+        } finally {
+          // Clean up timeout and agent failure queues
+          self.timeoutQueue.length = 0
+          self.agentFailureQueue.length = 0
+          // Restore env + release mutex (SEC-1)
+          if (self.envSnapshot) {
+            for (const key of Object.keys(self.envSnapshot)) {
+              const originalValue = self.envSnapshot[key]
+              if (originalValue === undefined) {
+                delete process.env[key]
+              } else {
+                process.env[key] = originalValue
+              }
+            }
+            self.envSnapshot = undefined
+          }
+          if (hasEnvOverrides) {
+            releaseEnvMutex()
+          }
+        }
       })()
     })
 
@@ -727,12 +785,16 @@ class QueryImpl implements Query {
 
   async setPermissionMode(mode: QueryPermissionMode): Promise<void> {
     // Preserve additionalDirectories from the original permission context
-    const dirsMap = this.permissionContext.additionalWorkingDirectories as Map<string, unknown>
+    const dirsMap = this.permissionContext.additionalWorkingDirectories as Map<
+      string,
+      unknown
+    >
     const newPermissionContext = buildPermissionContext({
       cwd: this.cwd,
       permissionMode: mode,
       additionalDirectories: Array.from(dirsMap.keys()),
-      allowDangerouslySkipPermissions: this.permissionContext.isBypassPermissionsModeAvailable,
+      allowDangerouslySkipPermissions:
+        this.permissionContext.isBypassPermissionsModeAvailable,
     })
     this.permissionContext = newPermissionContext
     this.appStateStore.setState(prev => ({
@@ -753,7 +815,10 @@ class QueryImpl implements Query {
       if (client.type === 'connected' && client.cleanup) {
         // Fire-and-forget cleanup — close() is synchronous
         void client.cleanup().catch(err => {
-          console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
+          console.warn(
+            'SDK: MCP client cleanup error:',
+            err instanceof Error ? err.message : String(err),
+          )
         })
       }
     }
@@ -814,7 +879,10 @@ class QueryImpl implements Query {
       }
     }
 
-    return { canRewind: false, error: 'No file-history snapshot found to rewind to' }
+    return {
+      canRewind: false,
+      error: 'No file-history snapshot found to rewind to',
+    }
   }
 
   /**
@@ -840,19 +908,26 @@ class QueryImpl implements Query {
     }
 
     if (!targetMessageId) {
-      return { canRewind: false, error: 'No file-history snapshot found to rewind to' }
+      return {
+        canRewind: false,
+        error: 'No file-history snapshot found to rewind to',
+      }
     }
 
     // Get diff stats before rewinding (async)
-    const diffStats = await fileHistoryGetDiffStats(fileHistory, targetMessageId as any)
+    const diffStats = await fileHistoryGetDiffStats(
+      fileHistory,
+      targetMessageId as any,
+    )
 
     // Perform the actual rewind
     try {
       await fileHistoryRewind(
-        (updater) => this.appStateStore.setState(prev => ({
-          ...prev,
-          fileHistory: updater(prev.fileHistory),
-        })),
+        updater =>
+          this.appStateStore.setState(prev => ({
+            ...prev,
+            fileHistory: updater(prev.fileHistory),
+          })),
         targetMessageId as any,
       )
 
@@ -914,9 +989,13 @@ class QueryImpl implements Query {
     })
   }
 
-  async accountInfo(): Promise<{ apiKeySource: ApiKeySource; [key: string]: unknown }> {
+  async accountInfo(): Promise<{
+    apiKeySource: ApiKeySource
+    [key: string]: unknown
+  }> {
     try {
-      const { getAccountInformation, getAnthropicApiKeyWithSource } = await import('../../utils/auth.js')
+      const { getAccountInformation, getAnthropicApiKeyWithSource } =
+        await import('../../utils/auth.js')
       const info = getAccountInformation()
       const { source } = getAnthropicApiKeyWithSource()
       // Cast to string to avoid type conflict between internal and SDK ApiKeySource
@@ -924,11 +1003,17 @@ class QueryImpl implements Query {
       // Map internal ApiKeySource to SDK ApiKeySource
       // Internal has additional values: apiKeyHelper, ANTHROPIC_API_KEY, /login managed key
       const mapToSdkSource = (src: string): ApiKeySource => {
-        if (src === 'apiKeyHelper' || src === 'ANTHROPIC_API_KEY' || src === '/login managed key') {
+        if (
+          src === 'apiKeyHelper' ||
+          src === 'ANTHROPIC_API_KEY' ||
+          src === '/login managed key'
+        ) {
           return 'user' // These are user-provided keys
         }
         // SDK ApiKeySource: "user" | "project" | "org" | "temporary" | "oauth" | "none"
-        if (['user', 'project', 'org', 'temporary', 'oauth', 'none'].includes(src)) {
+        if (
+          ['user', 'project', 'org', 'temporary', 'oauth', 'none'].includes(src)
+        ) {
           return src as ApiKeySource
         }
         return 'none' // Unknown source defaults to none
@@ -947,13 +1032,15 @@ class QueryImpl implements Query {
   setMaxThinkingTokens(tokens: number): void {
     this.appStateStore.setState(prev => ({
       ...prev,
-      thinkingEnabled: tokens > 0,  // Boolean, not prev preservation
+      thinkingEnabled: tokens > 0, // Boolean, not prev preservation
       thinkingBudgetTokens: tokens > 0 ? tokens : undefined,
     }))
     // Also update the engine's thinking config so subsequent API calls use the new budget
-    this.engine.setThinkingConfig(tokens > 0
-      ? { type: 'enabled', budgetTokens: tokens }
-      : { type: 'disabled' })
+    this.engine.setThinkingConfig(
+      tokens > 0
+        ? { type: 'enabled', budgetTokens: tokens }
+        : { type: 'disabled' },
+    )
   }
 }
 
@@ -1016,13 +1103,7 @@ export function query(params: {
   options?: QueryOptions
 }): Query {
   const { prompt, options = {} as QueryOptions } = params
-  const {
-    cwd,
-    model,
-    abortController,
-    systemPrompt,
-    settings,
-  } = options
+  const { cwd, model, abortController, systemPrompt, settings } = options
 
   if (!cwd) {
     throw new Error('query() requires options.cwd')
@@ -1035,7 +1116,8 @@ export function query(params: {
   // NOTE: undefined values are KEPT and treated as explicit unset requests
   // (Claude SDK convention: { FOO: undefined } means "unset inherited FOO")
   const rawEnvOverrides = options.env ?? settings?.env
-  const envOverrides: Record<string, string | undefined> | undefined = rawEnvOverrides
+  const envOverrides: Record<string, string | undefined> | undefined =
+    rawEnvOverrides
 
   // Ensure init() has been called (memoized, safe to call multiple times).
   // We fire-and-forget the init promise — QueryEngine.submitMessage() will
@@ -1099,7 +1181,21 @@ export function query(params: {
   // Also pass sessionId, fork/forkSession, continue, cwd, resumeSessionAt, and agents.
   const effectiveSessionId = options.sessionId || options.resume
   const shouldFork = options.fork || options.forkSession
-  const queryImpl = new QueryImpl(null, prompt, ac, appStateStore, envOverrides, effectiveSessionId, shouldFork, options.continue, cwd, options.resumeSessionAt, options.agents, options.mcpServers, permissionContext)
+  const queryImpl = new QueryImpl(
+    null,
+    prompt,
+    ac,
+    appStateStore,
+    envOverrides,
+    effectiveSessionId,
+    shouldFork,
+    options.continue,
+    cwd,
+    options.resumeSessionAt,
+    options.agents,
+    options.mcpServers,
+    permissionContext,
+  )
 
   // Build the canUseTool that supports external permission resolution.
   // When no user canUseTool callback is provided, this creates a pending
@@ -1111,7 +1207,9 @@ export function query(params: {
     defaultCanUseTool,
     queryImpl,
     options.onPermissionRequest,
-    (msg) => { queryImpl.pushTimeout(msg) },
+    msg => {
+      queryImpl.pushTimeout(msg)
+    },
     options._permissionTimeoutMs ?? 30000,
     () => queryImpl.sessionId,
   )

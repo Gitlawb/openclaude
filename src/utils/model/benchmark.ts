@@ -1,6 +1,6 @@
 /**
  * Model Benchmarking for OpenClaude
- * 
+ *
  * Tests and compares model speed/quality for informed model selection.
  * Supports OpenAI-compatible, Ollama, Anthropic, Bedrock, Vertex.
  */
@@ -25,9 +25,12 @@ const TIMEOUT_MS = 30000
 function getBenchmarkEndpoint(): string | null {
   const provider = getAPIProvider()
   const baseUrl = process.env.OPENAI_BASE_URL
-  
+
   // Check for Ollama (local)
-  if (baseUrl?.includes('localhost:11434') || baseUrl?.includes('localhost:11435')) {
+  if (
+    baseUrl?.includes('localhost:11434') ||
+    baseUrl?.includes('localhost:11435')
+  ) {
     return `${baseUrl}/chat/completions`
   }
   // OpenAI-compatible endpoints
@@ -53,7 +56,7 @@ export async function benchmarkModel(
 ): Promise<BenchmarkResult> {
   const endpoint = getBenchmarkEndpoint()
   const authHeader = getBenchmarkAuthHeader()
-  
+
   if (!endpoint || !authHeader) {
     return {
       model,
@@ -65,7 +68,7 @@ export async function benchmarkModel(
       error: 'Benchmark not supported for this provider',
     }
   }
-  
+
   const startTime = performance.now()
   let totalTokens = 0
   let firstTokenMs: number | null = null
@@ -78,7 +81,7 @@ export async function benchmarkModel(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': authHeader,
+        Authorization: authHeader,
       },
       body: JSON.stringify({
         model,
@@ -174,7 +177,11 @@ export async function benchmarkModel(
 
 export async function benchmarkMultipleModels(
   models: string[],
-  onProgress?: (completed: number, total: number, result: BenchmarkResult) => void,
+  onProgress?: (
+    completed: number,
+    total: number,
+    result: BenchmarkResult,
+  ) => void,
 ): Promise<BenchmarkResult[]> {
   const results: BenchmarkResult[] = []
 
@@ -190,13 +197,16 @@ export async function benchmarkMultipleModels(
 export function formatBenchmarkResults(results: BenchmarkResult[]): string {
   const header = 'Model'.padEnd(40) + 'TPS' + '  First Token' + '  Status'
   const divider = '-'.repeat(70)
-  
+
   const rows = results
     .sort((a, b) => b.tokensPerSecond - a.tokensPerSecond)
     .map(r => {
       const name = r.model.length > 38 ? r.model.slice(0, 37) + '…' : r.model
       const tps = r.tokensPerSecond.toFixed(1).padStart(6)
-      const first = r.firstTokenMs > 0 ? `${r.firstTokenMs.toFixed(0)}ms`.padStart(12) : 'N/A'.padStart(12)
+      const first =
+        r.firstTokenMs > 0
+          ? `${r.firstTokenMs.toFixed(0)}ms`.padStart(12)
+          : 'N/A'.padStart(12)
       const status = r.success ? '✓' : '✗'
       return name.padEnd(40) + tps + '  ' + first + '  ' + status
     })

@@ -49,9 +49,7 @@ export type GoalModelRequest = {
   tools: []
 }
 
-export type GoalModelCaller = (
-  request: GoalModelRequest,
-) => Promise<string>
+export type GoalModelCaller = (request: GoalModelRequest) => Promise<string>
 
 const defaultModelCaller: GoalModelCaller = async request => {
   const response = await queryHaiku({
@@ -186,7 +184,10 @@ export function buildGoalEvaluatorPrompt({
 function stripJsonFence(raw: string): string {
   let text = raw.trim()
   if (text.startsWith('```')) {
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    text = text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim()
   }
   const first = text.indexOf('{')
   const last = text.lastIndexOf('}')

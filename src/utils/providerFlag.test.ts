@@ -106,7 +106,14 @@ describe('parseProviderFlag', () => {
   })
 
   test('returns provider name with --model alongside', () => {
-    expect(parseProviderFlag(['--provider', 'gemini', '--model', 'gemini-2.0-flash'])).toBe('gemini')
+    expect(
+      parseProviderFlag([
+        '--provider',
+        'gemini',
+        '--model',
+        'gemini-2.0-flash',
+      ]),
+    ).toBe('gemini')
   })
 
   test('returns null when --provider flag absent', () => {
@@ -228,7 +235,9 @@ describe('applyProviderFlag - ollama', () => {
 
     applyProviderFlag('ollama', [])
 
-    expect(process.env.OPENAI_BASE_URL).toBe('http://remote-ollama.internal:11434/v1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'http://remote-ollama.internal:11434/v1',
+    )
     expect(process.env.OPENAI_API_KEY).toBe('secret-token')
   })
 })
@@ -281,7 +290,9 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://opengateway.gitlawb.com/v1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
     expect(process.env.OPENAI_API_BASE).toBe('undefined')
   })
 
@@ -294,7 +305,9 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://opengateway.gitlawb.com/v1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://opengateway.gitlawb.com/v1',
+    )
     expect(process.env.OPENGATEWAY_API_KEY).toBe('fake-ogw-key')
     expect(process.env.OPENAI_API_KEY).toBe('fake-ogw-key')
   })
@@ -484,7 +497,9 @@ describe('applyProviderFlag - minimax', () => {
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.minimax.io/anthropic',
+    )
     expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M3')
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBeUndefined()
@@ -501,7 +516,9 @@ describe('applyProviderFlag - nvidia-nim', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.NVIDIA_NIM).toBe('1')
     expect(process.env.OPENAI_API_KEY).toBe('nvidia-live-key')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://integrate.api.nvidia.com/v1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://integrate.api.nvidia.com/v1',
+    )
   })
 })
 
@@ -511,7 +528,9 @@ describe('applyProviderFlag - zai', () => {
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.z.ai/api/coding/paas/v4',
+    )
     expect(process.env.OPENAI_MODEL).toBe('GLM-5.1')
   })
 })
@@ -613,7 +632,9 @@ describe('applyProviderFlag - atlas-cloud', () => {
 
     applyProviderFlag('atlas-cloud', [])
 
-    expect(process.env.OPENAI_BASE_URL).toBe('https://llm-proxy.internal.example/v1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://llm-proxy.internal.example/v1',
+    )
   })
 
   test('sets OPENAI_MODEL when --model is provided', () => {
@@ -633,7 +654,9 @@ describe('applyProviderFlag - xai', () => {
     const result = applyProviderFlag('xai', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL as string | undefined).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_BASE_URL as string | undefined).toBe(
+      'https://api.x.ai/v1',
+    )
     expect(process.env.OPENAI_MODEL).toBe('grok-4.3')
   })
 
@@ -648,7 +671,9 @@ describe('applyProviderFlag - xai', () => {
 
     applyProviderFlag('xai', [])
 
-    expect(process.env.OPENAI_API_KEY as string | undefined).toBe('xai-secret-key')
+    expect(process.env.OPENAI_API_KEY as string | undefined).toBe(
+      'xai-secret-key',
+    )
   })
 
   test('does not override existing OPENAI_API_KEY when both keys are set', () => {

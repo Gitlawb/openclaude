@@ -1,5 +1,8 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import {
+  roughTokenCountEstimation,
+  roughTokenCountEstimationForMessages,
+} from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
@@ -216,9 +219,11 @@ export function getAssistantMessageContentLength(
  * Extract thinking tokens from an assistant message.
  * Returns breakdown of thinking vs output tokens.
  */
-export function extractThinkingTokens(
-  message: AssistantMessage,
-): { thinking: number; output: number; total: number } {
+export function extractThinkingTokens(message: AssistantMessage): {
+  thinking: number
+  output: number
+  total: number
+} {
   let thinking = 0
   let output = 0
 
@@ -268,7 +273,7 @@ export interface TokenAnalytics {
 
 /**
  * Historical Token Analytics Tracker
- * 
+ *
  * Tracks token usage patterns over time for analytics,
  * cost optimization, and capacity planning.
  */
@@ -364,7 +369,8 @@ export class TokenUsageTracker {
     const totalRequests = this.history.length
     const totalCache = totalCacheRead + totalCacheCreation
     const totalTokens = totalInput + totalOutput + totalCache
-    const cacheHitRate = totalTokens > 0 ? (totalCacheRead / totalTokens) * 100 : 0
+    const cacheHitRate =
+      totalTokens > 0 ? (totalCacheRead / totalTokens) * 100 : 0
 
     return {
       totalRequests,
@@ -465,5 +471,3 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
   }
   return getIncrementalTokenCounter().getCount(messages)
 }
-
-

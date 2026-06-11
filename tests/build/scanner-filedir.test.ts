@@ -18,14 +18,10 @@ function isStubbedSpecifier(s: string): boolean {
 }
 
 function stripComments(code: string): string {
-  return code
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
+  return code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 }
 
-function scanFileForStarReexports(
-  filePath: string,
-): Map<string, Set<string>> {
+function scanFileForStarReexports(filePath: string): Map<string, Set<string>> {
   const exports = new Map<string, Set<string>>()
   const code = stripComments(readFileSync(filePath, 'utf-8'))
   const fileDir = dirname(filePath)
@@ -51,11 +47,16 @@ function scanFileForStarReexports(
     for (const candidate of candidates) {
       if (existsSync(candidate)) {
         const reexportCode = stripComments(readFileSync(candidate, 'utf-8'))
-        for (const exp of reexportCode.matchAll(/export\s+(?:const|let|var|function|class|type|interface)\s+(\w+)/g)) {
+        for (const exp of reexportCode.matchAll(
+          /export\s+(?:const|let|var|function|class|type|interface)\s+(\w+)/g,
+        )) {
           names.add(exp[1])
         }
         for (const exp of reexportCode.matchAll(/export\s+\{([^}]*)\}/g)) {
-          for (const name of exp[1].split(',').map(s => s.trim()).filter(Boolean)) {
+          for (const name of exp[1]
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)) {
             names.add(name)
           }
         }
@@ -102,10 +103,7 @@ export * from './fixtures/inner-module'`,
   )
 
   // Create a module with no exports
-  writeFileSync(
-    join(fixtureDir, 'fixtures', 'empty.ts'),
-    ``,
-  )
+  writeFileSync(join(fixtureDir, 'fixtures', 'empty.ts'), ``)
 })
 
 afterAll(() => {
@@ -114,9 +112,7 @@ afterAll(() => {
 
 describe('BLD-1: star re-export scanner end-to-end', () => {
   test('scanner finds exports from star re-exported module', () => {
-    const result = scanFileForStarReexports(
-      join(fixtureDir, 'reexporter.ts'),
-    )
+    const result = scanFileForStarReexports(join(fixtureDir, 'reexporter.ts'))
 
     expect(result.size).toBe(1)
     const names = result.get('./fixtures/inner-module')!
@@ -127,9 +123,7 @@ describe('BLD-1: star re-export scanner end-to-end', () => {
   })
 
   test('scanner strips comments before matching', () => {
-    const result = scanFileForStarReexports(
-      join(fixtureDir, 'commented.ts'),
-    )
+    const result = scanFileForStarReexports(join(fixtureDir, 'commented.ts'))
 
     // Only the non-commented line should match
     expect(result.size).toBe(1)
@@ -138,9 +132,7 @@ describe('BLD-1: star re-export scanner end-to-end', () => {
   })
 
   test('scanner resolves .js extension to .ts file', () => {
-    const result = scanFileForStarReexports(
-      join(fixtureDir, 'js-import.ts'),
-    )
+    const result = scanFileForStarReexports(join(fixtureDir, 'js-import.ts'))
 
     expect(result.size).toBe(1)
     const names = result.get('./fixtures/inner-module.js')!
@@ -157,7 +149,9 @@ describe('BLD-1: star re-export scanner end-to-end', () => {
 
     // This is what the fixed scanner does: resolve(fileDir, specifier)
     const resolved = resolve(fileDir, specifier)
-    expect(existsSync(resolved + '.ts') || existsSync(resolved + '.tsx')).toBe(true)
+    expect(existsSync(resolved + '.ts') || existsSync(resolved + '.tsx')).toBe(
+      true,
+    )
   })
 
   test('scanner produces correct candidates for .js specifier', () => {
@@ -186,9 +180,7 @@ describe('BLD-1: star re-export scanner end-to-end', () => {
   test('scanner skips non-stubbed specifiers', () => {
     // The reexporter.ts has `import { something } from 'not-stubbed'`
     // This should not appear in the results since 'not-stubbed' doesn't match isStubbedSpecifier
-    const result = scanFileForStarReexports(
-      join(fixtureDir, 'reexporter.ts'),
-    )
+    const result = scanFileForStarReexports(join(fixtureDir, 'reexporter.ts'))
 
     for (const [specifier] of result) {
       expect(specifier).not.toBe('not-stubbed')

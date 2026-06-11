@@ -26,9 +26,21 @@ describe('invalidateRemovedToolSchemas', () => {
   test('removes entries for tools not in retained set', () => {
     const cache = getToolSchemaCache()
     // Simulate cached tool schemas with different key formats
-    cache.set('Read', { name: 'Read', description: 'Read file', input_schema: {} })
-    cache.set('Write', { name: 'Write', description: 'Write file', input_schema: {} })
-    cache.set('Bash', { name: 'Bash', description: 'Run command', input_schema: {} })
+    cache.set('Read', {
+      name: 'Read',
+      description: 'Read file',
+      input_schema: {},
+    })
+    cache.set('Write', {
+      name: 'Write',
+      description: 'Write file',
+      input_schema: {},
+    })
+    cache.set('Bash', {
+      name: 'Bash',
+      description: 'Run command',
+      input_schema: {},
+    })
     cache.set('Bash:{\"type\":\"object\"}', {
       name: 'Bash',
       description: 'Run command with schema',

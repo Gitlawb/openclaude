@@ -10,7 +10,10 @@ import type {
   McpStdioServerConfig,
   ScopedMcpServerConfig,
 } from './types.js'
-import { describeMcpConfigFilePath, getProjectMcpServerStatus } from './utils.js'
+import {
+  describeMcpConfigFilePath,
+  getProjectMcpServerStatus,
+} from './utils.js'
 
 export type McpDoctorSeverity = 'info' | 'warn' | 'error'
 export type McpDoctorScopeFilter = 'local' | 'project' | 'user' | 'enterprise'
@@ -30,7 +33,13 @@ export type McpDoctorLiveCheck = {
   attempted: boolean
   durationMs?: number
   error?: string
-  result?: 'connected' | 'needs-auth' | 'failed' | 'pending' | 'disabled' | 'skipped'
+  result?:
+    | 'connected'
+    | 'needs-auth'
+    | 'failed'
+    | 'pending'
+    | 'disabled'
+    | 'skipped'
 }
 
 export type McpDoctorDefinition = {
@@ -124,7 +133,9 @@ function getFindingCode(error: ValidationError): string {
   if (error.message.startsWith('Missing environment variables:')) {
     return 'config.missing_env_vars'
   }
-  if (error.message.includes("Windows requires 'cmd /c' wrapper to execute npx")) {
+  if (
+    error.message.includes("Windows requires 'cmd /c' wrapper to execute npx")
+  ) {
     return 'config.windows_npx_wrapper_required'
   }
   if (error.message === 'Does not adhere to MCP server configuration schema') {
@@ -186,7 +197,9 @@ function splitValidationFindings(validationFindings: McpDoctorFinding[]): {
   }
 }
 
-function getSourceType(config: ScopedMcpServerConfig): McpDoctorDefinition['sourceType'] {
+function getSourceType(
+  config: ScopedMcpServerConfig,
+): McpDoctorDefinition['sourceType'] {
   if (config.scope === 'claudeai') {
     return 'claudeai'
   }
@@ -230,7 +243,10 @@ function isSameDefinition(
   if (!activeConfig) {
     return false
   }
-  return getSourceType(config) === getSourceType(activeConfig) && getConfigSignature(config) === getConfigSignature(activeConfig)
+  return (
+    getSourceType(config) === getSourceType(activeConfig) &&
+    getConfigSignature(config) === getConfigSignature(activeConfig)
+  )
 }
 
 function buildScopeDefinitions(
@@ -246,7 +262,9 @@ function buildScopeDefinitions(
   }
 
   const pendingApproval =
-    scope === 'project' ? deps.getProjectMcpServerStatus(name) === 'pending' : false
+    scope === 'project'
+      ? deps.getProjectMcpServerStatus(name) === 'pending'
+      : false
   const disabled = deps.isMcpServerDisabled(name)
   const runtimeActive = !disabled && isSameDefinition(config, activeConfig)
 
@@ -269,7 +287,12 @@ function shouldIncludeScope(
   scopeFilter: McpDoctorScopeFilter | undefined,
 ): boolean {
   if (!scopeFilter) {
-    return scope === 'enterprise' || scope === 'local' || scope === 'project' || scope === 'user'
+    return (
+      scope === 'enterprise' ||
+      scope === 'local' ||
+      scope === 'project' ||
+      scope === 'user'
+    )
   }
   return scope === scopeFilter
 }
@@ -284,10 +307,18 @@ function getValidationErrorsForSelectedScopes(
   scopeFilter: McpDoctorScopeFilter | undefined,
 ): ValidationError[] {
   return [
-    ...(shouldIncludeScope('enterprise', scopeFilter) ? scopeResults.enterprise.errors : []),
-    ...(shouldIncludeScope('local', scopeFilter) ? scopeResults.local.errors : []),
-    ...(shouldIncludeScope('project', scopeFilter) ? scopeResults.project.errors : []),
-    ...(shouldIncludeScope('user', scopeFilter) ? scopeResults.user.errors : []),
+    ...(shouldIncludeScope('enterprise', scopeFilter)
+      ? scopeResults.enterprise.errors
+      : []),
+    ...(shouldIncludeScope('local', scopeFilter)
+      ? scopeResults.local.errors
+      : []),
+    ...(shouldIncludeScope('project', scopeFilter)
+      ? scopeResults.project.errors
+      : []),
+    ...(shouldIncludeScope('user', scopeFilter)
+      ? scopeResults.user.errors
+      : []),
   ]
 }
 
@@ -337,25 +368,30 @@ function hasDefinitionForRuntimeSource(
   )
 }
 
-function buildShadowingFindings(definitions: McpDoctorDefinition[]): McpDoctorFinding[] {
-  const userEditable = definitions.filter(definition =>
-    definition.sourceType === 'local' ||
-    definition.sourceType === 'project' ||
-    definition.sourceType === 'user' ||
-    definition.sourceType === 'enterprise',
+function buildShadowingFindings(
+  definitions: McpDoctorDefinition[],
+): McpDoctorFinding[] {
+  const userEditable = definitions.filter(
+    definition =>
+      definition.sourceType === 'local' ||
+      definition.sourceType === 'project' ||
+      definition.sourceType === 'user' ||
+      definition.sourceType === 'enterprise',
   )
 
   if (userEditable.length <= 1) {
     return []
   }
 
-  const active = userEditable.find(definition => definition.runtimeActive) ?? userEditable[0]
+  const active =
+    userEditable.find(definition => definition.runtimeActive) ?? userEditable[0]
   return [
     {
       blocking: false,
       code: 'duplicate.same_name_multiple_scopes',
       message: `Server is defined in multiple config scopes; active source is ${active.sourceType}`,
-      remediation: 'Remove or rename one of the duplicate definitions to avoid confusion.',
+      remediation:
+        'Remove or rename one of the duplicate definitions to avoid confusion.',
       serverName: active.name,
       severity: 'warn',
     },
@@ -363,14 +399,17 @@ function buildShadowingFindings(definitions: McpDoctorDefinition[]): McpDoctorFi
       blocking: false,
       code: 'scope.shadowed',
       message: `${active.name} has shadowed definitions in lower-precedence config scopes.`,
-      remediation: 'Inspect the other definitions and remove the ones you no longer want to keep.',
+      remediation:
+        'Inspect the other definitions and remove the ones you no longer want to keep.',
       serverName: active.name,
       severity: 'warn',
     },
   ]
 }
 
-function buildStateFindings(definitions: McpDoctorDefinition[]): McpDoctorFinding[] {
+function buildStateFindings(
+  definitions: McpDoctorDefinition[],
+): McpDoctorFinding[] {
   const findings: McpDoctorFinding[] = []
 
   for (const definition of definitions) {
@@ -379,7 +418,8 @@ function buildStateFindings(definitions: McpDoctorDefinition[]): McpDoctorFindin
         blocking: false,
         code: 'state.pending_project_approval',
         message: `${definition.name} is declared in project config but pending project approval.`,
-        remediation: 'Approve the server in the project MCP approval flow before expecting it to become active.',
+        remediation:
+          'Approve the server in the project MCP approval flow before expecting it to become active.',
         scope: 'project',
         serverName: definition.name,
         severity: 'warn',
@@ -392,7 +432,8 @@ function buildStateFindings(definitions: McpDoctorDefinition[]): McpDoctorFindin
         blocking: false,
         code: 'state.disabled',
         message: `${definition.name} is currently disabled.`,
-        remediation: 'Re-enable the server before expecting it to be available at runtime.',
+        remediation:
+          'Re-enable the server before expecting it to be available at runtime.',
         serverName: definition.name,
         severity: 'warn',
         sourcePath: definition.sourcePath,
@@ -404,13 +445,20 @@ function buildStateFindings(definitions: McpDoctorDefinition[]): McpDoctorFindin
 }
 
 function summarizeReport(report: McpDoctorReport): McpDoctorReport {
-  const allFindings = [...report.findings, ...report.servers.flatMap(server => server.findings)]
+  const allFindings = [
+    ...report.findings,
+    ...report.servers.flatMap(server => server.findings),
+  ]
   const blocking = allFindings.filter(finding => finding.blocking).length
-  const warnings = allFindings.filter(finding => finding.severity === 'warn').length
+  const warnings = allFindings.filter(
+    finding => finding.severity === 'warn',
+  ).length
   const healthy = report.servers.filter(
     server =>
       server.liveCheck.result === 'connected' &&
-      server.findings.every(finding => !finding.blocking && finding.severity !== 'warn'),
+      server.findings.every(
+        finding => !finding.blocking && finding.severity !== 'warn',
+      ),
   ).length
 
   return {
@@ -479,7 +527,9 @@ function buildLiveFindings(
   definitions: McpDoctorDefinition[],
   liveCheck: McpDoctorLiveCheck,
 ): McpDoctorFinding[] {
-  const activeDefinition = definitions.find(definition => definition.runtimeActive)
+  const activeDefinition = definitions.find(
+    definition => definition.runtimeActive,
+  )
 
   if (liveCheck.result === 'needs-auth') {
     return [
@@ -487,7 +537,8 @@ function buildLiveFindings(
         blocking: false,
         code: 'auth.needs_auth',
         message: `${name} requires authentication before it can be used.`,
-        remediation: 'Authenticate the server and then rerun the doctor command.',
+        remediation:
+          'Authenticate the server and then rerun the doctor command.',
         serverName: name,
         severity: 'warn',
         sourcePath: activeDefinition?.sourcePath,
@@ -544,16 +595,40 @@ async function buildServerReport(
 
   const definitions = [
     ...(shouldIncludeScope('enterprise', options.scopeFilter)
-      ? buildScopeDefinitions(name, 'enterprise', scopeResults.enterprise.servers, activeConfig, deps)
+      ? buildScopeDefinitions(
+          name,
+          'enterprise',
+          scopeResults.enterprise.servers,
+          activeConfig,
+          deps,
+        )
       : []),
     ...(shouldIncludeScope('local', options.scopeFilter)
-      ? buildScopeDefinitions(name, 'local', scopeResults.local.servers, activeConfig, deps)
+      ? buildScopeDefinitions(
+          name,
+          'local',
+          scopeResults.local.servers,
+          activeConfig,
+          deps,
+        )
       : []),
     ...(shouldIncludeScope('project', options.scopeFilter)
-      ? buildScopeDefinitions(name, 'project', scopeResults.project.servers, activeConfig, deps)
+      ? buildScopeDefinitions(
+          name,
+          'project',
+          scopeResults.project.servers,
+          activeConfig,
+          deps,
+        )
       : []),
     ...(shouldIncludeScope('user', options.scopeFilter)
-      ? buildScopeDefinitions(name, 'user', scopeResults.user.servers, activeConfig, deps)
+      ? buildScopeDefinitions(
+          name,
+          'user',
+          scopeResults.user.servers,
+          activeConfig,
+          deps,
+        )
       : []),
   ]
 
@@ -561,7 +636,8 @@ async function buildServerReport(
     !!runtimeConfig &&
     !hasDefinitionForRuntimeSource(definitions, runtimeConfig, deps) &&
     ((definitions.length === 0 && !options.scopeFilter) ||
-      (definitions.length > 0 && definitions.every(definition => !definition.runtimeActive)))
+      (definitions.length > 0 &&
+        definitions.every(definition => !definition.runtimeActive)))
 
   if (runtimeConfig && shouldAddObservedDefinition) {
     definitions.push(
@@ -574,7 +650,8 @@ async function buildServerReport(
   }
 
   const visibleRuntimeConfig =
-    definitions.some(definition => definition.runtimeActive) || shouldAddObservedDefinition
+    definitions.some(definition => definition.runtimeActive) ||
+    shouldAddObservedDefinition
       ? activeConfig
       : undefined
 
@@ -589,13 +666,20 @@ async function buildServerReport(
       blocking: true,
       code: 'state.not_found',
       message: `${name} was not found in the selected MCP configuration sources.`,
-      remediation: 'Check the server name and scope, or add the MCP server before retrying.',
+      remediation:
+        'Check the server name and scope, or add the MCP server before retrying.',
       serverName: name,
       severity: 'error',
     })
   }
 
-  const liveCheck = await getLiveCheck(name, visibleRuntimeConfig, options.configOnly, definitions, deps)
+  const liveCheck = await getLiveCheck(
+    name,
+    visibleRuntimeConfig,
+    options.configOnly,
+    definitions,
+    deps,
+  )
   findings.push(...buildLiveFindings(name, definitions, liveCheck))
 
   return {
@@ -612,7 +696,9 @@ function getServerNames(
   activeServers: Record<string, ScopedMcpServerConfig>,
   includeActiveServers: boolean,
 ): string[] {
-  const names = new Set<string>(includeActiveServers ? Object.keys(activeServers) : [])
+  const names = new Set<string>(
+    includeActiveServers ? Object.keys(activeServers) : [],
+  )
   for (const servers of scopeServers) {
     for (const name of Object.keys(servers)) {
       names.add(name)
@@ -637,14 +723,23 @@ export async function doctorAllServers(
   const validationFindings = findingsFromValidationErrors(
     getValidationErrorsForSelectedScopes(scopeResults, options.scopeFilter),
   )
-  const { globalFindings, serverFindingsByName } = splitValidationFindings(validationFindings)
+  const { globalFindings, serverFindingsByName } =
+    splitValidationFindings(validationFindings)
   const { servers: activeServers } = await deps.getAllMcpConfigs()
   const names = getServerNames(
     [
-      ...(shouldIncludeScope('enterprise', options.scopeFilter) ? [scopeResults.enterprise.servers] : []),
-      ...(shouldIncludeScope('local', options.scopeFilter) ? [scopeResults.local.servers] : []),
-      ...(shouldIncludeScope('project', options.scopeFilter) ? [scopeResults.project.servers] : []),
-      ...(shouldIncludeScope('user', options.scopeFilter) ? [scopeResults.user.servers] : []),
+      ...(shouldIncludeScope('enterprise', options.scopeFilter)
+        ? [scopeResults.enterprise.servers]
+        : []),
+      ...(shouldIncludeScope('local', options.scopeFilter)
+        ? [scopeResults.local.servers]
+        : []),
+      ...(shouldIncludeScope('project', options.scopeFilter)
+        ? [scopeResults.project.servers]
+        : []),
+      ...(shouldIncludeScope('user', options.scopeFilter)
+        ? [scopeResults.user.servers]
+        : []),
     ],
     activeServers,
     !options.scopeFilter,
@@ -685,7 +780,8 @@ export async function doctorServer(
   const validationFindings = findingsFromValidationErrors(
     getValidationErrorsForSelectedScopes(scopeResults, options.scopeFilter),
   )
-  const { globalFindings, serverFindingsByName } = splitValidationFindings(validationFindings)
+  const { globalFindings, serverFindingsByName } =
+    splitValidationFindings(validationFindings)
   const server = await buildServerReport(
     name,
     {

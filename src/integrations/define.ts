@@ -19,7 +19,9 @@ export function defineGateway(d: GatewayDescriptor): GatewayDescriptor {
   return d
 }
 
-export function defineAnthropicProxy(d: AnthropicProxyDescriptor): AnthropicProxyDescriptor {
+export function defineAnthropicProxy(
+  d: AnthropicProxyDescriptor,
+): AnthropicProxyDescriptor {
   return d
 }
 

@@ -44,7 +44,10 @@ afterEach(async () => {
       )
     }
     if (originalSettingsModule) {
-      mock.module('../../utils/settings/settings.js', () => originalSettingsModule!)
+      mock.module(
+        '../../utils/settings/settings.js',
+        () => originalSettingsModule!,
+      )
     }
     if (originalSpawnMultiAgentModule) {
       mock.module(
@@ -124,10 +127,9 @@ async function importAgentToolWithSpawnMock(): Promise<{
   return { AgentTool, spawnTeammate }
 }
 
-function makeToolUseContext(options: {
-  mainLoopModel?: string
-  activeAgents?: AgentDefinition[]
-} = {}): ToolUseContext {
+function makeToolUseContext(
+  options: { mainLoopModel?: string; activeAgents?: AgentDefinition[] } = {},
+): ToolUseContext {
   const appState = {
     toolPermissionContext: { mode: 'default' },
     teamContext: { teamName: 'review-team' },

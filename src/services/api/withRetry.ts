@@ -11,7 +11,10 @@ import { isAwsCredentialsProviderError } from 'src/utils/aws.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logError } from 'src/utils/log.js'
 import { createSystemAPIErrorMessage } from 'src/utils/messages.js'
-import { getAPIProvider, getAPIProviderForStatsig } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  getAPIProviderForStatsig,
+} from 'src/utils/model/providers.js'
 import {
   clearApiKeyHelperCache,
   clearAwsCredentialsCache,
@@ -274,16 +277,16 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
-        if (isQuotaExhausted(error)) {
-          throw new CannotRetryError(
-            new Error(
-              'API quota exhausted or not enabled.\n' +
+      if (isQuotaExhausted(error)) {
+        throw new CannotRetryError(
+          new Error(
+            'API quota exhausted or not enabled.\n' +
               'Fix:\n' +
               '- Enable billing for your provider\n' +
               '- Or switch provider via /provider',
-            ),
-            retryContext,
-          );
+          ),
+          retryContext,
+        )
       }
       // Fast mode fallback: on 429/529, either wait and retry (short delays)
       // or fall back to standard speed (long delays) to avoid cache thrashing.
@@ -594,10 +597,7 @@ export function getRetryDelay(
   }
 
   const baseDelayMs = getDefaultRetryDelayMs()
-  const baseDelay = Math.min(
-    baseDelayMs * Math.pow(2, attempt - 1),
-    maxDelayMs,
-  )
+  const baseDelay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs)
   const jitter = Math.random() * 0.25 * baseDelay
   return baseDelay + jitter
 }
@@ -613,14 +613,13 @@ export function getRetryDelay(
  *   This request requires more credits, or fewer max_tokens. You requested
  *   up to 32000 tokens, but can only afford 27342. To increase, visit ...
  */
-export function parseOpenRouterAffordableMaxTokensError(error: APIError):
-  | { requestedMaxTokens: number; affordableMaxTokens: number }
-  | undefined {
+export function parseOpenRouterAffordableMaxTokensError(
+  error: APIError,
+): { requestedMaxTokens: number; affordableMaxTokens: number } | undefined {
   if (error.status !== 402 || !error.message) {
     return undefined
   }
-  const regex =
-    /requested up to (\d+) tokens?, but can only afford (\d+)/i
+  const regex = /requested up to (\d+) tokens?, but can only afford (\d+)/i
   const match = error.message.match(regex)
   if (!match || match.length !== 3 || !match[1] || !match[2]) {
     return undefined
@@ -987,7 +986,9 @@ export function getRateLimitResetDelayMs(error: APIError): number | null {
   const provider = getAPIProvider()
 
   if (provider === 'firstParty') {
-    const resetHeader = error.headers?.get?.('anthropic-ratelimit-unified-reset')
+    const resetHeader = error.headers?.get?.(
+      'anthropic-ratelimit-unified-reset',
+    )
     if (!resetHeader) return null
     const resetUnixSec = Number(resetHeader)
     if (!Number.isFinite(resetUnixSec)) return null

@@ -92,7 +92,9 @@ export class ResumeTranscriptTooLargeError extends Error {
     super(
       `Reconstructed transcript is too large to resume safely (${(
         bytes / (1024 * 1024)
-      ).toFixed(1)} MiB > ${(maxBytes / (1024 * 1024)).toFixed(1)} MiB, ${messageCount} messages).`,
+      ).toFixed(
+        1,
+      )} MiB > ${(maxBytes / (1024 * 1024)).toFixed(1)} MiB, ${messageCount} messages).`,
     )
     this.name = 'ResumeTranscriptTooLargeError'
   }
@@ -187,14 +189,17 @@ export type DeserializeResult = {
  * Remove thinking/redacted_thinking content blocks from assistant messages.
  * Messages that become empty after stripping are removed entirely.
  */
-function stripThinkingBlocks(messages: NormalizedMessage[]): NormalizedMessage[] {
+function stripThinkingBlocks(
+  messages: NormalizedMessage[],
+): NormalizedMessage[] {
   return messages.reduce<NormalizedMessage[]>((acc, msg) => {
     if (msg.type !== 'assistant' || !Array.isArray(msg.message?.content)) {
       acc.push(msg)
       return acc
     }
     const filtered = msg.message.content.filter(
-      (block: { type?: string }) => block.type !== 'thinking' && block.type !== 'redacted_thinking',
+      (block: { type?: string }) =>
+        block.type !== 'thinking' && block.type !== 'redacted_thinking',
     )
     if (filtered.length === 0) return acc
     acc.push({ ...msg, message: { ...msg.message, content: filtered } })

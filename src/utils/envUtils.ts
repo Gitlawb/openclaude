@@ -67,7 +67,9 @@ function copyMissingPathSync(source: string, destination: string): void {
       // independent from the config-home resolver it backs.
       mkdirSync(destination, { recursive: true })
     } else if (!lstatSync(destination).isDirectory()) {
-      throw new Error(`Cannot migrate ${source}: ${destination} is not a directory`)
+      throw new Error(
+        `Cannot migrate ${source}: ${destination} is not a directory`,
+      )
     }
 
     for (const entry of readdirSync(source)) {
@@ -195,7 +197,8 @@ export const getClaudeConfigHomeDir = memoize(
       homeDir,
     })
   },
-  () => `${claudeConfigHomeDirOverride ?? ''}\0${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
+  () =>
+    `${claudeConfigHomeDirOverride ?? ''}\0${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
 )
 
 export function getTeamsDir(): string {

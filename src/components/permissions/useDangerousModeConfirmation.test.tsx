@@ -30,11 +30,7 @@ async function importFreshUseDangerousModeConfirmation() {
   }))
 
   mock.module('../BypassPermissionsModeDialog.js', () => ({
-    BypassPermissionsModeDialog({
-      onAccept,
-    }: {
-      onAccept: () => void
-    }) {
+    BypassPermissionsModeDialog({ onAccept }: { onAccept: () => void }) {
       React.useEffect(() => {
         onAccept()
       }, [onAccept])
@@ -43,7 +39,9 @@ async function importFreshUseDangerousModeConfirmation() {
     },
   }))
 
-  return import(`./useDangerousModeConfirmation.js?ts=${Date.now()}-${Math.random()}`)
+  return import(
+    `./useDangerousModeConfirmation.js?ts=${Date.now()}-${Math.random()}`
+  )
 }
 
 function createTestStreams(): {
@@ -100,8 +98,7 @@ function Harness({
     confirmDangerousMode,
     dangerousModeDialog,
     requestDangerousModeConfirmation,
-  } =
-    useDangerousModeConfirmation()
+  } = useDangerousModeConfirmation()
 
   React.useEffect(() => {
     const onConfirm = () => {

@@ -284,7 +284,9 @@ export function buildBaseShellToolUseOptions<T extends string>({
 
     options.push(...extraAllowOptions)
 
-    const hasPersistentAllowOption = options.some(option => option.value !== 'yes')
+    const hasPersistentAllowOption = options.some(
+      option => option.value !== 'yes',
+    )
     if (hasPersistentAllowOption && isDangerousModeAvailable) {
       options.push({
         label: 'Yes, and enable Full Access for this session',
