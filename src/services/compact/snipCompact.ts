@@ -16,12 +16,14 @@ const pendingSnipUuids = new Set<UUID>()
 function normalizeSnipShortId(shortId: string): string {
   const trimmed = shortId.trim()
   // 6 = deriveShortMessageId output length (base36)
-  // nosemgrep: regex literal only; this does not execute user input.
+  // Regex literal only; this does not execute user input.
+  // nosemgrep: coderabbit.command-injection.exec-js
   const snipMetadataMatch = /\bsnip_id=([a-z0-9]{6})\b/i.exec(trimmed)
   if (snipMetadataMatch) {
     return snipMetadataMatch[1]!.toLowerCase()
   }
-  // nosemgrep: regex literal only; this does not execute user input.
+  // Regex literal only; this does not execute user input.
+  // nosemgrep: coderabbit.command-injection.exec-js
   const legacyMatch = /^\[id:([a-z0-9]{6})\]$/i.exec(trimmed)
   if (legacyMatch) {
     return legacyMatch[1]!.toLowerCase()
