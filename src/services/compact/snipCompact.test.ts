@@ -285,6 +285,39 @@ describe('markForSnip', () => {
     const matched = markForSnip([deriveShortMessageId(realUuid), 'xxxxxx'], messages)
     expect(matched).toEqual([realUuid])
   })
+
+  test('accepts legacy bracketed id syntax from older contexts', () => {
+    const realUuid = 'a1b2c3d4-0000-0000-0000-0000000000bb'
+    const messages = [makeUser(realUuid)]
+    const matched = markForSnip(
+      [`[id:${deriveShortMessageId(realUuid)}]`],
+      messages,
+    )
+    expect(matched).toEqual([realUuid])
+  })
+
+  test('accepts snip_id-prefixed metadata syntax', () => {
+    const realUuid = 'a1b2c3d4-0000-0000-0000-0000000000cc'
+    const messages = [makeUser(realUuid)]
+    const matched = markForSnip(
+      [`snip_id=${deriveShortMessageId(realUuid)}`],
+      messages,
+    )
+    expect(matched).toEqual([realUuid])
+  })
+
+  test('accepts copied system-reminder metadata syntax', () => {
+    const realUuid = 'a1b2c3d4-0000-0000-0000-0000000000dd'
+    const messages = [makeUser(realUuid)]
+    const id = deriveShortMessageId(realUuid)
+    const matched = markForSnip(
+      [
+        `<system-reminder>snip_id=${id}; system-generated; for snip tool use only;</system-reminder>`,
+      ],
+      messages,
+    )
+    expect(matched).toEqual([realUuid])
+  })
 })
 
 describe('shouldNudgeForSnips', () => {

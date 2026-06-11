@@ -33,16 +33,14 @@ describe('SnipTool.mapToolResultToToolResultBlockParam', () => {
     expect(content).not.toContain('They will be removed from context')
   })
 
-  test('explains the refusal condition and how to observe/repair it', () => {
-    // The model needs the failure signal the prior wording omitted: a kept
-    // message still carries its [id:...] tag next turn, and the fix is to snip
-    // every result from that parallel-tool turn together.
+  test('does not echo internal id mechanics', () => {
     const out = SnipTool.mapToolResultToToolResultBlockParam(
       { sniped: 1 },
       'toolu_abc',
     )
     const content = String(out.content)
-    expect(content).toMatch(/kept|orphan/i)
-    expect(content).toContain('[id:')
+    expect(content).toContain('Queued 1 message(s) for snipping')
+    expect(content).not.toContain('[id:')
+    expect(content).not.toMatch(/tag|snip_id|message id/i)
   })
 })

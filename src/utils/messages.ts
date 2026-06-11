@@ -197,7 +197,8 @@ export function withMemoryCorrectionHint(message: string): string {
 
 /**
  * Derive a short stable message ID (6-char base36 string) from a UUID.
- * Used for snip tool referencing — injected into API-bound messages as [id:...] tags.
+ * Used for snip tool referencing — injected into API-bound messages as internal
+ * system-reminder metadata.
  * Deterministic: same UUID always produces the same short ID.
  */
 export function deriveShortMessageId(uuid: string): string {
@@ -1621,7 +1622,7 @@ function stripUnavailableToolReferencesFromUserMessage(
 }
 
 /**
- * Appends a [id:...] message ID tag to the last text block of a user message.
+ * Appends internal snip metadata to the last text block of a user message.
  * Only mutates the API-bound copy, not the stored message.
  * This lets Claude reference message IDs when calling the snip tool.
  */
@@ -1632,26 +1633,28 @@ export function appendMessageTagToUserMessage(
     return message
   }
 
-  const idToken = `[id:${deriveShortMessageId(message.uuid)}]`
-  const tag = `\n${idToken}`
+  const idToken = deriveShortMessageId(message.uuid)
+  const tag =
+    `\n<system-reminder>snip_id=${idToken}; system-generated; ` +
+    `for snip tool use only; do not discuss in thinking or responses.</system-reminder>`
 
   const content = message.message.content
 
   // Idempotency: normalizeMessagesForAPI re-runs over messages that are carried
   // forward as loop state (query.ts builds toolResults from this function's own
   // normalized output, then re-normalizes that state next turn). Without this
-  // guard each pass stacks another [id:] tag on every prior tool result. The
-  // token is derived from this message's own uuid, so its presence means we
-  // already tagged it (string body, last text block, or the dedicated
-  // tool_result text block all embed the bare idToken). Leave it untouched.
+  // guard each pass stacks another internal marker on every prior tool result. The
+  // token is derived from this message's own uuid, so its presence inside the
+  // internal marker means we already tagged it (string body, last text block, or
+  // the dedicated tool_result text block). Leave it untouched.
   const alreadyTagged =
     typeof content === 'string'
-      ? content.includes(idToken)
+      ? content.includes(`snip_id=${idToken}`)
       : Array.isArray(content) &&
         content.some(
           block =>
             block!.type === 'text' &&
-            (block as TextBlockParam).text.includes(idToken),
+            (block as TextBlockParam).text.includes(`snip_id=${idToken}`),
         )
   if (alreadyTagged) {
     return message
@@ -1682,9 +1685,10 @@ export function appendMessageTagToUserMessage(
   }
   if (lastTextIdx === -1) {
     // Pure tool_result messages (large Read/Bash outputs) carry no text block
-    // to host the tag, yet they are the highest-value snip targets. Append a
-    // dedicated text block so the model can see and reference the [id:] tag.
-    // The tool_result block is left intact, so snip pairing is unaffected.
+    // to host the metadata, yet they are the highest-value snip targets. Append
+    // a dedicated text block so the model can see the internal snip id without
+    // making it look user-authored. The tool_result block is left intact, so
+    // snip pairing is unaffected.
     if (!content.some(block => block!.type === 'tool_result')) {
       return message
     }
@@ -2041,8 +2045,8 @@ export function normalizeMessagesForAPI(
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
 
-  // Whether to inject [id:] snip tags this pass. Gate must match
-  // SnipTool.isEnabled() and skip test mode — tags change message content
+  // Whether to inject internal snip ids this pass. Gate must match
+  // SnipTool.isEnabled() and skip test mode — markers change message content
   // hashes, breaking VCR fixture lookup. Computed once here so the pre-merge
   // injection (in the user case) and the post-merge sweep below share it.
   let injectSnipTags = false
@@ -2207,8 +2211,8 @@ export function normalizeMessagesForAPI(
           // tool_reference inside the block is a server ValueError.
           // Idempotent: query.ts calls this per-tool-result; the output flows
           // back through here via claude.ts on the next API request. The first
-          // pass's sibling gets a \n[id:xxx] suffix from appendMessageTag below,
-          // so startsWith matches both bare and tagged forms.
+          // pass's sibling gets an internal snip marker from appendMessageTag
+          // below, so startsWith matches both bare and marked forms.
           //
           // Gated OFF when tengu_toolref_defer_j8m is active — that gate
           // enables relocateToolReferenceSiblings in post-processing below,
@@ -2244,7 +2248,7 @@ export function normalizeMessagesForAPI(
             }
           }
 
-          // Inject the snip [id:] tag BEFORE merging consecutive user messages.
+          // Inject the internal snip id BEFORE merging consecutive user messages.
           // A parallel-tool assistant turn yields several adjacent tool_result
           // user messages; mergeUserMessages keeps only the first operand's uuid,
           // so tagging only after the merge (the sweep below) would expose just
@@ -2255,7 +2259,7 @@ export function normalizeMessagesForAPI(
           // through the merge (joinTextAtSeam keeps both text blocks) and matches
           // the live path, where each result is tagged individually at push time
           // (query.ts). appendMessageTagToUserMessage is idempotent, so the
-          // post-merge sweep below is a no-op for messages already tagged here.
+          // post-merge sweep below is a no-op for messages already marked here.
           if (injectSnipTags) {
             normalizedMessage = appendMessageTagToUserMessage(normalizedMessage)
           }
@@ -2421,12 +2425,12 @@ export function normalizeMessagesForAPI(
   // image-in-error tool_result 400s forever.
   const sanitized = sanitizeErrorToolResultContent(smooshed)
 
-  // Post-merge sweep for snip [id:] tags. User messages folded in the loop above
-  // are already tagged pre-merge (so every parallel-tool sibling's id survives
-  // the merge); this catches user messages synthesized during normalization that
-  // never went through that path — local_command system messages and attachments
-  // promoted to user turns. appendMessageTagToUserMessage is idempotent, so it is
-  // a no-op for anything already tagged above.
+  // Post-merge sweep for internal snip ids. User messages folded in the loop
+  // above are already marked pre-merge (so every parallel-tool sibling's id
+  // survives the merge); this catches user messages synthesized during
+  // normalization that never went through that path — local_command system
+  // messages and attachments promoted to user turns. appendMessageTagToUserMessage
+  // is idempotent, so it is a no-op for anything already marked above.
   if (injectSnipTags) {
     for (let i = 0; i < sanitized.length; i++) {
       if (sanitized[i]!.type === 'user') {
@@ -2488,7 +2492,7 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   if (feature('HISTORY_SNIP')) {
     // A merged message is only meta if ALL merged messages are meta. If any
     // operand is real user content, the result must not be flagged isMeta
-    // (so [id:] tags get injected and it's treated as user-visible content).
+    // (so internal snip ids get injected and it's treated as user-visible content).
     // Gated behind the full runtime check because changing isMeta semantics
     // affects downstream callers (e.g., VCR fixture hashing in SDK harness
     // tests), so this must only fire when snip is actually enabled — not
@@ -2512,7 +2516,7 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   }
   return {
     ...a,
-    // Preserve the non-meta message's uuid so [id:] tags (derived from uuid)
+    // Preserve the non-meta message's uuid so snip ids (derived from uuid)
     // stay stable across API calls (meta messages like system context get fresh uuids each call)
     uuid: a.isMeta ? b.uuid : a.uuid,
     message: {

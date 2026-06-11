@@ -5239,7 +5239,7 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   // 2. User content ("What happened?") -> role 'user'
   // This triggers the tool -> assistant injection.
   const assistantMessages = messages.filter(m => m.role === 'assistant')
-  expect(assistantMessages.some(m => m.content === '[Tool execution interrupted by user]')).toBe(true)
+  expect(assistantMessages.some(m => m.content === '[Tool results received]')).toBe(true)
 })
 
 test('drops empty assistant message when only thinking block was present and stripped', async () => {
@@ -5322,7 +5322,9 @@ test('injects semantic assistant message when tool result is followed by user me
   
   const semanticMsg = messages[2]
   expect(semanticMsg.role).toBe('assistant')
-  expect(semanticMsg.content).toBe('[Tool execution interrupted by user]')
+  expect(semanticMsg.content).toBe('[Tool results received]')
+  expect(semanticMsg.content).not.toContain('interrupted')
+  expect(semanticMsg.content).not.toContain('user')
 })
 
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
