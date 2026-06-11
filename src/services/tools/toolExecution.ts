@@ -54,6 +54,7 @@ import type { HookProgress } from '../../types/hooks.js'
 import type {
   AssistantMessage,
   AttachmentMessage,
+  HookResultMessage,
   Message,
   ProgressMessage,
   StopHookInfo,
@@ -826,7 +827,7 @@ async function checkPermissionsAndCallTool(
     )
   }
 
-  const resultingMessages = []
+  const resultingMessages: MessageUpdateLazy[] = []
 
   // Defense-in-depth: strip _simulatedSedEdit from model-provided Bash input.
   // This field is internal-only — it must only be injected by the permission
@@ -1372,10 +1373,10 @@ async function checkPermissionsAndCallTool(
       ? getMcpServerScopeFromToolName(tool.name)
       : null
 
-    
+
     // Run PostToolUse hooks
     let toolOutput = result.data
-    const hookResults = []
+    const hookResults: MessageUpdateLazy<HookResultMessage>[] = []
     const toolContextModifier = result.contextModifier
     const mcpMeta = result.mcpMeta
 

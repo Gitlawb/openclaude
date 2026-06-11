@@ -738,7 +738,7 @@ export const SettingsSchema = lazySchema(() =>
             'enabled automatically for supported models.',
         ),
       effortLevel: z
-        .enum(['low', 'medium', 'high', 'max'])
+        .enum(['low', 'medium', 'high', 'xhigh', 'max'])
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),
@@ -750,14 +750,19 @@ export const SettingsSchema = lazySchema(() =>
         .record(
           z.string(),
           z.object({
+            model: z
+              .string()
+              .optional()
+              .describe('Actual model name to send to the API. Defaults to the surrounding agentModels key.'),
             base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
             api_key: z.string().describe('API key for this provider'),
           }),
         )
         .optional()
         .describe(
-          'Map of model name to provider connection info. ' +
-            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }',
+          'Map of route key to provider connection info. ' +
+            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }. ' +
+            'Use "model" when the route key is an alias for a different API model name.',
         ),
       agentRouting: z
         .record(z.string(), z.string())

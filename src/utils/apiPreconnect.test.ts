@@ -3,6 +3,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { asMockFetch } from '../test/typedMocks.js'
 import * as actualProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
@@ -34,6 +35,7 @@ afterEach(() => {
     process.env = { ...originalEnv }
     globalThis.fetch = originalFetch
     mock.restore()
+    mock.module('./model/providers.js', () => actualProviders)
   } finally {
     releaseSharedMutationLock()
   }
@@ -46,7 +48,7 @@ describe('preconnectAnthropicApi', () => {
   // getAPIProvider() to 'firstParty' here and break these assertions.
   test('does not fetch when OpenAI mode is enabled', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('openai')
@@ -56,7 +58,7 @@ describe('preconnectAnthropicApi', () => {
 
   test('does not fetch when Gemini mode is enabled', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('gemini')
@@ -66,7 +68,7 @@ describe('preconnectAnthropicApi', () => {
 
   test('does not fetch when GitHub mode is enabled', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('github')
@@ -101,8 +103,12 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_CLIENT_CERT
     delete process.env.CLAUDE_CODE_CLIENT_KEY
 
+    mock.module('./model/providers.js', () => ({
+      ...actualProviders,
+      getAPIProvider: () => 'firstParty',
+    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('firstParty')

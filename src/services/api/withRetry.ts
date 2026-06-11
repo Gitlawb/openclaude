@@ -47,6 +47,10 @@ import {
 } from '../rateLimitMocking.js'
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
+import {
+  extractOpenAICategoryMarker,
+  isRetryableOpenAICompatibilityFailureCategory,
+} from './openaiErrorClassification.js'
 
 const abortError = () => new APIUserAbortError()
 
@@ -431,8 +435,7 @@ export async function* withRetry<T>(
       // affordable max_tokens in the message. Retry once at the affordable
       // cap instead of failing on a credits-vs-max_tokens mismatch the user
       // can't see in their shell (#1125). One adjustment per chain — if 402
-      // recurs after this, the retry chain falls through to the normal error
-      // path.
+      // recurs after this, fail instead of spending the normal retry budget.
       if (error instanceof APIError) {
         const affordData = parseOpenRouterAffordableMaxTokensError(error)
         if (affordData && retryContext.maxTokensOverride === undefined) {
@@ -449,6 +452,16 @@ export async function* withRetry<T>(
           )
           continue
         }
+        if (affordData) {
+          throw new CannotRetryError(error, retryContext)
+        }
+      }
+
+      if (
+        !handledCloudAuthError &&
+        (!(error instanceof APIError) || !shouldRetry(error))
+      ) {
+        throw new CannotRetryError(error, retryContext)
       }
 
       // Handle max tokens context overflow errors by adjusting max_tokens for the next attempt
@@ -811,6 +824,25 @@ function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean 
     return true
   }
 
+  // Local max_tokens recovery paths need to run even when an
+  // OpenAI-compatible shim classifies the underlying provider error as a
+  // non-retryable context or quota failure.
+  if (parseMaxTokensContextOverflowError(error)) {
+    return true
+  }
+
+  if (parseOpenRouterAffordableMaxTokensError(error)) {
+    return true
+  }
+
+  const openAICategory = extractOpenAICategoryMarker(error.message ?? '')
+  if (
+    openAICategory &&
+    !isRetryableOpenAICompatibilityFailureCategory(openAICategory)
+  ) {
+    return false
+  }
+
   // CCR mode: auth is via infrastructure-provided JWTs, so a 401/403 is a
   // transient blip (auth service flap, network hiccup) rather than bad
   // credentials. Bypass x-should-retry:false — the server assumes we'd retry
@@ -826,17 +858,6 @@ function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean 
   // The SDK sometimes fails to properly pass the 529 status code during streaming,
   // so we need to check the error message directly
   if (error.message?.includes('"type":"overloaded_error"')) {
-    return true
-  }
-
-  // Check for max tokens context overflow errors that we can handle
-  if (parseMaxTokensContextOverflowError(error)) {
-    return true
-  }
-
-  // OpenRouter-style 402 with an affordable max_tokens in the message — we
-  // can retry once at the lower cap (issue #1125).
-  if (parseOpenRouterAffordableMaxTokensError(error)) {
     return true
   }
 

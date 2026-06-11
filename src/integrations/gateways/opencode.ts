@@ -20,7 +20,7 @@ export default defineGateway({
   preset: {
     id: 'opencode',
     vendorId: 'openai',
-    description: 'OpenCode Zen — pay-as-you-go AI gateway (41 models)',
+    description: 'OpenCode Zen — pay-as-you-go AI gateway (43 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
   },
@@ -56,6 +56,7 @@ export default defineGateway({
       { id: 'gpt-5-nano', apiName: 'gpt-5-nano', label: 'GPT 5 Nano', modelDescriptorId: 'opencode-gpt-5-nano', transportOverrides: { openaiShim: { endpointPath: '/responses' } } },
       // Claude family — /zen/v1/messages
       { id: 'claude-opus-4-7', apiName: 'claude-opus-4-7', label: 'Claude Opus 4.7', modelDescriptorId: 'opencode-claude-opus-4-7', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'claude-opus-4-8', apiName: 'claude-opus-4-8', label: 'Claude Opus 4.8', modelDescriptorId: 'opencode-claude-opus-4-8', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'claude-opus-4-6', apiName: 'claude-opus-4-6', label: 'Claude Opus 4.6', modelDescriptorId: 'opencode-claude-opus-4-6', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'claude-opus-4-5', apiName: 'claude-opus-4-5', label: 'Claude Opus 4.5', modelDescriptorId: 'opencode-claude-opus-4-5', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'claude-opus-4-1', apiName: 'claude-opus-4-1', label: 'Claude Opus 4.1', modelDescriptorId: 'opencode-claude-opus-4-1', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
@@ -82,6 +83,7 @@ export default defineGateway({
       { id: 'big-pickle', apiName: 'big-pickle', label: 'Big Pickle', modelDescriptorId: 'opencode-big-pickle' },
       { id: 'deepseek-v4-flash-free', apiName: 'deepseek-v4-flash-free', label: 'DeepSeek V4 Flash Free', modelDescriptorId: 'opencode-deepseek-v4-flash-free' },
       { id: 'nemotron-3-super-free', apiName: 'nemotron-3-super-free', label: 'Nemotron 3 Super Free', modelDescriptorId: 'opencode-nemotron-3-super-free' },
+      { id: 'mimo-v2.5-free', apiName: 'mimo-v2.5-free', label: 'MiMo V2.5 Free', modelDescriptorId: 'opencode-mimo-v2.5-free' },
     ],
   },
   usage: { supported: false },

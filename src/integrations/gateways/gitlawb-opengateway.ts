@@ -60,6 +60,16 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
+      // Virtual model: the gateway's smart router picks the cheapest model
+      // expected to handle the request and escalates on upstream failure
+      // (see opengateway/src/routing/). Billed at the serving model's rate;
+      // the x-gateway-served-model response header names who answered.
+      {
+        id: 'opengateway-auto',
+        apiName: 'auto',
+        label: 'Auto — Smart Routing (via Opengateway)',
+        notes: 'Gateway picks the cheapest capable model and escalates on failure',
+      },
       {
         id: 'opengateway-mimo-v2.5-pro',
         apiName: 'mimo-v2.5-pro',

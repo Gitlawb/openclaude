@@ -61,6 +61,7 @@ const RESTORED_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'HICAP_API_KEY',
 ] as const
 
@@ -215,6 +216,17 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
     baseUrl: 'https://api.xiaomimimo.com/v1',
     model: 'mimo-v2.5-pro',
     apiKey: 'mimo-test-key',
+    ...overrides,
+  })
+}
+
+function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'atlas-cloud',
+    name: 'Atlas Cloud',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    model: 'deepseek-ai/deepseek-v4-pro',
+    apiKey: 'atlas-test-key',
     ...overrides,
   })
 }
@@ -432,6 +444,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('openai responses_compat profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        apiFormat: 'responses_compat',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses_compat')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('custom OpenAI-compatible responses profile sets OPENAI_API_FORMAT', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -538,6 +568,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('mimo-test-key')
     expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('atlas cloud profile applies OpenAI-compatible env with ATLAS_CLOUD_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildAtlasCloudProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-ai/deepseek-v4-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('atlas-test-key')
+    expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
   })
 
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
@@ -1495,6 +1543,47 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'deepseek-chat',
         OPENAI_API_KEY: 'sk-deepseek-live',
       })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists the Atlas key for generic openai profiles targeting Atlas Cloud', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const genericAtlasProfile = buildProfile({
+        id: 'generic_atlas_prof',
+        name: 'Atlas via custom OpenAI',
+        baseUrl: 'https://api.atlascloud.ai/v1',
+        model: 'deepseek-ai/deepseek-v4-pro',
+        apiKey: 'atlas-generic-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [genericAtlasProfile],
+      }))
+
+      const result = setActiveProviderProfile('generic_atlas_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('generic_atlas_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+      expect(persisted.env.OPENAI_API_KEY).toBe('atlas-generic-key')
+      expect(persisted.env.ATLAS_CLOUD_API_KEY).toBe('atlas-generic-key')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

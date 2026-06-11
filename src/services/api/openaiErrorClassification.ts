@@ -47,12 +47,28 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'unknown',
   ])
 
+const RETRYABLE_OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFailureCategory> =
+  new Set<OpenAICompatibilityFailureCategory>([
+    'connection_refused',
+    'localhost_resolution_failed',
+    'request_timeout',
+    'network_error',
+    'rate_limited',
+    'provider_unavailable',
+  ])
+
 function isOpenAICompatibilityFailureCategory(
   value: string,
 ): value is OpenAICompatibilityFailureCategory {
   return OPENAI_COMPATIBILITY_FAILURE_CATEGORIES.has(
     value as OpenAICompatibilityFailureCategory,
   )
+}
+
+export function isRetryableOpenAICompatibilityFailureCategory(
+  category: OpenAICompatibilityFailureCategory,
+): boolean {
+  return RETRYABLE_OPENAI_COMPATIBILITY_FAILURE_CATEGORIES.has(category)
 }
 
 function getErrorCode(error: unknown): string | undefined {

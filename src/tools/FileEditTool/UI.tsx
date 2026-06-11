@@ -157,7 +157,14 @@ type RejectionDiffData = {
   firstLine: string | null;
   fileContent: string | undefined;
 };
-function EditRejectionDiff(t0) {
+function EditRejectionDiff(t0: {
+  filePath: string;
+  oldString: string;
+  newString: string;
+  replaceAll: boolean;
+  style?: 'condensed';
+  verbose: boolean;
+}): React.ReactNode {
   const $ = _c(16);
   const {
     filePath,
@@ -210,7 +217,12 @@ function EditRejectionDiff(t0) {
   }
   return t4;
 }
-function EditRejectionBody(t0) {
+function EditRejectionBody(t0: {
+  promise: Promise<RejectionDiffData>;
+  filePath: string;
+  style?: 'condensed';
+  verbose: boolean;
+}): React.ReactNode {
   const $ = _c(7);
   const {
     promise,

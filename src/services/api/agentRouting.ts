@@ -18,6 +18,8 @@ export interface AgentRunModelRouting {
   providerOverride?: ProviderOverride
 }
 
+type AgentModelConfig = NonNullable<SettingsJson['agentModels']>[string]
+
 const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_BEDROCK',
@@ -47,6 +49,22 @@ const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
  */
 function normalize(key: string): string {
   return key.toLowerCase().replace(/[-_]/g, '')
+}
+
+function toProviderOverride(
+  configuredModelKey: string,
+  modelConfig: AgentModelConfig | undefined,
+): ProviderOverride | null {
+  if (!modelConfig) return null
+
+  const apiKey = modelConfig.api_key.trim()
+  if (!apiKey) return null
+
+  return {
+    model: modelConfig.model?.trim() || configuredModelKey,
+    baseURL: modelConfig.base_url,
+    apiKey,
+  }
 }
 
 /**
@@ -95,14 +113,7 @@ export function resolveAgentProvider(
 
   if (!modelName) return null
 
-  const modelConfig = models[modelName]
-  if (!modelConfig) return null
-
-  return {
-    model: modelName,
-    baseURL: modelConfig.base_url,
-    apiKey: modelConfig.api_key,
-  }
+  return toProviderOverride(modelName, models[modelName])
 }
 
 /**
@@ -116,17 +127,7 @@ export function resolveAgentModelProvider(
   if (!settings || !settings.agentModels || !modelName) return null
 
   const trimmedModelName = modelName.trim()
-  const modelConfig = settings.agentModels[trimmedModelName]
-
-  if (modelConfig) {
-    return {
-      model: trimmedModelName,
-      baseURL: modelConfig.base_url,
-      apiKey: modelConfig.api_key,
-    }
-  }
-
-  return null
+  return toProviderOverride(trimmedModelName, settings.agentModels[trimmedModelName])
 }
 
 export function resolveAgentRunModelRouting({

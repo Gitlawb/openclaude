@@ -38,8 +38,18 @@ const TypeOverrideMap: Record<string, string> = {
   RawMessageStreamEventPlaceholder:
     'Record<string, unknown>',
   UUIDPlaceholder: 'string',
+  // Self-contained structural stand-in for NonNullableUsage: the generated
+  // file ships to external consumers without sdkUtilityTypes or
+  // @anthropic-ai/sdk, so it must not import either. The four standard
+  // counters are REQUIRED numbers — result messages are populated from
+  // QueryEngine.totalUsage (initialized from EMPTY_USAGE), so they are
+  // always present at runtime and strict consumers may sum them without
+  // undefined guards (covered by tests/sdk/package-consumer-types.test.ts).
+  // Richer nested metadata is modeled explicitly; unanticipated additions
+  // flow through the top-level index signature. The nested objects carry no
+  // index signature so the SDK's interface types remain assignable.
   NonNullableUsagePlaceholder:
-    'Record<string, number>',
+    '{ input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }',
 }
 
 // Materialize placeholder schemas once so we can detect them by identity (===)
@@ -268,8 +278,10 @@ function convert(schema: any, depth = 0): string {
         .map(v => JSON.stringify(v))
         .join(' | ')
     }
-    case 'array':
-      return `${convert(def.element, depth)}[]`
+    case 'array': {
+      const element = convert(def.element, depth)
+      return `${needsArrayElementParens(element) ? `(${element})` : element}[]`
+    }
     case 'tuple': {
       const items = (def.items as any[]).map(t => convert(t, depth))
       return `[${items.join(', ')}]`
@@ -352,6 +364,10 @@ function isOptional(schema: any): boolean {
 
 function needsParens(ts: string): boolean {
   return ts.includes('\n') || ts.includes(' & ')
+}
+
+function needsArrayElementParens(ts: string): boolean {
+  return ts.includes(' | ') || ts.includes(' & ')
 }
 
 // ---------------------------------------------------------------------------

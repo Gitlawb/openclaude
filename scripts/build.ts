@@ -29,6 +29,7 @@ const featureFlags: Record<string, boolean> = {
   ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
   CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
   COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
+  HISTORY_SNIP: true,             // Model-callable snip tool for context management
   UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
   BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
   WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
@@ -134,6 +135,7 @@ result = await Bun.build({
       JSON.stringify('https://github.com/Gitlawb/openclaude/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
+    'MACRO.VERSION_CHANGELOG': 'undefined',
   },
   plugins: [
     noTelemetryPlugin,
@@ -482,6 +484,7 @@ sdkResult = await Bun.build({
       JSON.stringify('https://github.com/Gitlawb/openclaude/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
+    'MACRO.VERSION_CHANGELOG': 'undefined',
   },
   // External: everything TUI-related + native modules
   external: SDK_EXTERNALS,
@@ -927,5 +930,101 @@ if (result?.success && sdkResult?.success) {
   })
   if (validation.exitCode !== 0) {
     process.exitCode = 1
+  }
+}
+
+// ── Guard: no unexpected missing-module stubs in the shipped CLI bundle ─────
+// The missing-import scanner above stubs any unresolved relative import to a
+// noop default export. That is correct for a require behind a DISABLED feature
+// flag: the gated branch is dead-code-eliminated and the stub never reaches the
+// bundle. But when a flag is ENABLED, its gated require becomes live and the
+// stub silently degrades a real module to `() => null` — a named export (e.g. a
+// React component) then resolves to `undefined` and crashes the first time that
+// path runs. SnipBoundaryMessage shipped exactly this way (PR #1407): the build
+// passed, smoke passed, unit tests passed, and the UI crashed on the first snip.
+//
+// This guard is a COARSE TRIPWIRE, not proof of reachability. A
+// `missing-module-stub:` marker in dist/cli.mjs does NOT by itself prove the
+// stub is reachable or invoked. The scanner (since #1399) keys missing modules
+// per importer, so a marker means *that* importer resolved to a stub — but the
+// marker can still sit on a path that never actually runs (e.g. a flag-gated
+// require that is enabled yet whose code path is not exercised).
+// So treat a flagged stub as "inspect this", not "confirmed runtime crash".
+// What the guard reliably catches is a NEW stub appearing where none was
+// expected — the regression class above — which is worth a human look before it
+// ships. Fail on any marker that is not explicitly grandfathered below.
+if (result?.success) {
+  // Pre-existing stubs grandfathered when this guard was introduced. Each is a
+  // marker the scanner emitted before this guard existed; each sits behind an
+  // enabled flag and is latent degrade-on-use debt whose source is not mirrored
+  // in this tree — the list is a baseline to detect new regressions, not an
+  // assertion that every entry is a live crash. Do NOT add entries here to
+  // silence the guard for new code — add the real source module, or gate the
+  // path so it is not reachable when the module is absent. An entry here is a
+  // known item to revisit, not a blessing that the stub is safe.
+  // Entries are repo-relative paths from `src/` onward, without extension — the
+  // same shape canonicalStub() produces, so the allowlist reads as the key.
+  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([])
+
+  // Stub markers are not byte-stable across build hosts: the per-importer
+  // scanner records each stub as the resolved absolute source path, which
+  // differs only by the repo-root prefix (`/home/ubuntu/.../openclaude` locally
+  // vs `/home/runner/work/openclaude/openclaude` on CI). Diffing raw text made
+  // CI fail on already-allowlisted stubs and report them stale. Key on the
+  // repo-relative path from `src/` onward without extension: stable across hosts
+  // yet still path-specific, so a stub named `constants.ts` in one directory
+  // cannot mask a different `constants.ts` somewhere else (a basename-only key
+  // would).
+  const canonicalStub = (marker: string): string => {
+    const normalized = marker.split(/[\\/]/).join('/')
+    const srcIdx = normalized.lastIndexOf('/src/')
+    const fromSrc = srcIdx >= 0 ? normalized.slice(srcIdx + 1) : normalized
+    return fromSrc.replace(/\.(?:[cm]?[jt]sx?)$/, '')
+  }
+
+  const acceptableCanonical = new Set(
+    [...ACCEPTABLE_RUNTIME_STUBS].map(canonicalStub),
+  )
+
+  const bundleText = await Bun.file('dist/cli.mjs').text()
+  // canonical key -> raw marker text (kept for human-readable diagnostics)
+  const stubbed = new Map<string, string>()
+  for (const m of bundleText.matchAll(/\/\/\s*missing-module-stub:(\S+)/g)) {
+    stubbed.set(canonicalStub(m[1]), m[1])
+  }
+  const unexpected = [...stubbed]
+    .filter(([key]) => !acceptableCanonical.has(key))
+    .map(([, raw]) => raw)
+    .sort()
+  const staleAllowlist = [...ACCEPTABLE_RUNTIME_STUBS]
+    .filter(s => !stubbed.has(canonicalStub(s)))
+    .sort()
+
+  if (unexpected.length > 0) {
+    console.error(
+      '\n✗ Build guard: new missing-module stub(s) in the CLI bundle (inspect before shipping):',
+    )
+    for (const s of unexpected) console.error(`    ${s}`)
+    console.error(
+      '  An unresolved relative import was stubbed to a noop default export. If a feature flag\n' +
+        '  made this require live but its source module is absent, named exports become undefined\n' +
+        '  and crash on first use — add the real source module, or gate the path so it is\n' +
+        '  unreachable when the module is missing. If instead the stub sits on a path that\n' +
+        '  never runs, confirm that and add the repo-relative path (from src/, no extension)\n' +
+        '  to ACCEPTABLE_RUNTIME_STUBS in scripts/build.ts with justification.',
+    )
+    process.exitCode = 1
+  } else {
+    console.log(`✓ Bundle guard: no unexpected missing-module stubs`)
+  }
+
+  // Keep the allowlist honest: a grandfathered entry that no longer appears
+  // means the path was fixed or removed — drop it so the list reflects reality.
+  if (staleAllowlist.length > 0) {
+    console.warn(
+      '\n⚠ Build guard: ACCEPTABLE_RUNTIME_STUBS has stale entries no longer in the bundle ' +
+        '(remove them):',
+    )
+    for (const s of staleAllowlist) console.warn(`    ${s}`)
   }
 }

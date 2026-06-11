@@ -109,12 +109,8 @@ export function AttachmentMessage({
   if (feature('EXPERIMENTAL_SKILL_SEARCH')) {
     if (attachment.type === 'skill_discovery') {
       if (attachment.skills.length === 0) return null;
-      // Ant users get shortIds inline so they can /skill-feedback while the
-      // turn is still fresh. External users (when this un-gates) just see
-      // names — shortId is undefined outside ant builds anyway.
       const names = attachment.skills.map(s => s.shortId ? `${s.name} [${s.shortId}]` : s.name).join(', ');
-      const firstId = attachment.skills[0]?.shortId;
-      const hint = "external" === 'ant' && !isDemoEnv && firstId ? ` · /skill-feedback ${firstId} 1=wrong 2=noisy 3=good [comment]` : '';
+      const hint = '';
       return <Line>
           <Text bold>{attachment.skills.length}</Text> relevant{' '}
           {plural(attachment.skills.length, 'skill')}: {names}
@@ -352,7 +348,10 @@ export function AttachmentMessage({
       // skill_discovery and teammate_mailbox are handled BEFORE the switch in
       // runtime-gated blocks (feature() / isAgentSwarmsEnabled()) that TS can't
       // narrow through — excluded here via type union (compile-time only, no emit).
-      attachment.type satisfies NullRenderingAttachmentType | 'skill_discovery' | 'teammate_mailbox';
+      // bagel_console intentionally renders null here (it has no UI of its own)
+      // but is not in NULL_RENDERING_TYPES, so it still counts toward the
+      // Messages.tsx render budget.
+      attachment.type satisfies NullRenderingAttachmentType | 'skill_discovery' | 'teammate_mailbox' | 'bagel_console';
       return null;
   }
 }
@@ -364,9 +363,6 @@ function TaskStatusMessage(t0) {
   const {
     attachment
   } = t0;
-  if (false && attachment.status === "killed") {
-    return null;
-  }
   if (isAgentSwarmsEnabled() && attachment.taskType === "in_process_teammate") {
     let t1;
     if ($[0] !== attachment) {

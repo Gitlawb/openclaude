@@ -22,7 +22,7 @@ export function MemoryStep() {
     goBack,
     updateWizardData,
     wizardData
-  } = useWizard();
+  } = useWizard<AgentWizardData>();
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t0 = {
@@ -72,12 +72,13 @@ export function MemoryStep() {
     t2 = value => {
       const memory = value === "none" ? undefined : value as AgentMemoryScope;
       const agentType = wizardData.finalAgent?.agentType;
+      const systemPrompt = wizardData.systemPrompt ?? "";
       updateWizardData({
         selectedMemory: memory,
         finalAgent: wizardData.finalAgent ? {
           ...wizardData.finalAgent,
           memory,
-          getSystemPrompt: isAutoMemoryEnabled() && memory && agentType ? () => wizardData.systemPrompt + "\n\n" + loadAgentMemoryPrompt(agentType, memory) : () => wizardData.systemPrompt
+          getSystemPrompt: isAutoMemoryEnabled() && memory && agentType ? () => systemPrompt + "\n\n" + loadAgentMemoryPrompt(agentType, memory) : () => systemPrompt
         } : undefined
       });
       goNext();

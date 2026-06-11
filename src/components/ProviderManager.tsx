@@ -5,7 +5,10 @@ import { Box, Text } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
-import type { ProviderProfile } from '../utils/config.js'
+import type {
+  OpenAICompatibleApiFormat,
+  ProviderProfile,
+} from '../utils/config.js'
 import {
   clearCodexCredentials,
   readCodexCredentialsAsync,
@@ -291,7 +294,7 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
     routeSupportsApiFormatSelection(routeId)
-      ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
+      ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
     routeSupportsAuthHeaders(routeId) && profile.authHeader
@@ -1482,10 +1485,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const requestedResponses =
-      supportsApiFormat && nextDraft.apiFormat === 'responses'
+      supportsApiFormat && (nextDraft.apiFormat === 'responses' || nextDraft.apiFormat === 'responses_compat')
     const shouldUseChatCompletions =
       !supportsApiFormat ||
-      nextDraft.apiFormat !== 'responses' ||
+      (nextDraft.apiFormat !== 'responses' && nextDraft.apiFormat !== 'responses_compat') ||
       !routeSupportsResponsesModel(routeId, nextDraft.model)
     const payload: ProviderProfileInput = {
       provider,
@@ -1493,7 +1496,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
+      apiFormat: shouldUseChatCompletions ? 'chat_completions' : (nextDraft.apiFormat as OpenAICompatibleApiFormat),
       authHeader:
         showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
@@ -1540,7 +1543,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
     const adjustedApiFormat =
-      requestedResponses && saved.apiFormat !== 'responses'
+      requestedResponses && saved.apiFormat !== 'responses' && saved.apiFormat !== 'responses_compat'
     const routeLabel =
       getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
     const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
@@ -1574,10 +1577,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'],
   ): ProviderDraft {
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const preferredResponsesMode = nextDraft.apiFormat === 'responses_compat' ? 'responses_compat' : 'responses'
     const apiFormat =
       routeSupportsApiFormatSelection(routeId) &&
       routeSupportsResponsesModel(routeId, nextDraft.model)
-        ? 'responses'
+        ? preferredResponsesMode
         : 'chat_completions'
 
     return {
@@ -1842,10 +1846,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       }
     })
 
+    // Insert after DeepSeek so the OAuth options keep their established
+    // position in the picker regardless of how the preset list grows; if
+    // the anchor ever disappears, append instead of floating to the top.
+    const deepseekIndex = options.findIndex(
+      option => option.value === 'deepseek',
+    )
+    let oauthInsertIndex =
+      deepseekIndex >= 0 ? deepseekIndex + 1 : options.length
     if (canUseCodexOAuth) {
-      // Insert after DeepSeek so Codex OAuth keeps its established position
-      // in the picker even with Gitlawb Opengateway pinned at the top.
-      options.splice(7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'codex-oauth',
         label: (
           <Text>
@@ -1856,12 +1866,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description:
           'Sign in with ChatGPT in your browser and store Codex credentials securely',
       })
+      oauthInsertIndex += 1
     }
 
     if (canUseXaiOAuth) {
       // Place xAI OAuth directly under Codex OAuth so both browser-sign-in
       // options group together visually.
-      options.splice(canUseCodexOAuth ? 8 : 7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'xai-oauth',
         label: 'xAI OAuth (Grok)',
         description:
@@ -1948,16 +1959,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 label: 'Responses',
                 description: 'Use /responses for providers that support the Responses API',
               },
+              {
+                value: 'responses_compat',
+                label: 'Responses (Compat)',
+                description: 'Use /responses with legacy text chunks for strict gateways',
+              },
             ]}
             defaultValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
             defaultFocusValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
-            visibleOptionCount={2}
+            visibleOptionCount={3}
           />
         ) : (
           <Box flexDirection="row" gap={1}>

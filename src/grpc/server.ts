@@ -8,6 +8,7 @@ import { getDefaultAppState } from '../state/AppStateStore.js'
 import { AppState } from '../state/AppState.js'
 import { FileStateCache, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js'
 import { getBuiltInAgents } from '../tools/AgentTool/builtInAgents.js'
+import type { Message } from '../types/message.js'
 
 const PROTO_PATH = path.resolve(import.meta.dirname, '../proto/openclaude.proto')
 
@@ -24,9 +25,67 @@ const openclaudeProto = protoDescriptor.openclaude.v1
 
 const MAX_SESSIONS = 1000
 
+type TextDeltaEvent = {
+  type: 'content_block_delta'
+  delta: {
+    type: 'text_delta'
+    text: string
+  }
+}
+
+type TextContentBlock = {
+  type: 'text'
+  text: string
+}
+
+type ToolResultContentBlock = TextContentBlock | Record<string, unknown>
+
+type ToolResultBlock = {
+  type: 'tool_result'
+  tool_use_id: string
+  content?: string | ToolResultContentBlock[]
+  is_error?: boolean
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object'
+}
+
+function isTextDeltaEvent(event: Record<string, unknown>): event is TextDeltaEvent {
+  if (event.type !== 'content_block_delta' || !isRecord(event.delta)) {
+    return false
+  }
+
+  return event.delta.type === 'text_delta' && typeof event.delta.text === 'string'
+}
+
+function isToolResultBlock(block: unknown): block is ToolResultBlock {
+  return (
+    isRecord(block) &&
+    block.type === 'tool_result' &&
+    typeof block.tool_use_id === 'string'
+  )
+}
+
+function isTextContentBlock(block: unknown): block is TextContentBlock {
+  return isRecord(block) && block.type === 'text' && typeof block.text === 'string'
+}
+
+function toolResultContentToString(content: ToolResultBlock['content']): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    return content.map(block => (isTextContentBlock(block) ? block.text : '')).join('\n')
+  }
+
+  return ''
+}
+
 export class GrpcServer {
   private server: grpc.Server
-  private sessions: Map<string, any[]> = new Map()
+  private sessions: Map<string, Message[]> = new Map()
 
   constructor() {
     this.server = new grpc.Server()
@@ -127,7 +186,14 @@ export class GrpcServer {
                   if (reply.toLowerCase() === 'yes' || reply.toLowerCase() === 'y') {
                     resolve({ behavior: 'allow' })
                   } else {
-                    resolve({ behavior: 'deny', reason: 'User denied via gRPC' })
+                    resolve({
+                      behavior: 'deny',
+                      message: 'User denied via gRPC',
+                      decisionReason: {
+                        type: 'other',
+                        reason: 'User denied via gRPC',
+                      },
+                    })
                   }
                 })
               })
@@ -148,7 +214,7 @@ export class GrpcServer {
 
           for await (const msg of generator) {
             if (msg.type === 'stream_event') {
-              if (msg.event.type === 'content_block_delta' && msg.event.delta.type === 'text_delta') {
+              if (isTextDeltaEvent(msg.event)) {
                 call.write({
                   text_chunk: {
                     text: msg.event.delta.text
@@ -161,13 +227,8 @@ export class GrpcServer {
               const content = msg.message.content
               if (Array.isArray(content)) {
                 for (const block of content) {
-                  if (block.type === 'tool_result') {
-                    let outputStr = ''
-                    if (typeof block.content === 'string') {
-                      outputStr = block.content
-                    } else if (Array.isArray(block.content)) {
-                      outputStr = block.content.map(c => c.type === 'text' ? c.text : '').join('\n')
-                    }
+                  if (isToolResultBlock(block)) {
+                    const outputStr = toolResultContentToString(block.content)
                     call.write({
                       tool_result: {
                         tool_name: toolNameById.get(block.tool_use_id) ?? block.tool_use_id,
@@ -199,7 +260,10 @@ export class GrpcServer {
             if (sessionId) {
               if (!this.sessions.has(sessionId) && this.sessions.size >= MAX_SESSIONS) {
                 // Evict oldest session (Map preserves insertion order)
-                this.sessions.delete(this.sessions.keys().next().value)
+                const oldestSessionId = this.sessions.keys().next().value
+                if (oldestSessionId !== undefined) {
+                  this.sessions.delete(oldestSessionId)
+                }
               }
               this.sessions.set(sessionId, previousMessages)
             }

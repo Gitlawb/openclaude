@@ -4,9 +4,9 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { asMockFetch } from '../test/typedMocks.js'
 
 async function loadProviderDiscoveryModule() {
-  // @ts-expect-error cache-busting query string for Bun module mocks
   return import(`./providerDiscovery.js?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -40,7 +40,7 @@ afterEach(() => {
 test('lists models from a local openai-compatible /models endpoint', async () => {
   const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock((input, init) => {
+  globalThis.fetch = asMockFetch(mock((input, init) => {
     const url = typeof input === 'string' ? input : input.url
     expect(url).toBe('http://localhost:1234/v1/models')
     expect(init?.headers).toEqual({ Authorization: 'Bearer local-key' })
@@ -57,7 +57,7 @@ test('lists models from a local openai-compatible /models endpoint', async () =>
         { status: 200 },
       ),
     )
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     listOpenAICompatibleModels({
@@ -73,9 +73,9 @@ test('lists models from a local openai-compatible /models endpoint', async () =>
 test('returns null when a local openai-compatible /models request fails', async () => {
   const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock(() =>
+  globalThis.fetch = asMockFetch(mock(() =>
     Promise.resolve(new Response('not available', { status: 503 })),
-  ) as typeof globalThis.fetch
+  ))
 
   await expect(
     listOpenAICompatibleModels({ baseUrl: 'http://localhost:1234/v1' }),
@@ -152,11 +152,11 @@ test('ollama generation readiness reports unreachable when tags endpoint is down
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
     return Promise.resolve(new Response('not available', { status: 503 }))
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -176,7 +176,7 @@ test('ollama generation readiness reports no models when server is reachable', a
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
     return Promise.resolve(
@@ -185,7 +185,7 @@ test('ollama generation readiness reports no models when server is reachable', a
         headers: { 'Content-Type': 'application/json' },
       }),
     )
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -205,7 +205,7 @@ test('ollama generation readiness reports generation_failed when requested model
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
     return Promise.resolve(
@@ -219,7 +219,7 @@ test('ollama generation readiness reports generation_failed when requested model
         },
       ),
     )
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -238,7 +238,7 @@ test('ollama generation readiness reports generation_failed when requested model
 test('ollama generation readiness reports generation failures when chat probe fails', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/api/tags')) {
       return Promise.resolve(
@@ -255,7 +255,7 @@ test('ollama generation readiness reports generation failures when chat probe fa
     }
 
     return Promise.resolve(new Response('model not found', { status: 404 }))
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -271,7 +271,7 @@ test('ollama generation readiness reports generation failures when chat probe fa
 test('ollama generation readiness reports generation_failed when chat probe returns invalid JSON', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/api/tags')) {
       return Promise.resolve(
@@ -293,7 +293,7 @@ test('ollama generation readiness reports generation_failed when chat probe retu
         headers: { 'Content-Type': 'text/html' },
       }),
     )
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -309,7 +309,7 @@ test('ollama generation readiness reports generation_failed when chat probe retu
 test('ollama generation readiness reports ready when chat probe succeeds', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/api/tags')) {
       return Promise.resolve(
@@ -337,7 +337,7 @@ test('ollama generation readiness reports ready when chat probe succeeds', async
         },
       ),
     )
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeOllamaGenerationReadiness({
@@ -353,11 +353,11 @@ test('atomic chat readiness reports unreachable when /v1/models is down', async 
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
-  globalThis.fetch = mock(input => {
+  globalThis.fetch = asMockFetch(mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
     return Promise.resolve(new Response('unavailable', { status: 503 }))
-  }) as typeof globalThis.fetch
+  }))
 
   await expect(
     probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
@@ -369,14 +369,14 @@ test('atomic chat readiness reports unreachable when /v1/models is down', async 
 test('atomic chat readiness reports no_models when server is reachable but empty', async () => {
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock(() =>
+  globalThis.fetch = asMockFetch(mock(() =>
     Promise.resolve(
       new Response(JSON.stringify({ data: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
     ),
-  ) as typeof globalThis.fetch
+  ))
 
   await expect(
     probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
@@ -386,7 +386,7 @@ test('atomic chat readiness reports no_models when server is reachable but empty
 test('atomic chat readiness returns loaded model ids when ready', async () => {
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
-  globalThis.fetch = mock(() =>
+  globalThis.fetch = asMockFetch(mock(() =>
     Promise.resolve(
       new Response(
         JSON.stringify({
@@ -401,7 +401,7 @@ test('atomic chat readiness returns loaded model ids when ready', async () => {
         },
       ),
     ),
-  ) as typeof globalThis.fetch
+  ))
 
   await expect(
     probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),

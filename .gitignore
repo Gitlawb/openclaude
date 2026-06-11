@@ -17,4 +17,5 @@ package-lock.json
 coverage/
 agent.log
 plan/
+.tmp
 temp_reference/

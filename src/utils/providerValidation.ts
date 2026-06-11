@@ -15,6 +15,7 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
+  matchHostnameAgainstRouteHosts,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
@@ -234,9 +235,8 @@ function getRuntimeValidationTarget(
     }
 
     return (
-      routing.matchBaseUrlHosts?.some(
-        host => requestHost === host.toLowerCase(),
-      ) ?? false
+      routing.matchBaseUrlHosts &&
+      matchHostnameAgainstRouteHosts(requestHost, routing.matchBaseUrlHosts)
     )
   })
 

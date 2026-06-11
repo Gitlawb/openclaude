@@ -1,4 +1,3 @@
-import type { ToolUseBlock } from '@anthropic-ai/sdk/resources';
 import { getRemoteSessionUrl } from '../../constants/product.js';
 import { OUTPUT_FILE_TAG, REMOTE_REVIEW_PROGRESS_TAG, REMOTE_REVIEW_TAG, STATUS_TAG, SUMMARY_TAG, TASK_ID_TAG, TASK_NOTIFICATION_TAG, TASK_TYPE_TAG, TOOL_USE_ID_TAG, ULTRAPLAN_TAG } from '../../constants/xml.js';
 import type { SDKAssistantMessage, SDKMessage } from '../../entrypoints/agentSdkTypes.js';
@@ -9,7 +8,7 @@ import { type BackgroundRemoteSessionPrecondition, checkBackgroundRemoteSessionE
 import { logForDebugging } from '../../utils/debug.js';
 import { logError } from '../../utils/log.js';
 import { enqueuePendingNotification } from '../../utils/messageQueueManager.js';
-import { extractTag, extractTextContent } from '../../utils/messages.js';
+import { extractTag } from '../../utils/messages.js';
 import { emitTaskTerminatedSdk } from '../../utils/sdkEventQueue.js';
 import { deleteRemoteAgentMetadata, listRemoteAgentMetadata, type RemoteAgentMetadata, writeRemoteAgentMetadata } from '../../utils/sessionStorage.js';
 import { jsonStringify } from '../../utils/slowOperations.js';
@@ -68,6 +67,15 @@ export type AutofixPrRemoteTaskMetadata = {
   prNumber: number;
 };
 export type RemoteTaskMetadata = AutofixPrRemoteTaskMetadata;
+type TextContentBlock = {
+  type: 'text';
+  text: string;
+};
+type TodoWriteToolUseBlock = {
+  type: 'tool_use';
+  name: string;
+  input?: unknown;
+};
 
 /**
  * Called on every poll tick for tasks with a matching remoteTaskType. Return a
@@ -83,6 +91,22 @@ const completionCheckers = new Map<RemoteTaskType, RemoteTaskCompletionChecker>(
  */
 export function registerCompletionChecker(remoteTaskType: RemoteTaskType, checker: RemoteTaskCompletionChecker): void {
   completionCheckers.set(remoteTaskType, checker);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function isTextContentBlock(block: unknown): block is TextContentBlock {
+  return isRecord(block) && block.type === 'text' && typeof block.text === 'string';
+}
+
+function isTodoWriteToolUseBlock(block: unknown): block is TodoWriteToolUseBlock {
+  return isRecord(block) && block.type === 'tool_use' && block.name === TodoWriteTool.name;
+}
+
+function extractSdkTextContent(content: unknown[], separator = ''): string {
+  return content.filter(isTextContentBlock).map(block => block.text).join(separator);
 }
 
 /**
@@ -210,7 +234,7 @@ export function extractPlanFromLog(log: SDKMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i];
     if (msg?.type !== 'assistant') continue;
-    const fullText = extractTextContent(msg.message.content, '\n');
+    const fullText = extractSdkTextContent(msg.message.content, '\n');
     const plan = extractTag(fullText, ULTRAPLAN_TAG);
     if (plan?.trim()) return plan.trim();
   }
@@ -265,7 +289,7 @@ function extractReviewFromLog(log: SDKMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i];
     if (msg?.type !== 'assistant') continue;
-    const fullText = extractTextContent(msg.message.content, '\n');
+    const fullText = extractSdkTextContent(msg.message.content, '\n');
     const tagged = extractTag(fullText, REMOTE_REVIEW_TAG);
     if (tagged?.trim()) return tagged.trim();
   }
@@ -278,7 +302,7 @@ function extractReviewFromLog(log: SDKMessage[]): string | null {
   if (hookTagged?.trim()) return hookTagged.trim();
 
   // Fallback: concatenate all assistant text in chronological order.
-  const allText = log.filter((msg): msg is SDKAssistantMessage => msg.type === 'assistant').map(msg => extractTextContent(msg.message.content, '\n')).join('\n').trim();
+  const allText = log.filter((msg): msg is SDKAssistantMessage => msg.type === 'assistant').map(msg => extractSdkTextContent(msg.message.content, '\n')).join('\n').trim();
   return allText || null;
 }
 
@@ -306,7 +330,7 @@ function extractReviewTagFromLog(log: SDKMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i];
     if (msg?.type !== 'assistant') continue;
-    const fullText = extractTextContent(msg.message.content, '\n');
+    const fullText = extractSdkTextContent(msg.message.content, '\n');
     const tagged = extractTag(fullText, REMOTE_REVIEW_TAG);
     if (tagged?.trim()) return tagged.trim();
   }
@@ -363,11 +387,11 @@ Remote review did not produce output (${reason}). Tell the user to retry /ultrar
  * Extract todo list from SDK messages (finds last TodoWrite tool use).
  */
 function extractTodoListFromLog(log: SDKMessage[]): TodoList {
-  const todoListMessage = log.findLast((msg): msg is SDKAssistantMessage => msg.type === 'assistant' && msg.message.content.some(block => block.type === 'tool_use' && block.name === TodoWriteTool.name));
+  const todoListMessage = log.findLast((msg): msg is SDKAssistantMessage => msg.type === 'assistant' && msg.message.content.some(isTodoWriteToolUseBlock));
   if (!todoListMessage) {
     return [];
   }
-  const input = todoListMessage.message.content.find((block): block is ToolUseBlock => block.type === 'tool_use' && block.name === TodoWriteTool.name)?.input;
+  const input = todoListMessage.message.content.find(isTodoWriteToolUseBlock)?.input;
   if (!input) {
     return [];
   }
@@ -568,7 +592,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
         accumulatedLog = [...accumulatedLog, ...response.newEvents];
         const deltaText = response.newEvents.map(msg => {
           if (msg.type === 'assistant') {
-            return msg.message.content.filter(block => block.type === 'text').map(block => 'text' in block ? block.text : '').join('\n');
+            return extractSdkTextContent(msg.message.content, '\n');
           }
           return jsonStringify(msg);
         }).join('\n');
