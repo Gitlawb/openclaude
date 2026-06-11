@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { ScopedLspServerConfig } from '../../services/lsp/types.js'
 
 type InitializationStatus =
   | { status: 'not-started' }
@@ -111,7 +112,14 @@ const deps = {
           getAllServers: () => serverInstances,
         }
       : undefined,
-  getAllLspServers: async () => ({ servers: configuredServers }),
+  // TestServerConfig is a partial fixture of ScopedLspServerConfig (fixtures
+  // omit scope/source/extensionToLanguage the command never reads here).
+  getAllLspServers: async () => ({
+    servers: configuredServers as unknown as Record<
+      string,
+      ScopedLspServerConfig
+    >,
+  }),
   listLspPluginCandidates: async (options: unknown) => {
     candidateCallOptions.push(options)
     return candidates

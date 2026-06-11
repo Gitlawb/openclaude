@@ -187,7 +187,7 @@ describe('SQLite Masterpiece: Edge Cases & Multi-Project Isolation', () => {
     await addGlobalRelation(e1.id, e2.id, 'links_to')
 
     // Invalid relation (non-existent ID) should throw
-    let error = null
+    let error: unknown = null
     try {
       await addGlobalRelation(e1.id, 'ghost-id', 'links_to')
     } catch (e) {

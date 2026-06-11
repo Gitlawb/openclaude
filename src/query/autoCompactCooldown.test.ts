@@ -67,7 +67,7 @@ function userMessage(content: string): Message {
   return {
     type: 'user',
     message: { role: 'user', content },
-    uuid: `test-${Math.random()}`,
+    uuid: `test-${Math.random()}` as Message['uuid'],
     timestamp: new Date().toISOString(),
   }
 }
@@ -104,6 +104,7 @@ function toolUseContext() {
 }
 
 function assistantToolUseMessage(): Message {
+  // Minimal fixture (no model/usage) — cast type-side only.
   return {
     type: 'assistant',
     message: {
@@ -118,9 +119,9 @@ function assistantToolUseMessage(): Message {
         },
       ],
     },
-    uuid: 'assistant-tool-use',
+    uuid: 'assistant-tool-use' as Message['uuid'],
     timestamp: new Date().toISOString(),
-  }
+  } as unknown as Message
 }
 
 async function canUseTool() {

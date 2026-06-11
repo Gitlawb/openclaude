@@ -205,7 +205,7 @@ export async function initOrama(cwd: string): Promise<void> {
     if (existsSync(path)) {
       try {
         const data = readFileSync(path)
-        oramaDb = await restore('binary', data)
+        oramaDb = await restore<NonNullable<typeof oramaDb>>('binary', data)
         const graph = projectGraph || loadProjectGraph(cwd)
         if (await isOramaInSync(graph)) {
           restored = true

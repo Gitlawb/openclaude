@@ -7,7 +7,7 @@ import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.js';
 import figures from 'figures';
-import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle } from '../../utils/config.js';
+import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
 import chalk from 'chalk';
@@ -289,6 +289,26 @@ export function Config({
       });
       logEvent('tengu_auto_compact_setting_changed', {
         enabled: autoCompactEnabled
+      });
+    }
+  }, {
+    id: 'maxMessagesCompactionThreshold',
+    label: 'Message-count compaction',
+    value: globalConfig.maxMessagesCompactionThreshold ?? 'off',
+    options: [...MAX_MESSAGES_COMPACTION_THRESHOLDS],
+    type: 'enum' as const,
+    onChange(maxMessagesCompactionThreshold: string) {
+      const normalizedThreshold = normalizeMaxMessagesCompactionThreshold(maxMessagesCompactionThreshold);
+      saveGlobalConfig(current => ({
+        ...current,
+        maxMessagesCompactionThreshold: normalizedThreshold
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        maxMessagesCompactionThreshold: normalizedThreshold
+      });
+      logEvent('tengu_max_messages_compaction_threshold_changed', {
+        threshold: normalizedThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
   }, {
@@ -1171,6 +1191,10 @@ export function Config({
     }
     if (globalConfig.autoCompactEnabled !== initialConfig.current.autoCompactEnabled) {
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
+    }
+    if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
+      const threshold = globalConfig.maxMessagesCompactionThreshold ?? 'off';
+      formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

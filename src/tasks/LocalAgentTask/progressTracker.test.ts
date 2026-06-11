@@ -46,7 +46,8 @@ function assistantMessage(
           : {}),
       },
     },
-  }
+    // Minimal fixture (no uuid/model/full usage) — cast type-side only.
+  } as unknown as Message
 }
 
 describe('progress tracker (issue #475)', () => {

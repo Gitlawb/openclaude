@@ -186,6 +186,26 @@ export type DiffTool = 'terminal' | 'auto'
 export type ShowCacheStatsMode = 'off' | 'compact' | 'full'
 export const SHOW_CACHE_STATS_MODES = ['off', 'compact', 'full'] as const satisfies readonly ShowCacheStatsMode[]
 
+export const MAX_MESSAGES_COMPACTION_THRESHOLDS = [
+  'off',
+  '100',
+  '200',
+  '500',
+  '1000',
+] as const
+export type MaxMessagesCompactionThreshold =
+  (typeof MAX_MESSAGES_COMPACTION_THRESHOLDS)[number]
+
+export function normalizeMaxMessagesCompactionThreshold(
+  value: unknown,
+): MaxMessagesCompactionThreshold {
+  return MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
+    value as MaxMessagesCompactionThreshold,
+  )
+    ? (value as MaxMessagesCompactionThreshold)
+    : 'off'
+}
+
 export type OutputStyle = string
 
 export type Providers = string
@@ -641,6 +661,12 @@ export type GlobalConfig = {
   // plain string (validated on read) to avoid pulling a UI module into the
   // config layer. Falls back to 'sunset' if missing or unrecognized.
   logoColor?: string
+
+  // Message-count-based compaction threshold. Set via /config.
+  // 'off' = disabled (default). Otherwise, one of '100', '200', '500', '1000'.
+  // When enabled, triggers forced compaction if the message count exceeds the
+  // chosen threshold, regardless of token usage.
+  maxMessagesCompactionThreshold?: MaxMessagesCompactionThreshold
 }
 
 /**
@@ -690,6 +716,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
+    maxMessagesCompactionThreshold: 'off',
   }
   return config
 }
@@ -741,6 +768,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'remoteDialogSeen',
   'knowledgeGraphEnabled',
   'logoColor',
+  'maxMessagesCompactionThreshold',
 ] as const
 
 export type GlobalConfigKey = (typeof GLOBAL_CONFIG_KEYS)[number]
@@ -1014,13 +1042,20 @@ registerCleanup(async () => {
  * @internal
  */
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
+  const normalizedConfig = {
+    ...config,
+    maxMessagesCompactionThreshold: normalizeMaxMessagesCompactionThreshold(
+      config.maxMessagesCompactionThreshold,
+    ),
+  }
+
   // Already migrated
-  if (config.installMethod !== undefined) {
-    return config
+  if (normalizedConfig.installMethod !== undefined) {
+    return normalizedConfig
   }
 
   // autoUpdaterStatus is removed from the type but may exist in old configs
-  const legacy = config as GlobalConfig & {
+  const legacy = normalizedConfig as GlobalConfig & {
     autoUpdaterStatus?:
       | 'migrated'
       | 'installed'
@@ -1032,7 +1067,7 @@ function migrateConfigFields(config: GlobalConfig): GlobalConfig {
 
   // Determine install method and auto-update preference from old field
   let installMethod: InstallMethod = 'unknown'
-  let autoUpdates = config.autoUpdates ?? true // Default to enabled unless explicitly disabled
+  let autoUpdates = normalizedConfig.autoUpdates ?? true // Default to enabled unless explicitly disabled
 
   switch (legacy.autoUpdaterStatus) {
     case 'migrated':
@@ -1057,7 +1092,7 @@ function migrateConfigFields(config: GlobalConfig): GlobalConfig {
   }
 
   return {
-    ...config,
+    ...normalizedConfig,
     installMethod,
     autoUpdates,
   }

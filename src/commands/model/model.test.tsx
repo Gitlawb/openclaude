@@ -1269,6 +1269,7 @@ test('/model applies auto provider surface for single-model static descriptor pr
         option => option.value,
       ),
     ).toEqual([
+      'auto',
       'mimo-v2.5-pro',
       'mimo-v2.5',
       'mimo-v2-flash',

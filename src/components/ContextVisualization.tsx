@@ -38,7 +38,7 @@ function CollapseStatus() {
         const {
           health: h
         } = s;
-        const parts = [];
+        const parts: string[] = [];
         if (s.collapsedSpans > 0) {
           parts.push(`${s.collapsedSpans} ${plural(s.collapsedSpans, "span")} summarized (${s.collapsedMessages} msgs)`);
         }
@@ -46,7 +46,7 @@ function CollapseStatus() {
           parts.push(`${s.stagedSpans} staged`);
         }
         const summary = parts.length > 0 ? parts.join(", ") : h.totalSpawns > 0 ? `${h.totalSpawns} ${plural(h.totalSpawns, "spawn")}, nothing staged yet` : "waiting for first trigger";
-        let line2 = null;
+        let line2: React.ReactNode = null;
         if (h.totalErrors > 0) {
           line2 = <Text color="warning">Collapse errors: {h.totalErrors}/{h.totalSpawns} spawns failed{h.lastError ? ` (last: ${h.lastError.slice(0, 60)})` : ""}</Text>;
         } else {
