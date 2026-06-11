@@ -645,15 +645,21 @@ export function normalizeFileEditInput({
         )
 
         if (fuzzyMatch) {
+          // Fix P2: Apply the recovered indentation from the file to the new_string
+          let adjustedNewString = adjustNewStringIndentation(
+            desanitizedOldString,
+            fuzzyMatch,
+            normalizedNewString,
+          )
+
           // Apply the same exact replacements to new_string
-          let desanitizedNewString = normalizedNewString
           for (const { from, to } of appliedReplacements) {
-            desanitizedNewString = desanitizedNewString.replaceAll(from, to)
+            adjustedNewString = adjustedNewString.replaceAll(from, to)
           }
 
           return {
             old_string: fuzzyMatch,
-            new_string: desanitizedNewString,
+            new_string: adjustedNewString,
             replace_all,
           }
         }
@@ -794,6 +800,77 @@ export function areFileEditsInputsEquivalent(
   return areFileEditsEquivalent(input1.edits, input2.edits, fileContent)
 }
 
+/**
+ * Adjusts the absolute indentation of `newString` based on the difference
+ * between the base indentation of `oldString` and the actual `fileMatch`.
+ */
+export function adjustNewStringIndentation(
+  oldString: string,
+  fileMatch: string,
+  newString: string,
+): string {
+  // If no formatting difference, no adjustment needed
+  if (oldString === fileMatch) return newString
+
+  const getBaseIndent = (str: string) => {
+    // Match leading whitespace of the first line that has non-whitespace characters
+    const match = str.match(/^[ \t]*(?=\S)/m)
+    return match ? match[0] : null
+  }
+
+  const oldIndent = getBaseIndent(oldString)
+  const actualIndent = getBaseIndent(fileMatch)
+
+  if (
+    oldIndent === null ||
+    actualIndent === null ||
+    oldIndent === actualIndent
+  ) {
+    return newString
+  }
+
+  let isAdd = false
+  let indentDiff = ''
+
+  if (actualIndent.startsWith(oldIndent)) {
+    isAdd = true
+    indentDiff = actualIndent.slice(oldIndent.length)
+  } else if (oldIndent.startsWith(actualIndent)) {
+    isAdd = false
+    indentDiff = oldIndent.slice(actualIndent.length)
+  } else {
+    // Completely different indentation styles (e.g., tabs vs spaces).
+    // Replace oldIndent with actualIndent on lines that start with oldIndent.
+    const lines = newString.split('\n')
+    return lines
+      .map(line => {
+        if (line.startsWith(oldIndent)) {
+          return actualIndent + line.slice(oldIndent.length)
+        }
+        return line
+      })
+      .join('\n')
+  }
+
+  const lines = newString.split('\n')
+  return lines
+    .map(line => {
+      // Ignore completely empty lines
+      if (line.trim() === '') return line
+
+      if (isAdd) {
+        return indentDiff + line
+      } else {
+        // Only remove characters if the line actually starts with the difference.
+        if (line.startsWith(indentDiff)) {
+          return line.slice(indentDiff.length)
+        }
+        return line
+      }
+    })
+    .join('\n')
+}
+
 function normalizeIndentation(str: string) {
   let normalized = ''
   const mapping: number[] = []
@@ -817,9 +894,9 @@ function normalizeIndentation(str: string) {
       }
 
       // If the whitespace run contains a newline, or is at the very beginning/end of the string,
-      // it is considered formatting/indentation. Compress it to a single space.
+      // it is considered formatting/indentation. Compress it to a unique newline token to avoid matching inline spaces.
       if (hasNewline || startWs === 0 || i === str.length) {
-        normalized += ' '
+        normalized += '\n'
         let mappedIndex = startWs
         if (hasNewline) {
           mappedIndex = lastNewline + 1

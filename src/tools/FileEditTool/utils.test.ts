@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { findWhitespaceAgnosticMatch } from './utils.js'
+import { findWhitespaceAgnosticMatch, adjustNewStringIndentation } from './utils.js'
 
 describe('findWhitespaceAgnosticMatch', () => {
   test('returns exact match for simple string', () => {
@@ -64,5 +64,50 @@ describe('findWhitespaceAgnosticMatch', () => {
     const fileContent = 'const a = 1;\nconst a = 1;'
     const searchString = 'const a = 1;'
     expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
+  })
+
+  test('prevents multiline strings from matching single-line strings with same tokens', () => {
+    // P1: A newline in the search string should not match an inline space in the file
+    const fileContent = 'const x = a + b;'
+    const searchString = 'const x = a\n  + b;'
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
+
+    const fileContent2 = '.foo .bar { color: red; }'
+    const searchString2 = '.foo\n  .bar { color: red; }'
+    expect(findWhitespaceAgnosticMatch(fileContent2, searchString2)).toBeNull()
+  })
+})
+
+describe('adjustNewStringIndentation', () => {
+  test('returns newString unmodified if oldString and fileMatch have same indentation', () => {
+    const oldString = '  foo();\n  bar();'
+    const fileMatch = '  foo();\n  bar();'
+    const newString = '  foo();\n  baz();'
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(newString)
+  })
+
+  test('adds indentation when file has more indentation', () => {
+    const oldString = '  foo();\n  bar();'
+    const fileMatch = '    foo();\n    bar();' // file has +2 spaces
+    const newString = '  foo();\n  baz();\n  qux();' // newString has base 2 spaces
+    const expected = '    foo();\n    baz();\n    qux();'
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
+  })
+
+  test('removes indentation when file has less indentation', () => {
+    const oldString = '    foo();\n    bar();'
+    const fileMatch = '  foo();\n  bar();' // file has -2 spaces
+    const newString = '    foo();\n    baz();\n      qux();' // newString has base 4 spaces
+    const expected = '  foo();\n  baz();\n    qux();'
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
+  })
+
+  test('handles completely different indentation styles (spaces vs tabs)', () => {
+    const oldString = '  foo();\n  bar();'
+    const fileMatch = '\tfoo();\n\tbar();'
+    const newString = '  foo();\n    baz();'
+    // It should replace the base indentation prefix
+    const expected = '\tfoo();\n\t  baz();'
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
   })
 })
