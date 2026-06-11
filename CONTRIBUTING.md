@@ -165,6 +165,13 @@ Python tests:
 python -m pytest -q python/tests
 ```
 
+Typecheck (enforced by the dedicated `typecheck` CI job):
+
+```bash
+bun run typecheck
+bun run typecheck:type-tests
+```
+
 PR intent scan:
 
 ```bash
@@ -183,12 +190,6 @@ PRs that fail CI checks will not be merged.
 ### Recommended Local Checks
 
 These are not enforced by CI but are worth running locally before submitting.
-
-Typecheck:
-
-```bash
-bun run typecheck
-```
 
 Focused tests:
 

@@ -61,7 +61,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:type-tests": "bun run scripts/typecheck-type-tests.ts",
     "smoke": "bun run build && node dist/cli.mjs --version",
-    "check": "bun run smoke && bun run typecheck:type-tests && bun run test:full",
+    "check": "bun run smoke && bun run test:full",
     "verify:privacy": "bun run scripts/verify-no-phone-home.ts",
     "build:verified": "bun run build && bun run verify:privacy",
     "test:provider": "bun test --max-concurrency=1 src/services/api/*.test.ts src/utils/context.test.ts",
