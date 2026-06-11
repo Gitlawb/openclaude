@@ -311,7 +311,7 @@ export function isNearaiBaseUrl(value: string | undefined): boolean {
 
   try {
     const hostname = new URL(trimmed).hostname.toLowerCase()
-    return hostname === 'cloud-api.near.ai' || hostname.endsWith('.completions.near.ai')
+    return hostname === 'cloud-api.near.ai' || hostname === 'completions.near.ai' || hostname.endsWith('.completions.near.ai')
   } catch {
     return false
   }
