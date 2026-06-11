@@ -20,7 +20,6 @@ if (typeof globalThis.File === 'undefined') {
     // Node 18.13+ exposes File in node:buffer but not as a global.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { File: NodeFile } = require('node:buffer')
-    // @ts-expect-error -- polyfilling missing global
     globalThis.File = NodeFile
   } catch {
     // Absolute fallback: stub so `MakeTypeAssertion(File)` doesn't throw.
@@ -114,14 +113,8 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
-  const hasConfiguredProviderProfile = await (async () => {
-    const { getActiveProviderProfile } = await import('../utils/providerProfiles.js')
-    return getActiveProviderProfile() !== undefined
-  })()
-
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
-    hasConfiguredProviderProfile,
   })
   if (startupEnv !== process.env) {
     const startupProfileError = await getProviderValidationError(startupEnv)

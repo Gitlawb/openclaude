@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { fetch as httpFetch } from 'undici'
+import { connect } from 'node:net'
 
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { startXaiOAuthCallback } from './xaiOAuthCallback.js'
 
 async function startTestServer() {
@@ -13,42 +14,108 @@ async function startTestServer() {
   return { handle, port: handle.port }
 }
 
+type LoopbackResponse = {
+  status: number
+  headers: Record<string, string>
+  body: string
+}
+
+async function requestLoopback(
+  port: number,
+  path: string,
+  options: {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    timeoutMs?: number
+  } = {},
+): Promise<LoopbackResponse> {
+  const method = options.method ?? 'GET'
+  const body = options.body ?? ''
+  const timeoutMs = options.timeoutMs ?? 2_000
+  const headers = {
+    Host: `127.0.0.1:${port}`,
+    Connection: 'close',
+    ...(body ? { 'Content-Length': String(Buffer.byteLength(body)) } : {}),
+    ...options.headers,
+  }
+  const requestText = [
+    `${method} ${path} HTTP/1.1`,
+    ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`),
+    '',
+    body,
+  ].join('\r\n')
+
+  return new Promise((resolve, reject) => {
+    const socket = connect({ host: '127.0.0.1', port })
+    const chunks: Buffer[] = []
+    let settled = false
+
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      reject(error)
+    }
+
+    socket.setTimeout(timeoutMs)
+
+    socket.on('connect', () => {
+      socket.write(requestText)
+    })
+    socket.on('data', chunk => {
+      chunks.push(Buffer.from(chunk))
+    })
+    socket.on('timeout', () => {
+      fail(new Error(`Loopback request timed out after ${timeoutMs}ms`))
+    })
+    socket.on('error', fail)
+    socket.on('end', () => {
+      if (settled) return
+      settled = true
+      const raw = Buffer.concat(chunks).toString('utf8')
+      const [head, ...bodyParts] = raw.split('\r\n\r\n')
+      const [statusLine, ...headerLines] = head.split('\r\n')
+      const status = Number(statusLine.split(' ')[1] ?? 0)
+      const responseHeaders: Record<string, string> = {}
+      for (const line of headerLines) {
+        const separator = line.indexOf(':')
+        if (separator < 0) continue
+        responseHeaders[line.slice(0, separator).toLowerCase()] = line
+          .slice(separator + 1)
+          .trim()
+      }
+      resolve({
+        status,
+        headers: responseHeaders,
+        body: bodyParts.join('\r\n\r\n'),
+      })
+    })
+  })
+}
+
 describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () => {
   let cleanup: (() => void) | null = null
-  let savedProxyEnv: Record<string, string | undefined> = {}
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('xaiOAuthCallback.test.ts')
     cleanup = null
-    savedProxyEnv = {
-      HTTP_PROXY: process.env.HTTP_PROXY,
-      HTTPS_PROXY: process.env.HTTPS_PROXY,
-      ALL_PROXY: process.env.ALL_PROXY,
-      NO_PROXY: process.env.NO_PROXY,
-    }
-    delete process.env.HTTP_PROXY
-    delete process.env.HTTPS_PROXY
-    delete process.env.ALL_PROXY
-    process.env.NO_PROXY = '127.0.0.1,localhost'
   })
 
   afterEach(() => {
-    cleanup?.()
-    cleanup = null
-    for (const [key, value] of Object.entries(savedProxyEnv)) {
-      if (value === undefined) {
-        delete process.env[key]
-      } else {
-        process.env[key] = value
-      }
+    try {
+      cleanup?.()
+      cleanup = null
+    } finally {
+      releaseSharedMutationLock()
     }
-    savedProxyEnv = {}
   })
 
   test('OPTIONS preflight from auth.x.ai returns 204 with CORS echo', async () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'OPTIONS',
       headers: {
         Origin: 'https://auth.x.ai',
@@ -56,10 +123,10 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
       },
     })
     expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBe(
+    expect(res.headers['access-control-allow-origin']).toBe(
       'https://auth.x.ai',
     )
-    const allowMethods = res.headers.get('access-control-allow-methods') ?? ''
+    const allowMethods = res.headers['access-control-allow-methods'] ?? ''
     expect(allowMethods).toContain('GET')
     // Don't leak the callback resolution to OPTIONS — the wait promise
     // shouldn't have settled.
@@ -85,7 +152,7 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'OPTIONS',
       headers: {
         Origin: 'https://auth.x.ai',
@@ -94,7 +161,7 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
       },
     })
     expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-private-network')).toBe(
+    expect(res.headers['access-control-allow-private-network']).toBe(
       'true',
     )
   })
@@ -103,12 +170,12 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'OPTIONS',
       headers: { Origin: 'https://accounts.x.ai' },
     })
     expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBe(
+    expect(res.headers['access-control-allow-origin']).toBe(
       'https://accounts.x.ai',
     )
   })
@@ -117,36 +184,36 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'OPTIONS',
       headers: { Origin: 'https://attacker.example.com' },
     })
     expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(res.headers['access-control-allow-origin']).toBeUndefined()
   })
 
   test('OPTIONS from http (non-https) x.ai is rejected', async () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'OPTIONS',
       headers: { Origin: 'http://auth.x.ai' },
     })
     expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(res.headers['access-control-allow-origin']).toBeUndefined()
   })
 
   test('OPTIONS from subdomain-spoof (auth.x.ai.evil.example.com) is rejected', async () => {
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'OPTIONS',
       headers: { Origin: 'https://auth.x.ai.evil.example.com' },
     })
     expect(res.status).toBe(204)
-    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(res.headers['access-control-allow-origin']).toBeUndefined()
   })
 
   test('GET /callback?code=&state= resolves waitForCallback with both', async () => {
@@ -154,13 +221,14 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
-    const res = await httpFetch(
-      `http://127.0.0.1:${port}/callback?code=ABC123&state=xyz`,
+    const res = await requestLoopback(
+      port,
+      '/callback?code=ABC123&state=xyz',
       { headers: { Origin: 'https://auth.x.ai' } },
     )
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/html')
-    expect(res.headers.get('access-control-allow-origin')).toBe(
+    expect(res.headers['content-type']).toContain('text/html')
+    expect(res.headers['access-control-allow-origin']).toBe(
       'https://auth.x.ai',
     )
     const result = await callbackPromise
@@ -172,9 +240,7 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
-    const res = await httpFetch(
-      `http://127.0.0.1:${port}/callback?error=access_denied`,
-    )
+    const res = await requestLoopback(port, '/callback?error=access_denied')
     expect(res.status).toBe(400)
     await expect(callbackPromise).rejects.toThrow(/access_denied/)
   })
@@ -183,7 +249,7 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/something-else`)
+    const res = await requestLoopback(port, '/something-else')
     expect(res.status).toBe(404)
 
     let settled = false
@@ -203,12 +269,12 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     const { handle, port } = await startTestServer()
     cleanup = () => handle.close()
 
-    const res = await httpFetch(`http://127.0.0.1:${port}/callback`, {
+    const res = await requestLoopback(port, '/callback', {
       method: 'POST',
       body: 'code=ABC&state=xyz',
     })
     expect(res.status).toBe(405)
-    expect(res.headers.get('allow') ?? '').toContain('GET')
+    expect(res.headers.allow ?? '').toContain('GET')
   })
 
   test('successTitle is HTML-escaped in the success page', async () => {
@@ -221,10 +287,8 @@ describe.serial('startXaiOAuthCallback (CORS-aware loopback for xAI auth)', () =
     cleanup = () => handle.close()
 
     const callbackPromise = handle.waitForCallback()
-    const res = await httpFetch(
-      `http://127.0.0.1:${handle.port}/callback?code=A&state=B`,
-    )
-    const body = await res.text()
+    const res = await requestLoopback(handle.port, '/callback?code=A&state=B')
+    const body = res.body
     expect(body).not.toContain('<script>alert(1)</script>')
     expect(body).toContain('&lt;script&gt;')
     await callbackPromise

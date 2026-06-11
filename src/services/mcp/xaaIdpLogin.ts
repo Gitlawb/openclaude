@@ -29,7 +29,6 @@ import { getSecureStorage } from '../../utils/secureStorage/index.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 import { jsonParse } from '../../utils/slowOperations.js'
 import {
-  shouldCompleteXaaIdpCallback,
   validateXaaIdpCallbackParams,
 } from './xaaIdpCallback.js'
 import { buildRedirectUri, findAvailablePort } from './oauthPort.js'
@@ -346,7 +345,7 @@ function waitForCallback(
         expectedState,
       )
 
-      if (!shouldCompleteXaaIdpCallback(result)) {
+      if (result.type === 'state_mismatch') {
         res.writeHead(400, { 'Content-Type': 'text/html' })
         res.end('<html><body><h3>State mismatch</h3></body></html>')
         return
@@ -481,7 +480,7 @@ export async function acquireIdpIdToken(
     codeVerifier,
     redirectUri,
     fetchFn: (url, init) => {
-      const { signal, cleanup } = createCombinedAbortSignal(init?.signal, {
+      const { signal, cleanup } = createCombinedAbortSignal(init?.signal ?? undefined, {
         timeoutMs: IDP_REQUEST_TIMEOUT_MS,
       })
       // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins

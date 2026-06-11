@@ -263,7 +263,16 @@ export async function startNodeRelay(
       end: () => sock.end(),
     }
     sock.on('data', data =>
-      handleData(adapter, st, data, wsUrl, authHeader, wsAuthHeader),
+      // No encoding is set on the socket, so data is always a Buffer at
+      // runtime; the branch satisfies the string | Buffer event type.
+      handleData(
+        adapter,
+        st,
+        typeof data === 'string' ? Buffer.from(data) : data,
+        wsUrl,
+        authHeader,
+        wsAuthHeader,
+      ),
     )
     sock.on('close', () => cleanupConn(states.get(sock)))
     sock.on('error', err => {

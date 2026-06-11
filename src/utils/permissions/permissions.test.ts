@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod/v4'
-import type { Tool, ToolPermissionContext } from '../../Tool.js'
+import type { ToolPermissionContext, ToolUseContext } from '../../Tool.js'
+import { createToolFixture } from '../../test/toolFixtures.js'
 import { hasPermissionsToUseTool } from './permissions.js'
 
-const safetyCheckTool = {
+const emptyInputSchema = z.object({})
+const assistantMessage = {} as Parameters<typeof hasPermissionsToUseTool>[3]
+
+const safetyCheckTool = createToolFixture(emptyInputSchema, {
   name: 'SafetyCheckTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'ask',
@@ -17,11 +20,10 @@ const safetyCheckTool = {
       },
     }
   },
-} as Tool<Record<string, never>>
+})
 
-const userInteractionTool = {
+const userInteractionTool = createToolFixture(emptyInputSchema, {
   name: 'UserInteractionTool',
-  inputSchema: z.object({}),
   requiresUserInteraction() {
     return true
   },
@@ -31,22 +33,20 @@ const userInteractionTool = {
       message: 'User interaction requires approval',
     }
   },
-} as Tool<Record<string, never>>
+})
 
-const plainAskRuleTool = {
+const plainAskRuleTool = createToolFixture(emptyInputSchema, {
   name: 'PlainAskRuleTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'passthrough',
       message: '',
     }
   },
-} as Tool<Record<string, never>>
+})
 
-const contentAskTool = {
+const contentAskTool = createToolFixture(emptyInputSchema, {
   name: 'ContentAskTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'ask',
@@ -54,28 +54,35 @@ const contentAskTool = {
       decisionReason: {
         type: 'rule',
         rule: {
+          source: 'session',
           ruleBehavior: 'ask',
+          ruleValue: {
+            toolName: 'ContentAskTool',
+          },
         },
       },
     }
   },
-} as Tool<Record<string, never>>
+})
 
-const denyTool = {
+const denyTool = createToolFixture(emptyInputSchema, {
   name: 'DenyTool',
-  inputSchema: z.object({}),
   async checkPermissions() {
     return {
       behavior: 'deny',
       message: 'Denied by tool',
+      decisionReason: {
+        type: 'other',
+        reason: 'Denied by tool',
+      },
     }
   },
-} as Tool<Record<string, never>>
+})
 
 function contextFor(
   mode: ToolPermissionContext['mode'],
   overrides: Partial<ToolPermissionContext> = {},
-) {
+): ToolUseContext {
   const toolPermissionContext = {
     mode,
     additionalWorkingDirectories: new Map(),
@@ -92,7 +99,7 @@ function contextFor(
     getAppState: () => ({ toolPermissionContext }),
     setAppState: () => {},
     options: {},
-  }
+  } as unknown as ToolUseContext
 }
 
 describe('permission modes and safety checks', () => {
@@ -100,8 +107,8 @@ describe('permission modes and safety checks', () => {
     const result = await hasPermissionsToUseTool(
       safetyCheckTool,
       {},
-      contextFor('bypassPermissions') as never,
-      {} as never,
+      contextFor('bypassPermissions'),
+      assistantMessage,
       'tool-use-id',
     )
 
@@ -113,8 +120,8 @@ describe('permission modes and safety checks', () => {
     const result = await hasPermissionsToUseTool(
       safetyCheckTool,
       {},
-      contextFor('fullAccess') as never,
-      {} as never,
+      contextFor('fullAccess'),
+      assistantMessage,
       'tool-use-id',
     )
 
@@ -131,8 +138,8 @@ describe('permission modes and safety checks', () => {
       {},
       contextFor('fullAccess', {
         alwaysAskRules: { session: ['PlainAskRuleTool'] },
-      }) as never,
-      {} as never,
+      }),
+      assistantMessage,
       'tool-use-id',
     )
 
@@ -147,12 +154,15 @@ describe('permission modes and safety checks', () => {
     const result = await hasPermissionsToUseTool(
       userInteractionTool,
       {},
-      contextFor('fullAccess') as never,
-      {} as never,
+      contextFor('fullAccess'),
+      assistantMessage,
       'tool-use-id',
     )
 
     expect(result.behavior).toBe('ask')
+    if (result.behavior !== 'ask') {
+      throw new Error(`Expected ask decision, received ${result.behavior}`)
+    }
     expect(result.message).toBe('User interaction requires approval')
   })
 
@@ -160,8 +170,8 @@ describe('permission modes and safety checks', () => {
     const result = await hasPermissionsToUseTool(
       contentAskTool,
       {},
-      contextFor('fullAccess') as never,
-      {} as never,
+      contextFor('fullAccess'),
+      assistantMessage,
       'tool-use-id',
     )
 
@@ -176,12 +186,15 @@ describe('permission modes and safety checks', () => {
     const result = await hasPermissionsToUseTool(
       denyTool,
       {},
-      contextFor('fullAccess') as never,
-      {} as never,
+      contextFor('fullAccess'),
+      assistantMessage,
       'tool-use-id',
     )
 
     expect(result.behavior).toBe('deny')
+    if (result.behavior !== 'deny') {
+      throw new Error(`Expected deny decision, received ${result.behavior}`)
+    }
     expect(result.message).toBe('Denied by tool')
   })
 })

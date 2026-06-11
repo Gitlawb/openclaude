@@ -113,7 +113,8 @@ function createToolUseConfirm(
           output_tokens: 0,
         },
       },
-    },
+      // Minimal fixture — partial usage/uuid, cast type-side only.
+    } as unknown as ToolUseConfirm['assistantMessage'],
     tool: MonitorTool,
     description: 'watch log',
     input: {

@@ -155,9 +155,13 @@ npm install -g @gitlawb/openclaude@latest
 npm uninstall -g @gitlawb/openclaude
 ```
 
+
 ## Need Advanced Setup?
 
-Use:
+For advanced provider setup, custom endpoints, environment variables, and enterprise launch workflows, see the advanced setup guide:
 
-- [Advanced Setup](advanced-setup.md)
-  For Codex, Gemini, Mistral, LiteLLM, provider profiles, and runtime diagnostics.
+- [Advanced setup](advanced-setup.md)
+
+For Windows helper aliases and launcher shortcuts such as `oc`, `oc-init`, `oc-local`, `oc-provider`, and `oc-check`, see:
+
+- [Windows aliases and launchers](windows-aliases-and-launchers.md)

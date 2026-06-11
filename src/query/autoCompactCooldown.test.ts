@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   type AutoCompactTrackingState,
@@ -11,34 +13,88 @@ import {
 import type { Message } from '../types/message.js'
 import { query } from '../query.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
+import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 
 const SAVED_ENV = {
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW:
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
   CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
+  DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
+  DISABLE_COMPACT: process.env.DISABLE_COMPACT,
 }
+let savedAutoCompactEnabled: boolean | undefined
+let tempDir: string | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('query/autoCompactCooldown.test.ts')
+  tempDir = mkdtempSync(join(tmpdir(), 'openclaude-autocompact-test-'))
+  process.env.CLAUDE_CONFIG_DIR = tempDir
+  savedAutoCompactEnabled = getGlobalConfig().autoCompactEnabled
+  saveGlobalConfig(current => ({ ...current, autoCompactEnabled: true }))
+  process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '200000'
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
+  delete process.env.DISABLE_AUTO_COMPACT
+  delete process.env.DISABLE_COMPACT
 })
 
 afterEach(() => {
-  if (SAVED_ENV.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE === undefined) {
-    delete process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
-  } else {
-    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE =
-      SAVED_ENV.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+  try {
+    if (savedAutoCompactEnabled !== undefined) {
+      const autoCompactEnabled = savedAutoCompactEnabled
+      saveGlobalConfig(current => ({
+        ...current,
+        autoCompactEnabled,
+      }))
+      savedAutoCompactEnabled = undefined
+    }
+
+    for (const [key, value] of Object.entries(SAVED_ENV)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true })
+      tempDir = undefined
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
-  releaseSharedMutationLock()
 })
 
 function userMessage(content: string): Message {
   return {
     type: 'user',
     message: { role: 'user', content },
-    uuid: `test-${Math.random()}`,
+    uuid: `test-${Math.random()}` as Message['uuid'],
     timestamp: new Date().toISOString(),
   }
+}
+
+function highContextMessages(): Message[] {
+  return [
+    {
+      type: 'assistant',
+      message: {
+        id: 'msg-high-context',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'previous response' }],
+        usage: {
+          input_tokens: 170_000,
+          output_tokens: 1_000,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+      uuid: `assistant-${Math.random()}` as Message['uuid'],
+      timestamp: new Date().toISOString(),
+    } as unknown as Message,
+    userMessage('continue'),
+  ]
 }
 
 function toolUseContext() {
@@ -73,6 +129,7 @@ function toolUseContext() {
 }
 
 function assistantToolUseMessage(): Message {
+  // Minimal fixture (no model/usage) — cast type-side only.
   return {
     type: 'assistant',
     message: {
@@ -87,9 +144,9 @@ function assistantToolUseMessage(): Message {
         },
       ],
     },
-    uuid: 'assistant-tool-use',
+    uuid: 'assistant-tool-use' as Message['uuid'],
     timestamp: new Date().toISOString(),
-  }
+  } as unknown as Message
 }
 
 async function canUseTool() {
@@ -110,7 +167,7 @@ async function drain<T, TReturn>(
 }
 
 test('active auto-compact cooldown blocks before model call with cooldown guidance', async () => {
-  const messages = [userMessage('x'.repeat(100_000))]
+  const messages = highContextMessages()
   const nextRetryAtMs = Date.now() + 60_000
   const callModel = mock(() => {
     throw new Error('model should not be called while autocompact cools down')
@@ -165,7 +222,7 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
 })
 
 test('auto-compact cooldown tracking is carried into the next query call', async () => {
-  const messages = [userMessage('x'.repeat(100_000))]
+  const messages = highContextMessages()
   const nextRetryAtMs = Date.now() + 60_000
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []
   const callModel = mock(() => {
@@ -308,7 +365,7 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
 
   const { terminal } = await drain(
     query({
-      messages: [userMessage('x'.repeat(100_000))],
+      messages: highContextMessages(),
       systemPrompt: asSystemPrompt([]),
       userContext: {},
       systemContext: {},

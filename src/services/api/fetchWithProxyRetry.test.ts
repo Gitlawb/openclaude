@@ -95,7 +95,7 @@ test('fetchWithProxyRetry retries once with keepalive disabled after socket clos
       )
     }
     return new Response('ok')
-  }) as FetchType
+  }) as unknown as FetchType
 
   const response = await fetchWithProxyRetry('https://example.com/search', {
     method: 'POST',
@@ -113,10 +113,12 @@ test('fetchWithProxyRetry retries once with keepalive disabled after socket clos
 test('fetchWithProxyRetry does not retry non-network errors', async () => {
   let attempts = 0
 
-  globalThis.fetch = (async () => {
+  // Match fetch's call signature (param + Promise<Response>): an argless,
+  // always-throwing async fn infers a type that no longer overlaps fetch.
+  globalThis.fetch = (async (_input): Promise<Response> => {
     attempts += 1
     throw new Error('400 bad request')
-  }) as FetchType
+  }) as unknown as FetchType
 
   await expect(fetchWithProxyRetry('https://example.com')).rejects.toThrow(
     '400 bad request',
@@ -133,7 +135,7 @@ test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 r
       return new Response('Gateway Timeout', { status: 504 })
     }
     return new Response('ok')
-  }) as FetchType
+  }) as unknown as FetchType
 
   const response = await fetchWithProxyRetry('https://example.com/search')
   expect(response.status).toBe(200)

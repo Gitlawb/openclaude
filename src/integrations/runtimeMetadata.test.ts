@@ -7,6 +7,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // my-deepseek-rag is a custom alias, NOT a provider path
       // Should NOT trigger the DeepSeek detection
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'my-deepseek-rag',
       })
       // Custom aliases should NOT get preserveReasoningContent
@@ -17,6 +18,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // openrouter/deepseek/deepseek-chat is a provider path with segments
       // Should trigger the DeepSeek detection
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'openrouter/deepseek/deepseek-chat',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
@@ -27,6 +29,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       // accounts/fireworks/models/deepseek-v3 is a provider path with multiple segments
       // Should trigger the DeepSeek detection
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'accounts/fireworks/models/deepseek-v3',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
@@ -35,6 +38,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
 
     it('should infer preserveReasoningContent for deepseek-chat directly (standard case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'deepseek-chat',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
@@ -42,6 +46,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
 
     it('should infer preserveReasoningContent for deepseek-coder (model name)', () => {
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'deepseek-coder',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
@@ -52,6 +57,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     it('should NOT infer preserveReasoningContent for custom kimi aliases', () => {
       // Custom alias should not trigger
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'my-kimi-assistant',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
@@ -59,14 +65,16 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
 
     it('should infer preserveReasoningContent for moonshot AI paths', () => {
       const result = resolveOpenAIShimRuntimeContext({
-        model: 'moonshot/moonshot-v1',
+        processEnv: {},
+        model: 'openrouter/moonshotai/moonshot-v1-8k',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
 
-    it('should infer preserveReasoningContent for kimi on moonshot paths', () => {
+    it('should infer preserveReasoningContent for direct moonshot model names', () => {
       const result = resolveOpenAIShimRuntimeContext({
-        model: 'moonshot/kimi-kpro',
+        processEnv: {},
+        model: 'moonshot-v1-8k',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     })
@@ -75,6 +83,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
   describe('Non-matching models', () => {
     it('should return undefined for gpt-4o (negative case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'gpt-4o',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
@@ -82,6 +91,7 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
 
     it('should return undefined for claude models (negative case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
         model: 'claude-sonnet-4-20250514',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()

@@ -187,16 +187,38 @@ export type SessionMessage = {
 // Re-export precise SDK message types from generated types
 // These use camelCase field names and discriminated unions for full IntelliSense
 import type {
+  AccountInfo,
+  AgentInfo,
+  FastModeState,
+  ModelInfo,
+  SlashCommand,
   SDKMessage,
   SDKUserMessage,
   SDKResultMessage,
 } from './sdk/coreTypes.generated.js'
 
 export type {
+  AccountInfo,
+  AgentInfo,
+  FastModeState,
+  ModelInfo,
+  SlashCommand,
   SDKMessage,
   SDKUserMessage,
   SDKResultMessage,
 } from './sdk/coreTypes.generated.js'
+
+export type SDKControlInitializeResponse = {
+  commands: SlashCommand[]
+  agents: AgentInfo[]
+  output_style: string
+  available_output_styles: string[]
+  models: ModelInfo[]
+  account: AccountInfo
+  /** @internal CLI process PID for tmux socket isolation. */
+  pid?: number
+  fast_mode_state?: FastModeState
+}
 
 // ============================================================================
 // Query types

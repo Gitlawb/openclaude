@@ -194,7 +194,7 @@ export OPENAI_MODEL=gpt-5.4
 openclaude
 ```
 
-OpenCode Zen is a pay-as-you-go AI gateway with 41 models (GPT, Claude, Gemini,
+OpenCode Zen is a pay-as-you-go AI gateway with 43 models (GPT, Claude, Gemini,
 Qwen, MiniMax, GLM, Kimi, Grok, Big Pickle, DeepSeek, Nemotron). Uses the same
 `OPENCODE_API_KEY` as OpenCode Go. Get your key from https://opencode.ai.
 
@@ -209,7 +209,7 @@ export OPENAI_MODEL=glm-5.1
 openclaude
 ```
 
-OpenCode Go is a $10/mo subscription for 12 open models (GLM, Kimi, DeepSeek,
+OpenCode Go is a $10/mo subscription for 13 open models (GLM, Kimi, DeepSeek,
 MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
 
 ### Gitlawb Opengateway
@@ -239,6 +239,31 @@ export OPENAI_MODEL=mimo-v2.5-pro
 
 The `/provider` Xiaomi MiMo preset uses the same endpoint and stores the key as `MIMO_API_KEY`. `OPENAI_API_KEY` also works as a compatibility fallback, but `MIMO_API_KEY` keeps the profile tied to the MiMo route.
 
+### NEAR AI
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export NEARAI_API_KEY=...
+export OPENAI_BASE_URL=https://cloud-api.near.ai/v1
+export OPENAI_MODEL=anthropic/claude-sonnet-4-6
+
+openclaude
+```
+
+NEAR AI is a unified OpenAI-compatible gateway that proxies Anthropic, OpenAI,
+and Google models alongside TEE-hosted open models (GLM 5.1, Qwen3.5, Kimi K2.6).
+All models are accessible from a single endpoint with one API key.
+Get your key from https://cloud.near.ai/dashboard/organizations.
+
+Model IDs use `provider/model-name` format (e.g. `anthropic/claude-opus-4-7`,
+`openai/gpt-5.5`, `google/gemini-3.5-flash`, `zai-org/GLM-5.1-FP8`).
+
+For direct TEE completions (lower latency, verifiable privacy):
+
+```bash
+export OPENAI_BASE_URL=https://qwen35-122b.completions.near.ai/v1
+```
+
 ### Mistral
 
 ```bash
@@ -255,6 +280,30 @@ export OPENAI_API_KEY=your-azure-key
 export OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments/your-deployment/v1
 export OPENAI_MODEL=gpt-4o
 ```
+
+### Microsoft Foundry / Azure OpenAI (resource URL + deployment)
+
+When your endpoint is the **resource base URL** (not the full `.../deployments/.../v1` path), set `OPENAI_MODEL` to the **deployment name** and `AZURE_OPENAI_API_VERSION` to your API version. The OpenAI shim builds:
+
+`{base}/openai/deployments/{OPENAI_MODEL}/chat/completions?api-version={AZURE_OPENAI_API_VERSION}`
+
+and sends the key in the `api-key` header for Azure hosts.
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY=your-azure-key
+export OPENAI_BASE_URL=https://your-resource.openai.azure.com
+export OPENAI_MODEL=your-deployment-name
+export AZURE_OPENAI_API_VERSION=2024-12-01-preview
+```
+
+If your hostname is not detected as Azure (for example some inference endpoints), force Azure URL and header behavior:
+
+```bash
+export OPENAI_AZURE_STYLE=1
+```
+
+The **OpenClaude VS Code extension** can store the key in Secret Storage and set these variables for you when you launch from the Control Center. See `vscode-extension/openclaude-vscode/README.md`.
 
 ## Environment Variables
 
@@ -411,3 +460,26 @@ run `doctor:runtime` first and only launch the app if checks pass.
 For `dev:ollama`, make sure Ollama is running locally before launch.
 
 For `dev:atomic-chat`, make sure Atomic Chat is running with a model loaded before launch.
+
+## Message-Count Compaction Threshold
+
+By default, OpenClaude compacts conversations based on token usage. A secondary
+message-count-based trigger (`OPENCLAUDE_MAX_ACTIVE_MESSAGES`) exists for
+diagnostics but is disabled by default.
+
+If you frequently resume long sessions that accumulate hundreds of small
+tool-result messages with negligible token cost, you can opt in to message-count
+compaction via the in-app `/config` command:
+
+```text
+/config
+```
+
+Select **Message-count compaction** and choose a threshold (`100`, `200`, `500`,
+or `1000`). Setting it to `off` (default) disables the message-count trigger.
+
+This setting is intended for power users debugging specific edge cases. Most
+users should leave it at `off`.
+
+The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
+honored when the setting is `off`.

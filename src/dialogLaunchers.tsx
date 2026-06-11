@@ -31,9 +31,19 @@ export async function launchSnapshotUpdateDialog(root: Root, props: {
   scope: AgentMemoryScope;
   snapshotTimestamp: string;
 }): Promise<'merge' | 'keep' | 'replace'> {
+  // SnapshotUpdateDialog.js is currently a stub whose props are untyped
+  // (`_props: unknown`), which JSX rejects; assert the real prop contract here.
   const {
     SnapshotUpdateDialog
-  } = await import('./components/agents/SnapshotUpdateDialog.js');
+  } = (await import('./components/agents/SnapshotUpdateDialog.js')) as unknown as {
+    SnapshotUpdateDialog: React.ComponentType<{
+      agentType: string;
+      scope: AgentMemoryScope;
+      snapshotTimestamp: string;
+      onComplete: (result: 'merge' | 'keep' | 'replace') => void;
+      onCancel: () => void;
+    }>;
+  };
   return showSetupDialog<'merge' | 'keep' | 'replace'>(root, done => <SnapshotUpdateDialog agentType={props.agentType} scope={props.scope} snapshotTimestamp={props.snapshotTimestamp} onComplete={done} onCancel={() => done('keep')} />);
 }
 
@@ -71,6 +81,8 @@ export async function launchAssistantSessionChooser(root: Root, props: {
  * distinguish errors from user cancellation.
  */
 export async function launchAssistantInstallWizard(root: Root): Promise<string | null> {
+  // assistant.js is a stub in this source snapshot; its NewInstallWizard
+  // cancels immediately, so this resolves null when the path is reached.
   const {
     NewInstallWizard,
     computeDefaultInstallDir

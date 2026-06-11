@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
+import type { AppState } from 'src/state/AppState.js'
+import type { ToolPermissionContext } from 'src/Tool.js'
 import {
   checkAndDisableBypassPermissionsIfNeeded,
   resetBypassPermissionsCheck,
@@ -52,17 +54,17 @@ describe('checkAndDisableBypassPermissionsIfNeeded', () => {
     let appStateUpdates = 0
     let resolveGateCheck: ((value: boolean) => void) | undefined
 
+    // Minimal fixture: the killswitch only reads isBypassPermissionsModeAvailable.
     const context = {
       isBypassPermissionsModeAvailable: true,
-    } as never
+    } as ToolPermissionContext
 
-    const setAppState = (
-      update: (prev: { toolPermissionContext: typeof context }) => unknown,
-    ) => {
+    const setAppState = (update: (prev: AppState) => AppState) => {
       appStateUpdates += 1
+      // Minimal prev state: the updater only touches toolPermissionContext.
       update({
         toolPermissionContext: context,
-      })
+      } as AppState)
     }
 
     const deps = {

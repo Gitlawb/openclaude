@@ -106,7 +106,7 @@ const ORAMA_SCHEMA = {
 function getProviders(): { sqlite: SQLiteProvider; json: JSONProvider } {
   const cwd = getFsImplementation().cwd()
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
-  
+
   let providers = providerCache.get(projectDir)
   if (!providers) {
     providers = {
@@ -115,7 +115,7 @@ function getProviders(): { sqlite: SQLiteProvider; json: JSONProvider } {
     }
     providerCache.set(projectDir, providers)
   }
-  
+
   return providers
 }
 
@@ -127,12 +127,12 @@ async function enqueueMutation<T>(fn: () => T | Promise<T>): Promise<T> {
   if (mutationLock.getStore()) {
     return fn()
   }
-  
+
   const result = (async () => {
     await mutationQueue
     return mutationLock.run(true, fn)
   })()
-  
+
   mutationQueue = result.then(
     () => {},
     () => {},
@@ -169,7 +169,7 @@ async function updateOramaSyncMetadata(cwd: string, graph: KnowledgeGraph): Prom
   try {
     await remove(oramaDb, 'meta:sync')
   } catch { /* ignore if not found */ }
-  
+
   await insert(oramaDb, {
     id: 'meta:sync',
     type: 'meta',
@@ -205,7 +205,7 @@ export async function initOrama(cwd: string): Promise<void> {
     if (existsSync(path)) {
       try {
         const data = readFileSync(path)
-        oramaDb = await restore('binary', data)
+        oramaDb = await restore<NonNullable<typeof oramaDb>>('binary', data)
         const graph = projectGraph || loadProjectGraph(cwd)
         if (await isOramaInSync(graph)) {
           restored = true
@@ -222,7 +222,7 @@ export async function initOrama(cwd: string): Promise<void> {
     if (!restored) {
       oramaDb = await create({ schema: ORAMA_SCHEMA })
       const graph = projectGraph || loadProjectGraph(cwd)
-      
+
       for (const entity of Object.values(graph.entities)) {
         try { await remove(oramaDb, entity.id) } catch {}
         await insert(oramaDb, {
@@ -280,10 +280,10 @@ export async function saveOrama(cwd: string): Promise<void> {
  */
 export function loadProjectGraph(cwd: string): KnowledgeGraph {
   const { sqlite, json } = getProviders()
-  
+
   const graphFromJson = json.loadGraph()
   const graphFromSqlite = sqlite.isReady ? sqlite.loadGraph() : null
-  
+
   // Deterministic Choice: pick the one with the higher lastUpdateTime.
   // In case of equality, the JSON Audit Log wins as the ultimate Source of Truth.
   if (graphFromJson && graphFromSqlite) {
@@ -317,7 +317,7 @@ export function loadProjectGraph(cwd: string): KnowledgeGraph {
 export function saveProjectGraph(cwd: string): void {
   if (!projectGraph) return
   const { sqlite, json } = getProviders()
-  
+
   // Dual-Write strategy
   json.saveGraph(projectGraph)
   if (sqlite.isReady) sqlite.saveGraph(projectGraph)
@@ -526,7 +526,7 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
   }
 
   await initOrama(getFsImplementation().cwd())
-  
+
   if (oramaDb) {
     try {
       const results = await search(oramaDb, { term: query, limit: 20 })
@@ -537,7 +537,7 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
         for (const hit of results.hits) {
           const doc = hit.document as any
           if (doc.id === 'meta:sync') continue
-          
+
           visibleHits++
           if (doc.type === 'summary') {
             hitsContent += `- ${doc.content}\n`
@@ -685,7 +685,7 @@ export function resetGlobalGraph(): void {
     rules: [],
     lastUpdateTime: Date.now(),
   }
-  
+
   const sqliteCleared = sqlite.clear()
   sqlite.close()
   const jsonResetSucceeded = sqliteCleared
@@ -704,10 +704,10 @@ export function resetGlobalGraph(): void {
   ]) {
     removePathWithRetry(sqlitePath, { requireMissingAfterCleanup: !sqliteCleared })
   }
-  
+
   const oramaPath = getOramaPersistencePath(cwd)
   removePathWithRetry(oramaPath, { requireMissingAfterCleanup: true })
-  
+
   oramaDb = null
   projectGraph = null
   // Clear cache for this specific project
@@ -718,7 +718,7 @@ export function clearMemoryOnly(): void {
   const cwd = getFsImplementation().cwd()
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
   const providers = providerCache.get(projectDir)
-  
+
   projectGraph = null
   oramaDb = null
   if (providers) {

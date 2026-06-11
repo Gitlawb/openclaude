@@ -18,7 +18,7 @@ export class SQLiteProvider {
       mkdirSync(projectDir, { recursive: true })
     }
     this.dbPath = join(projectDir, 'knowledge.db')
-    
+
     // Ensure connection is closed on process exit
     registerCleanup(() => this.close())
   }
@@ -67,7 +67,7 @@ export class SQLiteProvider {
           try { unlinkSync(file) } catch {}
         }
       }
-      
+
       if (typeof Bun !== 'undefined') {
         const { Database } = await import('bun:sqlite')
         this.db = new Database(this.dbPath)
@@ -133,34 +133,34 @@ export class SQLiteProvider {
     try {
       this.db.transaction(() => {
         const upsertEntity = this.db!.prepare(`
-          INSERT INTO entities (id, type, name, attributes, last_updated) 
+          INSERT INTO entities (id, type, name, attributes, last_updated)
           VALUES ($id, $type, $name, $attributes, $last_updated)
-          ON CONFLICT(id) DO UPDATE SET 
-            type=excluded.type, 
-            name=excluded.name, 
-            attributes=excluded.attributes, 
+          ON CONFLICT(id) DO UPDATE SET
+            type=excluded.type,
+            name=excluded.name,
+            attributes=excluded.attributes,
             last_updated=excluded.last_updated
         `)
-        
+
         const upsertSummary = this.db!.prepare(`
-          INSERT INTO summaries (id, content, keywords, timestamp) 
+          INSERT INTO summaries (id, content, keywords, timestamp)
           VALUES ($id, $content, $keywords, $timestamp)
-          ON CONFLICT(id) DO UPDATE SET 
-            content=excluded.content, 
-            keywords=excluded.keywords, 
+          ON CONFLICT(id) DO UPDATE SET
+            content=excluded.content,
+            keywords=excluded.keywords,
             timestamp=excluded.timestamp
         `)
 
         const upsertRelation = this.db!.prepare(`
-          INSERT INTO relations (source_id, target_id, type) 
+          INSERT INTO relations (source_id, target_id, type)
           VALUES ($source_id, $target_id, $type)
           ON CONFLICT(source_id, target_id, type) DO NOTHING
         `)
 
         const upsertRule = this.db!.prepare(`
-          INSERT INTO rules (content, timestamp) 
+          INSERT INTO rules (content, timestamp)
           VALUES ($content, $timestamp)
-          ON CONFLICT(content) DO UPDATE SET 
+          ON CONFLICT(content) DO UPDATE SET
             timestamp=excluded.timestamp
         `)
 
@@ -213,7 +213,7 @@ export class SQLiteProvider {
     try {
       const entitiesRaw = this.db.query('SELECT * FROM entities').all() as any[]
       const summariesRaw = this.db.query('SELECT * FROM summaries').all() as any[]
-      
+
       if (entitiesRaw.length === 0 && summariesRaw.length === 0) {
         return null
       }

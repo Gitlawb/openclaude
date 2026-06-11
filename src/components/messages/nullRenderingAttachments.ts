@@ -11,6 +11,13 @@ import type { Message, NormalizedMessage } from '../../types/message.js'
  * asserts `attachment.type satisfies NullRenderingAttachmentType`. Adding a new
  * Attachment type without either a case or an entry here will fail typecheck.
  */
+/**
+ * Attachment types no longer present in the Attachment union but kept in the
+ * null-rendering set so transcripts recorded by older versions (which may
+ * still contain them) stay filtered. Compile-time only — no runtime effect.
+ */
+type LegacyNullRenderingType = 'pen_mode_enter' | 'pen_mode_exit'
+
 const NULL_RENDERING_TYPES = [
   'hook_success',
   'hook_additional_context',
@@ -46,12 +53,13 @@ const NULL_RENDERING_TYPES = [
   'current_session_memory',
   'compaction_reminder',
   'date_change',
-] as const satisfies readonly Attachment['type'][]
+] as const satisfies readonly (Attachment['type'] | LegacyNullRenderingType)[]
 
 export type NullRenderingAttachmentType = (typeof NULL_RENDERING_TYPES)[number]
 
-const NULL_RENDERING_ATTACHMENT_TYPES: ReadonlySet<Attachment['type']> =
-  new Set(NULL_RENDERING_TYPES)
+const NULL_RENDERING_ATTACHMENT_TYPES: ReadonlySet<
+  Attachment['type'] | LegacyNullRenderingType
+> = new Set(NULL_RENDERING_TYPES)
 
 /**
  * True when this message is an attachment that AttachmentMessage renders as

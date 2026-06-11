@@ -2565,7 +2565,9 @@ type LiteSessionInfo = {
 async function scanAllSessions(): Promise<LiteSessionInfo[]> {
   const projectsDir = getProjectsDir()
 
-  let dirents: Awaited<ReturnType<typeof readdir>>
+  // `ReturnType<typeof readdir>` resolves to the last (Buffer) overload;
+  // with a string path + withFileTypes we get string-named Dirents.
+  let dirents: import('node:fs').Dirent[]
   try {
     dirents = await readdir(projectsDir, { withFileTypes: true })
   } catch {

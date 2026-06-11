@@ -45,6 +45,14 @@ import { getEffortSuffix } from '../../utils/effort.js';
 import { getAPIProvider } from '../../utils/model/providers.js';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { renderModelSetting } from '../../utils/model/model.js';
+// Stubs: internal-only startup notices not included in this open snapshot
+// (every render site is gated off with `false &&`).
+function GateOverridesWarning(): React.ReactElement | null {
+  return null;
+}
+function ExperimentEnrollmentNotice(): React.ReactElement | null {
+  return null;
+}
 const LEFT_PANEL_MAX_WIDTH = 50;
 export function LogoV2() {
   const $ = _c(94);

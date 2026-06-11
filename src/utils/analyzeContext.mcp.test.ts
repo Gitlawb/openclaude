@@ -78,40 +78,59 @@ describe('countMcpToolTokens', () => {
   })
 
   test('keeps deferred MCP schemas excluded from the outgoing request estimate when Tool Search is deferred', async () => {
-    const result = await countMcpToolTokens(
-      [
-        makeToolSearchTool(),
-        makeMcpTool('mcp__alpha__search'),
-        makeMcpTool('mcp__beta__list'),
-      ],
-      emptyPermissionContext,
-      { activeAgents: [] } as never,
-      'test-model',
-      [],
-      countToolDefinitions,
-    )
-
-    expect(result.mcpToolTokens).toBe(0)
-    expect(result.deferredToolTokens).toBeGreaterThan(0)
-    expect(result.mcpToolDetails.every(tool => !tool.isLoaded)).toBe(true)
-
-    const report = createRequestSizeReport(
-      makeContextData({
-        categories: [
-          {
-            name: 'MCP tools (deferred)',
-            tokens: result.deferredToolTokens,
-            color: 'inactive',
-            isDeferred: true,
-          },
+    const previousToolSearch = process.env.ENABLE_TOOL_SEARCH
+    const previousDisableBetas =
+      process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    try {
+      const result = await countMcpToolTokens(
+        [
+          makeToolSearchTool(),
+          makeMcpTool('mcp__alpha__search'),
+          makeMcpTool('mcp__beta__list'),
         ],
-        mcpTools: result.mcpToolDetails,
-      }),
-    )
-    const labels = report.contributors.map(contributor => contributor.label)
+        emptyPermissionContext,
+        { activeAgents: [] } as never,
+        'test-model',
+        [],
+        countToolDefinitions,
+      )
 
-    expect(report.estimatedTokens).toBe(0)
-    expect(labels).not.toContain('MCP server alpha')
-    expect(labels).not.toContain('MCP server beta')
+      expect(result.mcpToolTokens).toBe(0)
+      expect(result.deferredToolTokens).toBeGreaterThan(0)
+      expect(result.mcpToolDetails.every(tool => !tool.isLoaded)).toBe(true)
+
+      const report = createRequestSizeReport(
+        makeContextData({
+          categories: [
+            {
+              name: 'MCP tools (deferred)',
+              tokens: result.deferredToolTokens,
+              color: 'inactive',
+              isDeferred: true,
+            },
+          ],
+          mcpTools: result.mcpToolDetails,
+        }),
+      )
+      const labels = report.contributors.map(contributor => contributor.label)
+
+      expect(report.estimatedTokens).toBe(0)
+      expect(labels).not.toContain('MCP server alpha')
+      expect(labels).not.toContain('MCP server beta')
+    } finally {
+      if (previousToolSearch === undefined) {
+        delete process.env.ENABLE_TOOL_SEARCH
+      } else {
+        process.env.ENABLE_TOOL_SEARCH = previousToolSearch
+      }
+      if (previousDisableBetas === undefined) {
+        delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+      } else {
+        process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS =
+          previousDisableBetas
+      }
+    }
   })
 })

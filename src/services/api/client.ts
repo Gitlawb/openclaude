@@ -36,6 +36,7 @@ import {
 } from '../../utils/envUtils.js'
 import {
   getMiniMaxBaseUrlOverride,
+  getNearaiBaseUrlOverride,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -236,6 +237,41 @@ function applyXaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+const NEARAI_MODEL_PREFIXES = [
+  'anthropic/',
+  'openai/',
+  'google/',
+  'zai-org/',
+  'qwen/',
+  'moonshotai/',
+]
+
+function isNearaiModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return false
+  return NEARAI_MODEL_PREFIXES.some(prefix => normalized.startsWith(prefix))
+}
+
+function applyNearaiEnvOnlyDefaults(): void {
+  const baseUrlOverride = getNearaiBaseUrlOverride()
+  const hasNearaiBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('nearai')
+  process.env.OPENAI_MODEL =
+    (hasNearaiBaseOverride || isNearaiModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('nearai')
+  process.env.OPENAI_API_KEY = process.env.NEARAI_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -298,6 +334,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
   const useXaiEnvOnlyProvider =
     envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
+  const useNearaiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -306,6 +344,9 @@ export async function getAnthropicClient({
   }
   if (useXaiEnvOnlyProvider) {
     applyXaiEnvOnlyDefaults()
+  }
+  if (useNearaiEnvOnlyProvider) {
+    applyNearaiEnvOnlyDefaults()
   }
 
   const shouldUseFirstPartyAuth =
@@ -383,6 +424,7 @@ export async function getAnthropicClient({
   if (
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
+    useNearaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
@@ -405,7 +447,10 @@ export async function getAnthropicClient({
         ? process.env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION
         : getAWSRegion()
 
-    const bedrockArgs: ConstructorParameters<typeof AnthropicBedrock>[0] = {
+    // Typed as the SDK's ClientOptions (not ConstructorParameters) because
+    // credentials are filled in conditionally below, which the constructor's
+    // statically-discriminated credential overloads can't express.
+    const bedrockArgs: import('@anthropic-ai/bedrock-sdk').ClientOptions = {
       ...ARGS,
       awsRegion,
       ...(isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH) && {
@@ -432,7 +477,10 @@ export async function getAnthropicClient({
       }
     }
     // we have always been lying about the return type - this doesn't support batching or models
-    return new AnthropicBedrock(bedrockArgs) as unknown as Anthropic
+    // Cast: the overloads demand a statically-known credential shape; ours is runtime-conditional.
+    return new AnthropicBedrock(
+      bedrockArgs as ConstructorParameters<typeof AnthropicBedrock>[0],
+    ) as unknown as Anthropic
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
     const { AnthropicFoundry } = await importRuntimeModule(
