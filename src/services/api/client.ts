@@ -424,6 +424,7 @@ export async function getAnthropicClient({
   if (
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
+    useNearaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

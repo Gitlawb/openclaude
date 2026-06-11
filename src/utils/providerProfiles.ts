@@ -44,7 +44,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import { isNearaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -554,8 +554,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('cloud-api.near.ai') ||
-      profile.baseUrl?.toLowerCase().includes('completions.near.ai')
+    (isNearaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
       : true)
@@ -696,7 +695,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'nearai' || profile.baseUrl.toLowerCase().includes('near.ai')) {
+      if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
       }
     }
@@ -944,7 +943,7 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
-      if (activeProfile.baseUrl?.toLowerCase().includes('near.ai')) {
+      if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
@@ -987,7 +986,7 @@ function buildOpenAICompatibleStartupEnv(
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
     }
-    if (activeProfile.baseUrl?.toLowerCase().includes('near.ai')) {
+    if (isNearaiBaseUrl(activeProfile.baseUrl)) {
       env.NEARAI_API_KEY = activeProfile.apiKey
     }
   } else {
