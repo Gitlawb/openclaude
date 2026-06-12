@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from 'bun:test'
+import { randomUUID } from 'crypto'
 
 import {
   acquireSharedMutationLock,
@@ -23,7 +24,7 @@ function userMessage(content: string): Message {
   return {
     type: 'user',
     message: { role: 'user', content },
-    uuid: `test-${Math.random()}`,
+    uuid: randomUUID(),
     timestamp: new Date().toISOString(),
   }
 }
@@ -35,7 +36,7 @@ function assistantMessage(text: string): Message {
       role: 'assistant',
       content: [{ type: 'text', text }],
     },
-    uuid: `test-${Math.random()}`,
+    uuid: randomUUID(),
     timestamp: new Date().toISOString(),
   }
 }
