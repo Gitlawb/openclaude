@@ -1135,11 +1135,16 @@ function hasConcreteProviderSelection(
     )
   }
 
-  return (
+  if (
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
-  )
+  ) {
+    return true
+  }
+
+  // env-only Fireworks setup — no CLAUDE_CODE_USE_* flag needed
+  return sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined
 }
 
 export function selectAutoProfile(

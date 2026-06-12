@@ -16,11 +16,12 @@
  *   5. GEMINI_API_KEY or GOOGLE_API_KEY
  *   6. MISTRAL_API_KEY
  *   7. MINIMAX_API_KEY
- *   8. XAI_API_KEY
- *   9. NEARAI_API_KEY
- *  10. FIREWORKS_API_KEY
- *  11. Local Ollama reachable (default localhost:11434)
- *  12. Local LM Studio reachable (default localhost:1234)
+ *   8. MIMO_API_KEY (Xiaomi Mimo)
+ *   9. XAI_API_KEY
+ *  10. NEARAI_API_KEY
+ *  11. FIREWORKS_API_KEY
+ *  12. Local Ollama reachable (default localhost:11434)
+ *  13. Local LM Studio reachable (default localhost:1234)
  *
  * Local-service probes are parallelized and cheap (short timeout, no
  * request body). Env scans are synchronous and run first so we don't make
