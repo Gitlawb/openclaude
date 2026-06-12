@@ -1,0 +1,283 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import CopyCommand from '../components/CopyCommand.astro'
+import Terminal from '../components/Terminal.astro'
+import { SITE } from '../data/site'
+
+const features = [
+  {
+    title: 'any model, one terminal',
+    body: 'local ollama, openai-compatible apis, gemini, github models, gateways — switch providers with one command, no rewrites.',
+    href: '/docs/providers/',
+    link: 'provider setup →',
+  },
+  {
+    title: 'real tools, not just chat',
+    body: 'bash, file edits, grep, glob, mcp servers, skills — wired into the agent loop, not bolted on.',
+    href: '/docs/slash-commands/',
+    link: 'command reference →',
+  },
+  {
+    title: 'scriptable from day one',
+    body: 'non-interactive --print mode with json and stream-json output, tool allowlists, budgets, and session control.',
+    href: '/docs/cli-reference/',
+    link: 'cli reference →',
+  },
+  {
+    title: 'profiles per repo',
+    body: 'save model, base url, auth, and runtime defaults so every clone boots the same way.',
+    href: '/docs/configuration/',
+    link: 'configuration →',
+  },
+  {
+    title: 'streaming, not batch',
+    body: 'watch the agent think, call tools, and produce diffs live. every change stays reviewable.',
+    href: '/docs/quickstart/',
+    link: 'quickstart →',
+  },
+  {
+    title: 'sessions that persist',
+    body: 'resume, branch, and rewind conversations. background tasks, worktree isolation, remote control from your phone.',
+    href: '/docs/slash-commands/#session',
+    link: 'session commands →',
+  },
+]
+
+const providers = [
+  'OpenAI', 'Gemini', 'Ollama', 'GitHub Models', 'OpenRouter', 'DeepSeek',
+  'Groq', 'Mistral', 'LM Studio', 'NEAR AI', 'Xiaomi MiMo', 'LiteLLM',
+]
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'openclaude',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'macOS, Linux, Windows',
+    softwareVersion: SITE.version,
+    url: SITE.url,
+    downloadUrl: SITE.npmUrl,
+    description: SITE.description,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    author: { '@type': 'Organization', name: 'GitLawb', url: SITE.gitlawb },
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: SITE.name,
+    url: SITE.url,
+  },
+]
+---
+
+<BaseLayout title={SITE.title} description={SITE.description} jsonLd={jsonLd}>
+  <section class="hero grid-bg" aria-labelledby="hero-heading">
+    <div class="container hero-inner">
+      <p class="pill fade-up"><span class="dot" aria-hidden="true"></span>open source · gitlawb-aligned · model-neutral</p>
+      <h1 id="hero-heading" class="text-hero fade-up fade-up-1">
+        runs anywhere.<br />uses anything.
+      </h1>
+      <p class="hero-sub fade-up fade-up-2">
+        not a chatbot wrapper or another ide plugin. an open coding agent that runs in
+        your terminal, talks to any model, and keeps every change reviewable.
+      </p>
+      <div class="hero-cta fade-up fade-up-3">
+        <CopyCommand command={SITE.installCommand} />
+        <a class="button button-ghost" href="/docs/quickstart/">read the docs →</a>
+      </div>
+      <p class="hero-foot fade-up fade-up-4">
+        works with openai, gemini, codex, ollama, lm studio, litellm, and 200+ models.
+      </p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="demo-heading">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">// in action</p>
+        <h2 id="demo-heading">an agent loop you can watch.</h2>
+      </div>
+      <Terminal>
+        <span class="ln"><span class="t-prompt">$</span> openclaude</span>
+        <span class="ln t-dim">openclaude v{SITE.version} · provider: ollama · model: qwen3-coder</span>
+        <span class="ln">&nbsp;</span>
+        <span class="ln"><span class="t-prompt">&gt;</span> add retry with backoff to the fetch client</span>
+        <span class="ln">&nbsp;</span>
+        <span class="ln"><span class="t-info">●</span> Read src/lib/fetchClient.ts</span>
+        <span class="ln"><span class="t-info">●</span> Grep "fetchWithTimeout" — 3 matches</span>
+        <span class="ln"><span class="t-ok">●</span> Edit src/lib/fetchClient.ts <span class="t-dim">+18 -2</span></span>
+        <span class="ln"><span class="t-ok">●</span> Bash bun test fetchClient <span class="t-dim">— 7 pass</span></span>
+        <span class="ln">&nbsp;</span>
+        <span class="ln t-dim">added exponential backoff (3 retries, jitter). tests green.</span>
+        <span class="ln cursor">&nbsp;</span>
+      </Terminal>
+    </div>
+  </section>
+
+  <section class="section section-tint" aria-labelledby="features-heading">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">// features</p>
+        <h2 id="features-heading">built for agents that ship code.</h2>
+      </div>
+      <div class="card-grid">
+        {features.map(f => (
+          <a class="card" href={f.href}>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+            <span class="card-link">{f.link}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="providers-heading">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">// providers</p>
+        <h2 id="providers-heading">bring your own model.</h2>
+        <p class="lede">
+          one agent, every backend. wire a provider once with <code>/provider</code> and
+          switch models mid-session.
+        </p>
+      </div>
+      <ul class="provider-strip" aria-label="supported providers">
+        {providers.map(p => <li>{p}</li>)}
+      </ul>
+      <p class="text-body-dim provider-foot">
+        plus bedrock, vertex, codex oauth, atomic chat, opengateway, and any
+        openai-compatible endpoint. <a href="/docs/providers/">see all providers →</a>
+      </p>
+    </div>
+  </section>
+
+  <section class="section section-tint" aria-labelledby="install-heading">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">// install</p>
+        <h2 id="install-heading">one line. then write a task.</h2>
+      </div>
+      <div class="install-grid">
+        <CopyCommand command={SITE.installCommand} />
+        <ol class="install-steps">
+          <li>
+            <span class="step-num">01</span>
+            <div>
+              <strong>install</strong>
+              <p>requires node ≥ 20. <a href="/docs/installation/">platform guides →</a></p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">02</span>
+            <div>
+              <strong>start</strong>
+              <p>run <code>openclaude</code> in any repo.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">03</span>
+            <div>
+              <strong>pick a provider</strong>
+              <p>type <code>/provider</code> to wire openai, ollama, gemini, or a gateway.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero {
+    padding: calc(var(--nav-h) + clamp(4rem, 12vh, 7rem)) 0 clamp(3.5rem, 9vh, 6rem);
+  }
+  .hero-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 1.4rem;
+    position: relative;
+  }
+  .hero-sub {
+    max-width: 36rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: clamp(0.9rem, 1.4vw, 1rem);
+    line-height: 1.7;
+  }
+  .hero-cta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-top: 0.4rem;
+  }
+  .hero-foot {
+    margin: 0.4rem 0 0;
+    color: var(--faint);
+    font-size: 0.73rem;
+    letter-spacing: 0.02em;
+  }
+
+  .provider-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--line);
+    background: var(--line);
+  }
+  .provider-strip li {
+    flex: 1 1 auto;
+    padding: 0.85rem 1.2rem;
+    background: var(--background);
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .provider-foot { margin-top: 1.25rem; }
+  .provider-foot a { color: var(--accent); }
+
+  .install-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    max-width: 36rem;
+  }
+  .install-grid :global(.copy-cmd) { width: 100%; justify-content: flex-start; }
+  .install-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+  .install-steps li {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 1rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .step-num {
+    color: var(--accent);
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    padding-top: 0.18rem;
+  }
+  .install-steps strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--ink);
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .install-steps p { margin: 0; color: var(--muted); font-size: 0.85rem; line-height: 1.6; }
+  .install-steps a { color: var(--accent); }
+</style>

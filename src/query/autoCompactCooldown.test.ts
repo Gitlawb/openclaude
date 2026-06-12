@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  getAutoCompactThreshold,
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   type AutoCompactTrackingState,
 } from '../services/compact/autoCompact.js'
@@ -24,6 +25,7 @@ const SAVED_ENV = {
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
 }
+
 let savedAutoCompactEnabled: boolean | undefined
 let tempDir: string | undefined
 
@@ -75,26 +77,9 @@ function userMessage(content: string): Message {
   }
 }
 
-function highContextMessages(): Message[] {
-  return [
-    {
-      type: 'assistant',
-      message: {
-        id: 'msg-high-context',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'previous response' }],
-        usage: {
-          input_tokens: 170_000,
-          output_tokens: 1_000,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
-      uuid: `assistant-${Math.random()}` as Message['uuid'],
-      timestamp: new Date().toISOString(),
-    } as unknown as Message,
-    userMessage('continue'),
-  ]
+function overAutoCompactThresholdMessage(): Message {
+  const threshold = getAutoCompactThreshold('claude-sonnet-4')
+  return userMessage('x'.repeat((threshold + 1_000) * 4))
 }
 
 function toolUseContext() {
@@ -167,7 +152,7 @@ async function drain<T, TReturn>(
 }
 
 test('active auto-compact cooldown blocks before model call with cooldown guidance', async () => {
-  const messages = highContextMessages()
+  const messages = [overAutoCompactThresholdMessage()]
   const nextRetryAtMs = Date.now() + 60_000
   const callModel = mock(() => {
     throw new Error('model should not be called while autocompact cools down')
@@ -222,7 +207,7 @@ test('active auto-compact cooldown blocks before model call with cooldown guidan
 })
 
 test('auto-compact cooldown tracking is carried into the next query call', async () => {
-  const messages = highContextMessages()
+  const messages = [overAutoCompactThresholdMessage()]
   const nextRetryAtMs = Date.now() + 60_000
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []
   const callModel = mock(() => {
@@ -335,6 +320,54 @@ test('post-compact turn tracking callback publishes a fresh object', async () =>
   expect(initialTracking.turnCounter).toBe(0)
 })
 
+test('persisted breaker state does not block when auto-compact is disabled', async () => {
+  process.env.DISABLE_AUTO_COMPACT = '1'
+  const initialTracking: AutoCompactTrackingState = {
+    compacted: false,
+    turnId: 'turn',
+    turnCounter: 0,
+    consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    nextRetryAtMs: Date.now() + 60_000,
+  }
+  const callModel = mock(async function* () {
+    yield assistantToolUseMessage()
+  })
+  const deps = {
+    callModel,
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(async () => ({
+      wasCompacted: false,
+    })),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages: [overAutoCompactThresholdMessage()],
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: initialTracking,
+    }),
+  )
+
+  expect(callModel).toHaveBeenCalledTimes(1)
+  expect(terminal.reason).toBe('max_turns')
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
+})
+
 test('breaker metadata tracking callback publishes a fresh object', async () => {
   const initialTracking: AutoCompactTrackingState = {
     compacted: false,
@@ -365,7 +398,7 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
 
   const { terminal } = await drain(
     query({
-      messages: highContextMessages(),
+      messages: [overAutoCompactThresholdMessage()],
       systemPrompt: asSystemPrompt([]),
       userContext: {},
       systemContext: {},

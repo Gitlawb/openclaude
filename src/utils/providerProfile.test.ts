@@ -311,6 +311,42 @@ test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env withou
   assert.equal(isDefaultStartupProviderEnv(env), false)
 })
 
+test('buildStartupEnvFromProfile preserves env-only Fireworks setup without a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      FIREWORKS_API_KEY: 'fw-key',
+    },
+  })
+
+  // Must NOT fall through to Gitlawb Opengateway default
+  assert.equal(env.FIREWORKS_API_KEY, 'fw-key')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(
+    env.OPENAI_BASE_URL,
+    undefined,
+    'should not inject Gitlawb Opengateway base URL',
+  )
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+})
+
+test('buildStartupEnvFromProfile preserves env-only NEAR AI setup without a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      NEARAI_API_KEY: 'nearai-key',
+    },
+  })
+
+  assert.equal(env.NEARAI_API_KEY, 'nearai-key')
+  assert.equal(
+    env.OPENAI_BASE_URL,
+    undefined,
+    'should not inject Gitlawb Opengateway base URL',
+  )
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+})
+
 test('openai launch preserves shell responses format and custom auth overrides', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

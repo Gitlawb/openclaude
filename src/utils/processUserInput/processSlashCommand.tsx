@@ -299,7 +299,16 @@ export function looksLikeCommand(commandName: string): boolean {
   // If it contains other characters, it's probably a file path or other input
   return !/[^a-zA-Z0-9:\-_]/.test(commandName);
 }
-export async function processSlashCommand(inputString: string, precedingInputBlocks: ContentBlockParam[], imageContentBlocks: ContentBlockParam[], attachmentMessages: AttachmentMessage[], context: ProcessUserInputContext, setToolJSX: SetToolJSXFn, uuid?: string, isAlreadyProcessing?: boolean, canUseTool?: CanUseToolFn): Promise<ProcessUserInputBaseResult> {
+function commandMatchesSlashName(command: Command, commandName: string): boolean {
+  return command.name === commandName || getCommandName(command) === commandName || command.aliases?.includes(commandName) === true;
+}
+export function resolveSlashCommand(commandName: string, commands: Command[], commandOverride?: Command): Command {
+  if (commandOverride && commandMatchesSlashName(commandOverride, commandName)) {
+    return commandOverride;
+  }
+  return getCommand(commandName, commands);
+}
+export async function processSlashCommand(inputString: string, precedingInputBlocks: ContentBlockParam[], imageContentBlocks: ContentBlockParam[], attachmentMessages: AttachmentMessage[], context: ProcessUserInputContext, setToolJSX: SetToolJSXFn, uuid?: string, isAlreadyProcessing?: boolean, canUseTool?: CanUseToolFn, slashCommandOverride?: Command): Promise<ProcessUserInputBaseResult> {
   const parsed = parseSlashCommand(inputString);
   if (!parsed) {
     logEvent('tengu_input_slash_missing', {});
@@ -385,7 +394,7 @@ export async function processSlashCommand(inputString: string, precedingInputBlo
     resultText,
     nextInput,
     submitNextInput
-  } = await getMessagesForSlashCommand(commandName, parsedArgs, setToolJSX, context, precedingInputBlocks, imageContentBlocks, isAlreadyProcessing, canUseTool, uuid);
+  } = await getMessagesForSlashCommand(commandName, parsedArgs, setToolJSX, context, precedingInputBlocks, imageContentBlocks, isAlreadyProcessing, canUseTool, uuid, slashCommandOverride);
 
   // Local slash commands that skip messages
   if (newMessages.length === 0) {
@@ -494,8 +503,8 @@ export async function processSlashCommand(inputString: string, precedingInputBlo
     submitNextInput
   };
 }
-async function getMessagesForSlashCommand(commandName: string, args: string, setToolJSX: SetToolJSXFn, context: ProcessUserInputContext, precedingInputBlocks: ContentBlockParam[], imageContentBlocks: ContentBlockParam[], _isAlreadyProcessing?: boolean, canUseTool?: CanUseToolFn, uuid?: string): Promise<SlashCommandResult> {
-  const command = getCommand(commandName, context.options.commands);
+async function getMessagesForSlashCommand(commandName: string, args: string, setToolJSX: SetToolJSXFn, context: ProcessUserInputContext, precedingInputBlocks: ContentBlockParam[], imageContentBlocks: ContentBlockParam[], _isAlreadyProcessing?: boolean, canUseTool?: CanUseToolFn, uuid?: string, slashCommandOverride?: Command): Promise<SlashCommandResult> {
+  const command = resolveSlashCommand(commandName, context.options.commands, slashCommandOverride);
 
   // Track skill usage for ranking (only for prompt commands that are user-invocable)
   if (command.type === 'prompt' && command.userInvocable !== false) {

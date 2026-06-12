@@ -42,6 +42,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'venice',
   'atlas-cloud',
   'nearai',
+  'fireworks',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -293,6 +294,9 @@ export function applyProviderFlag(
                         process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                       ? 'nearai'
                       : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.FIREWORKS_API_KEY
+                      ? 'fireworks'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                       opengatewayApiKey !== undefined &&
                       opengatewayApiKey.length > 0 &&
                       process.env.OPENAI_API_KEY === opengatewayApiKey
@@ -426,15 +430,6 @@ export function applyProviderFlag(
       }
       break
 
-    default:
-      process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (defaultModel) {
-        process.env.OPENAI_MODEL ??= defaultModel
-      }
-      if (model) process.env.OPENAI_MODEL = model
-      break
-
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
@@ -482,6 +477,29 @@ export function applyProviderFlag(
       } else {
         delete process.env.OPENAI_API_KEY
       }
+      break
+
+    case 'fireworks':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.FIREWORKS_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    default:
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
+      if (model) process.env.OPENAI_MODEL = model
       break
   }
 

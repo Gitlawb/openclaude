@@ -1,0 +1,33 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+---
+
+<BaseLayout
+  title="404 — page not found · openclaude"
+  description="The page you were looking for does not exist."
+>
+  <section class="nf grid-bg">
+    <div class="container nf-inner">
+      <p class="eyebrow">// 404</p>
+      <h1 class="text-hero">not found.</h1>
+      <p class="text-body-dim">this page doesn't exist — but the agent probably can't fix this one.</p>
+      <div class="nf-links">
+        <a class="button button-ghost" href="/">← back home</a>
+        <a class="button button-ghost" href="/docs/">browse the docs</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .nf { padding: calc(var(--nav-h) + 8rem) 0 8rem; }
+  .nf-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 1rem;
+    position: relative;
+  }
+  .nf-links { display: flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center; }
+</style>

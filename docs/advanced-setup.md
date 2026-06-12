@@ -303,6 +303,17 @@ If your hostname is not detected as Azure (for example some inference endpoints)
 export OPENAI_AZURE_STYLE=1
 ```
 
+### Fireworks AI
+
+Fireworks AI provides a fully OpenAI-compatible endpoint. Model IDs use the full path format `accounts/fireworks/models/<model-name>`.
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export FIREWORKS_API_KEY=fw_your_key_here
+export OPENAI_BASE_URL=https://api.fireworks.ai/inference/v1
+export OPENAI_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
+```
+
 The **OpenClaude VS Code extension** can store the key in Secret Storage and set these variables for you when you launch from the Control Center. See `vscode-extension/openclaude-vscode/README.md`.
 
 ## Environment Variables

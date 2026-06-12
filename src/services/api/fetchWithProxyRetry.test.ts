@@ -10,12 +10,34 @@ import {
 type FetchType = typeof globalThis.fetch
 
 const originalFetch = globalThis.fetch
+const PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+] as const
+
 const originalEnv = {
   HTTP_PROXY: process.env.HTTP_PROXY,
   HTTPS_PROXY: process.env.HTTPS_PROXY,
+  ALL_PROXY: process.env.ALL_PROXY,
+  http_proxy: process.env.http_proxy,
+  https_proxy: process.env.https_proxy,
+  all_proxy: process.env.all_proxy,
 }
 
-function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined): void {
+function restoreEnv(
+  key:
+    | 'HTTP_PROXY'
+    | 'HTTPS_PROXY'
+    | 'ALL_PROXY'
+    | 'http_proxy'
+    | 'https_proxy'
+    | 'all_proxy',
+  value: string | undefined,
+): void {
   if (value === undefined) {
     delete process.env[key]
   } else {
@@ -23,18 +45,29 @@ function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined
   }
 }
 
+function clearProxyEnv(): void {
+  for (const key of PROXY_ENV_KEYS) {
+    delete process.env[key]
+  }
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('fetchWithProxyRetry.test.ts')
+  clearProxyEnv()
   process.env.HTTP_PROXY = 'http://127.0.0.1:15236'
-  delete process.env.HTTPS_PROXY
   _resetKeepAliveForTesting()
 })
 
 afterEach(() => {
   try {
     globalThis.fetch = originalFetch
+    clearProxyEnv()
     restoreEnv('HTTP_PROXY', originalEnv.HTTP_PROXY)
     restoreEnv('HTTPS_PROXY', originalEnv.HTTPS_PROXY)
+    restoreEnv('ALL_PROXY', originalEnv.ALL_PROXY)
+    restoreEnv('http_proxy', originalEnv.http_proxy)
+    restoreEnv('https_proxy', originalEnv.https_proxy)
+    restoreEnv('all_proxy', originalEnv.all_proxy)
     _resetKeepAliveForTesting()
   } finally {
     releaseSharedMutationLock()

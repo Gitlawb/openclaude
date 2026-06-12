@@ -35,6 +35,7 @@ import {
   isEnvTruthy,
 } from '../../utils/envUtils.js'
 import {
+  getFireworksBaseUrlOverride,
   getMiniMaxBaseUrlOverride,
   getNearaiBaseUrlOverride,
   getRouteDefaultBaseUrl,
@@ -272,6 +273,42 @@ function applyNearaiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+/**
+ * Checks whether the given model ID follows the Fireworks AI model naming
+ * convention (`accounts/fireworks/models/...`).
+ */
+function isFireworksModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized && normalized.startsWith('accounts/fireworks/models/'),
+  )
+}
+
+/**
+ * Applies Fireworks AI environment defaults by setting the OpenAI shim env
+ * vars (`CLAUDE_CODE_USE_OPENAI`, `OPENAI_BASE_URL`, `OPENAI_MODEL`,
+ * `OPENAI_API_KEY`) and clearing stale OpenAI shim options.
+ */
+function applyFireworksEnvOnlyDefaults(): void {
+  const baseUrlOverride = getFireworksBaseUrlOverride()
+  const hasFireworksBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('fireworks')
+  process.env.OPENAI_MODEL =
+    (hasFireworksBaseOverride || isFireworksModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('fireworks')
+  process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -336,6 +373,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
   const useNearaiEnvOnlyProvider =
     envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
+  const useFireworksEnvOnlyProvider =
+    envOnlyProviderRouteId === 'fireworks' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -347,6 +386,9 @@ export async function getAnthropicClient({
   }
   if (useNearaiEnvOnlyProvider) {
     applyNearaiEnvOnlyDefaults()
+  }
+  if (useFireworksEnvOnlyProvider) {
+    applyFireworksEnvOnlyDefaults()
   }
 
   const shouldUseFirstPartyAuth =
@@ -425,6 +467,7 @@ export async function getAnthropicClient({
     useXiaomiMimoEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
     useNearaiEnvOnlyProvider ||
+    useFireworksEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

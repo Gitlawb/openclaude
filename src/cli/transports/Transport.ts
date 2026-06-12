@@ -17,13 +17,13 @@ export interface Transport {
    * reconnection/backoff; the returned promise resolves when the initial
    * connection attempt completes (or the transport gives up).
    */
-  connect(): Promise<void>
+  connect(): Promise<void> | void
 
   /** Send a message to the server. */
-  write(message: StdoutMessage): Promise<void>
+  write(message: StdoutMessage): Promise<void> | void
 
-  /** Permanently close the transport. */
-  close(): void
+  /** Permanently close the transport, allowing async flush/cleanup. */
+  close(): Promise<void> | void
 
   /** Register the callback invoked with newline-delimited JSON payloads. */
   setOnData(callback: (data: string) => void): void
@@ -34,9 +34,18 @@ export interface Transport {
    */
   setOnClose(callback: (closeCode?: number) => void): void
 
+  /** Register the callback invoked when the transport connects. */
+  setOnConnect?(callback: () => void): void
+
+  /** Register the callback invoked for transport-specific events. */
+  setOnEvent?(callback: (event: unknown) => void): void
+
   /** Whether the transport is currently connected. */
-  isConnectedStatus(): boolean
+  isConnectedStatus?(): boolean
 
   /** Whether the transport has permanently closed. */
-  isClosedStatus(): boolean
+  isClosedStatus?(): boolean
+
+  /** Human-readable transport state for diagnostics. */
+  getStateLabel?(): string
 }

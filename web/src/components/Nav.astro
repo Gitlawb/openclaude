@@ -1,0 +1,89 @@
+---
+import { SITE } from '../data/site'
+
+const links = [
+  { href: '/docs/', label: 'docs' },
+  { href: '/docs/slash-commands/', label: 'commands' },
+  { href: '/docs/providers/', label: 'providers' },
+  { href: SITE.github, label: 'github' },
+  { href: SITE.gitlawb, label: 'gitlawb' },
+]
+
+const path = Astro.url.pathname
+---
+
+<header class="site-nav" id="site-nav">
+  <div class="container">
+    <a class="brand" href="/" aria-label="openclaude home">
+      <img src="/openclaude.png" alt="" width="22" height="22" />
+      <span>openclaude</span>
+      <span class="ver">v{SITE.version}</span>
+    </a>
+    <nav class="nav-links" aria-label="primary">
+      {links.map(l => (
+        <a
+          href={l.href}
+          aria-current={path === l.href ? 'page' : undefined}
+          rel={l.href.startsWith('http') ? 'noopener' : undefined}
+        >{l.label}</a>
+      ))}
+      <button type="button" class="theme-toggle" data-theme-toggle aria-live="polite">[light]</button>
+    </nav>
+    <button type="button" class="nav-burger" data-menu-toggle aria-expanded="false" aria-controls="mobile-menu">
+      [menu]
+    </button>
+  </div>
+  <div class="mobile-menu" id="mobile-menu">
+    {links.map(l => (
+      <a href={l.href} rel={l.href.startsWith('http') ? 'noopener' : undefined}>{l.label}</a>
+    ))}
+    <a href="#" data-theme-toggle role="button">[light]</a>
+  </div>
+</header>
+
+<script>
+  const KEY = 'oc-theme'
+
+  function currentTheme(): 'dark' | 'light' {
+    return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
+  }
+
+  function renderToggles() {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark'
+    document.querySelectorAll('[data-theme-toggle]').forEach(el => {
+      el.textContent = `[${next}]`
+      el.setAttribute('aria-label', `switch to ${next} theme`)
+    })
+  }
+
+  function applyTheme(theme: 'dark' | 'light') {
+    if (theme === 'dark') {
+      delete document.documentElement.dataset.theme
+    } else {
+      document.documentElement.dataset.theme = 'light'
+    }
+    document.documentElement.style.colorScheme = theme
+    try {
+      localStorage.setItem(KEY, theme)
+    } catch {
+      /* storage unavailable */
+    }
+    renderToggles()
+  }
+
+  document.querySelectorAll('[data-theme-toggle]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault()
+      applyTheme(currentTheme() === 'dark' ? 'light' : 'dark')
+    })
+  })
+  renderToggles()
+
+  const nav = document.getElementById('site-nav')
+  const burger = document.querySelector('[data-menu-toggle]')
+  burger?.addEventListener('click', () => {
+    const open = nav?.classList.toggle('menu-open') ?? false
+    burger.setAttribute('aria-expanded', String(open))
+    burger.textContent = open ? '[close]' : '[menu]'
+  })
+</script>

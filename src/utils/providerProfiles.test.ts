@@ -220,6 +220,17 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
+function buildFireworksProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'fireworks',
+    name: 'Fireworks AI',
+    baseUrl: 'https://api.fireworks.ai/inference/v1',
+    model: 'accounts/fireworks/models/deepseek-v3',
+    apiKey: 'fireworks-test-key',
+    ...overrides,
+  })
+}
+
 function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'atlas-cloud',
@@ -601,6 +612,28 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
     expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('fireworks profile applies OpenAI-compatible env with FIREWORKS_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildFireworksProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.fireworks.ai/inference/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe(
+      'accounts/fireworks/models/deepseek-v3',
+    )
+    expect(process.env.OPENAI_API_KEY).toBe('fireworks-test-key')
+    expect(process.env.FIREWORKS_API_KEY).toBe('fireworks-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
   })
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
@@ -1019,6 +1052,24 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
   })
 
+  test('re-applies Fireworks AI active profile when FIREWORKS_API_KEY is missing (env drift)', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const fwProfile = buildFireworksProfile({ id: 'saved_fw' })
+    applyProviderProfileToProcessEnv(fwProfile)
+
+    // Simulate relaunch where the shell exported OPENAI vars but not FIREWORKS_API_KEY
+    delete process.env.FIREWORKS_API_KEY
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [fwProfile],
+      activeProviderProfileId: 'saved_fw',
+    } as any)
+
+    expect(applied?.id).toBe('saved_fw')
+    expect(String(process.env.FIREWORKS_API_KEY)).toBe('fireworks-test-key')
+  })
+
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -1315,6 +1366,23 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.name).toBe('Z.AI - GLM Coding Plan')
     expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
     expect(defaults.model).toBe('GLM-5.1')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('fireworks preset defaults to the official Fireworks AI endpoint', async () => {
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
+    process.env.FIREWORKS_API_KEY = 'fireworks-live-key'
+
+    const defaults = getProviderPresetDefaults('fireworks')
+
+    expect(defaults.provider).toBe('fireworks')
+    expect(defaults.name).toBe('Fireworks AI')
+    expect(defaults.baseUrl).toBe('https://api.fireworks.ai/inference/v1')
+    expect(defaults.model).toBe(
+      'accounts/fireworks/models/llama-v3p1-70b-instruct',
+    )
+    expect(defaults.apiKey).toBe('fireworks-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
 })
@@ -1625,6 +1693,57 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'venice-uncensored',
         OPENAI_API_KEY: 'venice-test-key',
         VENICE_API_KEY: 'venice-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists Fireworks AI profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'openclaude-provider-'),
+    )
+    const configDir = mkdtempSync(
+      join(tmpdir(), 'openclaude-provider-config-'),
+    )
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const fireworksProfile = buildFireworksProfile({
+        id: 'fireworks_prof',
+        model: 'accounts/fireworks/models/deepseek-v3, accounts/fireworks/models/llama-v3p1-70b-instruct',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [fireworksProfile],
+      }))
+
+      const result = setActiveProviderProfile('fireworks_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(
+          join(configDir, '.openclaude-profile.json'),
+          'utf8',
+        ),
+      )
+
+      expect(result?.id).toBe('fireworks_prof')
+      expect(
+        existsSync(join(tempDir, '.openclaude-profile.json')),
+      ).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.fireworks.ai/inference/v1',
+        OPENAI_MODEL: 'accounts/fireworks/models/deepseek-v3',
+        OPENAI_API_KEY: 'fireworks-test-key',
+        FIREWORKS_API_KEY: 'fireworks-test-key',
       })
     } finally {
       process.chdir(originalCwd)

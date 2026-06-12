@@ -6,6 +6,7 @@ import vendorAnthropic from '../vendors/anthropic.js'
 import vendorAtlasCloud from '../vendors/atlas-cloud.js'
 import vendorBankr from '../vendors/bankr.js'
 import vendorDeepseek from '../vendors/deepseek.js'
+import vendorFireworks from '../vendors/fireworks.js'
 import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
@@ -37,6 +38,7 @@ import gatewayTogether from '../gateways/together.js'
 import gatewayVertex from '../gateways/vertex.js'
 import brandClaude from '../brands/claude.js'
 import brandDeepseek from '../brands/deepseek.js'
+import brandFireworks from '../brands/fireworks.js'
 import brandGemini from '../brands/gemini.js'
 import brandGlm from '../brands/glm.js'
 import brandGpt from '../brands/gpt.js'
@@ -52,6 +54,7 @@ import brandXai from '../brands/xai.js'
 import brandXiaomiMimo from '../brands/xiaomi-mimo.js'
 import modelClaude from '../models/claude.js'
 import modelDeepseek from '../models/deepseek.js'
+import modelFireworksMerged from '../models/fireworks-merged.js'
 import modelGemini from '../models/gemini.js'
 import modelGlm from '../models/glm.js'
 import modelGpt from '../models/gpt.js'
@@ -67,11 +70,11 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorAtlasCloud, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorNearai, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorAtlasCloud, vendorBankr, vendorDeepseek, vendorFireworks, vendorGemini, vendorMinimax, vendorMoonshot, vendorNearai, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
 export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpencodeGo, gatewayOpencode, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
-export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNearai, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
-export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNearai, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
+export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandFireworks, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNearai, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
+export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelFireworksMerged, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNearai, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
 export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]
 
 export const PROVIDER_PRESET_MANIFEST = [
@@ -186,6 +189,19 @@ export const PROVIDER_PRESET_MANIFEST = [
     "description": "DeepSeek OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "DEEPSEEK_API_KEY"
+    ]
+  },
+  {
+    "preset": "fireworks",
+    "routeKind": "vendor",
+    "routeId": "fireworks",
+    "vendorId": "fireworks",
+    "description": "Fireworks AI OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "FIREWORKS_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
     ]
   },
   {
@@ -476,6 +492,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "azure-openai",
   "bankr",
   "deepseek",
+  "fireworks",
   "gemini",
   "groq",
   "hicap",

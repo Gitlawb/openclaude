@@ -168,6 +168,10 @@ import {
   getDynamicSkills,
 } from './skills/loadSkillsDir.js'
 import { getBundledSkills } from './skills/bundledSkills.js'
+import {
+  getOpenClaudeCommandDescriptionKey,
+  localize,
+} from './i18n/index.js'
 import { getBuiltinPluginSkillCommands } from './plugins/builtinPlugins.js'
 import {
   getPluginCommands,
@@ -365,7 +369,12 @@ const COMMANDS = memoize((): Command[] => [
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
-].filter(isCommand))
+].filter(isCommand).map(withOpenClaudeCommandLocalizationKey))
+
+function withOpenClaudeCommandLocalizationKey(cmd: Command): Command {
+  cmd.localizationKey ??= getOpenClaudeCommandDescriptionKey(cmd.name)
+  return cmd
+}
 
 export const builtInCommandNames = memoize(
   (): Set<string> =>
@@ -752,7 +761,7 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description ?? ''
+    return formatOpenClaudeOwnedDescription(cmd)
   }
 
   const desc = cmd.description ?? ''
@@ -770,12 +779,22 @@ export function formatDescriptionWithSource(cmd: Command): string {
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return desc
+    return cmd.source === 'builtin'
+      ? formatOpenClaudeOwnedDescription(cmd)
+      : desc
   }
 
   if (cmd.source === 'bundled') {
-    return `${desc} (bundled)`
+    return `${formatOpenClaudeOwnedDescription(cmd)} (bundled)`
   }
 
   return `${desc} (${getSettingSourceName(cmd.source)})`
+}
+
+function formatOpenClaudeOwnedDescription(cmd: Command): string {
+  const desc = cmd.description ?? ''
+  if (cmd.localizationKey) {
+    return localize(cmd.localizationKey, desc)
+  }
+  return desc
 }

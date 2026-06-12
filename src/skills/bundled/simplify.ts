@@ -57,6 +57,7 @@ export function registerSimplifySkill(): void {
     name: 'simplify',
     description:
       'Review changed code for reuse, quality, and efficiency, then fix any issues found.',
+    descriptionKey: 'skills.simplify.description',
     userInvocable: true,
     async getPromptForCommand(args) {
       let prompt = SIMPLIFY_PROMPT

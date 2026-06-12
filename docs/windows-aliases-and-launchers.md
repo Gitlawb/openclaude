@@ -160,4 +160,3 @@ For advanced provider setup, use the built-in provider manager:
 ~~~powershell
 oc-provider
 ~~~
-
