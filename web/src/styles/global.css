@@ -41,7 +41,7 @@
 
   font-family: 'Geist Mono Variable', ui-monospace, 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  text-rendering: optimizelegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
@@ -64,6 +64,7 @@
   --blue: #2563eb;
 
   --nav-bg: rgba(255, 255, 255, 0.9);
+
   color-scheme: light;
 }
 
@@ -111,6 +112,18 @@ h1, h2, h3, h4, p { margin-top: 0; }
 img { max-width: 100%; }
 
 h1[id], h2[id], h3[id], h4[id] { scroll-margin-top: calc(var(--nav-h) + 24px); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .skip-link {
   position: absolute;
@@ -715,7 +728,7 @@ h2:hover .anchor-link, h3:hover .anchor-link { opacity: 1; }
 .fade-up {
   opacity: 0;
   transform: translateY(20px);
-  animation: fadeUp 0.7s ease forwards;
+  animation: fade-up 0.7s ease forwards;
 }
 .fade-up-1 { animation-delay: 0.1s; }
 .fade-up-2 { animation-delay: 0.2s; }
@@ -723,7 +736,7 @@ h2:hover .anchor-link, h3:hover .anchor-link { opacity: 1; }
 .fade-up-4 { animation-delay: 0.4s; }
 .fade-up-5 { animation-delay: 0.5s; }
 
-@keyframes fadeUp {
+@keyframes fade-up {
   to { opacity: 1; transform: translateY(0); }
 }
 
