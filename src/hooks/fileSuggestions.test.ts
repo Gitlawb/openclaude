@@ -92,8 +92,8 @@ function createIgnoreModuleMock() {
 }
 
 function isGitCommand(command: string): boolean {
-  return path.basename(command).toLowerCase() === 'git.exe' ||
-    path.basename(command).toLowerCase() === 'git'
+  const basename = path.basename(command).toLowerCase()
+  return basename === 'git.exe' || basename === 'git'
 }
 
 function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}): void {

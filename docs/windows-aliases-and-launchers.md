@@ -98,6 +98,7 @@ Like `oc-local`, the environment overrides are scoped to that single invocation.
 ~~~powershell
 oc-provider
 ~~~
+
 This opens the provider manager through the installed OpenClaude CLI.
 
 ### Check local Ollama state
