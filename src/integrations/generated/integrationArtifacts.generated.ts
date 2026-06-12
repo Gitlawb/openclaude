@@ -76,7 +76,6 @@ export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly Anthro
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandFireworks, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNearai, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
 export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelFireworksMerged, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNearai, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
 export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]
-if (MODEL_DESCRIPTORS.length > new Set(MODEL_DESCRIPTORS.map(m => m.id)).size) console.warn(`[integrations] Duplicate model IDs: ${MODEL_DESCRIPTORS.length} entries, ${new Set(MODEL_DESCRIPTORS.map(m => m.id)).size} unique`)
 
 export const PROVIDER_PRESET_MANIFEST = [
   {

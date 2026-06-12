@@ -36,6 +36,9 @@ const originalEnv = {
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
   FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
+  OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
+  OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
+  OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
@@ -78,6 +81,9 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.OPENAI_MODEL
   delete process.env.XAI_API_KEY
   delete process.env.FIREWORKS_API_KEY
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -111,6 +117,9 @@ beforeEach(async () => {
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
   delete process.env.FIREWORKS_API_KEY
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -148,6 +157,9 @@ afterEach(() => {
     restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
     restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
     restoreEnv('FIREWORKS_API_KEY', originalEnv.FIREWORKS_API_KEY)
+    restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+    restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
+    restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
     restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)

@@ -394,6 +394,14 @@ function renderIntegrationArtifacts(
     ...modelModules.map(module => `import ${module.importName} from '${module.importPath}'`),
   ]
 
+  const allModelDescriptors = loadedModules.modelModules.flatMap(m => m.descriptors)
+  const uniqueKeys = new Set(allModelDescriptors.map(m => `${m.id}::${m.vendorId}`))
+  if (allModelDescriptors.length > uniqueKeys.size) {
+    throw new Error(
+      `Duplicate model (id, vendorId) pairs detected: ${allModelDescriptors.length} entries, ${uniqueKeys.size} unique.`,
+    )
+  }
+
   const presetManifest = loadedModules.routeModules
     .filter(routeModule => routeModule.descriptor.preset)
     .map(routeModule => buildPresetManifestEntry(routeModule, routeModule.descriptor.preset!))
@@ -414,7 +422,6 @@ function renderIntegrationArtifacts(
     `export const BRAND_DESCRIPTORS = [${brandModules.map(module => module.importName).join(', ')}] as const satisfies readonly BrandDescriptor[]`,
     `export const MODEL_DESCRIPTOR_GROUPS = [${modelModules.map(module => module.importName).join(', ')}] as const satisfies readonly (readonly ModelDescriptor[])[]`,
     'export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]',
-    'if (MODEL_DESCRIPTORS.length > new Set(MODEL_DESCRIPTORS.map(m => m.id)).size) console.warn(`[integrations] Duplicate model IDs: ${MODEL_DESCRIPTORS.length} entries, ${new Set(MODEL_DESCRIPTORS.map(m => m.id)).size} unique`)',
     '',
     `export const PROVIDER_PRESET_MANIFEST = ${toGeneratedValue(presetManifest)} as const satisfies readonly ProviderPresetManifestEntry[]`,
     "export type ProviderPreset = (typeof PROVIDER_PRESET_MANIFEST)[number]['preset']",
