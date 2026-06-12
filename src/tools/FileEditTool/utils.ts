@@ -1007,8 +1007,19 @@ export function findWhitespaceAgnosticMatch(
     while (start > 0 && /\s/.test(fileContent[start - 1]!)) start--
   }
 
-  if (/[ \t]$/.test(searchString)) {
-    while (end + 1 < fileContent.length && /[ \t]/.test(fileContent[end + 1]!)) {
+  if (/(?:\r?\n)$/.test(searchString)) {
+    // P1 fix: If the search string ends perfectly with a newline,
+    // do NOT consume the indentation of the NEXT line.
+    // The mapped originalEnd might point to the first space of the next line.
+    // Pull it back to the newline character.
+    while (end > start && /[ \t]/.test(fileContent[end]!)) {
+      end--
+    }
+  } else if (/[ \t]$/.test(searchString)) {
+    while (
+      end + 1 < fileContent.length &&
+      /[ \t]/.test(fileContent[end + 1]!)
+    ) {
       end++
     }
   } else if (/\s$/.test(searchString)) {

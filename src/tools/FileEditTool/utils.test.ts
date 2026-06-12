@@ -42,6 +42,18 @@ describe('findWhitespaceAgnosticMatch', () => {
     expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBe('    foo();')
   })
 
+  test('prevents trailing-newline searches from consuming next line indentation (CodeRabbit P1 fix)', () => {
+    const fileContent = 'if ok:\n  foo()\n  bar()\n'
+    // LLM only wants to replace foo, explicitly stopping at the newline
+    const searchString = '    foo()\n'
+    const actualOldString = findWhitespaceAgnosticMatch(
+      fileContent,
+      searchString,
+    )
+    // The match must not include the `  ` spaces belonging to `bar()`
+    expect(actualOldString).toBe('  foo()\n')
+  })
+
   test('prevents matching across token boundaries', () => {
     // LLM forgot the space between two tokens
     const fileContent = 'const foobar = 1;'
