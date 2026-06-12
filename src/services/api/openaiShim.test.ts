@@ -6618,9 +6618,9 @@ test('renders tool_reference blocks as text on the chat/completions path', async
 
   const toolMsg = messages.find(m => m.role === 'tool')
   expect(toolMsg).toBeDefined()
-  const content = typeof toolMsg!.content === 'string'
-    ? toolMsg!.content
-    : JSON.stringify(toolMsg!.content)
+  // The rendering contract is plain text: text-only parts collapse to a string.
+  expect(typeof toolMsg!.content).toBe('string')
+  const content = toolMsg!.content as string
   expect(content).toContain('mcp__example__memory_search')
   expect(content).toContain('mcp__example__memory_store')
 })
