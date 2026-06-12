@@ -82,28 +82,6 @@ function overAutoCompactThresholdMessage(): Message {
   return userMessage('x'.repeat((threshold + 1_000) * 4))
 }
 
-function highContextMessages(): Message[] {
-  return [
-    {
-      type: 'assistant',
-      message: {
-        id: 'msg-high-context',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'previous response' }],
-        usage: {
-          input_tokens: 170_000,
-          output_tokens: 1_000,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
-      },
-      uuid: `assistant-${Math.random()}` as Message['uuid'],
-      timestamp: new Date().toISOString(),
-    } as unknown as Message,
-    userMessage('continue'),
-  ]
-}
-
 function toolUseContext() {
   const abortController = new AbortController()
   return {
