@@ -15,6 +15,7 @@ import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscover
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
+import { BRAND_TAGLINE } from '../constants/brand.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
 import {
@@ -209,7 +210,7 @@ export function printStartupScreen(modelOverride?: string): void {
   out.push('')
 
   // Tagline
-  out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
+  out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}${BRAND_TAGLINE}${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
   // Provider info box

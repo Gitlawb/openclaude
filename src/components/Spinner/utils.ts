@@ -1,13 +1,11 @@
 import type { RGBColor as RGBColorString } from '../../ink/styles.js'
 import type { RGBColor as RGBColorType } from './types.js'
 
+// Dot-pulse sweep. All width-1 chars from basic punctuation / Geometric
+// Shapes with broad font support, so no per-terminal variants are needed
+// (the old asterisk set required Ghostty/darwin special-casing for ✽/✳).
 export function getDefaultCharacters(): string[] {
-  if (process.env.TERM === 'xterm-ghostty') {
-    return ['·', '✢', '✳', '✶', '✻', '*'] // Use * instead of ✽ for Ghostty because the latter renders in a way that's slightly offset
-  }
-  return process.platform === 'darwin'
-    ? ['·', '✢', '✳', '✶', '✻', '✽']
-    : ['·', '✢', '*', '✶', '✻', '✽']
+  return ['·', '∘', '○', '◎', '◉', '●']
 }
 
 // Interpolate between two RGB colors
