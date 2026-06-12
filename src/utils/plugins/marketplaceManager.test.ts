@@ -21,15 +21,14 @@ import {
 
 // Force the real marketplaceManager.js module — never a stale mock from a
 // previous test file (e.g. lspRecommendation.test.ts,
-// officialMarketplaceStartupCheck.test.ts). mock.restore() clears all
-// module mocks registered by prior test files; the real module is then
-// used on import. Subsequent re-registrations in the EXDEV describe
-// (axios mock) re-establish the suite-specific mocks. The previous
-// implementation used mock.module(path, original), which returned the
-// previous factory's output (a stale mock) — that broke env-var-driven
-// paths like getMarketplacesCacheDir() which the tests depend on
-// per-test isolation for.
-mock.restore()
+// officialMarketplaceStartupCheck.test.ts). The factory returns undefined
+// so Bun uses the real module, overriding any previously-registered mock.
+// Calling `original()` (the previous factory) would return the stale mock,
+// which breaks env-var-driven paths like getMarketplacesCacheDir() that the
+// tests depend on per-test isolation.
+mock.module('./marketplaceManager.js', () => {
+  return undefined
+})
 
 import { _test } from './marketplaceManager.js'
 import type { MarketplaceSource } from './schemas.js'
