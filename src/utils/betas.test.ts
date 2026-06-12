@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -91,6 +91,16 @@ afterEach(() => {
 async function importFreshBetas() {
   return import(`./betas.js?ts=${Date.now()}-${Math.random()}`)
 }
+
+// Pre-warm the import in beforeAll so the first test does not pay the full
+// module-load cost (growthbook feature-flag init takes ~4s on first import).
+// The first importFreshBetas() in any test would otherwise burn the 5s default
+// test timeout, and the cache-busting query string ensures every subsequent
+// call is a real fresh import. After pre-warming, the per-test import is
+// sub-second and well under the 5s budget.
+beforeAll(async () => {
+  await importFreshBetas()
+})
 
 const MODEL = 'claude-sonnet-4-5'
 
