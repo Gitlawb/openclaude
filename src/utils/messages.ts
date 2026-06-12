@@ -700,6 +700,15 @@ export function extractTag(html: string, tagName: string): string | null {
 }
 
 export function isNotEmptyMessage(message: Message): boolean {
+  // Defensive guard: any earlier normalization step that produces a falsy
+  // slot (a missing entry from a sparse array, an unrecognised type that
+  // skipped its switch case, or a streaming bookkeeping bug) would crash
+  // here when we read message.type. Treat such slots as empty so render
+  // pipelines stay alive instead of taking the UI down.
+  if (!message || typeof message !== 'object') {
+    return false
+  }
+
   if (
     message.type === 'progress' ||
     message.type === 'attachment' ||
@@ -832,6 +841,12 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
           } as NormalizedMessage
         })
       }
+      default:
+        // Unknown / malformed message (e.g. a falsy slot or an unrecognised
+        // type emitted by an error path). Drop it instead of returning
+        // undefined, which would otherwise be flattened into the result by
+        // flatMap and crash downstream consumers like isNotEmptyMessage.
+        return []
     }
   })
 }

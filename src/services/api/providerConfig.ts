@@ -11,6 +11,7 @@ import {
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { PROVIDER_SELECTION_FLAGS } from '../../utils/providerSelectionFlags.js'
 import {
   asTrimmedString,
   parseChatgptAccountId,
@@ -20,6 +21,12 @@ import {
   DEFAULT_GEMINI_MODEL,
 } from 'src/utils/providerProfile.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
+import {
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
+  DEFAULT_GEMINI_VERTEX_MODEL,
+} from '../../utils/geminiAuth.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -131,6 +138,8 @@ export type ResolvedProviderRequest = {
   requestedModel: string
   resolvedModel: string
   baseUrl: string
+  vertexProject?: string
+  vertexLocation?: string
   reasoning?: {
     effort: ReasoningEffort
   }
@@ -769,16 +778,23 @@ export function resolveProviderRequest(options?: {
   const processEnv = options?.processEnv ?? process.env
   const isGithubMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
-  const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
+  const isGeminiVertexMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI_VERTEX)
+  const isGeminiMode = isGeminiVertexMode || isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
+  const geminiVertexModel = getGeminiVertexModel(processEnv)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? processEnv.MISTRAL_MODEL?.trim()
+      : isGeminiVertexMode
+      ? geminiVertexModel
       : processEnv.OPENAI_MODEL?.trim()) ||
     (isGeminiMode
-      ? processEnv.GEMINI_MODEL?.trim()
+      ? isGeminiVertexMode
+        ? geminiVertexModel
+        : processEnv.GEMINI_MODEL?.trim()
       : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
+    (isGeminiVertexMode ? DEFAULT_GEMINI_VERTEX_MODEL : undefined) ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
@@ -949,6 +965,8 @@ export function resolveProviderRequest(options?: {
               ? GITHUB_COPILOT_BASE_URL
               : DEFAULT_OPENAI_BASE_URL))))
       ).replace(/\/+$/, ''),
+    vertexProject: isGeminiVertexMode ? getGeminiVertexProjectId(processEnv) : undefined,
+    vertexLocation: isGeminiVertexMode ? getGeminiVertexLocation(processEnv) : undefined,
     reasoning,
     thinking: descriptor.thinking,
   }
@@ -956,12 +974,11 @@ export function resolveProviderRequest(options?: {
 
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+    const anotherProviderSelected = PROVIDER_SELECTION_FLAGS.some(
+      flag =>
+        flag !== 'CLAUDE_CODE_USE_OPENAI' && isEnvTruthy(process.env[flag]),
+    )
+    if (!anotherProviderSelected) {
       return 'firstParty'
     }
     return null

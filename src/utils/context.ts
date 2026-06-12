@@ -106,7 +106,8 @@ export function shouldUseIntegrationRuntimeLimits(
     transportKind === 'openai-compatible' ||
     transportKind === 'anthropic-proxy' ||
     transportKind === 'local' ||
-    transportKind === 'gemini-native'
+    transportKind === 'gemini-native' ||
+    transportKind === 'gemini-vertex'
   )
 }
 

@@ -136,6 +136,17 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "gemini-vertex",
+    "routeKind": "vendor",
+    "routeId": "gemini-vertex",
+    "vendorId": "gemini-vertex",
+    "description": "Gemini on Google Vertex AI",
+    "modelEnvVars": [
+      "GEMINI_VERTEX_MODEL"
+    ],
+    "fallbackModel": "gemini-2.5-flash"
+  },
+  {
     "preset": "gemini",
     "routeKind": "vendor",
     "routeId": "gemini",
@@ -446,6 +457,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "bankr",
   "deepseek",
   "fireworks",
+  "gemini-vertex",
   "gemini",
   "groq",
   "hicap",
