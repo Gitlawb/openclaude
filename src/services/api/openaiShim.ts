@@ -3223,3 +3223,6 @@ export function createOpenAIShimClient(options: {
     messages: beta.messages,
   }
 }
+
+// Test-only surface (same pattern as WebSearchTool's __test export).
+export const __test = { convertMessages }

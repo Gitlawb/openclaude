@@ -6587,3 +6587,40 @@ test('DeepSeek: redacted_thinking block with non-empty data propagates data into
     'encrypted_chain_of_thought_payload_v1',
   )
 })
+
+test('renders tool_reference blocks as text on the chat/completions path', async () => {
+  const { __test } = await import('./openaiShim.ts')
+
+  const messages = __test.convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_ts1', name: 'ToolSearch', input: { query: 'memory' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_ts1',
+            content: [
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_search' },
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_store' },
+            ],
+          },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const toolMsg = messages.find(m => m.role === 'tool')
+  expect(toolMsg).toBeDefined()
+  const content = typeof toolMsg!.content === 'string'
+    ? toolMsg!.content
+    : JSON.stringify(toolMsg!.content)
+  expect(content).toContain('mcp__example__memory_search')
+  expect(content).toContain('mcp__example__memory_store')
+})
