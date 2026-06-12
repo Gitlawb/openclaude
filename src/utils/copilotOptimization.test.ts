@@ -170,4 +170,18 @@ describe('shouldForceSyncSubagentsInCopilotMode', () => {
     process.env.GITHUB_COPILOT_MAX_SUBAGENTS = '0'
     expect(shouldForceSyncSubagentsInCopilotMode()).toBe(false)
   })
+
+  test('FORCE_SYNC=1 overrides ALLOW_SUBAGENTS=1', () => {
+    // CodeRabbit round 9: regression test for precedence. When both
+    // opt-out flags are set, FORCE_SYNC must win — the user explicitly
+    // asked for synchronous execution, and ALLOW_SUBAGENTS is only a
+    // softer "I'm fine with the cap, don't drop me" hint. A future
+    // reordering of these checks in shouldForceSyncSubagentsInCopilotMode()
+    // would silently allow parallel Copilot sub-agent launches when the
+    // user asked for sync; lock the precedence here.
+    setProvider('github')
+    process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS = '1'
+    process.env.GITHUB_COPILOT_ALLOW_SUBAGENTS = '1'
+    expect(shouldForceSyncSubagentsInCopilotMode()).toBe(true)
+  })
 })
