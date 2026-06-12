@@ -812,63 +812,109 @@ export function adjustNewStringIndentation(
   // If no formatting difference, no adjustment needed
   if (oldString === fileMatch) return newString
 
-  const getBaseIndent = (str: string) => {
-    // Match leading whitespace of the first line that has non-whitespace characters
-    const match = str.match(/^[ \t]*(?=\S)/m)
-    return match ? match[0] : null
-  }
+  // Tokenize both strings to build a mapping from oldString characters to fileMatch characters.
+  const oldNorm = normalizeIndentation(oldString)
+  const actualNorm = normalizeIndentation(fileMatch)
 
-  const oldIndent = getBaseIndent(oldString)
-  const actualIndent = getBaseIndent(fileMatch)
-
-  if (
-    oldIndent === null ||
-    actualIndent === null ||
-    oldIndent === actualIndent
-  ) {
+  // Find where the normalized forms align
+  const matchIndex = actualNorm.normalized.indexOf(oldNorm.normalized)
+  if (matchIndex === -1) {
+    // Should not happen since fileMatch was derived from oldString, but fallback to safety
     return newString
   }
 
-  let isAdd = false
-  let indentDiff = ''
+  // Build the indent map mapping from hallucinated indent (oldIndent) to true indent (actualIndent)
+  const indentMap = new Map<string, string>()
+  const oldLines = oldString.split('\n')
+  let oldCharIndex = 0
 
-  if (actualIndent.startsWith(oldIndent)) {
-    isAdd = true
-    indentDiff = actualIndent.slice(oldIndent.length)
-  } else if (oldIndent.startsWith(actualIndent)) {
-    isAdd = false
-    indentDiff = oldIndent.slice(actualIndent.length)
-  } else {
-    // Completely different indentation styles (e.g., tabs vs spaces).
-    // Replace oldIndent with actualIndent on lines that start with oldIndent.
-    const lines = newString.split('\n')
-    return lines
-      .map(line => {
-        if (line.startsWith(oldIndent)) {
-          return actualIndent + line.slice(oldIndent.length)
+  for (let i = 0; i < oldLines.length; i++) {
+    const line = oldLines[i]!
+    const match = line.match(/^[ \t]*/)
+    const oldIndent = match ? match[0] : ''
+
+    // Find the first non-whitespace character in this line
+    const nonWsMatch = line.match(/\S/)
+    if (nonWsMatch) {
+      const nonWsIndexInLine = nonWsMatch.index!
+      const nonWsIndexInOldString = oldCharIndex + nonWsIndexInLine
+
+      // Map this character to actualNorm index
+      let normIndex = -1
+      for (let k = 0; k < oldNorm.mapping.length; k++) {
+        if (oldNorm.mapping[k] === nonWsIndexInOldString) {
+          normIndex = k
+          break
         }
-        return line
-      })
-      .join('\n')
+      }
+
+      if (normIndex !== -1) {
+        const actualNormIndex = matchIndex + normIndex
+        if (actualNormIndex < actualNorm.mapping.length) {
+          const actualCharIndex = actualNorm.mapping[actualNormIndex]!
+
+          // Find the leading whitespace of the line containing `actualCharIndex` in `fileMatch`
+          let startOfLine = actualCharIndex
+          while (startOfLine > 0 && fileMatch[startOfLine - 1] !== '\n') {
+            startOfLine--
+          }
+
+          let actualIndent = ''
+          for (let k = startOfLine; k < actualCharIndex; k++) {
+            if (fileMatch[k] === ' ' || fileMatch[k] === '\t') {
+              actualIndent += fileMatch[k]
+            } else {
+              break // Should not happen if it's truly the first non-ws char
+            }
+          }
+
+          indentMap.set(oldIndent, actualIndent)
+        }
+      }
+    }
+
+    oldCharIndex += line.length + 1 // +1 for the '\n'
   }
 
-  const lines = newString.split('\n')
-  return lines
-    .map(line => {
-      // Ignore completely empty lines
-      if (line.trim() === '') return line
+  // If there's no mapping (e.g. empty strings), return newString
+  if (indentMap.size === 0) return newString
 
-      if (isAdd) {
-        return indentDiff + line
-      } else {
-        // Only remove characters if the line actually starts with the difference.
-        if (line.startsWith(indentDiff)) {
-          return line.slice(indentDiff.length)
-        }
-        return line
+  // Apply the indent map to newString
+  const newLines = newString.split('\n')
+  const adjustedLines = newLines.map(line => {
+    // Ignore completely empty lines
+    if (line.trim() === '') return line
+
+    const match = line.match(/^[ \t]*/)
+    const newIndent = match ? match[0] : ''
+
+    if (indentMap.has(newIndent)) {
+      return indentMap.get(newIndent) + line.slice(newIndent.length)
+    }
+
+    // If not found (e.g. LLM introduced a new deeper nesting level),
+    // find the longest known prefix and append the remaining relative whitespace.
+    let longestPrefix = ''
+    let mappedPrefix = ''
+    for (const [oldInd, actualInd] of indentMap.entries()) {
+      if (
+        newIndent.startsWith(oldInd) &&
+        oldInd.length > longestPrefix.length
+      ) {
+        longestPrefix = oldInd
+        mappedPrefix = actualInd
       }
-    })
-    .join('\n')
+    }
+
+    if (longestPrefix !== '') {
+      const remainingIndent = newIndent.slice(longestPrefix.length)
+      return mappedPrefix + remainingIndent + line.slice(newIndent.length)
+    }
+
+    return line // Fallback
+  })
+
+  return adjustedLines.join('\n')
 }
 
 function normalizeIndentation(str: string) {

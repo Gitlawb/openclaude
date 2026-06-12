@@ -86,7 +86,25 @@ describe('adjustNewStringIndentation', () => {
     expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(newString)
   })
 
-  test('adds indentation when file has more indentation', () => {
+  test('recovers nested structure when root has no indentation (CodeRabbit P2 fix)', () => {
+    const oldString = 'if ok:\n  foo()'
+    const fileMatch = 'if ok:\n    foo()' // file uses 4 spaces instead of 2 for nested line
+    const newString = 'if ok:\n  bar()'
+    // It should preserve the nested 4 spaces for bar() even though the root `if ok:` is 0 spaces
+    const expected = 'if ok:\n    bar()'
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
+  })
+
+  test('handles deeper unseen relative indentation intelligently', () => {
+    const oldString = 'if ok:\n  foo()'
+    const fileMatch = 'if ok:\n    foo()'
+    const newString = 'if ok:\n  for x in y:\n    bar()' // LLM added a deeper block at 4 spaces
+    // It should map 0 -> 0, 2 -> 4, and 4 -> 4 + 2 remaining = 6
+    const expected = 'if ok:\n    for x in y:\n      bar()'
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
+  })
+
+  test('adds indentation when file has more overall indentation', () => {
     const oldString = '  foo();\n  bar();'
     const fileMatch = '    foo();\n    bar();' // file has +2 spaces
     const newString = '  foo();\n  baz();\n  qux();' // newString has base 2 spaces
@@ -94,20 +112,19 @@ describe('adjustNewStringIndentation', () => {
     expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
   })
 
-  test('removes indentation when file has less indentation', () => {
-    const oldString = '    foo();\n    bar();'
-    const fileMatch = '  foo();\n  bar();' // file has -2 spaces
-    const newString = '    foo();\n    baz();\n      qux();' // newString has base 4 spaces
-    const expected = '  foo();\n  baz();\n    qux();'
+  test('removes indentation when file has less overall indentation', () => {
+    const oldString = '    if ok:\n      foo();'
+    const fileMatch = '  if ok:\n    foo();' // file has 2 spaces instead of 4
+    const newString = '    if ok:\n      bar();\n        baz();' // newString has deeper nest
+    const expected = '  if ok:\n    bar();\n      baz();'
     expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
   })
 
   test('handles completely different indentation styles (spaces vs tabs)', () => {
-    const oldString = '  foo();\n  bar();'
-    const fileMatch = '\tfoo();\n\tbar();'
-    const newString = '  foo();\n    baz();'
-    // It should replace the base indentation prefix
-    const expected = '\tfoo();\n\t  baz();'
+    const oldString = '  if ok:\n    foo();'
+    const fileMatch = '\tif ok:\n\t\tfoo();'
+    const newString = '  if ok:\n      baz();' // added deeper space indent
+    const expected = '\tif ok:\n\t\t  baz();' // prepends tab prefix and keeps remaining spaces
     expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
   })
 })
