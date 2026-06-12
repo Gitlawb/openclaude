@@ -842,6 +842,17 @@ export default [
     maxOutputTokens: 32_768,
   }),
   defineModel({
+    id: 'accounts/fireworks/models/nvidia-nemotron-3-super-120b-a12b-bf16',
+    defaultModel: 'accounts/fireworks/models/nvidia-nemotron-3-super-120b-a12b-bf16',
+    label: 'NVIDIA Nemotron 3 Super 120B A12B BF16',
+    brandId: 'fireworks',
+    vendorId: 'fireworks',
+    classification: ['chat'],
+    capabilities: { supportsVision: false, supportsStreaming: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: false, supportsPreciseTokenCount: false },
+    contextWindow: 262144,
+    maxOutputTokens: 32768,
+  }),
+  defineModel({
     id: 'accounts/fireworks/models/nvidia-nemotron-3-super-120b-a12b-nvfp4',
     defaultModel: 'accounts/fireworks/models/nvidia-nemotron-3-super-120b-a12b-nvfp4',
     label: 'NVIDIA Nemotron 3 Super 120B A12B NVFP4',
