@@ -210,7 +210,7 @@ When CLAUDE_CODE_USE_GITHUB=1, OpenClaude serializes sub-agent execution to redu
 | GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS=1 | Force synchronous execution regardless of cap. |
 | GITHUB_COPILOT_OPTIMIZATION_DISABLED=1 | Disable all of the above; sub-agents run as before this feature. |
 
-The is_async field reported in the 	engu_agent_tool_selected event and the agent metadata now reflects the final execution mode (i.e., alse when synchronous is forced). See .env.example for the full descriptions.
+The `is_async` field reported in the `tengu_agent_tool_selected` event and the agent metadata now reflects the final execution mode (i.e., `false` when synchronous is forced). See `.env.example` for the full descriptions.
 
 For best results, use models with strong tool/function calling support.
 
