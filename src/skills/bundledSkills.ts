@@ -87,9 +87,11 @@ export function registerBundledSkill(definition: BundledSkillDefinition): void {
     allowedTools: definition.allowedTools ?? [],
     argumentHint: definition.argumentHint,
     get whenToUse() {
+      if (definition.whenToUseKey) {
+        return localize(definition.whenToUseKey, definition.whenToUse ?? '')
+      }
+
       return definition.whenToUse
-        ? localize(definition.whenToUseKey, definition.whenToUse)
-        : undefined
     },
     whenToUseLocalizationKey: definition.whenToUseKey,
     model: definition.model,
