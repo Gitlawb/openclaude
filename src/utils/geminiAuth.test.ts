@@ -7,6 +7,8 @@ import {
 } from '../test/sharedMutationLock.js'
 import {
   getGeminiProjectIdHint,
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
   mayHaveGeminiAdcCredentials,
   resolveGeminiCredential,
 } from './geminiAuth.ts'
@@ -35,6 +37,14 @@ function restoreEnv(key: string, value: string | undefined): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/geminiAuth.test.ts')
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GOOGLE_API_KEY
+  delete process.env.GEMINI_ACCESS_TOKEN
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS
+  delete process.env.GOOGLE_CLOUD_PROJECT
+  delete process.env.GCLOUD_PROJECT
+  delete process.env.GOOGLE_PROJECT_ID
 })
 
 afterEach(() => {
@@ -121,7 +131,13 @@ describe('resolveGeminiCredential', () => {
       delete process.env.GEMINI_ACCESS_TOKEN
       delete process.env.GOOGLE_APPLICATION_CREDENTIALS
 
-      await expect(resolveGeminiCredential(process.env)).resolves.toEqual({
+      await expect(
+        resolveGeminiCredential(process.env, {
+          createGoogleAuth: async () => {
+            throw new Error('unexpected ADC lookup')
+          },
+        }),
+      ).resolves.toEqual({
         kind: 'none',
       })
     } finally {
@@ -188,6 +204,11 @@ describe('resolveGeminiCredential', () => {
 })
 
 describe('Gemini auth helpers', () => {
+  test('defaults Vertex to global endpoint and current flash model', () => {
+    expect(getGeminiVertexLocation({})).toBe('global')
+    expect(getGeminiVertexModel({})).toBe('gemini-2.5-flash')
+  })
+
   test('detects explicit project id hints', () => {
     process.env.GOOGLE_PROJECT_ID = 'project-a'
     expect(getGeminiProjectIdHint(process.env)).toBe('project-a')
