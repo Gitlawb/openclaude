@@ -10,7 +10,7 @@ import { logEvent } from '../services/analytics/index.js';
 import { getCwd } from '../utils/cwd.js';
 import { openFileInExternalEditor } from '../utils/editor.js';
 import { truncatePathMiddle, truncateToWidth } from '../utils/format.js';
-import { highlightMatch } from '../utils/highlightMatch.js';
+import { highlightFuzzyMatch, highlightMatch } from '../utils/highlightMatch.js';
 import { readFileInRange } from '../utils/readFileInRange.js';
 import { FuzzyPicker } from './design-system/FuzzyPicker.js';
 import { LoadingState } from './design-system/LoadingState.js';
@@ -189,7 +189,7 @@ export function QuickOpenDialog(t0) {
   }
   let t12;
   if ($[19] !== maxPathWidth) {
-    t12 = (p_6, isFocused) => <Text color={isFocused ? "suggestion" : undefined}>{truncatePathMiddle(p_6, maxPathWidth)}</Text>;
+    t12 = (p_6, isFocused, pickerQuery) => <Text color={isFocused ? "suggestion" : undefined}>{highlightFuzzyMatch(truncatePathMiddle(p_6, maxPathWidth), pickerQuery ?? "")}</Text>;
     $[19] = maxPathWidth;
     $[20] = t12;
   } else {

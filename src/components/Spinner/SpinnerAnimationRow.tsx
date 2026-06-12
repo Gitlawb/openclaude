@@ -166,7 +166,7 @@ export function SpinnerAnimationRow({
   // === Token count (leader + teammates, or foregrounded teammate) ===
   const totalTokens = foregroundedTeammate && !foregroundedTeammate.isIdle ? foregroundedTeammate.progress?.tokenCount ?? 0 : leaderTokens + teammateTokens;
   const tokenCount = formatNumber(totalTokens);
-  const tokensText = hasRunningTeammates ? `${tokenCount} tokens` : `${figures.arrowDown} ${tokenCount} tokens`;
+  const tokensText = `${tokenCount} tokens`;
   const tokensWidth = stringWidth(tokensText);
 
   // === Thinking text (may shrink to fit) ===
@@ -179,7 +179,9 @@ export function SpinnerAnimationRow({
   // The extra 1 is a safety margin so content never touches the right edge.
   const messageWidth = glimmerMessageWidth + 2;
   const sep = SEP_WIDTH;
-  const parensWidth = 4;
+  // Non-teammate spins prepend the ↑/↓ mode glyph (width 2) + separator to
+  // the status parts, so reserve that space in the gating math too.
+  const parensWidth = hasRunningTeammates ? 4 : 4 + 2 + SEP_WIDTH;
   const wantsThinking = thinkingStatus !== null;
   const wantsTimerAndTokens = verbose || hasRunningTeammates || effectiveElapsedMs > SHOW_TOKENS_AFTER_MS;
   const availableSpace = columns - messageWidth - parensWidth;
@@ -209,14 +211,22 @@ export function SpinnerAnimationRow({
             {spinnerSuffix}
           </Text>] : []), ...(showTimer ? [<Text dimColor key="elapsedTime">
             {timerText}
-          </Text>] : []), ...(showTokens ? [<Box flexDirection="row" key="tokens">
-            {!hasRunningTeammates && <SpinnerModeGlyph mode={mode} />}
-            <Text dimColor>{tokenCount} tokens</Text>
-          </Box>] : []), ...(showThinking && thinkingText ? [thinkingStatus === 'thinking' && !reducedMotion ? <Text key="thinking" color={thinkingShimmerColor}>
+          </Text>] : []), ...(showTokens ? [<Text dimColor key="tokens">
+            {tokensText}
+          </Text>] : []), ...(showThinking && thinkingText ? [thinkingStatus === 'thinking' && !reducedMotion ? <Text key="thinking" color={thinkingShimmerColor}>
               {thinkingOnly ? `(${thinkingText})` : thinkingText}
             </Text> : <Text dimColor key="thinking">
               {thinkingText}
             </Text>] : [])];
+  // Lead the status with the request-direction glyph (↑ requesting /
+  // ↓ responding) so the mode is visible whenever any status shows — it was
+  // previously buried inside the tokens part, which only appears after 30s.
+  // Skipped for thinkingOnly (kept minimal) and teammate spins (tree has it).
+  if (!hasRunningTeammates && !thinkingOnly && parts.length > 0) {
+    parts.unshift(<Box flexDirection="row" key="mode">
+            <SpinnerModeGlyph mode={mode} />
+          </Box>);
+  }
   const status = foregroundedTeammate && !foregroundedTeammate.isIdle ? <>
         <Text dimColor>(esc to interrupt </Text>
         <Text color={toInkColor(foregroundedTeammate.identity.color)}>
