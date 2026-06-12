@@ -239,6 +239,14 @@ describe('Gemini auth helpers', () => {
       'gcloud-project',
     )
 
+    // Leading/trailing whitespace is trimmed from real values.
+    expect(
+      getGeminiVertexLocation({ GEMINI_VERTEX_LOCATION: '  europe-west4  ' }),
+    ).toBe('europe-west4')
+    expect(
+      getGeminiVertexProjectId({ GEMINI_VERTEX_PROJECT: '  vertex-project  ' }),
+    ).toBe('vertex-project')
+
     // Blank / whitespace-only values are treated as unset, not as overrides.
     expect(getGeminiVertexLocation({ GEMINI_VERTEX_LOCATION: '  ' })).toBe('global')
     expect(
