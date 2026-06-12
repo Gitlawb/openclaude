@@ -2831,7 +2831,9 @@ class OpenAIShimMessages {
     let isAnthropicTransport = effectiveTransport === 'anthropic_messages'
     try {
       const url = new URL(request.baseUrl)
-      isOpenCode = url.hostname.endsWith('opencode.ai')
+      const hostname = url.hostname.toLowerCase()
+      isOpenCode = hostname === 'opencode.ai' || hostname.endsWith('.opencode.ai')
+      
       if (isOpenCode && !isAnthropicTransport) {
         const modelName = request.resolvedModel || '';
         if (modelName.includes('qwen') || shimConfig?.endpointPath === '/messages') {

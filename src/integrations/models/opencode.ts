@@ -1065,5 +1065,5 @@ export default [
     },
     contextWindow: 131_072,
     maxOutputTokens: 32_768,
-  })
+  }),
 ]

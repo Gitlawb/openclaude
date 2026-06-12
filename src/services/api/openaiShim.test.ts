@@ -6594,12 +6594,10 @@ test('OpenCode (Anthropic route) sends x-api-key', async () => {
   process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
   process.env.OPENAI_MODEL = 'opencode-go-qwen3.7-max'
   process.env.OPENAI_API_KEY = 'test-anthropic-key'
-  
-  const captured = await captureChatCompletionRequest('opencode-go-qwen3.7-max')
-  
-  let capturedHeaders: Record<string, string> = {}
+
+  let capturedHeaders: Headers = new Headers()
   globalThis.fetch = (async (_input, init) => {
-    capturedHeaders = init?.headers as Record<string, string>
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
     return new Response(JSON.stringify({ id: 'test', choices: [] }), { 
       status: 200, 
       headers: { 'content-type': 'application/json' } 
@@ -6614,8 +6612,8 @@ test('OpenCode (Anthropic route) sends x-api-key', async () => {
     stream: false,
   }).catch(() => {})
 
-  expect(capturedHeaders['x-api-key']).toBe('test-anthropic-key')
-  expect(capturedHeaders['Authorization']).toBeUndefined()
+  expect(capturedHeaders.get('x-api-key')).toBe('test-anthropic-key')
+  expect(capturedHeaders.get('authorization')).toBeNull()
 })
 
 test('OpenCode (Standard route) sends Bearer auth', async () => {
