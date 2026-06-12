@@ -941,6 +941,24 @@ export default [
 
   // --- Anthropic messages endpoint ---
   defineModel({
+    id: 'opencode-go-minimax-m3',
+    label: 'MiniMax M3',
+
+    vendorId: 'openai',
+    classification: ['chat'],
+    defaultModel: 'minimax-m3',
+    capabilities: {
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: false,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 131_072,
+    maxOutputTokens: 32_768,
+  }),
+  defineModel({
     id: 'opencode-go-minimax-m2.7',
     label: 'MiniMax M2.7',
 
@@ -971,6 +989,42 @@ export default [
       supportsFunctionCalling: true,
       supportsJsonMode: true,
       supportsReasoning: false,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 131_072,
+    maxOutputTokens: 32_768,
+  }),
+  defineModel({
+    id: 'opencode-go-qwen3.7-max',
+    label: 'Qwen3.7 Max',
+
+    vendorId: 'openai',
+    classification: ['chat', 'reasoning'],
+    defaultModel: 'qwen3.7-max',
+    capabilities: {
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: true,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 131_072,
+    maxOutputTokens: 32_768,
+  }),
+  defineModel({
+    id: 'opencode-go-qwen3.7-plus',
+    label: 'Qwen3.7 Plus',
+
+    vendorId: 'openai',
+    classification: ['chat', 'reasoning'],
+    defaultModel: 'qwen3.7-plus',
+    capabilities: {
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: true,
       supportsPreciseTokenCount: false,
     },
     contextWindow: 131_072,
@@ -1011,23 +1065,5 @@ export default [
     },
     contextWindow: 131_072,
     maxOutputTokens: 32_768,
-  }),
-  defineModel({
-    id: 'opencode-go-minimax-m3',
-    label: 'MiniMax M3',
-
-    vendorId: 'openai',
-    classification: ['chat'],
-    defaultModel: 'minimax-m3',
-    capabilities: {
-      supportsVision: false,
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: false,
-      supportsPreciseTokenCount: false,
-    },
-    contextWindow: 131_072,
-    maxOutputTokens: 32_768,
-  }),
+  })
 ]
