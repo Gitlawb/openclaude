@@ -8341,3 +8341,35 @@ test('GitHub Copilot 401 chat_completions with providerOverride does not trigger
     mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
   }
 })
+
+test('sanitizes Gemini Vertex signed tool_use ids for the chat/completions wire', async () => {
+  const { __test } = await import('./openaiShim.ts')
+  const signedId = `toolu_vertex_k9x_3~~sig~~${'S'.repeat(1700)}`
+
+  const messages = __test.convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: signedId, name: 'Read', input: { file_path: '/tmp/x' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: signedId, content: 'done' },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const assistant = messages.find(m => m.role === 'assistant' && m.tool_calls?.length)
+  const toolMsg = messages.find(m => m.role === 'tool')
+
+  expect(assistant?.tool_calls?.[0]?.id).toBeDefined()
+  const callId = assistant!.tool_calls![0]!.id
+  expect(callId.length).toBeLessThanOrEqual(40)
+  expect(callId).toMatch(/^[A-Za-z0-9_-]+$/)
+  expect(toolMsg?.tool_call_id).toBe(callId)
+})
