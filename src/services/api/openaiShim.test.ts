@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import { asMockFetch } from '../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
@@ -2194,8 +2195,10 @@ test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () 
   expect(requestUrl).toBe(
     'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
   )
-  expect(capturedAuthorization).toBe('Bearer gemini-access-token')
-  expect(capturedProject).toBe('gemini-project')
+  // Explicit type argument: TS narrows the closure-assigned variables to
+  // their `null` initializer at this point (microsoft/TypeScript#9998).
+  expect<string | null>(capturedAuthorization).toBe('Bearer gemini-access-token')
+  expect<string | null>(capturedProject).toBe('gemini-project')
 })
 
 test('uses NVIDIA_API_KEY for NVIDIA NIM requests without OPENAI_API_KEY', async () => {
@@ -2249,7 +2252,7 @@ test('uses NVIDIA_API_KEY for NVIDIA NIM requests without OPENAI_API_KEY', async
     stream: false,
   })
 
-  expect(capturedAuthorization).toBe('Bearer nvidia-live-key')
+  expect<string | null>(capturedAuthorization).toBe('Bearer nvidia-live-key')
 })
 
 test('does not use stale NVIDIA_API_KEY for non-NVIDIA OpenAI-compatible routes', async () => {
@@ -4459,7 +4462,7 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
 })
 
 test('non-streaming: strips <think> tag block from assistant content', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
@@ -4482,7 +4485,7 @@ test('non-streaming: strips <think> tag block from assistant content', async () 
       }),
       { headers: { 'Content-Type': 'application/json' } },
     )
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const result = (await client.beta.messages.create({
@@ -4591,7 +4594,7 @@ test('streaming: thinking block closed before tool call', async () => {
 })
 
 test('streaming: strips <think> tag block from assistant content deltas', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     const chunks = makeStreamChunks([
       {
         id: 'chatcmpl-1',
@@ -4624,7 +4627,7 @@ test('streaming: strips <think> tag block from assistant content deltas', async 
     ])
 
     return makeSseResponse(chunks)
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const result = await client.beta.messages
@@ -4649,7 +4652,7 @@ test('streaming: strips <think> tag block from assistant content deltas', async 
 })
 
 test('streaming: strips <think> tag split across multiple content chunks', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     const chunks = makeStreamChunks([
       {
         id: 'chatcmpl-1',
@@ -4709,7 +4712,7 @@ test('streaming: strips <think> tag split across multiple content chunks', async
     ])
 
     return makeSseResponse(chunks)
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4737,7 +4740,7 @@ test('streaming: strips <think> tag split across multiple content chunks', async
 test('streaming: preserves prose without tags (no phrase-based false positive)', async () => {
   // Regression: older phrase-based sanitizer would strip "I should..." prose.
   // The tag-based approach leaves legitimate assistant output alone.
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     const chunks = makeStreamChunks([
       {
         id: 'chatcmpl-1',
@@ -4770,7 +4773,7 @@ test('streaming: preserves prose without tags (no phrase-based false positive)',
     ])
 
     return makeSseResponse(chunks)
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const result = await client.beta.messages
@@ -4801,11 +4804,11 @@ test('strips credentials and query params from URL in fetch network error messag
     'https://user:password@internal.example.test/v1?token=abc123'
   process.env.OPENAI_API_KEY = 'test-key'
 
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw new TypeError(
       'fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions',
     )
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4836,9 +4839,9 @@ test('classifies localhost transport failures with actionable category marker', 
     code: 'ECONNREFUSED',
   })
 
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw transportError
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4871,9 +4874,9 @@ test('transport failures are not labeled with HTTP status 503', async () => {
     code: 'ENETDOWN',
   })
 
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw transportError
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4903,9 +4906,9 @@ test('propagates AbortError without wrapping it as transport failure', async () 
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
   const abortError = new DOMException('The operation was aborted.', 'AbortError')
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw abortError
-  }) as unknown as FetchType
+  }))
 
   const controller = new AbortController()
   controller.abort()
@@ -4928,13 +4931,13 @@ test('propagates AbortError without wrapping it as transport failure', async () 
 test('classifies chat-completions endpoint 404 failures with endpoint_not_found marker', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434'
 
-  globalThis.fetch = (async () =>
+  globalThis.fetch = asMockFetch(mock(async () =>
     new Response('Not Found', {
       status: 404,
       headers: {
         'Content-Type': 'text/plain',
       },
-    })) as unknown as FetchType
+    })))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -5239,7 +5242,7 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   // 2. User content ("What happened?") -> role 'user'
   // This triggers the tool -> assistant injection.
   const assistantMessages = messages.filter(m => m.role === 'assistant')
-  expect(assistantMessages.some(m => m.content === '[Tool execution interrupted by user]')).toBe(true)
+  expect(assistantMessages.some(m => m.content === '[Tool results received]')).toBe(true)
 })
 
 test('drops empty assistant message when only thinking block was present and stripped', async () => {
@@ -5322,7 +5325,9 @@ test('injects semantic assistant message when tool result is followed by user me
   
   const semanticMsg = messages[2]
   expect(semanticMsg.role).toBe('assistant')
-  expect(semanticMsg.content).toBe('[Tool execution interrupted by user]')
+  expect(semanticMsg.content).toBe('[Tool results received]')
+  expect(semanticMsg.content).not.toContain('interrupted')
+  expect(semanticMsg.content).not.toContain('user')
 })
 
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {

@@ -227,3 +227,32 @@ test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials
     }),
   ).toBe('anthropic')
 })
+
+test('resolveActiveRouteIdFromEnv infers Near AI with NEARAI_API_KEY and stale OPENAI_API_KEY', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+      OPENAI_API_KEY: 'stale-openai-key',
+    }),
+  ).toBe('nearai')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Near AI when OPENAI_BASE_URL points elsewhere', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Near AI with explicit provider flag', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+      OPENAI_API_KEY: 'openai-key',
+      CLAUDE_CODE_USE_GEMINI: '1',
+    }),
+  ).toBe('gemini')
+})

@@ -9,6 +9,7 @@ import vendorDeepseek from '../vendors/deepseek.js'
 import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
+import vendorNearai from '../vendors/nearai.js'
 import vendorOpenai from '../vendors/openai.js'
 import vendorVenice from '../vendors/venice.js'
 import vendorXai from '../vendors/xai.js'
@@ -43,6 +44,7 @@ import brandKimi from '../brands/kimi.js'
 import brandLlama from '../brands/llama.js'
 import brandMinimax from '../brands/minimax.js'
 import brandMistral from '../brands/mistral.js'
+import brandNearai from '../brands/nearai.js'
 import brandNemotron from '../brands/nemotron.js'
 import brandOpenaiCompatibleAlias from '../brands/openai-compatible-alias.js'
 import brandQwen from '../brands/qwen.js'
@@ -57,6 +59,7 @@ import modelKimi from '../models/kimi.js'
 import modelLlama from '../models/llama.js'
 import modelMinimax from '../models/minimax.js'
 import modelMistral from '../models/mistral.js'
+import modelNearai from '../models/nearai.js'
 import modelNemotron from '../models/nemotron.js'
 import modelOpenaiCompatibleAlias from '../models/openai-compatible-alias.js'
 import modelOpencode from '../models/opencode.js'
@@ -64,11 +67,11 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorAtlasCloud, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorAtlasCloud, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorNearai, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
 export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpencodeGo, gatewayOpencode, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
-export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
-export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
+export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNearai, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
+export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNearai, modelNemotron, modelOpenaiCompatibleAlias, modelOpencode, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
 export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]
 
 export const PROVIDER_PRESET_MANIFEST = [
@@ -298,6 +301,19 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "nearai",
+    "routeKind": "vendor",
+    "routeId": "nearai",
+    "vendorId": "nearai",
+    "description": "NEAR AI unified gateway (Claude, GPT, Gemini + TEE models)",
+    "apiKeyEnvVars": [
+      "NEARAI_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "nvidia-nim",
     "routeKind": "gateway",
     "routeId": "nvidia-nim",
@@ -470,6 +486,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "mistral",
   "moonshotai",
   "kimi-code",
+  "nearai",
   "nvidia-nim",
   "openai",
   "opencode-go",

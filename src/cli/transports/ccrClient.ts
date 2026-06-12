@@ -229,7 +229,6 @@ export function accumulateStreamEvents(
           out.push(msg)
           break
         }
-        // Create or get array reference for this block index
         const chunks = (blocks[event.index] ??= [])
         chunks.push(event.delta.text)
         const existing = touched.get(chunks)

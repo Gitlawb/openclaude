@@ -44,7 +44,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import { isNearaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -553,6 +553,10 @@ function isProcessEnvAlignedWithProfile(
     (profile.baseUrl?.toLowerCase().includes('atlascloud')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
+      : true) &&
+    (isNearaiBaseUrl(profile.baseUrl)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -690,6 +694,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
+        openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -936,6 +943,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (isNearaiBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.NEARAI_API_KEY = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
@@ -975,6 +985,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+    }
+    if (isNearaiBaseUrl(activeProfile.baseUrl)) {
+      env.NEARAI_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY
@@ -1127,6 +1140,11 @@ function buildStartupProfileFromActiveProfile(
         return env
           ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
+      }
+
+      if (route.vendorId === 'nearai') {
+        const env = buildOpenAICompatibleStartupEnv(activeProfile)
+        return env ? { profile: 'openai', env } : null
       }
 
       // xAI OAuth profile (provider=xai with no API key). Tag the startup

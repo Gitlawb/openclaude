@@ -384,10 +384,11 @@ export async function initReplBridge(
     return userMessageCount >= 3
   }
 
+  // Note: the open-source flag shim resolves from the local feature-flags
+  // file and takes no refresh-window argument.
   const initialHistoryCap = getFeatureValue_CACHED_WITH_REFRESH(
     'tengu_bridge_initial_history_cap',
     200,
-    5 * 60 * 1000,
   )
 
   // Fetch orgUUID before the v1/v2 branch — both paths need it. v1 for

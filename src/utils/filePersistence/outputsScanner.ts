@@ -7,6 +7,7 @@
  * - Find modified files by comparing file mtimes against turn start time
  */
 
+import type { Dirent } from 'fs'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { logForDebugging } from '../debug.js'
@@ -63,8 +64,10 @@ export async function findModifiedFiles(
   turnStartTime: TurnStartTime,
   outputsDir: string,
 ): Promise<string[]> {
-  // Use recursive flag to get all entries in one call
-  let entries: Awaited<ReturnType<typeof fs.readdir>>
+  // Use recursive flag to get all entries in one call.
+  // readdir's withFileTypes overload returns Dirent<string>[]; ReturnType of
+  // the bare function picks the Buffer overload, so annotate explicitly.
+  let entries: Dirent[]
   try {
     entries = await fs.readdir(outputsDir, {
       withFileTypes: true,

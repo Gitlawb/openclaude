@@ -10,7 +10,7 @@ import type {
   RenderableMessage,
 } from '../types/message.js'
 
-export type MessageWithoutProgress = NormalizedMessage
+export type MessageWithoutProgress = Exclude<NormalizedMessage, ProgressMessage>
 
 export type GroupingResult = {
   messages: RenderableMessage[]

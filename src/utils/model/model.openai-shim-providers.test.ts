@@ -4,7 +4,11 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { getGlobalConfig, saveGlobalConfig } from '../config.js'
+import {
+  type GlobalConfig,
+  getGlobalConfig,
+  saveGlobalConfig,
+} from '../config.js'
 
 async function importFreshModelModule() {
   mock.restore()
@@ -78,7 +82,8 @@ const SAVED_ENV = {
   ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES:
     process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
 }
-const savedModel = getGlobalConfig().model
+// `model` is a legacy loose key not declared on GlobalConfig.
+const savedModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {

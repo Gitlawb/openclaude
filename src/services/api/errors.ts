@@ -306,7 +306,10 @@ export function getProviderMaxTokensCapFromMessage(
   }
 
   const text = content
-    .filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .filter(
+      (block): block is Extract<typeof block, { type: 'text' }> =>
+        block?.type === 'text' && typeof block.text === 'string',
+    )
     .map(block => block.text)
     .join('\n')
 

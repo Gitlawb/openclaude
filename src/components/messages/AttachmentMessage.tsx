@@ -348,7 +348,10 @@ export function AttachmentMessage({
       // skill_discovery and teammate_mailbox are handled BEFORE the switch in
       // runtime-gated blocks (feature() / isAgentSwarmsEnabled()) that TS can't
       // narrow through — excluded here via type union (compile-time only, no emit).
-      attachment.type satisfies NullRenderingAttachmentType | 'skill_discovery' | 'teammate_mailbox';
+      // bagel_console intentionally renders null here (it has no UI of its own)
+      // but is not in NULL_RENDERING_TYPES, so it still counts toward the
+      // Messages.tsx render budget.
+      attachment.type satisfies NullRenderingAttachmentType | 'skill_discovery' | 'teammate_mailbox' | 'bagel_console';
       return null;
   }
 }

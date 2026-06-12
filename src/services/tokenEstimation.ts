@@ -515,7 +515,9 @@ function roughTokenCountEstimationForContent(
   content:
     | string
     | Array<Anthropic.ContentBlock>
-    | Array<Anthropic.ContentBlockParam>
+    // ToolReferenceBlockParam appears nested in tool_result content but is
+    // not part of the top-level ContentBlockParam union.
+    | Array<Anthropic.ContentBlockParam | Anthropic.ToolReferenceBlockParam>
     | undefined,
 ): number {
   if (!content) {
@@ -532,7 +534,12 @@ function roughTokenCountEstimationForContent(
 }
 
 function roughTokenCountEstimationForBlock(
-  block: string | Anthropic.ContentBlock | Anthropic.ContentBlockParam,
+  block:
+    | string
+    | Anthropic.ContentBlock
+    | Anthropic.ContentBlockParam
+    // Nested tool_result content block; falls through to the stringify path.
+    | Anthropic.ToolReferenceBlockParam,
 ): number {
   if (typeof block === 'string') {
     return roughTokenCountEstimation(block)

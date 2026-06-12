@@ -194,9 +194,11 @@ describe('Gemini auth helpers', () => {
   })
 
   test('only treats existing ADC paths as valid hints', () => {
-    const spy = spyOn(fs, 'existsSync').mockImplementation((path: string) => {
-      return path === existingFilePath
-    })
+    const spy = spyOn(fs, 'existsSync').mockImplementation(
+      (path: fs.PathLike) => {
+        return path === existingFilePath
+      },
+    )
 
     try {
       process.env.GOOGLE_APPLICATION_CREDENTIALS = existingFilePath

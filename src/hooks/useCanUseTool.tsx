@@ -14,6 +14,7 @@ import type { AssistantMessage } from '../types/message.js';
 import { recordAutoModeDenial } from '../utils/autoModeDenials.js';
 import { clearClassifierChecking, setClassifierApproval, setYoloClassifierApproval } from '../utils/classifierApprovals.js';
 import { logForDebugging } from '../utils/debug.js';
+import type { ClassifierResult } from '../utils/permissions/bashClassifier.js';
 import { AbortError } from '../utils/errors.js';
 import { logError } from '../utils/log.js';
 import type { PermissionDecision } from '../utils/permissions/PermissionResult.js';
@@ -190,12 +191,12 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
   }
   return t0;
 }
-function _temp2(res) {
+function _temp2(res: (value: { type: 'timeout' }) => void) {
   return setTimeout(res, 2000, {
     type: "timeout" as const
   });
 }
-function _temp(r) {
+function _temp(r: ClassifierResult) {
   return {
     type: "result" as const,
     result: r

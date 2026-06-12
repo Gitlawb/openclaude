@@ -11,23 +11,27 @@ const UUID = 'a1b2c3d4-0000-0000-0000-000000000099'
 const UUID_B = 'b2c3d4e5-0000-0000-0000-000000000088'
 
 function tagFor(uuid: string): string {
-  return `[id:${deriveShortMessageId(uuid)}]`
+  return `snip_id=${deriveShortMessageId(uuid)}`
 }
 
 function countTags(out: UserMessage): number {
   const c = out.message.content
   const s = typeof c === 'string' ? c : JSON.stringify(c)
-  return (s.match(/\[id:/g) || []).length
+  return (s.match(/snip_id=/g) || []).length
 }
 
 describe('appendMessageTagToUserMessage', () => {
-  test('appends the tag to string content', () => {
+  test('appends internal snip metadata to string content', () => {
     const msg = { ...createUserMessage({ content: 'hello' }), uuid: UUID }
     const out = appendMessageTagToUserMessage(msg as UserMessage)
-    expect(out.message.content).toBe(`hello\n${tagFor(UUID)}`)
+    expect(out.message.content).toContain('hello')
+    expect(out.message.content).toContain(tagFor(UUID))
+    expect(out.message.content).toContain('do not discuss in thinking')
+    expect(out.message.content).not.toContain('[id:')
+    expect(out.message.content).not.toContain('user-provided')
   })
 
-  test('appends the tag to the last text block of array content', () => {
+  test('appends internal snip metadata to the last text block of array content', () => {
     const msg = {
       ...createUserMessage({
         content: [{ type: 'text', text: 'first' }],
@@ -36,10 +40,14 @@ describe('appendMessageTagToUserMessage', () => {
     }
     const out = appendMessageTagToUserMessage(msg as UserMessage)
     const blocks = out.message.content as any[]
-    expect(blocks[blocks.length - 1].text).toBe(`first\n${tagFor(UUID)}`)
+    expect(blocks[blocks.length - 1].text).toContain('first')
+    expect(blocks[blocks.length - 1].text).toContain(tagFor(UUID))
+    expect(blocks[blocks.length - 1].text).toContain('do not discuss in thinking')
+    expect(blocks[blocks.length - 1].text).not.toContain('[id:')
+    expect(blocks[blocks.length - 1].text).not.toContain('user-provided')
   })
 
-  test('adds a visible tag to a pure tool_result message (large Read/Bash output)', () => {
+  test('adds internal snip metadata to a pure tool_result message (large Read/Bash output)', () => {
     const msg = {
       ...createUserMessage({
         content: [
@@ -56,9 +64,12 @@ describe('appendMessageTagToUserMessage', () => {
     const blocks = out.message.content as any[]
     // The tool_result block is preserved so snip pairing still works.
     expect(blocks.some(b => b.type === 'tool_result')).toBe(true)
-    // A visible [id:...] tag is now present for the model to reference.
+    // Internal metadata is present for snip without looking user-authored.
     const flattened = JSON.stringify(blocks)
     expect(flattened).toContain(tagFor(UUID))
+    expect(flattened).toContain('do not discuss in thinking')
+    expect(flattened).not.toContain('[id:')
+    expect(flattened).not.toContain('user-provided')
   })
 
   test('leaves a meta message untouched', () => {
@@ -137,6 +148,7 @@ describe('appendMessageTagToUserMessage', () => {
     // Both siblings' ids survive the merge, so both are snippable.
     expect(flattened).toContain(tagFor(UUID))
     expect(flattened).toContain(tagFor(UUID_B))
+    expect(flattened).not.toContain('[id:')
     // Both tool_result blocks are preserved for snip pairing.
     const blocks = merged.message.content as any[]
     expect(blocks.filter(b => b.type === 'tool_result').length).toBe(2)

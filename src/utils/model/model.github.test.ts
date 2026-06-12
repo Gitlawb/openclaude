@@ -4,7 +4,11 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { getGlobalConfig, saveGlobalConfig } from '../config.js'
+import {
+  type GlobalConfig,
+  getGlobalConfig,
+  saveGlobalConfig,
+} from '../config.js'
 import { getDefaultMainLoopModelSetting, getUserSpecifiedModelSetting } from './model.js'
 
 const env = {
@@ -16,7 +20,8 @@ const env = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
-const originalModel = getGlobalConfig().model
+// `model` is a legacy loose key not declared on GlobalConfig.
+const originalModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
 
 function restoreEnv(key: keyof typeof env): void {
   if (env[key] === undefined) {

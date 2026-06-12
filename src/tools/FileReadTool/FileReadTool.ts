@@ -1159,12 +1159,11 @@ export async function readImageWithTokenBudget(
       // Fallback: heavily compressed version from the SAME buffer
       try {
         const sharpModule = await import('sharp')
+        // CJS/ESM interop: prefer .default; some loaders expose the callable
+        // as the module itself, hence the cast on the fallback.
         const sharp =
-          (
-            sharpModule as {
-              default?: typeof sharpModule
-            } & typeof sharpModule
-          ).default || sharpModule
+          sharpModule.default ||
+          (sharpModule as unknown as typeof sharpModule.default)
 
         const fallbackBuffer = await sharp(imageBuffer)
           .resize(400, 400, {

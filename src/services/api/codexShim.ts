@@ -671,7 +671,7 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
    * AbortSignal — clears the idle timer on abort so the AbortError
    * surfaces cleanly instead of a spurious idle timeout.
    */
-  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+  async function readWithTimeout(): Promise<Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
@@ -688,7 +688,8 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
         signal.addEventListener('abort', abortCleanup, { once: true })
       }
 
-      reader.read().then(
+      // reader is guarded non-null above; hoisted function escapes TS narrowing.
+      reader!.read().then(
         result => {
           clearTimeout(timeoutId)
           if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)

@@ -1657,7 +1657,7 @@ export type SDKResultSuccess = {
   result: string
   stop_reason: string | null
   total_cost_usd: number
-  usage: Record<string, number>
+  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number
@@ -1688,7 +1688,7 @@ export type SDKResultError = {
   num_turns: number
   stop_reason: string | null
   total_cost_usd: number
-  usage: Record<string, number>
+  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number
@@ -1720,7 +1720,7 @@ export type SDKResultMessage = ({
   result: string
   stop_reason: string | null
   total_cost_usd: number
-  usage: Record<string, number>
+  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number
@@ -1749,7 +1749,7 @@ export type SDKResultMessage = ({
   num_turns: number
   stop_reason: string | null
   total_cost_usd: number
-  usage: Record<string, number>
+  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number
@@ -2079,7 +2079,7 @@ export type SDKMessage = ({
   result: string
   stop_reason: string | null
   total_cost_usd: number
-  usage: Record<string, number>
+  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number
@@ -2108,7 +2108,7 @@ export type SDKMessage = ({
   num_turns: number
   stop_reason: string | null
   total_cost_usd: number
-  usage: Record<string, number>
+  usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number

@@ -140,7 +140,15 @@ function getResultText(msg: Msg): string {
   return ''
 }
 
-function compressToolHistoryForTest<T>(
+// Constraint mirrors the (unexported) AnyMessage shape compressToolHistory
+// accepts, so both flat Msg and wrapped { message: ... } fixtures type-check.
+function compressToolHistoryForTest<
+  T extends {
+    role?: string
+    message?: { role?: string; content?: unknown }
+    content?: unknown
+  },
+>(
   messages: T[],
   model = 'gpt-4o',
   effectiveContextWindowSize = 100_000,

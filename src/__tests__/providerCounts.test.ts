@@ -44,10 +44,10 @@ describe('Provider result counts', () => {
         const match = content.match(pattern)
         if (match) {
           const num = parseInt(match[1], 10)
-          expect(num).toBeGreaterThanOrEqual(
-            10,
+          expect(
+            num,
             `${name} has suspiciously low result count: ${match[0]}`,
-          )
+          ).toBeGreaterThanOrEqual(10)
         }
       }
     }
