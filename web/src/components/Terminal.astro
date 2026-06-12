@@ -1,0 +1,17 @@
+---
+interface Props {
+  title?: string
+}
+
+const { title = '~/your-repo' } = Astro.props
+---
+
+<div class="terminal" role="img" aria-label="terminal session showing openclaude editing code">
+  <div class="terminal-bar">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span>{title}</span>
+  </div>
+  <div class="terminal-body">
+    <slot />
+  </div>
+</div>
