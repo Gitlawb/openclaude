@@ -711,6 +711,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     autoInstallIdeExtension: true,
     fileCheckpointingEnabled: true,
     terminalProgressBarEnabled: true,
+    defaultStatusLineEnabled: true,
     cachedStatsigGates: {},
     cachedDynamicConfigs: {},
     cachedGrowthBookFeatures: {},

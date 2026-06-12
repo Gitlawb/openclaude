@@ -197,6 +197,21 @@ export function SpinnerAnimationRow({
   const showTimer = wantsTimerAndTokens && availableSpace > usedAfterThinking + timerWidth;
   const usedAfterTimer = usedAfterThinking + (showTimer ? timerWidth + sep : 0);
   const showTokens = wantsTimerAndTokens && totalTokens > 0 && availableSpace > usedAfterTimer + tokensWidth;
+  // Second chance for narrow terminals: the gating above reserves space for
+  // the mode glyph + separator, but a would-be thinking-only spin renders
+  // neither the glyph nor the wrapping parens beyond "( )". When nothing
+  // else will show, re-try the thinking gate with that space returned so
+  // "(thinking)" appears instead of nothing.
+  if (!showThinking && wantsThinking && thinkingStatus === 'thinking' && !hasRunningTeammates && !spinnerSuffix && !showTimer && !showTokens) {
+    const bareAvailable = columns - messageWidth - 2;
+    if (bareAvailable > thinkingWidthValue) {
+      showThinking = true;
+    } else if (effortSuffix && bareAvailable > THINKING_BARE_WIDTH) {
+      thinkingText = 'thinking';
+      thinkingWidthValue = THINKING_BARE_WIDTH;
+      showThinking = true;
+    }
+  }
   const thinkingOnly = showThinking && thinkingStatus === 'thinking' && !spinnerSuffix && !showTimer && !showTokens && true;
 
   // === Thinking shimmer color (formerly ThinkingShimmerText's own timer) ===
