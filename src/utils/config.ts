@@ -595,6 +595,9 @@ export type GlobalConfig = {
   // PR status footer configuration (feature-flagged via GrowthBook)
   prStatusFooterEnabled?: boolean // Show PR review status in footer (default: true)
 
+  // Built-in status bar shown when no custom statusLine command is configured (default: true)
+  defaultStatusLineEnabled?: boolean
+
   // Tmux live panel visibility (internal-only, toggled via Enter on tmux pill)
   tungstenPanelVisible?: boolean
 
@@ -764,6 +767,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'flickerFreeMode',
   'permissionExplainerEnabled',
   'prStatusFooterEnabled',
+  'defaultStatusLineEnabled',
   'remoteControlAtStartup',
   'remoteDialogSeen',
   'knowledgeGraphEnabled',

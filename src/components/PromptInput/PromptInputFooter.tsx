@@ -16,6 +16,7 @@ import type { Message } from '../../types/message.js';
 import type { PromptInputMode, VimMode } from '../../types/textInputTypes.js';
 import type { AutoUpdaterResult } from '../../utils/autoUpdater.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
+import { BuiltinStatusLine, builtinStatusLineShouldDisplay } from '../BuiltinStatusLine.js';
 import { useCoordinatorTaskCount } from '../CoordinatorAgentStatus.js';
 import { getLastAssistantMessageId, StatusLine, statusLineShouldDisplay } from '../StatusLine.js';
 import { Notifications } from './Notifications.js';
@@ -117,8 +118,8 @@ function PromptInputFooter({
   const coordinatorTaskIndex = useAppState(s => s.coordinatorTaskIndex);
   const pillSelected = tasksSelected && (coordinatorTaskCount === 0 || coordinatorTaskIndex < 0);
 
-  // Hide `? for shortcuts` if the user has a custom status line, or during ctrl-r
-  const suppressHint = suppressHintFromProps || statusLineShouldDisplay(settings) || isSearching;
+  // Hide `? for shortcuts` if any status line is shown, or during ctrl-r
+  const suppressHint = suppressHintFromProps || statusLineShouldDisplay(settings) || builtinStatusLineShouldDisplay(settings) || isSearching;
   // Fullscreen: portal data to FullscreenLayout — see promptOverlayContext.tsx
   const overlayData = useMemo(() => isFullscreen && suggestions.length ? {
     suggestions,
@@ -137,7 +138,7 @@ function PromptInputFooter({
   return <>
       <Box flexDirection={isNarrow ? 'column' : 'row'} justifyContent={isNarrow ? 'flex-start' : 'space-between'} paddingX={2} gap={isNarrow ? 0 : 1}>
         <Box flexDirection="column" flexShrink={isNarrow ? 0 : 1}>
-          {mode === 'prompt' && !isShort && !exitMessage.show && !isPasting && statusLineShouldDisplay(settings) && <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} />}
+          {mode === 'prompt' && !isShort && !exitMessage.show && !isPasting && (statusLineShouldDisplay(settings) ? <StatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} vimMode={vimMode} /> : builtinStatusLineShouldDisplay(settings) ? <BuiltinStatusLine messagesRef={messagesRef} lastAssistantMessageId={lastAssistantMessageId} /> : null)}
           <PromptInputFooterLeftSide exitMessage={exitMessage} vimMode={vimMode} mode={mode} toolPermissionContext={toolPermissionContext} suppressHint={suppressHint} isLoading={isLoading} tasksSelected={pillSelected} teamsSelected={teamsSelected} teammateFooterIndex={teammateFooterIndex} tmuxSelected={tmuxSelected} isPasting={isPasting} isSearching={isSearching} historyQuery={historyQuery} setHistoryQuery={setHistoryQuery} historyFailedMatch={historyFailedMatch} onOpenTasksDialog={onOpenTasksDialog} />
         </Box>
         <Box flexShrink={1} gap={1}>
