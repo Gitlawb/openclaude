@@ -97,6 +97,7 @@ const SAVED_ENV = {
   XAI_API_KEY: process.env.XAI_API_KEY,
   VENICE_API_KEY: process.env.VENICE_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
+  NEARAI_API_KEY: process.env.NEARAI_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
