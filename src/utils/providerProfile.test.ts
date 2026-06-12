@@ -330,6 +330,23 @@ test('buildStartupEnvFromProfile preserves env-only Fireworks setup without a sa
   assert.equal(isDefaultStartupProviderEnv(env), false)
 })
 
+test('buildStartupEnvFromProfile preserves env-only NEAR AI setup without a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      NEARAI_API_KEY: 'nearai-key',
+    },
+  })
+
+  assert.equal(env.NEARAI_API_KEY, 'nearai-key')
+  assert.equal(
+    env.OPENAI_BASE_URL,
+    undefined,
+    'should not inject Gitlawb Opengateway base URL',
+  )
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+})
+
 test('openai launch preserves shell responses format and custom auth overrides', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

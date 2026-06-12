@@ -1143,8 +1143,11 @@ function hasConcreteProviderSelection(
     return true
   }
 
-  // env-only Fireworks setup — no CLAUDE_CODE_USE_* flag needed
-  return sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined
+  // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
+  return (
+    sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined
+  )
 }
 
 export function selectAutoProfile(
