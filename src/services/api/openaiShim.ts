@@ -356,6 +356,17 @@ function convertToolResultContent(
       continue
     }
 
+    // ToolSearch results are tool_reference blocks with no text payload —
+    // render them so the model learns which deferred tools were loaded
+    // (their schemas arrive in the next request's tools array).
+    if (block?.type === 'tool_reference' && typeof block.tool_name === 'string') {
+      parts.push({
+        type: 'text',
+        text: `Tool "${block.tool_name}" is now loaded and available to call.`,
+      })
+      continue
+    }
+
     if (block?.type === 'image') {
       const source = block.source
       if (source?.type === 'url' && source.url) {

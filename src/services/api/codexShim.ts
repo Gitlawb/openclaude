@@ -150,6 +150,15 @@ function convertToolResultToText(content: unknown): string {
       continue
     }
 
+    // ToolSearch results are tool_reference blocks with no text payload. On
+    // the Anthropic wire the API expands them server-side; here we render
+    // them as text — the full schema arrives in the next request's tools
+    // array (see the discovered-tools filter in claude.ts).
+    if (block?.type === 'tool_reference' && typeof block.tool_name === 'string') {
+      chunks.push(`Tool "${block.tool_name}" is now loaded and available to call.`)
+      continue
+    }
+
     if (block?.type === 'image') {
       const src = block.source
       if (src?.type === 'url' && src.url) {
@@ -457,8 +466,10 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
 export function convertToolsToResponsesTools(
   tools: Array<{ name?: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): ResponsesTool[] {
+  // Note: ToolSearch (the deferral discovery tool) must reach the wire as a
+  // regular function — claude.ts already removes it when tool search is off.
   return tools
-    .filter(tool => tool.name && tool.name !== 'ToolSearchTool')
+    .filter(tool => tool.name)
     .map(tool => {
       const rawParameters = tool.input_schema ?? { type: 'object', properties: {} }
       // Codex requires strict schemas: all properties must be required
