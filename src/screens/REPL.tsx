@@ -4586,7 +4586,7 @@ export function REPL({
         {/* Permanently mounted: it observes the isLoading transition to flash
             `✓ Done` for ~1.5s. Suppressed wherever another element owns the
             row or the user's attention. */}
-        <CompletionFlash turnActive={isLoading || userInputOnProcessing !== undefined} suppressed={isBriefOnly || hasRunningTeammates || toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || viewedAgentTask !== undefined} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} />
+        <CompletionFlash turnActive={isLoading || userInputOnProcessing !== undefined} suppressed={isBriefOnly || hasRunningTeammates || hasActivePrompt || viewedAgentTask !== undefined} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} />
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
       </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>

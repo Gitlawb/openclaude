@@ -44,7 +44,13 @@ export function CompletionFlash({
       setFlash(null);
       return;
     }
-    if (!wasActive || suppressed || reducedMotion) return;
+    if (suppressed || reducedMotion) {
+      // Suppression owns the row/attention now: also hide an already-active
+      // flash rather than only preventing new ones.
+      setFlash(null);
+      return;
+    }
+    if (!wasActive) return;
     const elapsedMs = Date.now() - loadingStartTimeRef.current - totalPausedMsRef.current;
     if (elapsedMs < MIN_TURN_MS) return;
     setFlash({
@@ -56,7 +62,9 @@ export function CompletionFlash({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
   }, [turnActive, suppressed, reducedMotion]);
-  if (!flash) return null;
+  // Belt-and-braces with the effect's clear: don't render the one frame
+  // between suppression flipping on and the effect committing setFlash(null).
+  if (!flash || suppressed) return null;
   return <Box flexDirection="row" flexWrap="nowrap" marginTop={1} width="100%">
       <Text color="success">✓ </Text>
       <Text dimColor>Done · {formatDuration(flash.durationMs)}</Text>

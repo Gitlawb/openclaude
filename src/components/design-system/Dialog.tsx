@@ -53,7 +53,7 @@ export function Dialog({
   const defaultInputGuide = exitState.pending ? <Text>Press {exitState.keyName} again to exit</Text> : <Byline>
         {showNavigationHint && <KeyboardShortcutHint shortcut="↑/↓" action="navigate" />}
         <KeyboardShortcutHint shortcut="Enter" action="confirm" />
-        <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+        {isCancelActive && <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />}
       </Byline>;
   const content = <>
       <Box flexDirection="column" gap={1}>

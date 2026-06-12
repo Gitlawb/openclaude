@@ -25,13 +25,13 @@ import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../ut
  * PromptInputFooter). Unlike the custom path this is pure in-process
  * computation — no subprocess, no debounce.
  */
-export function builtinStatusLineShouldDisplay(settings: ReadonlySettings): boolean {
+export function builtinStatusLineShouldDisplay(settings: ReadonlySettings, config = getGlobalConfig()): boolean {
   // Assistant mode: fields reflect the REPL/daemon process, not the agent
   // child — hide, same as statusLineShouldDisplay.
   if (feature('KAIROS') && getKairosActive()) return false;
   // A configured custom statusline command always wins.
   if (settings?.statusLine !== undefined) return false;
-  return getGlobalConfig().defaultStatusLineEnabled ?? true;
+  return config.defaultStatusLineEnabled ?? true;
 }
 export type StatusSegment = {
   key: string;

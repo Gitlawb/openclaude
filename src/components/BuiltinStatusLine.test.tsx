@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { DEFAULT_GLOBAL_CONFIG } from '../utils/config.js'
 import {
   type BuiltinStatusData,
   buildBuiltinStatusSegments,
@@ -103,5 +104,23 @@ describe('builtinStatusLineShouldDisplay', () => {
 
   it('displays by default when no custom statusline is configured', () => {
     expect(builtinStatusLineShouldDisplay({})).toBe(true)
+  })
+
+  it('hides when defaultStatusLineEnabled is false', () => {
+    expect(
+      builtinStatusLineShouldDisplay(
+        {},
+        { ...DEFAULT_GLOBAL_CONFIG, defaultStatusLineEnabled: false },
+      ),
+    ).toBe(false)
+  })
+
+  it('config off still yields to nothing — custom statusline wins regardless', () => {
+    expect(
+      builtinStatusLineShouldDisplay(
+        { statusLine: { type: 'command', command: 'echo custom' } },
+        { ...DEFAULT_GLOBAL_CONFIG, defaultStatusLineEnabled: false },
+      ),
+    ).toBe(false)
   })
 })
