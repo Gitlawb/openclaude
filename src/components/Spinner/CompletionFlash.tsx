@@ -63,8 +63,9 @@ export function CompletionFlash({
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
   }, [turnActive, suppressed, reducedMotion]);
   // Belt-and-braces with the effect's clear: don't render the one frame
-  // between suppression flipping on and the effect committing setFlash(null).
-  if (!flash || suppressed) return null;
+  // between suppression (or reduced motion) flipping on and the effect
+  // committing setFlash(null).
+  if (!flash || suppressed || reducedMotion) return null;
   return <Box flexDirection="row" flexWrap="nowrap" marginTop={1} width="100%">
       <Text color="success">✓ </Text>
       <Text dimColor>Done · {formatDuration(flash.durationMs)}</Text>

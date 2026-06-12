@@ -157,8 +157,11 @@ function BuiltinStatusLineInner({
     rateLimit: getWorstRateLimit()
   }),
   // paddingX from the footer (2 each side) is already outside this Box;
-  // keep a 1-col safety margin against the truncate ellipsis.
-  Math.max(columns - 5, 10));
+  // keep a 1-col safety margin against the truncate ellipsis. No artificial
+  // floor: fitSegments returning [] is the signal that nothing fits, and the
+  // empty branch below already handles it (row-reserve in fullscreen, null
+  // otherwise).
+  Math.max(columns - 5, 0));
 
   // Reserve the row in fullscreen — the footer is flexShrink:0, so a 0→1 row
   // change steals a row from ScrollBox (same trick as StatusLine).
