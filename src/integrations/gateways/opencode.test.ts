@@ -12,7 +12,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { createOpenAIShimClient } from 'src/services/api/openaiShim.js'
+import { createOpenAIShimClient } from '../../services/api/openaiShim.js'
 
 beforeEach(async () => {
   await acquireSharedMutationLock('integrations/gateways/opencode.test.ts')
@@ -335,38 +335,50 @@ describe('OpenCode model catalog', () => {
 
 describe('OpenCode Auth and Transport Tests', () => {
   const originalFetch = globalThis.fetch
+  const originalEnv: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    originalEnv.CLAUDE_CODE_USE_OPENAI = process.env.CLAUDE_CODE_USE_OPENAI
+    originalEnv.OPENAI_BASE_URL = process.env.OPENAI_BASE_URL
+    originalEnv.OPENAI_MODEL = process.env.OPENAI_MODEL
+    originalEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY
+  })
 
   afterEach(() => {
-    delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_MODEL
-    delete process.env.OPENAI_API_KEY
+    const keys = ['CLAUDE_CODE_USE_OPENAI', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'OPENAI_API_KEY']
+    
+    for (const key of keys) {
+      if (originalEnv[key] === undefined) {
+        delete process.env[key] 
+      } else {
+        process.env[key] = originalEnv[key]
+      }
+    }
     
     globalThis.fetch = originalFetch
   })
 
   test('OpenCode (Anthropic route) sends x-api-key', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    ensureIntegrationsLoaded()
-    
     process.env.OPENAI_BASE_URL = 'https://opencode.ai'
     process.env.OPENAI_MODEL = 'opencode-go-qwen3.7-max'
     process.env.OPENAI_API_KEY = 'test-anthropic-key'
+    ensureIntegrationsLoaded()
 
     let fetchCalled = false
     let capturedHeaders: Headers = new Headers()
-    
+
     globalThis.fetch = (async (_input, init) => {
       fetchCalled = true
       capturedHeaders = new Headers(init?.headers as HeadersInit)
-      return new Response(JSON.stringify({ id: 'test', choices: [] }), { 
-        status: 200, 
-        headers: { 'content-type': 'application/json' } 
+      return new Response(JSON.stringify({ id: 'test', choices: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
       })
     }) as any
 
     const client = createOpenAIShimClient({}) as any
-    
+
     await client.beta.messages.create({
       model: 'opencode-go-qwen3.7-max',
       messages: [{ role: 'user', content: 'hi' }],
@@ -380,12 +392,11 @@ describe('OpenCode Auth and Transport Tests', () => {
   })
 
   test('OpenCode (Standard route) sends Bearer auth', async () => {
-    ensureIntegrationsLoaded()
-    
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://opencode.ai'
     process.env.OPENAI_MODEL = 'opencode-go-glm-5.1'
     process.env.OPENAI_API_KEY = 'test-openai-key'
+    ensureIntegrationsLoaded()
 
     let fetchCalled = false
     let capturedHeaders: Headers = new Headers()

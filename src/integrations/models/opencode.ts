@@ -800,7 +800,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-glm-5.1',
+    defaultModel: 'opencode-go-glm-5.1',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -818,7 +818,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-glm-5',
+    defaultModel: 'opencode-go-glm-5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -836,7 +836,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-kimi-k2.5',
+    defaultModel: 'opencode-go-kimi-k2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -854,7 +854,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-kimi-k2.6',
+    defaultModel: 'opencode-go-kimi-k2.6',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -872,7 +872,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'opencode-deepseek-v4-pro',
+    defaultModel: 'opencode-go-deepseek-v4-pro',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -890,7 +890,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-deepseek-v4-flash',
+    defaultModel: 'opencode-go-deepseek-v4-flash',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -908,7 +908,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'opencode-mimo-v2.5',
+    defaultModel: 'opencode-go-mimo-v2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -926,7 +926,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'coding'],
-    defaultModel: 'opencode-mimo-v2.5-pro',
+    defaultModel: 'opencode-go-mimo-v2.5-pro',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -946,7 +946,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-minimax-m3',
+    defaultModel: 'opencode-go-minimax-m3',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -964,7 +964,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-minimax-m2.7',
+    defaultModel: 'opencode-go-minimax-m2.7',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -982,7 +982,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat'],
-    defaultModel: 'opencode-minimax-m2.5',
+    defaultModel: 'opencode-go-minimax-m2.5',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -1000,7 +1000,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'opencode-qwen3.7-max',
+    defaultModel: 'opencode-go-qwen3.7-max',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -1018,7 +1018,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'opencode-qwen3.7-plus',
+    defaultModel: 'opencode-go-qwen3.7-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -1036,7 +1036,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'opencode-qwen3.6-plus',
+    defaultModel: 'opencode-go-qwen3.6-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,
@@ -1054,7 +1054,7 @@ export default [
 
     vendorId: 'openai',
     classification: ['chat', 'reasoning'],
-    defaultModel: 'opencode-qwen3.5-plus',
+    defaultModel: 'opencode-go-qwen3.5-plus',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,

@@ -15,6 +15,7 @@ export default defineGateway({
     kind: 'credential-env',
     routing: {
       matchDefaultBaseUrl: true,
+      matchBaseUrlHosts: ['opencode.ai'],
     },
     credentialEnvVars: ['OPENCODE_API_KEY', 'OPENAI_API_KEY'],
     missingCredentialMessage:

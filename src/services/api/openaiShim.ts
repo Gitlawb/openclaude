@@ -2835,8 +2835,7 @@ class OpenAIShimMessages {
       isOpenCode = hostname === 'opencode.ai' || hostname.endsWith('.opencode.ai')
       
       if (isOpenCode && !isAnthropicTransport) {
-        const modelName = request.resolvedModel || '';
-        if (modelName.includes('qwen') || shimConfig?.endpointPath === '/messages') {
+        if (shimConfig?.endpointPath === '/messages') {
             isAnthropicTransport = true;
         }
       }
