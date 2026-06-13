@@ -770,6 +770,13 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
   // and remains true for all subsequent messages in the normalization process.
   let isNewChain = false
   return messages.flatMap(message => {
+    // Defensive: a falsy slot (sparse array) or a non-object would throw on
+    // the message.type read below. Drop it — this mirrors the default arm
+    // and keeps the render pipeline alive instead of crashing the UI.
+    if (!message || typeof message !== 'object' || !('type' in message)) {
+      return []
+    }
+
     switch (message.type) {
       case 'assistant': {
         isNewChain = isNewChain || message.message.content.length > 1
