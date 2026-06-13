@@ -77,8 +77,18 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
   let originalCacheDir: string | undefined
   let rmCallCount: number
   let renameSpy: Mock<typeof NodeFsOperations.rename>
+  let originalPlatform: PropertyDescriptor | undefined
 
   beforeEach(() => {
+    // These cases model the Windows (case-insensitive) bug from #1500, so pin
+    // the platform: the finalization now skips the rm/rename only on a
+    // case-insensitive filesystem, and the host CI runner is case-sensitive
+    // Linux. See the case-sensitive sibling test below for the inverse.
+    originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', {
+      value: 'win32',
+      configurable: true,
+    })
     tempDir = mkdtempSync(join(tmpdir(), 'mp-cache-'))
     // getPluginsDirectory() honours this env var, so getMarketplacesCacheDir()
     // resolves to <tempDir>/marketplaces.
@@ -113,6 +123,9 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
       delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
     } else {
       process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalCacheDir
+    }
+    if (originalPlatform) {
+      Object.defineProperty(process, 'platform', originalPlatform)
     }
     rmSync(tempDir, { recursive: true, force: true })
   })

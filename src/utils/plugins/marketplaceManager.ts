@@ -97,6 +97,26 @@ type LoadedPluginMarketplace = {
 }
 
 /**
+ * Whether the current platform's default filesystem treats paths
+ * case-insensitively. Windows (NTFS) and macOS (APFS/HFS+ default) are
+ * case-insensitive; Linux volumes are case-sensitive. Used to decide whether
+ * two cache paths that differ only in case refer to the same directory.
+ */
+function isCaseInsensitiveFs(): boolean {
+  return process.platform === 'win32' || process.platform === 'darwin'
+}
+
+/**
+ * Compare two filesystem paths honoring the platform's case sensitivity. On a
+ * case-insensitive filesystem a case-only difference means the same directory;
+ * on case-sensitive volumes such paths are genuinely distinct, so an
+ * unconditional lowercase comparison would wrongly collapse them.
+ */
+function pathsEqualForFs(a: string, b: string): boolean {
+  return isCaseInsensitiveFs() ? a.toLowerCase() === b.toLowerCase() : a === b
+}
+
+/**
  * Get the path to the known marketplaces configuration file
  * Using a function instead of a constant allows proper mocking in tests
  */
@@ -1729,10 +1749,11 @@ async function loadAndCacheMarketplace(
       // On case-insensitive filesystems (e.g. Windows NTFS), when temp and final
       // paths differ only in case they refer to the same directory. fs.rm would
       // destroy the source data, making the subsequent rename fail with ENOENT.
-      // Skip the rename block when paths are the same case-insensitively.
-      const samePathCaseInsensitive =
-        temporaryCachePath.toLowerCase() === finalCachePath.toLowerCase()
-      if (!samePathCaseInsensitive) {
+      // Skip the rename block when paths are the same. On case-sensitive volumes
+      // a case-only difference is a genuinely distinct directory, so the rename
+      // must still run there.
+      const samePath = pathsEqualForFs(temporaryCachePath, finalCachePath)
+      if (!samePath) {
         try {
           // Remove the destination if it already exists, then rename
           safeCallProgress(onProgress, 'Cleaning up old marketplace cache…')
@@ -1901,10 +1922,7 @@ export async function addMarketplaceSource(
       const cacheDir = resolve(getMarketplacesCacheDir())
       const resolvedOld = resolve(oldEntry.installLocation)
       const resolvedNew = resolve(cachePath)
-      if (
-        resolvedOld === resolvedNew ||
-        resolvedOld.toLowerCase() === resolvedNew.toLowerCase()
-      ) {
+      if (pathsEqualForFs(resolvedOld, resolvedNew)) {
         // Same dir — loadAndCacheMarketplace already overwrote in place.
         // Nothing to clean.
       } else if (
@@ -1972,10 +1990,14 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
   delete config[name]
   await saveKnownMarketplacesConfig(config)
 
-  // Clean up cached files (both directory and JSON formats)
+  // Clean up cached files (both directory and JSON formats).
+  // Prefer the recorded installLocation: recomputing a lowercased path would
+  // miss a mixed-case cache directory on case-sensitive filesystems (Linux),
+  // leaving the real cache behind. Fall back to the legacy computed path for
+  // older entries that predate installLocation tracking.
   const fs = getFsImplementation()
   const cacheDir = getMarketplacesCacheDir()
-  const cachePath = join(cacheDir, name.toLowerCase())
+  const cachePath = entry.installLocation ?? join(cacheDir, name.toLowerCase())
   await fs.rm(cachePath, { recursive: true, force: true })
   const jsonCachePath = join(cacheDir, `${name}.json`)
   await fs.rm(jsonCachePath, { force: true })
