@@ -1537,7 +1537,7 @@ export function REPL({
   const [resumeCompactPending, setResumeCompactPending] = useState<{
     tokenCount: number;
     model: string;
-    messages: Message[];
+    messages: MessageType[];
   } | null>(null);
   const [isMessageSelectorVisible, setIsMessageSelectorVisible] = useState(false);
   const [messageSelectorPreselect, setMessageSelectorPreselect] = useState<UserMessage | undefined>(undefined);
