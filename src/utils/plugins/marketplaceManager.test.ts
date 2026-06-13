@@ -95,12 +95,7 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
       options?: { recursive?: boolean; force?: boolean },
     ) => {
       rmCallCount++
-      // eslint-disable-next-line no-console
-      console.log('DEBUG rmWrapper', { rmCallCount, path, options })
-      const result = await NodeFsOperations.rm(path, options)
-      // eslint-disable-next-line no-console
-      console.log('DEBUG rmWrapper result', { rmCallCount, path, exists: existsSync(path) })
-      return result
+      rmSync(path, options ?? { recursive: true, force: true })
     }
     renameSpy = mock((oldPath: string, newPath: string) =>
       NodeFsOperations.rename(oldPath, newPath),
@@ -302,12 +297,7 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
       options?: { recursive?: boolean; force?: boolean },
     ) => {
       rmCallCount++
-      // eslint-disable-next-line no-console
-      console.log('DEBUG rmWrapper EXDEV', { rmCallCount, path, options })
-      const result = await NodeFsOperations.rm(path, options)
-      // eslint-disable-next-line no-console
-      console.log('DEBUG rmWrapper EXDEV result', { rmCallCount, path, exists: existsSync(path) })
-      return result
+      rmSync(path, options ?? { recursive: true, force: true })
     }
     renameSpy = mock((oldPath: string, newPath: string) =>
       NodeFsOperations.rename(oldPath, newPath),
@@ -378,12 +368,6 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     expect(renameCalls.length).toBeGreaterThan(0)
 
     // The cp+rm fallback must have invoked fs.rm on the temporary file.
-    // eslint-disable-next-line no-console
-    console.log('DEBUG EXDEV', {
-      rmCallCount,
-      renameCallCount: renameSpy.mock.calls.length,
-      afterEntries: readdirSync(cacheDir),
-    })
     expect(rmCallCount).toBeGreaterThan(0)
 
     // The temporary file (temp_<timestamp>.json) MUST be cleaned up — no
