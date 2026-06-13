@@ -652,15 +652,17 @@ export function normalizeFileEditInput({
             normalizedNewString,
           )
 
-          // Apply the same exact replacements to new_string
-          for (const { from, to } of appliedReplacements) {
-            adjustedNewString = adjustedNewString.replaceAll(from, to)
-          }
+          if (adjustedNewString !== null) {
+            // Apply the same exact replacements to new_string
+            for (const { from, to } of appliedReplacements) {
+              adjustedNewString = adjustedNewString.replaceAll(from, to)
+            }
 
-          return {
-            old_string: fuzzyMatch,
-            new_string: adjustedNewString,
-            replace_all,
+            return {
+              old_string: fuzzyMatch,
+              new_string: adjustedNewString,
+              replace_all,
+            }
           }
         }
 
