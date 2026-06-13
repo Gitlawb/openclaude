@@ -642,4 +642,24 @@ describe('compactConversation provider gate', () => {
 
     expect(runForkedAgent).toHaveBeenCalled()
   })
+
+  test('uses forked-agent cache-sharing for GitHub Native Anthropic mode', async () => {
+    // CLAUDE_CODE_USE_GITHUB=1 with a Claude model resolves to the "github"
+    // provider, so isAnthropicProvider() is false — but it routes through the
+    // native Anthropic client where prompt caching works, and the beta gate
+    // already treats it as Anthropic-capable. Compaction must do the same and
+    // keep cache-sharing on, instead of taking the cold-cache path.
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    const { compactConversation, runForkedAgent } = await importCompact({})
+
+    const messages = [userMessage('Hello'), assistantMessage('Hi there!')]
+    // toolUseContext() uses a claude-* mainLoopModel, so this is Native
+    // Anthropic mode (not a non-Claude GitHub/OpenAI-style model).
+    const ctx = toolUseContext()
+    const csp = cacheSafeParams(messages)
+
+    await compactConversation(messages, ctx, csp, false)
+
+    expect(runForkedAgent).toHaveBeenCalled()
+  })
 })
