@@ -63,6 +63,9 @@ const _realPathModule = await import(
 const _realConfigModule = await import(
   `../../utils/config.js?real=${Date.now()}-${Math.random()}`
 )
+const _realProjectInstructionsModule = await import(
+  `../../utils/projectInstructions.js?real=${Date.now()}-${Math.random()}`
+)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -593,6 +596,15 @@ afterAll(async () => {
   mock.module('../../utils/settings/settings.js', () => ({ ..._realSettingsModule }))
   mock.module('../../utils/model/model.js', () => ({ ..._realModelModule }))
   mock.module('../../utils/auth.js', () => ({ ..._realAuthModule }))
+  mock.module('../../utils/path.js', () => ({ ..._realPathModule }))
+  mock.module('../../utils/config.js', () => ({ ..._realConfigModule }))
+  // projectInstructions: the stub above replaces the whole module with only
+  // getProjectInstructionFilePaths, so every other export becomes undefined.
+  // Downstream CLAUDE.md discovery in runAgent.routing.test.ts then crashes in
+  // processMemoryFile(). Restore the full real module shape.
+  mock.module('../../utils/projectInstructions.js', () => ({
+    ..._realProjectInstructionsModule,
+  }))
   // Clean up the stale /tmp/task symlink left by the mock path.
   try {
     const { unlink } = await import('fs/promises')
