@@ -58,6 +58,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  mock.restore()
   resetSettingsCache()
   clearCommandMemoizationCaches()
 })

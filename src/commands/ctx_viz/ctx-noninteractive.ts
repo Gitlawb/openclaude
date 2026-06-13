@@ -166,8 +166,9 @@ export async function call(
   // visually matches the percentage column (tokens / contextWindow).
   const barMax = d.contextWindow
 
+  const CAPACITY_ROWS = new Set(['Free space', 'Autocompact buffer', 'Compact buffer'])
   for (const cat of data.categories) {
-    if (cat.tokens > 0) {
+    if (cat.tokens > 0 && !CAPACITY_ROWS.has(cat.name)) {
       lines.push(categoryLine(cat.name, cat.tokens, barMax, barMax, barWidth, cat.color))
     }
   }
