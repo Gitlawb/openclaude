@@ -139,4 +139,14 @@ describe('adjustNewStringIndentation', () => {
     const expected = '\tif ok:\n\t\t  baz();' // prepends tab prefix and keeps remaining spaces
     expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBe(expected)
   })
+
+  test('rejects conflicting indentation maps (CodeRabbit P2 fix)', () => {
+    const oldString = 'if ok:\n  foo()\n  bar()'
+    // File actually has bar() outside the block
+    const fileMatch = 'if ok:\n    foo()\nbar()'
+    const newString = 'if ok:\n  baz()\n  qux()'
+    // oldIndent "  " maps to "    " for foo(), but maps to "" for bar()
+    // It should detect the conflict and return null
+    expect(adjustNewStringIndentation(oldString, fileMatch, newString)).toBeNull()
+  })
 })

@@ -803,12 +803,13 @@ export function areFileEditsInputsEquivalent(
 /**
  * Adjusts the absolute indentation of `newString` based on the difference
  * between the base indentation of `oldString` and the actual `fileMatch`.
+ * Returns null if the indentation mapping is conflicting (e.g. LLM merged blocks).
  */
 export function adjustNewStringIndentation(
   oldString: string,
   fileMatch: string,
   newString: string,
-): string {
+): string | null {
   // If no formatting difference, no adjustment needed
   if (oldString === fileMatch) return newString
 
@@ -866,6 +867,15 @@ export function adjustNewStringIndentation(
             } else {
               break // Should not happen if it's truly the first non-ws char
             }
+          }
+
+          const existingIndent = indentMap.get(oldIndent)
+          if (existingIndent !== undefined && existingIndent !== actualIndent) {
+            // CodeRabbit P2 fix: Conflicting indentation map.
+            // The same hallucinated indentation corresponds to different actual indentations in the file.
+            // This means the LLM merged lines from different structural blocks.
+            // We must reject the match to prevent unsafe re-indentation.
+            return null
           }
 
           indentMap.set(oldIndent, actualIndent)
