@@ -19,8 +19,12 @@ import {
   type FsOperations,
 } from '../fsOperations.js'
 
-import { _test } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
 import type { MarketplaceSource } from './schemas.js'
+
+// @ts-expect-error -- query-string cache-buster: the import specifier ends with `?bust=...`
+// so TypeScript cannot resolve the bare path. The runtime import works under Bun (treats the
+// query string as a distinct module id that bypasses other test files' mock.module registrations).
+import { _test } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
 
 const { loadAndCacheMarketplace } = _test
 
@@ -42,6 +46,11 @@ const { loadAndCacheMarketplace } = _test
  * to force fresh imports that re-evaluate memoized provider detection. We
  * use a constant suffix here because we only need the import to happen
  * once at module top-level — no per-test re-evaluation.
+ *
+ * The `// @ts-expect-error` above is required because TypeScript
+ * resolves the import specifier at compile time and rejects the query
+ * string. The runtime import works under Bun; the type assertion is
+ * only to satisfy `tsc --noEmit`.
  */
 
 /**
@@ -111,7 +120,7 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
       plugins: [],
     }
 
-    const result = await loadAndCacheMarketplace(source)
+    const result = await loadAndCacheMarketplace!(source)
 
     const cacheDir = join(tempDir, 'marketplaces')
     const temporaryCachePath = join(cacheDir, 'MyMarketplace')
@@ -156,7 +165,7 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
       plugins: [],
     }
 
-    const result = await loadAndCacheMarketplace(source)
+    const result = await loadAndCacheMarketplace!(source)
 
     const cacheDir = join(tempDir, 'marketplaces')
     const temporaryCachePath = join(cacheDir, 'AgriciDaniel-claude-obsidian')
@@ -194,7 +203,7 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
       plugins: [],
     }
 
-    const result = await loadAndCacheMarketplace(source)
+    const result = await loadAndCacheMarketplace!(source)
 
     const cacheDir = join(tempDir, 'marketplaces')
     const cachePath = join(cacheDir, 'claude-obsidian')
@@ -260,13 +269,20 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     }))
 
     // Re-import with mocked axios so the module under test picks up the mock.
-    // The `?bust=` suffix is the same trick the static import at the top of
+    // The `?bust=` suffix is the same trick the dynamic import at the top of
     // this file uses — it gives Bun a unique module id that bypasses any
     // mock.module('./marketplaceManager.js', ...) registration made by
     // other test files (lspRecommendation, officialMarketplaceStartupCheck).
     // Without it, when those test files run first their partial mock is
     // picked up here and `_test` is undefined.
-    const mod = await import('./marketplaceManager.ts?bust=exdev-test-reimport')
+    // Template literal with interpolation so TypeScript treats the
+    // specifier as a dynamic `string` and doesn't try to resolve the
+    // query string at compile time. The `as typeof import(...)` cast on
+    // the result then types it as the real module shape. Same pattern
+    // as src/utils/hookChains.integration.test.ts:43-50.
+    const mod = (await import(
+      `./marketplaceManager.ts?bust=exdev-test-reimport-${Date.now()}`
+    )) as typeof import('./marketplaceManager.js')
     loadAndCacheWithMockedAxios = mod._test.loadAndCacheMarketplace
   })
 
@@ -334,7 +350,7 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     mkdirSync(cacheDir, { recursive: true })
     const beforeEntries = new Set(readdirSync(cacheDir))
 
-    const result = await loadAndCacheWithMockedAxios(source)
+    const result = await loadAndCacheWithMockedAxios!(source)
 
     // After the fallback, the result cache path must be the final path
     expect(result.cachePath).toBe(finalCachePath)
