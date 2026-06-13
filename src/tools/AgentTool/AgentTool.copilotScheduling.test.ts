@@ -62,16 +62,13 @@ beforeAll(async () => {
     'tools/AgentTool/AgentTool.copilotScheduling.test.ts',
   )
 
-  // Spy on getAPIProvider BEFORE importing AgentTool so the helpers
-  // (`isGitHubCopilotMode`, `isCopilotPremiumOptimizationEnabled`,
-  // `shouldForceSyncSubagentsInCopilotMode`) see the spy when called.
-  // Without this, the test's `setProvider('github')` in beforeEach
-  // would set the spy but the AgentTool's helpers might not see it
-  // if they're bound at import time. spyOn replaces the method on
-  // the module exports object, so any later call sees the spy.
-  getAPIProviderSpy = spyOn(providers, 'getAPIProvider').mockReturnValue(
-    'github' as ReturnType<typeof providers.getAPIProvider>,
-  )
+  // Set the spy if not already set (it may have been set at module
+  // top-level by a sibling test or by re-imports below).
+  if (!getAPIProviderSpy) {
+    getAPIProviderSpy = spyOn(providers, 'getAPIProvider').mockReturnValue(
+      'github' as ReturnType<typeof providers.getAPIProvider>,
+    )
+  }
 
   // Stub runAgent and prompts so the AgentTool import doesn't pull in
   // the full streaming/scheduler stack for this minimal test.
@@ -154,48 +151,48 @@ describe('AgentTool.isConcurrencySafe() — Copilot scheduling contract', () => 
   // that breaks the precedence would fail one of the FORCE_SYNC or
   // ALLOW_SUBAGENTS rows below, locking the launch/scheduling alignment.
 
-  test('OPTIMIZATION_DISABLED=1 — scheduler is concurrency-safe', { timeout: 30_000 }, () => {
+  test('OPTIMIZATION_DISABLED=1 — scheduler is concurrency-safe', () => {
     process.env.GITHUB_COPILOT_OPTIMIZATION_DISABLED = '1'
     expect(AgentTool!.isConcurrencySafe()).toBe(true)
-  })
+  }, 30_000)
 
-  test('default cap=1 (no other flags) — scheduler serializes', { timeout: 30_000 }, () => {
+  test('default cap=1 (no other flags) — scheduler serializes', () => {
     // Default cap is 1, no ALLOW/FORCE/DISABLED. shouldForceSync returns
     // true; isConcurrencySafe returns false (must serialize).
     expect(AgentTool!.isConcurrencySafe()).toBe(false)
-  })
+  }, 30_000)
 
-  test('cap=2 (no other flags) — scheduler serializes', { timeout: 30_000 }, () => {
+  test('cap=2 (no other flags) — scheduler serializes', () => {
     // Per the copilotOptimization contract, cap=2 has the same effect
     // as cap=1 (force sync). Lock that the scheduler agrees.
     process.env.GITHUB_COPILOT_MAX_SUBAGENTS = '2'
     expect(AgentTool!.isConcurrencySafe()).toBe(false)
-  })
+  }, 30_000)
 
-  test('ALLOW_SUBAGENTS=1 (default cap) — scheduler is concurrency-safe', { timeout: 30_000 }, () => {
+  test('ALLOW_SUBAGENTS=1 (default cap) — scheduler is concurrency-safe', () => {
     process.env.GITHUB_COPILOT_ALLOW_SUBAGENTS = '1'
     expect(AgentTool!.isConcurrencySafe()).toBe(true)
-  })
+  }, 30_000)
 
-  test('FORCE_SYNC=1 alone — scheduler serializes', { timeout: 30_000 }, () => {
+  test('FORCE_SYNC=1 alone — scheduler serializes', () => {
     process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS = '1'
     expect(AgentTool!.isConcurrencySafe()).toBe(false)
-  })
+  }, 30_000)
 
-  test('FORCE_SYNC=1 + ALLOW_SUBAGENTS=1 — FORCE_SYNC wins, scheduler serializes', { timeout: 30_000 }, () => {
+  test('FORCE_SYNC=1 + ALLOW_SUBAGENTS=1 — FORCE_SYNC wins, scheduler serializes', () => {
     // This is the precedence the round-9 helper test pins; here we
     // verify the same precedence flows through the AgentTool boundary.
     process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS = '1'
     process.env.GITHUB_COPILOT_ALLOW_SUBAGENTS = '1'
     expect(AgentTool!.isConcurrencySafe()).toBe(false)
-  })
+  }, 30_000)
 
-  test('cap=0 (agents suppressed at launch) — scheduler is concurrency-safe', { timeout: 30_000 }, () => {
+  test('cap=0 (agents suppressed at launch) — scheduler is concurrency-safe', () => {
     // When cap=0, agents throw at launch via shouldSuppressSubagentsInCopilotMode.
     // The scheduler doesn't need to serialize them because they never
     // execute. The helper shouldForceSync returns false for cap=0, so
     // isConcurrencySafe returns true.
     process.env.GITHUB_COPILOT_MAX_SUBAGENTS = '0'
     expect(AgentTool!.isConcurrencySafe()).toBe(true)
-  })
+  }, 30_000)
 })
