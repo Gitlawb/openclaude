@@ -152,6 +152,19 @@ describe('shouldSuppressSubagentsInCopilotMode', () => {
     expect(shouldSuppressSubagentsInCopilotMode()).toBe(true)
   })
 
+  test('returns false when MAX_SUBAGENTS=0 but FORCE_SYNC_SUBAGENTS=1', () => {
+    // FORCE_SYNC means "run sub-agents synchronously", which must win over the
+    // MAX_SUBAGENTS=0 suppression — otherwise the agent throws "Sub-agents are
+    // disabled" instead of running one at a time, contradicting the documented
+    // "takes precedence over MAX_SUBAGENTS=0" behavior.
+    setProvider('github')
+    process.env.GITHUB_COPILOT_MAX_SUBAGENTS = '0'
+    process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS = '1'
+    expect(shouldSuppressSubagentsInCopilotMode()).toBe(false)
+    // ...and the agent is then routed down the synchronous path.
+    expect(shouldForceSyncSubagentsInCopilotMode()).toBe(true)
+  })
+
   test('returns false when MAX_SUBAGENTS=1 (default)', () => {
     setProvider('github')
     expect(shouldSuppressSubagentsInCopilotMode()).toBe(false)

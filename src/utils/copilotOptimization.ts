@@ -21,11 +21,15 @@ import { getAPIProvider } from './model/providers.js'
  *                                        no enforced effect — setting N=3 does NOT
  *                                        limit concurrency to 3; it behaves the same
  *                                        as N=1 (synchronous, one at a time).
- *                                        Set to 0 to disable sub-agents entirely.
+ *                                        Set to 0 to disable sub-agents entirely
+ *                                        (unless ALLOW_SUBAGENTS or
+ *                                        FORCE_SYNC_SUBAGENTS is also set).
  *   GITHUB_COPILOT_ALLOW_SUBAGENTS=1     Re-enable background/parallel sub-agents
  *                                        even when MAX_SUBAGENTS is constrained.
  *   GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS=1 Force sub-agents to run synchronously
- *                                        instead of in background.
+ *                                        instead of in background. Takes
+ *                                        precedence over MAX_SUBAGENTS=0:
+ *                                        sub-agents still run, one at a time.
  *   GITHUB_COPILOT_OPTIMIZATION_DISABLED=1 Turn off all Copilot optimizations.
  */
 
@@ -65,7 +69,13 @@ export function getCopilotMaxConcurrentSubagents(): number {
 export function shouldSuppressSubagentsInCopilotMode(): boolean {
   if (!isCopilotPremiumOptimizationEnabled()) return false
   if (!isGitHubCopilotMode()) return false
+  // Explicit opt-ins to run sub-agents take precedence over the
+  // MAX_SUBAGENTS=0 suppression. ALLOW_SUBAGENTS re-enables async fan-out and
+  // FORCE_SYNC asks for synchronous sub-agents — both mean "run sub-agents",
+  // not "disable them". Without this, MAX_SUBAGENTS=0 + FORCE_SYNC=1 would
+  // throw "Sub-agents are disabled" instead of running them one at a time.
   if (isEnvTruthy(process.env.GITHUB_COPILOT_ALLOW_SUBAGENTS)) return false
+  if (isEnvTruthy(process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS)) return false
   return getCopilotMaxConcurrentSubagents() === 0
 }
 

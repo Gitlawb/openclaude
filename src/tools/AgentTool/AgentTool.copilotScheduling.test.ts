@@ -39,6 +39,9 @@ import {
  */
 
 import * as providers from '../../utils/model/providers.js'
+import { _test as orchestrationTest } from '../../services/tools/toolOrchestration.js'
+import type { ToolUseContext } from '../../Tool.js'
+import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 
 type AgentToolModule = typeof import('./AgentTool.js')
 type AgentToolInstance = AgentToolModule['AgentTool']
@@ -194,5 +197,56 @@ describe('AgentTool.isConcurrencySafe() — Copilot scheduling contract', () => 
     // isConcurrencySafe returns true.
     process.env.GITHUB_COPILOT_MAX_SUBAGENTS = '0'
     expect(AgentTool!.isConcurrencySafe()).toBe(true)
+  }, 30_000)
+})
+
+/**
+ * Scheduler-boundary regression: drive *multiple* Agent tool-use blocks through
+ * the real batching path (`partitionToolCalls`) — not just `isConcurrencySafe()`
+ * in isolation — so a regression where the orchestrator stops honoring the
+ * return value for multiple Agent blocks is caught. `partitionToolCalls`
+ * coalesces consecutive concurrency-safe blocks into one batch and isolates
+ * non-safe ones into single-block batches; `runTools` then runs safe batches via
+ * `runToolsConcurrently` and the rest serially.
+ */
+describe('partitionToolCalls — Copilot Agent scheduling boundary', () => {
+  function agentBlock(id: string): ToolUseBlock {
+    return {
+      type: 'tool_use',
+      id,
+      name: AgentTool!.name,
+      input: { description: 'do a thing', prompt: 'a task' },
+    } as ToolUseBlock
+  }
+
+  function ctxWithAgentTool(): ToolUseContext {
+    return {
+      options: { tools: [AgentTool!] },
+    } as unknown as ToolUseContext
+  }
+
+  test('default cap=1 (forced sync) — two Agent blocks split into serial batches', () => {
+    // isConcurrencySafe() === false, so the two blocks must NOT be batched
+    // together: each lands in its own non-concurrent batch and runs serially.
+    const batches = orchestrationTest.partitionToolCalls(
+      [agentBlock('a'), agentBlock('b')],
+      ctxWithAgentTool(),
+    )
+    expect(batches.length).toBe(2)
+    expect(batches.every(b => !b.isConcurrencySafe)).toBe(true)
+    expect(batches.map(b => b.blocks.length)).toEqual([1, 1])
+  }, 30_000)
+
+  test('ALLOW_SUBAGENTS=1 — two Agent blocks coalesce into one concurrent batch', () => {
+    process.env.GITHUB_COPILOT_ALLOW_SUBAGENTS = '1'
+    // isConcurrencySafe() === true, so consecutive Agent blocks batch together
+    // and run via runToolsConcurrently.
+    const batches = orchestrationTest.partitionToolCalls(
+      [agentBlock('a'), agentBlock('b')],
+      ctxWithAgentTool(),
+    )
+    expect(batches.length).toBe(1)
+    expect(batches[0]!.isConcurrencySafe).toBe(true)
+    expect(batches[0]!.blocks.length).toBe(2)
   }, 30_000)
 })
