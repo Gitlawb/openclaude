@@ -190,6 +190,35 @@ describe('/ctx command surface (PR #1610)', () => {
       }),
     }))
 
+    mock.module('../../services/compact/autoCompact.js', () => ({
+      getEffectiveContextWindowSize: () => 200_000,
+      getAutoCompactThreshold: () => 98_000,
+      isAutoCompactEnabled: () => true,
+    }))
+
+    mock.module('../../utils/context.js', () => ({
+      getContextWindowForModel: () => 200_000,
+      getModelMaxOutputTokens: () => ({ default: 8_192, upperLimit: 8_192 }),
+    }))
+
+    mock.module('../../utils/model/model.js', () => ({
+      getCanonicalName: (m: string) => m,
+    }))
+
+    mock.module('../../bootstrap/state.js', () => ({
+      getSdkBetas: () => [],
+      getModelUsage: () => ({}),
+      getTotalInputTokens: () => 0,
+      getTotalOutputTokens: () => 0,
+      getTotalCacheReadInputTokens: () => 0,
+      getTotalCacheCreationInputTokens: () => 0,
+      getTotalCostUSD: () => 0,
+      getTotalAPIDuration: () => 0,
+      getTotalDuration: () => 0,
+      getTotalLinesAdded: () => 0,
+      getTotalLinesRemoved: () => 0,
+    }))
+
     // Re-import the module so the mocks above are wired up.
     const mod = (await import(
       `./ctx-noninteractive.ts?render=${Date.now()}-${Math.random()}`
