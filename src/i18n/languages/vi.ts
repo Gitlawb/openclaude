@@ -17,6 +17,7 @@ export const vi = {
   'commands.commit-message.description':
     'Cấu hình văn bản ghi công commit',
   'commands.config.description': 'Mở bảng cấu hình',
+  'commands.continue.description': 'Tiếp tục tác vụ hiện tại',
   'commands.copy.description':
     'Sao chép phản hồi gần nhất của Claude vào clipboard (hoặc /copy N cho phản hồi thứ N gần nhất)',
   'commands.context.description': 'Hiện mức sử dụng ngữ cảnh',
