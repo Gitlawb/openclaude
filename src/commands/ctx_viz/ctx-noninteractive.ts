@@ -132,7 +132,7 @@ function bar(filled: number, total: number, width: number, c: string): string {
 function categoryLine(label: string, tokens: number, barMax: number, pctMax: number, width: number, c: string): string {
   const pct = pctMax > 0 ? ((tokens / pctMax) * 100).toFixed(1) : '0.0'
   const b = bar(tokens, barMax, width, c)
-  return `  ${chalk.bold(formatNumber(tokens)).padStart(12)}  ${pct.padStart(6)}%  ${b}  ${label}`
+  return `  ${chalk.bold(formatNumber(tokens).padStart(12))}  ${pct.padStart(6)}%  ${b}  ${label}`
 }
 
 export async function call(
@@ -162,9 +162,13 @@ export async function call(
   lines.push(`    Total: ${chalk.bold(formatNumber(data.totalTokens))} / ${formatNumber(d.contextWindow)} tokens (${chalk.bold(`${data.percentage}%`)} used)`)
   lines.push('')
 
+  // Bar scale: use the context window as the denominator so the bar
+  // visually matches the percentage column (tokens / contextWindow).
+  const barMax = d.contextWindow
+
   for (const cat of data.categories) {
     if (cat.tokens > 0) {
-      lines.push(categoryLine(cat.name, cat.tokens, d.contextWindow, d.contextWindow, barWidth, cat.color))
+      lines.push(categoryLine(cat.name, cat.tokens, barMax, barMax, barWidth, cat.color))
     }
   }
   lines.push('')
@@ -185,7 +189,7 @@ export async function call(
 
   const sessionTotalTokens = d.sessionInput + d.sessionOutput + d.sessionCacheRead + d.sessionCacheCreation
   if (sessionTotalTokens > 0) {
-    const sessionMax = Math.max(d.sessionInput, d.sessionOutput, d.sessionCacheRead, d.sessionCacheCreation, 1)
+    const sessionMax = Math.max(sessionTotalTokens, 1)
     lines.push(chalk.bold('  Session Token Usage'))
     lines.push(categoryLine('Input', d.sessionInput, sessionMax, sessionTotalTokens, barWidth, 'blue'))
     lines.push(categoryLine('Output', d.sessionOutput, sessionMax, sessionTotalTokens, barWidth, 'green'))
