@@ -941,34 +941,28 @@ function normalizeIndentation(str: string) {
       i++
     } else {
       const startWs = i
-      let hasNewline = false
+      let newlineCount = 0
       let lastNewline = -1
       while (i < str.length && /\s/.test(str[i]!)) {
-        if (str[i] === '\n' || str[i] === '\r') {
-          hasNewline = true
+        if (str[i] === '\n') {
+          newlineCount++
           lastNewline = i
         }
         i++
       }
 
-      // If the whitespace run contains a newline, or is at the very beginning/end of the string,
-      // it is considered formatting/indentation. Compress it to a unique newline token to avoid matching inline spaces.
-      if (hasNewline || startWs === 0 || i === str.length) {
-        normalized += '\n'
-        let mappedIndex = startWs
-        if (hasNewline) {
-          mappedIndex = lastNewline + 1
-          if (mappedIndex === i) {
-            mappedIndex = startWs // Fallback if no trailing spaces
-          }
+      if (newlineCount > 0) {
+        // P2 Fix: Preserve the exact count of vertical line breaks (e.g. blank lines).
+        // This prevents merging multiple blank lines or deleting intentional vertical spacing.
+        for (let n = 0; n < newlineCount; n++) {
+          normalized += '\n'
+          mapping.push(lastNewline !== -1 ? lastNewline : startWs)
         }
-        mapping.push(mappedIndex)
       } else {
-        // Otherwise, it's inline whitespace (e.g., separating tokens). Preserve it exactly.
-        for (let j = startWs; j < i; j++) {
-          normalized += str[j]
-          mapping.push(j)
-        }
+        // P1 Fix: Compress purely horizontal whitespace to a single space.
+        // This keeps inline tokens separated and prevents horizontal boundary spaces from consuming line breaks.
+        normalized += ' '
+        mapping.push(startWs)
       }
     }
   }

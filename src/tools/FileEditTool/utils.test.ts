@@ -34,24 +34,35 @@ describe('findWhitespaceAgnosticMatch', () => {
     expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
   })
 
-  test('preserves boundary whitespace for single-line indentation differences', () => {
+  test('rejects fuzzy match when boundary horizontal whitespace would consume a line break (CodeRabbit P1 fix)', () => {
     const fileContent = 'function hello() {\n    foo();\n}'
-    const searchString = '  foo();' // Agent thought it was 2 spaces
-    // Because the file has 4 spaces and searchString starts with space, 
-    // it should expand leftwards and capture the file's leading spaces
-    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBe('    foo();')
+    const searchString = '  foo();' // Agent provided leading spaces
+    // Because the file has a newline and searchString only has spaces,
+    // they don't match vertical spacing, which prevents accidentally deleting newlines.
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
   })
 
-  test('prevents trailing-newline searches from consuming next line indentation (CodeRabbit P1 fix)', () => {
+  test('prevents trailing-newline searches from consuming next line indentation', () => {
     const fileContent = 'if ok:\n  foo()\n  bar()\n'
-    // LLM only wants to replace foo, explicitly stopping at the newline
     const searchString = '    foo()\n'
-    const actualOldString = findWhitespaceAgnosticMatch(
-      fileContent,
-      searchString,
-    )
-    // The match must not include the `  ` spaces belonging to `bar()`
-    expect(actualOldString).toBe('  foo()\n')
+    // searchString has leading horizontal spaces, but file has a newline.
+    // The exact newline count mismatch forces it to reject the fuzzy match.
+    const actualOldString = findWhitespaceAgnosticMatch(fileContent, searchString)
+    expect(actualOldString).toBeNull()
+  })
+
+  test('rejects fuzzy match when LLM collapses blank lines (CodeRabbit P2 fix)', () => {
+    const fileContent = 'A paragraph.\n\nNext paragraph.'
+    const searchString = 'A paragraph.\nNext paragraph.'
+    // The exact newline count mismatch forces it to reject the fuzzy match.
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
+  })
+
+  test('rejects fuzzy match when LLM hallucinates blank lines (CodeRabbit P2 fix)', () => {
+    const fileContent = 'A paragraph.\nNext paragraph.'
+    const searchString = 'A paragraph.\n\nNext paragraph.'
+    // The exact newline count mismatch forces it to reject the fuzzy match.
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
   })
 
   test('prevents matching across token boundaries', () => {
