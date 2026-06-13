@@ -457,13 +457,6 @@ export async function* withRetry<T>(
         }
       }
 
-      if (
-        !handledCloudAuthError &&
-        (!(error instanceof APIError) || !shouldRetry(error))
-      ) {
-        throw new CannotRetryError(error, retryContext)
-      }
-
       // Handle max tokens context overflow errors by adjusting max_tokens for the next attempt
       // NOTE: With extended-context-window beta, this 400 error should not occur.
       // The API now returns 'model_context_window_exceeded' stop_reason instead.
