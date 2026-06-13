@@ -229,8 +229,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'plist',
           'cacache',
           'fuse',
-          'code-excerpt',
-          'stack-utils',
         ]) {
           build.onResolve({ filter: new RegExp(`^${mod}$`) }, () => ({
             path: mod,
@@ -504,7 +502,7 @@ sdkResult = await Bun.build({
           '@anthropic-ai/sandbox-runtime',
           'audio-capture-napi', 'audio-capture.node',
           'image-processor-napi', 'modifiers-napi', 'url-handler-napi', 'color-diff-napi',
-          'asciichart', 'plist', 'cacache', 'fuse', 'code-excerpt', 'stack-utils',
+          'asciichart', 'plist', 'cacache', 'fuse',
         ]
         for (const mod of missingModules) {
           const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
