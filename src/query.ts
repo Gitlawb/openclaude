@@ -585,9 +585,17 @@ async function* queryLoop(
           ? Number.parseInt(envSetting, 10)
           : 0
 
-      // Use the tighter of the two caps so the user setting still works as
-      // expected; if neither is set the hard cap alone fires.
-      const activeCap = userCap > 0 ? Math.min(userCap, hardCap) : hardCap
+      // Combine the two caps. Treat `0` on either side as "disabled" — a
+      // disabled operator-level hard cap must NOT take down a user-set
+      // threshold, and vice versa. When both are set, the tighter wins.
+      // Issue #1373 follow-up: prior `Math.min(userCap, hardCap)` returned
+      // 0 when hardCap=0, silently disabling user-configured compaction.
+      const activeCap =
+        userCap > 0 && hardCap > 0
+          ? Math.min(userCap, hardCap)
+          : userCap > 0
+            ? userCap
+            : hardCap
 
       if (activeCap > 0 && messagesForQuery.length > activeCap) {
         if (userCap > 0 && messagesForQuery.length > userCap) {

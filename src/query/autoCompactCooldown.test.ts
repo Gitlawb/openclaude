@@ -515,3 +515,73 @@ test('forced message-count compaction overrides an active cool-down', async () =
     ),
   ).toBe(false)
 })
+
+// ---------------------------------------------------------------------------
+// Regression (CodeRabbit review on PR #1615): when the operator disables
+// the hard cap (OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0) but the user has
+// set their own opt-in cap, the user cap MUST still take effect. Earlier
+// `Math.min(userCap, hardCap)` collapsed to 0 in that configuration and
+// silently disabled user-configured compaction.
+// ---------------------------------------------------------------------------
+
+test('user cap still fires when the operator-level hard cap is disabled', async () => {
+  // Operator disables the hard cap; user keeps their own threshold at 5.
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES = '5'
+
+  // 6 messages > user cap of 5, so the user cap must trip even though
+  // hard cap is disabled.
+  const messages = Array.from({ length: 6 }, () =>
+    overAutoCompactThresholdMessage(),
+  )
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        expect(tracking?.forceReason).toBe('message-count')
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
+})

@@ -43,7 +43,18 @@ export type BreakerTripState = {
 
 const breakerTripStore = createStore<BreakerTripState>({ tripped: false })
 
-/** Mark the breaker as tripped in this session. Idempotent — does not reset timestamps on repeat calls. */
+/**
+ * Mark the breaker as tripped in this session.
+ *
+ * Idempotent on the trip timestamp — repeat calls after the first only
+ * refresh `lastFailureCount` so the UI can show the duration of the
+ * original outage while tracking the latest failure count.
+ *
+ * @param args.failureCount The number of consecutive failures at the moment
+ *   the breaker trips. Stored on the state so the UI can display the streak.
+ * @param args.trippedAtMs Wall-clock time (from `Date.now()`) when the
+ *   breaker tripped. Preserved across repeat calls.
+ */
 export function recordBreakerTripped(args: {
   failureCount: number
   trippedAtMs: number
