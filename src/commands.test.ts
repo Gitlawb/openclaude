@@ -1,7 +1,14 @@
-﻿import { afterEach, describe, expect, test } from 'bun:test'
+﻿import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, test } from 'bun:test'
 import {
   builtInCommandNames,
+  clearCommandMemoizationCaches,
   formatDescriptionWithSource,
+  getCommands,
+  INTERNAL_ONLY_COMMANDS,
 } from './commands.js'
 import { registerBatchSkill } from './skills/bundled/batch.js'
 import { registerDebugSkill } from './skills/bundled/debug.js'
@@ -32,8 +39,55 @@ afterEach(() => {
 })
 
 describe('builtInCommandNames', () => {
-  test('includes the LSP command', () => {
-    expect(builtInCommandNames()).toContain('lsp')
+  test('includes the LSP command', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-lsp-'))
+    try {
+      const cmds = await getCommands(cwd)
+      expect(cmds.map(c => c.name)).toContain('lsp')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('getCommands() includes bughunter for normal users (USER_TYPE unset)', async () => {
+    // Regression: bughunter previously lived in INTERNAL_ONLY_COMMANDS and was
+    // never available to non-ant users. Ensure it stays in the public COMMANDS list.
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    // Clear ALL command caches — including the zero-arg COMMANDS() memoize that
+    // captures USER_TYPE at first call and never re-evaluates it. Without this,
+    // a prior test that ran with USER_TYPE=ant would pollute the COMMANDS cache
+    // and make bughunter appear gated even in a "normal user" run.
+    clearCommandMemoizationCaches()
+    // Use a unique tmp dir to avoid the loadAllCommands memoize cache
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-'))
+    try {
+      const cmds = await getCommands(cwd)
+      expect(cmds.map(c => c.name)).toContain('bughunter')
+      expect(INTERNAL_ONLY_COMMANDS.map(c => c.name)).not.toContain('bughunter')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  test('getCommands() includes bughunter-security and bughunter-perf for normal users', async () => {
+    // Sibling subcommands of /bughunter — must stay in the public COMMANDS list,
+    // not in INTERNAL_ONLY_COMMANDS, so normal users can invoke them.
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    clearCommandMemoizationCaches()
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-sibs-'))
+    try {
+      const cmds = await getCommands(cwd)
+      const names = cmds.map(c => c.name)
+      expect(names).toContain('bughunter-security')
+      expect(names).toContain('bughunter-perf')
+      const internalNames = INTERNAL_ONLY_COMMANDS.map(c => c.name)
+      expect(internalNames).not.toContain('bughunter-security')
+      expect(internalNames).not.toContain('bughunter-perf')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
   })
 
   test('includes the request-size diagnostic command', () => {
