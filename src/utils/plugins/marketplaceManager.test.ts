@@ -416,3 +416,101 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     expect(newEntries).toEqual(['mymarketplace'])
   })
 })
+
+/**
+ * Probe-based filesystem case-sensitivity detection (review follow-up).
+ *
+ * isCaseInsensitiveFsAt() must NOT assume case behavior from process.platform:
+ * macOS can mount case-sensitive APFS/HFS+ volumes, where two cache paths that
+ * differ only in case are distinct directories. These tests inject statSync to
+ * simulate each volume kind, so they are fully portable (no real case-sensitive
+ * mount required) — the inode comparison decides the result.
+ */
+describe('isCaseInsensitiveFsAt — probes the volume, not the platform', () => {
+  let originalFs: FsOperations
+  let originalPlatform: PropertyDescriptor | undefined
+
+  const setPlatform = (value: string) =>
+    Object.defineProperty(process, 'platform', { value, configurable: true })
+  const fakeStat = (ino: number, dev = 1) =>
+    ({ ino, dev }) as unknown as ReturnType<FsOperations['statSync']>
+
+  beforeEach(() => {
+    originalFs = getFsImplementation()
+    originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+    _test._clearCaseInsensitiveFsCache()
+  })
+
+  afterEach(() => {
+    setFsImplementation(originalFs)
+    if (originalPlatform) {
+      Object.defineProperty(process, 'platform', originalPlatform)
+    }
+    _test._clearCaseInsensitiveFsCache()
+  })
+
+  test('win32: always case-insensitive without probing the filesystem', () => {
+    setPlatform('win32')
+    let statCalls = 0
+    setFsImplementation({
+      ...originalFs,
+      statSync: () => {
+        statCalls++
+        return fakeStat(1)
+      },
+    })
+    expect(_test.isCaseInsensitiveFsAt('/Cache/Dir')).toBe(true)
+    expect(statCalls).toBe(0)
+  })
+
+  test('case-insensitive volume: flipped path resolves to the same inode', () => {
+    setPlatform('darwin')
+    setFsImplementation({ ...originalFs, statSync: () => fakeStat(42, 7) })
+    expect(_test.isCaseInsensitiveFsAt('/Volumes/Insensitive/cache')).toBe(true)
+  })
+
+  test('case-sensitive volume: flipped path is a distinct inode', () => {
+    setPlatform('darwin')
+    let n = 0
+    setFsImplementation({
+      ...originalFs,
+      statSync: () => fakeStat(n++ === 0 ? 1 : 2),
+    })
+    expect(_test.isCaseInsensitiveFsAt('/Volumes/Sensitive/cache')).toBe(false)
+  })
+
+  test('case-sensitive volume: flipped path does not exist (ENOENT)', () => {
+    setPlatform('darwin')
+    let n = 0
+    setFsImplementation({
+      ...originalFs,
+      statSync: () => {
+        if (n++ === 0) return fakeStat(1)
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      },
+    })
+    expect(_test.isCaseInsensitiveFsAt('/Volumes/Sensitive/cache')).toBe(false)
+  })
+
+  test('pathsEqualForFs follows the probe: case-only paths match only when insensitive', () => {
+    setPlatform('darwin')
+    // Insensitive volume: same inode for both case variants.
+    setFsImplementation({ ...originalFs, statSync: () => fakeStat(9, 3) })
+    _test._clearCaseInsensitiveFsCache()
+    expect(_test.pathsEqualForFs('/cache/MyMP', '/cache/mymp', '/cache')).toBe(
+      true,
+    )
+
+    // Sensitive volume: distinct inodes — the same case-only pair is now NOT
+    // equal, so old-cache cleanup is not skipped.
+    let n = 0
+    setFsImplementation({
+      ...originalFs,
+      statSync: () => fakeStat(n++ === 0 ? 1 : 2),
+    })
+    _test._clearCaseInsensitiveFsCache()
+    expect(_test.pathsEqualForFs('/cache/MyMP', '/cache/mymp', '/cache')).toBe(
+      false,
+    )
+  })
+})

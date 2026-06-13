@@ -96,24 +96,68 @@ type LoadedPluginMarketplace = {
   cachePath: string
 }
 
+/** Memoized per-directory case-sensitivity probe results. */
+const caseInsensitiveFsCache = new Map<string, boolean>()
+
 /**
- * Whether the current platform's default filesystem treats paths
- * case-insensitively. Windows (NTFS) and macOS (APFS/HFS+ default) are
- * case-insensitive; Linux volumes are case-sensitive. Used to decide whether
- * two cache paths that differ only in case refer to the same directory.
+ * Flip the case of the last alphabetic character in a path, yielding a variant
+ * that differs only in case (so it targets the same entry on a case-insensitive
+ * volume). Returns the input unchanged when there is no alphabetic character.
  */
-function isCaseInsensitiveFs(): boolean {
-  return process.platform === 'win32' || process.platform === 'darwin'
+function flipLastAlphaCase(p: string): string {
+  for (let i = p.length - 1; i >= 0; i--) {
+    const c = p[i]!
+    const lower = c.toLowerCase()
+    const upper = c.toUpperCase()
+    if (lower !== upper) {
+      return p.slice(0, i) + (c === upper ? lower : upper) + p.slice(i + 1)
+    }
+  }
+  return p
 }
 
 /**
- * Compare two filesystem paths honoring the platform's case sensitivity. On a
- * case-insensitive filesystem a case-only difference means the same directory;
- * on case-sensitive volumes such paths are genuinely distinct, so an
- * unconditional lowercase comparison would wrongly collapse them.
+ * Probe whether the filesystem backing `dir` treats paths case-insensitively,
+ * rather than assuming it from process.platform. Windows volumes are always
+ * case-insensitive (and inode numbers there are unreliable), so trust the
+ * platform. Everywhere else — including macOS, which can mount case-sensitive
+ * APFS/HFS+ volumes — stat `dir` under a case-flipped name and treat the volume
+ * as case-insensitive only when both names resolve to the same inode. Memoized
+ * per directory; falls back to case-sensitive on any probe error.
  */
-function pathsEqualForFs(a: string, b: string): boolean {
-  return isCaseInsensitiveFs() ? a.toLowerCase() === b.toLowerCase() : a === b
+function isCaseInsensitiveFsAt(dir: string): boolean {
+  if (process.platform === 'win32') return true
+  const key = resolve(dir)
+  const cached = caseInsensitiveFsCache.get(key)
+  if (cached !== undefined) return cached
+  let result = false
+  try {
+    const flipped = flipLastAlphaCase(key)
+    if (flipped !== key) {
+      const fs = getFsImplementation()
+      const original = fs.statSync(key)
+      const alt = fs.statSync(flipped)
+      result = original.ino === alt.ino && original.dev === alt.dev
+    }
+  } catch {
+    // The case-flipped path does not exist → the volume is case-sensitive.
+    result = false
+  }
+  caseInsensitiveFsCache.set(key, result)
+  return result
+}
+
+/**
+ * Compare two filesystem paths honoring the case sensitivity of the volume
+ * backing `probeDir` (the directory both paths live under). On a
+ * case-insensitive volume a case-only difference means the same directory; on
+ * case-sensitive volumes such paths are genuinely distinct, so an unconditional
+ * lowercase comparison would wrongly collapse them.
+ */
+function pathsEqualForFs(a: string, b: string, probeDir: string): boolean {
+  return isCaseInsensitiveFsAt(probeDir)
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b
 }
 
 /**
@@ -1752,7 +1796,11 @@ async function loadAndCacheMarketplace(
       // Skip the rename block when paths are the same. On case-sensitive volumes
       // a case-only difference is a genuinely distinct directory, so the rename
       // must still run there.
-      const samePath = pathsEqualForFs(temporaryCachePath, finalCachePath)
+      const samePath = pathsEqualForFs(
+        temporaryCachePath,
+        finalCachePath,
+        cacheDir,
+      )
       if (!samePath) {
         try {
           // Remove the destination if it already exists, then rename
@@ -1922,7 +1970,7 @@ export async function addMarketplaceSource(
       const cacheDir = resolve(getMarketplacesCacheDir())
       const resolvedOld = resolve(oldEntry.installLocation)
       const resolvedNew = resolve(cachePath)
-      if (pathsEqualForFs(resolvedOld, resolvedNew)) {
+      if (pathsEqualForFs(resolvedOld, resolvedNew, cacheDir)) {
         // Same dir — loadAndCacheMarketplace already overwrote in place.
         // Nothing to clean.
       } else if (
@@ -2681,4 +2729,7 @@ export async function setMarketplaceAutoUpdate(
 export const _test = {
   redactUrlCredentials,
   loadAndCacheMarketplace,
+  isCaseInsensitiveFsAt,
+  pathsEqualForFs,
+  _clearCaseInsensitiveFsCache: () => caseInsensitiveFsCache.clear(),
 }
