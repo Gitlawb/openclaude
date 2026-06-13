@@ -8,6 +8,7 @@ import { FallbackTriggeredError } from './services/api/withRetry.js'
 import {
   calculateTokenWarningState,
   getAutoCompactThreshold,
+  getMaxActiveMessagesHardCap,
   isAutoCompactEnabled,
   MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
   type AutoCompactTrackingState,
@@ -568,17 +569,36 @@ async function* queryLoop(
     const canForceCompact =
       querySource !== 'compact' && querySource !== 'session_memory'
     if (canForceCompact) {
+      // Issue #1373: the hard message-count cap is a safety net, not a user
+      // setting. It exists to prevent `state.messages` from growing without
+      // bound when the token-based auto-compact circuit breaker is engaged
+      // and we keep accruing new turns. Always active; opt out only by
+      // setting OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0.
+      const hardCap = getMaxActiveMessagesHardCap()
       const configSetting = normalizeMaxMessagesCompactionThreshold(
         getGlobalConfig().maxMessagesCompactionThreshold,
       )
       const envSetting = process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
-      const maxActiveMessages = configSetting !== 'off'
+      const userCap = configSetting !== 'off'
         ? Number.parseInt(configSetting, 10)
         : envSetting
           ? Number.parseInt(envSetting, 10)
           : 0
 
-      if (maxActiveMessages > 0 && messagesForQuery.length > maxActiveMessages) {
+      // Use the tighter of the two caps so the user setting still works as
+      // expected; if neither is set the hard cap alone fires.
+      const activeCap = userCap > 0 ? Math.min(userCap, hardCap) : hardCap
+
+      if (activeCap > 0 && messagesForQuery.length > activeCap) {
+        if (userCap > 0 && messagesForQuery.length > userCap) {
+          logForDebugging(
+            `autocompact: user message-count cap reached (${messagesForQuery.length} > ${userCap}) — forcing compaction`,
+          )
+        } else if (messagesForQuery.length > hardCap) {
+          logForDebugging(
+            `autocompact: hard message-count cap reached (${messagesForQuery.length} > ${hardCap}) — forcing compaction`,
+          )
+        }
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
           forceReason: 'message-count',

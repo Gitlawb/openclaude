@@ -24,6 +24,10 @@ const SAVED_ENV = {
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
+  OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP:
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP,
+  OPENCLAUDE_MAX_ACTIVE_MESSAGES:
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
 }
 
 let savedAutoCompactEnabled: boolean | undefined
@@ -426,4 +430,88 @@ test('breaker metadata tracking callback publishes a fresh object', async () => 
   expect(initialTracking.consecutiveFailures).toBe(2)
   expect(initialTracking.nextRetryAtMs).toBe(10_000)
   expect(initialTracking.lastFailureAtMs).toBe(5_000)
+})
+
+// ---------------------------------------------------------------------------
+// Issue #1373: when the message-count cap is exceeded, forceReason must
+// override the breaker. Without this, a single summarization failure that
+// trips the breaker can let state.messages grow without bound until the
+// Node heap OOMs.
+// ---------------------------------------------------------------------------
+
+test('forced message-count compaction overrides an active cool-down', async () => {
+  // Force the hard message-count cap to 1, then provide 2 messages so the
+  // `length > cap` check trips on the first turn. (The constant default of
+  // 1000 would be fine functionally but a tiny cap keeps the test fast and
+  // explicit about intent.)
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  const messages = [
+    overAutoCompactThresholdMessage(),
+    overAutoCompactThresholdMessage(),
+  ]
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        // Confirm the breaker was tripped but forceReason was carried in.
+        expect(tracking?.consecutiveFailures).toBe(
+          MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        )
+        expect(tracking?.forceReason).toBe('message-count')
+        // Forced path succeeded — return a clean compact result.
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+      },
+    }),
+  )
+
+  // The call model must have run — no blocking_limit, no api_error. This is
+  // the critical assertion: the forced compaction succeeded and the loop
+  // continued to the model.
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
 })

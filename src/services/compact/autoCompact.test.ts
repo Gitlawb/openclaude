@@ -754,3 +754,175 @@ describe('autoCompactIfNeeded circuit breaker', () => {
     expect(result.nextRetryAtMs).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Issue #1373: hard message-count cap + forced-compaction bypass of the
+// circuit breaker. The original symptom was that the breaker would latch
+// permanently once tripped, letting state.messages grow without bound until
+// the Node heap OOMed. The fix has two parts:
+//   1. The query loop now enforces a hard cap on message count and sets
+//      forceReason='message-count' when crossed.
+//   2. autoCompactIfNeeded honors forceReason even when the breaker is in
+//      cool-down (the breaker exists to prevent retry storms on token
+//      thresholds, not to block an explicit force signal).
+// ---------------------------------------------------------------------------
+
+describe('hard cap + forced-compaction bypass (issue #1373)', () => {
+  beforeEach(() => {
+    process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
+  })
+
+  test('message-count forceReason triggers compaction through an active breaker', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+        forceReason: 'message-count',
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(true)
+    expect(result.consecutiveFailures).toBe(0)
+    // forceReason is one-shot: consumed so a follow-up turn with the same
+    // tracking won't force another compaction unless the cap re-trips.
+    expect(result.forceReason).toBeUndefined()
+  })
+
+  test('message-count forceReason still records cooldown on a continuing failure', async () => {
+    const compactConversation = mock(async () => {
+      throw new Error('provider still down')
+    })
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() - 1, // cooldown expired
+        forceReason: 'message-count',
+      },
+    )
+
+    // Forced attempt must run even though the breaker was about to re-engage
+    // from the half-open probe; the failure then re-trips cleanly.
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(false)
+    expect(result.consecutiveFailures).toBe(
+      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    )
+    expect(result.circuitBreakerTripped).toBe(true)
+    expect(result.nextRetryAtMs).toBeGreaterThan(Date.now())
+  })
+
+  test('memory-pressure forceReason also bypasses the breaker', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+        forceReason: 'memory-pressure',
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(true)
+    expect(result.consecutiveFailures).toBe(0)
+  })
+})
+
+describe('getMaxActiveMessagesHardCap', () => {
+  test('returns the constant when no env override is set', async () => {
+    delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+    const { getMaxActiveMessagesHardCap, MAX_ACTIVE_MESSAGES_HARD_CAP } =
+      await importAutoCompact()
+    expect(getMaxActiveMessagesHardCap()).toBe(MAX_ACTIVE_MESSAGES_HARD_CAP)
+    expect(MAX_ACTIVE_MESSAGES_HARD_CAP).toBeGreaterThan(0)
+  })
+
+  test('returns a positive integer env override when set', async () => {
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '500'
+    try {
+      const { getMaxActiveMessagesHardCap } = await importAutoCompact()
+      expect(getMaxActiveMessagesHardCap()).toBe(500)
+    } finally {
+      delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+    }
+  })
+
+  test('returns 0 (disabled) when the env override is 0', async () => {
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
+    try {
+      const { getMaxActiveMessagesHardCap } = await importAutoCompact()
+      expect(getMaxActiveMessagesHardCap()).toBe(0)
+    } finally {
+      delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+    }
+  })
+
+  test('falls back to the constant on a non-numeric env value', async () => {
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = 'foo'
+    try {
+      const { getMaxActiveMessagesHardCap, MAX_ACTIVE_MESSAGES_HARD_CAP } =
+        await importAutoCompact()
+      expect(getMaxActiveMessagesHardCap()).toBe(MAX_ACTIVE_MESSAGES_HARD_CAP)
+    } finally {
+      delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+    }
+  })
+
+  test('falls back to the constant on a negative env value', async () => {
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '-5'
+    try {
+      const { getMaxActiveMessagesHardCap, MAX_ACTIVE_MESSAGES_HARD_CAP } =
+        await importAutoCompact()
+      expect(getMaxActiveMessagesHardCap()).toBe(MAX_ACTIVE_MESSAGES_HARD_CAP)
+    } finally {
+      delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+    }
+  })
+})

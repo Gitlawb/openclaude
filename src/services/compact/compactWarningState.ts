@@ -16,3 +16,58 @@ export function suppressCompactWarning(): void {
 export function clearCompactWarningSuppression(): void {
   compactWarningStore.setState(() => false)
 }
+
+/**
+ * Tracks whether the auto-compact circuit breaker has tripped in the current
+ * session. Surfaced for issue #1373 so the REPL/SDK can warn the user that
+ * auto-compact is paused, instead of failing silently and letting the
+ * conversation grow without bound.
+ *
+ * - `tripped` flips to true on the first failure that crosses the breaker
+ *   threshold. Sticky: only cleared by an explicit reset (manual /compact
+ *   success, session restart) or by `clearBreakerTrippedState` in tests.
+ * - `trippedAtMs` records when the breaker last tripped — useful for the
+ *   UI to show "X minutes ago".
+ * - `lastFailureCount` is the number of consecutive failures at the moment
+ *   of trip, in case the UI wants to display the streak.
+ *
+ * Kept in a separate store from `compactWarningStore` so existing callers of
+ * `suppressCompactWarning` / `clearCompactWarningSuppression` are not affected
+ * by the new fields and so test reset logic stays isolated.
+ */
+export type BreakerTripState = {
+  tripped: boolean
+  trippedAtMs?: number
+  lastFailureCount?: number
+}
+
+const breakerTripStore = createStore<BreakerTripState>({ tripped: false })
+
+/** Mark the breaker as tripped in this session. Idempotent — does not reset timestamps on repeat calls. */
+export function recordBreakerTripped(args: {
+  failureCount: number
+  trippedAtMs: number
+}): void {
+  breakerTripStore.setState(prev => {
+    if (prev.tripped) {
+      // Keep the original trip timestamp so the UI can show the duration of
+      // the outage; only refresh the failure count.
+      return { ...prev, lastFailureCount: args.failureCount }
+    }
+    return {
+      tripped: true,
+      trippedAtMs: args.trippedAtMs,
+      lastFailureCount: args.failureCount,
+    }
+  })
+}
+
+/** Read the current breaker-trip state. */
+export function getBreakerTripState(): BreakerTripState {
+  return breakerTripStore.getState()
+}
+
+/** Clear the breaker-trip state. Call from /compact success or test teardown. */
+export function clearBreakerTrippedState(): void {
+  breakerTripStore.setState(() => ({ tripped: false }))
+}

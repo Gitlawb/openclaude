@@ -24,6 +24,7 @@ import {
   ERROR_MESSAGE_USER_ABORT,
   type RecompactionInfo,
 } from './compact.js'
+import { recordBreakerTripped } from './compactWarningState.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 
@@ -86,6 +87,25 @@ export const AUTOCOMPACT_FAILURE_COOLDOWN_MS = 5 * 60 * 1000
 // in a single session, wasting ~250K API calls/day globally.
 export const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
 
+/**
+ * Hard safety-net cap on the active message count. Independent of the
+ * token-based auto-compact threshold, which the circuit breaker can stall.
+ *
+ * When the conversation exceeds this many messages, the query loop sets
+ * `forceReason: 'message-count'` on the autoCompactTracking state, which
+ * forces an immediate compaction attempt even while the breaker is in
+ * cooldown. Issue #1373: without this, a single summarization failure that
+ * trips the breaker can let `state.messages` grow without bound until the
+ * Node heap OOMs.
+ *
+ * The default (1000) is generous — a normal session is well under 200
+ * messages — so this only fires for runaway growth from a stalled breaker
+ * or wedged token accounting. Overridable per-deployment via
+ * `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`. Set to `0` to disable (not
+ * recommended in production).
+ */
+export const MAX_ACTIVE_MESSAGES_HARD_CAP = 1000
+
 export function getAutoCompactFailureCooldownMs(): number {
   const override = process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS
   if (override) {
@@ -96,6 +116,26 @@ export function getAutoCompactFailureCooldownMs(): number {
     }
   }
   return AUTOCOMPACT_FAILURE_COOLDOWN_MS
+}
+
+/**
+ * Resolve the hard cap. Reads `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP` if set
+ * to a positive integer; otherwise returns `MAX_ACTIVE_MESSAGES_HARD_CAP`.
+ * `0` is treated as "disabled" (off). Non-numeric or negative values fall
+ * back to the constant. The strict-integer regex matches the pattern used by
+ * `getAutoCompactFailureCooldownMs` so the two env-var overrides behave
+ * consistently.
+ */
+export function getMaxActiveMessagesHardCap(): number {
+  const override = process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+  if (override) {
+    const trimmed = override.trim()
+    const parsed = Number(trimmed)
+    if (/^\d+$/.test(trimmed) && Number.isSafeInteger(parsed) && parsed >= 0) {
+      return parsed
+    }
+  }
+  return MAX_ACTIVE_MESSAGES_HARD_CAP
 }
 
 export function resolveAutoCompactCircuitBreakerState(args: {
@@ -392,13 +432,26 @@ export async function autoCompactIfNeeded(
 
   const now = Date.now()
   const cooldownMs = getAutoCompactFailureCooldownMs()
+
+  // Forced compactions (memory-pressure, message-count, or session-resume
+  // overrides) bypass the cool-down skip. The breaker's job is to avoid
+  // retry storms on token-threshold-driven compactions; an explicit force
+  // signal says "we know this is risky, do it anyway" — and without honoring
+  // it, a tripped breaker can let state.messages grow without bound until
+  // the Node heap OOMs (issue #1373).
+  //
+  // We still count the attempt against `consecutiveFailures` and update
+  // `nextRetryAtMs` on failure, so a half-open failure re-trips instead of
+  // silently retrying every turn.
+  const isForced = forcedBy !== undefined
+
   const breakerState = resolveAutoCompactCircuitBreakerState({
     tracking,
     nowMs: now,
     cooldownMs,
   })
 
-  if (breakerState.action === 'skip') {
+  if (breakerState.action === 'skip' && !isForced) {
     return {
       wasCompacted: false,
       consecutiveFailures: breakerState.consecutiveFailures,
@@ -408,11 +461,21 @@ export async function autoCompactIfNeeded(
     }
   }
 
+  // After the early-return above, breakerState must be the 'allow' branch
+  // (which carries `wasHalfOpen` and `effectiveConsecutiveFailures`). Forced
+  // compactions go through this branch too — they share the same shape even
+  // though we don't apply the half-open counter reset for them.
+  const allowState = breakerState.action === 'allow' ? breakerState : null
+  const wasHalfOpen = allowState?.wasHalfOpen === true
+  const effectiveConsecutiveFailures =
+    allowState?.effectiveConsecutiveFailures ??
+    Math.max(0, tracking?.consecutiveFailures ?? 0)
+
   const effectiveTracking: AutoCompactTrackingState | undefined =
-    tracking && breakerState.wasHalfOpen
+    tracking && wasHalfOpen && !isForced
       ? {
           ...tracking,
-          consecutiveFailures: breakerState.effectiveConsecutiveFailures,
+          consecutiveFailures: effectiveConsecutiveFailures,
           nextRetryAtMs: undefined,
         }
       : tracking
@@ -511,10 +574,8 @@ export async function autoCompactIfNeeded(
     if (wasUserAbort) {
       return {
         wasCompacted: false,
-        consecutiveFailures: breakerState.effectiveConsecutiveFailures,
-        nextRetryAtMs: breakerState.wasHalfOpen
-          ? undefined
-          : tracking?.nextRetryAtMs,
+        consecutiveFailures: effectiveConsecutiveFailures,
+        nextRetryAtMs: wasHalfOpen ? undefined : tracking?.nextRetryAtMs,
         circuitBreakerActive: false,
         circuitBreakerTripped: false,
       }
@@ -525,7 +586,7 @@ export async function autoCompactIfNeeded(
     // The caller threads this through autoCompactTracking so the
     // next query loop iteration can skip futile retry attempts until cooldown.
     const nextFailures = Math.min(
-      breakerState.effectiveConsecutiveFailures + 1,
+      effectiveConsecutiveFailures + 1,
       MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
     )
     const circuitBreakerTripped =
@@ -539,6 +600,13 @@ export async function autoCompactIfNeeded(
         `autocompact: circuit breaker tripped after ${nextFailures} consecutive failures — retrying after cooldown`,
         { level: 'warn' },
       )
+      // Surface the trip to the breaker-trip store (issue #1373). The REPL
+      // and SDK can read this to show "auto-compact paused, retrying in N
+      // minutes" instead of failing silently while state.messages grows.
+      recordBreakerTripped({
+        failureCount: nextFailures,
+        trippedAtMs: failureAtMs,
+      })
     }
     return {
       wasCompacted: false,
