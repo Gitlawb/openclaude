@@ -1,6 +1,7 @@
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -15,6 +16,26 @@ import {
 } from '../../test/sharedMutationLock.js'
 import type { Message } from '../../types/message.js'
 import * as realConfig from '../../utils/config.js'
+
+// Several earlier test files in the smoke suite call
+// mock.module('../../utils/model/providers.js', ...) to stub getAPIProvider.
+// bun:test's mock.module() registry is process-global and mock.restore() does
+// NOT clear it, so the cached bare-path import of providers.js inside betas.ts
+// (which compact.ts transitively imports) resolves to that stub unless we
+// override it. We import the real providers module through a cache-busting URL
+// and re-register it under the bare specifier before any compact import.
+async function importRealProvidersModule() {
+  return (await import(
+    `../../utils/model/providers.js?real=${Date.now()}-${Math.random()}`
+  )) as unknown as typeof import('../../utils/model/providers.js')
+}
+
+let realProvidersModule: typeof import('../../utils/model/providers.js')
+
+beforeAll(async () => {
+  realProvidersModule = await importRealProvidersModule()
+  mock.module('../../utils/model/providers.js', () => realProvidersModule)
+})
 
 // ---------------------------------------------------------------------------
 // Helpers

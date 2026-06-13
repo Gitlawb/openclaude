@@ -84,6 +84,21 @@ afterEach(() => {
   }
 })
 
+// Several earlier test files in the smoke suite call
+// mock.module('./model/providers.js', ...) to stub getAPIProvider. bun:test's
+// mock.module() registry is process-global and mock.restore() does NOT clear it,
+// so the cached bare-path import of providers.js inside betas.ts resolves to
+// that stub unless we override it. We import the real providers module through
+// a cache-busting URL and re-register it under the bare specifier so betas.ts
+// (and every other module in this test file) sees the real implementation.
+async function importRealProvidersModule() {
+  return (await import(
+    `./model/providers.js?real=${Date.now()}-${Math.random()}`
+  )) as unknown as typeof import('./model/providers.js')
+}
+
+let realProvidersModule: typeof import('./model/providers.js')
+
 // Fresh import per test resets the memoize caches inside betas.js so the
 // provider detection (read live from process.env) is re-evaluated cleanly.
 async function importFreshBetas() {
@@ -97,6 +112,8 @@ async function importFreshBetas() {
 // call is a real fresh import. After pre-warming, the per-test import is
 // sub-second and well under the 5s budget.
 beforeAll(async () => {
+  realProvidersModule = await importRealProvidersModule()
+  mock.module('./model/providers.js', () => realProvidersModule)
   await importFreshBetas()
 })
 
@@ -106,27 +123,7 @@ const MODEL = 'claude-sonnet-4-5'
 
 test('getMergedBetas returns [] for the openai provider', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  const { getMergedBetas, isAnthropicProvider } = await importFreshBetas()
-  const { getAPIProvider: getAPIProviderFresh } = (await import(
-    `./model/providers.js?ts=${Date.now()}-${Math.random()}`
-  )) as typeof import('./model/providers.js')
-  const { getAPIProvider: getAPIProviderCached } = (await import(
-    './model/providers.js'
-  )) as typeof import('./model/providers.js')
-  // eslint-disable-next-line no-console
-  console.log('DEBUG openai test', {
-    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
-    FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
-    XAI_API_KEY: process.env.XAI_API_KEY,
-    MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
-    NEARAI_API_KEY: process.env.NEARAI_API_KEY,
-    provider_fresh: getAPIProviderFresh(),
-    provider_cached: getAPIProviderCached(),
-    provider_inside: isAnthropicProvider(),
-    betas: getMergedBetas(MODEL),
-  })
+  const { getMergedBetas } = await importFreshBetas()
   expect(getMergedBetas(MODEL)).toEqual([])
 })
 
