@@ -604,27 +604,32 @@ async function* queryLoop(
             ? userCap
             : hardCap
 
-      // Issue #1373 follow-up: gate the message-count re-trigger on the
-      // breaker cool-down so a continuing provider failure doesn't fire
-      // `compactConversation` on every over-cap turn. The guard only
+      // Issue #1373 follow-up: gate the forced-compaction re-trigger on
+      // the breaker cool-down so a continuing provider failure doesn't
+      // fire `compactConversation` on every forced turn. The guard only
       // suppresses re-fires — the safety net is preserved because:
       //   1. `lastForcedFailureAtMs` is only written by a forced-attempt
       //      failure, so a token-threshold trip that happens to leave
       //      `nextRetryAtMs` in the future still re-fires (no
       //      `lastForcedFailureAtMs` to gate on).
       //   2. After the cool-down elapses naturally
-      //      (`lastForcedFailureAtMs + cooldownMs <= now`), the cap
-      //      re-trips and compaction eventually happens.
+      //      (`lastForcedFailureAtMs + cooldownMs <= now`), the forced
+      //      path re-fires and compaction eventually happens.
       //
       // The two checks below are independent. `nextRetryAtMs` is the
       // primary signal from the breaker's skip path, but it can be
-      // cleared by a non-forced skip on a subsequent over-cap turn
+      // cleared by a non-forced skip on a subsequent forced turn
       // (e.g. token-threshold compaction returns breaker metadata with
       // no `nextRetryAtMs`, and the query loop `delete`s it on the
       // next iteration). The belt-and-suspenders check on
       // `lastForcedFailureAtMs` runs even when `nextRetryAtMs` is gone,
-      // so the cap doesn't re-fire while the provider is still
+      // so the forced path doesn't re-fire while the provider is still
       // recovering.
+      //
+      // Both forced-reason sources — message-count cap and memory
+      // pressure — gate their restamp on this flag. A failed forced
+      // attempt of either kind sets `lastForcedFailureAtMs`; the gate
+      // is symmetric and the cool-down is shared.
       const forcedCooldownActive = (() => {
         const lastForced = tracking?.lastForcedFailureAtMs
         if (typeof lastForced !== 'number' || !Number.isFinite(lastForced)) {
@@ -640,8 +645,9 @@ async function* queryLoop(
         // Belt-and-suspenders: honor the cool-down window from the last
         // forced attempt even if `nextRetryAtMs` was cleared by a
         // non-forced skip. Without this, a token-threshold skip that
-        // returns no `nextRetryAtMs` would let the cap re-fire while
-        // the provider is still recovering — recreating the retry storm.
+        // returns no `nextRetryAtMs` would let the forced path re-fire
+        // while the provider is still recovering — recreating the retry
+        // storm the breaker is supposed to contain.
         return Date.now() - lastForced < getAutoCompactFailureCooldownMs()
       })()
 
@@ -673,9 +679,21 @@ async function* queryLoop(
         )
       }
       if (consumeCompactionRequest()) {
-        tracking = {
-          ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
-          forceReason: tracking?.forceReason ?? 'memory-pressure',
+        if (forcedCooldownActive) {
+          // Pressure monitor (`src/utils/memoryPressure.ts`) keeps
+          // re-arming the request for as long as RSS stays elevated,
+          // so without this gate a forced memory-pressure attempt that
+          // fails would re-fire on every subsequent turn while the
+          // provider is still down. Issue #1373 follow-up: the breaker
+          // cool-down is the only place the retry storm is contained.
+          logForDebugging(
+            'autocompact: memory-pressure compaction requested but cool-down active — deferring forced compaction',
+          )
+        } else {
+          tracking = {
+            ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
+            forceReason: tracking?.forceReason ?? 'memory-pressure',
+          }
         }
       }
     }

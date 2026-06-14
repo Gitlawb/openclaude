@@ -127,8 +127,11 @@ export function startMemoryPressureMonitor(
 
     // Keep requesting compaction while pressure stays elevated/critical.
     // The previous level-change-only gate meant one compact/prune cycle then
-    // silence even if RSS remained high.  consumeCompactionRequest() is
-    // one-shot so the existing autocompact cooldown prevents retry storms.
+    // silence even if RSS remained high. The query loop is responsible for
+    // gating the actual forceReason restamp on the autocompact cool-down
+    // (see forcedCooldownActive in src/query.ts) so a failing provider
+    // doesn't turn this re-arm signal into a retry storm — consume
+    // unconditionally and let the loop decide whether to honor the request.
     if (currentLevel !== 'normal') {
       compactionRequested = true
     }

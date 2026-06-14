@@ -1135,3 +1135,104 @@ test('hard-cap cool-down holds even when a non-forced skip clears nextRetryAtMs'
   // gate ran and let the call through, just without the forced path).
   expect(autocompact).toHaveBeenCalledTimes(1)
 })
+
+// ---------------------------------------------------------------------------
+// Issue #1373 follow-up (CodeRabbit round 4): the forced-failure cool-down
+// gate at src/query.ts must also hold for the memory-pressure path, not
+// just the message-count path. The pressure monitor keeps re-arming
+// `compactionRequested` for as long as RSS stays elevated/critical —
+// without the gate, a failed forced memory-pressure attempt would re-fire
+// on every subsequent turn, recreating the retry storm the breaker is
+// supposed to contain.
+//
+// This test stubs `consumeCompactionRequest` so the pressure request
+// fires unconditionally (mirroring the monitor's elevated/critical
+// behavior), seeds a recent forced failure, and asserts the second
+// query turn's `autocompact` mock saw `tracking?.forceReason ===
+// undefined` — the gate held.
+// ---------------------------------------------------------------------------
+
+test('memory-pressure cool-down holds even when the pressure request keeps re-arming', async () => {
+  process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '60000'
+  // No hard cap — pressure is the only forced-reason source.
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+
+  // Stub the pressure monitor so the request fires on every turn,
+  // mirroring the real monitor's "keep re-arming while elevated" loop.
+  mock.module('../utils/memoryPressure.js', () => ({
+    consumeCompactionRequest: mock(() => true),
+  }))
+
+  const messages = [userMessage('short'), userMessage('also short')]
+  const forcedFailureAtMs = Date.now() - 1_000
+
+  // The cool-down gate must hold — the mock would see
+  // `tracking?.forceReason` set if the gate had returned false. (If the
+  // first turn's seed tracking has a real `forceReason`, that's the
+  // pre-existing input — the mock's expectation is about the gate's
+  // output, not the seed.)
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const autocompact = mock(
+    async (
+      _messages: never,
+      _toolUseContext: never,
+      _params: never,
+      _querySource: never,
+      tracking: AutoCompactTrackingState | undefined,
+    ) => {
+      seenTracking.push(tracking)
+      // No input `forceReason` on the second turn — the gate held.
+      expect(tracking?.forceReason).toBeUndefined()
+      return {
+        wasCompacted: false,
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: forcedFailureAtMs + 60_000,
+        lastFailureAtMs: forcedFailureAtMs,
+        circuitBreakerActive: true,
+        circuitBreakerTripped: true,
+        // No `lastForcedFailureAtMs` — non-forced skip.
+      }
+    },
+  )
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact,
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      // Seed: breaker tripped with a recent forced failure, no
+      // `forceReason` set (consumeCompactionRequest will be called
+      // and would stamp it, but the gate must hold).
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: forcedFailureAtMs + 60_000,
+        lastForcedFailureAtMs: forcedFailureAtMs,
+      },
+    }),
+  )
+
+  // Cool-down held — the pressure restamp was suppressed, so the mock
+  // saw an unforced tracking. The call model ran (max_turns, not
+  // blocking_limit).
+  expect(terminal.reason).toBe('max_turns')
+  expect(autocompact).toHaveBeenCalledTimes(1)
+})
