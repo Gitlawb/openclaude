@@ -177,6 +177,16 @@ export async function applyCollapsesIfNeeded(
   if (!enabled) return { messages }
   if (querySource === 'marble_origami') return { messages }
 
+  // Re-apply committed collapses. messagesForQuery is rebuilt from the REPL's
+  // full history every turn (and the commit log is repopulated on resume), so
+  // without replaying the log here the archived spans would return to the model
+  // on the next turn. projectView is idempotent: already-collapsed spans no-op.
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { projectView } =
+    require('./operations.js') as typeof import('./operations.js')
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  messages = projectView(messages)
+
   // Commit drain: process all staged spans
   if (stagedQueue.length > 0) {
     messages = drainStaged(messages, true)

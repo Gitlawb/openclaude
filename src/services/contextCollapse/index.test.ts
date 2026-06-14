@@ -300,6 +300,55 @@ describe('restoreContextCollapseState', () => {
   })
 })
 
+describe('applyCollapsesIfNeeded projection', () => {
+  test('re-applies a committed collapse to the next turn input, not just /context', async () => {
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+
+    // A collapse committed on a prior turn (e.g. restored on resume).
+    idx.restoreContextCollapseState(
+      [
+        {
+          type: 'marble-origami-commit' as const,
+          sessionId: uid('s1'),
+          collapseId: '0000000000000001',
+          summaryUuid: uid('sum'),
+          summaryContent: '<collapsed id="0000000000000001">summary</collapsed>',
+          summary: 'summary',
+          firstArchivedUuid: uid('a1'),
+          lastArchivedUuid: uid('a3'),
+        },
+      ],
+      undefined,
+    )
+
+    // The REPL rebuilds messagesForQuery from the full history every turn, so
+    // the archived span is present again on entry.
+    const fullHistory: Message[] = [
+      makeUserMsg('u0'),
+      makeUserMsg('a1'),
+      makeAssistantMsg('a2'),
+      makeUserMsg('a3'),
+      makeUserMsg('u4'),
+    ]
+
+    const { messages } = await idx.applyCollapsesIfNeeded(
+      fullHistory,
+      makeFakeToolUseContext(),
+      'repl_main_thread' as any,
+    )
+
+    const uuids = messages.map(m => m.uuid)
+    expect(uuids).not.toContain(uid('a1'))
+    expect(uuids).not.toContain(uid('a2'))
+    expect(uuids).not.toContain(uid('a3'))
+    expect(uuids).toContain(uid('sum'))
+    expect(uuids).toContain(uid('u0'))
+    expect(uuids).toContain(uid('u4'))
+  })
+})
+
 describe('health', () => {
   test('health fields initialized correctly', async () => {
     await cleanState()

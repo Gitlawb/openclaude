@@ -329,7 +329,28 @@ export function Config({
         enabled: toolHistoryCompressionEnabled
       });
     }
-  }, {
+  }, ...(feature('CONTEXT_COLLAPSE') ? [{
+    id: 'contextCollapseEnabled',
+    label: 'Context collapse (lossy)',
+    value: globalConfig.contextCollapseEnabled,
+    type: 'boolean' as const,
+    onChange(contextCollapseEnabled: boolean) {
+      saveGlobalConfig(current_cc => ({
+        ...current_cc,
+        contextCollapseEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        contextCollapseEnabled
+      });
+      // Refresh runtime state so the toggle applies without a restart:
+      // initContextCollapse re-reads env + this config key.
+      (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      logEvent('tengu_context_collapse_setting_changed', {
+        enabled: contextCollapseEnabled
+      });
+    }
+  }] : []), {
     id: 'showCacheStats',
     label: 'Cache stats display',
     value: globalConfig.showCacheStats,
