@@ -580,6 +580,21 @@ export async function cleanupFailedConnection(
   await transport.close().catch(() => {})
 }
 
+export function logMcpServerStderr(
+  name: string,
+  stderrOutput: string,
+  connectedSuccessfully: boolean,
+): void {
+  if (!stderrOutput) return
+
+  const message = `Server stderr: ${stderrOutput}`
+  if (connectedSuccessfully) {
+    logMCPDebug(name, message)
+  } else {
+    logMCPError(name, message)
+  }
+}
+
 function isLocalMcpServer(config: ScopedMcpServerConfig): boolean {
   return !config.type || config.type === 'stdio' || config.type === 'sdk'
 }
@@ -1105,7 +1120,7 @@ export const connectToServer = memoize(
       try {
         await Promise.race([connectPromise, timeoutPromise])
         if (stderrOutput) {
-          logMCPError(name, `Server stderr: ${stderrOutput}`)
+          logMcpServerStderr(name, stderrOutput, true)
           stderrOutput = '' // Release accumulated string to prevent memory growth
         }
         const elapsed = Date.now() - connectStartTime
@@ -1176,7 +1191,7 @@ export const connectToServer = memoize(
           await cleanupFailedConnection(transport)
         }
         if (stderrOutput) {
-          logMCPError(name, `Server stderr: ${stderrOutput}`)
+          logMcpServerStderr(name, stderrOutput, false)
         }
         throw error
       }
