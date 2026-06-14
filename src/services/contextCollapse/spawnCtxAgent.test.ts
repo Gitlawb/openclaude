@@ -9,12 +9,15 @@ import type { Message } from '../../types/message.js'
 //
 // `import * as` yields a LIVE namespace that bun's mock.module mutates in
 // place, so we must snapshot the real exports into a plain object now (before
-// any mock runs) rather than hold the namespace. autoCompact.js is
-// intentionally not restored here: autoCompact.test.ts re-imports it fresh via
-// a cache-busting nonce, and eagerly importing it here would shadow that.
+// any mock runs) rather than hold the namespace. The autoCompact.js stub
+// (getEffectiveContextWindowSize) in particular leaks into compressToolHistory,
+// which imports that function and uses it to size truncation. Restoring by
+// specifier is safe: autoCompact.test.ts re-imports autoCompact fresh via a
+// cache-busting nonce (a different specifier), so it is unaffected.
 import * as spanSelectionNs from './spanSelection.js'
 import * as forkedAgentNs from '../../utils/forkedAgent.js'
 import * as tokensNs from '../../utils/tokens.js'
+import * as autoCompactNs from '../compact/autoCompact.js'
 import * as analyticsNs from '../../services/analytics/index.js'
 import * as logNs from '../../utils/log.js'
 import * as messagesNs from '../../utils/messages.js'
@@ -22,6 +25,7 @@ import * as messagesNs from '../../utils/messages.js'
 const realSpanSelection = { ...spanSelectionNs }
 const realForkedAgent = { ...forkedAgentNs }
 const realTokens = { ...tokensNs }
+const realAutoCompact = { ...autoCompactNs }
 const realAnalytics = { ...analyticsNs }
 const realLog = { ...logNs }
 const realMessages = { ...messagesNs }
@@ -149,6 +153,7 @@ afterEach(async () => {
   mock.module('./spanSelection.js', () => realSpanSelection)
   mock.module('../../utils/forkedAgent.js', () => realForkedAgent)
   mock.module('../../utils/tokens.js', () => realTokens)
+  mock.module('../compact/autoCompact.js', () => realAutoCompact)
   mock.module('../../services/analytics/index.js', () => realAnalytics)
   mock.module('../../utils/log.js', () => realLog)
   mock.module('../../utils/messages.js', () => realMessages)
