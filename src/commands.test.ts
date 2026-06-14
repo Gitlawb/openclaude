@@ -263,11 +263,11 @@ describe('builtInCommandNames', () => {
       } as any
       const promptBlocks = await cmd.getPromptForCommand('', mockContext)
       const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
-      expect(promptText).toContain('Not a git repository or git unavailable')
-      expect(promptText).toContain('no unstaged changes or not a git repo')
-      expect(promptText).toContain('no staged changes or not a git repo')
-      expect(promptText).toContain('no git history or not a git repo')
-      expect(promptText).toContain('no diff available or not a git repo')
+      expect(promptText).toContain('(If empty: not a git repository or git unavailable)')
+      expect(promptText).toContain('(If empty: no unstaged changes or not a git repo)')
+      expect(promptText).toContain('(If empty: no staged changes or not a git repo)')
+      expect(promptText).toContain('(If empty: no git history or not a git repo)')
+      expect(promptText).toContain('(If empty: no diff available or not a git repo)')
     } finally {
       await rm(cwd, { recursive: true, force: true })
       if (originalUserType !== undefined) {
@@ -338,11 +338,11 @@ describe('builtInCommandNames', () => {
       } as any
       const promptBlocks = await cmd.getPromptForCommand('', mockContext)
       const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
-      expect(promptText).toContain('Not a git repository or git unavailable')
-      expect(promptText).toContain('no unstaged changes or not a git repo')
-      expect(promptText).toContain('no staged changes or not a git repo')
-      expect(promptText).toContain('no git history or not a git repo')
-      expect(promptText).toContain('no diff available or not a git repo')
+      expect(promptText).toContain('(If empty: not a git repository or git unavailable)')
+      expect(promptText).toContain('(If empty: no unstaged changes or not a git repo)')
+      expect(promptText).toContain('(If empty: no staged changes or not a git repo)')
+      expect(promptText).toContain('(If empty: no git history or not a git repo)')
+      expect(promptText).toContain('(If empty: no diff available or not a git repo)')
     } finally {
       await rm(cwd, { recursive: true, force: true })
       if (originalUserType !== undefined) {
