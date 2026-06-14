@@ -45,6 +45,16 @@ import {
   setSessionSettingsCache,
 } from '../../utils/settings/settingsCache.js'
 
+// Real module references for mock isolation (mock.module() is process-global
+// and mock.restore() does not undo it — re-register the real modules in
+// afterEach to prevent leakage into later test files).
+import * as realMicroCompact from '../../services/compact/microCompact.js'
+import * as realAutoCompact from '../../services/compact/autoCompact.js'
+import * as realAnalyzeContext from '../../utils/analyzeContext.js'
+import * as realContext from '../../utils/context.js'
+import * as realModel from '../../utils/model/model.js'
+import * as realBootstrapState from '../../bootstrap/state.js'
+
 function findCtx(commands: ReturnType<typeof getCommands> extends Promise<infer T> ? T : never) {
   return commands.find(c => c.name === 'ctx')
 }
@@ -59,6 +69,14 @@ beforeEach(() => {
 
 afterEach(() => {
   mock.restore()
+  // Restore real modules as mock.module() is process-global and
+  // mock.restore() does not undo it.
+  mock.module('../../services/compact/microCompact.js', () => realMicroCompact)
+  mock.module('../../utils/analyzeContext.js', () => realAnalyzeContext)
+  mock.module('../../services/compact/autoCompact.js', () => realAutoCompact)
+  mock.module('../../utils/context.js', () => realContext)
+  mock.module('../../utils/model/model.js', () => realModel)
+  mock.module('../../bootstrap/state.js', () => realBootstrapState)
   resetSettingsCache()
   clearCommandMemoizationCaches()
 })
@@ -177,6 +195,7 @@ describe('/ctx command surface (PR #1610)', () => {
           { name: 'Memory files', tokens: 956, color: 'inactive' },
           { name: 'Messages', tokens: 84, color: 'permission' },
           { name: 'Free space', tokens: 50_000, color: 'subtle' },
+          { name: 'System tools (deferred)', tokens: 4_000, color: 'inactive', isDeferred: true },
         ],
         totalTokens: 74_340,
         maxTokens: 131_072,
@@ -282,5 +301,8 @@ describe('/ctx command surface (PR #1610)', () => {
     expect(out).toContain('/stats')
     // Capacity rows (Free space, Autocompact buffer, Compact buffer) should be filtered out.
     expect(out).not.toContain('Free space')
+    // Deferred tool categories (MCP tools (deferred), System tools (deferred))
+    // should be filtered out since they aren't in the model-visible context.
+    expect(out).not.toContain('System tools (deferred)')
   })
 })

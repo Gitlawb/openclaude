@@ -168,7 +168,7 @@ export async function call(
 
   const CAPACITY_ROWS = new Set(['Free space', 'Autocompact buffer', 'Compact buffer'])
   for (const cat of data.categories) {
-    if (cat.tokens > 0 && !CAPACITY_ROWS.has(cat.name)) {
+    if (cat.tokens > 0 && !CAPACITY_ROWS.has(cat.name) && !cat.isDeferred) {
       lines.push(categoryLine(cat.name, cat.tokens, barMax, barMax, barWidth, cat.color))
     }
   }
