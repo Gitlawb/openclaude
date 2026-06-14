@@ -90,6 +90,13 @@ export const providers: Provider[] = [
     notes: 'api-key auth, discovers models from the unauthenticated /models endpoint, supports Responses mode for gpt- models.',
   },
   {
+    id: 'llmtr',
+    name: 'LLMTR',
+    setup: '/provider or OpenAI-compatible env vars',
+    envVars: ['LLMTR_API_KEY'],
+    notes: 'Turkey-hosted OpenAI-compatible gateway at https://llmtr.com/v1; ships Turkey-hosted models (Gemma 4, Trendyol 7B, Sincap, Magibu) alongside OpenAI, Anthropic, Google, xAI, and Mistral.',
+  },
+  {
     id: 'anthropic',
     name: 'Anthropic',
     setup: '/login or env vars',

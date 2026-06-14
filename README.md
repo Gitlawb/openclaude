@@ -163,6 +163,7 @@ Advanced and source-build guides:
 | --- | --- | --- |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
+| LLMTR | `/provider` or OpenAI-compatible env vars | Turkey-hosted OpenAI-compatible gateway at `https://llmtr.com/v1`; uses `LLMTR_API_KEY`, routes by `OPENAI_MODEL`, and ships Turkey-hosted models (Gemma 4, Trendyol 7B, Sincap, Magibu) alongside OpenAI/Anthropic/Google/xAI/Mistral |
 | Fireworks AI | `/provider` or env vars | First-class provider with 276 curated models (DeepSeek, Qwen, Llama, Gemma, and more); uses `FIREWORKS_API_KEY` |
 | Gemini | `/provider` or env vars | Supports API key only |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |

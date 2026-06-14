@@ -124,6 +124,11 @@ const aliasModels: readonly AliasModel[] = [
   ['codellama:13b', 'Code Llama 13B', 16_384, 4_096],
   ['qwen3:8b', 'Qwen 3 8B', 128_000, 8_192],
   ['qwen3-max-2026-01-23', 'Qwen 3 Max 2026-01-23', 262_144, 32_768],
+  // LLMTR Turkey-hosted models (https://llmtr.com)
+  ['llmtr/gemma-4', 'Gemma 4 (Turkey-hosted)', 262_144, 16_384],
+  ['llmtr/trendyol-7b', 'Trendyol 7B (Turkey-hosted)', 32_768, 8_192],
+  ['llmtr/sincap', 'Sincap (Turkey-hosted)', 32_768, 8_192],
+  ['llmtr/magibu-11b-v8', 'Magibu 11B v8 (Turkey-hosted)', 32_768, 8_192],
 ]
 
 export default aliasModels.map(([id, label, contextWindow, maxOutputTokens]) =>
