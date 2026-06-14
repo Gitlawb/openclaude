@@ -34,21 +34,19 @@ describe('findWhitespaceAgnosticMatch', () => {
     expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
   })
 
-  test('rejects fuzzy match when boundary horizontal whitespace would consume a line break (CodeRabbit P1 fix)', () => {
+  test('recovers leading boundary horizontal whitespace without consuming line breaks', () => {
     const fileContent = 'function hello() {\n    foo();\n}'
     const searchString = '  foo();' // Agent provided leading spaces
-    // Because the file has a newline and searchString only has spaces,
-    // they don't match vertical spacing, which prevents accidentally deleting newlines.
-    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
+    // Leading spaces are ignored in the match, and boundary expansion
+    // recovers the exact file indentation. The `\n` is safely preserved!
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBe('    foo();')
   })
 
   test('prevents trailing-newline searches from consuming next line indentation', () => {
     const fileContent = 'if ok:\n  foo()\n  bar()\n'
     const searchString = '    foo()\n'
-    // searchString has leading horizontal spaces, but file has a newline.
-    // The exact newline count mismatch forces it to reject the fuzzy match.
     const actualOldString = findWhitespaceAgnosticMatch(fileContent, searchString)
-    expect(actualOldString).toBeNull()
+    expect(actualOldString).toBe('  foo()\n')
   })
 
   test('rejects fuzzy match when LLM collapses blank lines (CodeRabbit P2 fix)', () => {
@@ -62,6 +60,27 @@ describe('findWhitespaceAgnosticMatch', () => {
     const fileContent = 'A paragraph.\nNext paragraph.'
     const searchString = 'A paragraph.\n\nNext paragraph.'
     // The exact newline count mismatch forces it to reject the fuzzy match.
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
+  })
+
+  test('preserves Markdown hard breaks in fuzzy match (CodeRabbit P2 fix)', () => {
+    const fileContent = 'foo  \nbar'
+    const searchString = 'foo\nbar'
+    // isMarkdown = true protects trailing spaces before a newline
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString, true)).toBeNull()
+  })
+
+  test('ignores trailing garbage spaces for non-Markdown files', () => {
+    const fileContent = 'foo  \nbar'
+    const searchString = 'foo\nbar'
+    // isMarkdown = false drops trailing spaces to be agnostic
+    expect(findWhitespaceAgnosticMatch(fileContent, searchString, false)).toBe('foo  \nbar')
+  })
+
+  test('keeps inline whitespace exact to protect semantics (CodeRabbit P2 fix)', () => {
+    const fileContent = 'const msg = "hello  world";'
+    const searchString = 'const msg = "hello world";'
+    // The inline spaces do not match, so it rejects it!
     expect(findWhitespaceAgnosticMatch(fileContent, searchString)).toBeNull()
   })
 

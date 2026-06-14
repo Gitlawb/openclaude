@@ -642,6 +642,7 @@ export function normalizeFileEditInput({
         const fuzzyMatch = findWhitespaceAgnosticMatch(
           fileContent,
           desanitizedOldString,
+          isMarkdown,
         )
 
         if (fuzzyMatch) {
@@ -929,41 +930,41 @@ export function adjustNewStringIndentation(
   return adjustedLines.join('\n')
 }
 
-function normalizeIndentation(str: string) {
+function normalizeIndentation(str: string, isMarkdown: boolean) {
   let normalized = ''
   const mapping: number[] = []
 
   let i = 0
   while (i < str.length) {
-    if (!/\s/.test(str[i]!)) {
+    if (str[i] === '\n' || str[i] === '\r') {
       normalized += str[i]
       mapping.push(i)
       i++
-    } else {
+    } else if (/[ \t]/.test(str[i]!)) {
       const startWs = i
-      let newlineCount = 0
-      let lastNewline = -1
-      while (i < str.length && /\s/.test(str[i]!)) {
-        if (str[i] === '\n') {
-          newlineCount++
-          lastNewline = i
-        }
+      while (i < str.length && /[ \t]/.test(str[i]!)) {
         i++
       }
 
-      if (newlineCount > 0) {
-        // P2 Fix: Preserve the exact count of vertical line breaks (e.g. blank lines).
-        // This prevents merging multiple blank lines or deleting intentional vertical spacing.
-        for (let n = 0; n < newlineCount; n++) {
-          normalized += '\n'
-          mapping.push(lastNewline !== -1 ? lastNewline : startWs)
-        }
+      const isLeading = startWs === 0 || str[startWs - 1] === '\n' || str[startWs - 1] === '\r'
+      const isTrailing = i === str.length || str[i] === '\n' || str[i] === '\r'
+
+      if (isLeading) {
+        // Drop leading indentation entirely. The boundary logic will recover the exact original indentation.
+      } else if (isTrailing && !isMarkdown) {
+        // Drop trailing whitespace entirely for non-markdown files to stay agnostic to garbage spaces.
       } else {
-        // P1 Fix: Compress purely horizontal whitespace to a single space.
-        // This keeps inline tokens separated and prevents horizontal boundary spaces from consuming line breaks.
-        normalized += ' '
-        mapping.push(startWs)
+        // P2 Fix: Keep inline whitespace (and Markdown trailing hard breaks) exactly as is
+        // to protect string literals, regexes, and semantic Markdown breaks.
+        for (let k = startWs; k < i; k++) {
+          normalized += str[k]
+          mapping.push(k)
+        }
       }
+    } else {
+      normalized += str[i]
+      mapping.push(i)
+      i++
     }
   }
 
@@ -972,18 +973,19 @@ function normalizeIndentation(str: string) {
 
 /**
  * Finds a substring within fileContent that matches searchString, ignoring formatting differences
- * by compressing only line-endings and indentation into a single space, while strictly preserving
+ * by ignoring leading and trailing spaces, while strictly preserving
  * inline spaces to prevent token boundary corruption (like merging operators or words).
  * If exactly one match is found, returns the exact substring from fileContent.
  */
 export function findWhitespaceAgnosticMatch(
   fileContent: string,
   searchString: string,
+  isMarkdown: boolean = false,
 ): string | null {
-  const search = normalizeIndentation(searchString)
+  const search = normalizeIndentation(searchString, isMarkdown)
   if (search.normalized.trim().length === 0) return null
 
-  const file = normalizeIndentation(fileContent)
+  const file = normalizeIndentation(fileContent, isMarkdown)
 
   const matchIndex = file.normalized.indexOf(search.normalized)
   if (matchIndex === -1) return null
