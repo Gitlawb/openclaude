@@ -172,14 +172,80 @@ export function registerFileReadListener(
   }
 }
 
+export type MaxFileReadTokenExceededDetails = {
+  filePath?: string
+  source?: 'api' | 'estimate'
+  totalLines?: number
+}
+
+function formatCount(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function formatReadRangeExample(
+  filePath: string,
+  offset: number,
+  limit: number,
+): string {
+  return JSON.stringify({ file_path: filePath, offset, limit })
+}
+
+export function formatMaxFileReadTokenExceededMessage(
+  tokenCount: number,
+  maxTokens: number,
+  details: MaxFileReadTokenExceededDetails = {},
+): string {
+  const tokenCountText =
+    details.source === 'estimate'
+      ? `estimated ${formatCount(tokenCount)} tokens`
+      : `${formatCount(tokenCount)} tokens`
+
+  const lines = [
+    `File content is too large to read in one request (${tokenCountText}; limit ${formatCount(maxTokens)} tokens).`,
+  ]
+
+  if (details.totalLines !== undefined) {
+    lines.push(`The file has ${formatCount(details.totalLines)} total lines.`)
+  }
+
+  if (details.filePath) {
+    const firstLimit = Math.max(
+      1,
+      Math.min(200, details.totalLines ?? 200),
+    )
+    lines.push('Read smaller ranges with offset and limit, for example:')
+    lines.push(`  ${formatReadRangeExample(details.filePath, 1, firstLimit)}`)
+
+    if (details.totalLines === undefined || details.totalLines > firstLimit) {
+      const secondOffset = firstLimit + 1
+      const secondLimit = Math.max(
+        1,
+        Math.min(200, (details.totalLines ?? firstLimit + 200) - firstLimit),
+      )
+      lines.push(
+        `  ${formatReadRangeExample(details.filePath, secondOffset, secondLimit)}`,
+      )
+    }
+  } else {
+    lines.push(
+      'Read smaller ranges with offset and limit, for example offset: 1, limit: 200, then offset: 201, limit: 200.',
+    )
+  }
+
+  lines.push(
+    'Use Grep first if you are looking for specific text, then Read the relevant range.',
+  )
+
+  return lines.join('\n')
+}
+
 export class MaxFileReadTokenExceededError extends Error {
   constructor(
     public tokenCount: number,
     public maxTokens: number,
+    public details: MaxFileReadTokenExceededDetails = {},
   ) {
-    super(
-      `File content (${tokenCount} tokens) exceeds maximum allowed tokens (${maxTokens}). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.`,
-    )
+    super(formatMaxFileReadTokenExceededMessage(tokenCount, maxTokens, details))
     this.name = 'MaxFileReadTokenExceededError'
   }
 }
@@ -759,6 +825,7 @@ async function validateContentTokens(
   content: string,
   ext: string,
   maxTokens?: number,
+  details: Omit<MaxFileReadTokenExceededDetails, 'source'> = {},
 ): Promise<void> {
   const effectiveMaxTokens =
     maxTokens ?? getDefaultFileReadingLimits().maxTokens
@@ -770,7 +837,14 @@ async function validateContentTokens(
   const effectiveCount = tokenCount ?? tokenEstimate
 
   if (effectiveCount > effectiveMaxTokens) {
-    throw new MaxFileReadTokenExceededError(effectiveCount, effectiveMaxTokens)
+    throw new MaxFileReadTokenExceededError(
+      effectiveCount,
+      effectiveMaxTokens,
+      {
+        ...details,
+        source: tokenCount === null ? 'estimate' : 'api',
+      },
+    )
   }
 }
 
@@ -1030,7 +1104,10 @@ async function callInner(
       context.abortController.signal,
     )
 
-  await validateContentTokens(content, ext, maxTokens)
+  await validateContentTokens(content, ext, maxTokens, {
+    filePath: file_path,
+    totalLines,
+  })
 
   readFileState.set(fullFilePath, {
     content,
