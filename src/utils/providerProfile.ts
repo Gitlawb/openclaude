@@ -192,6 +192,7 @@ export type ProfileEnv = {
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
   OPENCODE_API_KEY?: string
+  CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
 }
 
 export type ProfileFile = {
@@ -678,6 +679,7 @@ export function buildOpenAIProfileEnv(options: {
   authHeader?: string | null
   authScheme?: 'bearer' | 'raw' | null
   authHeaderValue?: string | null
+  maxContextLength?: number | null
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
@@ -711,23 +713,31 @@ export function buildOpenAIProfileEnv(options: {
     apiFormat: processEnv.OPENAI_API_FORMAT,
   })
   const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
+  const normalizedModel =
+    normalizeProfileModel(
+      sanitizeProviderConfigValue(options.model, secretSource),
+    ) ||
+    (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
+    defaultModel
 
   return {
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       DEFAULT_OPENAI_BASE_URL,
-    OPENAI_MODEL:
-      normalizeProfileModel(
-        sanitizeProviderConfigValue(options.model, secretSource),
-      ) ||
-      (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
-      defaultModel,
+    OPENAI_MODEL: normalizedModel,
     ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
     ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
     ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
     ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
     ...(key ? { OPENAI_API_KEY: key } : {}),
+    ...(options.maxContextLength
+      ? {
+          CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+            [normalizedModel]: options.maxContextLength,
+          }),
+        }
+      : {}),
   }
 }
 

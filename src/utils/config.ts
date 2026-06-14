@@ -224,6 +224,11 @@ export type ProviderProfile = {
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
   customHeaders?: Record<string, string>
+  /**
+   * Optional manual override for the provider/model context window in tokens.
+   * Applied to OpenAI-compatible providers when resolving runtime limits.
+   */
+  maxContextLength?: number
 }
 
 export type GlobalConfig = {

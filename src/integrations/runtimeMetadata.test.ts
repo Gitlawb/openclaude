@@ -1,5 +1,76 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, it, expect } from 'bun:test'
-import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock'
+import {
+  resolveModelRuntimeLimits,
+  resolveOpenAIShimRuntimeContext,
+} from '../integrations/runtimeMetadata'
+import { setCachedModels } from './discoveryCache'
+import { getDiscoveryCacheKey } from './discoveryService'
+
+const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+
+async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
+  await acquireSharedMutationLock('integrations/runtimeMetadata.test.ts')
+  let tempDir: string | null = null
+  try {
+    tempDir = mkdtempSync(join(tmpdir(), 'openclaude-runtime-metadata-test-'))
+    process.env.CLAUDE_CONFIG_DIR = tempDir
+    return await fn()
+  } finally {
+    try {
+      if (originalConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+      }
+      if (tempDir) {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
+    } finally {
+      releaseSharedMutationLock()
+    }
+  }
+}
+
+describe('resolveModelRuntimeLimits', () => {
+  it('uses discovered custom route context windows from the discovery cache', async () => {
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:4000/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'litellm-proxy',
+              apiName: 'litellm-proxy',
+              label: 'litellm-proxy',
+              contextWindow: 1_000_000,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'litellm-proxy',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+          },
+        }).contextWindow,
+      ).toBe(1_000_000)
+    })
+  })
+})
 
 describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
   describe('DeepSeek models', () => {
