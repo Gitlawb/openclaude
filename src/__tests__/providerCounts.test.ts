@@ -14,6 +14,7 @@ describe('Provider result counts', () => {
     'tavily.ts',
     'exa.ts',
     'firecrawl.ts',
+    'crw.ts',
     'mojeek.ts',
     'you.ts',
     'jina.ts',

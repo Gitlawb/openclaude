@@ -13,6 +13,7 @@ OpenClaude supports multiple search backends through a provider adapter system.
 | Brave (adapter) | `BRAVE_API_KEY` | `X-Subscription-Token` | GET |
 | SerpAPI | `WEB_PROVIDER=serpapi` | `Authorization: Bearer` | GET |
 | Firecrawl | `FIRECRAWL_API_KEY` | Internal | SDK |
+| fastCRW | `CRW_API_KEY` / `CRW_API_URL` | `Authorization: Bearer` | POST |
 | Tavily | `TAVILY_API_KEY` | `Authorization: Bearer` | POST |
 | Exa | `EXA_API_KEY` | `x-api-key` | POST |
 | You.com | `YOU_API_KEY` | `X-API-Key` | GET |
@@ -54,10 +55,11 @@ export WEB_SEARCH_API=https://search.example.com/search
 | `brave` | Brave only — throws on failure |
 | `custom` | Custom API only — throws on failure. **Not in the auto chain** — must be explicitly selected |
 | `firecrawl` | Firecrawl only — throws on failure |
+| `crw` | fastCRW only — throws on failure |
 | `ddg` | DuckDuckGo only — throws on failure |
 | `native` | Anthropic native / Codex only |
 
-**Auto mode priority:** firecrawl → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
+**Auto mode priority:** firecrawl → crw → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
 
 > **Note:** The `custom` provider is excluded from the `auto` chain. It is only used when `WEB_SEARCH_PROVIDER=custom` is explicitly set. This prevents the generic outbound provider from silently becoming the default backend.
 

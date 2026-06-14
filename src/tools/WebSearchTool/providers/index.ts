@@ -6,6 +6,7 @@
  *   "auto"      (default) — try providers in priority order, fall through on failure
  *   "custom"    — use WEB_SEARCH_API / WEB_PROVIDER preset only (fail loudly)
  *   "firecrawl" — use Firecrawl only (fail loudly)
+ *   "crw"       — use fastCRW only (fail loudly)
  *   "tavily"    — use Tavily only (fail loudly)
  *   "exa"       — use Exa only (fail loudly)
  *   "you"       — use You.com only (fail loudly)
@@ -30,6 +31,7 @@ import type { ProviderOutput } from './types.js'
 import { customProvider } from './custom.js'
 import { duckduckgoProvider } from './duckduckgo.js'
 import { firecrawlProvider } from './firecrawl.js'
+import { crwProvider } from './crw.js'
 import { tavilyProvider } from './tavily.js'
 import { exaProvider } from './exa.js'
 import { youProvider } from './you.js'
@@ -57,6 +59,7 @@ export { extractHits } from './custom.js'
 
 const ALL_PROVIDERS: SearchProvider[] = [
   firecrawlProvider,
+  crwProvider,
   tavilyProvider,
   exaProvider,
   youProvider,
@@ -80,6 +83,7 @@ export type ProviderMode =
   | 'auto'
   | 'custom'
   | 'firecrawl'
+  | 'crw'
   | 'ddg'
   | 'tavily'
   | 'exa'
@@ -94,6 +98,7 @@ export type ProviderMode =
 const PROVIDER_BY_NAME: Record<string, SearchProvider> = {
   custom: customProvider,
   firecrawl: firecrawlProvider,
+  crw: crwProvider,
   ddg: duckduckgoProvider,
   tavily: tavilyProvider,
   exa: exaProvider,
