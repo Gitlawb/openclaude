@@ -83,7 +83,10 @@ import { getSkillToolCommands, getMcpSkillCommands } from '../commands.js'
 import type { Command } from '../types/command.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { getProjectRoot } from '../bootstrap/state.js'
-import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
+import {
+  formatCommandsWithinBudget,
+  SUBAGENT_SKILL_LISTING_CHAR_BUDGET,
+} from '../tools/SkillTool/prompt.js'
 import { getContextWindowForModel } from './context.js'
 import type { DiscoverySignal } from '../services/skillSearch/signals.js'
 // Conditional require for DCE. All skill-search string literals that would
@@ -2750,12 +2753,19 @@ async function getSkillListingAttachments(
     `Sending ${newSkills.length} skills via attachment (${isInitial ? 'initial' : 'dynamic'}, ${sent.size} total sent)`,
   )
 
-  // Format within budget using existing logic
+  // Subagents can each receive their own initial listing. Keep those
+  // discoverability hints compact; the Skill tool still loads full content.
   const contextWindowTokens = getContextWindowForModel(
     toolUseContext.options.mainLoopModel,
     getSdkBetas(),
   )
-  const content = formatCommandsWithinBudget(newSkills, contextWindowTokens)
+  const content = formatCommandsWithinBudget(
+    newSkills,
+    contextWindowTokens,
+    toolUseContext.agentId
+      ? { maxCharBudget: SUBAGENT_SKILL_LISTING_CHAR_BUDGET }
+      : undefined,
+  )
 
   return [
     {
