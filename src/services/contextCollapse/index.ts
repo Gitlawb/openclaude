@@ -7,6 +7,9 @@ import type {
   StreamEvent,
 } from '../../types/message.js'
 import { logError } from '../../utils/log.js'
+import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+import { selectCollapseSpan, computeRisk } from './spanSelection.js'
+import { CTX_AGENT_INSTRUCTION } from './ctxAgentPrompt.js'
 import {
   buildCollapsePlaceholder,
   deriveCollapseId,
@@ -307,7 +310,7 @@ async function maybeSpawnCtxAgent(
   health.totalSpawns++
 
   try {
-    const spawnedSpans = await spawnCtxAgent(messages, toolUseContext)
+    const spawnedSpans = await spawnCtxAgent(messages, toolUseContext, effectiveWindow)
 
     if (!spawnedSpans || spawnedSpans.length === 0) {
       health.totalEmptySpawns++
@@ -336,24 +339,65 @@ async function maybeSpawnCtxAgent(
   return messages
 }
 
+const denyCtxAgentTools: CanUseToolFn = async () => ({
+  behavior: 'deny' as const,
+  message: 'Tool use is not allowed during context collapse',
+  decisionReason: {
+    type: 'other' as const,
+    reason: 'ctx-agent should only produce a text summary',
+  },
+})
+
 async function spawnCtxAgent(
   messages: Message[],
   _toolUseContext: ToolUseContext,
+  effectiveWindow: number,
 ): Promise<StagedSpan[]> {
-  // The ctx-agent prompt and span-selection heuristic are a design unknown.
-  // The contract requires implementation of the spawn path using runForkedAgent
-  // with querySource: 'marble_origami', but the exact prompt, context
-  // construction, and risk-scoring logic are not recoverable from the stubs.
-  //
-  // This is a mechanical implementation that sets up the spawn infrastructure.
-  // The actual prompt and span-selection need to be designed via brainstorming
-  // since the persistence schema (risk: number, summary: string) constrains
-  // the output shape but not the model instructions.
-  //
-  // TODO: Design the ctx-agent prompt and span-selection heuristic.
-  // See docs/superpowers/plans/2026-05-27-context-collapse.md Task 2d.
+  const span = selectCollapseSpan(messages, effectiveWindow)
+  if (!span) return []
 
-  return []
+  const startIdx = messages.findIndex(m => (m.uuid as string) === span.startUuid)
+  const endIdx = messages.findIndex(m => (m.uuid as string) === span.endUuid)
+  if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return []
+  const spanMessages = messages.slice(startIdx, endIdx + 1)
+
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { runForkedAgent, getLastCacheSafeParams } =
+    require('../../utils/forkedAgent.js') as typeof import('../../utils/forkedAgent.js')
+  const { createUserMessage, getLastAssistantMessage, getAssistantMessageText } =
+    require('../../utils/messages.js') as typeof import('../../utils/messages.js')
+  /* eslint-enable @typescript-eslint/no-require-imports */
+
+  const base = getLastCacheSafeParams()
+  if (!base) return []
+  const cacheSafeParams = { ...base, forkContextMessages: spanMessages }
+
+  const result = await runForkedAgent({
+    promptMessages: [createUserMessage({ content: CTX_AGENT_INSTRUCTION })],
+    cacheSafeParams,
+    canUseTool: denyCtxAgentTools,
+    querySource: 'marble_origami',
+    forkLabel: 'ctx-collapse',
+    maxTurns: 1,
+    skipCacheWrite: true,
+  })
+
+  const assistantMsg = getLastAssistantMessage(result.messages)
+  const summary = assistantMsg ? getAssistantMessageText(assistantMsg) : null
+  if (!assistantMsg || !summary || assistantMsg.isApiErrorMessage) return []
+  const trimmed = summary.trim()
+  if (!trimmed) return []
+
+  const risk = computeRisk(startIdx, messages.length, span.tokenEstimate, effectiveWindow)
+  return [
+    {
+      startUuid: span.startUuid,
+      endUuid: span.endUuid,
+      summary: trimmed,
+      risk,
+      stagedAt: Date.now(),
+    },
+  ]
 }
 
 // ── Persistence helpers ─────────────────────────────────────────────────────
