@@ -530,6 +530,12 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
+  const expectedContextWindows = profile.maxContextLength
+    ? JSON.stringify({
+        [getPrimaryModel(profile.model)]: profile.maxContextLength,
+      })
+    : undefined
+
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
     processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
@@ -544,6 +550,10 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
+    sameOptionalEnvValue(
+      processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
+      expectedContextWindows,
+    ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')

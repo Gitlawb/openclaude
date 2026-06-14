@@ -1109,6 +1109,34 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('http://192.168.33.108:11434/v1')
   })
 
+  test('re-applies active profile when context-window override drifts', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_openai',
+      baseUrl: 'http://localhost:4000/v1',
+      model: 'gpt-4o',
+      maxContextLength: 1_000_000,
+    })
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    // Simulate an upgraded or partially restored process where the profile
+    // marker and core OpenAI env survived, but this PR's new override did not.
+    delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied?.id).toBe('saved_openai')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:4000/v1')
+    expect(String(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS)).toBe(
+      JSON.stringify({ 'gpt-4o': 1_000_000 }),
+    )
+  })
+
   test('does not re-apply active profile when flags conflict with current provider', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
