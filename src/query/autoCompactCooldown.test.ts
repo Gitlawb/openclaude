@@ -1159,8 +1159,13 @@ test('memory-pressure cool-down holds even when the pressure request keeps re-ar
 
   // Stub the pressure monitor so the request fires on every turn,
   // mirroring the real monitor's "keep re-arming while elevated" loop.
+  // Capture the mock so we can assert it was actually invoked — without
+  // this assertion the test could pass even if the query loop never
+  // reached the consumeCompactionRequest site, defeating the point of
+  // the regression (CodeRabbit round 4 follow-up).
+  const consumeCompactionRequest = mock(() => true)
   mock.module('../utils/memoryPressure.js', () => ({
-    consumeCompactionRequest: mock(() => true),
+    consumeCompactionRequest,
   }))
 
   const messages = [userMessage('short'), userMessage('also short')]
@@ -1235,4 +1240,9 @@ test('memory-pressure cool-down holds even when the pressure request keeps re-ar
   // blocking_limit).
   expect(terminal.reason).toBe('max_turns')
   expect(autocompact).toHaveBeenCalledTimes(1)
+  // The query loop must have actually consulted the pressure request
+  // — otherwise the gate was never exercised and the test would pass
+  // even if the consumeCompactionRequest wiring broke. The pressure
+  // monitor is consulted once per turn (drain runs maxTurns=1).
+  expect(consumeCompactionRequest).toHaveBeenCalledTimes(1)
 })
