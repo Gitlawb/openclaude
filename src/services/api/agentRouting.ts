@@ -188,6 +188,20 @@ export function resolveAgentRunModelRouting({
 }
 
 /**
+ * Whether the org model allowlist must be enforced for a resolved agent run.
+ * Enforce whenever routing changed the model: a cross-provider override is set,
+ * or a model-only route changed the effective model from what getAgentModel()
+ * resolved. An unchanged inherited model was already vetted upstream.
+ */
+export function shouldEnforceModelAllowlist(
+  resolvedAgentModel: string,
+  effectiveModel: string,
+  hasProviderOverride: boolean,
+): boolean {
+  return hasProviderOverride || effectiveModel !== resolvedAgentModel
+}
+
+/**
  * Resolve provider routing for a teammate that will run as its own CLI process.
  *
  * Pane/window teammates do not enter runAgent() in the parent process. They

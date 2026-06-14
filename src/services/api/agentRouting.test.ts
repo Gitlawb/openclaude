@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   applyAgentProviderOverrideToEnv,
+  isProviderOverride,
   resolveAgentModelProvider,
   resolveAgentProvider,
   resolveAgentRunModelRouting,
@@ -167,12 +168,6 @@ describe('resolveAgentProvider', () => {
   })
 
 })
-
-import {
-  isProviderOverride,
-  resolveAgentProvider,
-  resolveAgentRunModelRouting,
-} from './agentRouting.js'
 
 const modelOnlySettings = {
   agentModels: {
@@ -546,5 +541,19 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(env.GEMINI_API_KEY).toBe('gemini-key')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')
+  })
+})
+
+import { shouldEnforceModelAllowlist } from './agentRouting.js'
+
+describe('shouldEnforceModelAllowlist', () => {
+  test('enforces when a provider override is present', () => {
+    expect(shouldEnforceModelAllowlist('m', 'm', true)).toBe(true)
+  })
+  test('enforces when a model-only route changed the effective model', () => {
+    expect(shouldEnforceModelAllowlist('parent', 'gpt-5-mini', false)).toBe(true)
+  })
+  test('does not enforce when the model is unchanged and no override', () => {
+    expect(shouldEnforceModelAllowlist('m', 'm', false)).toBe(false)
   })
 })
