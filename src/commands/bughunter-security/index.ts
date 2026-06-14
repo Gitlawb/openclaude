@@ -232,13 +232,13 @@ const bughunterSecurity = createMovedToPluginCommand({
     const scope =
       args?.trim() ||
       'the current project — focus on staged, unstaged, and recently committed files'
-    const rawPrompt = BUGHUNTER_SECURITY_PROMPT.replace('{{ARGS}}', scope)
-
-    const parsed = parseFrontmatter(rawPrompt)
+    const parsed = parseFrontmatter(BUGHUNTER_SECURITY_PROMPT)
     const allowedTools = parseSlashCommandToolsFromFrontmatter(
       parsed.frontmatter['allowed-tools'],
     )
 
+    // Execute shell commands first ({{ARGS}} is inert to shell patterns),
+    // then inject user-provided scope so shell snippets in args cannot execute
     const processedContent = await executeShellCommandsInPrompt(
       parsed.content,
       {
@@ -260,7 +260,8 @@ const bughunterSecurity = createMovedToPluginCommand({
       'bughunter-security',
     )
 
-    return [{ type: 'text', text: processedContent }]
+    const finalContent = processedContent.replace('{{ARGS}}', scope)
+    return [{ type: 'text', text: finalContent }]
   },
 })
 export default bughunterSecurity
