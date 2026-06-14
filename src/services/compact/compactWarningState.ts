@@ -78,7 +78,11 @@ export function getBreakerTripState(): BreakerTripState {
   return breakerTripStore.getState()
 }
 
-/** Clear the breaker-trip state. Call from /compact success or test teardown. */
+/** Clear the breaker-trip state. Called after successful compaction
+ *  (auto session-memory, auto traditional, manual /compact) and from
+ *  test teardown. Microcompact intentionally does not call this — it
+ *  prunes tool-result content but doesn't actually compact the
+ *  conversation, so the breaker should stay tripped. */
 export function clearBreakerTrippedState(): void {
   breakerTripStore.setState(() => ({ tripped: false }))
 }

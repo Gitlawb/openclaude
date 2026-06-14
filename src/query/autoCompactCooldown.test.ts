@@ -45,6 +45,15 @@ beforeEach(async () => {
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.DISABLE_COMPACT
+  // Cap env vars must be cleared in beforeEach, not just afterEach, so
+  // default-path tests start with a known baseline. Otherwise a host
+  // env value (or a value left by a prior test that overrode without
+  // resetting) can leak into the first test of the suite and weaken
+  // the isolation coverage for the cap logic this PR introduces.
+  // CodeRabbit round (P3): complete the beforeEach reset to match
+  // afterEach's restore.
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
   // Some tests below override this to a 60s window to drive the
   // cap-check cool-down gate; we reset to default so each test starts
   // with a clean cooldown policy and the 60s doesn't leak into
