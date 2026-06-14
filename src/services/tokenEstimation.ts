@@ -31,6 +31,8 @@ import { withTokenCountVCR } from './vcr.js'
 // API constraint: max_tokens must be greater than thinking.budget_tokens
 const TOKEN_COUNT_THINKING_BUDGET = 1024
 const TOKEN_COUNT_MAX_TOKENS = 2048
+// Keep this local to avoid importing analyzeContext.ts, which already depends on tokenEstimation.
+const ROUGH_TOOL_TOKEN_COUNT_OVERHEAD = 500
 
 /**
  * Check if messages contain thinking blocks
@@ -163,13 +165,26 @@ export async function countMessagesTokensWithAPI(
         model,
         source: 'count_tokens',
       })
+      const messagesClient = (
+        anthropic as {
+          beta?: {
+            messages?: {
+              countTokens?: Anthropic['beta']['messages']['countTokens']
+            }
+          }
+        }
+      ).beta?.messages
+
+      if (typeof messagesClient?.countTokens !== 'function') {
+        return roughTokenCountEstimationForCountTokensFallback(messages, tools)
+      }
 
       const filteredBetas =
         getAPIProvider() === 'vertex'
           ? betas.filter(b => VERTEX_COUNT_TOKENS_ALLOWED_BETAS.has(b))
           : betas
 
-      const response = await anthropic.beta.messages.countTokens({
+      const response = await messagesClient.countTokens({
         model: normalizeModelStringForAPI(model),
         messages:
           // When we pass tools and no messages, we need to pass a dummy message
@@ -198,6 +213,31 @@ export async function countMessagesTokensWithAPI(
       return null
     }
   })
+}
+
+function roughTokenCountEstimationForCountTokensFallback(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): number {
+  let totalTokens = 0
+
+  for (const message of messages) {
+    totalTokens += roughTokenCountEstimationForContent(
+      message.content as
+        | string
+        | Array<Anthropic.ContentBlock>
+        | Array<Anthropic.ContentBlockParam>
+        | undefined,
+    )
+  }
+
+  if (tools.length > 0) {
+    totalTokens +=
+      ROUGH_TOOL_TOKEN_COUNT_OVERHEAD +
+      roughTokenCountEstimation(jsonStringify(tools))
+  }
+
+  return totalTokens
 }
 
 export function roughTokenCountEstimation(
