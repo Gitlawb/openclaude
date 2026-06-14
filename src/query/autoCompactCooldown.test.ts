@@ -876,3 +876,87 @@ test('lastForcedFailureAtMs persists across non-forced skip turns', async () => 
   expect(second.terminal.reason).toBe('blocking_limit')
   expect(autocompact).toHaveBeenCalledTimes(2)
 })
+
+// ---------------------------------------------------------------------------
+// Issue #1373 follow-up (CodeRabbit): the hard message-count cap is a
+// runtime safety net, not a user setting. With DISABLE_AUTO_COMPACT=1 the
+// user has opted out of token-threshold autocompact, but the over-cap
+// forced path must still run — otherwise the OOM safety net is lost for
+// the very users who most need it. This test mirrors "forced message-count
+// compaction overrides an active cool-down" but with the user-opt-out
+// guard active, proving the contract end-to-end at the query-loop layer.
+// ---------------------------------------------------------------------------
+
+test('forced message-count compaction runs even with DISABLE_AUTO_COMPACT=1', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.DISABLE_AUTO_COMPACT = '1'
+  const messages = [
+    overAutoCompactThresholdMessage(),
+    overAutoCompactThresholdMessage(),
+  ]
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        // The query loop must have stamped `forceReason: 'message-count'`
+        // even though the user opted out of token-threshold autocompact.
+        expect(tracking?.forceReason).toBe('message-count')
+        // Mirror the real autoCompactIfNeeded: forced calls bypass
+        // `isAutoCompactEnabled()`, so the compact succeeds and the
+        // breaker is reset.
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+      },
+    }),
+  )
+
+  // Critical: forced compaction succeeded, the call model ran, and we
+  // did NOT bail out with `blocking_limit`. The OOM safety net is
+  // preserved even when the user opted out of token-threshold
+  // autocompact.
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
+})

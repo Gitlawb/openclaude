@@ -113,6 +113,14 @@ export const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
  * or wedged token accounting. Overridable per-deployment via
  * `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`. Set to `0` to disable (not
  * recommended in production).
+ *
+ * This is a runtime safety net, NOT a user setting. The forced message-count
+ * path bypasses `isAutoCompactEnabled()` — `DISABLE_COMPACT`,
+ * `DISABLE_AUTO_COMPACT`, and `autoCompactEnabled: false` in user config do
+ * NOT disable the hard cap. The only opt-out is the `=0` env value above.
+ * (For a per-user opt-in cap that DOES respect the user's auto-compact
+ * settings, see `OPENCLAUDE_MAX_ACTIVE_MESSAGES` /
+ * `maxMessagesCompactionThreshold`.)
  */
 export const MAX_ACTIVE_MESSAGES_HARD_CAP = 1000
 
@@ -309,10 +317,17 @@ export async function shouldAutoCompact(
   // pre-snip context, so tokenCountWithEstimation can't see the savings.
   // Subtract the rough-delta that snip already computed.
   snipTokensFreed = 0,
-  // When true, skip the token-threshold check but still run all guards
-  // (recursion, disabled, reactive-only, context-collapse). Used by
-  // forceReason to bypass only the token gate, not the safety guards.
-  skipTokenCheck = false,
+  // When set, the query loop has stamped a `forceReason` on tracking and
+  // routed the call through here. Bypasses the token-threshold check AND
+  // the `isAutoCompactEnabled()` user-opt-out guard (DISABLE_COMPACT,
+  // DISABLE_AUTO_COMPACT, autoCompactEnabled=false). The hard cap and
+  // memory pressure are runtime safety nets, not user settings — issue
+  // #1373 follow-up (CodeRabbit): letting the user-opt-out guard block
+  // the forced path defeats the OOM safety net for users who disabled
+  // token-threshold autocompact but didn't disable the hard cap. Other
+  // guards (recursion in forked agents, REACTIVE_COMPACT, CONTEXT_COLLAPSE)
+  // still apply — those are real safety constraints, not opt-outs.
+  forceReason?: 'memory-pressure' | 'message-count',
 ): Promise<boolean> {
   // Recursion guards. session_memory and compact are forked agents that
   // would deadlock.
@@ -330,7 +345,8 @@ export async function shouldAutoCompact(
     }
   }
 
-  if (!isAutoCompactEnabled()) {
+  // Forced calls bypass `isAutoCompactEnabled()` — see the param doc.
+  if (!forceReason && !isAutoCompactEnabled()) {
     return false
   }
 
@@ -370,8 +386,10 @@ export async function shouldAutoCompact(
     }
   }
 
-  if (skipTokenCheck) {
-    logForDebugging('autocompact: skipping token threshold check (forced)')
+  if (forceReason) {
+    logForDebugging(
+      `autocompact: skipping token threshold check (forced: ${forceReason})`,
+    )
     return true
   }
 
@@ -418,8 +436,11 @@ export async function autoCompactIfNeeded(
   const model = toolUseContext.options.mainLoopModel
   // Force compaction if a pressure/count signal set forceReason.
   // Consume the flag so it only forces one compaction cycle.
-  // Pass skipTokenCheck to shouldAutoCompact so safety guards
-  // (disabled, reactive-only, context-collapse, recursion) still apply.
+  // Forward the resolved `forceReason` to shouldAutoCompact so the
+  // user-opt-out guard (`isAutoCompactEnabled`) is bypassed for forced
+  // calls (issue #1373 follow-up). The other guards (recursion,
+  // REACTIVE_COMPACT, CONTEXT_COLLAPSE) still apply — they are safety
+  // constraints, not opt-outs.
   const forcedBy = tracking?.forceReason
   if (tracking?.forceReason) {
     tracking.forceReason = undefined
@@ -429,7 +450,7 @@ export async function autoCompactIfNeeded(
     model,
     querySource,
     snipTokensFreed,
-    !!forcedBy,
+    forcedBy,
   )
 
   if (!shouldCompact) {

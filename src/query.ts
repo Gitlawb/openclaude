@@ -575,6 +575,12 @@ async function* queryLoop(
       // bound when the token-based auto-compact circuit breaker is engaged
       // and we keep accruing new turns. Always active; opt out only by
       // setting OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0.
+      //
+      // The forced `message-count` path bypasses `isAutoCompactEnabled()`
+      // downstream in `shouldAutoCompact` — `DISABLE_COMPACT`,
+      // `DISABLE_AUTO_COMPACT`, and `autoCompactEnabled: false` do NOT
+      // disable this safety net (those are user token-threshold opt-outs,
+      // and the hard cap is a runtime OOM guard).
       const hardCap = getMaxActiveMessagesHardCap()
       const configSetting = normalizeMaxMessagesCompactionThreshold(
         getGlobalConfig().maxMessagesCompactionThreshold,
