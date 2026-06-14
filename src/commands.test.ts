@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
+import type { CommandBase, PromptCommand } from './types/command.js'
 import {
   builtInCommandNames,
   clearCommandMemoizationCaches,
@@ -38,6 +39,16 @@ afterEach(() => {
   clearBundledSkills()
 })
 
+// Narrows the Command union to the prompt variant so getPromptForCommand is
+// callable; bughunter commands are always registered as prompt commands.
+function findPromptCommand(cmds: ReturnType<typeof getCommands> extends Promise<infer T> ? T : never, name: string): CommandBase & PromptCommand {
+  const cmd = cmds.find(c => c.name === name)
+  if (!cmd || cmd.type !== 'prompt') {
+    throw new Error(`expected /${name} to be registered as a prompt command`)
+  }
+  return cmd
+}
+
 describe('builtInCommandNames', () => {
   test('includes the LSP command', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'oc-test-lsp-'))
@@ -52,6 +63,8 @@ describe('builtInCommandNames', () => {
   test('getCommands() includes bughunter for normal users (USER_TYPE unset)', async () => {
     // Regression: bughunter previously lived in INTERNAL_ONLY_COMMANDS and was
     // never available to non-ant users. Ensure it stays in the public COMMANDS list.
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
     delete process.env['USER_TYPE']
     delete process.env['IS_DEMO']
     // Clear ALL command caches — including the zero-arg COMMANDS() memoize that
@@ -67,12 +80,26 @@ describe('builtInCommandNames', () => {
       expect(INTERNAL_ONLY_COMMANDS.map(c => c.name)).not.toContain('bughunter')
     } finally {
       await rm(cwd, { recursive: true, force: true })
+      // Restore env vars to avoid test isolation issues
+      if (originalUserType !== undefined) {
+        process.env['USER_TYPE'] = originalUserType
+      } else {
+        delete process.env['USER_TYPE']
+      }
+      if (originalIsDemo !== undefined) {
+        process.env['IS_DEMO'] = originalIsDemo
+      } else {
+        delete process.env['IS_DEMO']
+      }
+      clearCommandMemoizationCaches()
     }
   })
 
   test('getCommands() includes bughunter-security and bughunter-perf for normal users', async () => {
     // Sibling subcommands of /bughunter — must stay in the public COMMANDS list,
     // not in INTERNAL_ONLY_COMMANDS, so normal users can invoke them.
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
     delete process.env['USER_TYPE']
     delete process.env['IS_DEMO']
     clearCommandMemoizationCaches()
@@ -87,6 +114,248 @@ describe('builtInCommandNames', () => {
       expect(internalNames).not.toContain('bughunter-perf')
     } finally {
       await rm(cwd, { recursive: true, force: true })
+      // Restore env vars to avoid test isolation issues
+      if (originalUserType !== undefined) {
+        process.env['USER_TYPE'] = originalUserType
+      } else {
+        delete process.env['USER_TYPE']
+      }
+      if (originalIsDemo !== undefined) {
+        process.env['IS_DEMO'] = originalIsDemo
+      } else {
+        delete process.env['IS_DEMO']
+      }
+      clearCommandMemoizationCaches()
+    }
+  })
+
+  test('bughunter prompt generation works in non-git directory', async () => {
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    clearCommandMemoizationCaches()
+    // Create a temp dir WITHOUT .git
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-nogit-'))
+    try {
+      const cmds = await getCommands(cwd)
+      const bughunterCmd = findPromptCommand(cmds, 'bughunter')
+      // Generate the prompt - should not throw and should contain fallback text
+      const mockContext = {
+        getAppState: () => ({
+          toolPermissionContext: {
+            alwaysAllowRules: {
+              command: [
+                'git status',
+                'git diff --name-only --diff-filter=AM',
+                'git diff --cached --name-only --diff-filter=AM',
+                'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+                'git ls-files',
+                'git diff HEAD -- .',
+                'git rev-parse --git-dir',
+                'git rev-parse --git-dir 2>&1',
+                'git diff HEAD -- . 2> /dev/null',
+                'head -400',
+                'head -50',
+                'echo "(no diff available or not a git repo)"',
+                'echo "(no git history or not a git repo)"',
+                'echo "(no unstaged changes or not a git repo)"',
+                'echo "(no staged changes or not a git repo)"',
+              ],
+            },
+            alwaysDenyRules: {},
+            alwaysAskRules: {},
+            mode: 'default' as const,
+            additionalWorkingDirectories: new Map(),
+            isBypassPermissionsModeAvailable: false,
+          },
+        }),
+        abortController: new AbortController(),
+        options: {
+          debug: false,
+          mainLoopModel: '',
+          tools: {} as any,
+          verbose: false,
+          thinkingConfig: {} as any,
+          mcpClients: [] as any,
+          mcpResources: {} as any,
+          isNonInteractiveSession: false,
+          agentDefinitions: {} as any,
+        },
+      } as any
+      const promptBlocks = await bughunterCmd.getPromptForCommand('', mockContext)
+      expect(promptBlocks).toBeDefined()
+      expect(promptBlocks.length).toBeGreaterThan(0)
+      const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
+      // Verify git fallback text appears (not blank) - now in template as static text
+      expect(promptText).toContain('If empty: not a git repository or git unavailable')
+      expect(promptText).toContain('If empty: no unstaged changes or not a git repo')
+      expect(promptText).toContain('If empty: no staged changes or not a git repo')
+      expect(promptText).toContain('If empty: no git history or not a git repo')
+      expect(promptText).toContain('If empty: no diff available or not a git repo')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+      if (originalUserType !== undefined) {
+        process.env['USER_TYPE'] = originalUserType
+      } else {
+        delete process.env['USER_TYPE']
+      }
+      if (originalIsDemo !== undefined) {
+        process.env['IS_DEMO'] = originalIsDemo
+      } else {
+        delete process.env['IS_DEMO']
+      }
+      clearCommandMemoizationCaches()
+    }
+  })
+
+  test('bughunter-security prompt generation works in non-git directory', async () => {
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    clearCommandMemoizationCaches()
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-sec-nogit-'))
+    try {
+      const cmds = await getCommands(cwd)
+      const cmd = findPromptCommand(cmds, 'bughunter-security')
+      const mockContext = {
+        getAppState: () => ({
+          toolPermissionContext: {
+            alwaysAllowRules: {
+              command: [
+                'git status',
+                'git diff --name-only --diff-filter=AM',
+                'git diff --cached --name-only --diff-filter=AM',
+                'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+                'git ls-files',
+                'git diff HEAD -- .',
+                'git rev-parse --git-dir',
+                'git rev-parse --git-dir 2>&1',
+                'git diff HEAD -- . 2> /dev/null',
+                'head -400',
+                'head -50',
+                'echo "(no diff available or not a git repo)"',
+                'echo "(no git history or not a git repo)"',
+                'echo "(no unstaged changes or not a git repo)"',
+                'echo "(no staged changes or not a git repo)"',
+              ],
+            },
+            alwaysDenyRules: {},
+            alwaysAskRules: {},
+            mode: 'default' as const,
+            additionalWorkingDirectories: new Map(),
+            isBypassPermissionsModeAvailable: false,
+          },
+        }),
+        abortController: new AbortController(),
+        options: {
+          debug: false,
+          mainLoopModel: '',
+          tools: {} as any,
+          verbose: false,
+          thinkingConfig: {} as any,
+          mcpClients: [] as any,
+          mcpResources: {} as any,
+          isNonInteractiveSession: false,
+          agentDefinitions: {} as any,
+        },
+      } as any
+      const promptBlocks = await cmd.getPromptForCommand('', mockContext)
+      const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
+      expect(promptText).toContain('Not a git repository or git unavailable')
+      expect(promptText).toContain('no unstaged changes or not a git repo')
+      expect(promptText).toContain('no staged changes or not a git repo')
+      expect(promptText).toContain('no git history or not a git repo')
+      expect(promptText).toContain('no diff available or not a git repo')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+      if (originalUserType !== undefined) {
+        process.env['USER_TYPE'] = originalUserType
+      } else {
+        delete process.env['USER_TYPE']
+      }
+      if (originalIsDemo !== undefined) {
+        process.env['IS_DEMO'] = originalIsDemo
+      } else {
+        delete process.env['IS_DEMO']
+      }
+      clearCommandMemoizationCaches()
+    }
+  })
+
+  test('bughunter-perf prompt generation works in non-git directory', async () => {
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    clearCommandMemoizationCaches()
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-perf-nogit-'))
+    try {
+      const cmds = await getCommands(cwd)
+      const cmd = findPromptCommand(cmds, 'bughunter-perf')
+      const mockContext = {
+        getAppState: () => ({
+          toolPermissionContext: {
+            alwaysAllowRules: {
+              command: [
+                'git status',
+                'git diff --name-only --diff-filter=AM',
+                'git diff --cached --name-only --diff-filter=AM',
+                'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+                'git ls-files',
+                'git diff HEAD -- .',
+                'git rev-parse --git-dir',
+                'git rev-parse --git-dir 2>&1',
+                'git diff HEAD -- . 2> /dev/null',
+                'head -400',
+                'head -50',
+                'echo "(no diff available or not a git repo)"',
+                'echo "(no git history or not a git repo)"',
+                'echo "(no unstaged changes or not a git repo)"',
+                'echo "(no staged changes or not a git repo)"',
+              ],
+            },
+            alwaysDenyRules: {},
+            alwaysAskRules: {},
+            mode: 'default' as const,
+            additionalWorkingDirectories: new Map(),
+            isBypassPermissionsModeAvailable: false,
+          },
+        }),
+        abortController: new AbortController(),
+        options: {
+          debug: false,
+          mainLoopModel: '',
+          tools: {} as any,
+          verbose: false,
+          thinkingConfig: {} as any,
+          mcpClients: [] as any,
+          mcpResources: {} as any,
+          isNonInteractiveSession: false,
+          agentDefinitions: {} as any,
+        },
+      } as any
+      const promptBlocks = await cmd.getPromptForCommand('', mockContext)
+      const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
+      expect(promptText).toContain('Not a git repository or git unavailable')
+      expect(promptText).toContain('no unstaged changes or not a git repo')
+      expect(promptText).toContain('no staged changes or not a git repo')
+      expect(promptText).toContain('no git history or not a git repo')
+      expect(promptText).toContain('no diff available or not a git repo')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+      if (originalUserType !== undefined) {
+        process.env['USER_TYPE'] = originalUserType
+      } else {
+        delete process.env['USER_TYPE']
+      }
+      if (originalIsDemo !== undefined) {
+        process.env['IS_DEMO'] = originalIsDemo
+      } else {
+        delete process.env['IS_DEMO']
+      }
+      clearCommandMemoizationCaches()
     }
   })
 

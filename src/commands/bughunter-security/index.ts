@@ -17,32 +17,37 @@ SCOPE: {{ARGS}}
 GIT CONTEXT (auto-collected, may be empty if not a git repo):
 
 \`\`\`
-!\`git status 2>/dev/null || echo "Not a git repository or git unavailable"\`
+!\`git status 2>/dev/null\`
 \`\`\`
+(If empty: not a git repository or git unavailable)
 
 UNSTAGED CHANGES (working tree):
 
 \`\`\`
-!\`git diff --name-only --diff-filter=AM 2>/dev/null || echo "(no unstaged changes or not a git repo)"\`
+!\`git diff --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
+(If empty: no unstaged changes or not a git repo)
 
 STAGED CHANGES (index):
 
 \`\`\`
-!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || echo "(no staged changes or not a git repo)"\`
+!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
+(If empty: no staged changes or not a git repo)
 
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50 || echo "(no git history or not a git repo)"\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50\`
 \`\`\`
+(If empty: no git history or not a git repo)
 
 DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
 \`\`\`
-!\`git diff HEAD -- . 2>/dev/null | head -400 || echo "(no diff available or not a git repo)"\`
+!\`git diff HEAD -- . 2>/dev/null | head -400\`
 \`\`\`
+(If empty: no diff available or not a git repo)
 
 ---
 

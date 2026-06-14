@@ -15,32 +15,37 @@ SCOPE: {{ARGS}}
 GIT CONTEXT (auto-collected, may be empty if not a git repo):
 
 \`\`\`
-!\`git status 2>/dev/null || echo "Not a git repository or git unavailable"\`
+!\`git status 2>/dev/null\`
 \`\`\`
+(If empty: not a git repository or git unavailable)
 
 UNSTAGED CHANGES (working tree):
 
 \`\`\`
-!\`git diff --name-only --diff-filter=AM 2>/dev/null || echo "(no unstaged changes or not a git repo)"\`
+!\`git diff --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
+(If empty: no unstaged changes or not a git repo)
 
 STAGED CHANGES (index):
 
 \`\`\`
-!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || echo "(no staged changes or not a git repo)"\`
+!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
+(If empty: no staged changes or not a git repo)
 
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50 || echo "(no git history or not a git repo)"\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50\`
 \`\`\`
+(If empty: no git history or not a git repo)
 
 DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
 \`\`\`
-!\`git diff HEAD -- . 2>/dev/null | head -400 || echo "(no diff available or not a git repo)"\`
+!\`git diff HEAD -- . 2>/dev/null | head -400\`
 \`\`\`
+(If empty: no diff available or not a git repo)
 
 ---
 
@@ -95,7 +100,6 @@ Examine the code systematically. Look for:
 - Off-by-one in pagination or cursor logic
 
 Score each finding against the rubric:
-- **+1** Low: edge case, cosmetic risk
 - **+5** Medium: functional failure under specific conditions
 - **+10** Critical: security, data loss, crash, or always-failing path
 
@@ -109,7 +113,7 @@ For each finding from Phase 2, answer all three:
    - **MEDIUM** (50–80%): plausible path, conditions documented
    - **LOW** (<50%): speculative, missing a step, or theoretical
 
-**Drop all LOW confidence findings.** Keep only HIGH and MEDIUM.
+**Drop all LOW confidence findings.** Keep only HIGH and MEDIUM. (LOW findings are not scored or reported.)
 
 ## Phase 4 — Fix Proposals
 
@@ -147,9 +151,8 @@ Do not report findings in any of these categories:
 **Step 1 — Summary line:**
 \`Total confirmed bugs: N | Critical: C | Medium: M | Total weighted score: X\`
 
-Where weighted score is the sum of (10 × C) + (5 × M) + (1 × L) for any kept
-LOW-confidence findings (these stay reported but flagged). Critical = score 10,
-Medium = score 5, Low = score 1.
+Where weighted score is the sum of (10 × C) + (5 × M). Critical = score 10,
+Medium = score 5. LOW confidence findings are dropped and not scored.
 
 **Step 2 — Findings table:**
 
