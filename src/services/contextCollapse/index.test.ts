@@ -90,6 +90,28 @@ describe('init and enable', () => {
     process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
   })
 
+  test('resetContextCollapse re-arms an enabled session', async () => {
+    await cleanState()
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    expect(idx.getContextCollapseState()!.armed).toBe(true)
+    // Compaction cleanup / rewind call reset; the session stays opted-in and
+    // must remain able to spawn again, not silently disable for the session.
+    idx.resetContextCollapse()
+    expect(idx.getContextCollapseState()!.armed).toBe(true)
+  })
+
+  test('resetContextCollapse leaves a disabled session disarmed', async () => {
+    await cleanState()
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.resetContextCollapse()
+    expect(idx.getContextCollapseState()).toBeNull()
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+  })
+
   test('getContextCollapseState returns valid shape when enabled', async () => {
     await cleanState()
     const idx = await import('./index.js')

@@ -26,7 +26,11 @@ type CtxInspectOutput = {
 export const CtxInspectTool = buildTool({
   name: CTX_INSPECT_TOOL_NAME,
   isEnabled() {
-    return true
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { isContextCollapseEnabled } =
+      require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    return isContextCollapseEnabled()
   },
   isConcurrencySafe() {
     return true

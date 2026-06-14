@@ -103,7 +103,18 @@ export function getContextCollapseState(): {
 export function initContextCollapse(): void {
   const v =
     typeof process !== 'undefined' ? process.env.CLAUDE_CONTEXT_COLLAPSE : undefined
-  const optedIn = v === '1' || v === 'true'
+  const envOptIn = v === '1' || v === 'true'
+  let configOptIn = false
+  try {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { getGlobalConfig } =
+      require('../../utils/config.js') as typeof import('../../utils/config.js')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    configOptIn = getGlobalConfig().contextCollapseEnabled === true
+  } catch {
+    configOptIn = false
+  }
+  const optedIn = envOptIn || configOptIn
   enabled = optedIn
   armed = optedIn
 }
@@ -146,10 +157,13 @@ export function resetContextCollapse(): void {
     lastError: null,
     emptySpawnWarningEmitted: false,
   }
-  armed = false
   lastSpawnTokens = 0
   spawnInProgress = false
   resetCollapseIdCounter()
+  // Re-arm enabled sessions: reset is called by main-thread compaction cleanup
+  // and conversation rewind, which clear stale spans but should not permanently
+  // disable a session the user opted into. Mirrors restoreContextCollapseState.
+  armed = enabled
   notifyListeners()
 }
 

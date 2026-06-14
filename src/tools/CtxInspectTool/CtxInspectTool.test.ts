@@ -12,8 +12,21 @@ describe('CtxInspectTool', () => {
     expect(CtxInspectTool.isReadOnly()).toBe(true)
   })
 
-  test('tool is enabled', () => {
+  test('tool is gated on context-collapse opt-in', () => {
+    const mod = require('../../services/contextCollapse/index.js')
+    const prev = process.env.CLAUDE_CONTEXT_COLLAPSE
+
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    mod.initContextCollapse()
+    expect(CtxInspectTool.isEnabled()).toBe(false)
+
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+    mod.initContextCollapse()
     expect(CtxInspectTool.isEnabled()).toBe(true)
+
+    if (prev === undefined) delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    else process.env.CLAUDE_CONTEXT_COLLAPSE = prev
+    mod.initContextCollapse()
   })
 
   test('tool is concurrency safe', () => {
