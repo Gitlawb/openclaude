@@ -822,7 +822,12 @@ test('lastForcedFailureAtMs persists across non-forced skip turns', async () => 
     uuid: () => 'test-uuid',
   } as never
 
-  // First call: cap gate fires (cool-down active), blocking_limit.
+  // First call: cap gate fires (cool-down active), blocking_limit. The
+  // onAutoCompactTrackingChange callback captures what the query loop
+  // actually published — this is the only way to observe whether the
+  // nextTracking branch preserved the field, since `autoCompactTracking`
+  // is treated as a process-local source of truth the loop may overwrite.
+  let capturedAfterFirst: AutoCompactTrackingState | undefined
   const first = await drain(
     query({
       messages,
@@ -835,13 +840,25 @@ test('lastForcedFailureAtMs persists across non-forced skip turns', async () => 
       maxTurns: 1,
       deps,
       autoCompactTracking: seedTracking,
+      onAutoCompactTrackingChange: tracking => {
+        if (tracking) {
+          capturedAfterFirst = tracking
+        }
+      },
     }),
   )
   expect(first.terminal.reason).toBe('blocking_limit')
+  // The query loop must have published the tracking with the original
+  // lastForcedFailureAtMs preserved. If the nextTracking branch had
+  // cleared the field on undefined, this would be undefined here.
+  expect(capturedAfterFirst?.lastForcedFailureAtMs).toBe(forcedFailureAtMs)
+  expect(capturedAfterFirst?.nextRetryAtMs).toBe(forcedFailureAtMs + 60_000)
 
-  // Second call with the same tracking: the gate must STILL fire.
-  // If the field had been cleared on the first call, the cap would
-  // re-arm and try to force — that's the original retry-storm bug.
+  // Second call: feed in the captured tracking (NOT the original
+  // seedTracking). This is the actual loop persistence path the test
+  // exists to cover. If the field had been cleared on the first call,
+  // the cap would re-arm and try to force — that's the original
+  // retry-storm bug.
   const second = await drain(
     query({
       messages,
@@ -853,7 +870,7 @@ test('lastForcedFailureAtMs persists across non-forced skip turns', async () => 
       querySource: 'repl_main_thread',
       maxTurns: 1,
       deps,
-      autoCompactTracking: seedTracking,
+      autoCompactTracking: capturedAfterFirst,
     }),
   )
   expect(second.terminal.reason).toBe('blocking_limit')
