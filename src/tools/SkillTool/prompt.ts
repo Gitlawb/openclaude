@@ -30,7 +30,7 @@ export const SUBAGENT_SKILL_LISTING_CHAR_BUDGET = 4_000
 // since the cap is generous enough to preserve the core use case.
 export const MAX_LISTING_DESC_CHARS = 250
 
-type SkillListingBudgetOptions = {
+export type SkillListingBudgetOptions = {
   maxCharBudget?: number
 }
 
