@@ -168,6 +168,62 @@ describe('resolveAgentProvider', () => {
 
 })
 
+import {
+  isProviderOverride,
+  resolveAgentProvider,
+  resolveAgentRunModelRouting,
+} from './agentRouting.js'
+
+const modelOnlySettings = {
+  agentModels: {
+    mini: { model: 'gpt-5-mini' },
+    bare: {},
+    'half-entry': { base_url: 'https://api.example.com/v1' }, // missing api_key
+  },
+  agentRouting: {
+    verification: 'mini',
+    Explore: 'bare',
+    Plan: 'half-entry',
+  },
+} as unknown as SettingsJson
+
+describe('model-only routes', () => {
+  test('resolveAgentProvider returns a model-only route (no credentials)', () => {
+    const route = resolveAgentProvider(undefined, 'verification', modelOnlySettings)
+    expect(route).toEqual({ model: 'gpt-5-mini' })
+    expect(isProviderOverride(route!)).toBe(false)
+  })
+
+  test('bare entry defaults the model to the route key', () => {
+    const route = resolveAgentProvider(undefined, 'Explore', modelOnlySettings)
+    expect(route).toEqual({ model: 'bare' })
+  })
+
+  test('partial entry (only base_url) is skipped', () => {
+    const route = resolveAgentProvider(undefined, 'Plan', modelOnlySettings)
+    expect(route).toBeNull()
+  })
+
+  test('resolveAgentRunModelRouting: model-only sets mainLoopModel, no providerOverride', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      subagentType: 'verification',
+      settings: modelOnlySettings,
+    })
+    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini' })
+    expect('providerOverride' in result).toBe(false)
+  })
+
+  test('resolveAgentRunModelRouting: no route falls back to resolvedAgentModel', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      subagentType: 'unconfigured',
+      settings: modelOnlySettings,
+    })
+    expect(result).toEqual({ mainLoopModel: 'parent-model' })
+  })
+})
+
 describe('resolveAgentModelProvider', () => {
   test('returns null when settings is null', () => {
     expect(resolveAgentModelProvider('deepseek-chat', null)).toBeNull()
