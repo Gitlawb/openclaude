@@ -130,6 +130,31 @@ test('validateToolResultPairing reports duplicate tool results in the paired use
   })
 })
 
+test('validateToolResultPairing reports server tool uses without in-message results', () => {
+  const assistant = createAssistantMessage({
+    content: [
+      {
+        type: 'server_tool_use',
+        id: 'srvu_missing',
+        name: 'web_search',
+        input: { query: 'openclaude' },
+      } as unknown as BetaContentBlock,
+    ],
+  })
+
+  const result = validateToolResultPairing([assistant], {
+    phase: 'api_before_repair',
+  })
+
+  expect(result.valid).toBe(false)
+  expect(result.issues).toContainEqual({
+    kind: 'server_tool_use_without_result',
+    toolUseId: 'srvu_missing',
+    assistantIndex: 0,
+    assistantMessageId: assistant.message.id,
+  })
+})
+
 test('ensureToolResultPairing keeps repairing legacy mismatches', () => {
   const assistant = assistantWithToolUses('toolu_missing')
 

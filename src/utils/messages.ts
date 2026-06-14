@@ -5212,6 +5212,7 @@ export type ToolResultPairingIssueKind =
   | 'orphaned_tool_result'
   | 'duplicate_tool_use'
   | 'duplicate_tool_result'
+  | 'server_tool_use_without_result'
 
 export type ToolResultPairingIssue = {
   kind: ToolResultPairingIssueKind
@@ -5257,6 +5258,32 @@ function getToolResultId(block: unknown): string | null {
   return null
 }
 
+function getServerToolUseId(block: unknown): string | null {
+  if (
+    typeof block === 'object' &&
+    block !== null &&
+    'type' in block &&
+    (block.type === 'server_tool_use' || block.type === 'mcp_tool_use') &&
+    'id' in block &&
+    typeof block.id === 'string'
+  ) {
+    return block.id
+  }
+  return null
+}
+
+function getToolUseIdReference(block: unknown): string | null {
+  if (
+    typeof block === 'object' &&
+    block !== null &&
+    'tool_use_id' in block &&
+    typeof block.tool_use_id === 'string'
+  ) {
+    return block.tool_use_id
+  }
+  return null
+}
+
 function getToolResultIdsFromUserMessage(message: UserMessage): string[] {
   if (!Array.isArray(message.message.content)) {
     return []
@@ -5294,30 +5321,49 @@ export function validateToolResultPairing(
     }
 
     const uniqueToolUseIds = new Set<string>()
+    const serverResultIds = new Set<string>()
+    for (const block of msg.message.content) {
+      const toolUseIdReference = getToolUseIdReference(block)
+      if (toolUseIdReference !== null) {
+        serverResultIds.add(toolUseIdReference)
+      }
+    }
+
     for (const block of msg.message.content) {
       const toolUseId = getToolUseId(block)
-      if (toolUseId === null) {
-        continue
+      if (toolUseId !== null) {
+        const firstSeen = seenToolUses.get(toolUseId)
+        if (firstSeen) {
+          issues.push({
+            kind: 'duplicate_tool_use',
+            toolUseId,
+            assistantIndex: i,
+            assistantMessageId: msg.message.id,
+            duplicateOfAssistantIndex: firstSeen.assistantIndex,
+            duplicateOfAssistantMessageId: firstSeen.assistantMessageId,
+          })
+        } else {
+          seenToolUses.set(toolUseId, {
+            assistantIndex: i,
+            assistantMessageId: msg.message.id,
+          })
+        }
+
+        uniqueToolUseIds.add(toolUseId)
       }
 
-      const firstSeen = seenToolUses.get(toolUseId)
-      if (firstSeen) {
+      const serverToolUseId = getServerToolUseId(block)
+      if (
+        serverToolUseId !== null &&
+        !serverResultIds.has(serverToolUseId)
+      ) {
         issues.push({
-          kind: 'duplicate_tool_use',
-          toolUseId,
-          assistantIndex: i,
-          assistantMessageId: msg.message.id,
-          duplicateOfAssistantIndex: firstSeen.assistantIndex,
-          duplicateOfAssistantMessageId: firstSeen.assistantMessageId,
-        })
-      } else {
-        seenToolUses.set(toolUseId, {
+          kind: 'server_tool_use_without_result',
+          toolUseId: serverToolUseId,
           assistantIndex: i,
           assistantMessageId: msg.message.id,
         })
       }
-
-      uniqueToolUseIds.add(toolUseId)
     }
 
     const nextMsg = messages[i + 1]
@@ -5414,7 +5460,6 @@ export function ensureToolResultPairing(
   messages: (UserMessage | AssistantMessage)[],
   context: ToolResultPairingValidationContext = {},
 ): (UserMessage | AssistantMessage)[] {
-  const validation = validateToolResultPairing(messages, context)
   const result: (UserMessage | AssistantMessage)[] = []
   let repaired = false
 
@@ -5682,6 +5727,7 @@ export function ensureToolResultPairing(
   }
 
   if (repaired) {
+    const validation = validateToolResultPairing(messages, context)
     // Capture diagnostic info to help identify root cause
     const messageTypes = messages.map((m, idx) => {
       if (m.type === 'assistant') {
