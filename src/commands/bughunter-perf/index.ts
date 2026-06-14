@@ -35,8 +35,9 @@ STAGED CHANGES (index):
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50 || echo "(If empty: no git history or not a git repo)"\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50\`
 \`\`\`
+(If empty: no git history or not a git repo)
 
 DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
