@@ -1635,6 +1635,9 @@ export function REPL({
     // External loading (remote/backgrounding) is reset separately by those hooks.
     setIsExternalLoading(false);
     setUserInputOnProcessing(undefined);
+    // Clear any in-flight compaction progress so an aborted/errored compaction
+    // does not leave the progress bar rendered in the idle UI.
+    setCompactProgressRatio(null);
     responseLengthRef.current = 0;
     setStreamingText(null);
     setStreamingToolUses([]);

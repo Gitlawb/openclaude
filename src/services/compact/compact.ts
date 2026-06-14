@@ -1190,10 +1190,11 @@ async function streamCompactSummary({
         // The streaming fallback path (below) can safely set maxOutputTokensOverride
         // since it doesn't share cache with the main thread.
         // Track real character-level progress from text deltas via onStreamEvent.
-        // Output is ~25% of input tokens, converted to chars (×4).
+        // Output is ~25% of input tokens, converted to chars (×4), so
+        // (preCompactTokenCount * 0.25) * 4 = preCompactTokenCount chars.
         // Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
         const estimatedOutputChars = Math.min(
-          Math.max(preCompactTokenCount * 0.25, COMPACT_MAX_OUTPUT_TOKENS),
+          Math.max(preCompactTokenCount, COMPACT_MAX_OUTPUT_TOKENS),
           COMPACT_MAX_OUTPUT_TOKENS * 4,
         )
         let totalCharsStreamed = 0
@@ -1299,11 +1300,12 @@ async function streamCompactSummary({
     const maxAttempts = retryEnabled ? MAX_COMPACT_STREAMING_RETRIES : 1
 
     // Estimate output target: summary is ~25% of input tokens, converted to
-    // chars (×4). Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
+    // chars (×4), so (preCompactTokenCount * 0.25) * 4 = preCompactTokenCount chars.
+    // Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
     // Floor at COMPACT_MAX_OUTPUT_TOKENS to handle cases where
     // tokenCountWithEstimation returns a fallback estimate (e.g. after /resume).
     const estimatedOutputChars = Math.min(
-      Math.max(preCompactTokenCount * 0.25, COMPACT_MAX_OUTPUT_TOKENS),
+      Math.max(preCompactTokenCount, COMPACT_MAX_OUTPUT_TOKENS),
       COMPACT_MAX_OUTPUT_TOKENS * 4,
     )
     let totalCharsStreamed = 0
