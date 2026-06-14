@@ -946,8 +946,11 @@ export class QueryEngine {
           )
           if (snipResult !== undefined) {
             if (snipResult.executed) {
-              this.mutableMessages.length = 0
-              this.mutableMessages.push(...snipResult.messages)
+              this.mutableMessages.splice(
+                0,
+                this.mutableMessages.length,
+                ...snipResult.messages,
+              )
               // Persist the snip boundary so a resumed session replays the same
               // removal. recordTranscript is append-only by UUID, so the
               // pre-snip messages already on disk remain; appending this
