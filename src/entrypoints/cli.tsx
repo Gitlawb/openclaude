@@ -1,13 +1,4 @@
 import { feature } from 'bun:bundle';
-import {
-  applyProfileEnvToProcessEnv,
-  buildStartupEnvFromProfile,
-  isDefaultStartupProviderEnv,
-} from '../utils/providerProfile.js'
-import {
-  getProviderValidationError,
-  validateProviderEnvForStartupOrExit,
-} from '../utils/providerValidation.js'
 
 // OpenClaude: polyfill globalThis.File for Node < 20.
 // undici v7 references `File` at module evaluation time (webidl type
@@ -113,10 +104,18 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
+  const {
+    applyProfileEnvToProcessEnv,
+    buildStartupEnvFromProfile,
+    isDefaultStartupProviderEnv,
+  } = await import('../utils/providerProfile.js')
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
   })
   if (startupEnv !== process.env) {
+    const { getProviderValidationError } = await import(
+      '../utils/providerValidation.js'
+    )
     const startupProfileError = await getProviderValidationError(startupEnv)
     if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
       console.error(
@@ -169,6 +168,9 @@ async function main(): Promise<void> {
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
+  const { validateProviderEnvForStartupOrExit } = await import(
+    '../utils/providerValidation.js'
+  )
   await validateProviderEnvForStartupOrExit()
 
   // #808: --model alone (no --provider) — route to the env var matching the

@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import {
+  cp as cpPromise,
   mkdir as mkdirPromise,
   open,
   readdir as readdirPromise,
@@ -45,6 +46,12 @@ export type FsOperations = {
   readFile(path: string, options: { encoding: BufferEncoding }): Promise<string>
   /** Renames/moves file asynchronously */
   rename(oldPath: string, newPath: string): Promise<void>
+  /** Copies a file or directory tree asynchronously */
+  cp(
+    source: string,
+    destination: string,
+    options?: { recursive?: boolean },
+  ): Promise<void>
   /** Gets file stats */
   statSync(path: string): fs.Stats
   /** Gets file stats without following symlinks */
@@ -430,6 +437,10 @@ export const NodeFsOperations: FsOperations = {
 
   async rename(oldPath, newPath) {
     return renamePromise(oldPath, newPath)
+  },
+
+  async cp(source, destination, options) {
+    return cpPromise(source, destination, options)
   },
 
   statSync(fsPath) {

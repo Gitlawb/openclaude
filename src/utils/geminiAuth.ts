@@ -59,6 +59,30 @@ export function getGeminiProjectIdHint(
   )
 }
 
+export function getGeminiVertexProjectId(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return (
+    sanitizeCredential(env.GEMINI_VERTEX_PROJECT) ??
+    getGeminiProjectIdHint(env)
+  )
+}
+
+const DEFAULT_GEMINI_VERTEX_LOCATION = 'global'
+export const DEFAULT_GEMINI_VERTEX_MODEL = 'gemini-2.5-flash'
+
+export function getGeminiVertexLocation(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return sanitizeCredential(env.GEMINI_VERTEX_LOCATION) ?? DEFAULT_GEMINI_VERTEX_LOCATION
+}
+
+export function getGeminiVertexModel(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return sanitizeCredential(env.GEMINI_VERTEX_MODEL) ?? DEFAULT_GEMINI_VERTEX_MODEL
+}
+
 export function getGeminiAuthMode(
   env: NodeJS.ProcessEnv = process.env,
 ): GeminiAuthMode | undefined {

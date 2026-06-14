@@ -7,6 +7,9 @@ import {
 } from '../test/sharedMutationLock.js'
 import {
   getGeminiProjectIdHint,
+  getGeminiVertexLocation,
+  getGeminiVertexModel,
+  getGeminiVertexProjectId,
   mayHaveGeminiAdcCredentials,
   resolveGeminiCredential,
 } from './geminiAuth.ts'
@@ -35,6 +38,14 @@ function restoreEnv(key: string, value: string | undefined): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/geminiAuth.test.ts')
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GOOGLE_API_KEY
+  delete process.env.GEMINI_ACCESS_TOKEN
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS
+  delete process.env.GOOGLE_CLOUD_PROJECT
+  delete process.env.GCLOUD_PROJECT
+  delete process.env.GOOGLE_PROJECT_ID
 })
 
 afterEach(() => {
@@ -121,7 +132,13 @@ describe('resolveGeminiCredential', () => {
       delete process.env.GEMINI_ACCESS_TOKEN
       delete process.env.GOOGLE_APPLICATION_CREDENTIALS
 
-      await expect(resolveGeminiCredential(process.env)).resolves.toEqual({
+      await expect(
+        resolveGeminiCredential(process.env, {
+          createGoogleAuth: async () => {
+            throw new Error('unexpected ADC lookup')
+          },
+        }),
+      ).resolves.toEqual({
         kind: 'none',
       })
     } finally {
@@ -188,6 +205,58 @@ describe('resolveGeminiCredential', () => {
 })
 
 describe('Gemini auth helpers', () => {
+  test('defaults Vertex to global endpoint and current flash model', () => {
+    expect(getGeminiVertexLocation({})).toBe('global')
+    expect(getGeminiVertexModel({})).toBe('gemini-2.5-flash')
+  })
+
+  test('explicit GEMINI_VERTEX_* overrides win over defaults and Google fallbacks', () => {
+    // Location and model: explicit override beats the default.
+    expect(
+      getGeminiVertexLocation({ GEMINI_VERTEX_LOCATION: 'europe-west4' }),
+    ).toBe('europe-west4')
+    expect(
+      getGeminiVertexModel({ GEMINI_VERTEX_MODEL: 'gemini-2.5-pro' }),
+    ).toBe('gemini-2.5-pro')
+
+    // Project precedence: GEMINI_VERTEX_PROJECT > GOOGLE_CLOUD_PROJECT >
+    // GCLOUD_PROJECT > GOOGLE_PROJECT_ID.
+    expect(
+      getGeminiVertexProjectId({
+        GEMINI_VERTEX_PROJECT: 'vertex-project',
+        GOOGLE_CLOUD_PROJECT: 'gcp-project',
+        GCLOUD_PROJECT: 'gcloud-project',
+        GOOGLE_PROJECT_ID: 'legacy-project',
+      }),
+    ).toBe('vertex-project')
+    expect(
+      getGeminiVertexProjectId({
+        GOOGLE_CLOUD_PROJECT: 'gcp-project',
+        GCLOUD_PROJECT: 'gcloud-project',
+      }),
+    ).toBe('gcp-project')
+    expect(getGeminiVertexProjectId({ GCLOUD_PROJECT: 'gcloud-project' })).toBe(
+      'gcloud-project',
+    )
+
+    // Leading/trailing whitespace is trimmed from real values.
+    expect(
+      getGeminiVertexLocation({ GEMINI_VERTEX_LOCATION: '  europe-west4  ' }),
+    ).toBe('europe-west4')
+    expect(
+      getGeminiVertexProjectId({ GEMINI_VERTEX_PROJECT: '  vertex-project  ' }),
+    ).toBe('vertex-project')
+
+    // Blank / whitespace-only values are treated as unset, not as overrides.
+    expect(getGeminiVertexLocation({ GEMINI_VERTEX_LOCATION: '  ' })).toBe('global')
+    expect(
+      getGeminiVertexProjectId({
+        GEMINI_VERTEX_PROJECT: '',
+        GOOGLE_PROJECT_ID: 'legacy-project',
+      }),
+    ).toBe('legacy-project')
+  })
+
   test('detects explicit project id hints', () => {
     process.env.GOOGLE_PROJECT_ID = 'project-a'
     expect(getGeminiProjectIdHint(process.env)).toBe('project-a')

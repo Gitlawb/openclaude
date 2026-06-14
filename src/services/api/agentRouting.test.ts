@@ -1,11 +1,13 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import {
   applyAgentProviderOverrideToEnv,
+  isProviderOverride,
   resolveAgentModelProvider,
   resolveAgentProvider,
   resolveAgentRunModelRouting,
   resolveOutOfProcessTeammateProvider,
   resolveOutOfProcessTeammateProviderFromCliArgs,
+  shouldEnforceModelAllowlist,
 } from './agentRouting.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
@@ -23,6 +25,14 @@ const baseSettings = {
 } as unknown as SettingsJson
 
 describe('resolveAgentProvider', () => {
+  let errorSpy: ReturnType<typeof spyOn>
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
   // ── Priority chain ──────────────────────────────────────────
 
   test('name takes priority over subagentType', () => {
@@ -164,8 +174,72 @@ describe('resolveAgentProvider', () => {
     } as unknown as SettingsJson
 
     expect(resolveAgentProvider(undefined, undefined, settings)).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agentRouting] Warning: agentModels entry "zai" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
+    )
   })
 
+})
+
+const modelOnlySettings = {
+  agentModels: {
+    mini: { model: 'gpt-5-mini' },
+    bare: {},
+    'half-entry': { base_url: 'https://api.example.com/v1' }, // missing api_key
+  },
+  agentRouting: {
+    verification: 'mini',
+    Explore: 'bare',
+    Plan: 'half-entry',
+  },
+} as unknown as SettingsJson
+
+describe('model-only routes', () => {
+  let errorSpy: ReturnType<typeof spyOn>
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
+  test('resolveAgentProvider returns a model-only route (no credentials)', () => {
+    const route = resolveAgentProvider(undefined, 'verification', modelOnlySettings)
+    expect(route).toEqual({ model: 'gpt-5-mini' })
+    expect(isProviderOverride(route!)).toBe(false)
+  })
+
+  test('bare entry defaults the model to the route key', () => {
+    const route = resolveAgentProvider(undefined, 'Explore', modelOnlySettings)
+    expect(route).toEqual({ model: 'bare' })
+  })
+
+  test('partial entry (only base_url) is skipped', () => {
+    const route = resolveAgentProvider(undefined, 'Plan', modelOnlySettings)
+    expect(route).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agentRouting] Warning: agentModels entry "half-entry" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
+    )
+  })
+
+  test('resolveAgentRunModelRouting: model-only sets mainLoopModel, no providerOverride', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      subagentType: 'verification',
+      settings: modelOnlySettings,
+    })
+    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini' })
+    expect('providerOverride' in result).toBe(false)
+  })
+
+  test('resolveAgentRunModelRouting: no route falls back to resolvedAgentModel', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      subagentType: 'unconfigured',
+      settings: modelOnlySettings,
+    })
+    expect(result).toEqual({ mainLoopModel: 'parent-model' })
+  })
 })
 
 describe('resolveAgentModelProvider', () => {
@@ -217,6 +291,14 @@ describe('resolveAgentModelProvider', () => {
 })
 
 describe('resolveAgentRunModelRouting', () => {
+  let errorSpy: ReturnType<typeof spyOn>
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
   test('explicit configured model wins over agentRouting', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-model',
@@ -306,6 +388,9 @@ describe('resolveAgentRunModelRouting', () => {
     })
 
     expect(result).toEqual({ mainLoopModel: 'parent-runtime-model' })
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agentRouting] Warning: agentModels entry "zai" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
+    )
   })
 })
 
@@ -490,5 +575,17 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(env.GEMINI_API_KEY).toBe('gemini-key')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')
+  })
+})
+
+describe('shouldEnforceModelAllowlist', () => {
+  test('enforces when a provider override is present', () => {
+    expect(shouldEnforceModelAllowlist('m', 'm', true)).toBe(true)
+  })
+  test('enforces when a model-only route changed the effective model', () => {
+    expect(shouldEnforceModelAllowlist('parent', 'gpt-5-mini', false)).toBe(true)
+  })
+  test('does not enforce when the model is unchanged and no override', () => {
+    expect(shouldEnforceModelAllowlist('m', 'm', false)).toBe(false)
   })
 })

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/entrypoints/cli.tsx",
+    "src/entrypoints/mcp.ts",
+    "src/entrypoints/init.ts",
+    "src/entrypoints/sdk/index.ts",
+    "src/main.tsx",
+    "scripts/**/*.ts",
+    "bin/openclaude",
+    "src/**/*.test.{ts,tsx}",
+    "src/**/__tests__/**/*.{ts,tsx}",
+    "tests/**/*.test.ts"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts"],
+  "ignore": [
+    "src/integrations/generated/**",
+    "src/services/internalLogging.ts",
+    "src/types/generated/**",
+    "src/test/fixtures/**",
+    "src/tools/REPLTool/**",
+    "src/tools/TungstenTool/**",
+    "src/tools/SuggestBackgroundPRTool/**",
+    "src/tools/VerifyPlanExecutionTool/**",
+    "src/commands/agents-platform/**",
+    "src/assistant/AssistantSessionChooser.tsx",
+    "src/commands/assistant/AssistantSessionChooser.ts",
+    "src/utils/protectedNamespace.ts",
+    "src/utils/providerAutoDetect.ts"
+  ],
+  "ignoreDependencies": [
+    "@types/bun",
+    "@anthropic-ai/foundry-sdk",
+    "@anthropic-ai/vertex-sdk"
+  ]
+}

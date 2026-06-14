@@ -5282,6 +5282,43 @@ test('drops empty assistant message when only thinking block was present and str
   expect(String(messages[0].content)).toContain('Interrupting query')
 })
 
+test('drops empty assistant message when only redacted_thinking block was present and stripped', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { role: 'user', content: 'Initial' },
+      { role: 'assistant', content: [{ type: 'redacted_thinking', data: '[thinking hidden]' }] },
+      { role: 'user', content: 'Interrupting query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // The assistant msg is dropped because redacted_thinking is stripped.
+  // The two user messages are coalesced.
+  expect(messages.length).toBe(1)
+  expect(messages[0].role).toBe('user')
+  expect(String(messages[0].content)).toContain('Initial')
+  expect(String(messages[0].content)).toContain('Interrupting query')
+})
+
 test('injects semantic assistant message when tool result is followed by user message', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -6586,4 +6623,41 @@ test('DeepSeek: redacted_thinking block with non-empty data propagates data into
   expect(assistantWithToolCall?.reasoning_content).toBe(
     'encrypted_chain_of_thought_payload_v1',
   )
+})
+
+test('renders tool_reference blocks as text on the chat/completions path', async () => {
+  const { __test } = await import('./openaiShim.ts')
+
+  const messages = __test.convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_ts1', name: 'ToolSearch', input: { query: 'memory' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_ts1',
+            content: [
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_search' },
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_store' },
+            ],
+          },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const toolMsg = messages.find(m => m.role === 'tool')
+  expect(toolMsg).toBeDefined()
+  // The rendering contract is plain text: text-only parts collapse to a string.
+  expect(typeof toolMsg!.content).toBe('string')
+  const content = toolMsg!.content as string
+  expect(content).toContain('mcp__example__memory_search')
+  expect(content).toContain('mcp__example__memory_store')
 })

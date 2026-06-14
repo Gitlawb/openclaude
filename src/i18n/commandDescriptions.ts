@@ -12,6 +12,7 @@ const openClaudeCommandDescriptionKeys: Record<string, LocalizationKey> = {
   compact: 'commands.compact.description',
   'commit-message': 'commands.commit-message.description',
   config: 'commands.config.description',
+  continue: 'commands.continue.description',
   copy: 'commands.copy.description',
   context: 'commands.context.description',
   cost: 'commands.cost.description',
