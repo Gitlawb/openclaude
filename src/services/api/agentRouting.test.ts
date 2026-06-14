@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import {
   applyAgentProviderOverrideToEnv,
   isProviderOverride,
@@ -24,6 +24,14 @@ const baseSettings = {
 } as unknown as SettingsJson
 
 describe('resolveAgentProvider', () => {
+  let errorSpy: ReturnType<typeof spyOn>
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
   // ── Priority chain ──────────────────────────────────────────
 
   test('name takes priority over subagentType', () => {
@@ -165,6 +173,9 @@ describe('resolveAgentProvider', () => {
     } as unknown as SettingsJson
 
     expect(resolveAgentProvider(undefined, undefined, settings)).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agentRouting] Warning: agentModels entry "zai" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
+    )
   })
 
 })
@@ -183,6 +194,14 @@ const modelOnlySettings = {
 } as unknown as SettingsJson
 
 describe('model-only routes', () => {
+  let errorSpy: ReturnType<typeof spyOn>
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
   test('resolveAgentProvider returns a model-only route (no credentials)', () => {
     const route = resolveAgentProvider(undefined, 'verification', modelOnlySettings)
     expect(route).toEqual({ model: 'gpt-5-mini' })
@@ -197,6 +216,9 @@ describe('model-only routes', () => {
   test('partial entry (only base_url) is skipped', () => {
     const route = resolveAgentProvider(undefined, 'Plan', modelOnlySettings)
     expect(route).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agentRouting] Warning: agentModels entry "half-entry" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
+    )
   })
 
   test('resolveAgentRunModelRouting: model-only sets mainLoopModel, no providerOverride', () => {
@@ -268,6 +290,14 @@ describe('resolveAgentModelProvider', () => {
 })
 
 describe('resolveAgentRunModelRouting', () => {
+  let errorSpy: ReturnType<typeof spyOn>
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorSpy.mockRestore()
+  })
+
   test('explicit configured model wins over agentRouting', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-model',
@@ -357,6 +387,9 @@ describe('resolveAgentRunModelRouting', () => {
     })
 
     expect(result).toEqual({ mainLoopModel: 'parent-runtime-model' })
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[agentRouting] Warning: agentModels entry "zai" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
+    )
   })
 })
 
