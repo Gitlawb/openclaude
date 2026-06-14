@@ -818,6 +818,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
       })
 
     const messages = overThresholdMessages()
+    const before = Date.now()
     const result = await autoCompactIfNeeded(
       messages,
       toolUseContext(),
@@ -832,6 +833,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
         forceReason: 'message-count',
       },
     )
+    const after = Date.now()
 
     // Forced attempt must run even though the breaker was about to re-engage
     // from the half-open probe; the failure then re-trips cleanly.
@@ -842,6 +844,11 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     )
     expect(result.circuitBreakerTripped).toBe(true)
     expect(result.nextRetryAtMs).toBeGreaterThan(Date.now())
+    // Forced-attempt failure timestamp is recorded (used by the cap-check
+    // gate in src/query.ts to prevent retry storms). Bounded by the wall
+    // clock to avoid timing flakiness on slow CI.
+    expect(result.lastForcedFailureAtMs).toBeGreaterThanOrEqual(before)
+    expect(result.lastForcedFailureAtMs).toBeLessThanOrEqual(after)
   })
 
   test('memory-pressure forceReason also bypasses the breaker', async () => {
@@ -872,6 +879,44 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     expect(compactConversation).toHaveBeenCalledTimes(1)
     expect(result.wasCompacted).toBe(true)
     expect(result.consecutiveFailures).toBe(0)
+  })
+
+  test('non-forced failure leaves lastForcedFailureAtMs undefined', async () => {
+    // Issue #1373 follow-up: only forced attempts set
+    // lastForcedFailureAtMs. A token-threshold failure (no forceReason)
+    // must not be conflated with a forced-attempt failure, otherwise
+    // the cap-check gate would suppress the safety-net re-fire for the
+    // very case jatmn's review identified as needing protection.
+    const compactConversation = mock(async () => {
+      throw new Error('token-threshold failure')
+    })
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
+      await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() - 1, // cooldown expired
+        // No forceReason — this is a regular token-threshold attempt.
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(false)
+    expect(result.circuitBreakerTripped).toBe(true)
+    expect(result.lastForcedFailureAtMs).toBeUndefined()
   })
 })
 

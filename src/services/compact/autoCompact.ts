@@ -73,6 +73,16 @@ export type AutoCompactTrackingState = {
   // Used by memory pressure and message count guards to force compaction
   // even when token usage is below the normal autocompact threshold.
   forceReason?: 'memory-pressure' | 'message-count'
+  // Wall-clock time of the most recent failure from a forced compaction
+  // (memory-pressure or message-count). Distinct from `lastFailureAtMs`,
+  // which records every compaction failure regardless of source. Issue
+  // #1373 follow-up: a forced `message-count` attempt that fails can
+  // otherwise re-fire on every over-cap turn because the query loop
+  // re-sets `forceReason` before the breaker cool-down has elapsed.
+  // The cap check uses this together with the breaker cool-down to gate
+  // the re-trigger without giving up the safety-net guarantee: token-
+  // threshold trips (no `forceReason`) still bypass as today.
+  lastForcedFailureAtMs?: number
 }
 
 export const AUTOCOMPACT_BUFFER_TOKENS = 13_000
@@ -396,6 +406,10 @@ export async function autoCompactIfNeeded(
   lastFailureAtMs?: number
   circuitBreakerActive?: boolean
   circuitBreakerTripped?: boolean
+  // Set on a forced-attempt failure (memory-pressure or message-count);
+  // undefined for non-forced failures and on success. See the type-level
+  // note on `AutoCompactTrackingState.lastForcedFailureAtMs`.
+  lastForcedFailureAtMs?: number
 }> {
   if (isEnvTruthy(process.env.DISABLE_COMPACT)) {
     return { wasCompacted: false }
@@ -615,6 +629,11 @@ export async function autoCompactIfNeeded(
       lastFailureAtMs: failureAtMs,
       circuitBreakerActive: circuitBreakerTripped,
       circuitBreakerTripped,
+      // Only forced attempts write this so the cap-check gate can tell
+      // a token-threshold trip (no forced attempt yet) apart from a
+      // recent forced-attempt failure. See
+      // `AutoCompactTrackingState.lastForcedFailureAtMs`.
+      lastForcedFailureAtMs: isForced ? failureAtMs : undefined,
     }
   }
 }

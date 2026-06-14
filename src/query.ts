@@ -7,6 +7,7 @@ import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import { FallbackTriggeredError } from './services/api/withRetry.js'
 import {
   calculateTokenWarningState,
+  getAutoCompactFailureCooldownMs,
   getAutoCompactThreshold,
   getMaxActiveMessagesHardCap,
   isAutoCompactEnabled,
@@ -597,7 +598,41 @@ async function* queryLoop(
             ? userCap
             : hardCap
 
-      if (activeCap > 0 && messagesForQuery.length > activeCap) {
+      // Issue #1373 follow-up: gate the message-count re-trigger on the
+      // breaker cool-down so a continuing provider failure doesn't fire
+      // `compactConversation` on every over-cap turn. The guard only
+      // suppresses re-fires — the safety net is preserved because:
+      //   1. `lastForcedFailureAtMs` is only written by a forced-attempt
+      //      failure, so a token-threshold trip that happens to leave
+      //      `nextRetryAtMs` in the future still re-fires (no
+      //      `lastForcedFailureAtMs` to gate on).
+      //   2. After the cool-down elapses naturally
+      //      (`lastForcedFailureAtMs + cooldownMs <= now`), the cap
+      //      re-trips and compaction eventually happens.
+      const forcedCooldownActive = (() => {
+        const lastForced = tracking?.lastForcedFailureAtMs
+        const nextRetry = tracking?.nextRetryAtMs
+        if (typeof lastForced !== 'number' || typeof nextRetry !== 'number') {
+          return false
+        }
+        if (!Number.isFinite(lastForced) || !Number.isFinite(nextRetry)) {
+          return false
+        }
+        const now = Date.now()
+        if (now < nextRetry) {
+          return true
+        }
+        // Belt-and-suspenders: also honor the cool-down window from
+        // the last forced attempt, in case nextRetryAtMs has been
+        // cleared by a separate code path.
+        return now - lastForced < getAutoCompactFailureCooldownMs()
+      })()
+
+      if (
+        activeCap > 0 &&
+        messagesForQuery.length > activeCap &&
+        !forcedCooldownActive
+      ) {
         if (userCap > 0 && messagesForQuery.length > userCap) {
           logForDebugging(
             `autocompact: user message-count cap reached (${messagesForQuery.length} > ${userCap}) — forcing compaction`,
@@ -611,6 +646,14 @@ async function* queryLoop(
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
           forceReason: 'message-count',
         }
+      } else if (
+        activeCap > 0 &&
+        messagesForQuery.length > activeCap &&
+        forcedCooldownActive
+      ) {
+        logForDebugging(
+          `autocompact: message-count cap reached (${messagesForQuery.length} > ${activeCap}) but cool-down active — deferring forced compaction`,
+        )
       }
       if (consumeCompactionRequest()) {
         tracking = {
@@ -628,6 +671,7 @@ async function* queryLoop(
       lastFailureAtMs,
       circuitBreakerActive,
       circuitBreakerTripped,
+      lastForcedFailureAtMs,
     } = await deps.autocompact(
       messagesForQuery,
       toolUseContext,
@@ -716,7 +760,8 @@ async function* queryLoop(
       nextRetryAtMs !== undefined ||
       lastFailureAtMs !== undefined ||
       circuitBreakerActive !== undefined ||
-      circuitBreakerTripped !== undefined
+      circuitBreakerTripped !== undefined ||
+      lastForcedFailureAtMs !== undefined
     ) {
       // Autocompact returned breaker metadata. Thread it through the loop so
       // cooldown can skip retry storms, expire, and then half-open retry.
@@ -733,6 +778,15 @@ async function* queryLoop(
       }
       if (lastFailureAtMs !== undefined) {
         nextTracking.lastFailureAtMs = lastFailureAtMs
+      }
+      // Parallel branch for the cap-check cool-down gate. Mirrors
+      // nextRetryAtMs: only carry forward when set, otherwise clear so
+      // a transient forced failure doesn't permanently lock out the
+      // cap re-trigger.
+      if (lastForcedFailureAtMs !== undefined) {
+        nextTracking.lastForcedFailureAtMs = lastForcedFailureAtMs
+      } else {
+        delete nextTracking.lastForcedFailureAtMs
       }
       tracking = nextTracking
       updateAutoCompactTracking(tracking)

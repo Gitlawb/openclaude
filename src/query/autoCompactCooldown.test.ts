@@ -585,3 +585,166 @@ test('user cap still fires when the operator-level hard cap is disabled', async 
     ),
   ).toBe(false)
 })
+
+// ---------------------------------------------------------------------------
+// Issue #1373 follow-up (jatmn review): a forced message-count compaction
+// that fails must respect the breaker cool-down on subsequent over-cap
+// turns. Otherwise `state.messages` would re-fire `compactConversation` on
+// every turn while a provider is down, which is exactly the retry storm
+// the breaker is meant to contain. The cap check gates the re-trigger on
+// `lastForcedFailureAtMs` so the safety net is preserved (token-threshold
+// trips still bypass), but a recent forced attempt is honored.
+// ---------------------------------------------------------------------------
+
+test('hard-cap re-trigger respects a recent forced-failure cool-down', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '60000'
+  // Cooldown covers the seeded lastForcedFailureAtMs so the gate fires.
+  const forcedFailureAtMs = Date.now() - 1_000
+  const messages = [
+    overAutoCompactThresholdMessage(),
+    overAutoCompactThresholdMessage(),
+  ]
+  const autocompact = mock(
+    async (
+      _messages: never,
+      _toolUseContext: never,
+      _params: never,
+      _querySource: never,
+      tracking: AutoCompactTrackingState | undefined,
+    ) => {
+      // Critical: the cap check must NOT have re-set forceReason, so
+      // autoCompactIfNeeded never sees a forced path and never calls
+      // compactConversation. The mock returning breaker metadata
+      // mirrors autoCompactIfNeeded's real skip behavior.
+      expect(tracking?.forceReason).toBeUndefined()
+      return {
+        wasCompacted: false,
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: forcedFailureAtMs + 60_000,
+        lastFailureAtMs: forcedFailureAtMs,
+        circuitBreakerActive: true,
+        circuitBreakerTripped: true,
+      }
+    },
+  )
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact,
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: forcedFailureAtMs + 60_000,
+        lastForcedFailureAtMs: forcedFailureAtMs,
+      },
+    }),
+  )
+
+  // The messages are over the auto-compact token threshold, so when the
+  // cap-re-trigger is suppressed by the cool-down gate, the existing
+  // token-threshold blocking safety net (src/query.ts:898-938) catches
+  // it and returns blocking_limit with an api_error rather than firing
+  // compactConversation. This is the desired behavior: no retry storm
+  // and a clear error message instead of repeated forced attempts.
+  expect(terminal.reason).toBe('blocking_limit')
+  expect(autocompact).toHaveBeenCalledTimes(1)
+  const apiError = yielded.find(
+    (message): message is Message =>
+      (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+  )
+  expect(apiError).toBeDefined()
+  expect(apiError!.message.content[0].text).toContain('cooling down')
+})
+
+test('hard-cap re-trigger fires again once the cool-down has elapsed', async () => {
+  // Positive control for the gate above: when lastForcedFailureAtMs is
+  // far enough in the past that the cool-down has elapsed, the cap must
+  // re-fire. Without this, the gate would permanently lock out the
+  // safety net and compaction would never happen again.
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '60000'
+  const longAgoMs = Date.now() - 10 * 60_000
+  const messages = [
+    overAutoCompactThresholdMessage(),
+    overAutoCompactThresholdMessage(),
+  ]
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        expect(tracking?.forceReason).toBe('message-count')
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: longAgoMs,
+        lastForcedFailureAtMs: longAgoMs,
+      },
+    }),
+  )
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(seenTracking[0]?.forceReason).toBe('message-count')
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
+})
