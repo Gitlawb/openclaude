@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message } from '../../types/message.js'
-import { isToolResultMessage, isTurnStart, MIN_COLLAPSE_TOKENS, selectCollapseSpan } from './spanSelection.js'
+import { isToolResultMessage, isTurnStart, MIN_COLLAPSE_TOKENS, selectCollapseSpan, computeRisk } from './spanSelection.js'
 
 function userMsg(content: any = 'hi', extra: Record<string, unknown> = {}): Message {
   return { type: 'user', uuid: 'u', timestamp: '', message: { role: 'user', content }, ...extra } as unknown as Message
@@ -81,5 +81,22 @@ describe('selectCollapseSpan', () => {
     expect(span).not.toBeNull()
     // endUuid must be the message immediately before a turn-start (or the last candidate msg).
     expect(span!.endUuid.startsWith('m')).toBe(true)
+  })
+})
+
+describe('computeRisk', () => {
+  test('older span (lower startIndex) scores higher than newer', () => {
+    const older = computeRisk(0, 100, 1000, 10000)
+    const newer = computeRisk(80, 100, 1000, 10000)
+    expect(older).toBeGreaterThan(newer)
+  })
+  test('bigger span scores higher than smaller', () => {
+    const big = computeRisk(10, 100, 5000, 10000)
+    const small = computeRisk(10, 100, 500, 10000)
+    expect(big).toBeGreaterThan(small)
+  })
+  test('always clamped to [0,1]', () => {
+    expect(computeRisk(0, 100, 999999, 10000)).toBeLessThanOrEqual(1)
+    expect(computeRisk(100, 100, 0, 10000)).toBeGreaterThanOrEqual(0)
   })
 })

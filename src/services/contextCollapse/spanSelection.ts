@@ -102,3 +102,16 @@ export function selectCollapseSpan(
     tokenEstimate: spanTokens,
   }
 }
+
+/** Drain-priority score in [0,1]: blends span age (older = higher) and size (bigger = higher). */
+export function computeRisk(
+  startIndex: number,
+  totalMessages: number,
+  spanTokens: number,
+  effectiveWindow: number,
+): number {
+  const ageFactor = totalMessages > 0 ? 1 - startIndex / totalMessages : 0
+  const sizeFactor = effectiveWindow > 0 ? Math.min(spanTokens / effectiveWindow, 1) : 0
+  const risk = 0.5 * ageFactor + 0.5 * sizeFactor
+  return Math.max(0, Math.min(1, risk))
+}
