@@ -132,3 +132,21 @@ If you want source builds, advanced provider profiles, diagnostics, or Bun-based
 
 - [Advanced Setup](advanced-setup.md)
   This is also where to find Codex, Gemini, Mistral, LiteLLM, and profile-launcher setup.
+
+## Getting Help
+
+- **GitHub Discussions**: https://github.com/Gitlawb/openclaude/discussions
+  Use this for Q&A, setup help, and community conversation.
+
+- **GitHub Issues**: https://github.com/Gitlawb/openclaude/issues
+  Use this for confirmed bugs and feature requests.
+
+### Quick diagnostic check
+
+If OpenClaude is not working after setup, run:
+
+```bash
+openclaude --version
+```
+
+If this prints a version number, the install succeeded. If it says "command not found," close your terminal, open a new one, and try again. On Windows, you may also need to add npm's global bin folder to your user `Path` (see the [Windows Quick Start](quick-start-windows.md) guide for details).
