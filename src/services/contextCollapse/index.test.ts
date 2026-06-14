@@ -1,8 +1,15 @@
 import { randomUUID } from 'crypto'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { UUID } from 'crypto'
 import type { Message } from '../../types/message.js'
 import type { ContextCollapseCommitEntry, ContextCollapseSnapshotEntry } from '../../types/logs.js'
+
+beforeEach(() => {
+  process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+})
+afterEach(() => {
+  delete process.env.CLAUDE_CONTEXT_COLLAPSE
+})
 
 function uid(s: string): UUID {
   return `00000000-0000-4000-8000-${s.padStart(12, '0')}` as UUID
@@ -65,11 +72,22 @@ async function cleanState() {
 }
 
 describe('init and enable', () => {
-  test('initContextCollapse sets enabled=true', async () => {
+  test('initContextCollapse enables when CLAUDE_CONTEXT_COLLAPSE=1', async () => {
     await cleanState()
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
     const idx = await import('./index.js')
     idx.initContextCollapse()
     expect(idx.isContextCollapseEnabled()).toBe(true)
+  })
+
+  test('initContextCollapse defaults to OFF without the env opt-in', async () => {
+    await cleanState()
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    expect(idx.isContextCollapseEnabled()).toBe(false)
+    // restore for subsequent tests (beforeEach also sets it, but be explicit)
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
   })
 
   test('getContextCollapseState returns valid shape when enabled', async () => {

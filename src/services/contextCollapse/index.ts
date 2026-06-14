@@ -101,16 +101,11 @@ export function getContextCollapseState(): {
 }
 
 export function initContextCollapse(): void {
-  const envOverride = typeof process !== 'undefined'
-    ? process.env.CLAUDE_CONTEXT_COLLAPSE
-    : undefined
-  if (envOverride === '0' || envOverride === 'false') {
-    enabled = false
-    armed = false
-    return
-  }
-  enabled = true
-  armed = true
+  const v =
+    typeof process !== 'undefined' ? process.env.CLAUDE_CONTEXT_COLLAPSE : undefined
+  const optedIn = v === '1' || v === 'true'
+  enabled = optedIn
+  armed = optedIn
 }
 
 export function getStats(): ContextCollapseStats {
