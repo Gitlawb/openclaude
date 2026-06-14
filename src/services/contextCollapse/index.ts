@@ -267,8 +267,13 @@ function drainStaged(
     stagedQueue = stagedQueue.filter(s => !processed.includes(s))
 
     if (persist) {
-      persistCommits(processed.length).catch(() => {})
-      persistSnapshot().catch(() => {})
+      // Persist commits before advancing the snapshot: if the snapshot (which no
+      // longer lists these spans as staged) landed first and the commit write
+      // failed, restore would find the spans neither staged nor committed and
+      // the collapse would vanish on resume.
+      void persistCommits(processed.length)
+        .then(() => persistSnapshot())
+        .catch(() => {})
     }
 
     notifyListeners()
