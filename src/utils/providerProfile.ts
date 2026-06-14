@@ -71,6 +71,7 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
+  'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
@@ -1670,6 +1671,14 @@ export async function buildLaunchEnv(options: {
   const customHeaders = shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {
     env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
+  }
+  const contextWindows =
+    processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS ||
+    (usePersistedOpenAIConfig
+      ? persistedEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+      : undefined)
+  if (contextWindows) {
+    env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = contextWindows
   }
 
   return buildCompatibilityProcessEnv({

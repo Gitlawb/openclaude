@@ -800,6 +800,45 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
   })
 
+  test('openai-compatible profile switch clears previous same-model context override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const { resolveModelRuntimeLimits } = await import(
+      '../integrations/runtimeMetadata.js'
+    )
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://localhost:4000/v1',
+        model: 'gpt-4o',
+        maxContextLength: 1_000_000,
+      }),
+    )
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-4o',
+        processEnv: process.env,
+      }).contextWindow,
+    ).toBe(1_000_000)
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-4o',
+        processEnv: process.env,
+      }).contextWindow,
+    ).not.toBe(1_000_000)
+  })
+
   test('non-openai-compatible profile ignores maxContextLength override', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

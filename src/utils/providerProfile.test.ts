@@ -1628,6 +1628,24 @@ test('startup env normalizes a semicolon-separated persisted openai model list',
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
 })
 
+test('startup env preserves persisted openai context-window override', async () => {
+  const override = JSON.stringify({ 'gpt-4o': 1_000_000 })
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-live',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: override,
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS, override)
+})
+
 test('auto profile falls back to openai when no viable ollama model exists', () => {
   assert.equal(selectAutoProfile(null), 'openai')
   assert.equal(selectAutoProfile('qwen2.5-coder:7b'), 'ollama')
