@@ -64,6 +64,7 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
 }
 
 beforeEach(async () => {
