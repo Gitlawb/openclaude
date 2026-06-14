@@ -779,14 +779,20 @@ async function* queryLoop(
       if (lastFailureAtMs !== undefined) {
         nextTracking.lastFailureAtMs = lastFailureAtMs
       }
-      // Parallel branch for the cap-check cool-down gate. Mirrors
-      // nextRetryAtMs: only carry forward when set, otherwise clear so
-      // a transient forced failure doesn't permanently lock out the
-      // cap re-trigger.
+      // Carry the forced-failure timestamp forward when the call didn't
+      // return one. `autoCompactIfNeeded` only writes
+      // `lastForcedFailureAtMs` on a forced-attempt failure; on a
+      // non-forced skip (token-threshold skip, half-open skip, success)
+      // the field is undefined. Clearing it on those turns would drop
+      // the cap-check cool-down signal after the first skipped turn and
+      // re-arm the retry storm. We only overwrite the stored value when
+      // the call hands us a fresh forced-failure timestamp; the natural
+      // cap-check gate (`now - lastForcedFailureAtMs < cooldownMs`) is
+      // what eventually expires the cool-down.
       if (lastForcedFailureAtMs !== undefined) {
         nextTracking.lastForcedFailureAtMs = lastForcedFailureAtMs
-      } else {
-        delete nextTracking.lastForcedFailureAtMs
+      } else if (nextTracking.lastForcedFailureAtMs === undefined) {
+        // First time we see this field: nothing to preserve.
       }
       tracking = nextTracking
       updateAutoCompactTracking(tracking)

@@ -28,6 +28,8 @@ const SAVED_ENV = {
     process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP,
   OPENCLAUDE_MAX_ACTIVE_MESSAGES:
     process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+  OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS:
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS,
 }
 
 let savedAutoCompactEnabled: boolean | undefined
@@ -43,6 +45,11 @@ beforeEach(async () => {
   process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
   delete process.env.DISABLE_AUTO_COMPACT
   delete process.env.DISABLE_COMPACT
+  // Some tests below override this to a 60s window to drive the
+  // cap-check cool-down gate; we reset to default so each test starts
+  // with a clean cooldown policy and the 60s doesn't leak into
+  // unrelated test files.
+  delete process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS
 })
 
 afterEach(() => {
@@ -747,4 +754,108 @@ test('hard-cap re-trigger fires again once the cool-down has elapsed', async () 
         (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
     ),
   ).toBe(false)
+})
+
+// ---------------------------------------------------------------------------
+// Issue #1373 follow-up (CodeRabbit review on PR #1615): when
+// `autoCompactIfNeeded()` returns no `lastForcedFailureAtMs` on a
+// non-forced skip, the cap-check cool-down signal in tracking must NOT
+// be cleared. Otherwise the next turn loses the gate, the cap
+// re-triggers, and we get the original retry-storm behavior back. This
+// test seeds the field once and runs multiple query() calls; the
+// tracking carried into each subsequent call must keep the field
+// (preserved across turns), while a fresh forced-failure timestamp from
+// the call site wins over the stale one.
+// ---------------------------------------------------------------------------
+
+test('lastForcedFailureAtMs persists across non-forced skip turns', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '60000'
+  const messages = [
+    overAutoCompactThresholdMessage(),
+    overAutoCompactThresholdMessage(),
+  ]
+  const forcedFailureAtMs = Date.now() - 1_000
+
+  // First-turn tracking: a recent forced failure with the cap active.
+  const seedTracking: AutoCompactTrackingState = {
+    compacted: false,
+    turnCounter: 0,
+    turnId: 'turn',
+    consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+    nextRetryAtMs: forcedFailureAtMs + 60_000,
+    lastForcedFailureAtMs: forcedFailureAtMs,
+  }
+
+  // Every call returns a non-forced skip (no `lastForcedFailureAtMs`).
+  // The breaker metadata is the same on every turn so the query loop
+  // keeps threading tracking through the nextTracking branch.
+  const autocompact = mock(
+    async (
+      _messages: never,
+      _toolUseContext: never,
+      _params: never,
+      _querySource: never,
+      _tracking: AutoCompactTrackingState | undefined,
+    ) => {
+      // Mirror the real skip: no `lastForcedFailureAtMs` written, but
+      // the breaker is still tripped.
+      return {
+        wasCompacted: false,
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: forcedFailureAtMs + 60_000,
+        lastFailureAtMs: forcedFailureAtMs,
+        circuitBreakerActive: true,
+        circuitBreakerTripped: true,
+        // intentionally NO lastForcedFailureAtMs
+      }
+    },
+  )
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact,
+    uuid: () => 'test-uuid',
+  } as never
+
+  // First call: cap gate fires (cool-down active), blocking_limit.
+  const first = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: seedTracking,
+    }),
+  )
+  expect(first.terminal.reason).toBe('blocking_limit')
+
+  // Second call with the same tracking: the gate must STILL fire.
+  // If the field had been cleared on the first call, the cap would
+  // re-arm and try to force — that's the original retry-storm bug.
+  const second = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: seedTracking,
+    }),
+  )
+  expect(second.terminal.reason).toBe('blocking_limit')
+  expect(autocompact).toHaveBeenCalledTimes(2)
 })
