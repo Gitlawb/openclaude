@@ -56,6 +56,38 @@ describe('QueryGuard', () => {
     vi.useRealTimers()
   })
 
+  test('timeout notifies owner with the timed-out generation', () => {
+    vi.useFakeTimers()
+    const guard = new QueryGuard()
+    const onTimeout = vi.fn()
+    guard.setTimeoutHandler(onTimeout)
+
+    const gen = guard.tryStart()!
+    vi.advanceTimersByTime(5 * 60 * 1000)
+
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith(gen)
+    expect(guard.isActive).toBe(false)
+
+    vi.useRealTimers()
+  })
+
+  test('timeout handler cleanup prevents stale notification', () => {
+    vi.useFakeTimers()
+    const guard = new QueryGuard()
+    const onTimeout = vi.fn()
+    const cleanup = guard.setTimeoutHandler(onTimeout)
+    cleanup()
+
+    guard.tryStart()
+    vi.advanceTimersByTime(5 * 60 * 1000)
+
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(guard.isActive).toBe(false)
+
+    vi.useRealTimers()
+  })
+
   test('timeout is cleared when end() is called normally', () => {
     vi.useFakeTimers()
     const guard = new QueryGuard()

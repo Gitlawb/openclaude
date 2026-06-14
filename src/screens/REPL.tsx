@@ -1726,6 +1726,28 @@ export function REPL({
   const mrOnBeforeQuery = useCallback(async (_input: string, _allMessages: MessageType[], _newMessageCount: number) => true, []);
   const mrOnTurnComplete = useCallback(async (_allMessages: MessageType[], _aborted: boolean) => { }, []);
   const mrRender = useCallback(() => null, []);
+  const abortTimedOutQuery = useCallback(() => {
+    const activeAbortController = abortControllerRef.current;
+    if (activeAbortController && !activeAbortController.signal.aborted) {
+      activeAbortController.abort('query-timeout');
+    }
+    if (feature('TOKEN_BUDGET')) {
+      snapshotOutputTokensForTurn(null);
+    }
+
+    // QueryGuard calls this before forceEnd(); defer UI cleanup until after
+    // the guard has released so the normal stale-generation finally path skips.
+    queueMicrotask(() => {
+      resetLoadingState();
+      setAbortController(null);
+      void mrOnTurnComplete(messagesRef.current, true);
+    });
+  }, [mrOnTurnComplete, resetLoadingState]);
+
+  useEffect(() => {
+    return queryGuard.setTimeoutHandler(abortTimedOutQuery);
+  }, [abortTimedOutQuery, queryGuard]);
+
   const showSpinner = (!toolJSX || toolJSX.showSpinner === true) && toolUseConfirmQueue.length === 0 && promptQueue.length === 0 && (
     // Show spinner during input processing, API call, while teammates are running,
     // or while pending task notifications are queued (prevents spinner bounce between consecutive notifications)
