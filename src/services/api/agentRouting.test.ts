@@ -7,6 +7,7 @@ import {
   resolveAgentRunModelRouting,
   resolveOutOfProcessTeammateProvider,
   resolveOutOfProcessTeammateProviderFromCliArgs,
+  shouldEnforceModelAllowlist,
 } from './agentRouting.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
@@ -576,8 +577,6 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')
   })
 })
-
-import { shouldEnforceModelAllowlist } from './agentRouting.js'
 
 describe('shouldEnforceModelAllowlist', () => {
   test('enforces when a provider override is present', () => {
