@@ -8,6 +8,7 @@ type Options = {
   progressMessage: string
   pluginName: string
   pluginCommand: string
+  allowedTools?: string[]
   /**
    * The prompt to use while the marketplace is private.
    * External users will get this prompt. Once the marketplace is public,
@@ -25,6 +26,7 @@ export function createMovedToPluginCommand({
   progressMessage,
   pluginName,
   pluginCommand,
+  allowedTools,
   getPromptWhileMarketplaceIsPrivate,
 }: Options): Command {
   return {
@@ -37,6 +39,7 @@ export function createMovedToPluginCommand({
       return name
     },
     source: 'builtin',
+    allowedTools,
     async getPromptForCommand(
       args: string,
       context: ToolUseContext,

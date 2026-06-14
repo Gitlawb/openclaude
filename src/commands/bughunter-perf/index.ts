@@ -17,37 +17,32 @@ SCOPE: {{ARGS}}
 GIT CONTEXT (auto-collected, may be empty if not a git repo):
 
 \`\`\`
-!\`git status 2>/dev/null\`
+!\`git status 2>/dev/null || echo "(If empty: not a git repository or git unavailable)"\`
 \`\`\`
-(If empty: not a git repository or git unavailable)
 
 UNSTAGED CHANGES (working tree):
 
 \`\`\`
-!\`git diff --name-only --diff-filter=AM 2>/dev/null\`
+!\`git diff --name-only --diff-filter=AM 2>/dev/null || echo "(If empty: no unstaged changes or not a git repo)"\`
 \`\`\`
-(If empty: no unstaged changes or not a git repo)
 
 STAGED CHANGES (index):
 
 \`\`\`
-!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null\`
+!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || echo "(If empty: no staged changes or not a git repo)"\`
 \`\`\`
-(If empty: no staged changes or not a git repo)
 
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50 || echo "(If empty: no git history or not a git repo)"\`
 \`\`\`
-(If empty: no git history or not a git repo)
 
 DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
 \`\`\`
-!\`git diff HEAD -- . 2>/dev/null | head -400\`
+!\`git diff HEAD -- . 2>/dev/null | head -400 || echo "(If empty: no diff available or not a git repo)"\`
 \`\`\`
-(If empty: no diff available or not a git repo)
 
 ---
 
@@ -202,6 +197,7 @@ measurable at realistic load, or not user-visible, drop it. The goal is to
 produce a punch list a senior engineer would actually action.
 `
 
+
 const bughunterPerf = createMovedToPluginCommand({
   name: 'bughunter-perf',
   description:
@@ -209,6 +205,9 @@ const bughunterPerf = createMovedToPluginCommand({
   progressMessage: 'hunting for performance bugs…',
   pluginName: 'bughunter',
   pluginCommand: 'bughunter-perf',
+  allowedTools: parseSlashCommandToolsFromFrontmatter(
+    parseFrontmatter(BUGHUNTER_PERF_PROMPT).frontmatter['allowed-tools'],
+  ),
   async getPromptWhileMarketplaceIsPrivate(args, context) {
     const scope =
       args?.trim() ||
@@ -244,5 +243,4 @@ const bughunterPerf = createMovedToPluginCommand({
     return [{ type: 'text', text: processedContent }]
   },
 })
-
 export default bughunterPerf
