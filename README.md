@@ -240,6 +240,21 @@ When no routing match is found, the global provider remains the fallback.
 
 > **Note:** `api_key` values in `settings.json` are stored in plaintext. Keep this file private and do not commit it to version control.
 
+**Model-only routes (same provider):** Omit `base_url` and `api_key` to run an agent on a different model using your *current* provider's endpoint and key — no credential duplication:
+
+```json
+{
+  "agentModels": {
+    "mini": { "model": "gpt-5-mini" }
+  },
+  "agentRouting": {
+    "verification": "mini"
+  }
+}
+```
+
+**Built-in agents are routable by their type name.** Useful keys: `verification` (the read-only auditor that runs before completion), `Explore`, and `Plan`. For example, `"agentRouting": { "verification": "mini" }` runs the verifier on `gpt-5-mini` while your main session stays on its model. Absent any entry, the verifier inherits the main-loop model.
+
 ## Web Search and Fetch
 
 By default, `WebSearch` works on non-Anthropic models using DuckDuckGo. This gives GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers a free web search path out of the box.
