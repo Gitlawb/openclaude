@@ -1335,7 +1335,13 @@ async function* queryModel(
   // Repair tool_use/tool_result pairing mismatches that can occur when resuming
   // remote/teleport sessions. Inserts synthetic error tool_results for orphaned
   // tool_uses and strips orphaned tool_results referencing non-existent tool_uses.
-  messagesForAPI = ensureToolResultPairing(messagesForAPI)
+  messagesForAPI = ensureToolResultPairing(messagesForAPI, {
+    phase: 'api_before_repair',
+    querySource: options.querySource,
+    agentId: options.agentId,
+    model: options.model,
+    provider: getAPIProvider(),
+  })
 
   // Strip advisor blocks — the API rejects them without the beta header.
   if (!betas.includes(ADVISOR_BETA_HEADER)) {

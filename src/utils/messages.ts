@@ -5199,6 +5199,202 @@ export function createToolUseSummaryMessage(
   }
 }
 
+export type ToolResultPairingValidationContext = {
+  phase?: string
+  querySource?: string
+  agentId?: string
+  model?: string
+  provider?: string
+}
+
+export type ToolResultPairingIssueKind =
+  | 'missing_tool_result'
+  | 'orphaned_tool_result'
+  | 'duplicate_tool_use'
+  | 'duplicate_tool_result'
+
+export type ToolResultPairingIssue = {
+  kind: ToolResultPairingIssueKind
+  toolUseId: string
+  assistantIndex?: number
+  assistantMessageId?: string
+  userIndex?: number
+  duplicateOfAssistantIndex?: number
+  duplicateOfAssistantMessageId?: string
+}
+
+export type ToolResultPairingValidationResult = {
+  valid: boolean
+  context: ToolResultPairingValidationContext
+  issues: ToolResultPairingIssue[]
+}
+
+function getToolUseId(block: unknown): string | null {
+  if (
+    typeof block === 'object' &&
+    block !== null &&
+    'type' in block &&
+    block.type === 'tool_use' &&
+    'id' in block &&
+    typeof block.id === 'string'
+  ) {
+    return block.id
+  }
+  return null
+}
+
+function getToolResultId(block: unknown): string | null {
+  if (
+    typeof block === 'object' &&
+    block !== null &&
+    'type' in block &&
+    block.type === 'tool_result' &&
+    'tool_use_id' in block &&
+    typeof block.tool_use_id === 'string'
+  ) {
+    return block.tool_use_id
+  }
+  return null
+}
+
+function getToolResultIdsFromUserMessage(message: UserMessage): string[] {
+  if (!Array.isArray(message.message.content)) {
+    return []
+  }
+  return message.message.content
+    .map(block => getToolResultId(block))
+    .filter((id): id is string => id !== null)
+}
+
+export function validateToolResultPairing(
+  messages: (UserMessage | AssistantMessage)[],
+  context: ToolResultPairingValidationContext = {},
+): ToolResultPairingValidationResult {
+  const issues: ToolResultPairingIssue[] = []
+  const seenToolUses = new Map<
+    string,
+    { assistantIndex: number; assistantMessageId: string }
+  >()
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!
+
+    if (msg.type === 'user') {
+      if (messages[i - 1]?.type === 'assistant') {
+        continue
+      }
+      for (const toolUseId of getToolResultIdsFromUserMessage(msg)) {
+        issues.push({
+          kind: 'orphaned_tool_result',
+          toolUseId,
+          userIndex: i,
+        })
+      }
+      continue
+    }
+
+    const uniqueToolUseIds = new Set<string>()
+    for (const block of msg.message.content) {
+      const toolUseId = getToolUseId(block)
+      if (toolUseId === null) {
+        continue
+      }
+
+      const firstSeen = seenToolUses.get(toolUseId)
+      if (firstSeen) {
+        issues.push({
+          kind: 'duplicate_tool_use',
+          toolUseId,
+          assistantIndex: i,
+          assistantMessageId: msg.message.id,
+          duplicateOfAssistantIndex: firstSeen.assistantIndex,
+          duplicateOfAssistantMessageId: firstSeen.assistantMessageId,
+        })
+      } else {
+        seenToolUses.set(toolUseId, {
+          assistantIndex: i,
+          assistantMessageId: msg.message.id,
+        })
+      }
+
+      uniqueToolUseIds.add(toolUseId)
+    }
+
+    const nextMsg = messages[i + 1]
+    const toolResultIds =
+      nextMsg?.type === 'user' ? getToolResultIdsFromUserMessage(nextMsg) : []
+    const toolResultIdSet = new Set(toolResultIds)
+    const toolUseIdSet = new Set(uniqueToolUseIds)
+    const seenToolResultIds = new Set<string>()
+
+    for (const toolResultId of toolResultIds) {
+      if (seenToolResultIds.has(toolResultId)) {
+        issues.push({
+          kind: 'duplicate_tool_result',
+          toolUseId: toolResultId,
+          assistantIndex: i,
+          assistantMessageId: msg.message.id,
+          userIndex: i + 1,
+        })
+      }
+      seenToolResultIds.add(toolResultId)
+    }
+
+    for (const toolUseId of toolUseIdSet) {
+      if (!toolResultIdSet.has(toolUseId)) {
+        issues.push({
+          kind: 'missing_tool_result',
+          toolUseId,
+          assistantIndex: i,
+          assistantMessageId: msg.message.id,
+        })
+      }
+    }
+
+    for (const toolResultId of toolResultIdSet) {
+      if (!toolUseIdSet.has(toolResultId)) {
+        issues.push({
+          kind: 'orphaned_tool_result',
+          toolUseId: toolResultId,
+          assistantIndex: i,
+          assistantMessageId: msg.message.id,
+          userIndex: i + 1,
+        })
+      }
+    }
+  }
+
+  return {
+    valid: issues.length === 0,
+    context,
+    issues,
+  }
+}
+
+function formatToolResultPairingIssue(
+  issue: ToolResultPairingIssue,
+): string {
+  const parts = [`kind=${issue.kind}`, `tool_use_id=${issue.toolUseId}`]
+  if (issue.assistantIndex !== undefined) {
+    parts.push(`assistant_index=${issue.assistantIndex}`)
+  }
+  if (issue.assistantMessageId !== undefined) {
+    parts.push(`assistant_message_id=${issue.assistantMessageId}`)
+  }
+  if (issue.userIndex !== undefined) {
+    parts.push(`user_index=${issue.userIndex}`)
+  }
+  if (issue.duplicateOfAssistantIndex !== undefined) {
+    parts.push(`duplicate_of_assistant_index=${issue.duplicateOfAssistantIndex}`)
+  }
+  if (issue.duplicateOfAssistantMessageId !== undefined) {
+    parts.push(
+      `duplicate_of_assistant_message_id=${issue.duplicateOfAssistantMessageId}`,
+    )
+  }
+  return parts.join(',')
+}
+
 /**
  * Defensive validation: ensure tool_use/tool_result pairing is correct.
  *
@@ -5216,7 +5412,9 @@ export function createToolUseSummaryMessage(
  */
 export function ensureToolResultPairing(
   messages: (UserMessage | AssistantMessage)[],
+  context: ToolResultPairingValidationContext = {},
 ): (UserMessage | AssistantMessage)[] {
+  const validation = validateToolResultPairing(messages, context)
   const result: (UserMessage | AssistantMessage)[] = []
   let repaired = false
 
@@ -5522,20 +5720,46 @@ export function ensureToolResultPairing(
       throw new Error(
         `ensureToolResultPairing: tool_use/tool_result pairing mismatch detected (strict mode). ` +
           `Refusing to repair — would inject synthetic placeholders into model context. ` +
+          `Phase: ${validation.context.phase ?? 'unknown'}. ` +
+          `Issues: ${validation.issues.map(formatToolResultPairingIssue).join('; ') || 'none'}. ` +
           `Message structure: ${messageTypes.join('; ')}. See inc-4977.`,
       )
     }
 
+    const issueKinds = [
+      ...new Set(validation.issues.map(issue => issue.kind)),
+    ].join(',')
+    const issueSummary =
+      validation.issues.map(formatToolResultPairingIssue).join('; ') || 'none'
+    const diagnosticContext =
+      `Phase: ${validation.context.phase ?? 'unknown'}. ` +
+      `Query source: ${validation.context.querySource ?? 'unknown'}. ` +
+      `Provider: ${validation.context.provider ?? 'unknown'}. ` +
+      `Model: ${validation.context.model ?? 'unknown'}. ` +
+      `Issues: ${issueSummary}.`
     logEvent('tengu_tool_result_pairing_repaired', {
       messageCount: messages.length,
       repairedMessageCount: result.length,
+      issueCount: validation.issues.length,
+      phase: (validation.context.phase ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      querySource: (validation.context.querySource ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      agentId: (validation.context.agentId ??
+        'none') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      model: (validation.context.model ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      provider: (validation.context.provider ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      issueKinds: (issueKinds ||
+        'none') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       messageTypes: messageTypes.join(
         '; ',
       ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
     logError(
       new Error(
-        `ensureToolResultPairing: repaired missing tool_result blocks (${messages.length} -> ${result.length} messages). Message structure: ${messageTypes.join('; ')}`,
+        `ensureToolResultPairing: repaired missing tool_result blocks (${messages.length} -> ${result.length} messages). ${diagnosticContext} Message structure: ${messageTypes.join('; ')}`,
       ),
     )
   }
