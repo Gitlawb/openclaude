@@ -267,9 +267,7 @@ function drainStaged(
     stagedQueue = stagedQueue.filter(s => !processed.includes(s))
 
     if (persist) {
-      persistCommits(processed.length - (stagedQueue.length > 0 ? 0 : 0)).catch(
-        () => {},
-      )
+      persistCommits(processed.length).catch(() => {})
       persistSnapshot().catch(() => {})
     }
 
