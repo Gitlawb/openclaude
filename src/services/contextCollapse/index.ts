@@ -460,6 +460,10 @@ export function restoreContextCollapseState(
   stagedQueue = []
   uuidToCollapseId = new Map()
   collapseIdToUuid = new Map()
+  // Reset transient spawn state up front so a snapshot-less restore doesn't
+  // carry stale arming/last-spawn values from a previous session.
+  armed = enabled
+  lastSpawnTokens = 0
 
   let maxCollapseId = 0
 

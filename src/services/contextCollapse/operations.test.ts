@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { UUID } from 'crypto'
 import type { Message } from '../../types/message.js'
 
@@ -35,12 +35,13 @@ function makeAssistantMsg(id: string): Message {
   } as unknown as Message
 }
 
-// Setup known state once before operations tests.
-// All tests in this describe share the same commit log in module state.
 describe('projectView', () => {
-  // Bootstrap: init and set a known commit
-  const ready = (async () => {
+  // Reset and rebuild a known commit before EACH test so outcomes never depend
+  // on shared module state or test execution order.
+  beforeEach(async () => {
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
     const idx = await import('./index.js')
+    idx.resetContextCollapse()
     idx.initContextCollapse()
     idx.restoreContextCollapseState(
       [
@@ -57,10 +58,15 @@ describe('projectView', () => {
       ],
       undefined,
     )
-  })()
+  })
+
+  afterEach(async () => {
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    const idx = await import('./index.js')
+    idx.resetContextCollapse()
+  })
 
   test('replays commit, replacing span with placeholder', async () => {
-    await ready
     const mod = await import('./operations.js')
     const msgs: Message[] = [makeUserMsg('a'), makeAssistantMsg('b'), makeUserMsg('c')]
     const result = mod.projectView(msgs)
@@ -72,7 +78,6 @@ describe('projectView', () => {
   })
 
   test('silently skips missing boundaries', async () => {
-    await ready
     const mod = await import('./operations.js')
     const msgs: Message[] = [makeUserMsg('x'), makeAssistantMsg('y')]
     const result = mod.projectView(msgs)
@@ -80,7 +85,6 @@ describe('projectView', () => {
   })
 
   test('handles empty messages', async () => {
-    await ready
     const mod = await import('./operations.js')
     const result = mod.projectView([])
     expect(Array.isArray(result)).toBe(true)

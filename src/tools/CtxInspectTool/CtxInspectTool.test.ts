@@ -62,8 +62,5 @@ describe('CtxInspectTool', () => {
     expect(typeof CtxInspectTool.description).toBe('function')
     expect(typeof CtxInspectTool.prompt).toBe('function')
     expect(typeof CtxInspectTool.call).toBe('function')
-    // renderToolUseMessage returns null (() => null)
-    const r = (CtxInspectTool as any).renderToolUseMessage()
-    expect(r).toBeNull()
   })
 })

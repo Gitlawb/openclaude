@@ -17,12 +17,17 @@ export function projectView(messages: Message[]): Message[] {
 
     if (firstIdx === -1 || lastIdx === -1 || firstIdx > lastIdx) continue
 
+    // Reuse a stable timestamp from the replaced span so projectView stays a
+    // pure, deterministic projection (identical input -> identical output).
     const placeholder: Message = {
       type: 'system',
       subtype: 'informational',
       content: c.summaryContent,
       uuid: c.summaryUuid,
-      timestamp: new Date().toISOString(),
+      timestamp:
+        result[firstIdx]?.timestamp ??
+        result[lastIdx]?.timestamp ??
+        new Date(0).toISOString(),
       isMeta: true,
     } as Message
 

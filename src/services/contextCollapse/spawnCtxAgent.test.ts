@@ -119,6 +119,7 @@ beforeEach(() => {
 
 afterEach(() => {
   mock.restore()
+  delete process.env.CLAUDE_CONTEXT_COLLAPSE
 })
 
 function ctx(): any {

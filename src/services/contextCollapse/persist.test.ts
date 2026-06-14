@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { UUID } from 'crypto'
 
 function uid(s: string): UUID {
@@ -6,6 +6,19 @@ function uid(s: string): UUID {
 }
 
 describe('restoreFromEntries', () => {
+  // Isolate each test from shared module/env state.
+  beforeEach(async () => {
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+    const idx = await import('./index.js')
+    idx.resetContextCollapse()
+  })
+
+  afterEach(async () => {
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    const idx = await import('./index.js')
+    idx.resetContextCollapse()
+  })
+
   test('module loads and restoreFromEntries is callable', async () => {
     const mod = await import('./persist.js')
     expect(typeof mod.restoreFromEntries).toBe('function')

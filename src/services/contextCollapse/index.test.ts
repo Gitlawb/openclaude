@@ -102,19 +102,15 @@ describe('init and enable', () => {
   })
 
   test('getContextCollapseState returns null when not enabled', async () => {
-    // NOTE: Module state is shared across test files. If another test
-    // already called initContextCollapse, enabled stays true even after
-    // resetContextCollapse (by design — reset clears artifacts not the flag).
-    // In a fresh process, enabled false => getContextCollapseState returns null.
-    // We validate the null-path contractually rather than testing for it.
+    // Deterministic disabled state: clear the opt-in env and re-init so
+    // enabled=false, then assert the null contract directly.
     await cleanState()
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
     const idx = await import('./index.js')
-    // In shared state, this may or may not be null depending on other tests.
-    // Contract: when enabled=false, returns null; when enabled=true, returns object.
-    const state = idx.getContextCollapseState()
-    if (state !== null) {
-      expect(typeof state.committedSpans).toBe('number')
-    }
+    idx.initContextCollapse()
+    expect(idx.getContextCollapseState()).toBeNull()
+    // Restore the opt-in for subsequent tests (beforeEach also sets it).
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
   })
 })
 

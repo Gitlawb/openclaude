@@ -77,10 +77,15 @@ describe('selectCollapseSpan', () => {
   })
 
   test('span ends on a turn boundary (never mid-turn)', () => {
-    const span = selectCollapseSpan(transcript(40), 1000, flat100)
+    const msgs = transcript(40)
+    const span = selectCollapseSpan(msgs, 1000, flat100)
     expect(span).not.toBeNull()
-    // endUuid must be the message immediately before a turn-start (or the last candidate msg).
-    expect(span!.endUuid.startsWith('m')).toBe(true)
+    const endIdx = msgs.findIndex(m => (m.uuid as string) === span!.endUuid)
+    expect(endIdx).toBeGreaterThanOrEqual(0)
+    // The message immediately after the span must begin a new turn (or the span
+    // ends at the last message) — proving the span never cuts mid-turn.
+    const endsOnBoundary = endIdx === msgs.length - 1 || isTurnStart(msgs[endIdx + 1]!)
+    expect(endsOnBoundary).toBe(true)
   })
 })
 
