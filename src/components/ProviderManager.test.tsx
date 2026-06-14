@@ -120,6 +120,7 @@ const PRESET_ORDER = [
   'Codex OAuth',
   'xAI OAuth (Grok)',
   'Fireworks AI',
+  'Google Vertex AI Gemini',
   'Google Gemini',
   'Groq',
   'Hicap',
