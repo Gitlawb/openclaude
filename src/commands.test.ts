@@ -188,11 +188,11 @@ describe('builtInCommandNames', () => {
       expect(promptBlocks.length).toBeGreaterThan(0)
       const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
       // Verify git fallback text appears (not blank) - now in template as static text
-      expect(promptText).toContain('If empty: not a git repository or git unavailable')
-      expect(promptText).toContain('If empty: no unstaged changes or not a git repo')
-      expect(promptText).toContain('If empty: no staged changes or not a git repo')
-      expect(promptText).toContain('If empty: no git history or not a git repo')
-      expect(promptText).toContain('If empty: no diff available or not a git repo')
+      expect(promptText).toContain('(If empty: not a git repository or git unavailable)')
+      expect(promptText).toContain('(If empty: no unstaged changes or not a git repo)')
+      expect(promptText).toContain('(If empty: no staged changes or not a git repo)')
+      expect(promptText).toContain('(If empty: no git history or not a git repo)')
+      expect(promptText).toContain('(If empty: no diff available or not a git repo)')
     } finally {
       await rm(cwd, { recursive: true, force: true })
       if (originalUserType !== undefined) {
