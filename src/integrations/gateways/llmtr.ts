@@ -11,6 +11,9 @@ export default defineGateway({
     requiresAuth: true,
     authMode: 'api-key',
     credentialEnvVars: ['LLMTR_API_KEY'],
+    // Dedicated key only: never fall back to OPENAI_API_KEY, which would send a
+    // generic OpenAI credential to llmtr.com.
+    dedicatedCredentialsOnly: true,
   },
   startup: {
     probeReadiness: 'openai-compatible-models',
@@ -34,9 +37,9 @@ export default defineGateway({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['llmtr.com'],
     },
-    credentialEnvVars: ['LLMTR_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['LLMTR_API_KEY'],
     missingCredentialMessage:
-      'Set LLMTR_API_KEY or OPENAI_API_KEY for the LLMTR provider. Get a key at https://llmtr.com.',
+      'Set LLMTR_API_KEY for the LLMTR provider. Get a key at https://llmtr.com.',
   },
   catalog: {
     source: 'hybrid',
