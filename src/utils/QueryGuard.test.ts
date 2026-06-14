@@ -1,7 +1,12 @@
-import { describe, test, expect, vi } from 'vitest'
+import { afterEach, describe, test, expect, vi } from 'vitest'
 import { QueryGuard } from './QueryGuard.js'
 
 describe('QueryGuard', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
   test('starts idle', () => {
     const guard = new QueryGuard()
     expect(guard.isActive).toBe(false)
@@ -52,8 +57,6 @@ describe('QueryGuard', () => {
     // At timeout
     vi.advanceTimersByTime(1)
     expect(guard.isActive).toBe(false)
-
-    vi.useRealTimers()
   })
 
   test('timeout notifies owner with the timed-out generation', () => {
@@ -68,8 +71,6 @@ describe('QueryGuard', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1)
     expect(onTimeout).toHaveBeenCalledWith(gen)
     expect(guard.isActive).toBe(false)
-
-    vi.useRealTimers()
   })
 
   test('timeout handler cleanup prevents stale notification', () => {
@@ -84,8 +85,6 @@ describe('QueryGuard', () => {
 
     expect(onTimeout).not.toHaveBeenCalled()
     expect(guard.isActive).toBe(false)
-
-    vi.useRealTimers()
   })
 
   test('timeout handler errors do not escape the watchdog callback', () => {
@@ -93,20 +92,15 @@ describe('QueryGuard', () => {
     const guard = new QueryGuard()
     const handlerError = new Error('handler failed')
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    try {
-      guard.setTimeoutHandler(() => {
-        throw handlerError
-      })
+    guard.setTimeoutHandler(() => {
+      throw handlerError
+    })
 
-      guard.tryStart()
+    guard.tryStart()
 
-      expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
-      expect(guard.isActive).toBe(false)
-      expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
-    } finally {
-      consoleError.mockRestore()
-      vi.useRealTimers()
-    }
+    expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
+    expect(guard.isActive).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
   })
 
   test('timeout is cleared when end() is called normally', () => {
@@ -125,6 +119,5 @@ describe('QueryGuard', () => {
     expect(guard.isActive).toBe(true)
 
     guard.forceEnd()
-    vi.useRealTimers()
   })
 })
