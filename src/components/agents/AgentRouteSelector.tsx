@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Box, Text } from '../../ink.js'
 import {
   CUSTOM_MODEL_VALUE,
@@ -22,6 +22,10 @@ type Props = {
 
 export function AgentRouteSelector({ agentType, current, onClose }: Props): React.ReactNode {
   const [error, setError] = useState<string | null>(null)
+  // The input option's onChange fires on every keystroke; track the value here
+  // and only persist on submit (handled below via the sentinel), so typing
+  // "gpt-5-mini" saves the full id instead of "g" on the first character.
+  const customIdRef = useRef('')
 
   const apply = (run: () => { error: Error | null }): void => {
     const { error: writeError } = run()
@@ -43,15 +47,21 @@ export function AgentRouteSelector({ agentType, current, onClose }: Props): Reac
       label: 'Enter a custom model id',
       placeholder: 'e.g. gpt-5-mini',
       onChange: (value: string) => {
-        const id = value.trim()
-        if (id.length === 0) return
-        apply(() => setAgentRoute(agentType, id))
+        customIdRef.current = value
       },
     },
   ]
 
   const onChange = (value: string): void => {
-    if (value === CUSTOM_MODEL_VALUE) return
+    if (value === CUSTOM_MODEL_VALUE) {
+      const id = customIdRef.current.trim()
+      if (id.length === 0) {
+        onClose()
+        return
+      }
+      apply(() => setAgentRoute(agentType, id))
+      return
+    }
     if (value === CLEAR_ROUTE_VALUE) {
       apply(() => clearAgentRoute(agentType))
       return

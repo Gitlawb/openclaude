@@ -51,6 +51,22 @@ describe('readAgentRoute', () => {
     expect(readAgentRoute(dangling, 'Plan')).toEqual({ kind: 'dangling', routeKey: 'ghost' })
   })
 
+  test('partial cross-provider entry (one cred) is unconfigured like the runtime', () => {
+    // toAgentRoute skips an entry with only base_url or only api_key, so it
+    // inherits at runtime; the UI must not present it as a working route.
+    const halfBase = {
+      agentModels: { half: { base_url: 'https://api.example.com/v1' } },
+      agentRouting: { verification: 'half' },
+    } as unknown as SettingsJson
+    expect(readAgentRoute(halfBase, 'verification')).toEqual({ kind: 'dangling', routeKey: 'half' })
+
+    const halfKey = {
+      agentModels: { half: { api_key: 'sk-only' } },
+      agentRouting: { verification: 'half' },
+    } as unknown as SettingsJson
+    expect(readAgentRoute(halfKey, 'verification')).toEqual({ kind: 'dangling', routeKey: 'half' })
+  })
+
   test('model defaults to the route key when entry has no model', () => {
     const s = { agentModels: { haiku: {} }, agentRouting: { verification: 'haiku' } } as unknown as SettingsJson
     expect(readAgentRoute(s, 'verification')).toEqual({ kind: 'model-only', routeKey: 'haiku', model: 'haiku' })
@@ -105,6 +121,17 @@ describe('buildRouteOptions', () => {
     expect(clear).toBeDefined()
     const ds = opts.find(o => o.value === 'ds')
     expect(ds?.label).toContain('cross-provider')
+  })
+
+  test('labels a partial cross-provider key as unconfigured, not cross-provider', () => {
+    const half = {
+      agentModels: { half: { base_url: 'https://api.example.com/v1' } },
+      agentRouting: { verification: 'half' },
+    } as unknown as SettingsJson
+    const opts = buildRouteOptions(half, { kind: 'dangling', routeKey: 'half' })
+    const entry = opts.find(o => o.value === 'half')
+    expect(String(entry?.label)).toContain('unconfigured')
+    expect(String(entry?.label)).not.toContain('cross-provider')
   })
 })
 

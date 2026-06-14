@@ -28,10 +28,16 @@ export function readAgentRoute(
   const entry = settings?.agentModels?.[routeKey]
   if (!entry) return { kind: 'dangling', routeKey }
   const model = entry.model?.trim() || routeKey
-  if (entry.base_url || entry.api_key) {
-    return { kind: 'cross-provider', routeKey, model, baseURL: entry.base_url ?? '' }
+  // Mirror the runtime resolver (toAgentRoute): cross-provider needs BOTH
+  // base_url and api_key. A partial entry is skipped at runtime and inherits,
+  // so surface it as unconfigured rather than claiming a route that won't run.
+  const baseURL = entry.base_url?.trim()
+  const apiKey = entry.api_key?.trim()
+  if (!baseURL && !apiKey) return { kind: 'model-only', routeKey, model }
+  if (baseURL && apiKey) {
+    return { kind: 'cross-provider', routeKey, model, baseURL }
   }
-  return { kind: 'model-only', routeKey, model }
+  return { kind: 'dangling', routeKey }
 }
 
 /** The Select value representing the current route, if any. Pure. */
@@ -91,10 +97,16 @@ export function buildRouteOptions(
     .filter(o => o.value !== 'inherit')
     .map(o => {
       const entry = settings?.agentModels?.[o.value]
-      const isCross = Boolean(entry && (entry.base_url || entry.api_key))
+      // Same validity rule as the runtime resolver: both creds = cross-provider,
+      // exactly one = unconfigured (skipped at runtime), neither = model-only.
+      const hasBase = Boolean(entry?.base_url?.trim())
+      const hasKey = Boolean(entry?.api_key?.trim())
+      let label = o.label
+      if (hasBase && hasKey) label = `${o.label} (cross-provider)`
+      else if (hasBase || hasKey) label = `${o.label} (unconfigured, inherits)`
       return {
         value: o.value,
-        label: isCross ? `${o.label} (cross-provider)` : o.label,
+        label,
         description: o.description,
       }
     })
