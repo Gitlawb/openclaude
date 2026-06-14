@@ -193,6 +193,16 @@ function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
   })
 }
 
+function buildGeminiVertexProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'gemini-vertex',
+    name: 'Gemini Vertex',
+    baseUrl: 'https://aiplatform.googleapis.com',
+    model: 'gemini-2.5-flash',
+    ...overrides,
+  })
+}
+
 function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'openai',
@@ -306,6 +316,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.GEMINI_MODEL).toBe('gemini-3-flash-preview')
     expect(getFreshAPIProvider()).toBe('gemini')
+  })
+
+  test('gemini vertex profile uses native Vertex routing instead of OpenAI-compatible base URL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://aiplatform.googleapis.com'
+    process.env.OPENAI_MODEL = 'gemini-3.5-flash'
+
+    applyProviderProfileToProcessEnv(buildGeminiVertexProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI_VERTEX).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.GEMINI_VERTEX_MODEL).toBe('gemini-2.5-flash')
+    expect(getFreshAPIProvider()).toBe('gemini-vertex')
   })
 
   test('bedrock profile sets CLAUDE_CODE_USE_BEDROCK and preserves anthropic model routing', async () => {
@@ -1272,6 +1301,44 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBeUndefined()
   })
 
+  test('profile-based Gemini Vertex routing yields to explicit selection of another provider', async () => {
+    // Mirror of the startup precedence: when the saved profile is
+    // gemini-vertex but the shell explicitly selects another provider,
+    // the client must not be hijacked to the Vertex client.
+    const { shouldRouteToGeminiVertexFromProfile } =
+      await importFreshProviderProfileModules()
+    const vertexProfile = buildProfile({
+      id: 'saved_vertex',
+      provider: 'gemini-vertex',
+      model: 'gemini-3.5-flash',
+    })
+
+    expect(
+      shouldRouteToGeminiVertexFromProfile({} as NodeJS.ProcessEnv, vertexProfile),
+    ).toBe(true)
+    expect(
+      shouldRouteToGeminiVertexFromProfile(
+        { CLAUDE_CODE_USE_OPENAI: '1' } as NodeJS.ProcessEnv,
+        vertexProfile,
+      ),
+    ).toBe(false)
+    expect(
+      shouldRouteToGeminiVertexFromProfile(
+        { CLAUDE_CODE_USE_GEMINI_VERTEX: '1' } as NodeJS.ProcessEnv,
+        vertexProfile,
+      ),
+    ).toBe(true)
+    expect(
+      shouldRouteToGeminiVertexFromProfile(
+        {} as NodeJS.ProcessEnv,
+        buildProfile({ id: 'saved_openai' }),
+      ),
+    ).toBe(false)
+    expect(
+      shouldRouteToGeminiVertexFromProfile({} as NodeJS.ProcessEnv, undefined),
+    ).toBe(false)
+  })
+
   test('does not override explicit Gemini Vertex startup selection with saved profile', async () => {
     // Maintainer repro: CLAUDE_CODE_USE_GEMINI_VERTEX=1 with concrete
     // project/model vars must win over a saved OpenAI profile, like every
@@ -1309,7 +1376,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
 
   test('applies saved profile when the Gemini Vertex flag is bare (stale export)', async () => {
     // A lone CLAUDE_CODE_USE_GEMINI_VERTEX=1 with no project/model/location
-    // is a stale shell export, not intent - same semantics as the other
+    // is a stale shell export, not intent — same semantics as the other
     // providers' bare-flag handling.
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()
@@ -1720,6 +1787,7 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.apiKey).toBe('openai-single-key')
   })
+
   test('custom preset reads pooled OpenAI credentials', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     process.env.OPENAI_API_KEYS = 'key-a,key-b'
@@ -1729,6 +1797,13 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.apiKey).toBe('key-a,key-b')
   })
+
+  test('gemini vertex preset default model is a Vertex-supported Gemini model', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const defaults = getProviderPresetDefaults('gemini-vertex')
+    expect(defaults?.model).toBe('gemini-2.5-flash')
+  })
+
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL
