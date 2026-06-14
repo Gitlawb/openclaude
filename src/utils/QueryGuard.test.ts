@@ -93,18 +93,20 @@ describe('QueryGuard', () => {
     const guard = new QueryGuard()
     const handlerError = new Error('handler failed')
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    guard.setTimeoutHandler(() => {
-      throw handlerError
-    })
+    try {
+      guard.setTimeoutHandler(() => {
+        throw handlerError
+      })
 
-    guard.tryStart()
+      guard.tryStart()
 
-    expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
-    expect(guard.isActive).toBe(false)
-    expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
-
-    consoleError.mockRestore()
-    vi.useRealTimers()
+      expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
+      expect(guard.isActive).toBe(false)
+      expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
+    } finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
+    }
   })
 
   test('timeout is cleared when end() is called normally', () => {
