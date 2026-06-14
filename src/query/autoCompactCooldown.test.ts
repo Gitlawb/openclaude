@@ -960,3 +960,76 @@ test('forced message-count compaction runs even with DISABLE_AUTO_COMPACT=1', as
     ),
   ).toBe(false)
 })
+
+// ---------------------------------------------------------------------------
+// CodeRabbit follow-up: DISABLE_COMPACT is the stricter opt-out (kills
+// manual /compact too). It must NOT disable the OOM safety net either —
+// the hard cap is a runtime guard, and a user who flipped DISABLE_COMPACT
+// did not opt out of OOM prevention. Same end-to-end shape as the
+// DISABLE_AUTO_COMPACT case above but with the stricter env var.
+// ---------------------------------------------------------------------------
+
+test('forced message-count compaction runs even with DISABLE_COMPACT=1', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.DISABLE_COMPACT = '1'
+  const messages = [
+    overAutoCompactThresholdMessage(),
+    overAutoCompactThresholdMessage(),
+  ]
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        expect(tracking?.forceReason).toBe('message-count')
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { yielded, terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: Date.now() + 60_000,
+      },
+    }),
+  )
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(
+    yielded.some(
+      message =>
+        (message as { isApiErrorMessage?: boolean }).isApiErrorMessage === true,
+    ),
+  ).toBe(false)
+})

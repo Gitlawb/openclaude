@@ -429,22 +429,33 @@ export async function autoCompactIfNeeded(
   // note on `AutoCompactTrackingState.lastForcedFailureAtMs`.
   lastForcedFailureAtMs?: number
 }> {
-  if (isEnvTruthy(process.env.DISABLE_COMPACT)) {
+  // Force compaction if a pressure/count signal set forceReason.
+  // Consume the flag so it only forces one compaction cycle.
+  // Resolve `forcedBy` before the `DISABLE_COMPACT` early-return so the
+  // forced path bypasses BOTH that env var AND `isAutoCompactEnabled()`
+  // (issue #1373 follow-up, CodeRabbit). The hard cap and memory pressure
+  // are runtime safety nets, not user settings — the only documented
+  // opt-out for the hard cap is `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0`,
+  // and a user who flipped `DISABLE_COMPACT` did not opt out of the OOM
+  // guard. The other guards (recursion, REACTIVE_COMPACT, CONTEXT_COLLAPSE)
+  // still apply — they are safety constraints, not opt-outs.
+  const forcedBy = tracking?.forceReason
+  if (tracking?.forceReason) {
+    tracking.forceReason = undefined
+  }
+  // Forced calls bypass the DISABLE_COMPACT early-return (see above).
+  // Non-forced calls still honor it, matching the long-standing behavior
+  // for manual /compact and token-threshold auto-compact.
+  if (!forcedBy && isEnvTruthy(process.env.DISABLE_COMPACT)) {
     return { wasCompacted: false }
   }
 
   const model = toolUseContext.options.mainLoopModel
-  // Force compaction if a pressure/count signal set forceReason.
-  // Consume the flag so it only forces one compaction cycle.
   // Forward the resolved `forceReason` to shouldAutoCompact so the
   // user-opt-out guard (`isAutoCompactEnabled`) is bypassed for forced
   // calls (issue #1373 follow-up). The other guards (recursion,
   // REACTIVE_COMPACT, CONTEXT_COLLAPSE) still apply — they are safety
   // constraints, not opt-outs.
-  const forcedBy = tracking?.forceReason
-  if (tracking?.forceReason) {
-    tracking.forceReason = undefined
-  }
   const shouldCompact = await shouldAutoCompact(
     messages,
     model,

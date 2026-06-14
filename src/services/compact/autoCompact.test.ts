@@ -1045,6 +1045,106 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     expect(compactConversation).not.toHaveBeenCalled()
     expect(result.wasCompacted).toBe(false)
   })
+
+  // DISABLE_COMPACT is the stricter opt-out (kills manual /compact too).
+  // CodeRabbit follow-up: it must NOT disable the OOM safety net either —
+  // the hard cap and memory pressure are runtime guards, and a user who
+  // flipped DISABLE_COMPACT did not opt out of the OOM prevention.
+  test('message-count forceReason bypasses DISABLE_COMPACT', async () => {
+    process.env.DISABLE_COMPACT = '1'
+    try {
+      const compactConversation = mock(async () => compactResult())
+      const trySessionMemoryCompaction = mock(async () => null)
+      const { autoCompactIfNeeded } = await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        {
+          compacted: false,
+          turnCounter: 0,
+          turnId: 'turn',
+          forceReason: 'message-count',
+        },
+      )
+
+      expect(compactConversation).toHaveBeenCalledTimes(1)
+      expect(result.wasCompacted).toBe(true)
+    } finally {
+      delete process.env.DISABLE_COMPACT
+    }
+  })
+
+  test('memory-pressure forceReason bypasses DISABLE_COMPACT', async () => {
+    process.env.DISABLE_COMPACT = '1'
+    try {
+      const compactConversation = mock(async () => compactResult())
+      const trySessionMemoryCompaction = mock(async () => null)
+      const { autoCompactIfNeeded } = await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        {
+          compacted: false,
+          turnCounter: 0,
+          turnId: 'turn',
+          forceReason: 'memory-pressure',
+        },
+      )
+
+      expect(compactConversation).toHaveBeenCalledTimes(1)
+      expect(result.wasCompacted).toBe(true)
+    } finally {
+      delete process.env.DISABLE_COMPACT
+    }
+  })
+
+  // Negative control: without a forceReason, the DISABLE_COMPACT opt-out
+  // still wins (matches the long-standing behavior for manual /compact
+  // and token-threshold auto-compact).
+  test('no forceReason respects DISABLE_COMPACT (returns early)', async () => {
+    process.env.DISABLE_COMPACT = '1'
+    try {
+      const compactConversation = mock(async () => compactResult())
+      const trySessionMemoryCompaction = mock(async () => null)
+      const { autoCompactIfNeeded } = await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        {
+          compacted: false,
+          turnCounter: 0,
+          turnId: 'turn',
+          // No forceReason.
+        },
+      )
+
+      expect(compactConversation).not.toHaveBeenCalled()
+      expect(result.wasCompacted).toBe(false)
+    } finally {
+      delete process.env.DISABLE_COMPACT
+    }
+  })
 })
 
 describe('getMaxActiveMessagesHardCap', () => {
