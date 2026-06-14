@@ -10,12 +10,14 @@ describe('restoreFromEntries', () => {
   beforeEach(async () => {
     process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
     const idx = await import('./index.js')
+    idx.initContextCollapse()
     idx.resetContextCollapse()
   })
 
   afterEach(async () => {
     delete process.env.CLAUDE_CONTEXT_COLLAPSE
     const idx = await import('./index.js')
+    idx.initContextCollapse()
     idx.resetContextCollapse()
   })
 
