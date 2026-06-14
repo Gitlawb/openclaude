@@ -109,8 +109,9 @@ describe('buildRouteOptions', () => {
 })
 
 describe('currentRouteValue', () => {
-  test('returns the route key, or undefined for none/dangling', () => {
+  test('returns the route key for any assigned route, undefined only for none', () => {
     expect(currentRouteValue({ kind: 'model-only', routeKey: 'mini', model: 'gpt-5-mini' })).toBe('mini')
+    expect(currentRouteValue({ kind: 'dangling', routeKey: 'ghost' })).toBe('ghost')
     expect(currentRouteValue({ kind: 'none' })).toBeUndefined()
   })
 })

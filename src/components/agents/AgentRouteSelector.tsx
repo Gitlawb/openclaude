@@ -12,7 +12,7 @@ import {
 } from '../../services/api/agentRouteSettings.js'
 import type { OptionWithDescription } from '../CustomSelect/select.js'
 import { Select } from '../CustomSelect/select.js'
-import { getInitialSettings } from '../../utils/settings/settings.js'
+import { getSettingsForSource } from '../../utils/settings/settings.js'
 
 type Props = {
   agentType: string
@@ -32,7 +32,9 @@ export function AgentRouteSelector({ agentType, current, onClose }: Props): Reac
     onClose()
   }
 
-  const settings = getInitialSettings()
+  // Build options from the same scope we persist to (user settings), so a key
+  // shown here can never create a shadow agentModels entry on a different scope.
+  const settings = getSettingsForSource('userSettings')
   const options: OptionWithDescription<string>[] = [
     ...buildRouteOptions(settings, current),
     {

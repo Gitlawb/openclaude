@@ -91,7 +91,7 @@ export function buildRouteOptions(
     .filter(o => o.value !== 'inherit')
     .map(o => {
       const entry = settings?.agentModels?.[o.value]
-      const isCross = Boolean(entry && entry.base_url && entry.api_key)
+      const isCross = Boolean(entry && (entry.base_url || entry.api_key))
       return {
         value: o.value,
         label: isCross ? `${o.label} (cross-provider)` : o.label,
