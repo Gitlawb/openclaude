@@ -176,11 +176,12 @@ describe('/ctx command surface (PR #1610)', () => {
           { name: 'System tools', tokens: 15_500, color: 'promptBorder' },
           { name: 'Memory files', tokens: 956, color: 'inactive' },
           { name: 'Messages', tokens: 84, color: 'permission' },
+          { name: 'Free space', tokens: 50_000, color: 'subtle' },
         ],
-        totalTokens: 24_340,
+        totalTokens: 74_340,
         maxTokens: 131_072,
         rawMaxTokens: 131_072,
-        percentage: 19,
+        percentage: 57,
         gridRows: [],
         model: 'claude-sonnet-4',
         memoryFiles: [],
@@ -279,5 +280,7 @@ describe('/ctx command surface (PR #1610)', () => {
     expect(out).toContain('/context')
     expect(out).toContain('/cost')
     expect(out).toContain('/stats')
+    // Capacity rows (Free space, Autocompact buffer, Compact buffer) should be filtered out.
+    expect(out).not.toContain('Free space')
   })
 })
