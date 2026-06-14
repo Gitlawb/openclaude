@@ -615,23 +615,34 @@ async function* queryLoop(
       //   2. After the cool-down elapses naturally
       //      (`lastForcedFailureAtMs + cooldownMs <= now`), the cap
       //      re-trips and compaction eventually happens.
+      //
+      // The two checks below are independent. `nextRetryAtMs` is the
+      // primary signal from the breaker's skip path, but it can be
+      // cleared by a non-forced skip on a subsequent over-cap turn
+      // (e.g. token-threshold compaction returns breaker metadata with
+      // no `nextRetryAtMs`, and the query loop `delete`s it on the
+      // next iteration). The belt-and-suspenders check on
+      // `lastForcedFailureAtMs` runs even when `nextRetryAtMs` is gone,
+      // so the cap doesn't re-fire while the provider is still
+      // recovering.
       const forcedCooldownActive = (() => {
         const lastForced = tracking?.lastForcedFailureAtMs
+        if (typeof lastForced !== 'number' || !Number.isFinite(lastForced)) {
+          return false
+        }
+        // Primary signal: explicit `nextRetryAtMs` from a tripped breaker.
         const nextRetry = tracking?.nextRetryAtMs
-        if (typeof lastForced !== 'number' || typeof nextRetry !== 'number') {
-          return false
+        if (typeof nextRetry === 'number' && Number.isFinite(nextRetry)) {
+          if (Date.now() < nextRetry) {
+            return true
+          }
         }
-        if (!Number.isFinite(lastForced) || !Number.isFinite(nextRetry)) {
-          return false
-        }
-        const now = Date.now()
-        if (now < nextRetry) {
-          return true
-        }
-        // Belt-and-suspenders: also honor the cool-down window from
-        // the last forced attempt, in case nextRetryAtMs has been
-        // cleared by a separate code path.
-        return now - lastForced < getAutoCompactFailureCooldownMs()
+        // Belt-and-suspenders: honor the cool-down window from the last
+        // forced attempt even if `nextRetryAtMs` was cleared by a
+        // non-forced skip. Without this, a token-threshold skip that
+        // returns no `nextRetryAtMs` would let the cap re-fire while
+        // the provider is still recovering — recreating the retry storm.
+        return Date.now() - lastForced < getAutoCompactFailureCooldownMs()
       })()
 
       if (

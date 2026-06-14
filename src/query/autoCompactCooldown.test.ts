@@ -1033,3 +1033,105 @@ test('forced message-count compaction runs even with DISABLE_COMPACT=1', async (
     ),
   ).toBe(false)
 })
+
+// ---------------------------------------------------------------------------
+// Issue #1373 follow-up (CodeRabbit round 3): the cap-check cool-down gate
+// at src/query.ts must hold even when `nextRetryAtMs` is cleared by a
+// non-forced skip. A non-forced skip on a tripped breaker (e.g. token-
+// threshold path) can return breaker metadata with no `nextRetryAtMs`,
+// and the query loop `delete`s it on the next iteration. Without the
+// belt-and-suspenders check on `lastForcedFailureAtMs`, the next over-
+// cap turn would restamp `forceReason: 'message-count'` while the
+// provider is still recovering — recreating the retry storm. This test
+// seeds the cap-only branch (short messages, no token-threshold forcing)
+// to exercise the path the other #1373 tests don't reach.
+// ---------------------------------------------------------------------------
+
+test('hard-cap cool-down holds even when a non-forced skip clears nextRetryAtMs', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '60000'
+  // Two short messages — under the token-threshold so shouldAutoCompact
+  // would return false on a non-forced turn. Only the hard-cap branch
+  // can force compaction.
+  const messages = [userMessage('short'), userMessage('also short')]
+  // Recent forced failure so the cool-down is active.
+  const forcedFailureAtMs = Date.now() - 1_000
+
+  // The cap-check gate must NOT have re-stamped `forceReason: 'message-count'`.
+  // If it did, the mock would receive a forced-attempt tracking and the
+  // test would not be exercising the non-forced-skip branch.
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const autocompact = mock(
+    async (
+      _messages: never,
+      _toolUseContext: never,
+      _params: never,
+      _querySource: never,
+      tracking: AutoCompactTrackingState | undefined,
+    ) => {
+      seenTracking.push(tracking)
+      // Mirror the real non-forced-skip shape: breaker metadata but no
+      // `lastForcedFailureAtMs` (only forced-attempt failures write it)
+      // and no `nextRetryAtMs` (this is the bug: a non-forced skip
+      // returning undefined for both lets the query loop `delete` the
+      // field, but the cap-check gate should still see
+      // `lastForcedFailureAtMs` from the input tracking and hold).
+      return {
+        wasCompacted: false,
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        // No `nextRetryAtMs` returned — the query loop will `delete` it.
+        lastFailureAtMs: forcedFailureAtMs,
+        circuitBreakerActive: true,
+        circuitBreakerTripped: true,
+        // No `lastForcedFailureAtMs` — non-forced skip.
+      }
+    },
+  )
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact,
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      // Seed: cap exceeded, recent forced failure, breaker tripped.
+      // The cap-check gate must hold — input already has both
+      // `lastForcedFailureAtMs` and `nextRetryAtMs`, but the mock will
+      // not return `nextRetryAtMs`, so the loop will `delete` it.
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        nextRetryAtMs: forcedFailureAtMs + 60_000,
+        lastForcedFailureAtMs: forcedFailureAtMs,
+      },
+    }),
+  )
+
+  // Cool-down held — no `forceReason: 'message-count'` restamped. The
+  // mock would have seen it on `tracking?.forceReason` if the gate had
+  // returned false. Also: the call model ran (max_turns, not
+  // blocking_limit), and the autocompact mock was only hit once.
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(seenTracking[0]?.forceReason).toBeUndefined()
+  // Sanity: the autocompact mock was actually called (the cap-check
+  // gate ran and let the call through, just without the forced path).
+  expect(autocompact).toHaveBeenCalledTimes(1)
+})
