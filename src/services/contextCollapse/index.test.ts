@@ -347,6 +347,60 @@ describe('applyCollapsesIfNeeded projection', () => {
     expect(uuids).toContain(uid('u0'))
     expect(uuids).toContain(uid('u4'))
   })
+
+  test('clears a staged span that is already committed (crash-window restore)', async () => {
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+
+    // Restore where the same span is in BOTH the commit log and the staged
+    // snapshot — possible if a crash landed the commit write but not the
+    // snapshot that drops it from staged.
+    idx.restoreContextCollapseState(
+      [
+        {
+          type: 'marble-origami-commit' as const,
+          sessionId: uid('s1'),
+          collapseId: '0000000000000001',
+          summaryUuid: uid('sum'),
+          summaryContent: '<collapsed id="0000000000000001">summary</collapsed>',
+          summary: 'summary',
+          firstArchivedUuid: uid('a1'),
+          lastArchivedUuid: uid('a3'),
+        },
+      ],
+      {
+        type: 'marble-origami-snapshot' as const,
+        sessionId: uid('s1'),
+        staged: [
+          { startUuid: uid('a1'), endUuid: uid('a3'), summary: 'summary', risk: 0.8, stagedAt: Date.now() },
+        ],
+        armed: true,
+        lastSpawnTokens: 0,
+      },
+    )
+    expect(idx.getStats().stagedSpans).toBe(1)
+
+    const fullHistory: Message[] = [
+      makeUserMsg('u0'),
+      makeUserMsg('a1'),
+      makeAssistantMsg('a2'),
+      makeUserMsg('a3'),
+      makeUserMsg('u4'),
+    ]
+
+    const { messages } = await idx.applyCollapsesIfNeeded(
+      fullHistory,
+      makeFakeToolUseContext(),
+      'repl_main_thread' as any,
+    )
+
+    // Collapse applied, and the stale staged span is gone (not stuck forever).
+    const uuids = messages.map(m => m.uuid)
+    expect(uuids).toContain(uid('sum'))
+    expect(uuids).not.toContain(uid('a2'))
+    expect(idx.getStats().stagedSpans).toBe(0)
+  })
 })
 
 describe('health', () => {

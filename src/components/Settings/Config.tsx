@@ -345,7 +345,11 @@ export function Config({
       });
       // Refresh runtime state so the toggle applies without a restart:
       // initContextCollapse re-reads env + this config key.
-      (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state: ${error}`);
+      }
       logEvent('tengu_context_collapse_setting_changed', {
         enabled: contextCollapseEnabled
       });
@@ -1237,6 +1241,9 @@ export function Config({
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
+    }
+    if (feature('CONTEXT_COLLAPSE') && globalConfig.contextCollapseEnabled !== initialConfig.current.contextCollapseEnabled) {
+      formattedChanges.push(`${globalConfig.contextCollapseEnabled ? 'Enabled' : 'Disabled'} context collapse (lossy)`);
     }
     if (globalConfig.respectGitignore !== initialConfig.current.respectGitignore) {
       formattedChanges.push(`${globalConfig.respectGitignore ? 'Enabled' : 'Disabled'} respect .gitignore in file picker`);

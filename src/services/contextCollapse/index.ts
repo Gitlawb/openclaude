@@ -228,6 +228,19 @@ function drainStaged(
   messages: Message[],
   persist: boolean,
 ): Message[] {
+  // A staged span can also already be in the commit log if a restore's snapshot
+  // predates the matching commit write (crash between the two persists). After
+  // projectView those messages are gone, so the span can't be drained normally;
+  // drop it here so it doesn't linger in stagedQueue and distort spawn/overflow.
+  const stale = stagedQueue.filter(s =>
+    commitLog.some(
+      c => c.firstArchivedUuid === s.startUuid && c.lastArchivedUuid === s.endUuid,
+    ),
+  )
+  if (stale.length > 0) {
+    stagedQueue = stagedQueue.filter(s => !stale.includes(s))
+  }
+
   const processed: StagedSpan[] = []
 
   for (const span of stagedQueue.sort((a, b) => a.stagedAt - b.stagedAt)) {
@@ -286,6 +299,11 @@ function drainStaged(
         .catch(() => {})
     }
 
+    notifyListeners()
+  } else if (stale.length > 0) {
+    // Only cleared already-committed staged spans; sync the snapshot so the
+    // dropped entries don't reappear on the next restore.
+    if (persist) void persistSnapshot().catch(() => {})
     notifyListeners()
   }
 
