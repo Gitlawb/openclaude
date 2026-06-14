@@ -817,8 +817,8 @@ export function adjustNewStringIndentation(
   if (oldString === fileMatch) return newString
 
   // Tokenize both strings to build a mapping from oldString characters to fileMatch characters.
-  const oldNorm = normalizeIndentation(oldString)
-  const actualNorm = normalizeIndentation(fileMatch)
+  const oldNorm = normalizeIndentation(oldString, false)
+  const actualNorm = normalizeIndentation(fileMatch, false)
 
   // Find where the normalized forms align
   const matchIndex = actualNorm.normalized.indexOf(oldNorm.normalized)
