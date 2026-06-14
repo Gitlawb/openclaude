@@ -200,6 +200,12 @@ export type CompactMockOptions = {
   growthBookDefault?: boolean
   /** Mock for executePreCompactHooks. */
   executePreCompactHooks?: ReturnType<typeof mock>
+  /** Override for getGlobalConfig(), e.g. to set compactModel. */
+  getGlobalConfig?: ReturnType<typeof mock>
+  /** Override for queryModelWithStreaming(), to inspect the model/options passed in. */
+  queryModelWithStreaming?: ReturnType<typeof mock>
+  /** Override for getMaxOutputTokensForModel(). */
+  getMaxOutputTokensForModel?: ReturnType<typeof mock>
 }
 
 /**
@@ -318,18 +324,21 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
 
   // --- API / streaming (DEFENSIVE) ---
   mock.module('../api/claude.js', () => ({
-    queryModelWithStreaming: mock(async function* () {
-      yield {
-        type: 'assistant' as const,
-        message: {
-          role: 'assistant' as const,
-          content: [{ type: 'text' as const, text: 'Streamed summary.' }],
-        },
-        uuid: `stream-${Math.random()}`,
-        timestamp: new Date().toISOString(),
-      }
-    }),
-    getMaxOutputTokensForModel: mock(() => 8192),
+    queryModelWithStreaming:
+      options.queryModelWithStreaming ??
+      mock(async function* () {
+        yield {
+          type: 'assistant' as const,
+          message: {
+            role: 'assistant' as const,
+            content: [{ type: 'text' as const, text: 'Streamed summary.' }],
+          },
+          uuid: `stream-${Math.random()}`,
+          timestamp: new Date().toISOString(),
+        }
+      }),
+    getMaxOutputTokensForModel:
+      options.getMaxOutputTokensForModel ?? mock(() => 8192),
   }))
 
   mock.module('../api/errors.js', () => ({
@@ -374,6 +383,9 @@ function registerCommonCompactStubs(options: CompactMockOptions = {}) {
   mock.module('../../utils/config.js', () => ({
     ..._realConfigModule,
     getMemoryPath: mock(() => '/tmp/memory'),
+    ...(options.getGlobalConfig
+      ? { getGlobalConfig: options.getGlobalConfig }
+      : {}),
   }))
 
   // --- File state cache (DEFENSIVE) ---
@@ -661,5 +673,55 @@ describe('compactConversation provider gate', () => {
     await compactConversation(messages, ctx, csp, false)
 
     expect(runForkedAgent).toHaveBeenCalled()
+  })
+})
+
+describe('compactConversation compactModel override', () => {
+  test('skips cache-sharing and routes streaming compaction to compactModel when it differs from mainLoopModel', async () => {
+    // All provider env vars are cleared by beforeEach, so this would normally
+    // be eligible for forked-agent cache-sharing (Anthropic provider). Setting
+    // compactModel to a different model than mainLoopModel must override that.
+    const compactModel = 'claude-opus-4-1'
+    const getMaxOutputTokensForModel = mock((model: string) =>
+      model === compactModel ? 4096 : 8192,
+    )
+    const queryModelWithStreaming = mock(async function* () {
+      yield {
+        type: 'assistant' as const,
+        message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'Streamed summary.' }],
+        },
+        uuid: `stream-${Math.random()}`,
+        timestamp: new Date().toISOString(),
+      }
+    })
+
+    const { compactConversation, runForkedAgent } = await importCompact({
+      getGlobalConfig: mock(() => ({
+        ..._realConfigModule.getGlobalConfig(),
+        compactModel,
+      })),
+      getMaxOutputTokensForModel,
+      queryModelWithStreaming,
+    })
+
+    const messages = [userMessage('Hello'), assistantMessage('Hi there!')]
+    const ctx = toolUseContext()
+    const csp = cacheSafeParams(messages)
+
+    await compactConversation(messages, ctx, csp, false)
+
+    // modelChangesForCompaction forces promptCacheSharingEnabled to false,
+    // even though the default (Anthropic) provider would normally allow
+    // forked-agent cache-sharing.
+    expect(runForkedAgent).not.toHaveBeenCalled()
+
+    expect(queryModelWithStreaming).toHaveBeenCalled()
+    const [{ options: streamOptions }] = queryModelWithStreaming.mock.calls[0] as unknown as [
+      { options: { model: string; maxOutputTokensOverride: number } },
+    ]
+    expect(streamOptions.model).toBe(compactModel)
+    expect(streamOptions.maxOutputTokensOverride).toBe(4096)
   })
 })
