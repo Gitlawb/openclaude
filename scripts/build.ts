@@ -27,7 +27,7 @@ const featureFlags: Record<string, boolean> = {
   DAEMON: false,                  // Background daemon process (stubbed in open build)
   AGENT_TRIGGERS: false,          // Scheduled remote agent triggers
   ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
-  CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
+  CONTEXT_COLLAPSE: true,        // Context collapsing optimization
   COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
   HISTORY_SNIP: true,             // Model-callable snip tool for context management
   UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
