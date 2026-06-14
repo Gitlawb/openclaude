@@ -41,7 +41,7 @@ import {
   getDeferredToolsDeltaAttachment,
   getMcpInstructionsDeltaAttachment,
 } from '../../utils/attachments.js'
-import { getMemoryPath } from '../../utils/config.js'
+import { getGlobalConfig, getMemoryPath } from '../../utils/config.js'
 import { COMPACT_MAX_OUTPUT_TOKENS } from '../../utils/context.js'
 import { createChildAbortController } from '../../utils/abortController.js'
 import {
@@ -459,7 +459,11 @@ export async function compactConversation(
     // The GB flag is kept as a kill-switch.
     // streamCompactSummary() (below) follows the same gate; see also the
     // provider-gate tests in src/services/compact/compact.test.ts.
+    const compactModel = getGlobalConfig().compactModel
+    const modelChangesForCompaction =
+      compactModel !== undefined && compactModel !== context.options.mainLoopModel
     const promptCacheSharingEnabled =
+      !modelChangesForCompaction &&
       isCompactionCacheSharingCompatible(context.options.mainLoopModel) &&
       getFeatureValue_CACHED_MAY_BE_STALE(
         'tengu_compact_cache_prefix',
@@ -1186,10 +1190,14 @@ async function streamCompactSummary({
   // prompt cache; other 3P providers are incompatible and would send
   // Anthropic-only params that they reject. The shared predicate makes this
   // safe to call from 3P provider paths.
+  const compactModel = getGlobalConfig().compactModel
+  const modelChangesForCompaction =
+    compactModel !== undefined && compactModel !== context.options.mainLoopModel
   const cacheSharingAvailable = isCompactionCacheSharingCompatible(
     context.options.mainLoopModel,
   )
   const promptCacheSharingEnabled =
+    !modelChangesForCompaction &&
     cacheSharingAvailable &&
     getFeatureValue_CACHED_MAY_BE_STALE(
       'tengu_compact_cache_prefix',
@@ -1402,13 +1410,13 @@ async function streamCompactSummary({
             const appState = context.getAppState()
             return appState.toolPermissionContext
           },
-          model: context.options.mainLoopModel,
+          model: compactModel ?? context.options.mainLoopModel,
           toolChoice: undefined,
           isNonInteractiveSession: context.options.isNonInteractiveSession,
           hasAppendSystemPrompt: !!context.options.appendSystemPrompt,
           maxOutputTokensOverride: Math.min(
             COMPACT_MAX_OUTPUT_TOKENS,
-            getMaxOutputTokensForModel(context.options.mainLoopModel),
+            getMaxOutputTokensForModel(compactModel ?? context.options.mainLoopModel),
           ),
           querySource: 'compact',
           agents: context.options.agentDefinitions.activeAgents,
