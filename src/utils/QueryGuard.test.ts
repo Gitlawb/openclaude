@@ -88,6 +88,25 @@ describe('QueryGuard', () => {
     vi.useRealTimers()
   })
 
+  test('timeout handler errors do not escape the watchdog callback', () => {
+    vi.useFakeTimers()
+    const guard = new QueryGuard()
+    const handlerError = new Error('handler failed')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    guard.setTimeoutHandler(() => {
+      throw handlerError
+    })
+
+    guard.tryStart()
+
+    expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
+    expect(guard.isActive).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
+
+    consoleError.mockRestore()
+    vi.useRealTimers()
+  })
+
   test('timeout is cleared when end() is called normally', () => {
     vi.useFakeTimers()
     const guard = new QueryGuard()

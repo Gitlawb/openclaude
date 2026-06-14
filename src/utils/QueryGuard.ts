@@ -156,6 +156,8 @@ export class QueryGuard {
         console.error(`[QueryGuard] Query timeout after ${QUERY_TIMEOUT_MS}ms — force-ending to prevent infinite spinner`)
         try {
           this._timeoutHandler?.(this._generation)
+        } catch (error) {
+          console.error('[QueryGuard] Timeout handler failed', error)
         } finally {
           this.forceEnd()
         }
