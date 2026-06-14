@@ -655,9 +655,9 @@ function convertMessages(
         // (harmless) or strict-reject unknown fields (harmful).
         if (preserveReasoningContent) {
           // `thinking` blocks carry their content in `.thinking`; `redacted_thinking`
-          // blocks carry it in `.data` (see thinkingTokenExtractor, token estimation,
-          // and message-size accounting). Read the right field per type so a real
-          // redacted block with non-empty content is not silently dropped to "".
+          // blocks carry it in `.data` (see token estimation and message-size
+          // accounting). Read the right field per type so a real redacted block
+          // with non-empty content is not silently dropped to "".
           const block = thinkingBlock as
             | { type?: string; thinking?: string; data?: string }
             | undefined

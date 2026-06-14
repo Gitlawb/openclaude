@@ -83,7 +83,17 @@ mock.module('./installedPluginsManager.js', () => ({
   updateInstallationPathOnDisk: mock(() => {}),
 }))
 
+// Spread the real config module to preserve all exports. The marketplace
+// module body transitively imports many of these; missing entries
+// (e.g. `normalizeMaxMessagesCompactionThreshold` added in PR #1605) break
+// any downstream test that re-imports the mocked path in the same Bun
+// process. The `?real=...` cache-bust ensures the import bypasses this
+// file's own mock.module() registration for the same path.
+const realConfig = await import(
+  `../config.js?real=${Date.now()}-${Math.random()}`
+)
 mock.module('../config.js', () => ({
+  ...realConfig,
   checkHasTrustDialogAccepted: () => true,
   enableConfigs: mock(() => {}),
   getCurrentProjectConfig: () => ({}),

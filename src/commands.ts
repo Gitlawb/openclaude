@@ -48,7 +48,7 @@ import {
   requestSize,
   requestSizeNonInteractive,
 } from './commands/request-size/index.js'
-import resume from './commands/resume/index.js'
+import resume, { continueCommand } from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
 import share from './commands/share/index.js'
@@ -283,6 +283,7 @@ const COMMANDS = memoize((): Command[] => [
   compact,
   commitMessage,
   config,
+  continueCommand,
   copy,
   desktop,
   context,

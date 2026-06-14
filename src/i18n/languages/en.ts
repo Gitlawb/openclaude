@@ -17,6 +17,7 @@ export const en = {
   'commands.commit-message.description':
     'Configure commit attribution text',
   'commands.config.description': 'Open config panel',
+  'commands.continue.description': 'Continue the current task',
   'commands.copy.description':
     "Copy Claude's last response to clipboard (or /copy N for the Nth-latest)",
   'commands.context.description': 'Show current context usage',
