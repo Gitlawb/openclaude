@@ -449,10 +449,12 @@ describe('discoverModelsForRoute', () => {
     const startupEnv: NodeJS.ProcessEnv = {
       CLAUDE_CODE_USE_OPENAI: '1',
       OPENAI_BASE_URL: 'http://localhost:4000/v1',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Test-Case: startup-context',
     }
 
-    setMockFetch(mock(() =>
-      Promise.resolve(
+    setMockFetch(mock((_input, init) => {
+      expect(init?.headers).toEqual({ 'X-Test-Case': 'startup-context' })
+      return Promise.resolve(
         new Response(
           JSON.stringify({
             data: [
@@ -465,7 +467,7 @@ describe('discoverModelsForRoute', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
       )
-    ) as unknown as typeof globalThis.fetch)
+    }) as unknown as typeof globalThis.fetch)
 
     const result = await refreshStartupDiscoveryForActiveRoute({
       processEnv: startupEnv,
