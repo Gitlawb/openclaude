@@ -1,6 +1,31 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Message } from '../../types/message.js'
 
+// Capture the real modules up front. mock.module() is global and mock.restore()
+// does NOT undo it (see effort.codex.test.ts), so the beforeEach stubs below
+// would otherwise bleed into later test files (e.g. the tokens stub makes
+// autoCompact see every conversation as over-threshold). We re-mock each back
+// to its real implementation in afterEach.
+//
+// `import * as` yields a LIVE namespace that bun's mock.module mutates in
+// place, so we must snapshot the real exports into a plain object now (before
+// any mock runs) rather than hold the namespace. autoCompact.js is
+// intentionally not restored here: autoCompact.test.ts re-imports it fresh via
+// a cache-busting nonce, and eagerly importing it here would shadow that.
+import * as spanSelectionNs from './spanSelection.js'
+import * as forkedAgentNs from '../../utils/forkedAgent.js'
+import * as tokensNs from '../../utils/tokens.js'
+import * as analyticsNs from '../../services/analytics/index.js'
+import * as logNs from '../../utils/log.js'
+import * as messagesNs from '../../utils/messages.js'
+
+const realSpanSelection = { ...spanSelectionNs }
+const realForkedAgent = { ...forkedAgentNs }
+const realTokens = { ...tokensNs }
+const realAnalytics = { ...analyticsNs }
+const realLog = { ...logNs }
+const realMessages = { ...messagesNs }
+
 // Build a transcript big enough to yield a collapsible span.
 function bigTranscript(): Message[] {
   const out: Message[] = []
@@ -117,9 +142,22 @@ beforeEach(() => {
   }))
 })
 
-afterEach(() => {
+afterEach(async () => {
   mock.restore()
+  // Restore module stubs to their real implementations (mock.restore() does
+  // not undo mock.module) so they do not bleed into other test files.
+  mock.module('./spanSelection.js', () => realSpanSelection)
+  mock.module('../../utils/forkedAgent.js', () => realForkedAgent)
+  mock.module('../../utils/tokens.js', () => realTokens)
+  mock.module('../../services/analytics/index.js', () => realAnalytics)
+  mock.module('../../utils/log.js', () => realLog)
+  mock.module('../../utils/messages.js', () => realMessages)
   delete process.env.CLAUDE_CONTEXT_COLLAPSE
+  // Re-sync enablement to the now-unset env so enabled=true does not leak
+  // into later test files.
+  const idx = await import('./index.js')
+  idx.resetContextCollapse()
+  idx.initContextCollapse()
 })
 
 function ctx(): any {
