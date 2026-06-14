@@ -14,34 +14,34 @@ resource issues. It is **not** a general code review.
 
 SCOPE: {{ARGS}}
 
-GIT STATUS:
+GIT CONTEXT (auto-collected, may be empty if not a git repo):
 
 \`\`\`
-!\`git status\`
+!\`git status 2>/dev/null || echo "Not a git repository or git unavailable"\`
 \`\`\`
 
 UNSTAGED CHANGES (working tree):
 
 \`\`\`
-!\`git diff --name-only --diff-filter=AM 2>/dev/null || true\`
+!\`git diff --name-only --diff-filter=AM 2>/dev/null || echo "(no unstaged changes or not a git repo)"\`
 \`\`\`
 
 STAGED CHANGES (index):
 
 \`\`\`
-!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || true\`
+!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || echo "(no staged changes or not a git repo)"\`
 \`\`\`
 
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files | head -50 || echo "(no git history)"\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50 || echo "(no git history or not a git repo)"\`
 \`\`\`
 
-DIFF OF UNSTAGED + STAGED CHANGES:
+DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
 \`\`\`
-!\`git diff HEAD -- . 2>/dev/null | head -400 || true\`
+!\`git diff HEAD -- . 2>/dev/null | head -400 || echo "(no diff available or not a git repo)"\`
 \`\`\`
 
 ---
@@ -50,14 +50,14 @@ DIFF OF UNSTAGED + STAGED CHANGES:
 
 Use Glob and Grep to identify the 5–7 most critical files for the scope above.
 If no scope was given, focus on staged + unstaged + recent-commit buckets.
-
-**Specifically map:**
-- Request handlers / RPC entry points (per-request cost matters)
+**If git context is empty, use Glob/Grep to find performance-critical files:**
+- Request handlers / RPC entry points / API routes (per-request cost matters)
 - Tight loops, hot-path utility functions, render pipelines
-- Data access (DB / cache / filesystem / network) on the request path
+- Data access layers (DB / cache / filesystem / network) on the request path
 - Event listeners, subscriptions, timers, intervals
 - Resource acquisition (connections, file handles, child processes)
 - Serialization / deserialization hot paths (JSON, encoding, parsing)
+- Build/bundle entry points (webpack config, vite config, etc.)
 
 Read the surrounding code, not just the diff. Bugs hide in context.
 

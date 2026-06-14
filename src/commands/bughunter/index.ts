@@ -12,34 +12,34 @@ You are a rigorous code auditor running a systematic bug hunt on a real codebase
 
 SCOPE: {{ARGS}}
 
-GIT STATUS:
+GIT CONTEXT (auto-collected, may be empty if not a git repo):
 
 \`\`\`
-!\`git status\`
+!\`git status 2>/dev/null || echo "Not a git repository or git unavailable"\`
 \`\`\`
 
 UNSTAGED CHANGES (working tree):
 
 \`\`\`
-!\`git diff --name-only --diff-filter=AM 2>/dev/null || true\`
+!\`git diff --name-only --diff-filter=AM 2>/dev/null || echo "(no unstaged changes or not a git repo)"\`
 \`\`\`
 
 STAGED CHANGES (index):
 
 \`\`\`
-!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || true\`
+!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || echo "(no staged changes or not a git repo)"\`
 \`\`\`
 
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files | head -50 || echo "(no git history)"\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50 || echo "(no git history or not a git repo)"\`
 \`\`\`
 
-DIFF OF UNSTAGED + STAGED CHANGES:
+DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
 \`\`\`
-!\`git diff HEAD -- . 2>/dev/null | head -400 || true\`
+!\`git diff HEAD -- . 2>/dev/null | head -400 || echo "(no diff available or not a git repo)"\`
 \`\`\`
 
 ---
@@ -48,8 +48,16 @@ DIFF OF UNSTAGED + STAGED CHANGES:
 
 Use Glob and Grep to identify the 5–7 most critical files related to the scope above.
 If no scope was given, focus on the files in the staged + unstaged + recent-commit
-buckets above. Read those files. Do not skip this step — bugs hide in context, and
+buckets above. **If git context is empty, use Glob/Grep to find the main source files
+in the project (e.g., src/**/*.ts, lib/**/*.js, etc.).**
+
+Read those files. Do not skip this step — bugs hide in context, and
 the diff blocks above are a starting point, not the whole story.
+
+**If no files found via git, search for:**
+- Entry points (main.ts, index.ts, app.ts, server.ts, cli.ts)
+- Core business logic directories
+- Recently modified files via filesystem timestamps
 
 ## Phase 2 — Hunt
 
