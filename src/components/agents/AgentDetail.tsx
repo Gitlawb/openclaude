@@ -3,8 +3,10 @@ import figures from 'figures';
 import * as React from 'react';
 import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import type { KeyboardEvent } from '../../ink/events/keyboard-event.js';
-import { Box, Text } from '../../ink.js';
+import { Box, Text, useInput } from '../../ink.js';
 import { useKeybinding } from '../../keybindings/useKeybinding.js';
+import { AgentRouteSelector } from './AgentRouteSelector.js';
+import { describeRouteLine, getAgentRoute } from '../../services/api/agentRouteSettings.js';
 import type { Tools } from '../../Tool.js';
 import { getAgentColor } from '../../tools/AgentTool/agentColorManager.js';
 import { getMemoryScopeDisplay } from '../../tools/AgentTool/agentMemory.js';
@@ -27,6 +29,13 @@ export function AgentDetail(t0) {
     onBack
   } = t0;
   const resolvedTools = resolveAgentTools(agent, tools, false);
+  const [routing, setRouting] = React.useState(false);
+  const currentRoute = getAgentRoute(agent.agentType);
+  useInput((input) => {
+    if (!routing && (input === 'm' || input === 'M')) {
+      setRouting(true);
+    }
+  }, { isActive: !routing });
   let t1;
   if ($[0] !== agent) {
     t1 = getActualRelativeAgentFilePath(agent);
@@ -216,5 +225,8 @@ export function AgentDetail(t0) {
   } else {
     t24 = $[47];
   }
-  return t24;
+  if (routing) {
+    return <AgentRouteSelector agentType={agent.agentType} current={currentRoute} onClose={() => setRouting(false)} />;
+  }
+  return <Box flexDirection="column">{t24}<Text dimColor={true}>{describeRouteLine(currentRoute)}  (press "m" to change)</Text></Box>;
 }
