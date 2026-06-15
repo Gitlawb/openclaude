@@ -207,6 +207,43 @@ test('openai launch prefers a live dedicated vendor key over the persisted one',
   assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-rotated-key')
 })
 
+test('openai launch preserves persisted LLMTR dedicated key across restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      OPENAI_MODEL: 'llmtr/gemma-4',
+      OPENAI_API_KEY: 'llmtr-secret-key',
+      LLMTR_API_KEY: 'llmtr-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://llmtr.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'llmtr/gemma-4')
+  assert.equal(env.OPENAI_API_KEY, 'llmtr-secret-key')
+  assert.equal(env.LLMTR_API_KEY, 'llmtr-secret-key')
+})
+
+test('openai launch prefers a live LLMTR key over the persisted one', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      OPENAI_MODEL: 'llmtr/gemma-4',
+      OPENAI_API_KEY: 'llmtr-old-key',
+      LLMTR_API_KEY: 'llmtr-old-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      LLMTR_API_KEY: 'llmtr-rotated-key',
+    },
+  })
+
+  assert.equal(env.LLMTR_API_KEY, 'llmtr-rotated-key')
+})
+
 test('xai launch uses descriptor defaults and persisted xAI key', async () => {
   const env = await buildLaunchEnv({
     profile: 'xai',

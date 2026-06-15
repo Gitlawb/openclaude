@@ -243,6 +243,17 @@ function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
+function buildLlmtrProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'llmtr',
+    name: 'LLMTR',
+    baseUrl: 'https://llmtr.com/v1',
+    model: 'llmtr/gemma-4',
+    apiKey: 'llmtr-test-key',
+    ...overrides,
+  })
+}
+
 describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -598,6 +609,21 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_API_KEY).toBe('atlas-test-key')
     expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
     expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('llmtr profile applies OpenAI-compatible env with LLMTR_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildLlmtrProfile())
+
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('llmtr/gemma-4')
+    expect(process.env.OPENAI_API_KEY).toBe('llmtr-test-key')
+    // dedicatedCredentialsOnly route: the key must be mirrored into
+    // LLMTR_API_KEY or validation reports "LLMTR auth is required".
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
   })
 
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {

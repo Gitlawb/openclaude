@@ -26,6 +26,7 @@ import {
   buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
   buildAtlasCloudProfileEnv,
+  buildLlmtrProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   type ProfileFileLocation,
@@ -577,6 +578,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
+    (profile.baseUrl?.toLowerCase().includes('llmtr.com')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.LLMTR_API_KEY, profile.apiKey)
+      : true) &&
     (isNearaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
@@ -721,6 +726,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (route.gatewayId === 'llmtr' || profile.baseUrl.toLowerCase().includes('llmtr.com')) {
+        openAIProfileEnv.LLMTR_API_KEY = profile.apiKey
       }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
@@ -1174,6 +1182,19 @@ function buildStartupProfileFromActiveProfile(
       if (route.vendorId === 'atlas-cloud') {
         const env =
           buildAtlasCloudProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.gatewayId === 'llmtr') {
+        const env =
+          buildLlmtrProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,

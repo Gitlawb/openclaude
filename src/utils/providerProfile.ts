@@ -101,6 +101,7 @@ const PROFILE_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
+  'LLMTR_API_KEY',
   'OPENCODE_API_KEY',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
@@ -130,6 +131,7 @@ const SECRET_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
+  'LLMTR_API_KEY',
   'OPENCODE_API_KEY',
 ] as const
 
@@ -192,6 +194,7 @@ export type ProfileEnv = {
   ATLAS_CLOUD_API_KEY?: string
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
+  LLMTR_API_KEY?: string
   OPENCODE_API_KEY?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
 }
@@ -219,7 +222,8 @@ type SecretValueSource = Partial<
     | 'MIMO_API_KEY'
     | 'ATLAS_CLOUD_API_KEY'
     | 'NEARAI_API_KEY'
-    | 'FIREWORKS_API_KEY',
+    | 'FIREWORKS_API_KEY'
+    | 'LLMTR_API_KEY',
     string | undefined
   >
 >
@@ -622,6 +626,46 @@ export function buildAtlasCloudProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     ATLAS_CLOUD_API_KEY: key,
+  }
+}
+
+export function buildLlmtrProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.LLMTR_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('llmtr')
+  const defaultModel = getRouteDefaultModel('llmtr')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('LLMTR route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    LLMTR_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    LLMTR_API_KEY: key,
   }
 }
 
@@ -1660,6 +1704,7 @@ export async function buildLaunchEnv(options: {
     'FIREWORKS_API_KEY',
     'MIMO_API_KEY',
     'VENICE_API_KEY',
+    'LLMTR_API_KEY',
   ] as const) {
     const dedicatedValue =
       sanitizeApiKey(processEnv[dedicatedKey]) ||
