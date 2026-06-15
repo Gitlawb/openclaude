@@ -167,12 +167,11 @@ Do not report findings in any of these categories:
 ## Output Format
 
 **Step 1 — Summary line:**
-\`Total confirmed perf issues: N | Critical: C | Medium: M | Low: L\`
+\`Total confirmed perf issues: N | Critical: C | Medium: M\`
 
 Where:
 - Critical = function will not return in reasonable time / OOM at realistic input
 - Medium = noticeable latency (>100ms) or excessive allocation at realistic input
-- Low = minor inefficiency, measurable but not user-visible
 
 **Step 2 — Findings table:**
 
@@ -186,7 +185,7 @@ must state the dominant cost. The Fix sketch column must be **code**, not prose.
 
 **Step 3 — Required follow-up:**
 
-> "Found N performance issues (C critical, M medium, L low). Want to open a fix spec for the critical ones?"
+> "Found N performance issues (C critical, M medium). Want to open a fix spec for the critical ones?"
 
 If no issues, say so and list the categories checked.
 

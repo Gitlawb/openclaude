@@ -166,7 +166,7 @@ Do not report findings in any of these categories:
 8. Vulnerabilities in outdated third-party libraries (managed separately)
 9. Memory safety issues in Rust or any memory-safe language
 10. Test files (*.test.ts, *.spec.ts, __tests__/) — not production code
-11. Log spoofing or log forging concerns (outputting unsanitized user input to logs)
+11. Log spoofing or log forging concerns unless they enable forgery of the audit trail (outputting unsanitized user input to logs)
 12. SSRF that only controls the path (only flag if it controls host or protocol)
 13. User-controlled content in AI system prompts
 14. Regex injection
