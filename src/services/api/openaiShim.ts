@@ -2572,8 +2572,14 @@ class OpenAIShimMessages {
       if (params.temperature !== undefined) responsesBody.temperature = params.temperature
       if (params.top_p !== undefined) responsesBody.top_p = params.top_p
       if (request.reasoning?.effort) {
-        responsesBody.reasoning_effort = request.reasoning.effort
-        responsesBody.reasoning_summary = 'auto'
+        // The Responses API nests reasoning controls under a `reasoning` object
+        // (`reasoning.effort` / `reasoning.summary`); the flat `reasoning_effort`
+        // form is Chat Completions only and is rejected here with
+        // "Unsupported parameter: 'reasoning_effort'" (#1638).
+        responsesBody.reasoning = {
+          effort: request.reasoning.effort,
+          summary: 'auto',
+        }
         responsesBody.include = ['reasoning.encrypted_content']
       }
 
