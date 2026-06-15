@@ -224,6 +224,82 @@ describe('diagnostic issue report', () => {
     expect(serialized).not.toContain('private-token-value')
   })
 
+  test('reports Codex alias runtime auth as Codex instead of OpenAI', async () => {
+    const report = await buildIssueReport({
+      env: {
+        HOME: '/home/alice',
+        PATH: '/usr/bin',
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_MODEL: 'codexplan',
+        CODEX_API_KEY: 'codex-secret-token',
+        CHATGPT_ACCOUNT_ID: 'acct_codex',
+      },
+      cwd: '/home/alice/private/openclaude',
+      now: new Date('2026-06-15T10:30:00.000Z'),
+      packageInfo: { version: '0.18.0' },
+      checks: {
+        buildArtifactsPresent: true,
+        ripgrep: { available: true, detail: 'system rg' },
+      },
+      settings: {
+        sourcesPresent: [],
+        validationErrors: [],
+      },
+      mcpServers: {},
+      errors: [],
+    })
+    const serialized = JSON.stringify(report)
+
+    expect(report.provider.routeId).toBe('codex')
+    expect(report.provider.label).toBe('Codex')
+    expect(report.provider.providerType).toBe('Codex Responses API')
+    expect(report.provider.model).toBe('codexplan')
+    expect(report.provider.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
+    expect(report.provider.credential).toEqual({
+      required: true,
+      present: true,
+      sources: ['CODEX_API_KEY', 'CHATGPT_ACCOUNT_ID'],
+    })
+    expect(serialized).not.toContain('codex-secret-token')
+    expect(serialized).not.toContain('acct_codex')
+  })
+
+  test('reports official Codex base URL as Codex instead of custom', async () => {
+    const report = await buildIssueReport({
+      env: {
+        HOME: '/home/alice',
+        PATH: '/usr/bin',
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_MODEL: 'codexspark',
+        OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+        CODEX_API_KEY: 'codex-secret-token',
+        CODEX_ACCOUNT_ID: 'acct_codex',
+      },
+      cwd: '/home/alice/private/openclaude',
+      now: new Date('2026-06-15T10:30:00.000Z'),
+      packageInfo: { version: '0.18.0' },
+      checks: {
+        buildArtifactsPresent: true,
+        ripgrep: { available: true, detail: 'system rg' },
+      },
+      settings: {
+        sourcesPresent: [],
+        validationErrors: [],
+      },
+      mcpServers: {},
+      errors: [],
+    })
+
+    expect(report.provider.routeId).toBe('codex')
+    expect(report.provider.label).toBe('Codex')
+    expect(report.provider.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
+    expect(report.provider.credential).toEqual({
+      required: true,
+      present: true,
+      sources: ['CODEX_API_KEY', 'CODEX_ACCOUNT_ID'],
+    })
+  })
+
   test('writes report files and creates parent directories', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-report-'))
     try {

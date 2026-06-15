@@ -15,6 +15,10 @@ import { resolveModelRuntimeLimits } from '../../integrations/runtimeMetadata.js
 import type { CapabilityFlags, ModelCatalogEntry } from '../../integrations/descriptors.js'
 import type { ScopedMcpServerConfig } from '../../services/mcp/types.js'
 import { getClaudeCodeMcpConfigs } from '../../services/mcp/config.js'
+import {
+  resolveProviderRequest,
+  resolveRuntimeCodexCredentials,
+} from '../../services/api/providerConfig.js'
 import { getInMemoryErrors } from '../log.js'
 import { getRipgrepStatus, testRipgrepOnFirstUse } from '../ripgrep.js'
 import {
@@ -132,6 +136,20 @@ type BuildIssueReportOptions = {
   mcpServers?: Record<string, Partial<ScopedMcpServerConfig>>
   errors?: Array<{ error: string; timestamp: string }>
   includeDebug?: boolean
+}
+
+type CredentialSummary = IssueReport['provider']['credential']
+
+type DiagnosticProviderContext = {
+  routeId: string
+  label: string
+  providerType: string
+  model: string
+  limitsModel: string
+  catalogRouteId: string
+  baseUrl?: string
+  apiFormat?: string
+  credential: CredentialSummary
 }
 
 function isTruthy(value: string | undefined): boolean {
@@ -267,6 +285,94 @@ function getCredentialSummary(routeId: string, env: NodeJS.ProcessEnv) {
   }
 }
 
+function getCodexCredentialSummary(env: NodeJS.ProcessEnv): CredentialSummary {
+  const credentials = resolveRuntimeCodexCredentials({ env })
+  const sources: string[] = []
+
+  if (env.CODEX_API_KEY?.trim()) {
+    sources.push('CODEX_API_KEY')
+  }
+  if (env.CODEX_ACCOUNT_ID?.trim()) {
+    sources.push('CODEX_ACCOUNT_ID')
+  } else if (env.CHATGPT_ACCOUNT_ID?.trim()) {
+    sources.push('CHATGPT_ACCOUNT_ID')
+  }
+
+  if (credentials.source === 'auth.json') {
+    if (env.CODEX_AUTH_JSON_PATH?.trim()) {
+      sources.push('CODEX_AUTH_JSON_PATH')
+    } else if (env.CODEX_HOME?.trim()) {
+      sources.push('CODEX_HOME')
+    } else {
+      sources.push('auth.json')
+    }
+  } else if (credentials.source === 'secure-storage') {
+    sources.push('secure-storage')
+  }
+
+  return {
+    required: true,
+    present: Boolean(credentials.apiKey && credentials.accountId),
+    sources: [...new Set(sources)],
+  }
+}
+
+function getKnownCredentialSourceNames(routeId: string): Set<string> {
+  return new Set([
+    ...collectProviderSecretEnvVars(),
+    ...getRouteCredentialEnvVars(routeId),
+    ...(routeId === 'codex'
+      ? [
+          'CODEX_API_KEY',
+          'CODEX_ACCOUNT_ID',
+          'CHATGPT_ACCOUNT_ID',
+          'CODEX_AUTH_JSON_PATH',
+          'CODEX_HOME',
+          'auth.json',
+          'secure-storage',
+        ]
+      : []),
+  ])
+}
+
+function resolveDiagnosticProviderContext(
+  env: NodeJS.ProcessEnv,
+): DiagnosticProviderContext {
+  if (isTruthy(env.CLAUDE_CODE_USE_OPENAI)) {
+    const request = resolveProviderRequest({ processEnv: env })
+    if (request.transport === 'codex_responses') {
+      return {
+        routeId: 'codex',
+        label: 'Codex',
+        providerType: 'Codex Responses API',
+        model: request.requestedModel,
+        limitsModel: request.resolvedModel,
+        catalogRouteId: 'openai',
+        baseUrl: request.baseUrl,
+        credential: getCodexCredentialSummary(env),
+      }
+    }
+  }
+
+  const routeId = resolveRouteId(env)
+  const descriptor = getRouteDescriptor(routeId)
+  const model = resolveProviderModel(routeId, env)
+
+  return {
+    routeId,
+    label: descriptor?.label ?? routeId,
+    providerType: getRouteProviderTypeLabel(routeId),
+    model,
+    limitsModel: model,
+    catalogRouteId: routeId,
+    baseUrl: resolveProviderBaseUrl(routeId, env),
+    ...(isTruthy(env.CLAUDE_CODE_USE_OPENAI) && env.OPENAI_API_FORMAT
+      ? { apiFormat: env.OPENAI_API_FORMAT }
+      : {}),
+    credential: getCredentialSummary(routeId, env),
+  }
+}
+
 function findCatalogEntry(
   routeId: string,
   model: string,
@@ -282,15 +388,18 @@ function findCatalogEntry(
 }
 
 function buildModelSummary(
-  routeId: string,
+  catalogRouteId: string,
   model: string,
+  limitsModel: string,
   env: NodeJS.ProcessEnv,
   baseUrl?: string,
 ): IssueReport['model'] {
-  const descriptor = getRouteDescriptor(routeId)
-  const catalogEntry = findCatalogEntry(routeId, model)
+  const descriptor = getRouteDescriptor(catalogRouteId)
+  const catalogEntry =
+    findCatalogEntry(catalogRouteId, limitsModel) ??
+    findCatalogEntry(catalogRouteId, model)
   const limits = resolveModelRuntimeLimits({
-    model,
+    model: limitsModel,
     processEnv: env,
     baseUrl,
   })
@@ -302,7 +411,7 @@ function buildModelSummary(
   return {
     contextWindow: limits.contextWindow,
     maxOutputTokens: limits.maxOutputTokens,
-    catalogSource: resolveCatalogSource(routeId, descriptor, catalogEntry),
+    catalogSource: resolveCatalogSource(catalogRouteId, descriptor, catalogEntry),
     capabilities: fallbackCapabilities,
   }
 }
@@ -445,18 +554,13 @@ export async function buildIssueReport(
   const cwd = options.cwd ?? process.cwd()
   const now = options.now ?? new Date()
   const packageInfo = readPackageInfo(options.packageInfo)
-  const routeId = resolveRouteId(env)
-  const descriptor = getRouteDescriptor(routeId)
-  const model = resolveProviderModel(routeId, env)
-  const baseUrl = resolveProviderBaseUrl(routeId, env)
+  const providerContext = resolveDiagnosticProviderContext(env)
   const mcp = await getMcpSummary(options.mcpServers)
   const settings = summarizeSettings(options.settings)
-  const credential = getCredentialSummary(routeId, env)
-  const knownCredentialSourceNames = new Set([
-    ...collectProviderSecretEnvVars(),
-    ...getRouteCredentialEnvVars(routeId),
-  ])
-  const activeCredentialSources = credential.sources.filter(source =>
+  const knownCredentialSourceNames = getKnownCredentialSourceNames(
+    providerContext.routeId,
+  )
+  const activeCredentialSources = providerContext.credential.sources.filter(source =>
     knownCredentialSourceNames.has(source),
   )
 
@@ -485,20 +589,26 @@ export async function buildIssueReport(
       },
     },
     provider: {
-      routeId,
-      label: descriptor?.label ?? routeId,
-      providerType: getRouteProviderTypeLabel(routeId),
-      model,
-      ...(isTruthy(env.CLAUDE_CODE_USE_OPENAI) && env.OPENAI_API_FORMAT
-        ? { apiFormat: env.OPENAI_API_FORMAT }
+      routeId: providerContext.routeId,
+      label: providerContext.label,
+      providerType: providerContext.providerType,
+      model: providerContext.model,
+      ...(providerContext.apiFormat ? { apiFormat: providerContext.apiFormat } : {}),
+      ...(providerContext.baseUrl
+        ? { baseUrl: redactDiagnosticUrl(providerContext.baseUrl) }
         : {}),
-      ...(baseUrl ? { baseUrl: redactDiagnosticUrl(baseUrl) } : {}),
       credential: {
-        ...credential,
+        ...providerContext.credential,
         sources: activeCredentialSources,
       },
     },
-    model: buildModelSummary(routeId, model, env, baseUrl),
+    model: buildModelSummary(
+      providerContext.catalogRouteId,
+      providerContext.model,
+      providerContext.limitsModel,
+      env,
+      providerContext.baseUrl,
+    ),
     settings,
     checks: await buildChecks(cwd, options.checks),
     mcp,
