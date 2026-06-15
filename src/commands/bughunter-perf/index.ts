@@ -236,8 +236,15 @@ const bughunterPerf = createMovedToPluginCommand({
         'bughunter-perf',
       )
     } catch {
-      processedContent = parsed.content
-        .replace(/!`[^`]+`/g, '(Shell execution unavailable)')
+      // Shell unavailable (e.g. Windows without Git Bash).
+      // Extract fallback text from || echo "..." in each command.
+      processedContent = parsed.content.replace(
+        /!`([^`]+)`/g,
+        (_, cmd: string) => {
+          const m = cmd.match(/\|\|\s*echo\s+"([^"]*)"/)
+          return m ? m[1] : ''
+        },
+      )
     }
 
     const finalContent = processedContent.replace('{{ARGS}}', () => scope)

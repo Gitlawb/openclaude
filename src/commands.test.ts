@@ -251,7 +251,8 @@ describe('builtInCommandNames', () => {
       // The shell snippet should appear VERBATIM (injection prevented)
       expect(promptText).toContain(maliciousScope)
       // The git context shell blocks should have been executed (showing fallback text)
-      expect(promptText).toMatch(/bash completed with no output/i)
+      // Accept either bash output or the static echo fallback text (for Windows/no-bash)
+      expect(promptText).toMatch(/(If empty:|bash completed with no output)/i)
     } finally {
       await rm(cwd, { recursive: true, force: true })
       if (originalUserType !== undefined) {
