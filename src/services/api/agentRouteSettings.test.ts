@@ -71,6 +71,37 @@ describe('readAgentRoute', () => {
     const s = { agentModels: { haiku: {} }, agentRouting: { verification: 'haiku' } } as unknown as SettingsJson
     expect(readAgentRoute(s, 'verification')).toEqual({ kind: 'model-only', routeKey: 'haiku', model: 'haiku' })
   })
+
+  test('matches a normalized routing key the runtime would resolve (hyphen vs underscore)', () => {
+    // Runtime normalizes "general_purpose" and "general-purpose" to the same key,
+    // so an exact-key read would wrongly report this agent as inheriting.
+    const s = {
+      agentModels: { mini: { model: 'gpt-5-mini' } },
+      agentRouting: { general_purpose: 'mini' },
+    } as unknown as SettingsJson
+    expect(readAgentRoute(s, 'general-purpose')).toEqual({ kind: 'model-only', routeKey: 'mini', model: 'gpt-5-mini' })
+  })
+
+  test('surfaces a default-fallback route with viaDefault', () => {
+    const s = {
+      agentModels: { mini: { model: 'gpt-5-mini' } },
+      agentRouting: { default: 'mini' },
+    } as unknown as SettingsJson
+    expect(readAgentRoute(s, 'Explore')).toEqual({
+      kind: 'model-only',
+      routeKey: 'mini',
+      model: 'gpt-5-mini',
+      viaDefault: true,
+    })
+  })
+
+  test('an own route key wins over the default fallback', () => {
+    const s = {
+      agentModels: { mini: { model: 'gpt-5-mini' }, haiku: {} },
+      agentRouting: { default: 'mini', Explore: 'haiku' },
+    } as unknown as SettingsJson
+    expect(readAgentRoute(s, 'Explore')).toEqual({ kind: 'model-only', routeKey: 'haiku', model: 'haiku' })
+  })
 })
 
 describe('computeSetRouteUpdate', () => {
@@ -92,15 +123,35 @@ describe('computeSetRouteUpdate', () => {
     const next = computeSetRouteUpdate(modelOnly, 'Explore', 'mini')
     expect(next.agentRouting).toEqual({ verification: 'mini', Explore: 'mini' })
   })
+
+  test('overwrites the existing normalized key in place instead of adding a sibling', () => {
+    const s = {
+      agentModels: { mini: { model: 'gpt-5-mini' }, haiku: {} },
+      agentRouting: { general_purpose: 'mini' },
+    } as unknown as SettingsJson
+    const next = computeSetRouteUpdate(s, 'general-purpose', 'haiku')
+    // The runtime first-wins lookup would ignore a "general-purpose" sibling, so
+    // we must reuse the existing "general_purpose" spelling.
+    expect(next.agentRouting).toEqual({ general_purpose: 'haiku' })
+  })
 })
 
 describe('computeClearRouteUpdate', () => {
   test('marks the routing key as undefined for deletion', () => {
-    const next = computeClearRouteUpdate('verification') as unknown as {
+    const next = computeClearRouteUpdate(modelOnly, 'verification') as unknown as {
       agentRouting: Record<string, string | undefined>
     }
     expect('verification' in next.agentRouting).toBe(true)
     expect(next.agentRouting.verification).toBeUndefined()
+  })
+
+  test('clears the existing normalized key spelling', () => {
+    const s = { agentRouting: { general_purpose: 'mini' } } as unknown as SettingsJson
+    const next = computeClearRouteUpdate(s, 'general-purpose') as unknown as {
+      agentRouting: Record<string, string | undefined>
+    }
+    expect('general_purpose' in next.agentRouting).toBe(true)
+    expect(next.agentRouting.general_purpose).toBeUndefined()
   })
 })
 
@@ -121,6 +172,15 @@ describe('buildRouteOptions', () => {
     expect(clear).toBeDefined()
     const ds = opts.find(o => o.value === 'ds')
     expect(ds?.label).toContain('cross-provider')
+  })
+
+  test('omits the clear option for a default-inherited route (nothing own to clear)', () => {
+    const s = {
+      agentModels: { mini: { model: 'gpt-5-mini' } },
+      agentRouting: { default: 'mini' },
+    } as unknown as SettingsJson
+    const opts = buildRouteOptions(s, { kind: 'model-only', routeKey: 'mini', model: 'gpt-5-mini', viaDefault: true })
+    expect(opts.map(o => o.value)).not.toContain(CLEAR_ROUTE_VALUE)
   })
 
   test('labels a partial cross-provider key as unconfigured, not cross-provider', () => {
@@ -149,5 +209,11 @@ describe('describeRouteLine', () => {
     expect(describeRouteLine({ kind: 'model-only', routeKey: 'm', model: 'gpt-5-mini' })).toContain('gpt-5-mini')
     expect(describeRouteLine({ kind: 'cross-provider', routeKey: 'ds', model: 'deepseek-chat', baseURL: 'x' })).toContain('cross-provider')
     expect(describeRouteLine({ kind: 'dangling', routeKey: 'ghost' })).toContain('ghost')
+  })
+
+  test('marks a default-inherited route', () => {
+    expect(
+      describeRouteLine({ kind: 'model-only', routeKey: 'm', model: 'gpt-5-mini', viaDefault: true }),
+    ).toContain('via default')
   })
 })

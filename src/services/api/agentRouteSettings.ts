@@ -11,33 +11,77 @@ export const CUSTOM_MODEL_VALUE = '__custom_model__'
 /** Sentinel Select value: clear the route so the agent inherits the parent model. */
 export const CLEAR_ROUTE_VALUE = '__clear_route__'
 
-/** The route currently assigned to an agent type in user settings. */
+/**
+ * The route currently assigned to an agent type in user settings. `viaDefault`
+ * marks a route the agent only gets through the `default` fallback (it has no
+ * own routing key), so the menu can show it without claiming it as the agent's
+ * own assignment.
+ */
 export type CurrentAgentRoute =
   | { kind: 'none' }
-  | { kind: 'model-only'; routeKey: string; model: string }
-  | { kind: 'cross-provider'; routeKey: string; model: string; baseURL: string }
-  | { kind: 'dangling'; routeKey: string }
+  | { kind: 'model-only'; routeKey: string; model: string; viaDefault?: boolean }
+  | { kind: 'cross-provider'; routeKey: string; model: string; baseURL: string; viaDefault?: boolean }
+  | { kind: 'dangling'; routeKey: string; viaDefault?: boolean }
 
-/** Read the route assigned to `agentType` from a settings value. Pure. */
-export function readAgentRoute(
-  settings: SettingsJson | null,
+/** Normalize a routing key the same way the runtime resolver does. */
+function normalizeAgentKey(key: string): string {
+  return key.toLowerCase().replace(/[-_]/g, '')
+}
+
+/**
+ * The existing `agentRouting` key (original spelling) that the runtime resolver
+ * would match for `agentType`, or undefined if none. Mirrors
+ * resolveAgentProvider's case-insensitive, hyphen/underscore-insensitive,
+ * first-wins lookup. Pure.
+ */
+function findOwnRouteKey(
+  routing: Record<string, string> | undefined,
   agentType: string,
+): string | undefined {
+  if (!routing) return undefined
+  const target = normalizeAgentKey(agentType)
+  for (const key of Object.keys(routing)) {
+    if (normalizeAgentKey(key) === target) return key
+  }
+  return undefined
+}
+
+/** Build the route descriptor for a resolved model key. Pure. */
+function describeModelKey(
+  settings: SettingsJson | null,
+  modelKey: string,
+  viaDefault: boolean,
 ): CurrentAgentRoute {
-  const routeKey = settings?.agentRouting?.[agentType]
-  if (!routeKey) return { kind: 'none' }
-  const entry = settings?.agentModels?.[routeKey]
-  if (!entry) return { kind: 'dangling', routeKey }
-  const model = entry.model?.trim() || routeKey
+  const entry = settings?.agentModels?.[modelKey]
+  if (!entry) return { kind: 'dangling', routeKey: modelKey, ...(viaDefault ? { viaDefault } : {}) }
+  const model = entry.model?.trim() || modelKey
   // Mirror the runtime resolver (toAgentRoute): cross-provider needs BOTH
   // base_url and api_key. A partial entry is skipped at runtime and inherits,
   // so surface it as unconfigured rather than claiming a route that won't run.
   const baseURL = entry.base_url?.trim()
   const apiKey = entry.api_key?.trim()
-  if (!baseURL && !apiKey) return { kind: 'model-only', routeKey, model }
+  if (!baseURL && !apiKey) return { kind: 'model-only', routeKey: modelKey, model, ...(viaDefault ? { viaDefault } : {}) }
   if (baseURL && apiKey) {
-    return { kind: 'cross-provider', routeKey, model, baseURL }
+    return { kind: 'cross-provider', routeKey: modelKey, model, baseURL, ...(viaDefault ? { viaDefault } : {}) }
   }
-  return { kind: 'dangling', routeKey }
+  return { kind: 'dangling', routeKey: modelKey, ...(viaDefault ? { viaDefault } : {}) }
+}
+
+/**
+ * Read the route assigned to `agentType` from a settings value, mirroring the
+ * runtime resolver: a normalized per-agent key wins, otherwise the `default`
+ * fallback applies (surfaced with `viaDefault`). Pure.
+ */
+export function readAgentRoute(
+  settings: SettingsJson | null,
+  agentType: string,
+): CurrentAgentRoute {
+  const routing = settings?.agentRouting
+  const ownKey = findOwnRouteKey(routing, agentType)
+  if (ownKey) return describeModelKey(settings, routing![ownKey], false)
+  const defaultModelKey = routing?.default
+  if (defaultModelKey) return describeModelKey(settings, defaultModelKey, true)
+  return { kind: 'none' }
 }
 
 /** The Select value representing the current route, if any. Pure. */
@@ -59,29 +103,39 @@ export function computeSetRouteUpdate(
   if (!agentModels[modelKey]) {
     agentModels[modelKey] = { model: modelKey }
   }
-  const agentRouting = { ...(settings?.agentRouting ?? {}), [agentType]: modelKey }
+  // Reuse the existing routing key the runtime would match so we overwrite it
+  // in place instead of writing a normalized sibling the resolver's first-wins
+  // lookup would ignore (e.g. "general-purpose" beside "general_purpose").
+  const routingKey = findOwnRouteKey(settings?.agentRouting, agentType) ?? agentType
+  const agentRouting = { ...(settings?.agentRouting ?? {}), [routingKey]: modelKey }
   return { agentModels, agentRouting } as unknown as SettingsJson
 }
 
 /**
- * Next settings to clear `agentType`'s route. The explicit `undefined` is what
- * makes updateSettingsForSource delete the key on merge. Pure.
+ * Next settings to clear `agentType`'s route. Clears the effective routing key
+ * the runtime would match (not a normalized sibling). The explicit `undefined`
+ * is what makes updateSettingsForSource delete the key on merge. Pure.
  */
-export function computeClearRouteUpdate(agentType: string): SettingsJson {
-  return { agentRouting: { [agentType]: undefined } } as unknown as SettingsJson
+export function computeClearRouteUpdate(
+  settings: SettingsJson | null,
+  agentType: string,
+): SettingsJson {
+  const routingKey = findOwnRouteKey(settings?.agentRouting, agentType) ?? agentType
+  return { agentRouting: { [routingKey]: undefined } } as unknown as SettingsJson
 }
 
 /** Human-readable one-line route summary for the AgentDetail view. Pure. */
 export function describeRouteLine(current: CurrentAgentRoute): string {
+  const viaDefault = current.kind !== 'none' && current.viaDefault ? ' (via default)' : ''
   switch (current.kind) {
     case 'none':
       return 'Route: inherits parent model'
     case 'model-only':
-      return `Route: ${current.model} (current provider)`
+      return `Route: ${current.model} (current provider)${viaDefault}`
     case 'cross-provider':
-      return `Route: ${current.model} (cross-provider)`
+      return `Route: ${current.model} (cross-provider)${viaDefault}`
     case 'dangling':
-      return `Route: ${current.routeKey} (unconfigured, inherits)`
+      return `Route: ${current.routeKey} (unconfigured, inherits)${viaDefault}`
   }
 }
 
@@ -111,7 +165,11 @@ export function buildRouteOptions(
       }
     })
 
-  if (current.kind !== 'none') {
+  // Only offer "clear" when the agent has its OWN routing key. A route inherited
+  // via `default` has nothing agent-specific to remove, and clearing wouldn't
+  // make it inherit the parent (default would still apply), so the option would
+  // claim a change the runtime ignores.
+  if (current.kind !== 'none' && !current.viaDefault) {
     modelOptions.push({
       value: CLEAR_ROUTE_VALUE,
       label: 'Clear route (inherit from parent)',
@@ -139,5 +197,8 @@ export function setAgentRoute(
 
 /** Remove `agentType`'s route in user-global settings. */
 export function clearAgentRoute(agentType: string): { error: Error | null } {
-  return updateSettingsForSource('userSettings', computeClearRouteUpdate(agentType))
+  return updateSettingsForSource(
+    'userSettings',
+    computeClearRouteUpdate(getSettingsForSource('userSettings'), agentType),
+  )
 }
