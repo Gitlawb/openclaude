@@ -140,13 +140,11 @@ describe('builtInCommandNames', () => {
     'git rev-parse --git-dir',
     'git rev-parse --git-dir 2>&1',
     'git diff HEAD -- . 2> /dev/null',
-    'head -400',
-    'head -50',
-    'echo "(no diff available or not a git repo)"',
-    'echo "(no git history or not a git repo)"',
-    'echo "(no unstaged changes or not a git repo)"',
-    'echo "(no staged changes or not a git repo)"',
-    'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50',
+    'git status 2>/dev/null',
+    'git diff --name-only --diff-filter=AM 2>/dev/null',
+    'git diff --cached --name-only --diff-filter=AM 2>/dev/null',
+    'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null',
+    'git diff HEAD -- . 2>/dev/null',
   ]
 
   const createMockToolContext = (cwd: string, commands: string[]) =>

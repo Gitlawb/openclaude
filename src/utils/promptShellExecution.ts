@@ -181,9 +181,7 @@ function formatBashOutput(
 function formatBashError(e: unknown, pattern: string, inline = false): never {
   if (e instanceof ShellError) {
     if (e.interrupted) {
-      throw new MalformedCommandError(
-        `Shell command interrupted for pattern "${pattern}": [Command interrupted]`,
-      )
+      throw e
     }
     const output = formatBashOutput(e.stdout, e.stderr, inline)
     throw new MalformedCommandError(

@@ -2,6 +2,7 @@ import { parseFrontmatter } from '../../utils/frontmatterParser.js'
 import { createGetAppStateWithAllowedTools } from '../../utils/forkedAgent.js'
 import { parseSlashCommandToolsFromFrontmatter } from '../../utils/markdownConfigLoader.js'
 import { executeShellCommandsInPrompt } from '../../utils/promptShellExecution.js'
+import { ShellError } from '../../utils/errors.js'
 import { createMovedToPluginCommand } from '../createMovedToPluginCommand.js'
 
 const BUGHUNTER_PERF_PROMPT = `---
@@ -18,33 +19,37 @@ SCOPE: {{ARGS}}
 GIT CONTEXT (auto-collected, may be empty if not a git repo):
 
 \`\`\`
-!\`git status 2>/dev/null || echo "(If empty: not a git repository or git unavailable)"\`
+!\`git status 2>/dev/null\`
 \`\`\`
+(If empty: not a git repository or git unavailable)
 
 UNSTAGED CHANGES (working tree):
 
 \`\`\`
-!\`git diff --name-only --diff-filter=AM 2>/dev/null || echo "(If empty: no unstaged changes or not a git repo)"\`
+!\`git diff --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
+(If empty: no unstaged changes or not a git repo)
 
 STAGED CHANGES (index):
 
 \`\`\`
-!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null || echo "(If empty: no staged changes or not a git repo)"\`
+!\`git diff --cached --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
+(If empty: no staged changes or not a git repo)
 
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50\`
+!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null\`
 \`\`\`
 (If empty: no git history or not a git repo)
 
 DIFF OF UNSTAGED + STAGED CHANGES (first 400 lines):
 
 \`\`\`
-!\`git diff HEAD -- . 2>/dev/null | head -400 || echo "(If empty: no diff available or not a git repo)"\`
+!\`git diff HEAD -- . 2>/dev/null\`
 \`\`\`
+(If empty: no diff available or not a git repo)
 
 ---
 
@@ -235,16 +240,14 @@ const bughunterPerf = createMovedToPluginCommand({
         },
         'bughunter-perf',
       )
-    } catch {
+    } catch (e) {
+      // Surface interruptions — don't convert a cancellation into a normal prompt.
+      if (e instanceof ShellError && e.interrupted) {
+        throw e
+      }
       // Shell unavailable (e.g. Windows without Git Bash).
-      // Extract fallback text from || echo "..." in each command.
-      processedContent = parsed.content.replace(
-        /!`([^`]+)`/g,
-        (_, cmd: string) => {
-          const m = cmd.match(/\|\|\s*echo\s+"([^"]*)"/)
-          return m ? m[1] : ''
-        },
-      )
+      // Static fallback text outside the code blocks will show in the prompt.
+      processedContent = parsed.content.replace(/!`[^`]+`/g, '')
     }
 
     const finalContent = processedContent.replace('{{ARGS}}', () => scope)
