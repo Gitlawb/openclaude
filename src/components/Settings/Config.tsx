@@ -1296,6 +1296,17 @@ export function Config({
     // the returned ref equals current (test mode checks ref; prod writes to
     // disk but content is identical).
     saveGlobalConfig(() => initialConfig.current);
+    // Context collapse: the toggle's onChange calls initContextCollapse() to
+    // refresh the module-level enabled/armed cache. The global config restore
+    // above rewrites the key on disk but doesn't touch that cache, so re-init
+    // here to keep runtime state in sync with the reverted config.
+    if (feature('CONTEXT_COLLAPSE')) {
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state on cancel: ${error}`);
+      }
+    }
     // Settings files: restore each key Config may have touched. undefined
     // deletes the key (updateSettingsForSource customizer at settings.ts:368).
     const il = initialLocalSettings;
