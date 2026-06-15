@@ -241,6 +241,55 @@ test('collectLiveBackgroundSessionIds includes local registry sessions when UDS 
   ).toEqual(new Set([liveSessionId]))
 })
 
+test('collectLiveBackgroundSessionIds falls back to registry sessions when UDS fails', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const liveSessionId = '00000000-0000-4000-8000-000000000333'
+  const { collectLiveBackgroundSessionIds } =
+    await importFreshConversationRecovery()
+
+  expect(
+    await collectLiveBackgroundSessionIds({
+      listAllLiveSessions: async () => {
+        throw new Error('UDS unavailable')
+      },
+      refreshBackgroundSessionStatuses: async () => [
+        {
+          sessionId: liveSessionId,
+          status: 'running',
+        },
+      ],
+      isTerminalBackgroundSession: session => session.status !== 'running',
+    }),
+  ).toEqual(new Set([liveSessionId]))
+})
+
+test('collectLiveBackgroundSessionIds falls back to UDS sessions when registry refresh fails', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const liveSessionId = '00000000-0000-4000-8000-000000000444'
+  const interactiveSessionId = '00000000-0000-4000-8000-000000000555'
+  const { collectLiveBackgroundSessionIds } =
+    await importFreshConversationRecovery()
+
+  expect(
+    await collectLiveBackgroundSessionIds({
+      listAllLiveSessions: async () => [
+        {
+          kind: 'background',
+          sessionId: liveSessionId,
+        },
+        {
+          kind: 'interactive',
+          sessionId: interactiveSessionId,
+        },
+      ],
+      refreshBackgroundSessionStatuses: async () => {
+        throw new Error('Registry unavailable')
+      },
+      isTerminalBackgroundSession: session => session.status !== 'running',
+    }),
+  ).toEqual(new Set([liveSessionId]))
+})
+
 test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
