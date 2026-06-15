@@ -486,7 +486,7 @@ test('forced message-count compaction overrides an active cool-down', async () =
         expect(tracking?.consecutiveFailures).toBe(
           MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
         )
-        expect(tracking?.forceReason).toBe('message-count')
+        expect(tracking?.forceReason).toBe('hard-message-count')
         // Forced path succeeded — return a clean compact result.
         return {
           wasCompacted: true,
@@ -523,7 +523,7 @@ test('forced message-count compaction overrides an active cool-down', async () =
   // continued to the model.
   expect(terminal.reason).toBe('max_turns')
   expect(seenTracking).toHaveLength(1)
-  expect(seenTracking[0]?.forceReason).toBe('message-count')
+  expect(seenTracking[0]?.forceReason).toBe('hard-message-count')
   expect(
     yielded.some(
       message =>
@@ -567,7 +567,7 @@ test('user cap still fires when the operator-level hard cap is disabled', async 
         tracking: AutoCompactTrackingState | undefined,
       ) => {
         seenTracking.push(tracking)
-        expect(tracking?.forceReason).toBe('message-count')
+        expect(tracking?.forceReason).toBe('user-message-count')
         return {
           wasCompacted: true,
           consecutiveFailures: 0,
@@ -593,7 +593,7 @@ test('user cap still fires when the operator-level hard cap is disabled', async 
 
   expect(terminal.reason).toBe('max_turns')
   expect(seenTracking).toHaveLength(1)
-  expect(seenTracking[0]?.forceReason).toBe('message-count')
+  expect(seenTracking[0]?.forceReason).toBe('user-message-count')
   expect(
     yielded.some(
       message =>
@@ -722,7 +722,7 @@ test('hard-cap re-trigger fires again once the cool-down has elapsed', async () 
         tracking: AutoCompactTrackingState | undefined,
       ) => {
         seenTracking.push(tracking)
-        expect(tracking?.forceReason).toBe('message-count')
+        expect(tracking?.forceReason).toBe('hard-message-count')
         return {
           wasCompacted: true,
           consecutiveFailures: 0,
@@ -756,7 +756,7 @@ test('hard-cap re-trigger fires again once the cool-down has elapsed', async () 
 
   expect(terminal.reason).toBe('max_turns')
   expect(seenTracking).toHaveLength(1)
-  expect(seenTracking[0]?.forceReason).toBe('message-count')
+  expect(seenTracking[0]?.forceReason).toBe('hard-message-count')
   expect(
     yielded.some(
       message =>
@@ -920,9 +920,9 @@ test('forced message-count compaction runs even with DISABLE_AUTO_COMPACT=1', as
         tracking: AutoCompactTrackingState | undefined,
       ) => {
         seenTracking.push(tracking)
-        // The query loop must have stamped `forceReason: 'message-count'`
+        // The query loop must have stamped `forceReason: 'hard-message-count'`
         // even though the user opted out of token-threshold autocompact.
-        expect(tracking?.forceReason).toBe('message-count')
+        expect(tracking?.forceReason).toBe('hard-message-count')
         // Mirror the real autoCompactIfNeeded: forced calls bypass
         // `isAutoCompactEnabled()`, so the compact succeeds and the
         // breaker is reset.
@@ -1002,7 +1002,7 @@ test('forced message-count compaction runs even with DISABLE_COMPACT=1', async (
         tracking: AutoCompactTrackingState | undefined,
       ) => {
         seenTracking.push(tracking)
-        expect(tracking?.forceReason).toBe('message-count')
+        expect(tracking?.forceReason).toBe('hard-message-count')
         return {
           wasCompacted: true,
           consecutiveFailures: 0,
@@ -1050,7 +1050,7 @@ test('forced message-count compaction runs even with DISABLE_COMPACT=1', async (
 // threshold path) can return breaker metadata with no `nextRetryAtMs`,
 // and the query loop `delete`s it on the next iteration. Without the
 // belt-and-suspenders check on `lastForcedFailureAtMs`, the next over-
-// cap turn would restamp `forceReason: 'message-count'` while the
+// cap turn would restamp `forceReason: 'hard-message-count'` while the
 // provider is still recovering — recreating the retry storm. This test
 // seeds the cap-only branch (short messages, no token-threshold forcing)
 // to exercise the path the other #1373 tests don't reach.
@@ -1066,7 +1066,7 @@ test('hard-cap cool-down holds even when a non-forced skip clears nextRetryAtMs'
   // Recent forced failure so the cool-down is active.
   const forcedFailureAtMs = Date.now() - 1_000
 
-  // The cap-check gate must NOT have re-stamped `forceReason: 'message-count'`.
+  // The cap-check gate must NOT have re-stamped `forceReason: 'hard-message-count'`.
   // If it did, the mock would receive a forced-attempt tracking and the
   // test would not be exercising the non-forced-skip branch.
   const seenTracking: Array<AutoCompactTrackingState | undefined> = []
@@ -1133,7 +1133,7 @@ test('hard-cap cool-down holds even when a non-forced skip clears nextRetryAtMs'
     }),
   )
 
-  // Cool-down held — no `forceReason: 'message-count'` restamped. The
+  // Cool-down held — no `forceReason: 'hard-message-count'` restamped. The
   // mock would have seen it on `tracking?.forceReason` if the gate had
   // returned false. Also: the call model ran (max_turns, not
   // blocking_limit), and the autocompact mock was only hit once.

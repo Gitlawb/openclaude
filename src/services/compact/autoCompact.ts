@@ -70,13 +70,13 @@ export type AutoCompactTrackingState = {
   nextRetryAtMs?: number
   lastFailureAtMs?: number
   // When set, bypasses shouldAutoCompact() token threshold check.
-  // Used by memory pressure and message count guards to force compaction
-  // even when token usage is below the normal autocompact threshold.
-  forceReason?: 'memory-pressure' | 'message-count'
+  // Memory pressure and hard message-count are safety guards that also bypass
+  // user opt-outs; user message-count still respects auto-compact settings.
+  forceReason?: 'memory-pressure' | 'hard-message-count' | 'user-message-count'
   // Wall-clock time of the most recent failure from a forced compaction
   // (memory-pressure or message-count). Distinct from `lastFailureAtMs`,
   // which records every compaction failure regardless of source. Issue
-  // #1373 follow-up: a forced `message-count` attempt that fails can
+  // #1373 follow-up: a forced message-count attempt that fails can
   // otherwise re-fire on every over-cap turn because the query loop
   // re-sets `forceReason` before the breaker cool-down has elapsed.
   // The cap check uses this together with the breaker cool-down to gate
@@ -102,7 +102,7 @@ export const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
  * token-based auto-compact threshold, which the circuit breaker can stall.
  *
  * When the conversation exceeds this many messages, the query loop sets
- * `forceReason: 'message-count'` on the autoCompactTracking state, which
+ * `forceReason: 'hard-message-count'` on the autoCompactTracking state, which
  * forces an immediate compaction attempt even while the breaker is in
  * cooldown. Issue #1373: without this, a single summarization failure that
  * trips the breaker can let `state.messages` grow without bound until the
@@ -318,16 +318,14 @@ export async function shouldAutoCompact(
   // Subtract the rough-delta that snip already computed.
   snipTokensFreed = 0,
   // When set, the query loop has stamped a `forceReason` on tracking and
-  // routed the call through here. Bypasses the token-threshold check AND
-  // the `isAutoCompactEnabled()` user-opt-out guard (DISABLE_COMPACT,
-  // DISABLE_AUTO_COMPACT, autoCompactEnabled=false). The hard cap and
-  // memory pressure are runtime safety nets, not user settings — issue
-  // #1373 follow-up (CodeRabbit): letting the user-opt-out guard block
-  // the forced path defeats the OOM safety net for users who disabled
-  // token-threshold autocompact but didn't disable the hard cap. Other
-  // guards (recursion in forked agents, REACTIVE_COMPACT, CONTEXT_COLLAPSE)
-  // still apply — those are real safety constraints, not opt-outs.
-  forceReason?: 'memory-pressure' | 'message-count',
+  // routed the call through here. All forced reasons bypass the token-threshold
+  // check. Only runtime safety nets (`memory-pressure`, `hard-message-count`)
+  // bypass the `isAutoCompactEnabled()` user-opt-out guard (DISABLE_COMPACT,
+  // DISABLE_AUTO_COMPACT, autoCompactEnabled=false). The user-configured
+  // message cap is an auto-compact trigger, so it must still respect those
+  // opt-outs. Other guards (recursion in forked agents, REACTIVE_COMPACT,
+  // CONTEXT_COLLAPSE) still apply — those are real safety constraints.
+  forceReason?: AutoCompactTrackingState['forceReason'],
 ): Promise<boolean> {
   // Recursion guards. session_memory and compact are forked agents that
   // would deadlock.
@@ -345,8 +343,11 @@ export async function shouldAutoCompact(
     }
   }
 
-  // Forced calls bypass `isAutoCompactEnabled()` — see the param doc.
-  if (!forceReason && !isAutoCompactEnabled()) {
+  const bypassUserOptOuts =
+    forceReason === 'memory-pressure' || forceReason === 'hard-message-count'
+
+  // Safety-net forced calls bypass `isAutoCompactEnabled()` — see the param doc.
+  if (!bypassUserOptOuts && !isAutoCompactEnabled()) {
     return false
   }
 
@@ -432,30 +433,34 @@ export async function autoCompactIfNeeded(
   // Force compaction if a pressure/count signal set forceReason.
   // Consume the flag so it only forces one compaction cycle.
   // Resolve `forcedBy` before the `DISABLE_COMPACT` early-return so the
-  // forced path bypasses BOTH that env var AND `isAutoCompactEnabled()`
-  // (issue #1373 follow-up, CodeRabbit). The hard cap and memory pressure
-  // are runtime safety nets, not user settings — the only documented
-  // opt-out for the hard cap is `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0`,
-  // and a user who flipped `DISABLE_COMPACT` did not opt out of the OOM
-  // guard. The other guards (recursion, REACTIVE_COMPACT, CONTEXT_COLLAPSE)
-  // still apply — they are safety constraints, not opt-outs.
+  // safety-net forced path bypasses BOTH that env var AND
+  // `isAutoCompactEnabled()` (issue #1373 follow-up, CodeRabbit). The hard cap
+  // and memory pressure are runtime safety nets, not user settings — the only
+  // documented opt-out for the hard cap is
+  // `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0`, and a user who flipped
+  // `DISABLE_COMPACT` did not opt out of the OOM guard. The user-configured
+  // message-count threshold is not a safety net, so it still respects opt-outs.
+  // The other guards (recursion, REACTIVE_COMPACT, CONTEXT_COLLAPSE) still
+  // apply — they are safety constraints, not opt-outs.
   const forcedBy = tracking?.forceReason
+  const bypassUserOptOuts =
+    forcedBy === 'memory-pressure' || forcedBy === 'hard-message-count'
   if (tracking?.forceReason) {
     tracking.forceReason = undefined
   }
-  // Forced calls bypass the DISABLE_COMPACT early-return (see above).
-  // Non-forced calls still honor it, matching the long-standing behavior
-  // for manual /compact and token-threshold auto-compact.
-  if (!forcedBy && isEnvTruthy(process.env.DISABLE_COMPACT)) {
+  // Safety-net forced calls bypass the DISABLE_COMPACT early-return (see
+  // above). Non-safety calls still honor it, matching the long-standing
+  // behavior for manual /compact, token-threshold auto-compact, and the
+  // user-configured message-count threshold.
+  if (!bypassUserOptOuts && isEnvTruthy(process.env.DISABLE_COMPACT)) {
     return { wasCompacted: false }
   }
 
   const model = toolUseContext.options.mainLoopModel
-  // Forward the resolved `forceReason` to shouldAutoCompact so the
-  // user-opt-out guard (`isAutoCompactEnabled`) is bypassed for forced
-  // calls (issue #1373 follow-up). The other guards (recursion,
-  // REACTIVE_COMPACT, CONTEXT_COLLAPSE) still apply — they are safety
-  // constraints, not opt-outs.
+  // Forward the resolved `forceReason` to shouldAutoCompact so all forced
+  // reasons skip the token threshold, while only safety-net reasons bypass
+  // user opt-outs. The other guards (recursion, REACTIVE_COMPACT,
+  // CONTEXT_COLLAPSE) still apply — they are safety constraints, not opt-outs.
   const shouldCompact = await shouldAutoCompact(
     messages,
     model,

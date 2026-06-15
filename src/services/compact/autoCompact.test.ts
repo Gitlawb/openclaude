@@ -766,7 +766,7 @@ describe('autoCompactIfNeeded circuit breaker', () => {
 // permanently once tripped, letting state.messages grow without bound until
 // the Node heap OOMed. The fix has two parts:
 //   1. The query loop now enforces a hard cap on message count and sets
-//      forceReason='message-count' when crossed.
+//      forceReason='hard-message-count' when crossed.
 //   2. autoCompactIfNeeded honors forceReason even when the breaker is in
 //      cool-down (the breaker exists to prevent retry storms on token
 //      thresholds, not to block an explicit force signal).
@@ -778,7 +778,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
   })
 
-  test('message-count forceReason triggers compaction through an active breaker', async () => {
+  test('hard-message-count forceReason triggers compaction through an active breaker', async () => {
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
     const { autoCompactIfNeeded, MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES } =
@@ -799,7 +799,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
         turnId: 'turn',
         consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
         nextRetryAtMs: Date.now() + 60_000,
-        forceReason: 'message-count',
+        forceReason: 'hard-message-count',
       },
     )
 
@@ -811,7 +811,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     expect(result.forceReason).toBeUndefined()
   })
 
-  test('message-count forceReason still records cooldown on a continuing failure', async () => {
+  test('hard-message-count forceReason still records cooldown on a continuing failure', async () => {
     const compactConversation = mock(async () => {
       throw new Error('provider still down')
     })
@@ -835,7 +835,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
         turnId: 'turn',
         consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
         nextRetryAtMs: Date.now() - 1, // cooldown expired
-        forceReason: 'message-count',
+        forceReason: 'hard-message-count',
       },
     )
     const after = Date.now()
@@ -929,7 +929,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
   // path MUST bypass `isAutoCompactEnabled()` (DISABLE_AUTO_COMPACT,
   // autoCompactEnabled=false) so users who opted out of token-threshold
   // autocompact still get the OOM safety net.
-  test('message-count forceReason bypasses DISABLE_AUTO_COMPACT', async () => {
+  test('hard-message-count forceReason bypasses DISABLE_AUTO_COMPACT', async () => {
     process.env.DISABLE_AUTO_COMPACT = '1'
     try {
       const compactConversation = mock(async () => compactResult())
@@ -949,7 +949,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
           compacted: false,
           turnCounter: 0,
           turnId: 'turn',
-          forceReason: 'message-count',
+          forceReason: 'hard-message-count',
         },
       )
 
@@ -960,7 +960,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     }
   })
 
-  test('message-count forceReason bypasses autoCompactEnabled=false', async () => {
+  test('hard-message-count forceReason bypasses autoCompactEnabled=false', async () => {
     const compactConversation = mock(async () => compactResult())
     const trySessionMemoryCompaction = mock(async () => null)
     const { autoCompactIfNeeded } = await importAutoCompact({
@@ -979,7 +979,122 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
         compacted: false,
         turnCounter: 0,
         turnId: 'turn',
-        forceReason: 'message-count',
+        forceReason: 'hard-message-count',
+      },
+    )
+
+    expect(compactConversation).toHaveBeenCalledTimes(1)
+    expect(result.wasCompacted).toBe(true)
+  })
+
+  test('user-message-count forceReason respects autoCompactEnabled=false', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+      autoCompactEnabled: false,
+    })
+
+    const messages = overThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        forceReason: 'user-message-count',
+      },
+    )
+
+    expect(compactConversation).not.toHaveBeenCalled()
+    expect(result.wasCompacted).toBe(false)
+  })
+
+  test('user-message-count forceReason respects DISABLE_AUTO_COMPACT', async () => {
+    process.env.DISABLE_AUTO_COMPACT = '1'
+    try {
+      const compactConversation = mock(async () => compactResult())
+      const trySessionMemoryCompaction = mock(async () => null)
+      const { autoCompactIfNeeded } = await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        {
+          compacted: false,
+          turnCounter: 0,
+          turnId: 'turn',
+          forceReason: 'user-message-count',
+        },
+      )
+
+      expect(compactConversation).not.toHaveBeenCalled()
+      expect(result.wasCompacted).toBe(false)
+    } finally {
+      delete process.env.DISABLE_AUTO_COMPACT
+    }
+  })
+
+  test('user-message-count forceReason respects DISABLE_COMPACT', async () => {
+    process.env.DISABLE_COMPACT = '1'
+    try {
+      const compactConversation = mock(async () => compactResult())
+      const trySessionMemoryCompaction = mock(async () => null)
+      const { autoCompactIfNeeded } = await importAutoCompact({
+        compactConversation,
+        trySessionMemoryCompaction,
+      })
+
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        {
+          compacted: false,
+          turnCounter: 0,
+          turnId: 'turn',
+          forceReason: 'user-message-count',
+        },
+      )
+
+      expect(compactConversation).not.toHaveBeenCalled()
+      expect(result.wasCompacted).toBe(false)
+    } finally {
+      delete process.env.DISABLE_COMPACT
+    }
+  })
+
+  test('user-message-count forceReason compacts when auto-compact is enabled', async () => {
+    const compactConversation = mock(async () => compactResult())
+    const trySessionMemoryCompaction = mock(async () => null)
+    const { autoCompactIfNeeded } = await importAutoCompact({
+      compactConversation,
+      trySessionMemoryCompaction,
+    })
+
+    const messages = underThresholdMessages()
+    const result = await autoCompactIfNeeded(
+      messages,
+      toolUseContext(),
+      cacheSafeParams(messages),
+      'repl_main_thread',
+      {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        forceReason: 'user-message-count',
       },
     )
 
@@ -1050,7 +1165,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
   // CodeRabbit follow-up: it must NOT disable the OOM safety net either —
   // the hard cap and memory pressure are runtime guards, and a user who
   // flipped DISABLE_COMPACT did not opt out of the OOM prevention.
-  test('message-count forceReason bypasses DISABLE_COMPACT', async () => {
+  test('hard-message-count forceReason bypasses DISABLE_COMPACT', async () => {
     process.env.DISABLE_COMPACT = '1'
     try {
       const compactConversation = mock(async () => compactResult())
@@ -1070,7 +1185,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
           compacted: false,
           turnCounter: 0,
           turnId: 'turn',
-          forceReason: 'message-count',
+          forceReason: 'hard-message-count',
         },
       )
 

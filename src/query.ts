@@ -576,7 +576,7 @@ async function* queryLoop(
       // and we keep accruing new turns. Always active; opt out only by
       // setting OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0.
       //
-      // The forced `message-count` path bypasses `isAutoCompactEnabled()`
+      // The forced `hard-message-count` path bypasses `isAutoCompactEnabled()`
       // downstream in `shouldAutoCompact` — `DISABLE_COMPACT`,
       // `DISABLE_AUTO_COMPACT`, and `autoCompactEnabled: false` do NOT
       // disable this safety net (those are user token-threshold opt-outs,
@@ -592,17 +592,8 @@ async function* queryLoop(
           ? Number.parseInt(envSetting, 10)
           : 0
 
-      // Combine the two caps. Treat `0` on either side as "disabled" — a
-      // disabled operator-level hard cap must NOT take down a user-set
-      // threshold, and vice versa. When both are set, the tighter wins.
-      // Issue #1373 follow-up: prior `Math.min(userCap, hardCap)` returned
-      // 0 when hardCap=0, silently disabling user-configured compaction.
-      const activeCap =
-        userCap > 0 && hardCap > 0
-          ? Math.min(userCap, hardCap)
-          : userCap > 0
-            ? userCap
-            : hardCap
+      const hardCapExceeded = hardCap > 0 && messagesForQuery.length > hardCap
+      const userCapExceeded = userCap > 0 && messagesForQuery.length > userCap
 
       // Issue #1373 follow-up: gate the forced-compaction re-trigger on
       // the breaker cool-down so a continuing provider failure doesn't
@@ -652,30 +643,31 @@ async function* queryLoop(
       })()
 
       if (
-        activeCap > 0 &&
-        messagesForQuery.length > activeCap &&
+        (hardCapExceeded || userCapExceeded) &&
         !forcedCooldownActive
       ) {
-        if (userCap > 0 && messagesForQuery.length > userCap) {
-          logForDebugging(
-            `autocompact: user message-count cap reached (${messagesForQuery.length} > ${userCap}) — forcing compaction`,
-          )
-        } else if (messagesForQuery.length > hardCap) {
+        if (hardCapExceeded) {
           logForDebugging(
             `autocompact: hard message-count cap reached (${messagesForQuery.length} > ${hardCap}) — forcing compaction`,
+          )
+        } else {
+          logForDebugging(
+            `autocompact: user message-count cap reached (${messagesForQuery.length} > ${userCap}) — requesting compaction`,
           )
         }
         tracking = {
           ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
-          forceReason: 'message-count',
+          forceReason: hardCapExceeded
+            ? 'hard-message-count'
+            : 'user-message-count',
         }
       } else if (
-        activeCap > 0 &&
-        messagesForQuery.length > activeCap &&
+        (hardCapExceeded || userCapExceeded) &&
         forcedCooldownActive
       ) {
+        const deferredCap = hardCapExceeded ? hardCap : userCap
         logForDebugging(
-          `autocompact: message-count cap reached (${messagesForQuery.length} > ${activeCap}) but cool-down active — deferring forced compaction`,
+          `autocompact: message-count cap reached (${messagesForQuery.length} > ${deferredCap}) but cool-down active — deferring forced compaction`,
         )
       }
       if (consumeCompactionRequest()) {
