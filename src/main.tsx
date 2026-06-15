@@ -4163,7 +4163,42 @@ async function run(): Promise<CommanderCommand> {
   }
 
   // Doctor command - check installation health
-  program.command('doctor').description('Check the health of your OpenClaude auto-updater. Note: The workspace trust dialog is skipped and stdio servers from .mcp.json are spawned for health checks. Only use this command in directories you trust.').action(async () => {
+  const doctorCommand = program
+    .command('doctor')
+    .description('Check the health of your OpenClaude auto-updater. Note: The workspace trust dialog is skipped and stdio servers from .mcp.json are spawned for health checks. Only use this command in directories you trust.');
+  doctorCommand
+    .command('report')
+    .description('Print a redacted diagnostic report for GitHub issues')
+    .addOption(new Option('--json', 'Print JSON output').conflicts('markdown'))
+    .addOption(new Option('--markdown', 'Print Markdown output').conflicts('json'))
+    .option('--out <file>', 'Write the report to a file')
+    .addOption(new Option('--redacted', 'Keep redaction enabled (default)').default(true).hideHelp())
+    .option('--include-debug', 'Include redacted recent error summaries')
+    .action(async (options: {
+      json?: boolean;
+      markdown?: boolean;
+      out?: string;
+      redacted?: boolean;
+      includeDebug?: boolean;
+    }) => {
+      const {
+        doctorReportHandler,
+        printDoctorReportError,
+      } = await import('./cli/handlers/doctorReport.js');
+      try {
+        await doctorReportHandler({
+          format: options.json ? 'json' : 'markdown',
+          outFile: options.out ?? null,
+          includeDebug: options.includeDebug === true,
+          redacted: options.redacted !== false,
+        });
+        process.exit(0);
+      } catch (error) {
+        printDoctorReportError(error);
+        process.exit(1);
+      }
+    });
+  doctorCommand.action(async () => {
     const [{
       doctorHandler
     }, {

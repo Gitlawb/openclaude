@@ -154,3 +154,9 @@ openclaude --version
 ```
 
 If this prints a version number, the install succeeded. If it says "command not found," close your terminal, open a new one, and try again. On Windows, you may also need to add npm's global bin folder to your user `Path` (see the [Windows Quick Start](quick-start-windows.md) guide for details).
+
+When filing a bug, run this and paste the redacted output into the issue:
+
+```bash
+openclaude doctor report --markdown
+```
