@@ -45,16 +45,6 @@ import {
   setSessionSettingsCache,
 } from '../../utils/settings/settingsCache.js'
 
-// Real module references for mock isolation (mock.module() is process-global
-// and mock.restore() does not undo it — re-register the real modules in
-// afterEach to prevent leakage into later test files).
-import * as realMicroCompact from '../../services/compact/microCompact.js'
-import * as realAutoCompact from '../../services/compact/autoCompact.js'
-import * as realAnalyzeContext from '../../utils/analyzeContext.js'
-import * as realContext from '../../utils/context.js'
-import * as realModel from '../../utils/model/model.js'
-import * as realBootstrapState from '../../bootstrap/state.js'
-
 function findCtx(commands: ReturnType<typeof getCommands> extends Promise<infer T> ? T : never) {
   return commands.find(c => c.name === 'ctx')
 }
@@ -69,14 +59,6 @@ beforeEach(() => {
 
 afterEach(() => {
   mock.restore()
-  // Restore real modules as mock.module() is process-global and
-  // mock.restore() does not undo it.
-  mock.module('../../services/compact/microCompact.js', () => realMicroCompact)
-  mock.module('../../utils/analyzeContext.js', () => realAnalyzeContext)
-  mock.module('../../services/compact/autoCompact.js', () => realAutoCompact)
-  mock.module('../../utils/context.js', () => realContext)
-  mock.module('../../utils/model/model.js', () => realModel)
-  mock.module('../../bootstrap/state.js', () => realBootstrapState)
   resetSettingsCache()
   clearCommandMemoizationCaches()
 })
@@ -176,17 +158,10 @@ describe('/ctx command surface (PR #1610)', () => {
 
   test('call() renders the report sections and category bars', async () => {
     // Stub the heavy data-collection pipeline so the rendering path runs
-    // against a small, deterministic ContextData. The bar/header logic in
-    // call() is what we want to lock down — collectCtxData/analyzeContextUsage
-    // are out of scope for this PR.
-    mock.module('../../services/compact/microCompact.js', () => ({
-      microcompactMessages: async (m: unknown[]) => ({
-        messages: m,
-        toolResults: [],
-        compacted: false,
-      }),
-    }))
-
+    // against a small, deterministic ContextData. Only mock analyzeContext.js
+    // because it is the sole data fixture — the other modules (autoCompact,
+    // context, model, state, microCompact) use their real implementations
+    // to avoid process-global mock.module() leakage into downstream tests.
     mock.module('../../utils/analyzeContext.js', () => ({
       analyzeContextUsage: async () => ({
         categories: [
@@ -207,37 +182,8 @@ describe('/ctx command surface (PR #1610)', () => {
         mcpTools: [],
         agents: [],
         isAutoCompactEnabled: true,
-        autoCompactThreshold: 98_000,
+        autoCompactThreshold: 167_000,
       }),
-    }))
-
-    mock.module('../../services/compact/autoCompact.js', () => ({
-      getEffectiveContextWindowSize: () => 200_000,
-      getAutoCompactThreshold: () => 98_000,
-      isAutoCompactEnabled: () => true,
-    }))
-
-    mock.module('../../utils/context.js', () => ({
-      getContextWindowForModel: () => 200_000,
-      getModelMaxOutputTokens: () => ({ default: 8_192, upperLimit: 8_192 }),
-    }))
-
-    mock.module('../../utils/model/model.js', () => ({
-      getCanonicalName: (m: string) => m,
-    }))
-
-    mock.module('../../bootstrap/state.js', () => ({
-      getSdkBetas: () => [],
-      getModelUsage: () => ({}),
-      getTotalInputTokens: () => 0,
-      getTotalOutputTokens: () => 0,
-      getTotalCacheReadInputTokens: () => 0,
-      getTotalCacheCreationInputTokens: () => 0,
-      getTotalCostUSD: () => 0,
-      getTotalAPIDuration: () => 0,
-      getTotalDuration: () => 0,
-      getTotalLinesAdded: () => 0,
-      getTotalLinesRemoved: () => 0,
     }))
 
     // Re-import the module so the mocks above are wired up.
