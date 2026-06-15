@@ -55,8 +55,6 @@ test('CLI bundle includes the real sandbox runtime instead of the native stub', 
 
   const bundle = readFileSync(DIST, 'utf-8')
 
-  expect(bundle.includes('native-stub:@anthropic-ai/sandbox-runtime')).toBe(
-    false,
-  )
+  expect(bundle).not.toContain('native-stub:@anthropic-ai/sandbox-runtime')
   expect(bundle).toContain('bubblewrap (bwrap) not installed')
 })
