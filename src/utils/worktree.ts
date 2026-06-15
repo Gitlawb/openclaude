@@ -285,7 +285,7 @@ function worktreePathFor(repoRoot: string, slug: string): string {
 async function getOrCreateWorktree(
   repoRoot: string,
   slug: string,
-  options?: { prNumber?: number },
+  options?: { prNumber?: number; baseRef?: string },
 ): Promise<WorktreeCreateResult> {
   const worktreePath = worktreePathFor(repoRoot, slug)
   const worktreeBranch = worktreeBranchName(slug)
@@ -335,6 +335,12 @@ async function getOrCreateWorktree(
         )
       }
       baseBranch = 'FETCH_HEAD'
+    } else if (options?.baseRef) {
+      // Caller pinned an explicit base (e.g. agent isolation passes the parent
+      // session's HEAD so the worktree mirrors the parent's committed state
+      // rather than origin/<defaultBranch>). Use it verbatim; the rev-parse
+      // below resolves it to a SHA.
+      baseBranch = options.baseRef
     } else {
       // If origin/<branch> already exists locally, skip fetch. In large repos
       // (210k files, 16M objects) fetch burns ~6-8s on a local commit-graph
@@ -993,8 +999,26 @@ export async function createAgentWorktree(slug: string): Promise<{
     )
   }
 
+  // Base the agent worktree on the parent session's current HEAD so the
+  // isolated agent sees the same committed project state the parent is working
+  // on — not origin/<defaultBranch>, which may be an older tree missing files
+  // that only exist on the active branch (#1586). Resolve from the session cwd
+  // (not the canonical root) so a session on a feature branch is honored. Fall
+  // back to the default origin-based behavior if HEAD can't be resolved (e.g. a
+  // repo with no commits yet).
+  const { stdout: headStdout, code: headCode } =
+    await execFileNoThrowWithCwd(gitExe(), ['rev-parse', 'HEAD'], {
+      cwd: getCwd(),
+    })
+  const parentHeadRef =
+    headCode === 0 && headStdout.trim() ? headStdout.trim() : undefined
+
   const { worktreePath, worktreeBranch, headCommit, existed } =
-    await getOrCreateWorktree(gitRoot, slug)
+    await getOrCreateWorktree(
+      gitRoot,
+      slug,
+      parentHeadRef ? { baseRef: parentHeadRef } : undefined,
+    )
 
   if (!existed) {
     logForDebugging(
