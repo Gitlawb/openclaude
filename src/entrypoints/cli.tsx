@@ -67,8 +67,77 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
  * All imports are dynamic to minimize module evaluation for fast paths.
  * Fast-path for --version has zero imports beyond this file.
  */
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+type CliEntrypointOptions = {
+  bgSessionsEnabled?: boolean
+  importers?: Partial<CliEntrypointImporters>
+}
+
+type CliEntrypointImporters = {
+  startupProfiler: () => Promise<typeof import('../utils/startupProfiler.js')>
+  bg: () => Promise<typeof import('../cli/bg.js')>
+  providerFlag: () => Promise<typeof import('../utils/providerFlag.js')>
+  config: () => Promise<typeof import('../utils/config.js')>
+  managedEnv: () => Promise<typeof import('../utils/managedEnv.js')>
+  providerProfile: () => Promise<typeof import('../utils/providerProfile.js')>
+  providerValidation: () => Promise<
+    typeof import('../utils/providerValidation.js')
+  >
+  flagSettings: () => Promise<
+    typeof import('../utils/settings/flagSettings.js')
+  >
+  agentRouting: () => Promise<
+    typeof import('../services/api/agentRouting.js')
+  >
+  settings: () => Promise<typeof import('../utils/settings/settings.js')>
+  cliArgs: () => Promise<typeof import('../utils/cliArgs.js')>
+  githubModelsCredentials: () => Promise<
+    typeof import('../utils/githubModelsCredentials.js')
+  >
+  startupScreen: () => Promise<typeof import('../components/StartupScreen.js')>
+  earlyInput: () => Promise<typeof import('../utils/earlyInput.js')>
+  main: () => Promise<typeof import('../main.js')>
+}
+
+const defaultCliEntrypointImporters: CliEntrypointImporters = {
+  startupProfiler: () => import('../utils/startupProfiler.js'),
+  bg: () => import('../cli/bg.js'),
+  providerFlag: () => import('../utils/providerFlag.js'),
+  config: () => import('../utils/config.js'),
+  managedEnv: () => import('../utils/managedEnv.js'),
+  providerProfile: () => import('../utils/providerProfile.js'),
+  providerValidation: () => import('../utils/providerValidation.js'),
+  flagSettings: () => import('../utils/settings/flagSettings.js'),
+  agentRouting: () => import('../services/api/agentRouting.js'),
+  settings: () => import('../utils/settings/settings.js'),
+  cliArgs: () => import('../utils/cliArgs.js'),
+  githubModelsCredentials: () =>
+    import('../utils/githubModelsCredentials.js'),
+  startupScreen: () => import('../components/StartupScreen.js'),
+  earlyInput: () => import('../utils/earlyInput.js'),
+  main: () => import('../main.js'),
+}
+
+function getCliEntrypointImporters(
+  overrides: Partial<CliEntrypointImporters> | undefined,
+): CliEntrypointImporters {
+  return {
+    ...defaultCliEntrypointImporters,
+    ...overrides,
+  }
+}
+
+function isBgSessionsEnabled(options: CliEntrypointOptions): boolean {
+  if (options.bgSessionsEnabled !== undefined) return options.bgSessionsEnabled
+  if (feature('BG_SESSIONS')) return true
+  return false
+}
+
+export async function main(
+  args: string[] = process.argv.slice(2),
+  options: CliEntrypointOptions = {},
+): Promise<void> {
+  const bgSessionsEnabled = isBgSessionsEnabled(options)
+  const importers = getCliEntrypointImporters(options.importers)
 
   // Fast-path for --version/-v: zero module loading needed
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
@@ -81,12 +150,12 @@ async function main(): Promise<void> {
   // Fast-path for `openclaude ps|logs|attach|kill`.
   // Session management is entirely local, so it should not require config,
   // profile, credential, provider-validation, or startup-screen work.
-  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill')) {
+  if (bgSessionsEnabled && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill')) {
     const {
       profileCheckpoint
-    } = await import('../utils/startupProfiler.js');
+    } = await importers.startupProfiler();
     profileCheckpoint('cli_bg_path');
-    const bg = await import('../cli/bg.js');
+    const bg = await importers.bg();
     switch (args[0]) {
       case 'ps':
         await bg.psHandler(args.slice(1));
@@ -107,7 +176,7 @@ async function main(): Promise<void> {
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
-    const { applyProviderFlagFromArgs } = await import('../utils/providerFlag.js');
+    const { applyProviderFlagFromArgs } = await importers.providerFlag();
     const result = applyProviderFlagFromArgs(args, {
       rememberForSettingsEnv: true,
     });
@@ -120,13 +189,14 @@ async function main(): Promise<void> {
 
   // Enable configs first so we can read settings
   {
-    const { enableConfigs } = await import('../utils/config.js')
+    const { enableConfigs } = await importers.config()
     enableConfigs()
   }
 
   // Apply settings.env from user settings (includes GitHub provider settings from /onboard-github)
   {
-    const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
+    const { applySafeConfigEnvironmentVariables } =
+      await importers.managedEnv()
     applySafeConfigEnvironmentVariables()
   }
 
@@ -134,14 +204,13 @@ async function main(): Promise<void> {
     applyProfileEnvToProcessEnv,
     buildStartupEnvFromProfile,
     isDefaultStartupProviderEnv,
-  } = await import('../utils/providerProfile.js')
+  } = await importers.providerProfile()
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
   })
   if (startupEnv !== process.env) {
-    const { getProviderValidationError } = await import(
-      '../utils/providerValidation.js'
-    )
+    const { getProviderValidationError } =
+      await importers.providerValidation()
     const startupProfileError = await getProviderValidationError(startupEnv)
     if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
       console.error(
@@ -156,9 +225,7 @@ async function main(): Promise<void> {
   // selected a configured agentModels key, apply that route before provider
   // validation and --model env routing run in this child process.
   {
-    const { eagerLoadSettingsFromArgs } = await import(
-      '../utils/settings/flagSettings.js'
-    )
+    const { eagerLoadSettingsFromArgs } = await importers.flagSettings()
     const settingsLoadResult = eagerLoadSettingsFromArgs(args)
     if (!settingsLoadResult.ok) {
       if (settingsLoadResult.cause instanceof Error) {
@@ -173,8 +240,8 @@ async function main(): Promise<void> {
     const {
       applyAgentProviderOverrideToEnv,
       resolveOutOfProcessTeammateProviderFromCliArgs,
-    } = await import('../services/api/agentRouting.js')
-    const { getInitialSettings } = await import('../utils/settings/settings.js')
+    } = await importers.agentRouting()
+    const { getInitialSettings } = await importers.settings()
     const providerOverride = resolveOutOfProcessTeammateProviderFromCliArgs(
       args,
       getInitialSettings(),
@@ -186,15 +253,15 @@ async function main(): Promise<void> {
 
   // Fast-path for `--bg`/`--background` after profile routing has been applied
   // so the spawned child inherits the selected provider/model environment.
-  if (feature('BG_SESSIONS')) {
-    const { argsBeforeDelimiter } = await import('../utils/cliArgs.js')
+  if (bgSessionsEnabled) {
+    const { argsBeforeDelimiter } = await importers.cliArgs()
     const optionArgs = argsBeforeDelimiter(args)
     if (optionArgs.includes('--bg') || optionArgs.includes('--background')) {
       const {
         profileCheckpoint
-      } = await import('../utils/startupProfiler.js');
+      } = await importers.startupProfiler();
       profileCheckpoint('cli_bg_path');
-      const bg = await import('../cli/bg.js');
+      const bg = await importers.bg();
       await bg.handleBgFlag(args);
       return;
     }
@@ -205,35 +272,34 @@ async function main(): Promise<void> {
     const {
       hydrateGithubModelsTokenFromSecureStorage,
       refreshGithubModelsTokenIfNeeded,
-    } = await import('../utils/githubModelsCredentials.js')
+    } = await importers.githubModelsCredentials()
     await refreshGithubModelsTokenIfNeeded()
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
-  const { validateProviderEnvForStartupOrExit } = await import(
-    '../utils/providerValidation.js'
-  )
+  const { validateProviderEnvForStartupOrExit } =
+    await importers.providerValidation()
   await validateProviderEnvForStartupOrExit()
 
   // #808: --model alone (no --provider) — route to the env var matching the
   // active provider before the banner prints so the override is visible.
   if (args.includes('--model')) {
-    const { applyModelFlagFromArgs } = await import('../utils/providerFlag.js')
+    const { applyModelFlagFromArgs } = await importers.providerFlag()
     applyModelFlagFromArgs(args)
   }
 
   // Parse --model early so the startup screen can display the override
-  const { eagerParseCliFlag } = await import('../utils/cliArgs.js')
+  const { eagerParseCliFlag } = await importers.cliArgs()
   const earlyModelFlag = eagerParseCliFlag('--model')
 
   // Print the gradient startup screen before the Ink UI loads
-  const { printStartupScreen } = await import('../components/StartupScreen.js')
+  const { printStartupScreen } = await importers.startupScreen()
   printStartupScreen(earlyModelFlag)
 
   // For all other paths, load the startup profiler
   const {
     profileCheckpoint
-  } = await import('../utils/startupProfiler.js');
+  } = await importers.startupProfiler();
   profileCheckpoint('cli_entry');
 
   // Fast-path for --dump-system-prompt: output the rendered system prompt and exit.
@@ -448,17 +514,19 @@ async function main(): Promise<void> {
   if (process.env.OPENCLAUDE_DISABLE_EARLY_INPUT !== '1') {
     const {
       startCapturingEarlyInput
-    } = await import('../utils/earlyInput.js');
+    } = await importers.earlyInput();
     startCapturingEarlyInput();
   }
   profileCheckpoint('cli_before_main_import');
   const {
     main: cliMain
-  } = await import('../main.js');
+  } = await importers.main();
   profileCheckpoint('cli_after_main_import');
   await cliMain();
   profileCheckpoint('cli_after_main_complete');
 }
 
-// eslint-disable-next-line custom-rules/no-top-level-side-effects
-void main();
+// eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
+if (process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN !== '1') {
+  void main();
+}

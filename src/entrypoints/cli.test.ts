@@ -3,7 +3,84 @@
  * Closes: Gitlawb/openclaude#402 — JavaScript heap OOM during large tasks
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+} from 'bun:test'
+
+type CliMain = typeof import('./cli.js')['main']
+
+let runCliEntrypoint: CliMain
+
+const mockProfileCheckpoint = mock((_checkpoint: string) => {})
+const mockPsHandler = mock(async (_args: string[]) => {})
+const mockLogsHandler = mock(async (_args: string[]) => {})
+const mockAttachHandler = mock(async (_args: string[]) => {})
+const mockKillHandler = mock(async (_args: string[]) => {})
+const mockHandleBgFlag = mock(async (_args: string[]) => {})
+const mockEnableConfigs = mock(() => {})
+const mockApplySafeConfigEnvironmentVariables = mock(() => {})
+const mockBuildStartupEnvFromProfile = mock(
+  async (_input: { processEnv: NodeJS.ProcessEnv }) => process.env,
+)
+const mockIsDefaultStartupProviderEnv = mock(
+  (_env: NodeJS.ProcessEnv) => true,
+)
+const mockApplyProfileEnvToProcessEnv = mock(
+  (_target: NodeJS.ProcessEnv, _source: NodeJS.ProcessEnv) => {},
+)
+const mockGetProviderValidationError = mock(
+  async (_env: NodeJS.ProcessEnv) => undefined,
+)
+const mockEagerLoadSettingsFromArgs = mock((_args: string[]) => ({ ok: true }))
+const mockResolveOutOfProcessTeammateProviderFromCliArgs = mock(
+  (_args: string[], _settings: unknown) => undefined,
+)
+const mockApplyAgentProviderOverrideToEnv = mock((_override: unknown) => {})
+const mockGetInitialSettings = mock(() => ({}))
+const mockRefreshGithubModelsTokenIfNeeded = mock(async () => {})
+const mockHydrateGithubModelsTokenFromSecureStorage = mock(() => {})
+const mockValidateProviderEnvForStartupOrExit = mock(async () => {})
+const mockPrintStartupScreen = mock((_model: string | undefined) => {})
+const mockStartCapturingEarlyInput = mock(() => {})
+const mockCliMain = mock(async () => {})
+
+const runtimeMocks = [
+  mockProfileCheckpoint,
+  mockPsHandler,
+  mockLogsHandler,
+  mockAttachHandler,
+  mockKillHandler,
+  mockHandleBgFlag,
+  mockEnableConfigs,
+  mockApplySafeConfigEnvironmentVariables,
+  mockBuildStartupEnvFromProfile,
+  mockIsDefaultStartupProviderEnv,
+  mockApplyProfileEnvToProcessEnv,
+  mockGetProviderValidationError,
+  mockEagerLoadSettingsFromArgs,
+  mockResolveOutOfProcessTeammateProviderFromCliArgs,
+  mockApplyAgentProviderOverrideToEnv,
+  mockGetInitialSettings,
+  mockRefreshGithubModelsTokenIfNeeded,
+  mockHydrateGithubModelsTokenFromSecureStorage,
+  mockValidateProviderEnvForStartupOrExit,
+  mockPrintStartupScreen,
+  mockStartCapturingEarlyInput,
+  mockCliMain,
+]
+
+function clearRuntimeMocks() {
+  for (const fn of runtimeMocks) {
+    fn.mockClear()
+  }
+}
 
 describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   const originalNodeOptions = process.env.NODE_OPTIONS
@@ -118,26 +195,158 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(bgFlagIndex).toBeLessThan(providerValidationIndex)
   })
 
-  it('checks background spawn flags only before the -- delimiter', async () => {
-    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
-    const optionArgsIndex = src.indexOf(
-      'const optionArgs = argsBeforeDelimiter(args)',
-    )
-    const helperImportIndex = src.lastIndexOf(
-      "await import('../utils/cliArgs.js')",
-      optionArgsIndex,
-    )
-    const bgFlagIndex = src.indexOf("optionArgs.includes('--bg')")
-    const backgroundFlagIndex = src.indexOf(
-      "optionArgs.includes('--background')",
-    )
+})
 
-    expect(helperImportIndex).toBeGreaterThanOrEqual(0)
-    expect(optionArgsIndex).toBeGreaterThan(helperImportIndex)
-    expect(bgFlagIndex).toBeGreaterThan(optionArgsIndex)
-    expect(backgroundFlagIndex).toBeGreaterThan(optionArgsIndex)
-    expect(src).not.toContain('function argsBeforeDelimiter')
-    expect(src).not.toContain("args.includes('--bg')")
-    expect(src).not.toContain("args.includes('--background')")
+describe('cli.tsx — background routing behavior', () => {
+  const bgOptions = {
+    bgSessionsEnabled: true,
+    importers: {
+      startupProfiler: async () => ({
+        profileCheckpoint: mockProfileCheckpoint,
+      }),
+      bg: async () => ({
+        psHandler: mockPsHandler,
+        logsHandler: mockLogsHandler,
+        attachHandler: mockAttachHandler,
+        killHandler: mockKillHandler,
+        handleBgFlag: mockHandleBgFlag,
+      }),
+      config: async () => ({
+        enableConfigs: mockEnableConfigs,
+      }),
+      managedEnv: async () => ({
+        applySafeConfigEnvironmentVariables:
+          mockApplySafeConfigEnvironmentVariables,
+      }),
+      providerProfile: async () => ({
+        applyProfileEnvToProcessEnv: mockApplyProfileEnvToProcessEnv,
+        buildStartupEnvFromProfile: mockBuildStartupEnvFromProfile,
+        isDefaultStartupProviderEnv: mockIsDefaultStartupProviderEnv,
+      }),
+      providerValidation: async () => ({
+        getProviderValidationError: mockGetProviderValidationError,
+        validateProviderEnvForStartupOrExit:
+          mockValidateProviderEnvForStartupOrExit,
+      }),
+      flagSettings: async () => ({
+        eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
+      }),
+      agentRouting: async () => ({
+        applyAgentProviderOverrideToEnv: mockApplyAgentProviderOverrideToEnv,
+        resolveOutOfProcessTeammateProviderFromCliArgs:
+          mockResolveOutOfProcessTeammateProviderFromCliArgs,
+      }),
+      settings: async () => ({
+        getInitialSettings: mockGetInitialSettings,
+      }),
+      githubModelsCredentials: async () => ({
+        hydrateGithubModelsTokenFromSecureStorage:
+          mockHydrateGithubModelsTokenFromSecureStorage,
+        refreshGithubModelsTokenIfNeeded: mockRefreshGithubModelsTokenIfNeeded,
+      }),
+      startupScreen: async () => ({
+        printStartupScreen: mockPrintStartupScreen,
+      }),
+      earlyInput: async () => ({
+        startCapturingEarlyInput: mockStartCapturingEarlyInput,
+      }),
+      main: async () => ({
+        main: mockCliMain,
+      }),
+    },
+  } as unknown as Parameters<CliMain>[1]
+  const originalAutoRunGuard =
+    process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+
+  beforeAll(async () => {
+    process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = '1'
+
+    const entrypoint = await import('./cli.js')
+    runCliEntrypoint = entrypoint.main
+  })
+
+  afterAll(() => {
+    if (originalAutoRunGuard === undefined) {
+      delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+    } else {
+      process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN =
+        originalAutoRunGuard
+    }
+  })
+
+  beforeEach(() => {
+    clearRuntimeMocks()
+  })
+
+  it('dispatches background management commands before startup work', async () => {
+    const cases: Array<[string, typeof mockPsHandler, string[]]> = [
+      ['ps', mockPsHandler, ['--json']],
+      ['logs', mockLogsHandler, ['session-1', '-f']],
+      ['attach', mockAttachHandler, ['session-1']],
+      ['kill', mockKillHandler, ['session-1']],
+    ]
+
+    for (const [command, handler, tail] of cases) {
+      clearRuntimeMocks()
+
+      await runCliEntrypoint([command, ...tail], bgOptions)
+
+      expect(handler.mock.calls).toEqual([[tail]])
+      expect(mockHandleBgFlag).not.toHaveBeenCalled()
+      expect(mockEnableConfigs).not.toHaveBeenCalled()
+      expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+      expect(mockCliMain).not.toHaveBeenCalled()
+    }
+  })
+
+  it('keeps management commands on the management path even with --bg arguments', async () => {
+    const cases: Array<[string, typeof mockPsHandler]> = [
+      ['ps', mockPsHandler],
+      ['logs', mockLogsHandler],
+      ['attach', mockAttachHandler],
+      ['kill', mockKillHandler],
+    ]
+
+    for (const [command, handler] of cases) {
+      clearRuntimeMocks()
+
+      await runCliEntrypoint([command, '--bg', 'session-1'], bgOptions)
+
+      expect(handler.mock.calls).toEqual([[['--bg', 'session-1']]])
+      expect(mockHandleBgFlag).not.toHaveBeenCalled()
+      expect(mockEnableConfigs).not.toHaveBeenCalled()
+      expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+      expect(mockCliMain).not.toHaveBeenCalled()
+    }
+  })
+
+  it('routes real background flags after profile routing without provider validation', async () => {
+    const args = ['--background', '--', '--print']
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockEnableConfigs).toHaveBeenCalledTimes(1)
+    expect(mockApplySafeConfigEnvironmentVariables).toHaveBeenCalledTimes(1)
+    expect(mockBuildStartupEnvFromProfile).toHaveBeenCalledTimes(1)
+    expect(mockEagerLoadSettingsFromArgs.mock.calls).toEqual([[args]])
+    expect(mockHandleBgFlag.mock.calls).toEqual([[args]])
+    expect(mockRefreshGithubModelsTokenIfNeeded).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+    expect(mockCliMain).not.toHaveBeenCalled()
+  })
+
+  it('treats --bg after -- as positional text, not a background flag', async () => {
+    const args = ['--', '--bg']
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockHandleBgFlag).not.toHaveBeenCalled()
+    expect(mockRefreshGithubModelsTokenIfNeeded).toHaveBeenCalledTimes(1)
+    expect(mockHydrateGithubModelsTokenFromSecureStorage).toHaveBeenCalledTimes(
+      1,
+    )
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledTimes(1)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
   })
 })
