@@ -306,16 +306,21 @@ export async function shouldAutoCompact(
   // fallback (it consults isAutoCompactEnabled directly) and leaves
   // sessionMemory + manual /compact working.
   //
-  // Consult isContextCollapseEnabled (not the raw gate) so the
-  // CLAUDE_CONTEXT_COLLAPSE env override is honored here too. require()
-  // inside the block breaks the init-time cycle (this file exports
+  // hasActiveReduction() folds in the enablement check (so the
+  // CLAUDE_CONTEXT_COLLAPSE env override is honored here too) but also
+  // requires collapse to actually hold a committed/staged reduction.
+  // require() inside the block breaks the init-time cycle (this file exports
   // getEffectiveContextWindowSize which collapse's index imports).
   if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const { isContextCollapseEnabled } =
+    const { hasActiveReduction } =
       require('../contextCollapse/index.js') as typeof import('../contextCollapse/index.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
-    if (isContextCollapseEnabled()) {
+    // Suppress only when collapse actually holds the headroom (a committed or
+    // staged reduction). If it is enabled but could not reduce this turn,
+    // autocompact stays live as the fallback instead of letting an oversized
+    // transcript reach the API.
+    if (hasActiveReduction()) {
       return false
     }
   }

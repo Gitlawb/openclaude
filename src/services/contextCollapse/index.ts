@@ -83,6 +83,18 @@ export function isContextCollapseEnabled(): boolean {
   return enabled
 }
 
+/**
+ * Whether collapse currently has a real reduction in effect (committed or
+ * staged). Autocompact/blocking suppression keys off this rather than mere
+ * enablement: when collapse is on but has not reduced anything yet (e.g. the
+ * first over-threshold turn, before getLastCacheSafeParams() is populated, so
+ * spawnCtxAgent produces no span), the oversized transcript must still fall
+ * back to autocompact/blocking instead of reaching the API unguarded.
+ */
+export function hasActiveReduction(): boolean {
+  return enabled && (commitLog.length > 0 || stagedQueue.length > 0)
+}
+
 export function getContextCollapseState(): {
   committedSpans: number
   stagedSpans: number

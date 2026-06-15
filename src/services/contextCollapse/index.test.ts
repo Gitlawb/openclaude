@@ -166,6 +166,52 @@ describe('stats and subscribe', () => {
   })
 })
 
+describe('hasActiveReduction', () => {
+  // Gates autocompact/blocking suppression: enablement alone is not enough, or
+  // a turn where collapse could not produce a span would suppress the fallback
+  // and send an oversized transcript to the API.
+  test('false when collapse is disabled', async () => {
+    await cleanState()
+    delete process.env.CLAUDE_CONTEXT_COLLAPSE
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    expect(idx.hasActiveReduction()).toBe(false)
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+  })
+
+  test('false when enabled but nothing committed or staged', async () => {
+    await cleanState()
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    expect(idx.isContextCollapseEnabled()).toBe(true)
+    expect(idx.hasActiveReduction()).toBe(false)
+  })
+
+  test('true once a span is committed', async () => {
+    await cleanState()
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState(
+      [
+        {
+          type: 'marble-origami-commit' as const,
+          sessionId: uid('s1'),
+          collapseId: '0000000000000001',
+          summaryUuid: uid('sum1'),
+          summaryContent: '<collapsed id="0000000000000001">test summary</collapsed>',
+          summary: 'test summary',
+          firstArchivedUuid: uid('a'),
+          lastArchivedUuid: uid('b'),
+        },
+      ],
+      undefined,
+    )
+    expect(idx.hasActiveReduction()).toBe(true)
+  })
+})
+
 describe('core API (no staged spans)', () => {
   test('applyCollapsesIfNeeded: identity when nothing staged', async () => {
     await cleanState()

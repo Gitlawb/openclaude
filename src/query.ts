@@ -778,10 +778,13 @@ async function* queryLoop(
     // API call and starve both recovery paths. The isAutoCompactEnabled()
     // conjunct preserves the user's explicit "no automatic anything"
     // config — if they set DISABLE_AUTO_COMPACT, they get the preempt.
+    // hasActiveReduction() (not mere enablement) means a turn where collapse
+    // could not reduce anything still hits the blocking preempt instead of
+    // sending an oversized request that only a real 413 could recover.
     let collapseOwnsIt = false
     if (feature('CONTEXT_COLLAPSE')) {
       collapseOwnsIt =
-        (contextCollapse?.isContextCollapseEnabled() ?? false) &&
+        (contextCollapse?.hasActiveReduction() ?? false) &&
         isAutoCompactEnabled()
     }
     // Hoist media-recovery gate once per turn. Withholding (inside the

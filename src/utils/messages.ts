@@ -2158,10 +2158,17 @@ export function normalizeMessagesForAPI(
           // so the model can reference previous command output in later turns.
           // Context-collapse summaries take the same path so the <collapsed>
           // summary stays visible after its archived span is removed.
+          //
+          // Preserve isMeta: collapse-summary placeholders are created isMeta so
+          // the snip-tag sweep (appendMessageTagToUserMessage skips isMeta) does
+          // not mark the only replacement for an archived span as snippable,
+          // which would let the model remove the summary collapse relies on.
+          // local_command messages carry no isMeta and stay snippable as before.
           const userMsg = createUserMessage({
             content: message.content,
             uuid: message.uuid,
             timestamp: message.timestamp,
+            isMeta: message.isMeta,
           })
           const lastMessage = last(result)
           if (lastMessage?.type === 'user') {

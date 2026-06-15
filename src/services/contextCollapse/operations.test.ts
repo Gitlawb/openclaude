@@ -93,6 +93,34 @@ describe('projectView', () => {
     expect(serialized).toContain('<collapsed')
   })
 
+  test('collapsed summary stays meta so the snip sweep cannot remove it', async () => {
+    // Regression: the system->user conversion in normalizeMessagesForAPI must
+    // preserve isMeta on the collapse placeholder. The snip-tag sweep
+    // (appendMessageTagToUserMessage) skips isMeta messages; if the conversion
+    // drops the flag, HISTORY_SNIP tags the summary with a snip_id and SnipTool
+    // can remove the only replacement for the archived span.
+    const mod = await import('./operations.js')
+    const { normalizeMessagesForAPI, appendMessageTagToUserMessage } =
+      await import('../../utils/messages.js')
+    const msgs: Message[] = [makeUserMsg('a'), makeAssistantMsg('b'), makeUserMsg('c')]
+    const normalized = normalizeMessagesForAPI(mod.projectView(msgs))
+
+    const summaryMsg = normalized.find(m =>
+      JSON.stringify(m.message.content).includes('test summary'),
+    )
+    expect(summaryMsg).toBeDefined()
+    expect(summaryMsg!.type).toBe('user')
+    expect((summaryMsg as { isMeta?: boolean }).isMeta).toBe(true)
+
+    // With snip injection enabled the sweep leaves the meta summary untagged...
+    const swept = appendMessageTagToUserMessage(summaryMsg as never)
+    expect(JSON.stringify(swept.message.content)).not.toContain('snip_id=')
+    // ...while a normal (non-meta) user message still gets a snip id, so the
+    // exemption above is meaningful rather than a no-op.
+    const plain = appendMessageTagToUserMessage(makeUserMsg('c') as never)
+    expect(JSON.stringify(plain.message.content)).toContain('snip_id=')
+  })
+
   test('silently skips missing boundaries', async () => {
     const mod = await import('./operations.js')
     const msgs: Message[] = [makeUserMsg('x'), makeAssistantMsg('y')]
