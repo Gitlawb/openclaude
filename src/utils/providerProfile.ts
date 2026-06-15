@@ -1768,6 +1768,33 @@ export function applyProfileEnvToProcessEnv(
   Object.assign(targetEnv, nextEnv)
 }
 
+type StartupEnvOptions = NonNullable<Parameters<typeof buildStartupEnvFromProfile>[0]>
+
+export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
+  onValidationError?: (message: string) => void
+}): Promise<string | null> {
+  const processEnv = options?.processEnv ?? process.env
+  const { onValidationError, ...startupOptions } = options ?? {}
+  const startupEnv = await buildStartupEnvFromProfile({
+    ...startupOptions,
+    processEnv,
+  })
+  if (startupEnv === processEnv) {
+    return null
+  }
+
+  const validationError = await getProviderValidationError(startupEnv)
+  if (validationError) {
+    onValidationError?.(
+      `Warning: ignoring saved provider profile. ${validationError}`,
+    )
+    return validationError
+  }
+
+  applyProfileEnvToProcessEnv(processEnv, startupEnv)
+  return null
+}
+
 export async function applySavedProfileToCurrentSession(options: {
   profileFile: ProfileFile
   processEnv?: NodeJS.ProcessEnv

@@ -104,26 +104,15 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
-  const {
-    applyProfileEnvToProcessEnv,
-    buildStartupEnvFromProfile,
-  } = await import('../utils/providerProfile.js')
-  const startupEnv = await buildStartupEnvFromProfile({
+  const { applyStartupEnvFromProfile } = await import(
+    '../utils/providerProfile.js'
+  )
+  await applyStartupEnvFromProfile({
     processEnv: process.env,
+    onValidationError: message => {
+      console.error(message)
+    },
   })
-  if (startupEnv !== process.env) {
-    const { getProviderValidationError } = await import(
-      '../utils/providerValidation.js'
-    )
-    const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError) {
-      console.error(
-        `Warning: ignoring saved provider profile. ${startupProfileError}`,
-      )
-    } else {
-      applyProfileEnvToProcessEnv(process.env, startupEnv)
-    }
-  }
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider

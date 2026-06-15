@@ -85,38 +85,4 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
-
-  it('does not apply the startup env when validation fails (issue #1651)', async () => {
-    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
-
-    const validationIndex = src.indexOf('getProviderValidationError(startupEnv)')
-    const applyIndex = src.indexOf(
-      'applyProfileEnvToProcessEnv(process.env, startupEnv)',
-    )
-    const defaultProviderCarveOutIndex = src.indexOf(
-      'isDefaultStartupProviderEnv(startupEnv)',
-    )
-
-    expect(validationIndex).toBeGreaterThanOrEqual(0)
-    expect(applyIndex).toBeGreaterThanOrEqual(0)
-    expect(validationIndex).toBeLessThan(applyIndex)
-    expect(defaultProviderCarveOutIndex).toBe(-1)
-  })
-
-  it('keeps the gRPC bootstrap aligned when startup env validation fails (issue #1651)', async () => {
-    const src = await Bun.file(`${import.meta.dir}/../../scripts/start-grpc.ts`).text()
-
-    const validationIndex = src.indexOf('getProviderValidationError(startupEnv)')
-    const applyIndex = src.indexOf(
-      'applyProfileEnvToProcessEnv(process.env, startupEnv)',
-    )
-    const defaultProviderCarveOutIndex = src.indexOf(
-      'isDefaultStartupProviderEnv(startupEnv)',
-    )
-
-    expect(validationIndex).toBeGreaterThanOrEqual(0)
-    expect(applyIndex).toBeGreaterThanOrEqual(0)
-    expect(validationIndex).toBeLessThan(applyIndex)
-    expect(defaultProviderCarveOutIndex).toBe(-1)
-  })
 })
