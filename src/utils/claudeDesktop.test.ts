@@ -11,7 +11,15 @@ mock.module('./platform.js', () => ({
   SUPPORTED_PLATFORMS: ['macos', 'wsl', 'windows'],
 }))
 
-import { getClaudeDesktopConfigPath } from './claudeDesktop.js'
+import { getClaudeDesktopConfigPath, readClaudeDesktopMcpServers } from './claudeDesktop.js'
+
+function restoreAppData(original: string | undefined): void {
+  if (original === undefined) {
+    delete process.env.APPDATA
+  } else {
+    process.env.APPDATA = original
+  }
+}
 
 afterAll(() => {
   mock.module('./platform.js', () => realPlatform)
@@ -26,7 +34,7 @@ test('getClaudeDesktopConfigPath returns APPDATA path on Windows when APPDATA is
       win32.join('C:\\Users\\test\\AppData\\Roaming', 'Claude', 'claude_desktop_config.json'),
     )
   } finally {
-    process.env.APPDATA = original
+    restoreAppData(original)
   }
 })
 
@@ -38,6 +46,18 @@ test('getClaudeDesktopConfigPath throws when APPDATA is unset on Windows', async
       'APPDATA environment variable is not set.',
     )
   } finally {
-    process.env.APPDATA = original
+    restoreAppData(original)
+  }
+})
+
+test('readClaudeDesktopMcpServers rethrows APPDATA error instead of swallowing it', async () => {
+  const original = process.env.APPDATA
+  try {
+    delete process.env.APPDATA
+    await expect(readClaudeDesktopMcpServers()).rejects.toThrow(
+      'APPDATA environment variable is not set.',
+    )
+  } finally {
+    restoreAppData(original)
   }
 })
