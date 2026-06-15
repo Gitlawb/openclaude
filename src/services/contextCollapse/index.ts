@@ -369,7 +369,14 @@ async function maybeSpawnCtxAgent(
     }
 
     lastSpawnTokens = currentTokens
-    await persistSnapshot()
+    // When spans were drained, drainStaged(messages, true) already enforces
+    // commit -> snapshot ordering on its own async chain. A competing snapshot
+    // write here could land before those commits are durable, reopening the
+    // crash window that drops collapses on restore. Only persist directly when
+    // nothing was drained.
+    if (!spawnedSpans || spawnedSpans.length === 0) {
+      await persistSnapshot()
+    }
   } catch (err) {
     health.totalErrors++
     health.lastError = String(err)
