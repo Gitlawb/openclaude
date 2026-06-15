@@ -1,4 +1,5 @@
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { createGetAppStateWithAllowedTools } from '../../utils/forkedAgent.js'
 import { parseSlashCommandToolsFromFrontmatter } from '../../utils/markdownConfigLoader.js'
 import { executeShellCommandsInPrompt } from '../../utils/promptShellExecution.js'
 import { createMovedToPluginCommand } from '../createMovedToPluginCommand.js'
@@ -243,19 +244,10 @@ const bughunterSecurity = createMovedToPluginCommand({
       parsed.content,
       {
         ...context,
-        getAppState() {
-          const appState = context.getAppState()
-          return {
-            ...appState,
-            toolPermissionContext: {
-              ...appState.toolPermissionContext,
-              alwaysAllowRules: {
-                ...appState.toolPermissionContext.alwaysAllowRules,
-                command: allowedTools,
-              },
-            },
-          }
-        },
+        getAppState: createGetAppStateWithAllowedTools(
+          context.getAppState,
+          allowedTools,
+        ),
       },
       'bughunter-security',
     )
