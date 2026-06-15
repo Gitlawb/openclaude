@@ -80,6 +80,10 @@ beforeEach(async () => {
   mock.module('../../services/api/agentRouteSettings.js', () => ({
     ...real,
     getRouteShadowSource: () => shadowSource,
+    // Deterministic option list so selecting index 1 picks a known model key.
+    buildRouteOptions: () => [
+      { value: 'gpt-5-mini', label: 'gpt-5-mini', description: '' },
+    ],
     setAgentRoute: (agentType: string, modelKey: string) => {
       setCalls.push([agentType, modelKey])
       return setResult
@@ -182,7 +186,7 @@ test('normal mode renders the picker and persists a selected model', async () =>
     stdin.write('1')
     await waitForOutput(getOutput, () => setCalls.length > 0 || closed)
     expect(setCalls.length).toBe(1)
-    expect(setCalls[0]![0]).toBe('verification')
+    expect(setCalls[0]).toEqual(['verification', 'gpt-5-mini'])
     expect(closed).toBe(true)
   } finally {
     root.unmount()
