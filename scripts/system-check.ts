@@ -178,13 +178,32 @@ export function isCliSandboxRuntimeStubbed(bundleText: string): boolean {
   return bundleText.includes('native-stub:@anthropic-ai/sandbox-runtime')
 }
 
-export function buildSandboxRuntimeCheck(input: {
-  cliRuntimeStubbed: boolean
-  sandboxEnabled: boolean
-  failIfUnavailable: boolean
-  sandboxingEnabled: boolean
-  unavailableReason?: string
-}): CheckResult {
+type SandboxRuntimeCheckInput =
+  | {
+      inspectionError: unknown
+    }
+  | {
+      cliRuntimeStubbed: boolean
+      sandboxEnabled: boolean
+      failIfUnavailable: boolean
+      sandboxingEnabled: boolean
+      unavailableReason?: string
+    }
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function buildSandboxRuntimeCheck(
+  input: SandboxRuntimeCheckInput,
+): CheckResult {
+  if ('inspectionError' in input) {
+    return fail(
+      'Sandbox runtime',
+      `Unable to inspect CLI sandbox runtime: ${formatUnknownError(input.inspectionError)}`,
+    )
+  }
+
   const effectiveBehavior = input.sandboxingEnabled
     ? 'enforcing'
     : input.sandboxEnabled
@@ -227,14 +246,18 @@ function checkSandboxRuntime(): CheckResult {
     )
   }
 
-  const bundle = readFileSync(distCli, 'utf8')
-  return buildSandboxRuntimeCheck({
-    cliRuntimeStubbed: isCliSandboxRuntimeStubbed(bundle),
-    sandboxEnabled: SandboxManager.isSandboxEnabledInSettings(),
-    failIfUnavailable: SandboxManager.isSandboxRequired(),
-    sandboxingEnabled: SandboxManager.isSandboxingEnabled(),
-    unavailableReason: SandboxManager.getSandboxUnavailableReason(),
-  })
+  try {
+    const bundle = readFileSync(distCli, 'utf8')
+    return buildSandboxRuntimeCheck({
+      cliRuntimeStubbed: isCliSandboxRuntimeStubbed(bundle),
+      sandboxEnabled: SandboxManager.isSandboxEnabledInSettings(),
+      failIfUnavailable: SandboxManager.isSandboxRequired(),
+      sandboxingEnabled: SandboxManager.isSandboxingEnabled(),
+      unavailableReason: SandboxManager.getSandboxUnavailableReason(),
+    })
+  } catch (error) {
+    return buildSandboxRuntimeCheck({ inspectionError: error })
+  }
 }
 
 function isLocalBaseUrl(baseUrl: string): boolean {

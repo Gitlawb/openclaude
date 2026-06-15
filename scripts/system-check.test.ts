@@ -123,6 +123,31 @@ describe('checkNodeVersion', () => {
 })
 
 describe('sandbox runtime diagnostics', () => {
+  test('fails when sandbox runtime inspection throws an Error', () => {
+    const result = buildSandboxRuntimeCheck({
+      inspectionError: new Error('EACCES: permission denied, open dist/cli.mjs'),
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      label: 'Sandbox runtime',
+      detail:
+        'Unable to inspect CLI sandbox runtime: EACCES: permission denied, open dist/cli.mjs',
+    })
+  })
+
+  test('fails when sandbox runtime inspection throws a non-Error value', () => {
+    const result = buildSandboxRuntimeCheck({
+      inspectionError: 'bundle read failed',
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      label: 'Sandbox runtime',
+      detail: 'Unable to inspect CLI sandbox runtime: bundle read failed',
+    })
+  })
+
   test('detects sandbox-runtime native stubs in the CLI bundle', () => {
     expect(
       isCliSandboxRuntimeStubbed(
