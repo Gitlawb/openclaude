@@ -1,4 +1,7 @@
 import type { SettingsJson } from '../../utils/settings/types.js'
+import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
+import { getAgentModel } from '../../utils/model/agent.js'
+import { isModelAlias } from '../../utils/model/aliases.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -149,20 +152,43 @@ export function resolveAgentModelProvider(
   return toAgentRoute(trimmedModelName, settings.agentModels[trimmedModelName])
 }
 
+/**
+ * Resolve a model-only route's model to what should actually run. A bare
+ * built-in alias ("sonnet"/"haiku"/"opus"/"inherit") is sent through the same
+ * provider-aware path as the agent model selector (getAgentModel), so on
+ * non-Claude-native providers it inherits the parent model instead of being
+ * sent literally and failing with a provider "model not found". A real model id
+ * (a configured agentModels key for the active provider) passes through as-is.
+ */
+function resolveModelOnlyModel(
+  model: string,
+  parentModel: string,
+  permissionMode?: PermissionMode,
+): string {
+  if (model === 'inherit' || isModelAlias(model)) {
+    return getAgentModel(model, parentModel, undefined, permissionMode)
+  }
+  return model
+}
+
 export function resolveAgentRunModelRouting({
   resolvedAgentModel,
+  parentModel,
   toolSpecifiedModel,
   agentName,
   subagentType,
   agentDefinitionModel,
   settings,
+  permissionMode,
 }: {
   resolvedAgentModel: string
+  parentModel: string
   toolSpecifiedModel?: string
   agentName?: string
   subagentType?: string
   agentDefinitionModel?: string
   settings: SettingsJson | null
+  permissionMode?: PermissionMode
 }): AgentRunModelRouting {
   const toolRequestedModel = toolSpecifiedModel?.trim()
   if (toolRequestedModel) {
@@ -174,7 +200,9 @@ export function resolveAgentRunModelRouting({
     if (isProviderOverride(route)) {
       return { mainLoopModel: route.model, providerOverride: route }
     }
-    return { mainLoopModel: route.model }
+    return {
+      mainLoopModel: resolveModelOnlyModel(route.model, parentModel, permissionMode),
+    }
   }
 
   const route =
@@ -184,7 +212,9 @@ export function resolveAgentRunModelRouting({
   if (isProviderOverride(route)) {
     return { mainLoopModel: route.model, providerOverride: route }
   }
-  return { mainLoopModel: route.model }
+  return {
+    mainLoopModel: resolveModelOnlyModel(route.model, parentModel, permissionMode),
+  }
 }
 
 /**

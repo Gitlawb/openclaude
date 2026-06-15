@@ -350,11 +350,13 @@ export async function* runAgent({
   const { mainLoopModel: effectiveModel, providerOverride } =
     resolveAgentRunModelRouting({
       resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
       toolSpecifiedModel: model,
       agentName,
       subagentType: agentDefinition.agentType,
       agentDefinitionModel: agentDefinition.model,
       settings,
+      permissionMode,
     })
 
   if (

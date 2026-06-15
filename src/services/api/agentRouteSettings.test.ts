@@ -1,17 +1,23 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import {
   CLEAR_ROUTE_VALUE,
   buildRouteOptions,
+  clearAgentRoute,
   computeClearRouteUpdate,
   computeSetRouteUpdate,
   currentRouteValue,
   describeRouteLine,
   findShadowingSource,
   readAgentRoute,
+  setAgentRoute,
   shadowRemediation,
 } from './agentRouteSettings.js'
 import type { SettingsWithSources } from '../../utils/settings/settings.js'
+import {
+  getAllowedSettingSources,
+  setAllowedSettingSources,
+} from '../../bootstrap/state.js'
 
 const modelOnly: SettingsJson = {
   agentModels: { mini: { model: 'gpt-5-mini' } },
@@ -271,5 +277,37 @@ describe('shadowRemediation', () => {
     const msg = shadowRemediation('flagSettings')
     expect(msg).not.toContain('Edit the')
     expect(msg).toContain('--settings flag')
+  })
+})
+
+describe('write guard when user settings are disabled', () => {
+  afterEach(() => {
+    // Restore the full default source set for other tests.
+    setAllowedSettingSources([
+      'userSettings',
+      'projectSettings',
+      'localSettings',
+      'flagSettings',
+      'policySettings',
+    ])
+  })
+
+  test('setAgentRoute refuses and explains when userSettings is not enabled', () => {
+    const before = getAllowedSettingSources()
+    expect(before).toContain('userSettings')
+    // Simulate `--setting-sources project`: user settings excluded.
+    setAllowedSettingSources(['projectSettings'])
+
+    const { error } = setAgentRoute('verification', 'gpt-5-mini')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('User settings are disabled')
+    expect(error!.message).toContain('--setting-sources')
+  })
+
+  test('clearAgentRoute refuses when userSettings is not enabled', () => {
+    setAllowedSettingSources(['projectSettings'])
+    const { error } = clearAgentRoute('verification')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('User settings are disabled')
   })
 })

@@ -502,11 +502,13 @@ export const AgentTool = buildTool({
     const resolvedAgentModel = getAgentModel(selectedAgent.model, toolUseContext.options.mainLoopModel, isForkPath ? undefined : model, permissionMode);
     const { mainLoopModel: effectiveAgentModel } = resolveAgentRunModelRouting({
       resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
       toolSpecifiedModel: isForkPath ? undefined : model,
       agentName: name,
       subagentType: selectedAgent.agentType,
       agentDefinitionModel: selectedAgent.model,
       settings: getInitialSettings(),
+      permissionMode,
     });
     logEvent('tengu_agent_tool_selected', {
       agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

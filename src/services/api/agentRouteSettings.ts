@@ -7,6 +7,7 @@ import {
   updateSettingsForSource,
   type SettingsWithSources,
 } from '../../utils/settings/settings.js'
+import { isSettingSourceEnabled } from '../../utils/settings/constants.js'
 import type { SettingSource } from '../../utils/settings/constants.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
@@ -228,11 +229,27 @@ export function getRouteShadowSource(agentType: string): SettingSource | null {
   return findShadowingSource(getSettingsWithSources().sources, agentType)
 }
 
+/**
+ * Error for when user settings are not an enabled setting source this session
+ * (e.g. launched with `--setting-sources project`). The picker reads and writes
+ * userSettings, but the runtime resolves from the enabled chain only, so a write
+ * here would be saved to a file that is never loaded — report it instead of
+ * claiming a save that does nothing.
+ */
+function userSettingsDisabledError(): Error {
+  return new Error(
+    'User settings are disabled in this session (--setting-sources excludes them), ' +
+      'so a route saved here would never load. Enable user settings or set the route ' +
+      'in an active settings source.',
+  )
+}
+
 /** Persist a route from `agentType` to `modelKey` in user-global settings. */
 export function setAgentRoute(
   agentType: string,
   modelKey: string,
 ): { error: Error | null } {
+  if (!isSettingSourceEnabled('userSettings')) return { error: userSettingsDisabledError() }
   const shadow = getRouteShadowSource(agentType)
   if (shadow) return { error: shadowError(agentType, shadow) }
   const next = computeSetRouteUpdate(getSettingsForSource('userSettings'), agentType, modelKey)
@@ -241,6 +258,7 @@ export function setAgentRoute(
 
 /** Remove `agentType`'s route in user-global settings. */
 export function clearAgentRoute(agentType: string): { error: Error | null } {
+  if (!isSettingSourceEnabled('userSettings')) return { error: userSettingsDisabledError() }
   const shadow = getRouteShadowSource(agentType)
   if (shadow) return { error: shadowError(agentType, shadow) }
   return updateSettingsForSource(

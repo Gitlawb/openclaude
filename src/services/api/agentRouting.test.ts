@@ -9,6 +9,7 @@ import {
   resolveOutOfProcessTeammateProviderFromCliArgs,
   shouldEnforceModelAllowlist,
 } from './agentRouting.js'
+import { getAgentModel } from '../../utils/model/agent.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 const baseSettings = {
@@ -225,6 +226,7 @@ describe('model-only routes', () => {
   test('resolveAgentRunModelRouting: model-only sets mainLoopModel, no providerOverride', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-model',
+      parentModel: 'parent-model',
       subagentType: 'verification',
       settings: modelOnlySettings,
     })
@@ -235,6 +237,7 @@ describe('model-only routes', () => {
   test('resolveAgentRunModelRouting: no route falls back to resolvedAgentModel', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-model',
+      parentModel: 'parent-model',
       subagentType: 'unconfigured',
       settings: modelOnlySettings,
     })
@@ -302,6 +305,7 @@ describe('resolveAgentRunModelRouting', () => {
   test('explicit configured model wins over agentRouting', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-model',
+      parentModel: 'parent-model',
       toolSpecifiedModel: 'deepseek-chat',
       agentName: 'frontend-dev',
       subagentType: 'Explore',
@@ -321,6 +325,7 @@ describe('resolveAgentRunModelRouting', () => {
   test('explicit non-configured model keeps resolved model behavior', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'haiku-model',
+      parentModel: 'parent-model',
       toolSpecifiedModel: 'haiku',
       agentName: 'frontend-dev',
       subagentType: 'Explore',
@@ -333,6 +338,7 @@ describe('resolveAgentRunModelRouting', () => {
   test('explicit inherit keeps resolved parent model despite default routing', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-runtime-model',
+      parentModel: 'parent-model',
       toolSpecifiedModel: ' InHerit ',
       subagentType: 'unknown-type',
       settings: baseSettings,
@@ -344,6 +350,7 @@ describe('resolveAgentRunModelRouting', () => {
   test('agent definition model key is used after routing misses', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'default-model',
+      parentModel: 'parent-model',
       subagentType: 'unknown-type',
       agentDefinitionModel: 'deepseek-chat',
       settings: {
@@ -359,6 +366,7 @@ describe('resolveAgentRunModelRouting', () => {
   test('falls back to resolved model when no provider override matches', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'default-model',
+      parentModel: 'parent-model',
       toolSpecifiedModel: 'haiku',
       subagentType: 'unknown-type',
       agentDefinitionModel: 'sonnet',
@@ -374,6 +382,7 @@ describe('resolveAgentRunModelRouting', () => {
   test('falls back to resolved model when routed provider has a blank API key', () => {
     const result = resolveAgentRunModelRouting({
       resolvedAgentModel: 'parent-runtime-model',
+      parentModel: 'parent-model',
       subagentType: 'Explore',
       settings: {
         agentModels: {
@@ -391,6 +400,45 @@ describe('resolveAgentRunModelRouting', () => {
     expect(errorSpy).toHaveBeenCalledWith(
       '[agentRouting] Warning: agentModels entry "zai" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.',
     )
+  })
+
+  test('model-only built-in alias route resolves through getAgentModel, not literally', () => {
+    // A picker route like { sonnet: { model: 'sonnet' } } must not send the
+    // literal alias as mainLoopModel — it has to go through the same
+    // provider-aware path as the agent model selector, so e.g. on a non-Claude
+    // provider it inherits the parent instead of 404ing. We assert parity with
+    // getAgentModel rather than a fixed string so the test holds across the
+    // provider env the suite happens to run under.
+    const settings = {
+      agentModels: { sonnet: { model: 'sonnet' } },
+      agentRouting: { verification: 'sonnet' },
+    } as unknown as SettingsJson
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'should-not-be-used',
+      parentModel: 'claude-sonnet-4-5',
+      subagentType: 'verification',
+      settings,
+    })
+    expect('providerOverride' in result).toBe(false)
+    expect(result.mainLoopModel).toBe(
+      getAgentModel('sonnet', 'claude-sonnet-4-5', undefined, undefined),
+    )
+    // And it is NOT the bare alias that the old code would have sent.
+    expect(result.mainLoopModel).not.toBe('sonnet')
+  })
+
+  test('model-only real model id passes through unchanged', () => {
+    const settings = {
+      agentModels: { 'gpt-5-mini': { model: 'gpt-5-mini' } },
+      agentRouting: { verification: 'gpt-5-mini' },
+    } as unknown as SettingsJson
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      parentModel: 'parent-model',
+      subagentType: 'verification',
+      settings,
+    })
+    expect(result).toEqual({ mainLoopModel: 'gpt-5-mini' })
   })
 })
 
