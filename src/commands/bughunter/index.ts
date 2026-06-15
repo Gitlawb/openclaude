@@ -190,18 +190,26 @@ const bughunter = createMovedToPluginCommand({
     )
 
     // Execute shell commands first ({{ARGS}} is inert to shell patterns),
-    // then inject user-provided scope so shell snippets in args cannot execute
-    const processedContent = await executeShellCommandsInPrompt(
-      parsed.content,
-      {
-        ...context,
-        getAppState: createGetAppStateWithAllowedTools(
-          context.getAppState,
-          allowedTools,
-        ),
-      },
-      'bughunter',
-    )
+    // then inject user-provided scope so shell snippets in args cannot execute.
+    // On platforms without bash (e.g. Windows without Git Bash), shell
+    // execution may fail — fall back to the prompt with static placeholder text.
+    let processedContent: string
+    try {
+      processedContent = await executeShellCommandsInPrompt(
+        parsed.content,
+        {
+          ...context,
+          getAppState: createGetAppStateWithAllowedTools(
+            context.getAppState,
+            allowedTools,
+          ),
+        },
+        'bughunter',
+      )
+    } catch {
+      processedContent = parsed.content
+        .replace(/!`[^`]+`/g, '(Shell execution unavailable)')
+    }
 
     const finalContent = processedContent.replace('{{ARGS}}', () => scope)
     return [{ type: 'text', text: finalContent }]
