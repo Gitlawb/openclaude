@@ -93,6 +93,8 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    // Bun 1.3.13 can leave restored module instances visible to later test
+    // files, so re-register full exports after using partial module mocks.
     mock.module('./udsClient.js', () => realUdsClient)
     mock.module('./model/providers.js', () => realProviders)
     if (originalSimple === undefined) {
