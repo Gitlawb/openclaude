@@ -10,6 +10,9 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 import type { CurrentAgentRoute } from '../../services/api/agentRouteSettings.js'
+import * as realRouteSettings from '../../services/api/agentRouteSettings.js'
+
+const ROUTE_SETTINGS_MODULE = '../../services/api/agentRouteSettings.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -76,9 +79,8 @@ beforeEach(async () => {
   setCalls = []
   clearCalls = []
   setResult = { error: null }
-  const real = await import('../../services/api/agentRouteSettings.js')
-  mock.module('../../services/api/agentRouteSettings.js', () => ({
-    ...real,
+  mock.module(ROUTE_SETTINGS_MODULE, () => ({
+    ...realRouteSettings,
     getRouteShadowSource: () => shadowSource,
     // Deterministic option list so selecting index 1 picks a known model key.
     buildRouteOptions: () => [
@@ -98,6 +100,11 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    // Re-point the module at the real implementation. bun's mock.module
+    // persists across files in the same process, and mock.restore() alone does
+    // not undo it, so without this the mocked buildRouteOptions/etc. leak into
+    // agentRouteSettings.test.ts and fail its assertions.
+    mock.module(ROUTE_SETTINGS_MODULE, () => realRouteSettings)
   } finally {
     releaseSharedMutationLock()
   }
