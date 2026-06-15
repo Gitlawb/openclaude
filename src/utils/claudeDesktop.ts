@@ -11,6 +11,17 @@ import { logError } from './log.js'
 import { getPlatform, SUPPORTED_PLATFORMS } from './platform.js'
 
 /**
+ * Constructs the Claude Desktop config path on Windows from the APPDATA
+ * environment variable value. Throws if appData is undefined or empty.
+ */
+export function getWindowsClaudeDesktopConfigPath(appData: string | undefined): string {
+  if (!appData) {
+    throw new Error('APPDATA environment variable is not set.')
+  }
+  return win32.join(appData, 'Claude', 'claude_desktop_config.json')
+}
+
+/**
  * Resolves the path to the Claude Desktop configuration file based on the
  * current platform. Supports macOS (~/Library/Application Support/Claude),
  * native Windows (%APPDATA%/Claude), and WSL (/mnt/c/Users/...).
@@ -39,11 +50,7 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
   }
 
   if (platform === 'windows') {
-    const appData = process.env.APPDATA
-    if (!appData) {
-      throw new Error('APPDATA environment variable is not set.')
-    }
-    return win32.join(appData, 'Claude', 'claude_desktop_config.json')
+    return getWindowsClaudeDesktopConfigPath(process.env.APPDATA)
   }
 
   // WSL — try using USERPROFILE environment variable if available

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { win32 } from 'path'
+import { getWindowsClaudeDesktopConfigPath } from './claudeDesktop.js'
 
 const isWindows = process.platform === 'win32'
 
@@ -11,16 +12,21 @@ function restoreAppData(original: string | undefined): void {
   }
 }
 
-test('win32.join constructs correct Windows APPDATA path for Claude Desktop config', () => {
-  const appData = 'C:\\Users\\test\\AppData\\Roaming'
-  const result = win32.join(appData, 'Claude', 'claude_desktop_config.json')
+test('getWindowsClaudeDesktopConfigPath constructs correct APPDATA path', () => {
+  const result = getWindowsClaudeDesktopConfigPath('C:\\Users\\test\\AppData\\Roaming')
   expect(result).toBe('C:\\Users\\test\\AppData\\Roaming\\Claude\\claude_desktop_config.json')
+})
+
+test('getWindowsClaudeDesktopConfigPath throws when APPDATA is not set', () => {
+  expect(() => getWindowsClaudeDesktopConfigPath(undefined)).toThrow(
+    'APPDATA environment variable is not set.',
+  )
 })
 
 if (isWindows) {
   const { getClaudeDesktopConfigPath, readClaudeDesktopMcpServers } = await import('./claudeDesktop.js')
 
-  test('getClaudeDesktopConfigPath returns APPDATA path on Windows when APPDATA is set', async () => {
+  test('getClaudeDesktopConfigPath delegates to helper when APPDATA is set', async () => {
     const original = process.env.APPDATA
     process.env.APPDATA = 'C:\\Users\\test\\AppData\\Roaming'
     try {
@@ -33,7 +39,7 @@ if (isWindows) {
     }
   })
 
-  test('getClaudeDesktopConfigPath throws when APPDATA is unset on Windows', async () => {
+  test('getClaudeDesktopConfigPath throws via helper when APPDATA is unset', async () => {
     const original = process.env.APPDATA
     try {
       delete process.env.APPDATA
