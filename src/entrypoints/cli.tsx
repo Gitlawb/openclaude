@@ -107,7 +107,6 @@ async function main(): Promise<void> {
   const {
     applyProfileEnvToProcessEnv,
     buildStartupEnvFromProfile,
-    isDefaultStartupProviderEnv,
   } = await import('../utils/providerProfile.js')
   const startupEnv = await buildStartupEnvFromProfile({
     processEnv: process.env,
@@ -117,7 +116,7 @@ async function main(): Promise<void> {
       '../utils/providerValidation.js'
     )
     const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
+    if (startupProfileError) {
       console.error(
         `Warning: ignoring saved provider profile. ${startupProfileError}`,
       )
