@@ -420,6 +420,12 @@ export type GlobalConfig = {
   // Btw usage tracking
   btwUseCount: number // Number of times user has used /btw
 
+  // Sponsored tips (ads.gitlawb.com) — opt-in earning of opengateway credits
+  ads?: {
+    enabled: boolean
+    earnCode?: string // issued in the opengateway Earn tab, sent as x-earn-code
+  }
+
   // Plan mode usage tracking
   lastPlanModeUse?: number // Timestamp of last plan mode usage
 
