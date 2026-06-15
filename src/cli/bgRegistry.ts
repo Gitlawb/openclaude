@@ -65,8 +65,18 @@ const ALL_STATUSES = new Set<BackgroundSessionStatus>([
   ...TERMINAL_STATUSES,
 ])
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
+let backgroundSessionsRootForTesting: string | undefined
+
+export function _setBackgroundSessionsRootForTesting(
+  root: string | undefined,
+): void {
+  backgroundSessionsRootForTesting = root?.normalize('NFC')
+}
 
 function getBackgroundSessionsRoot(): string {
+  if (backgroundSessionsRootForTesting) {
+    return backgroundSessionsRootForTesting
+  }
   return join(getClaudeConfigHomeDir(), 'bg-sessions')
 }
 

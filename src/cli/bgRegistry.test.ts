@@ -3,14 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  getClaudeConfigHomeDir,
-  setClaudeConfigHomeDirForTesting,
-} from '../utils/envUtils.js'
-import {
-  acquireSharedMutationLock,
-  releaseSharedMutationLock,
-} from '../test/sharedMutationLock.js'
-import {
+  _setBackgroundSessionsRootForTesting,
   createBackgroundSession,
   listBackgroundSessions,
   markBackgroundSessionKilled,
@@ -20,35 +13,15 @@ import {
 
 describe('background session registry', () => {
   let configDir: string
-  let previousConfigDir: string | undefined
-  let hasSharedMutationLock = false
 
   beforeEach(async () => {
-    await acquireSharedMutationLock('bgRegistry.test')
-    hasSharedMutationLock = true
-    previousConfigDir = process.env.CLAUDE_CONFIG_DIR
     configDir = await mkdtemp(join(tmpdir(), 'openclaude-bg-registry-'))
-    process.env.CLAUDE_CONFIG_DIR = configDir
-    setClaudeConfigHomeDirForTesting(configDir)
-    getClaudeConfigHomeDir.cache?.clear?.()
+    _setBackgroundSessionsRootForTesting(join(configDir, 'bg-sessions'))
   })
 
   afterEach(async () => {
-    try {
-      setClaudeConfigHomeDirForTesting(undefined)
-      if (previousConfigDir === undefined) {
-        delete process.env.CLAUDE_CONFIG_DIR
-      } else {
-        process.env.CLAUDE_CONFIG_DIR = previousConfigDir
-      }
-      getClaudeConfigHomeDir.cache?.clear?.()
-      await rm(configDir, { force: true, recursive: true })
-    } finally {
-      if (hasSharedMutationLock) {
-        hasSharedMutationLock = false
-        releaseSharedMutationLock()
-      }
-    }
+    _setBackgroundSessionsRootForTesting(undefined)
+    await rm(configDir, { force: true, recursive: true })
   })
 
   it('creates session metadata and log files under the OpenClaude config dir', async () => {
