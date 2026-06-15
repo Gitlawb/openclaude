@@ -6,7 +6,52 @@ import {
   getCommandName,
 } from '../../commands.js'
 import type { SuggestionItem } from '../../components/PromptInput/PromptInputFooterSuggestions.js'
+import { logForDebugging } from '../debug.js'
 import { getSkillUsageScore } from './skillUsageTracking.js'
+
+// Commands expose dynamic getters (description/isHidden/etc.) that read live
+// state and can throw. These getters run for every command while building the
+// search index, so a single bad command must never break suggestions for the
+// rest. Track which ones we've already warned about so the dev log fires once.
+const warnedBrokenCommands = new Set<string>()
+
+function warnBrokenCommand(label: string, err: unknown): void {
+  if (warnedBrokenCommands.has(label)) {
+    return
+  }
+  warnedBrokenCommands.add(label)
+  logForDebugging(
+    `command suggestion: skipped metadata for "${label}" — getter threw: ${
+      err instanceof Error ? err.message : String(err)
+    }`,
+    { level: 'warn' },
+  )
+}
+
+/**
+ * Read a command's `isHidden` getter without letting a throw propagate.
+ * Defaults to not-hidden so a command with a broken getter stays usable.
+ */
+function safeIsHidden(command: Command): boolean {
+  try {
+    return Boolean(command.isHidden)
+  } catch (err) {
+    warnBrokenCommand(safeCommandName(command) ?? 'unknown', err)
+    return false
+  }
+}
+
+/**
+ * Read a command's name without letting a throw propagate. Returns null when
+ * even the name can't be resolved — such a command is unusable and dropped.
+ */
+function safeCommandName(command: Command): string | null {
+  try {
+    return getCommandName(command)
+  } catch {
+    return null
+  }
+}
 
 // Treat these characters as word separators for command search
 const SEPARATORS = /[:_-]/g
@@ -97,13 +142,30 @@ function getCommandFuse(commands: Command[]): Fuse<CommandSearchItem> {
 function getCommandSearchSnapshots(
   commands: Command[],
 ): CommandSearchSnapshot[] {
-  return commands.map(command => ({
-    aliases: command.aliases,
-    command,
-    commandName: getCommandName(command),
-    isHidden: Boolean(command.isHidden),
-    renderedDescription: getRenderedCommandDescription(command),
-  }))
+  const snapshots: CommandSearchSnapshot[] = []
+  for (const command of commands) {
+    const commandName = safeCommandName(command)
+    // A command we can't even name is unusable — drop it rather than risk a
+    // throw poisoning the whole index.
+    if (commandName === null) {
+      continue
+    }
+    let aliases: string[] | undefined
+    try {
+      aliases = command.aliases
+    } catch {
+      aliases = undefined
+    }
+    snapshots.push({
+      aliases,
+      command,
+      commandName,
+      isHidden: safeIsHidden(command),
+      // getRenderedCommandDescription already falls back to '' on a throw.
+      renderedDescription: getRenderedCommandDescription(command),
+    })
+  }
+  return snapshots
 }
 
 function getCommandSearchSignature(
@@ -340,16 +402,25 @@ function createCommandSuggestionItem(
 }
 
 function getRenderedCommandDescription(cmd: Command): string {
-  const isWorkflow = cmd.type === 'prompt' && cmd.kind === 'workflow'
-  const description = isWorkflow
-    ? cmd.description
-    : formatDescriptionWithSource(cmd)
-  return (
-    description +
-    (cmd.type === 'prompt' && cmd.argNames?.length
-      ? ` (arguments: ${cmd.argNames.join(', ')})`
-      : '')
-  )
+  // Command descriptions can be dynamic getters that read live state and may
+  // throw (e.g. a backend returning null). This runs for every command while
+  // building the Fuse index, so a single throwing getter must not break the
+  // entire suggestion list — fall back to an empty description instead.
+  try {
+    const isWorkflow = cmd.type === 'prompt' && cmd.kind === 'workflow'
+    const description = isWorkflow
+      ? cmd.description
+      : formatDescriptionWithSource(cmd)
+    return (
+      description +
+      (cmd.type === 'prompt' && cmd.argNames?.length
+        ? ` (arguments: ${cmd.argNames.join(', ')})`
+        : '')
+    )
+  } catch (err) {
+    warnBrokenCommand(safeCommandName(cmd) ?? 'unknown', err)
+    return ''
+  }
 }
 
 /**
@@ -392,7 +463,7 @@ export function generateCommandSuggestions(
 
   // When just typing '/' without additional text
   if (query === '') {
-    const visibleCommands = commands.filter(cmd => !cmd.isHidden)
+    const visibleCommands = commands.filter(cmd => !safeIsHidden(cmd))
 
     // Find recently used skills (only prompt commands have usage tracking)
     const recentlyUsed: Command[] = []
