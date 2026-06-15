@@ -202,6 +202,13 @@ interface SystemMessageBase {
 export interface SystemInformationalMessage extends SystemMessageBase {
   subtype: 'informational'
   content: string
+  /**
+   * Marks a context-collapse summary placeholder. The transcript renders it
+   * like any informational notice, but normalizeMessagesForAPI converts it into
+   * a user message so the `<collapsed>` summary still reaches the model after
+   * the archived span is removed.
+   */
+  isCollapseSummary?: boolean
 }
 
 export interface SystemPermissionRetryMessage extends SystemMessageBase {

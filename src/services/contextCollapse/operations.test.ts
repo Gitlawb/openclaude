@@ -77,6 +77,22 @@ describe('projectView', () => {
     expect(result[1]!.uuid).toBe(uid('c'))
   })
 
+  test('collapsed summary survives normalizeMessagesForAPI as a user message', async () => {
+    // Regression: the projected placeholder is a system message, and
+    // normalizeMessagesForAPI drops system messages that are not local commands.
+    // Without the isCollapseSummary carve-out the <collapsed> summary (and the
+    // archived span it replaced) would vanish from the model's input.
+    const mod = await import('./operations.js')
+    const { normalizeMessagesForAPI } = await import('../../utils/messages.js')
+    const msgs: Message[] = [makeUserMsg('a'), makeAssistantMsg('b'), makeUserMsg('c')]
+    const projected = mod.projectView(msgs)
+
+    const normalized = normalizeMessagesForAPI(projected)
+    const serialized = JSON.stringify(normalized)
+    expect(serialized).toContain('test summary')
+    expect(serialized).toContain('<collapsed')
+  })
+
   test('silently skips missing boundaries', async () => {
     const mod = await import('./operations.js')
     const msgs: Message[] = [makeUserMsg('x'), makeAssistantMsg('y')]

@@ -261,6 +261,9 @@ function drainStaged(
       uuid: summaryUuid,
       timestamp: new Date().toISOString(),
       isMeta: true,
+      // Survives normalizeMessagesForAPI as a user message so the summary
+      // reaches the model after the archived span is removed.
+      isCollapseSummary: true,
     } as Message
 
     const committed: CommittedCollapse = {

@@ -1534,6 +1534,19 @@ export function isSystemLocalCommandMessage(
 }
 
 /**
+ * A context-collapse summary placeholder. Like local-command system messages,
+ * its content must survive model-input normalization (converted to a user
+ * message) so the collapsed-span summary stays visible to the model.
+ */
+export function isCollapseSummaryMessage(message: Message): boolean {
+  return (
+    message.type === 'system' &&
+    message.subtype === 'informational' &&
+    (message as { isCollapseSummary?: boolean }).isCollapseSummary === true
+  )
+}
+
+/**
  * Strips tool_reference blocks for tools that no longer exist from tool_result content.
  * This handles the case where a session was saved with MCP tools that are no longer
  * available (e.g., MCP server was disconnected, renamed, or removed).
@@ -2124,10 +2137,13 @@ export function normalizeMessagesForAPI(
         | UserMessage
         | AssistantMessage
         | AttachmentMessage
-        | SystemLocalCommandMessage => {
+        | SystemLocalCommandMessage
+        | SystemInformationalMessage => {
         if (
           _.type === 'progress' ||
-          (_.type === 'system' && !isSystemLocalCommandMessage(_)) ||
+          (_.type === 'system' &&
+            !isSystemLocalCommandMessage(_) &&
+            !isCollapseSummaryMessage(_)) ||
           isSyntheticApiErrorMessage(_)
         ) {
           return false
@@ -2139,7 +2155,9 @@ export function normalizeMessagesForAPI(
       switch (message.type) {
         case 'system': {
           // local_command system messages need to be included as user messages
-          // so the model can reference previous command output in later turns
+          // so the model can reference previous command output in later turns.
+          // Context-collapse summaries take the same path so the <collapsed>
+          // summary stays visible after its archived span is removed.
           const userMsg = createUserMessage({
             content: message.content,
             uuid: message.uuid,

@@ -29,6 +29,9 @@ export function projectView(messages: Message[]): Message[] {
         result[lastIdx]?.timestamp ??
         new Date(0).toISOString(),
       isMeta: true,
+      // Survives normalizeMessagesForAPI as a user message so the summary
+      // reaches the model after the archived span is removed.
+      isCollapseSummary: true,
     } as Message
 
     result = [
