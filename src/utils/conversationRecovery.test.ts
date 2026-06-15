@@ -6,6 +6,8 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realBgRegistry from '../cli/bgRegistry.js'
+import * as realUdsClient from './udsClient.js'
 import * as realProviders from './model/providers.js'
 
 const tempDirs: string[] = []
@@ -92,6 +94,8 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    mock.module('../cli/bgRegistry.js', () => realBgRegistry)
+    mock.module('./udsClient.js', () => realUdsClient)
     mock.module('./model/providers.js', () => realProviders)
     if (originalSimple === undefined) {
       delete process.env.CLAUDE_CODE_SIMPLE
@@ -215,9 +219,11 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
 test('collectLiveBackgroundSessionIds includes local registry sessions when UDS is empty', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
   mock.module('./udsClient.js', () => ({
+    ...realUdsClient,
     listAllLiveSessions: async () => [],
   }))
   mock.module('../cli/bgRegistry.js', () => ({
+    ...realBgRegistry,
     refreshBackgroundSessionStatuses: async () => [
       {
         sessionId: '00000000-0000-4000-8000-000000000111',
