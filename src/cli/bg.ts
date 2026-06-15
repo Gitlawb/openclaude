@@ -51,10 +51,10 @@ const DEFAULT_TERM_GRACE_MS = 2_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_KILL_POLL_INTERVAL_MS = 100
 
-// This must stay in sync with value-consuming CLI flags in main.tsx and
-// related handlers. If the CLI flag definitions become centralized, move this
-// parser metadata there instead of maintaining a second hand-written list.
-const OPTION_VALUE_FLAGS = new Set([
+// This must stay in sync with value-consuming CLI flags in main.tsx and related
+// handlers. If the CLI flag definitions become centralized, move this parser
+// metadata there instead of maintaining a second hand-written list.
+const REQUIRED_OPTION_VALUE_FLAGS = new Set([
   '--add-dir',
   '--agent',
   '--agents',
@@ -63,7 +63,6 @@ const OPTION_VALUE_FLAGS = new Set([
   '--append-system-prompt',
   '--append-system-prompt-file',
   '--betas',
-  '--debug',
   '--debug-file',
   '--disallowed-tools',
   '--disallowedTools',
@@ -96,6 +95,13 @@ const OPTION_VALUE_FLAGS = new Set([
   '--tools',
   '--workload',
   '-n',
+])
+
+const OPTIONAL_OPTION_VALUE_FLAGS = new Set([
+  '--debug',
+  '--from-pr',
+  '--resume',
+  '-d',
   '-r',
 ])
 
@@ -174,9 +180,15 @@ function findPromptIndex(args: string[]): number {
   const consumedValues = new Set<number>()
   for (let i = 0; i < args.length - 1; i++) {
     const arg = args[i]
-    if (OPTION_VALUE_FLAGS.has(arg)) {
+    if (REQUIRED_OPTION_VALUE_FLAGS.has(arg)) {
       consumedValues.add(i + 1)
       i++
+      continue
+    }
+    if (OPTIONAL_OPTION_VALUE_FLAGS.has(arg)) {
+      // Commander only accepts optional option values inline (`--debug=api`),
+      // so the following token remains eligible to be the positional prompt.
+      continue
     }
   }
 

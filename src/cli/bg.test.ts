@@ -50,6 +50,32 @@ describe('background session CLI parsing', () => {
     ])
   })
 
+  it('preserves the prompt when --debug has no inline filter', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--debug',
+      'fix failing tests',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual(['--debug', '--print', 'fix failing tests'])
+  })
+
+  it('preserves inline --debug filters while finding the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--debug=api,hooks',
+      'fix failing tests',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--debug=api,hooks',
+      '--print',
+      'fix failing tests',
+    ])
+  })
+
   it('inserts generated flags before -- so dash-prefixed prompts stay positional', () => {
     const parsed = parseBackgroundInvocation(['--bg', '--', '--fix-tests'])
 

@@ -57,6 +57,8 @@ export type CreateBackgroundSessionInput = {
 type BackgroundSessionNameReservation = {
   name: string
   id: string
+  creatorPid?: number
+  createdAt?: string
 }
 
 const TERMINAL_STATUSES = new Set<BackgroundSessionStatus>([
@@ -194,19 +196,24 @@ async function readNameReservation(
 ): Promise<BackgroundSessionNameReservation | null> {
   try {
     const parsed = jsonParse(await readFile(path, 'utf8'))
+    const candidate = parsed as Partial<BackgroundSessionNameReservation>
     if (
       parsed &&
       typeof parsed === 'object' &&
-      typeof (parsed as Partial<BackgroundSessionNameReservation>).name ===
-        'string' &&
-      typeof (parsed as Partial<BackgroundSessionNameReservation>).id ===
-        'string' &&
-      SAFE_ID_RE.test((parsed as BackgroundSessionNameReservation).id)
+      typeof candidate.name === 'string' &&
+      typeof candidate.id === 'string' &&
+      SAFE_ID_RE.test(candidate.id) &&
+      (candidate.creatorPid === undefined ||
+        (typeof candidate.creatorPid === 'number' &&
+          Number.isInteger(candidate.creatorPid) &&
+          candidate.creatorPid > 1)) &&
+      (candidate.createdAt === undefined ||
+        typeof candidate.createdAt === 'string')
     ) {
       return parsed as BackgroundSessionNameReservation
     }
   } catch {
-    // Malformed reservations are treated as occupied below.
+    // Malformed reservations are treated as recoverable orphans below.
   }
   return null
 }
@@ -221,22 +228,77 @@ async function releaseNameReservation(
   await unlink(path).catch(() => {})
 }
 
+async function unlinkStaleNameReservation(path: string): Promise<void> {
+  try {
+    await unlink(path)
+  } catch (error) {
+    if (!isErrno(error, 'ENOENT')) throw error
+  }
+}
+
+async function releaseStaleNameReservation(
+  name: string,
+  id: string,
+): Promise<void> {
+  const path = nameReservationPathForName(name)
+  const existing = await readNameReservation(path)
+  if (existing?.id !== id) return
+  await unlinkStaleNameReservation(path)
+}
+
+async function isLiveNameReservation(
+  name: string,
+  reservation: BackgroundSessionNameReservation | null,
+): Promise<boolean> {
+  if (!reservation) return false
+  if (reservation.name !== name) return false
+
+  const owner = await readSessionFile(metadataPathForId(reservation.id))
+  if (owner) {
+    return owner.name === name && !isTerminalBackgroundSession(owner)
+  }
+
+  return (
+    typeof reservation.creatorPid === 'number' &&
+    isProcessRunning(reservation.creatorPid)
+  )
+}
+
 async function reserveBackgroundSessionName(
   name: string,
   id: string,
 ): Promise<() => Promise<void>> {
   const path = nameReservationPathForName(name)
-  const reservation = jsonStringify({ name, id })
+  const reservation = jsonStringify({
+    name,
+    id,
+    creatorPid: process.pid,
+    createdAt: iso(undefined),
+  })
 
-  try {
-    await writeFile(path, reservation, { flag: 'wx' })
-    return () => releaseNameReservation(name, id)
-  } catch (error) {
-    if (!isErrno(error, 'EEXIST')) throw error
+  while (true) {
+    try {
+      await writeFile(path, reservation, { flag: 'wx' })
+      return () => releaseNameReservation(name, id)
+    } catch (error) {
+      if (!isErrno(error, 'EEXIST')) throw error
 
-    const existing = await readNameReservation(path)
-    const suffix = existing && existing.name === name ? ` (${existing.id})` : ''
-    throw new Error(`Background session name "${name}" already exists${suffix}`)
+      const existing = await readNameReservation(path)
+      if (!(await isLiveNameReservation(name, existing))) {
+        if (existing) {
+          await releaseStaleNameReservation(name, existing.id)
+        } else {
+          await unlinkStaleNameReservation(path)
+        }
+        continue
+      }
+
+      const suffix =
+        existing && existing.name === name ? ` (${existing.id})` : ''
+      throw new Error(
+        `Background session name "${name}" already exists${suffix}`,
+      )
+    }
   }
 }
 

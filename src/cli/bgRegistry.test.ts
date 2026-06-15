@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +14,26 @@ import {
 
 describe('background session registry', () => {
   let configDir: string
+
+  function nameReservationPath(name: string): string {
+    const digest = createHash('sha256').update(name).digest('hex')
+    return join(configDir, 'bg-sessions', 'names', `${digest}.json`)
+  }
+
+  async function writeNameReservation(
+    name: string,
+    reservation: {
+      id: string
+      creatorPid?: number
+      createdAt?: string
+    },
+  ): Promise<void> {
+    await mkdir(join(configDir, 'bg-sessions', 'names'), { recursive: true })
+    await writeFile(
+      nameReservationPath(name),
+      JSON.stringify({ name, ...reservation }),
+    )
+  }
 
   beforeEach(async () => {
     configDir = await mkdtemp(join(tmpdir(), 'openclaude-bg-registry-'))
@@ -159,6 +180,89 @@ describe('background session registry', () => {
         session => session.name === 'shared-race',
       ),
     ).toHaveLength(1)
+  })
+
+  it('does not steal an in-flight name reservation from a live creator', async () => {
+    await writeNameReservation('in-flight', {
+      id: 'bg-in-flight',
+      creatorPid: process.pid,
+      createdAt: '2026-06-15T08:00:00.000Z',
+    })
+
+    await expect(
+      createBackgroundSession({
+        id: 'bg-contender',
+        name: 'in-flight',
+        pid: 222,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'contender'],
+        sessionId: 'conversation-contender',
+      }),
+    ).rejects.toThrow('already exists')
+    expect(await listBackgroundSessions()).toEqual([])
+  })
+
+  it('recovers orphaned name reservations whose owner metadata is missing', async () => {
+    await writeNameReservation('orphaned', {
+      id: 'bg-missing-owner',
+      creatorPid: Number.MAX_SAFE_INTEGER,
+      createdAt: '2026-06-15T08:00:00.000Z',
+    })
+
+    const session = await createBackgroundSession({
+      id: 'bg-recovered',
+      name: 'orphaned',
+      pid: 222,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'recovered'],
+      sessionId: 'conversation-recovered',
+    })
+
+    expect(session.name).toBe('orphaned')
+    expect((await listBackgroundSessions()).map(s => s.id)).toEqual([
+      'bg-recovered',
+    ])
+  })
+
+  it('recovers name reservations owned by terminal sessions', async () => {
+    await mkdir(join(configDir, 'bg-sessions', 'sessions'), {
+      recursive: true,
+    })
+    await writeFile(
+      join(configDir, 'bg-sessions', 'sessions', 'bg-terminal-owner.json'),
+      JSON.stringify({
+        id: 'bg-terminal-owner',
+        name: 'terminal-name',
+        pid: 111,
+        cwd: '/repo',
+        status: 'killed',
+        sessionId: 'conversation-terminal',
+        startedAt: '2026-06-15T08:00:00.000Z',
+        updatedAt: '2026-06-15T08:05:00.000Z',
+        command: ['openclaude', '--print', 'old'],
+        stdoutLogPath: '/tmp/old-out.log',
+        stderrLogPath: '/tmp/old-err.log',
+      }),
+    )
+    await writeNameReservation('terminal-name', {
+      id: 'bg-terminal-owner',
+      creatorPid: process.pid,
+      createdAt: '2026-06-15T08:00:00.000Z',
+    })
+
+    const session = await createBackgroundSession({
+      id: 'bg-new-owner',
+      name: 'terminal-name',
+      pid: 222,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'new'],
+      sessionId: 'conversation-new',
+    })
+
+    expect(session.name).toBe('terminal-name')
+    expect((await resolveBackgroundSession('terminal-name')).id).toBe(
+      'bg-new-owner',
+    )
   })
 
   it('allows terminal session names to be reused and resolves the active match', async () => {
