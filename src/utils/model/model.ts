@@ -28,7 +28,7 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
-import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
+import { DEFAULT_GEMINI_MODEL, DEFAULT_MISTRAL_MODEL } from '../providerProfile.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
 
 export type ModelShortName = string
@@ -191,7 +191,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'devstral-latest'
+    return process.env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
@@ -377,7 +377,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
   }
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'devstral-latest'
+    return process.env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
