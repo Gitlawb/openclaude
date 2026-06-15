@@ -130,6 +130,51 @@ describe('builtInCommandNames', () => {
     }
   })
 
+  const FULL_GIT_COMMANDS = [
+    'git status',
+    'git diff --name-only --diff-filter=AM',
+    'git diff --cached --name-only --diff-filter=AM',
+    'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+    'git ls-files',
+    'git diff HEAD -- .',
+    'git rev-parse --git-dir',
+    'git rev-parse --git-dir 2>&1',
+    'git diff HEAD -- . 2> /dev/null',
+    'head -400',
+    'head -50',
+    'echo "(no diff available or not a git repo)"',
+    'echo "(no git history or not a git repo)"',
+    'echo "(no unstaged changes or not a git repo)"',
+    'echo "(no staged changes or not a git repo)"',
+    'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50',
+  ]
+
+  const createMockToolContext = (cwd: string, commands: string[]) =>
+    ({
+      getAppState: () => ({
+        toolPermissionContext: {
+          alwaysAllowRules: { command: commands },
+          alwaysDenyRules: {},
+          alwaysAskRules: {},
+          mode: 'default' as const,
+          additionalWorkingDirectories: new Map([[cwd, true]]),
+          isBypassPermissionsModeAvailable: false,
+        },
+      }),
+      abortController: new AbortController(),
+      options: {
+        debug: false,
+        mainLoopModel: '',
+        tools: {} as any,
+        verbose: false,
+        thinkingConfig: {} as any,
+        mcpClients: [] as any,
+        mcpResources: {} as any,
+        isNonInteractiveSession: false,
+        agentDefinitions: {} as any,
+      },
+    }) as any
+
   test('bughunter prompt generation works in non-git directory', async () => {
     const originalUserType = process.env['USER_TYPE']
     const originalIsDemo = process.env['IS_DEMO']
@@ -142,49 +187,7 @@ describe('builtInCommandNames', () => {
       const cmds = await getCommands(cwd)
       const bughunterCmd = findPromptCommand(cmds, 'bughunter')
       // Generate the prompt - should not throw and should contain fallback text
-      const mockContext = {
-        getAppState: () => ({
-          toolPermissionContext: {
-            alwaysAllowRules: {
-              command: [
-                'git status',
-                'git diff --name-only --diff-filter=AM',
-                'git diff --cached --name-only --diff-filter=AM',
-                'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
-                'git ls-files',
-                'git diff HEAD -- .',
-                'git rev-parse --git-dir',
-                'git rev-parse --git-dir 2>&1',
-                'git diff HEAD -- . 2> /dev/null',
-                'head -400',
-                'head -50',
-                'echo "(no diff available or not a git repo)"',
-                'echo "(no git history or not a git repo)"',
-                'echo "(no unstaged changes or not a git repo)"',
-                'echo "(no staged changes or not a git repo)"',
-                'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50',
-              ],
-            },
-            alwaysDenyRules: {},
-            alwaysAskRules: {},
-            mode: 'default' as const,
-            additionalWorkingDirectories: new Map([[cwd, true]]),
-            isBypassPermissionsModeAvailable: false,
-          },
-        }),
-        abortController: new AbortController(),
-        options: {
-          debug: false,
-          mainLoopModel: '',
-          tools: {} as any,
-          verbose: false,
-          thinkingConfig: {} as any,
-          mcpClients: [] as any,
-          mcpResources: {} as any,
-          isNonInteractiveSession: false,
-          agentDefinitions: {} as any,
-        },
-      } as any
+      const mockContext = createMockToolContext(cwd, FULL_GIT_COMMANDS)
       // Run with cwd override so git commands execute in the temp dir (non-git)
       const promptBlocks = await runWithCwdOverride(cwd, async () => {
         return bughunterCmd.getPromptForCommand('', mockContext)
@@ -228,20 +231,12 @@ describe('builtInCommandNames', () => {
     try {
       const cmds = await getCommands(cwd)
       const bughunterCmd = findPromptCommand(cmds, 'bughunter')
-      const mockContext = {
-        getAppState: () => ({
-          toolPermissionContext: {
-            alwaysAllowRules: { command: ['git status', 'git diff --name-only --diff-filter=AM', 'git diff --cached --name-only --diff-filter=AM', 'git diff --name-only HEAD~10..HEAD --diff-filter=AM', 'git ls-files', 'git diff HEAD -- .', 'head -400', 'head -50'] },
-            alwaysDenyRules: {},
-            alwaysAskRules: {},
-            mode: 'default' as const,
-            additionalWorkingDirectories: new Map([[cwd, true]]),
-            isBypassPermissionsModeAvailable: false,
-          },
-        }),
-        abortController: new AbortController(),
-        options: { debug: false, mainLoopModel: '', tools: {} as any, verbose: false, thinkingConfig: {} as any, mcpClients: [] as any, mcpResources: {} as any, isNonInteractiveSession: false, agentDefinitions: {} as any },
-      } as any
+      const mockContext = createMockToolContext(cwd, [
+        'git status', 'git diff --name-only --diff-filter=AM',
+        'git diff --cached --name-only --diff-filter=AM',
+        'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+        'git ls-files', 'git diff HEAD -- .', 'head -400', 'head -50',
+      ])
       // Pass args containing shell-like syntax - it must appear verbatim, not executed
       const maliciousScope = 'src/auth !`echo pwned`'
       const promptBlocks = await runWithCwdOverride(cwd, async () => {
@@ -279,49 +274,7 @@ describe('builtInCommandNames', () => {
     try {
       const cmds = await getCommands(cwd)
       const cmd = findPromptCommand(cmds, 'bughunter-security')
-      const mockContext = {
-        getAppState: () => ({
-          toolPermissionContext: {
-            alwaysAllowRules: {
-              command: [
-                'git status',
-                'git diff --name-only --diff-filter=AM',
-                'git diff --cached --name-only --diff-filter=AM',
-                'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
-                'git ls-files',
-                'git diff HEAD -- .',
-                'git rev-parse --git-dir',
-                'git rev-parse --git-dir 2>&1',
-                'git diff HEAD -- . 2> /dev/null',
-                'head -400',
-                'head -50',
-                'echo "(no diff available or not a git repo)"',
-                'echo "(no git history or not a git repo)"',
-                'echo "(no unstaged changes or not a git repo)"',
-                'echo "(no staged changes or not a git repo)"',
-                'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50',
-              ],
-            },
-            alwaysDenyRules: {},
-            alwaysAskRules: {},
-            mode: 'default' as const,
-            additionalWorkingDirectories: new Map([[cwd, true]]),
-            isBypassPermissionsModeAvailable: false,
-          },
-        }),
-        abortController: new AbortController(),
-        options: {
-          debug: false,
-          mainLoopModel: '',
-          tools: {} as any,
-          verbose: false,
-          thinkingConfig: {} as any,
-          mcpClients: [] as any,
-          mcpResources: {} as any,
-          isNonInteractiveSession: false,
-          agentDefinitions: {} as any,
-        },
-} as any
+      const mockContext = createMockToolContext(cwd, FULL_GIT_COMMANDS)
       // Run with cwd override so git commands execute in the temp dir (non-git)
       const promptBlocks = await runWithCwdOverride(cwd, async () => {
         return cmd.getPromptForCommand('', mockContext)
@@ -362,49 +315,7 @@ describe('builtInCommandNames', () => {
     try {
       const cmds = await getCommands(cwd)
       const cmd = findPromptCommand(cmds, 'bughunter-perf')
-      const mockContext = {
-        getAppState: () => ({
-          toolPermissionContext: {
-            alwaysAllowRules: {
-              command: [
-                'git status',
-                'git diff --name-only --diff-filter=AM',
-                'git diff --cached --name-only --diff-filter=AM',
-                'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
-                'git ls-files',
-                'git diff HEAD -- .',
-                'git rev-parse --git-dir',
-                'git rev-parse --git-dir 2>&1',
-                'git diff HEAD -- . 2> /dev/null',
-                'head -400',
-                'head -50',
-                'echo "(no diff available or not a git repo)"',
-                'echo "(no git history or not a git repo)"',
-                'echo "(no unstaged changes or not a git repo)"',
-                'echo "(no staged changes or not a git repo)"',
-                'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null || git ls-files 2>/dev/null | head -50',
-              ],
-            },
-            alwaysDenyRules: {},
-            alwaysAskRules: {},
-            mode: 'default' as const,
-            additionalWorkingDirectories: new Map([[cwd, true]]),
-            isBypassPermissionsModeAvailable: false,
-          },
-        }),
-        abortController: new AbortController(),
-        options: {
-          debug: false,
-          mainLoopModel: '',
-          tools: {} as any,
-          verbose: false,
-          thinkingConfig: {} as any,
-          mcpClients: [] as any,
-          mcpResources: {} as any,
-          isNonInteractiveSession: false,
-          agentDefinitions: {} as any,
-        },
-      } as any
+      const mockContext = createMockToolContext(cwd, FULL_GIT_COMMANDS)
       // Run with cwd override so git commands execute in the temp dir (non-git)
       const promptBlocks = await runWithCwdOverride(cwd, async () => {
         return cmd.getPromptForCommand('', mockContext)
