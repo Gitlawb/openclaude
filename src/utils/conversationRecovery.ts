@@ -358,10 +358,23 @@ export function deserializeMessagesWithInterruptDetection(
   }
 }
 
-export async function collectLiveBackgroundSessionIds(): Promise<Set<string>> {
+type UdsClientModule = typeof import('./udsClient.js')
+type BgRegistryModule = typeof import('../cli/bgRegistry.js')
+
+type CollectLiveBackgroundSessionIdsDeps = {
+  listAllLiveSessions?: UdsClientModule['listAllLiveSessions']
+  refreshBackgroundSessionStatuses?: BgRegistryModule['refreshBackgroundSessionStatuses']
+  isTerminalBackgroundSession?: BgRegistryModule['isTerminalBackgroundSession']
+}
+
+export async function collectLiveBackgroundSessionIds(
+  deps: CollectLiveBackgroundSessionIdsDeps = {},
+): Promise<Set<string>> {
   const skip = new Set<string>()
   try {
-    const { listAllLiveSessions } = await import('./udsClient.js')
+    const listAllLiveSessions =
+      deps.listAllLiveSessions ??
+      (await import('./udsClient.js')).listAllLiveSessions
     const live = await listAllLiveSessions()
     for (const session of live) {
       if (session.kind && session.kind !== 'interactive' && session.sessionId) {
@@ -373,10 +386,15 @@ export async function collectLiveBackgroundSessionIds(): Promise<Set<string>> {
   }
 
   try {
-    const {
-      refreshBackgroundSessionStatuses,
-      isTerminalBackgroundSession,
-    } = await import('../cli/bgRegistry.js')
+    let refreshBackgroundSessionStatuses =
+      deps.refreshBackgroundSessionStatuses
+    let isTerminalBackgroundSession = deps.isTerminalBackgroundSession
+    if (!refreshBackgroundSessionStatuses || !isTerminalBackgroundSession) {
+      const bgRegistry = await import('../cli/bgRegistry.js')
+      refreshBackgroundSessionStatuses ??=
+        bgRegistry.refreshBackgroundSessionStatuses
+      isTerminalBackgroundSession ??= bgRegistry.isTerminalBackgroundSession
+    }
     const sessions = await refreshBackgroundSessionStatuses()
     for (const session of sessions) {
       if (!isTerminalBackgroundSession(session)) {

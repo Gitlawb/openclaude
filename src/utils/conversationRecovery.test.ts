@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,13 +6,10 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import * as realBgRegistry from '../cli/bgRegistry.js'
-import * as realEnvUtils from './envUtils.js'
 import * as realUdsClient from './udsClient.js'
 import * as realProviders from './model/providers.js'
 
 const tempDirs: string[] = []
-const childProcesses: ChildProcess[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
 const providerEnvKeys = [
   'CLAUDE_CODE_USE_GEMINI',
@@ -99,8 +95,6 @@ afterEach(async () => {
     mock.restore()
     mock.module('./udsClient.js', () => realUdsClient)
     mock.module('./model/providers.js', () => realProviders)
-    realEnvUtils.setClaudeConfigHomeDirForTesting(undefined)
-    realEnvUtils.getClaudeConfigHomeDir.cache?.clear?.()
     if (originalSimple === undefined) {
       delete process.env.CLAUDE_CODE_SIMPLE
     } else {
@@ -117,49 +111,10 @@ afterEach(async () => {
     await Promise.all(
       tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
     )
-    await Promise.all(childProcesses.splice(0).map(stopChildProcess))
   } finally {
     releaseSharedMutationLock()
   }
 })
-
-async function spawnLiveSessionProcess(sessionId: string): Promise<number> {
-  const child = spawn(
-    process.execPath,
-    ['-e', 'setTimeout(() => {}, 30000)', sessionId],
-    {
-      stdio: 'ignore',
-    },
-  )
-  childProcesses.push(child)
-
-  await new Promise<void>((resolve, reject) => {
-    child.once('spawn', resolve)
-    child.once('error', reject)
-  })
-  if (!child.pid) {
-    throw new Error('Failed to start background session test process')
-  }
-  return child.pid
-}
-
-async function stopChildProcess(child: ChildProcess): Promise<void> {
-  if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
-    return
-  }
-
-  await new Promise<void>(resolve => {
-    const timeout = setTimeout(() => {
-      child.kill('SIGKILL')
-      resolve()
-    }, 500)
-    child.once('exit', () => {
-      clearTimeout(timeout)
-      resolve()
-    })
-    child.kill('SIGTERM')
-  })
-}
 
 async function importFreshConversationRecovery() {
   mock.restore()
@@ -261,44 +216,27 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
 
 test('collectLiveBackgroundSessionIds includes local registry sessions when UDS is empty', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
-  const configDir = await mkdtemp(join(tmpdir(), 'openclaude-bg-registry-'))
-  tempDirs.push(configDir)
-  realEnvUtils.setClaudeConfigHomeDirForTesting(configDir)
-  realEnvUtils.getClaudeConfigHomeDir.cache?.clear?.()
-
   const liveSessionId = '00000000-0000-4000-8000-000000000111'
   const staleSessionId = '00000000-0000-4000-8000-000000000222'
-  const livePid = await spawnLiveSessionProcess(liveSessionId)
-  await realBgRegistry.createBackgroundSession({
-    id: 'bg-live',
-    pid: livePid,
-    cwd: '/tmp',
-    command: [
-      process.execPath,
-      '-e',
-      'setTimeout(() => {}, 30000)',
-      liveSessionId,
-    ],
-    sessionId: liveSessionId,
-  })
-  await realBgRegistry.createBackgroundSession({
-    id: 'bg-stale',
-    pid: 1,
-    cwd: '/tmp',
-    command: ['openclaude', '--print', 'stale'],
-    sessionId: staleSessionId,
-  })
-
   const { collectLiveBackgroundSessionIds } =
     await importFreshConversationRecovery()
-  mock.module('./udsClient.js', () => ({
-    ...realUdsClient,
-    listAllLiveSessions: async () => [],
-  }))
 
-  expect(await collectLiveBackgroundSessionIds()).toEqual(
-    new Set([liveSessionId]),
-  )
+  expect(
+    await collectLiveBackgroundSessionIds({
+      listAllLiveSessions: async () => [],
+      refreshBackgroundSessionStatuses: async () => [
+        {
+          sessionId: liveSessionId,
+          status: 'running',
+        },
+        {
+          sessionId: staleSessionId,
+          status: 'stale',
+        },
+      ],
+      isTerminalBackgroundSession: session => session.status !== 'running',
+    }),
+  ).toEqual(new Set([liveSessionId]))
 })
 
 test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', async () => {
