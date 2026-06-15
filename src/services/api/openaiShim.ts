@@ -2845,10 +2845,8 @@ class OpenAIShimMessages {
       const hostname = url.hostname.toLowerCase()
       isOpenCode = hostname === 'opencode.ai' || hostname.endsWith('.opencode.ai')
       
-      if (isOpenCode && !isAnthropicTransport) {
-        if (shimConfig?.endpointPath === '/messages') {
-            isAnthropicTransport = true;
-        }
+      if (isOpenCode && !isAnthropicTransport && shimConfig?.endpointPath === '/messages') {
+        isAnthropicTransport = true;
       }
     } catch { /* malformed URL */ }
 

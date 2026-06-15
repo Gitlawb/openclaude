@@ -867,6 +867,24 @@ export default [
     maxOutputTokens: 32_768,
   }),
   defineModel({
+    id: 'opencode-go-kimi-k2.7-code',
+    label: 'Kimi K2.7 Code',
+
+    vendorId: 'openai',
+    classification: ['chat'],
+    defaultModel: 'opencode-go-kimi-k2.7-code',
+    capabilities: {
+      supportsVision: true,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: true,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 131_072,
+    maxOutputTokens: 32_768,
+  }),
+  defineModel({
     id: 'opencode-go-deepseek-v4-pro',
     label: 'DeepSeek V4 Pro',
 
@@ -952,7 +970,7 @@ export default [
       supportsStreaming: true,
       supportsFunctionCalling: true,
       supportsJsonMode: true,
-      supportsReasoning: false,
+      supportsReasoning: true,
       supportsPreciseTokenCount: false,
     },
     contextWindow: 131_072,
