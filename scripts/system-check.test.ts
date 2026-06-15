@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { checkNodeVersion, formatReachabilityFailureDetail } from './system-check.ts'
+import {
+  checkNodeVersion,
+  formatReachabilityFailureDetail,
+  readNodeExecutableVersion,
+} from './system-check.ts'
 
 describe('formatReachabilityFailureDetail', () => {
   test('returns generic failure detail for non-codex transport', () => {
@@ -59,6 +63,45 @@ describe('formatReachabilityFailureDetail', () => {
 })
 
 describe('checkNodeVersion', () => {
+  test('reads the Node.js version from the node executable output', () => {
+    const probe = readNodeExecutableVersion(() => ({
+      status: 0,
+      stdout: 'v22.0.0\n',
+      stderr: '',
+      error: undefined,
+    }))
+
+    expect(probe).toEqual({
+      ok: true,
+      version: 'v22.0.0',
+    })
+  })
+
+  test('checks the probed node executable version', () => {
+    expect(checkNodeVersion({ ok: true, version: 'v20.11.1' })).toEqual({
+      ok: false,
+      label: 'Node.js version',
+      detail:
+        'Detected 20.11.1. OpenClaude requires Node.js >=22.0.0. Install Node 22 LTS or newer, then reinstall/re-run OpenClaude.',
+    })
+  })
+
+  test('reports a missing node executable as a Node.js version failure', () => {
+    const probe = readNodeExecutableVersion(() => ({
+      status: null,
+      stdout: '',
+      stderr: '',
+      error: new Error('spawn node ENOENT'),
+    }))
+
+    expect(checkNodeVersion(probe)).toEqual({
+      ok: false,
+      label: 'Node.js version',
+      detail:
+        'Unable to run `node --version`: spawn node ENOENT. OpenClaude requires Node.js >=22.0.0 on PATH.',
+    })
+  })
+
   test('uses the shared Node.js minimum in doctor failures', () => {
     expect(checkNodeVersion('20.11.1')).toEqual({
       ok: false,
