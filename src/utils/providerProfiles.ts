@@ -987,6 +987,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (activeProfile.baseUrl?.toLowerCase().includes('llmtr.com')) {
+        strictEnv.LLMTR_API_KEY = activeProfile.apiKey
+      }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
         strictEnv.NEARAI_API_KEY = activeProfile.apiKey
       }
@@ -1032,6 +1035,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('llmtr.com')) {
+      env.LLMTR_API_KEY = activeProfile.apiKey
     }
     if (isNearaiBaseUrl(activeProfile.baseUrl)) {
       env.NEARAI_API_KEY = activeProfile.apiKey

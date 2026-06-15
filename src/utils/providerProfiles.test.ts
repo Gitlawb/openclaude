@@ -62,6 +62,7 @@ const RESTORED_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'LLMTR_API_KEY',
   'HICAP_API_KEY',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
 ] as const
@@ -1634,6 +1635,48 @@ describe('setActiveProviderProfile', () => {
       const removed = clearPersistedXaiOAuthProfile({ configDir })
       expect(removed).toBe(profilePath)
       expect(existsSync(profilePath)).toBe(false)
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  // A generic provider='openai' profile pointed at llmtr.com must persist
+  // LLMTR_API_KEY into the startup file. LLMTR is dedicatedCredentialsOnly,
+  // so a startup file carrying only OPENAI_API_KEY relaunches unauthenticated.
+  test('persists LLMTR_API_KEY for a generic openai profile pointed at llmtr.com', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+
+      const llmtrViaOpenai = buildProfile({
+        id: 'llmtr_openai_prof',
+        name: 'LLMTR via OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'llmtr/gemma-4',
+        apiKey: 'llmtr-generic-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [llmtrViaOpenai],
+      }))
+
+      const result = setActiveProviderProfile('llmtr_openai_prof', { configDir })
+      const profilePath = join(configDir, '.openclaude-profile.json')
+      const persisted = JSON.parse(readFileSync(profilePath, 'utf8'))
+
+      expect(result?.id).toBe('llmtr_openai_prof')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+      expect(persisted.env.OPENAI_API_KEY).toBe('llmtr-generic-key')
+      expect(persisted.env.LLMTR_API_KEY).toBe('llmtr-generic-key')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
