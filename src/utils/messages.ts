@@ -791,6 +791,23 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
       return []
     }
 
+    // The assistant/user branches dereference message.message.content; drop
+    // malformed payloads (missing message, or non-array/non-string content)
+    // before they reach those reads. queryHelpers feeds progress-derived
+    // messages through here, so a corrupt slot must not crash the pipeline.
+    const innerContent = (message as { message?: { content?: unknown } }).message
+      ?.content
+    if (message.type === 'assistant' && !Array.isArray(innerContent)) {
+      return []
+    }
+    if (
+      message.type === 'user' &&
+      typeof innerContent !== 'string' &&
+      !Array.isArray(innerContent)
+    ) {
+      return []
+    }
+
     switch (message.type) {
       case 'assistant': {
         isNewChain = isNewChain || message.message.content.length > 1
