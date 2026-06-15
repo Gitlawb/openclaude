@@ -79,13 +79,16 @@ beforeEach(async () => {
   setCalls = []
   clearCalls = []
   setResult = { error: null }
+  // Override only the I/O wrappers the component calls. buildRouteOptions is
+  // left as the REAL implementation on purpose: faking it here would persist in
+  // bun's module registry (mock.module live-updates the namespace, so the
+  // afterEach re-mock re-installs the fake) and leak into agentRouteSettings.test.ts,
+  // which unit-tests the real buildRouteOptions. The real one is deterministic:
+  // getAgentModelOptions always lists sonnet/opus/haiku first, so option 1 is
+  // 'sonnet' regardless of the host's settings.
   mock.module(ROUTE_SETTINGS_MODULE, () => ({
     ...realRouteSettings,
     getRouteShadowSource: () => shadowSource,
-    // Deterministic option list so selecting index 1 picks a known model key.
-    buildRouteOptions: () => [
-      { value: 'gpt-5-mini', label: 'gpt-5-mini', description: '' },
-    ],
     setAgentRoute: (agentType: string, modelKey: string) => {
       setCalls.push([agentType, modelKey])
       return setResult
@@ -189,11 +192,12 @@ test('normal mode renders the picker and persists a selected model', async () =>
   })
   try {
     await waitForOutput(getOutput, f => f.includes('Set model route'))
-    // Select the first numbered option.
+    // Select the first numbered option. buildRouteOptions always lists the
+    // built-in aliases first, so option 1 is 'sonnet'.
     stdin.write('1')
     await waitForOutput(getOutput, () => setCalls.length > 0 || closed)
     expect(setCalls.length).toBe(1)
-    expect(setCalls[0]).toEqual(['verification', 'gpt-5-mini'])
+    expect(setCalls[0]).toEqual(['verification', 'sonnet'])
     expect(closed).toBe(true)
   } finally {
     root.unmount()
