@@ -219,6 +219,8 @@ describe('builtInCommandNames', () => {
   })
 
   test('bughunter does not execute shell snippets in user-provided args', async () => {
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
     delete process.env['USER_TYPE']
     delete process.env['IS_DEMO']
     clearCommandMemoizationCaches()
@@ -252,6 +254,16 @@ describe('builtInCommandNames', () => {
       expect(promptText).toMatch(/bash completed with no output/i)
     } finally {
       await rm(cwd, { recursive: true, force: true })
+      if (originalUserType !== undefined) {
+        process.env['USER_TYPE'] = originalUserType
+      } else {
+        delete process.env['USER_TYPE']
+      }
+      if (originalIsDemo !== undefined) {
+        process.env['IS_DEMO'] = originalIsDemo
+      } else {
+        delete process.env['IS_DEMO']
+      }
       clearCommandMemoizationCaches()
     }
   })

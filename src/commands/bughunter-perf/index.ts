@@ -233,7 +233,7 @@ const bughunterPerf = createMovedToPluginCommand({
       'bughunter-perf',
     )
 
-    const finalContent = processedContent.replace('{{ARGS}}', scope)
+    const finalContent = processedContent.replace('{{ARGS}}', () => scope)
     return [{ type: 'text', text: finalContent }]
   },
 })
