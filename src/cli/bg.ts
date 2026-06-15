@@ -69,7 +69,6 @@ const REQUIRED_OPTION_VALUE_FLAGS = new Set([
   '--effort',
   '--fallback-model',
   '--file',
-  '--from-pr',
   '--input-format',
   '--json-schema',
   '--max-budget-usd',
@@ -83,7 +82,6 @@ const REQUIRED_OPTION_VALUE_FLAGS = new Set([
   '--plugin-dir',
   '--prefill',
   '--provider',
-  '--resume',
   '--resume-session-at',
   '--rewind-files',
   '--session-id',
@@ -217,7 +215,8 @@ function findSessionName(args: string[]): string | undefined {
 }
 
 function hasPrintMode(args: string[]): boolean {
-  return args.includes('--print') || args.includes('-p')
+  const searchable = argsBeforeDelimiter(args)
+  return searchable.includes('--print') || searchable.includes('-p')
 }
 
 function insertBeforePrompt(args: string[], values: string[]): string[] {

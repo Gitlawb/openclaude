@@ -67,6 +67,11 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
  * All imports are dynamic to minimize module evaluation for fast paths.
  * Fast-path for --version has zero imports beyond this file.
  */
+function argsBeforeDelimiter(args: string[]): string[] {
+  const delimiterIndex = args.indexOf('--')
+  return delimiterIndex === -1 ? args : args.slice(0, delimiterIndex)
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -186,7 +191,11 @@ async function main(): Promise<void> {
 
   // Fast-path for `--bg`/`--background` after profile routing has been applied
   // so the spawned child inherits the selected provider/model environment.
-  if (feature('BG_SESSIONS') && (args.includes('--bg') || args.includes('--background'))) {
+  const optionArgs = argsBeforeDelimiter(args)
+  if (
+    feature('BG_SESSIONS') &&
+    (optionArgs.includes('--bg') || optionArgs.includes('--background'))
+  ) {
     const {
       profileCheckpoint
     } = await import('../utils/startupProfiler.js');

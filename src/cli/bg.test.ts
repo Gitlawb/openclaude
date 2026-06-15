@@ -76,11 +76,53 @@ describe('background session CLI parsing', () => {
     ])
   })
 
+  it('treats optional resume and PR values as prompts unless supplied inline', () => {
+    const resumeParsed = parseBackgroundInvocation([
+      '--bg',
+      '--resume',
+      'continue work',
+    ])
+    const fromPrParsed = parseBackgroundInvocation([
+      '--bg',
+      '--from-pr',
+      'review 123',
+    ])
+    const inlineResumeParsed = parseBackgroundInvocation([
+      '--bg',
+      '--resume=auth',
+    ])
+
+    expect(resumeParsed.prompt).toBe('continue work')
+    expect(resumeParsed.childArgs).toEqual([
+      '--resume',
+      '--print',
+      'continue work',
+    ])
+    expect(fromPrParsed.prompt).toBe('review 123')
+    expect(fromPrParsed.childArgs).toEqual([
+      '--from-pr',
+      '--print',
+      'review 123',
+    ])
+    expect(inlineResumeParsed.prompt).toBeUndefined()
+    expect(inlineResumeParsed.childArgs).toEqual(['--resume=auth', '--print'])
+  })
+
   it('inserts generated flags before -- so dash-prefixed prompts stay positional', () => {
     const parsed = parseBackgroundInvocation(['--bg', '--', '--fix-tests'])
 
     expect(parsed.prompt).toBe('--fix-tests')
     expect(parsed.childArgs).toEqual(['--print', '--', '--fix-tests'])
+  })
+
+  it('injects print mode when the prompt after -- looks like a print flag', () => {
+    const longFlagParsed = parseBackgroundInvocation(['--bg', '--', '--print'])
+    const shortFlagParsed = parseBackgroundInvocation(['--bg', '--', '-p'])
+
+    expect(longFlagParsed.prompt).toBe('--print')
+    expect(longFlagParsed.childArgs).toEqual(['--print', '--', '--print'])
+    expect(shortFlagParsed.prompt).toBe('-p')
+    expect(shortFlagParsed.childArgs).toEqual(['--print', '--', '-p'])
   })
 
   it('does not strip --bg when it appears after -- as the prompt', () => {

@@ -106,7 +106,7 @@ describe('cli.tsx — --provider startup ordering', () => {
     const profileApplyIndex = src.indexOf(
       'applyProfileEnvToProcessEnv(process.env, startupEnv)',
     )
-    const bgFlagIndex = src.indexOf("args.includes('--bg')")
+    const bgFlagIndex = src.indexOf("optionArgs.includes('--bg')")
     const providerValidationIndex = src.indexOf(
       'await validateProviderEnvForStartupOrExit()',
     )
@@ -116,5 +116,24 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
     expect(bgFlagIndex).toBeGreaterThan(profileApplyIndex)
     expect(bgFlagIndex).toBeLessThan(providerValidationIndex)
+  })
+
+  it('checks background spawn flags only before the -- delimiter', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const helperIndex = src.indexOf('function argsBeforeDelimiter')
+    const optionArgsIndex = src.indexOf(
+      'const optionArgs = argsBeforeDelimiter(args)',
+    )
+    const bgFlagIndex = src.indexOf("optionArgs.includes('--bg')")
+    const backgroundFlagIndex = src.indexOf(
+      "optionArgs.includes('--background')",
+    )
+
+    expect(helperIndex).toBeGreaterThanOrEqual(0)
+    expect(optionArgsIndex).toBeGreaterThan(helperIndex)
+    expect(bgFlagIndex).toBeGreaterThan(optionArgsIndex)
+    expect(backgroundFlagIndex).toBeGreaterThan(optionArgsIndex)
+    expect(src).not.toContain("args.includes('--bg')")
+    expect(src).not.toContain("args.includes('--background')")
   })
 })
