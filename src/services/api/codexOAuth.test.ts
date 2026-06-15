@@ -263,18 +263,20 @@ test('manual callback paste completes the flow when the loopback is unreachable'
   try {
     process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
-    globalThis.fetch = mock(async () => {
-      return new Response(
-        JSON.stringify({
-          access_token: 'manual-access-token',
-          refresh_token: 'manual-refresh-token',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-    }) as typeof fetch
+    globalThis.fetch = asMockFetch(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            access_token: 'manual-access-token',
+            refresh_token: 'manual-refresh-token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }),
+    )
 
     // Hanging listener — never resolves on its own. The manual paste path
     // must be what completes the flow.
