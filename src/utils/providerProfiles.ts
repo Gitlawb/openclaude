@@ -1004,8 +1004,14 @@ export function addProviderProfile(
     const currentProfiles = getProviderProfiles(current)
     const nextProfiles = [...currentProfiles, profile]
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
+    // Keep the Anthropic sentinel as a valid active state: adding a profile with
+    // makeActive:false must not silently switch a user who is on built-in
+    // Anthropic over to the new third-party profile (#1426).
     const nextActiveId =
-      makeActive || !currentActive || !nextProfiles.some(p => p.id === currentActive)
+      makeActive ||
+      !currentActive ||
+      (currentActive !== ANTHROPIC_DEFAULT_PROFILE_ID &&
+        !nextProfiles.some(p => p.id === currentActive))
         ? profile.id
         : currentActive
 
@@ -1058,8 +1064,12 @@ export function updateProviderProfile(
     delete cacheByProfile[profileId]
 
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
+    // Updating any profile must not reactivate profiles[0] when the user is on
+    // built-in Anthropic — the sentinel is a valid active state to preserve.
     const nextActiveId =
-      currentActive && nextProfiles.some(profile => profile.id === currentActive)
+      currentActive &&
+      (currentActive === ANTHROPIC_DEFAULT_PROFILE_ID ||
+        nextProfiles.some(profile => profile.id === currentActive))
         ? currentActive
         : nextProfiles[0]?.id
 
@@ -1503,13 +1513,18 @@ export function deleteProviderProfile(profileId: string): {
 
     const nextProfiles = currentProfiles.filter(profile => profile.id !== profileId)
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
+    // The Anthropic sentinel survives deletion of any other profile — deleting
+    // an inactive saved profile must not knock a built-in-Anthropic user back
+    // onto profiles[0] (#1426).
     const activeWasDeleted =
-      !currentActive || currentActive === profileId ||
-      !nextProfiles.some(profile => profile.id === currentActive)
+      !currentActive ||
+      currentActive === profileId ||
+      (currentActive !== ANTHROPIC_DEFAULT_PROFILE_ID &&
+        !nextProfiles.some(profile => profile.id === currentActive))
 
     const nextActiveId = activeWasDeleted ? nextProfiles[0]?.id : currentActive
 
-    if (nextActiveId) {
+    if (nextActiveId && nextActiveId !== ANTHROPIC_DEFAULT_PROFILE_ID) {
       nextActiveProfile =
         nextProfiles.find(profile => profile.id === nextActiveId) ?? nextProfiles[0]
     }

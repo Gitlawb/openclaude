@@ -49,7 +49,9 @@ import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMeta
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
+  ANTHROPIC_DEFAULT_PROFILE_ID,
   applyActiveProviderProfileFromConfig,
+  clearActiveProviderProfile,
   deleteProviderProfile,
   getActiveProviderProfile,
   getProviderPresetDefaults,
@@ -59,6 +61,7 @@ import {
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
+import { getDefaultMainLoopModelSetting } from '../utils/model/model.js'
 import {
   clearGithubModelsToken,
   GITHUB_MODELS_HYDRATED_ENV_MARKER,
@@ -214,6 +217,7 @@ const FORM_STEPS: Array<{
 
 const GITHUB_PROVIDER_ID = '__github_models__'
 const GITHUB_PROVIDER_LABEL = 'GitHub Models'
+const ANTHROPIC_PROVIDER_LABEL = 'Anthropic (built-in)'
 const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
@@ -1217,6 +1221,32 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           activeProviderName: GITHUB_PROVIDER_LABEL,
           activeProviderModel: GITHUB_PROVIDER_DEFAULT_MODEL,
           message: `Provider switched to ${GITHUB_PROVIDER_LABEL} (${GITHUB_PROVIDER_DEFAULT_MODEL})`,
+        })
+        returnToMenu()
+        return
+      }
+
+      if (profileId === ANTHROPIC_DEFAULT_PROFILE_ID) {
+        providerLabel = ANTHROPIC_PROVIDER_LABEL
+        // Switch back to built-in Anthropic: clears the managed provider env so
+        // it takes effect this session, records the Anthropic sentinel so
+        // startup no longer replays a third-party profile, and keeps saved
+        // profiles for later re-selection (#1426).
+        clearActiveProviderProfile()
+        const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: anthropicModel,
+          mainLoopModelForSession: null,
+        }))
+        refreshProfiles()
+        setStatusMessage(`Active provider: ${ANTHROPIC_PROVIDER_LABEL}`)
+        setIsActivating(false)
+        onDone({
+          action: 'activated',
+          activeProviderName: ANTHROPIC_PROVIDER_LABEL,
+          activeProviderModel: anthropicModel,
+          message: `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel})`,
         })
         returnToMenu()
         return
@@ -2305,9 +2335,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     title: string,
     emptyMessage: string,
     onSelect: (profileId: string) => void,
-    options?: { includeGithub?: boolean },
+    options?: { includeGithub?: boolean; includeAnthropic?: boolean },
   ): React.ReactNode {
     const includeGithub = options?.includeGithub ?? false
+    const includeAnthropic = options?.includeAnthropic ?? false
     const selectOptions = profiles.map(profile => ({
       value: profile.id,
       label:
@@ -2324,6 +2355,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ? `${GITHUB_PROVIDER_LABEL} (active)`
           : GITHUB_PROVIDER_LABEL,
         description: `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()}`,
+      })
+    }
+
+    // Offer a way back to built-in Anthropic only when a third-party provider
+    // (saved profile or GitHub Models) is currently active — otherwise the user
+    // is already on Anthropic and the option is a no-op (#1426).
+    if (includeAnthropic && (activeProfileId || isGithubActive)) {
+      selectOptions.push({
+        value: ANTHROPIC_DEFAULT_PROFILE_ID,
+        label: 'Use Anthropic (built-in)',
+        description:
+          'Switch back to Claude now without a restart — saved profiles are kept',
       })
     }
 
@@ -2565,7 +2608,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         profileId => {
           void activateSelectedProvider(profileId)
         },
-        { includeGithub: true },
+        { includeGithub: true, includeAnthropic: true },
       )
       break
     case 'select-edit':

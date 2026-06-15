@@ -1249,6 +1249,90 @@ describe('clearActiveProviderProfile', () => {
   })
 })
 
+describe('Anthropic sentinel survives profile management (#1426)', () => {
+  test('addProviderProfile with makeActive:false keeps the Anthropic sentinel active', async () => {
+    const {
+      addProviderProfile,
+      getActiveProviderProfile,
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'saved_one', name: 'Saved One' })],
+      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    }))
+
+    addProviderProfile(
+      {
+        provider: 'openai',
+        name: 'Saved Two',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      },
+      { makeActive: false },
+    )
+
+    expect(mockConfigState.activeProviderProfileId).toBe(
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    )
+    expect(getActiveProviderProfile()).toBeUndefined()
+  })
+
+  test('updateProviderProfile of a non-active profile keeps the Anthropic sentinel active', async () => {
+    const {
+      updateProviderProfile,
+      getActiveProviderProfile,
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'saved_one', name: 'Saved One' })],
+      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    }))
+
+    updateProviderProfile('saved_one', {
+      provider: 'openai',
+      name: 'Saved One Renamed',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+    })
+
+    expect(mockConfigState.activeProviderProfileId).toBe(
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    )
+    expect(getActiveProviderProfile()).toBeUndefined()
+  })
+
+  test('deleteProviderProfile of an inactive profile keeps the Anthropic sentinel active', async () => {
+    const {
+      deleteProviderProfile,
+      getActiveProviderProfile,
+      getProviderProfiles,
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [
+        buildProfile({ id: 'saved_one', name: 'Saved One' }),
+        buildProfile({ id: 'saved_two', name: 'Saved Two' }),
+      ],
+      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    }))
+
+    const result = deleteProviderProfile('saved_one')
+
+    expect(result.removed).toBe(true)
+    expect(mockConfigState.activeProviderProfileId).toBe(
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    )
+    expect(getActiveProviderProfile()).toBeUndefined()
+    expect(getProviderProfiles()).toHaveLength(1)
+  })
+})
+
 describe('applyActiveProviderProfileFromConfig', () => {
   test('does not override explicit startup provider selection', async () => {
     const { applyActiveProviderProfileFromConfig } =
