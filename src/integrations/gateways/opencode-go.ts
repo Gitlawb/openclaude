@@ -15,6 +15,7 @@ export default defineGateway({
     kind: 'credential-env',
     routing: {
       matchDefaultBaseUrl: true,
+      matchBaseUrlHosts: ['opencode.ai'],
     },
     credentialEnvVars: ['OPENCODE_API_KEY', 'OPENAI_API_KEY'],
     missingCredentialMessage:
@@ -51,6 +52,8 @@ export default defineGateway({
       { id: 'opencode-go-qwen3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen3.6 Plus', modelDescriptorId: 'opencode-go-qwen3.6-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'opencode-go-qwen3.5-plus', apiName: 'qwen3.5-plus', label: 'Qwen3.5 Plus', modelDescriptorId: 'opencode-go-qwen3.5-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
       { id: 'opencode-go-minimax-m3', apiName: 'minimax-m3', label: 'MiniMax M3', modelDescriptorId: 'opencode-go-minimax-m3', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'opencode-go-qwen3.7-max', apiName: 'qwen3.7-max', label: 'Qwen3.7 Max', modelDescriptorId: 'opencode-go-qwen3.7-max', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
+      { id: 'opencode-go-qwen3.7-plus', apiName: 'qwen3.7-plus', label: 'Qwen3.7 Plus', modelDescriptorId: 'opencode-go-qwen3.7-plus', transportOverrides: { openaiShim: { endpointPath: '/messages' } } },
     ],
   },
   usage: { supported: false },
