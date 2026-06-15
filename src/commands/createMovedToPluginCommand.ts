@@ -39,7 +39,12 @@ export function createMovedToPluginCommand({
       return name
     },
     source: 'builtin',
-    allowedTools,
+    get allowedTools() {
+      // The ant branch only returns a plugin-install notice that doesn't
+      // need any tools — avoid granting turn-scoped permissions for it.
+      if (process.env.USER_TYPE === 'ant') return undefined
+      return allowedTools
+    },
     async getPromptForCommand(
       args: string,
       context: ToolUseContext,
