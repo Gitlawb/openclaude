@@ -13,6 +13,12 @@ import type { CurrentAgentRoute } from '../../services/api/agentRouteSettings.js
 import * as realRouteSettings from '../../services/api/agentRouteSettings.js'
 
 const ROUTE_SETTINGS_MODULE = '../../services/api/agentRouteSettings.js'
+// Snapshot the real exports before any mock.module call. bun live-updates the
+// `realRouteSettings` namespace when the module is mocked, so spreading it
+// directly (or restoring from it in afterEach) can pull in the mocked values;
+// this frozen copy keeps both the mock spread and the restore pinned to the
+// genuine implementation.
+const actualRouteSettings = { ...realRouteSettings }
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -87,7 +93,7 @@ beforeEach(async () => {
   // getAgentModelOptions always lists sonnet/opus/haiku first, so option 1 is
   // 'sonnet' regardless of the host's settings.
   mock.module(ROUTE_SETTINGS_MODULE, () => ({
-    ...realRouteSettings,
+    ...actualRouteSettings,
     getRouteShadowSource: () => shadowSource,
     setAgentRoute: (agentType: string, modelKey: string) => {
       setCalls.push([agentType, modelKey])
@@ -107,7 +113,7 @@ afterEach(() => {
     // persists across files in the same process, and mock.restore() alone does
     // not undo it, so without this the mocked buildRouteOptions/etc. leak into
     // agentRouteSettings.test.ts and fail its assertions.
-    mock.module(ROUTE_SETTINGS_MODULE, () => realRouteSettings)
+    mock.module(ROUTE_SETTINGS_MODULE, () => actualRouteSettings)
   } finally {
     releaseSharedMutationLock()
   }
