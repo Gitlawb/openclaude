@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
@@ -17,6 +17,7 @@ import {
   MIN_NODE_ENGINE_RANGE,
   checkSupportedNodeVersion,
 } from '../src/utils/nodeRuntime.js'
+import { SandboxManager } from '../src/utils/sandbox/sandbox-adapter.js'
 
 type CheckResult = {
   ok: boolean
@@ -171,6 +172,69 @@ function checkBuildArtifacts(): CheckResult {
     return fail('Build artifacts', `Missing ${distCli}. Run: bun run build`)
   }
   return pass('Build artifacts', distCli)
+}
+
+export function isCliSandboxRuntimeStubbed(bundleText: string): boolean {
+  return bundleText.includes('native-stub:@anthropic-ai/sandbox-runtime')
+}
+
+export function buildSandboxRuntimeCheck(input: {
+  cliRuntimeStubbed: boolean
+  sandboxEnabled: boolean
+  failIfUnavailable: boolean
+  sandboxingEnabled: boolean
+  unavailableReason?: string
+}): CheckResult {
+  const effectiveBehavior = input.sandboxingEnabled
+    ? 'enforcing'
+    : input.sandboxEnabled
+      ? input.failIfUnavailable
+        ? 'fail-closed'
+        : 'warning-only'
+      : 'disabled'
+
+  const detailParts = [
+    `CLI bundle: ${input.cliRuntimeStubbed ? 'stubbed' : 'real runtime'}`,
+    `sandbox.enabled: ${input.sandboxEnabled}`,
+    `failIfUnavailable: ${input.failIfUnavailable}`,
+    `effective behavior: ${effectiveBehavior}`,
+  ]
+  const reason =
+    input.unavailableReason ??
+    (input.cliRuntimeStubbed && input.sandboxEnabled
+      ? 'CLI bundle contains a no-op sandbox runtime stub'
+      : undefined)
+  if (reason) {
+    detailParts.push(`reason: ${reason}`)
+  }
+
+  const ok = !(
+    input.sandboxEnabled &&
+    input.failIfUnavailable &&
+    Boolean(reason)
+  )
+  return ok
+    ? pass('Sandbox runtime', detailParts.join('; '))
+    : fail('Sandbox runtime', detailParts.join('; '))
+}
+
+function checkSandboxRuntime(): CheckResult {
+  const distCli = resolve(process.cwd(), 'dist', 'cli.mjs')
+  if (!existsSync(distCli)) {
+    return fail(
+      'Sandbox runtime',
+      `CLI bundle missing at ${distCli}. Run: bun run build`,
+    )
+  }
+
+  const bundle = readFileSync(distCli, 'utf8')
+  return buildSandboxRuntimeCheck({
+    cliRuntimeStubbed: isCliSandboxRuntimeStubbed(bundle),
+    sandboxEnabled: SandboxManager.isSandboxEnabledInSettings(),
+    failIfUnavailable: SandboxManager.isSandboxRequired(),
+    sandboxingEnabled: SandboxManager.isSandboxingEnabled(),
+    unavailableReason: SandboxManager.getSandboxUnavailableReason(),
+  })
 }
 
 function isLocalBaseUrl(baseUrl: string): boolean {
@@ -717,6 +781,7 @@ async function main(): Promise<void> {
   results.push(checkNodeVersion())
   results.push(checkBunRuntime())
   results.push(checkBuildArtifacts())
+  results.push(checkSandboxRuntime())
   results.push(...checkOpenAIEnv())
   results.push(await checkBaseUrlReachability())
   results.push(await checkProviderGenerationReadiness())

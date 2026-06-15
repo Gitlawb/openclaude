@@ -225,7 +225,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'color-diff-napi',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
-          '@anthropic-ai/sandbox-runtime',
           'asciichart',
           'plist',
           'cacache',
