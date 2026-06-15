@@ -249,9 +249,20 @@ export function clearAgentRoute(agentType: string): { error: Error | null } {
   )
 }
 
+/**
+ * Per-source guidance for a route the user cannot change from user settings.
+ * flagSettings has no file to edit (it comes from the --settings flag or SDK
+ * inline settings), so point elsewhere for that source.
+ */
+export function shadowRemediation(source: SettingSource): string {
+  return source === 'flagSettings'
+    ? 'It comes from the --settings flag or SDK inline settings, not a file you can edit here.'
+    : `Edit the ${source} settings to change this route.`
+}
+
 function shadowError(agentType: string, source: SettingSource): Error {
   return new Error(
     `${agentType} is routed by ${source} settings, which override your user settings. ` +
-      `A user-level change won't take effect; edit the ${source} settings instead.`,
+      `A user-level change won't take effect. ${shadowRemediation(source)}`,
   )
 }

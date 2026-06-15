@@ -9,6 +9,7 @@ import {
   currentRouteValue,
   getRouteShadowSource,
   setAgentRoute,
+  shadowRemediation,
   type CurrentAgentRoute,
 } from '../../services/api/agentRouteSettings.js'
 import type { OptionWithDescription } from '../CustomSelect/select.js'
@@ -48,7 +49,7 @@ export function AgentRouteSelector({ agentType, current, onClose }: Props): Reac
           <Text bold>{agentType}</Text> is routed by <Text bold>{shadowSource}</Text> settings, which override your user settings.
         </Text>
         <Text dimColor>
-          A user-level change won't take effect. Edit the {shadowSource} settings file to change this route. Press Esc to go back.
+          A user-level change won't take effect. {shadowRemediation(shadowSource)} Press Esc to go back.
         </Text>
         <Select
           options={[{ value: '__back__', label: 'Back' }]}

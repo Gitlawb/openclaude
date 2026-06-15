@@ -9,6 +9,7 @@ import {
   describeRouteLine,
   findShadowingSource,
   readAgentRoute,
+  shadowRemediation,
 } from './agentRouteSettings.js'
 import type { SettingsWithSources } from '../../utils/settings/settings.js'
 
@@ -257,5 +258,18 @@ describe('findShadowingSource', () => {
       src('policySettings', { verification: 'pol' }),
     ]
     expect(findShadowingSource(sources, 'verification')).toBe('policySettings')
+  })
+})
+
+describe('shadowRemediation', () => {
+  test('points file-backed sources at their settings file', () => {
+    expect(shadowRemediation('projectSettings')).toContain('Edit the projectSettings settings')
+    expect(shadowRemediation('policySettings')).toContain('Edit the policySettings settings')
+  })
+
+  test('flagSettings has no file to edit', () => {
+    const msg = shadowRemediation('flagSettings')
+    expect(msg).not.toContain('Edit the')
+    expect(msg).toContain('--settings flag')
   })
 })
