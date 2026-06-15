@@ -20,6 +20,11 @@ describe('node runtime contract', () => {
   })
 
   test('accepts supported Node versions', () => {
+    expect(checkSupportedNodeVersion('v22.0.0')).toEqual({
+      ok: true,
+      version: '22.0.0',
+      major: 22,
+    })
     expect(checkSupportedNodeVersion('22.0.0')).toEqual({
       ok: true,
       version: '22.0.0',
