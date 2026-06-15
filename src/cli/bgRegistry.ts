@@ -7,7 +7,7 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import {
@@ -54,6 +54,11 @@ export type CreateBackgroundSessionInput = {
   logFilesPrecreated?: boolean
 }
 
+type BackgroundSessionNameReservation = {
+  name: string
+  id: string
+}
+
 const TERMINAL_STATUSES = new Set<BackgroundSessionStatus>([
   'exited',
   'failed',
@@ -88,9 +93,18 @@ function getBackgroundSessionLogsDir(): string {
   return join(getBackgroundSessionsRoot(), 'logs')
 }
 
+function getBackgroundSessionNamesDir(): string {
+  return join(getBackgroundSessionsRoot(), 'names')
+}
+
 function metadataPathForId(id: string): string {
   assertSafeId(id)
   return join(getBackgroundSessionMetadataDir(), `${id}.json`)
+}
+
+function nameReservationPathForName(name: string): string {
+  const digest = createHash('sha256').update(name).digest('hex')
+  return join(getBackgroundSessionNamesDir(), `${digest}.json`)
 }
 
 function assertSafeId(id: string): void {
@@ -130,6 +144,7 @@ export async function ensureBackgroundSessionDirs(): Promise<void> {
     mode: 0o700,
   })
   await mkdir(getBackgroundSessionLogsDir(), { recursive: true, mode: 0o700 })
+  await mkdir(getBackgroundSessionNamesDir(), { recursive: true, mode: 0o700 })
 }
 
 async function writeSession(session: BackgroundSession): Promise<void> {
@@ -142,6 +157,9 @@ async function writeSession(session: BackgroundSession): Promise<void> {
   try {
     await writeFile(tmp, jsonStringify(session), { flag: 'wx' })
     await rename(tmp, target)
+    if (session.name && isTerminalBackgroundSession(session)) {
+      await releaseNameReservation(session.name, session.id)
+    }
   } catch (error) {
     await unlink(tmp).catch(() => {})
     throw error
@@ -171,6 +189,57 @@ async function readSessionFile(path: string): Promise<BackgroundSession | null> 
   }
 }
 
+async function readNameReservation(
+  path: string,
+): Promise<BackgroundSessionNameReservation | null> {
+  try {
+    const parsed = jsonParse(await readFile(path, 'utf8'))
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as Partial<BackgroundSessionNameReservation>).name ===
+        'string' &&
+      typeof (parsed as Partial<BackgroundSessionNameReservation>).id ===
+        'string' &&
+      SAFE_ID_RE.test((parsed as BackgroundSessionNameReservation).id)
+    ) {
+      return parsed as BackgroundSessionNameReservation
+    }
+  } catch {
+    // Malformed reservations are treated as occupied below.
+  }
+  return null
+}
+
+async function releaseNameReservation(
+  name: string,
+  id: string,
+): Promise<void> {
+  const path = nameReservationPathForName(name)
+  const existing = await readNameReservation(path)
+  if (existing?.id !== id) return
+  await unlink(path).catch(() => {})
+}
+
+async function reserveBackgroundSessionName(
+  name: string,
+  id: string,
+): Promise<() => Promise<void>> {
+  const path = nameReservationPathForName(name)
+  const reservation = jsonStringify({ name, id })
+
+  try {
+    await writeFile(path, reservation, { flag: 'wx' })
+    return () => releaseNameReservation(name, id)
+  } catch (error) {
+    if (!isErrno(error, 'EEXIST')) throw error
+
+    const existing = await readNameReservation(path)
+    const suffix = existing && existing.name === name ? ` (${existing.id})` : ''
+    throw new Error(`Background session name "${name}" already exists${suffix}`)
+  }
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string')
 }
@@ -188,6 +257,7 @@ function isBackgroundSession(
     candidate.id === expectedId &&
     typeof candidate.pid === 'number' &&
     Number.isInteger(candidate.pid) &&
+    candidate.pid > 0 &&
     typeof candidate.cwd === 'string' &&
     typeof candidate.status === 'string' &&
     ALL_STATUSES.has(candidate.status as BackgroundSessionStatus) &&
@@ -241,6 +311,9 @@ export async function assertBackgroundSessionNameAvailable(
 export async function createBackgroundSession(
   input: CreateBackgroundSessionInput,
 ): Promise<BackgroundSession> {
+  if (!Number.isInteger(input.pid) || input.pid <= 0) {
+    throw new Error(`Invalid background session pid: ${input.pid}`)
+  }
   await assertBackgroundSessionNameAvailable(input.name)
   const timestamp = iso(input.now)
   const logPaths = getBackgroundSessionLogPaths(input.id)
@@ -263,7 +336,11 @@ export async function createBackgroundSession(
   await ensureBackgroundSessionDirs()
   let createdStdoutLog = false
   let createdStderrLog = false
+  let releaseReservedName: (() => Promise<void>) | undefined
   try {
+    releaseReservedName = input.name
+      ? await reserveBackgroundSessionName(input.name, input.id)
+      : undefined
     if (input.logFilesPrecreated) {
       if (!(await backgroundSessionLogExists(session.stdoutLogPath))) {
         throw new Error(
@@ -285,6 +362,7 @@ export async function createBackgroundSession(
   } catch (error) {
     if (createdStdoutLog) await unlink(session.stdoutLogPath).catch(() => {})
     if (createdStderrLog) await unlink(session.stderrLogPath).catch(() => {})
+    await releaseReservedName?.()
     if (isErrno(error, 'EEXIST')) {
       throw new Error(`Background session id "${session.id}" already exists`)
     }

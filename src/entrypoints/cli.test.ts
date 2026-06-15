@@ -86,15 +86,35 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
 
-  it('dispatches background session management before provider validation', async () => {
+  it('dispatches background session management before config and provider validation', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
-    const bgFastPathIndex = src.indexOf("await import('../cli/bg.js')")
+    const bgManagementIndex = src.indexOf("args[0] === 'ps'")
+    const configEnableIndex = src.indexOf('enableConfigs()')
     const providerValidationIndex = src.indexOf(
       'await validateProviderEnvForStartupOrExit()',
     )
 
-    expect(bgFastPathIndex).toBeGreaterThanOrEqual(0)
+    expect(bgManagementIndex).toBeGreaterThanOrEqual(0)
+    expect(configEnableIndex).toBeGreaterThanOrEqual(0)
     expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
-    expect(bgFastPathIndex).toBeLessThan(providerValidationIndex)
+    expect(bgManagementIndex).toBeLessThan(configEnableIndex)
+    expect(bgManagementIndex).toBeLessThan(providerValidationIndex)
+  })
+
+  it('keeps background spawn after profile routing but before provider validation', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const profileApplyIndex = src.indexOf(
+      'applyProfileEnvToProcessEnv(process.env, startupEnv)',
+    )
+    const bgFlagIndex = src.indexOf("args.includes('--bg')")
+    const providerValidationIndex = src.indexOf(
+      'await validateProviderEnvForStartupOrExit()',
+    )
+
+    expect(profileApplyIndex).toBeGreaterThanOrEqual(0)
+    expect(bgFlagIndex).toBeGreaterThanOrEqual(0)
+    expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
+    expect(bgFlagIndex).toBeGreaterThan(profileApplyIndex)
+    expect(bgFlagIndex).toBeLessThan(providerValidationIndex)
   })
 })

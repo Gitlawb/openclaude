@@ -78,6 +78,32 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Fast-path for `openclaude ps|logs|attach|kill`.
+  // Session management is entirely local, so it should not require config,
+  // profile, credential, provider-validation, or startup-screen work.
+  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill')) {
+    const {
+      profileCheckpoint
+    } = await import('../utils/startupProfiler.js');
+    profileCheckpoint('cli_bg_path');
+    const bg = await import('../cli/bg.js');
+    switch (args[0]) {
+      case 'ps':
+        await bg.psHandler(args.slice(1));
+        break;
+      case 'logs':
+        await bg.logsHandler(args.slice(1));
+        break;
+      case 'attach':
+        await bg.attachHandler(args.slice(1));
+        break;
+      case 'kill':
+        await bg.killHandler(args.slice(1));
+        break;
+    }
+    return;
+  }
+
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
@@ -158,32 +184,15 @@ async function main(): Promise<void> {
     }
   }
 
-  // Fast-path for `claude ps|logs|attach|kill` and `--bg`/`--background`.
-  // Session management is local and must not depend on provider validation or
-  // startup-screen rendering. Flag literals are inlined so bg.js only loads
-  // when actually dispatching.
-  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill' || args.includes('--bg') || args.includes('--background'))) {
+  // Fast-path for `--bg`/`--background` after profile routing has been applied
+  // so the spawned child inherits the selected provider/model environment.
+  if (feature('BG_SESSIONS') && (args.includes('--bg') || args.includes('--background'))) {
     const {
       profileCheckpoint
     } = await import('../utils/startupProfiler.js');
     profileCheckpoint('cli_bg_path');
     const bg = await import('../cli/bg.js');
-    switch (args[0]) {
-      case 'ps':
-        await bg.psHandler(args.slice(1));
-        break;
-      case 'logs':
-        await bg.logsHandler(args.slice(1));
-        break;
-      case 'attach':
-        await bg.attachHandler(args.slice(1));
-        break;
-      case 'kill':
-        await bg.killHandler(args.slice(1));
-        break;
-      default:
-        await bg.handleBgFlag(args);
-    }
+    await bg.handleBgFlag(args);
     return;
   }
 

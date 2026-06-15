@@ -374,6 +374,8 @@ async function treeKillAsync(pid: number, signal: string | number): Promise<void
         reject(error)
         return
       }
+      // The process may exit naturally after the liveness check but before
+      // tree-kill reaches it; that race is already the requested outcome.
       resolve()
     })
   })

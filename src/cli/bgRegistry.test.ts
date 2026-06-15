@@ -124,6 +124,43 @@ describe('background session registry', () => {
     ).rejects.toThrow('already exists')
   })
 
+  it('rejects concurrent duplicate live names atomically', async () => {
+    const attempts = await Promise.allSettled([
+      createBackgroundSession({
+        id: 'bg-race-one',
+        name: 'shared-race',
+        pid: 111,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'one'],
+        sessionId: 'conversation-1',
+      }),
+      createBackgroundSession({
+        id: 'bg-race-two',
+        name: 'shared-race',
+        pid: 222,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'two'],
+        sessionId: 'conversation-2',
+      }),
+    ])
+    const fulfilled = attempts.filter(result => result.status === 'fulfilled')
+    const rejected = attempts.find(result => result.status === 'rejected')
+
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected?.status).toBe('rejected')
+    if (!rejected || rejected.status !== 'rejected') {
+      throw new Error('Expected one duplicate-name registration to fail')
+    }
+    expect(String(rejected.reason?.message ?? rejected.reason)).toContain(
+      'already exists',
+    )
+    expect(
+      (await listBackgroundSessions()).filter(
+        session => session.name === 'shared-race',
+      ),
+    ).toHaveLength(1)
+  })
+
   it('allows terminal session names to be reused and resolves the active match', async () => {
     await createBackgroundSession({
       id: 'bg-old',
@@ -168,6 +205,30 @@ describe('background session registry', () => {
       }),
     ).rejects.toThrow('already exists')
     expect((await resolveBackgroundSession('bg-collision')).name).toBe('first')
+  })
+
+  it('rejects non-positive pids at creation', async () => {
+    await expect(
+      createBackgroundSession({
+        id: 'bg-zero-pid',
+        pid: 0,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'zero'],
+        sessionId: 'conversation-zero',
+      }),
+    ).rejects.toThrow('Invalid background session pid')
+
+    await expect(
+      createBackgroundSession({
+        id: 'bg-negative-pid',
+        pid: -1,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'negative'],
+        sessionId: 'conversation-negative',
+      }),
+    ).rejects.toThrow('Invalid background session pid')
+
+    expect(await listBackgroundSessions()).toEqual([])
   })
 
   it('registers a session whose log files were created before spawn', async () => {
@@ -410,6 +471,29 @@ describe('background session registry', () => {
         id: 'bg-bad',
         pid: 123,
         status: 'running',
+      }),
+    )
+
+    expect(await listBackgroundSessions()).toEqual([])
+  })
+
+  it('ignores metadata with a non-positive pid', async () => {
+    await mkdir(join(configDir, 'bg-sessions', 'sessions'), {
+      recursive: true,
+    })
+    await writeFile(
+      join(configDir, 'bg-sessions', 'sessions', 'bg-zero-pid.json'),
+      JSON.stringify({
+        id: 'bg-zero-pid',
+        pid: 0,
+        cwd: '/repo',
+        status: 'running',
+        sessionId: 'conversation-1',
+        startedAt: '2026-06-15T08:00:00.000Z',
+        updatedAt: '2026-06-15T08:00:00.000Z',
+        command: ['openclaude', '--print', 'work'],
+        stdoutLogPath: '/tmp/stdout.log',
+        stderrLogPath: '/tmp/stderr.log',
       }),
     )
 
