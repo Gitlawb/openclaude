@@ -80,6 +80,8 @@ const SAVED_ENV = {
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE,
   OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS:
     process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+  OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP:
+    process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP,
   DISABLE_COMPACT: process.env.DISABLE_COMPACT,
   DISABLE_AUTO_COMPACT: process.env.DISABLE_AUTO_COMPACT,
 }
@@ -101,6 +103,7 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
 })
 
 afterEach(() => {
@@ -788,19 +791,20 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
       })
 
     const messages = overThresholdMessages()
+    const tracking = {
+      compacted: false,
+      turnCounter: 0,
+      turnId: 'turn',
+      consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+      nextRetryAtMs: Date.now() + 60_000,
+      forceReason: 'hard-message-count' as const,
+    }
     const result = await autoCompactIfNeeded(
       messages,
       toolUseContext(),
       cacheSafeParams(messages),
       'repl_main_thread',
-      {
-        compacted: false,
-        turnCounter: 0,
-        turnId: 'turn',
-        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
-        nextRetryAtMs: Date.now() + 60_000,
-        forceReason: 'hard-message-count',
-      },
+      tracking,
     )
 
     expect(compactConversation).toHaveBeenCalledTimes(1)
@@ -808,7 +812,7 @@ describe('hard cap + forced-compaction bypass (issue #1373)', () => {
     expect(result.consecutiveFailures).toBe(0)
     // forceReason is one-shot: consumed so a follow-up turn with the same
     // tracking won't force another compaction unless the cap re-trips.
-    expect(result.forceReason).toBeUndefined()
+    expect(tracking.forceReason).toBeUndefined()
   })
 
   test('hard-message-count forceReason still records cooldown on a continuing failure', async () => {

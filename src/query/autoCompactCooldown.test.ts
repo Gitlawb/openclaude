@@ -1255,3 +1255,115 @@ test('memory-pressure cool-down holds even when the pressure request keeps re-ar
   // monitor is consulted once per turn (drain runs maxTurns=1).
   expect(consumeCompactionRequest).toHaveBeenCalledTimes(1)
 })
+
+test('memory pressure overrides user message-count forceReason', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES = '1'
+
+  const consumeCompactionRequest = mock(() => true)
+  mock.module('../utils/memoryPressure.js', () => ({
+    consumeCompactionRequest,
+  }))
+
+  const messages = [userMessage('one'), userMessage('two')]
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        expect(tracking?.forceReason).toBe('memory-pressure')
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(consumeCompactionRequest).toHaveBeenCalledTimes(1)
+})
+
+test('memory pressure preserves hard message-count forceReason priority', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  delete process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES
+
+  const consumeCompactionRequest = mock(() => true)
+  mock.module('../utils/memoryPressure.js', () => ({
+    consumeCompactionRequest,
+  }))
+
+  const messages = [userMessage('one'), userMessage('two')]
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact: mock(
+      async (
+        _messages: never,
+        _toolUseContext: never,
+        _params: never,
+        _querySource: never,
+        tracking: AutoCompactTrackingState | undefined,
+      ) => {
+        seenTracking.push(tracking)
+        expect(tracking?.forceReason).toBe('hard-message-count')
+        return {
+          wasCompacted: true,
+          consecutiveFailures: 0,
+        }
+      },
+    ),
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+    }),
+  )
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(consumeCompactionRequest).toHaveBeenCalledTimes(1)
+})

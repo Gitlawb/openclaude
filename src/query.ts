@@ -682,9 +682,13 @@ async function* queryLoop(
             'autocompact: memory-pressure compaction requested but cool-down active — deferring forced compaction',
           )
         } else {
+          const currentForceReason = tracking?.forceReason
           tracking = {
             ...(tracking ?? { compacted: false, turnId: '', turnCounter: 0 }),
-            forceReason: tracking?.forceReason ?? 'memory-pressure',
+            forceReason:
+              currentForceReason === 'hard-message-count'
+                ? currentForceReason
+                : 'memory-pressure',
           }
         }
       }
