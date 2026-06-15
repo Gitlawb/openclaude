@@ -115,31 +115,7 @@ export async function collectCtxData(context: CtxDataInput): Promise<{
 }
 
 /** Shape returned by collectCtxData, accepted by renderCtxReport. */
-export type RenderInput = {
-  contextData: ContextData
-  contextWindow: number
-  effectiveContext: number
-  autoCompactThreshold: number
-  maxOutput: { default: number; upperLimit: number }
-  canonicalName: string
-  autoCompactEnabled: boolean
-  sessionInput: number
-  sessionOutput: number
-  sessionCacheRead: number
-  sessionCacheCreation: number
-  sessionCost: number
-  sessionApiDuration: number
-  sessionWallDuration: number
-  linesAdded: number
-  linesRemoved: number
-  modelUsageMap: Record<string, {
-    inputTokens: number
-    outputTokens: number
-    cacheReadInputTokens: number
-    cacheCreationInputTokens: number
-    costUSD: number
-  }>
-}
+export type RenderInput = Awaited<ReturnType<typeof collectCtxData>>
 
 function themeColorToChalk(themeColor: string): (text: string) => string {
   if (themeColor === 'error') return chalk.red

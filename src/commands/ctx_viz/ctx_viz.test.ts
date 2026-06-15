@@ -44,6 +44,7 @@ import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from '../../utils/settings/settingsCache.js'
+import type { RenderInput } from './ctx-noninteractive.js'
 
 function findCtx(commands: ReturnType<typeof getCommands> extends Promise<infer T> ? T : never) {
   return commands.find(c => c.name === 'ctx')
@@ -163,7 +164,7 @@ describe('/ctx command surface (PR #1610)', () => {
     const mod = (await import(
       `./ctx-noninteractive.ts?render=${Date.now()}-${Math.random()}`
     )) as {
-      renderCtxReport: (d: unknown) => string
+      renderCtxReport: (d: RenderInput) => string
     }
 
     const out = mod.renderCtxReport({
@@ -185,7 +186,7 @@ describe('/ctx command surface (PR #1610)', () => {
         memoryFiles: [],
         mcpTools: [],
         agents: [],
-        apiUsage: undefined,
+        apiUsage: null,
         isAutoCompactEnabled: true,
         autoCompactThreshold: 167_000,
       },
