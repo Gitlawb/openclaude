@@ -82,6 +82,10 @@ export async function runDoctorReportCommand(
   dependencies: DoctorReportDependencies = defaultDoctorReportDependencies,
 ): Promise<null> {
   const options = dependencies.parseIssueReportArgs(args)
+  if (!options.redacted) {
+    throw new Error('Unredacted diagnostic reports are not supported')
+  }
+
   const content = await dependencies.renderIssueReport(options)
   if (options.outFile) {
     const outputPath = dependencies.writeIssueReport(options.outFile, content)

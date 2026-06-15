@@ -64,6 +64,8 @@ describe('diagnostic redaction', () => {
         'google key AIzaSyDUMMY-secret-token',
         'header was Bearer abcdefghijklmnop',
         'token github_pat_abcdefghijklmnopqrstuvwxyz',
+        'MISTRAL_API_KEY=mistralOpaqueToken123456789',
+        'mistral api key abcdefghijklmnopqrstuvwxyz',
       ],
       path: `${home}/private/openclaude/src/file.ts`,
     }) as { messages: string[]; path: string }
@@ -74,13 +76,29 @@ describe('diagnostic redaction', () => {
       'google key [redacted]',
       'header was [redacted]',
       'token [redacted]',
+      'MISTRAL_API_KEY=[redacted]',
+      'mistral api key [redacted]',
     ])
     expect(redacted.path).toBe('~/private/openclaude/src/file.ts')
     expect(serialized).not.toContain('sk-openai-secret-token')
     expect(serialized).not.toContain('AIzaSyDUMMY-secret-token')
     expect(serialized).not.toContain('abcdefghijklmnop')
     expect(serialized).not.toContain('github_pat_abcdefghijklmnopqrstuvwxyz')
+    expect(serialized).not.toContain('mistralOpaqueToken123456789')
+    expect(serialized).not.toContain('abcdefghijklmnopqrstuvwxyz')
     expect(serialized).not.toContain(home)
+  })
+
+  test('does not redact arbitrary opaque ids without Mistral key context', () => {
+    expect(
+      redactDiagnosticObject({
+        traceId: 'abcdefghijklmnopqrstuvwxyz',
+        message: 'request id abcdefghijklmnopqrstuvwxyz failed',
+      }),
+    ).toEqual({
+      traceId: 'abcdefghijklmnopqrstuvwxyz',
+      message: 'request id abcdefghijklmnopqrstuvwxyz failed',
+    })
   })
 
   test('redacts Windows-style home paths without matching sibling directories', () => {

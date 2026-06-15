@@ -5,14 +5,24 @@ import { redactUrlForDisplay } from '../urlRedaction.js'
 const SECRET_KEY_PATTERN =
   /(?:api[_-]?key|auth(?:orization)?|bearer|cookie|credential|password|passwd|pwd|private[_-]?key|refresh[_-]?token|secret|token)/i
 
+type SecretValuePattern = {
+  pattern: RegExp
+  replacement: string
+}
+
 const LIKELY_SECRET_VALUE_PATTERNS = [
-  /\bsk-[A-Za-z0-9_-]{8,}\b/g,
-  /\bsk-ant-[A-Za-z0-9_-]{8,}\b/g,
-  /\bAIza[0-9A-Za-z_-]{10,}\b/g,
-  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/gi,
-  /\bgithub_pat_[A-Za-z0-9_]{10,}\b/g,
-  /\bgh[pousr]_[A-Za-z0-9_]{10,}\b/g,
-]
+  { pattern: /\bsk-[A-Za-z0-9_-]{8,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bsk-ant-[A-Za-z0-9_-]{8,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bAIza[0-9A-Za-z_-]{10,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/gi, replacement: '[redacted]' },
+  { pattern: /\bgithub_pat_[A-Za-z0-9_]{10,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bgh[pousr]_[A-Za-z0-9_]{10,}\b/g, replacement: '[redacted]' },
+  {
+    pattern:
+      /\b((?:MISTRAL_API_KEY|mistral(?:\s+api)?\s+key)(?:\s*[:=]\s*|\s+)["']?)[A-Za-z0-9._~+/=-]{12,}(?=$|[\s"',;)\]}])/gi,
+    replacement: '$1[redacted]',
+  },
+] satisfies SecretValuePattern[]
 
 export type SecretEnvPresence = {
   name: string
@@ -67,7 +77,7 @@ export function redactHomePath(
 
 export function redactLikelySecrets(value: string): string {
   return LIKELY_SECRET_VALUE_PATTERNS.reduce(
-    (current, pattern) => current.replace(pattern, '[redacted]'),
+    (current, { pattern, replacement }) => current.replace(pattern, replacement),
     value,
   )
 }

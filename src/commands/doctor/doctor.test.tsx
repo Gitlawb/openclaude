@@ -140,6 +140,28 @@ describe('/doctor report', () => {
     )
   })
 
+  test('rejects unredacted report options in the slash command flow', async () => {
+    const parseIssueReportArgs = mock(() => ({
+      format: 'markdown' as const,
+      outFile: null,
+      includeDebug: false,
+      redacted: false,
+    }))
+    const renderIssueReport = mock(async () => '# report')
+    const writeIssueReport = mock(() => '/tmp/report.md')
+    const call = createDoctorCommandCall({
+      parseIssueReportArgs,
+      renderIssueReport,
+      writeIssueReport,
+    })
+
+    await expect(call(mock(() => {}) as never, {} as never, 'report')).rejects.toThrow(
+      'Unredacted diagnostic reports are not supported',
+    )
+    expect(renderIssueReport).not.toHaveBeenCalled()
+    expect(writeIssueReport).not.toHaveBeenCalled()
+  })
+
   test('splits quoted report arguments without eating escaped quotes', () => {
     expect(
       splitDoctorArgs(`report --out "nested/report file.md" '--json-ish'`),
