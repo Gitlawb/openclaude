@@ -157,13 +157,17 @@ describe('/ctx command surface (PR #1610)', () => {
   })
 
   test('call() renders the report sections and category bars', async () => {
-    // Stub the heavy data-collection pipeline so the rendering path runs
-    // against a small, deterministic ContextData. Only mock analyzeContext.js
-    // because it is the sole data fixture — the other modules (autoCompact,
-    // context, model, state, microCompact) use their real implementations
-    // to avoid process-global mock.module() leakage into downstream tests.
-    mock.module('../../utils/analyzeContext.js', () => ({
-      analyzeContextUsage: async () => ({
+    // Call renderCtxReport directly with a hand-crafted RenderInput so
+    // the test needs zero mock.module() calls — avoiding process-global
+    // mock pollution entirely.
+    const mod = (await import(
+      `./ctx-noninteractive.ts?render=${Date.now()}-${Math.random()}`
+    )) as {
+      renderCtxReport: (d: unknown) => string
+    }
+
+    const out = mod.renderCtxReport({
+      contextData: {
         categories: [
           { name: 'System prompt', tokens: 7_800, color: 'claude' },
           { name: 'System tools', tokens: 15_500, color: 'promptBorder' },
@@ -181,33 +185,27 @@ describe('/ctx command surface (PR #1610)', () => {
         memoryFiles: [],
         mcpTools: [],
         agents: [],
+        apiUsage: undefined,
         isAutoCompactEnabled: true,
         autoCompactThreshold: 167_000,
-      }),
-    }))
-
-    // Re-import the module so the mocks above are wired up.
-    const mod = (await import(
-      `./ctx-noninteractive.ts?render=${Date.now()}-${Math.random()}`
-    )) as {
-      call: (
-        args: string,
-        context: unknown,
-      ) => Promise<{ type: string; value: string }>
-    }
-
-    const result = await mod.call('', {
-      messages: [],
-      getAppState: () => ({ toolPermissionContext: { mode: 'default' } }),
-      options: {
-        mainLoopModel: 'claude-sonnet-4',
-        tools: [],
-        agentDefinitions: { activeAgents: [], allAgents: [] },
       },
-    } as unknown as Parameters<typeof mod.call>[1])
-
-    expect(result.type).toBe('text')
-    const out = String(result.value)
+      contextWindow: 200_000,
+      effectiveContext: 180_000,
+      autoCompactThreshold: 167_000,
+      maxOutput: { default: 32_000, upperLimit: 64_000 },
+      canonicalName: 'claude-sonnet-4',
+      autoCompactEnabled: true,
+      sessionInput: 0,
+      sessionOutput: 0,
+      sessionCacheRead: 0,
+      sessionCacheCreation: 0,
+      sessionCost: 0,
+      sessionApiDuration: 0,
+      sessionWallDuration: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      modelUsageMap: {},
+    })
 
     // Header line — confirms the model name is rendered.
     expect(out).toContain('Context Window:')

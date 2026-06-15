@@ -114,6 +114,33 @@ export async function collectCtxData(context: CtxDataInput): Promise<{
   }
 }
 
+/** Shape returned by collectCtxData, accepted by renderCtxReport. */
+export type RenderInput = {
+  contextData: ContextData
+  contextWindow: number
+  effectiveContext: number
+  autoCompactThreshold: number
+  maxOutput: { default: number; upperLimit: number }
+  canonicalName: string
+  autoCompactEnabled: boolean
+  sessionInput: number
+  sessionOutput: number
+  sessionCacheRead: number
+  sessionCacheCreation: number
+  sessionCost: number
+  sessionApiDuration: number
+  sessionWallDuration: number
+  linesAdded: number
+  linesRemoved: number
+  modelUsageMap: Record<string, {
+    inputTokens: number
+    outputTokens: number
+    cacheReadInputTokens: number
+    cacheCreationInputTokens: number
+    costUSD: number
+  }>
+}
+
 function themeColorToChalk(themeColor: string): (text: string) => string {
   if (themeColor === 'error') return chalk.red
   if (themeColor === 'warning') return chalk.yellow
@@ -140,6 +167,11 @@ export async function call(
   context: ToolUseContext,
 ): Promise<{ type: 'text'; value: string }> {
   const d = await collectCtxData(context)
+  return { type: 'text' as const, value: renderCtxReport(d) }
+}
+
+/** Render the report from already-collected data (no module imports needed). */
+export function renderCtxReport(d: RenderInput): string {
   const { contextData: data } = d
 
   const barWidth = 30
@@ -237,5 +269,5 @@ export async function call(
   lines.push(chalk.dim(`  ${figures.info} Run /context for detailed grid view, /cost for pricing, /stats for history`))
   lines.push('')
 
-  return { type: 'text' as const, value: lines.join('\n') }
+  return lines.join('\n')
 }
