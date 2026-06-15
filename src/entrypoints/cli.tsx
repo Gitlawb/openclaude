@@ -67,11 +67,6 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
  * All imports are dynamic to minimize module evaluation for fast paths.
  * Fast-path for --version has zero imports beyond this file.
  */
-function argsBeforeDelimiter(args: string[]): string[] {
-  const delimiterIndex = args.indexOf('--')
-  return delimiterIndex === -1 ? args : args.slice(0, delimiterIndex)
-}
-
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -191,18 +186,18 @@ async function main(): Promise<void> {
 
   // Fast-path for `--bg`/`--background` after profile routing has been applied
   // so the spawned child inherits the selected provider/model environment.
-  const optionArgs = argsBeforeDelimiter(args)
-  if (
-    feature('BG_SESSIONS') &&
-    (optionArgs.includes('--bg') || optionArgs.includes('--background'))
-  ) {
-    const {
-      profileCheckpoint
-    } = await import('../utils/startupProfiler.js');
-    profileCheckpoint('cli_bg_path');
-    const bg = await import('../cli/bg.js');
-    await bg.handleBgFlag(args);
-    return;
+  if (feature('BG_SESSIONS')) {
+    const { argsBeforeDelimiter } = await import('../utils/cliArgs.js')
+    const optionArgs = argsBeforeDelimiter(args)
+    if (optionArgs.includes('--bg') || optionArgs.includes('--background')) {
+      const {
+        profileCheckpoint
+      } = await import('../utils/startupProfiler.js');
+      profileCheckpoint('cli_bg_path');
+      const bg = await import('../cli/bg.js');
+      await bg.handleBgFlag(args);
+      return;
+    }
   }
 
   // Hydrate GitHub credentials after profile is applied so CLAUDE_CODE_USE_GITHUB from profile is available

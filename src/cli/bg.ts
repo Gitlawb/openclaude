@@ -4,6 +4,7 @@ import { closeSync, openSync } from 'node:fs'
 import { open, readFile, unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import treeKill from 'tree-kill'
+import { argsBeforeDelimiter } from '../utils/cliArgs.js'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import {
   assertBackgroundSessionNameAvailable,
@@ -162,11 +163,6 @@ function stripBackgroundFlag(args: string[]): string[] {
     ...head.filter(arg => arg !== '--bg' && arg !== '--background'),
     ...tail,
   ]
-}
-
-function argsBeforeDelimiter(args: string[]): string[] {
-  const delimiterIndex = args.indexOf('--')
-  return delimiterIndex === -1 ? args : args.slice(0, delimiterIndex)
 }
 
 function findPromptIndex(args: string[]): number {

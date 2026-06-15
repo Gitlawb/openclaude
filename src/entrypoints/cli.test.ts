@@ -120,19 +120,23 @@ describe('cli.tsx — --provider startup ordering', () => {
 
   it('checks background spawn flags only before the -- delimiter', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
-    const helperIndex = src.indexOf('function argsBeforeDelimiter')
     const optionArgsIndex = src.indexOf(
       'const optionArgs = argsBeforeDelimiter(args)',
+    )
+    const helperImportIndex = src.lastIndexOf(
+      "await import('../utils/cliArgs.js')",
+      optionArgsIndex,
     )
     const bgFlagIndex = src.indexOf("optionArgs.includes('--bg')")
     const backgroundFlagIndex = src.indexOf(
       "optionArgs.includes('--background')",
     )
 
-    expect(helperIndex).toBeGreaterThanOrEqual(0)
-    expect(optionArgsIndex).toBeGreaterThan(helperIndex)
+    expect(helperImportIndex).toBeGreaterThanOrEqual(0)
+    expect(optionArgsIndex).toBeGreaterThan(helperImportIndex)
     expect(bgFlagIndex).toBeGreaterThan(optionArgsIndex)
     expect(backgroundFlagIndex).toBeGreaterThan(optionArgsIndex)
+    expect(src).not.toContain('function argsBeforeDelimiter')
     expect(src).not.toContain("args.includes('--bg')")
     expect(src).not.toContain("args.includes('--background')")
   })
