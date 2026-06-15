@@ -1,14 +1,14 @@
 import { feature } from 'bun:bundle';
 
-// OpenClaude: polyfill globalThis.File for Node < 20.
-// undici v7 references `File` at module evaluation time (webidl type
-// assertions). Node 18 lacks the global, causing a ReferenceError inside
-// the bundled __commonJS require chain which deadlocks the process when a
-// proxy is configured (configureGlobalAgents → require_undici).
+// Defensive compatibility guard for environments where globalThis.File is
+// unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
+// not a Node 18 support guarantee. The guard is harmless on supported Node
+// versions and prevents undici's module evaluation from throwing in unusual
+// embedded/runtime setups.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 if (typeof globalThis.File === 'undefined') {
   try {
-    // Node 18.13+ exposes File in node:buffer but not as a global.
+    // Some runtimes expose File in node:buffer but not as a global.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { File: NodeFile } = require('node:buffer')
     globalThis.File = NodeFile

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { formatReachabilityFailureDetail } from './system-check.ts'
+import { checkNodeVersion, formatReachabilityFailureDetail } from './system-check.ts'
 
 describe('formatReachabilityFailureDetail', () => {
   test('returns generic failure detail for non-codex transport', () => {
@@ -55,5 +55,24 @@ describe('formatReachabilityFailureDetail', () => {
     expect(detail).toContain(
       'Try "codexplan" or another entitled Codex model.',
     )
+  })
+})
+
+describe('checkNodeVersion', () => {
+  test('uses the shared Node.js minimum in doctor failures', () => {
+    expect(checkNodeVersion('20.11.1')).toEqual({
+      ok: false,
+      label: 'Node.js version',
+      detail:
+        'Detected 20.11.1. OpenClaude requires Node.js >=22.0.0. Install Node 22 LTS or newer, then reinstall/re-run OpenClaude.',
+    })
+  })
+
+  test('passes supported Node.js versions', () => {
+    expect(checkNodeVersion('22.0.0')).toEqual({
+      ok: true,
+      label: 'Node.js version',
+      detail: '22.0.0',
+    })
   })
 })

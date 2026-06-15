@@ -13,6 +13,7 @@ import {
 } from '../src/utils/providerDiscovery.js'
 import { DEFAULT_GEMINI_MODEL } from '../src/utils/providerProfile.js'
 import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
+import { checkSupportedNodeVersion } from '../src/utils/nodeRuntime.js'
 
 type CheckResult = {
   ok: boolean
@@ -89,18 +90,13 @@ export function formatReachabilityFailureDetail(
   return `${base}${bodySuffix} Hint: model alias "${request.requestedModel}" resolved to "${request.resolvedModel}", which this ChatGPT account does not currently allow. Try "codexplan" or another entitled Codex model.`
 }
 
-function checkNodeVersion(): CheckResult {
-  const raw = process.versions.node
-  const major = Number(raw.split('.')[0] ?? '0')
-  if (Number.isNaN(major)) {
-    return fail('Node.js version', `Could not parse version: ${raw}`)
+export function checkNodeVersion(raw = process.versions.node): CheckResult {
+  const versionCheck = checkSupportedNodeVersion(raw)
+  if (!versionCheck.ok) {
+    return fail('Node.js version', versionCheck.message)
   }
 
-  if (major < 20) {
-    return fail('Node.js version', `Detected ${raw}. Require >= 20.`)
-  }
-
-  return pass('Node.js version', raw)
+  return pass('Node.js version', versionCheck.version)
 }
 
 function checkBunRuntime(): CheckResult {

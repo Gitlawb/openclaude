@@ -70,6 +70,9 @@ OpenClaude is also mirrored to GitLawb:
 
 ### Install
 
+OpenClaude requires Node.js `>=22.0.0` for npm installs and runtime. Bun is
+only needed for source builds and local development.
+
 ```bash
 npm install -g @gitlawb/openclaude@latest
 ```
@@ -329,6 +332,8 @@ npm run dev:grpc:cli
 ---
 
 ## Source Build And Local Development
+
+Use Node.js `>=22.0.0` and Bun `1.3.13` or newer for source builds.
 
 ```bash
 bun install
