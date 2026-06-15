@@ -124,14 +124,23 @@ test('system prompt includes immediate-tool-use directive in non-REPL mode', asy
     const text = prompt.join('\n')
     expect(text).toContain('If you intend to use a tool to accomplish a task or analyze a file, use the tool IMMEDIATELY. Do not output a message explaining what you are going to do and then stop to wait for the user to prompt you again. Always call the tool in the same response.')
   } finally {
-    process.env.CLAUDE_REPL_MODE = originalReplMode
-    process.env.CLAUDE_CODE_REPL = originalCodeRepl
+    if (originalReplMode === undefined) {
+      delete process.env.CLAUDE_REPL_MODE
+    } else {
+      process.env.CLAUDE_REPL_MODE = originalReplMode
+    }
+    if (originalCodeRepl === undefined) {
+      delete process.env.CLAUDE_CODE_REPL
+    } else {
+      process.env.CLAUDE_CODE_REPL = originalCodeRepl
+    }
   }
 })
 
 test('system prompt includes immediate-tool-use directive in REPL mode', async () => {
   const originalReplMode = process.env.CLAUDE_REPL_MODE
   const originalCodeRepl = process.env.CLAUDE_CODE_REPL
+  delete process.env.CLAUDE_CODE_REPL
   process.env.CLAUDE_REPL_MODE = '1'
 
   try {
@@ -139,8 +148,16 @@ test('system prompt includes immediate-tool-use directive in REPL mode', async (
     const text = prompt.join('\n')
     expect(text).toContain('If you intend to use a tool to accomplish a task or analyze a file, use the tool IMMEDIATELY. Do not output a message explaining what you are going to do and then stop to wait for the user to prompt you again. Always call the tool in the same response.')
   } finally {
-    process.env.CLAUDE_REPL_MODE = originalReplMode
-    process.env.CLAUDE_CODE_REPL = originalCodeRepl
+    if (originalReplMode === undefined) {
+      delete process.env.CLAUDE_REPL_MODE
+    } else {
+      process.env.CLAUDE_REPL_MODE = originalReplMode
+    }
+    if (originalCodeRepl === undefined) {
+      delete process.env.CLAUDE_CODE_REPL
+    } else {
+      process.env.CLAUDE_CODE_REPL = originalCodeRepl
+    }
   }
 })
 
