@@ -1,9 +1,13 @@
 import type { OptionWithDescription } from '../../components/CustomSelect/select.js'
 import { getAgentModelOptions } from '../../utils/model/agent.js'
 import {
+  getInitialSettings,
   getSettingsForSource,
+  getSettingsWithSources,
   updateSettingsForSource,
+  type SettingsWithSources,
 } from '../../utils/settings/settings.js'
+import type { SettingSource } from '../../utils/settings/constants.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 /** Sentinel Select value: open inline input for a custom model id. */
@@ -44,6 +48,31 @@ function findOwnRouteKey(
     if (normalizeAgentKey(key) === target) return key
   }
   return undefined
+}
+
+/**
+ * The highest-priority settings source ranked ABOVE userSettings that defines a
+ * routing key normalizing to `agentType`, or null. Such a source overrides the
+ * user file in the merged settings the runtime resolves from, so a user-level
+ * write would be silently shadowed. `sources` is the low-to-high priority list
+ * from getSettingsWithSources. Pure.
+ */
+export function findShadowingSource(
+  sources: SettingsWithSources['sources'],
+  agentType: string,
+): SettingSource | null {
+  const target = normalizeAgentKey(agentType)
+  // userSettings is the write target; anything after it in the list outranks it.
+  // When userSettings is absent (empty file), userIdx is -1 and every source
+  // that defines the key still outranks the user write we would create.
+  const userIdx = sources.findIndex(s => s.source === 'userSettings')
+  for (let i = sources.length - 1; i > userIdx; i--) {
+    const routing = sources[i]!.settings.agentRouting
+    if (routing && Object.keys(routing).some(k => normalizeAgentKey(k) === target)) {
+      return sources[i]!.source
+    }
+  }
+  return null
 }
 
 /** Build the route descriptor for a resolved model key. Pure. */
@@ -181,9 +210,22 @@ export function buildRouteOptions(
 
 // --- Thin I/O wrappers over user-global settings (not unit-tested; covered by build + manual) ---
 
-/** Read the user-settings route for `agentType`. */
+/**
+ * Read the EFFECTIVE route for `agentType` from the merged settings chain, the
+ * same view the runtime resolver uses. Reading only userSettings would hide a
+ * project/local/policy route and wrongly report the agent as inheriting.
+ */
 export function getAgentRoute(agentType: string): CurrentAgentRoute {
-  return readAgentRoute(getSettingsForSource('userSettings'), agentType)
+  return readAgentRoute(getInitialSettings(), agentType)
+}
+
+/**
+ * The settings source that overrides a user-level route for `agentType`, or
+ * null when a user write would take effect. The picker uses this to explain why
+ * an edit is read-only instead of silently saving an ignored route.
+ */
+export function getRouteShadowSource(agentType: string): SettingSource | null {
+  return findShadowingSource(getSettingsWithSources().sources, agentType)
 }
 
 /** Persist a route from `agentType` to `modelKey` in user-global settings. */
@@ -191,14 +233,25 @@ export function setAgentRoute(
   agentType: string,
   modelKey: string,
 ): { error: Error | null } {
+  const shadow = getRouteShadowSource(agentType)
+  if (shadow) return { error: shadowError(agentType, shadow) }
   const next = computeSetRouteUpdate(getSettingsForSource('userSettings'), agentType, modelKey)
   return updateSettingsForSource('userSettings', next)
 }
 
 /** Remove `agentType`'s route in user-global settings. */
 export function clearAgentRoute(agentType: string): { error: Error | null } {
+  const shadow = getRouteShadowSource(agentType)
+  if (shadow) return { error: shadowError(agentType, shadow) }
   return updateSettingsForSource(
     'userSettings',
     computeClearRouteUpdate(getSettingsForSource('userSettings'), agentType),
+  )
+}
+
+function shadowError(agentType: string, source: SettingSource): Error {
+  return new Error(
+    `${agentType} is routed by ${source} settings, which override your user settings. ` +
+      `A user-level change won't take effect; edit the ${source} settings instead.`,
   )
 }

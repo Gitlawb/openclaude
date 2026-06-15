@@ -7,8 +7,10 @@ import {
   computeSetRouteUpdate,
   currentRouteValue,
   describeRouteLine,
+  findShadowingSource,
   readAgentRoute,
 } from './agentRouteSettings.js'
+import type { SettingsWithSources } from '../../utils/settings/settings.js'
 
 const modelOnly: SettingsJson = {
   agentModels: { mini: { model: 'gpt-5-mini' } },
@@ -215,5 +217,45 @@ describe('describeRouteLine', () => {
     expect(
       describeRouteLine({ kind: 'model-only', routeKey: 'm', model: 'gpt-5-mini', viaDefault: true }),
     ).toContain('via default')
+  })
+})
+
+describe('findShadowingSource', () => {
+  const src = (
+    source: string,
+    agentRouting: Record<string, string>,
+  ): SettingsWithSources['sources'][number] =>
+    ({ source, settings: { agentRouting } } as unknown as SettingsWithSources['sources'][number])
+
+  test('null when only userSettings defines the route', () => {
+    expect(findShadowingSource([src('userSettings', { verification: 'mini' })], 'verification')).toBeNull()
+  })
+
+  test('null when a higher source has no matching key', () => {
+    const sources = [src('userSettings', { verification: 'mini' }), src('projectSettings', { Explore: 'haiku' })]
+    expect(findShadowingSource(sources, 'verification')).toBeNull()
+  })
+
+  test('returns a higher-priority source that overrides the user route', () => {
+    const sources = [src('userSettings', { verification: 'mini' }), src('projectSettings', { verification: 'proj' })]
+    expect(findShadowingSource(sources, 'verification')).toBe('projectSettings')
+  })
+
+  test('matches by runtime normalization, not exact key', () => {
+    const sources = [src('userSettings', {}), src('localSettings', { general_purpose: 'x' })]
+    expect(findShadowingSource(sources, 'general-purpose')).toBe('localSettings')
+  })
+
+  test('shadows even when userSettings is absent', () => {
+    expect(findShadowingSource([src('projectSettings', { verification: 'proj' })], 'verification')).toBe('projectSettings')
+  })
+
+  test('returns the highest-priority shadowing source', () => {
+    const sources = [
+      src('userSettings', { verification: 'mini' }),
+      src('projectSettings', { verification: 'proj' }),
+      src('policySettings', { verification: 'pol' }),
+    ]
+    expect(findShadowingSource(sources, 'verification')).toBe('policySettings')
   })
 })

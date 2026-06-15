@@ -7,6 +7,7 @@ import {
   buildRouteOptions,
   clearAgentRoute,
   currentRouteValue,
+  getRouteShadowSource,
   setAgentRoute,
   type CurrentAgentRoute,
 } from '../../services/api/agentRouteSettings.js'
@@ -34,6 +35,28 @@ export function AgentRouteSelector({ agentType, current, onClose }: Props): Reac
       return
     }
     onClose()
+  }
+
+  // A higher-priority settings source (project/local/policy) can override the
+  // user file the picker writes to. Saving there would be a silent no-op, so
+  // explain it as read-only instead of offering an ineffective edit.
+  const shadowSource = getRouteShadowSource(agentType)
+  if (shadowSource) {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text>
+          <Text bold>{agentType}</Text> is routed by <Text bold>{shadowSource}</Text> settings, which override your user settings.
+        </Text>
+        <Text dimColor>
+          A user-level change won't take effect. Edit the {shadowSource} settings file to change this route. Press Esc to go back.
+        </Text>
+        <Select
+          options={[{ value: '__back__', label: 'Back' }]}
+          onChange={onClose}
+          onCancel={onClose}
+        />
+      </Box>
+    )
   }
 
   // Build options from the same scope we persist to (user settings), so a key
