@@ -85,4 +85,16 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
+
+  it('dispatches background session management before provider validation', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const bgFastPathIndex = src.indexOf("await import('../cli/bg.js')")
+    const providerValidationIndex = src.indexOf(
+      'await validateProviderEnvForStartupOrExit()',
+    )
+
+    expect(bgFastPathIndex).toBeGreaterThanOrEqual(0)
+    expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
+    expect(bgFastPathIndex).toBeLessThan(providerValidationIndex)
+  })
 })

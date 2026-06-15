@@ -158,6 +158,35 @@ async function main(): Promise<void> {
     }
   }
 
+  // Fast-path for `claude ps|logs|attach|kill` and `--bg`/`--background`.
+  // Session management is local and must not depend on provider validation or
+  // startup-screen rendering. Flag literals are inlined so bg.js only loads
+  // when actually dispatching.
+  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill' || args.includes('--bg') || args.includes('--background'))) {
+    const {
+      profileCheckpoint
+    } = await import('../utils/startupProfiler.js');
+    profileCheckpoint('cli_bg_path');
+    const bg = await import('../cli/bg.js');
+    switch (args[0]) {
+      case 'ps':
+        await bg.psHandler(args.slice(1));
+        break;
+      case 'logs':
+        await bg.logsHandler(args.slice(1));
+        break;
+      case 'attach':
+        await bg.attachHandler(args.slice(1));
+        break;
+      case 'kill':
+        await bg.killHandler(args.slice(1));
+        break;
+      default:
+        await bg.handleBgFlag(args);
+    }
+    return;
+  }
+
   // Hydrate GitHub credentials after profile is applied so CLAUDE_CODE_USE_GITHUB from profile is available
   {
     const {
@@ -323,35 +352,6 @@ async function main(): Promise<void> {
       daemonMain
     } = await import('../daemon/main.js');
     await daemonMain(args.slice(1));
-    return;
-  }
-
-  // Fast-path for `claude ps|logs|attach|kill` and `--bg`/`--background`.
-  // Session management against the ~/.claude/sessions/ registry. Flag
-  // literals are inlined so bg.js only loads when actually dispatching.
-  if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill' || args.includes('--bg') || args.includes('--background'))) {
-    profileCheckpoint('cli_bg_path');
-    const {
-      enableConfigs
-    } = await import('../utils/config.js');
-    enableConfigs();
-    const bg = await import('../cli/bg.js');
-    switch (args[0]) {
-      case 'ps':
-        await bg.psHandler(args.slice(1));
-        break;
-      case 'logs':
-        await bg.logsHandler(args[1]);
-        break;
-      case 'attach':
-        await bg.attachHandler(args[1]);
-        break;
-      case 'kill':
-        await bg.killHandler(args[1]);
-        break;
-      default:
-        await bg.handleBgFlag(args);
-    }
     return;
   }
 

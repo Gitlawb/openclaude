@@ -358,6 +358,38 @@ export function deserializeMessagesWithInterruptDetection(
   }
 }
 
+export async function collectLiveBackgroundSessionIds(): Promise<Set<string>> {
+  const skip = new Set<string>()
+  try {
+    const { listAllLiveSessions } = await import('./udsClient.js')
+    const live = await listAllLiveSessions()
+    for (const session of live) {
+      if (session.kind && session.kind !== 'interactive' && session.sessionId) {
+        skip.add(session.sessionId)
+      }
+    }
+  } catch {
+    // UDS unavailable — local registry below still protects local bg sessions.
+  }
+
+  try {
+    const {
+      refreshBackgroundSessionStatuses,
+      isTerminalBackgroundSession,
+    } = await import('../cli/bgRegistry.js')
+    const sessions = await refreshBackgroundSessionStatuses()
+    for (const session of sessions) {
+      if (!isTerminalBackgroundSession(session)) {
+        skip.add(session.sessionId)
+      }
+    }
+  } catch {
+    // Registry unavailable or unreadable — fall back to UDS-only results.
+  }
+
+  return skip
+}
+
 /**
  * Internal 3-way result from detection, before transforming interrupted_turn
  * into interrupted_prompt with a synthetic continuation message.
@@ -606,19 +638,7 @@ export async function loadConversationForResume(
       const logsPromise = loadMessageLogs()
       let skip = new Set<string>()
       if (feature('BG_SESSIONS')) {
-        try {
-          const { listAllLiveSessions } = await import('./udsClient.js')
-          const live = await listAllLiveSessions()
-          skip = new Set(
-            live.flatMap(s =>
-              s.kind && s.kind !== 'interactive' && s.sessionId
-                ? [s.sessionId]
-                : [],
-            ),
-          )
-        } catch {
-          // UDS unavailable — treat all sessions as continuable
-        }
+        skip = await collectLiveBackgroundSessionIds()
       }
       const logs = await logsPromise
       log =

@@ -212,6 +212,34 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
   )
 })
 
+test('collectLiveBackgroundSessionIds includes local registry sessions when UDS is empty', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  mock.module('./udsClient.js', () => ({
+    listAllLiveSessions: async () => [],
+  }))
+  mock.module('../cli/bgRegistry.js', () => ({
+    refreshBackgroundSessionStatuses: async () => [
+      {
+        sessionId: '00000000-0000-4000-8000-000000000111',
+        status: 'running',
+      },
+      {
+        sessionId: '00000000-0000-4000-8000-000000000222',
+        status: 'stale',
+      },
+    ],
+    isTerminalBackgroundSession: (session: { status: string }) =>
+      session.status !== 'running',
+  }))
+
+  const { collectLiveBackgroundSessionIds } =
+    await importFreshConversationRecovery()
+
+  expect(await collectLiveBackgroundSessionIds()).toEqual(
+    new Set(['00000000-0000-4000-8000-000000000111']),
+  )
+})
+
 test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
