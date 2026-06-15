@@ -1613,7 +1613,7 @@ export function Config({
           <ModelPicker initial={globalConfig.compactModel ?? null} skipSettingsWrite headerText="Model used for conversation compaction. Defaults to the main model when unset." onSelect={(model_2, _effort_1) => {
         setShowSubmenu(null);
         setTabsHidden(false);
-        if (globalConfig.compactModel === undefined && model_2 === null) {
+        if ((globalConfig.compactModel ?? null) === model_2) {
           return;
         }
         isDirty.current = true;
