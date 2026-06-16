@@ -123,6 +123,7 @@ const PRESET_ORDER = [
   'Google Gemini',
   'Groq',
   'Hicap',
+  'LLMTR',
   'LM Studio',
   'Atomic Chat',
   'Ollama',
