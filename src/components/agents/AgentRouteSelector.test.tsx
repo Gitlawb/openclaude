@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import figures from 'figures'
 import React from 'react'
 import stripAnsi from 'strip-ansi'
 
@@ -267,8 +268,15 @@ test('typing a custom model id persists the full id on submit', async () => {
     const inputIndex = inputLine.trim().match(/^(\d+)\./)?.[1]
     expect(inputIndex).toBeDefined()
     stdin.write(inputIndex!)
+    // The focus indicator is figures.pointer, which renders as ❯ on Unix but as
+    // ">" on Windows. Match the actual glyph the renderer uses on this platform
+    // so the wait does not time out in a Windows checkout.
     await waitForOutput(getOutput, f =>
-      f.split('\n').some(line => line.includes('❯') && line.includes('gpt-5-mini')),
+      f
+        .split('\n')
+        .some(
+          line => line.includes(figures.pointer) && line.includes('gpt-5-mini'),
+        ),
     )
     for (const ch of 'gpt-5-mini') {
       stdin.write(ch)
