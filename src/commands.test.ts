@@ -176,19 +176,24 @@ describe('builtInCommandNames', () => {
 
   /** Retry rm on EBUSY (Windows: dir held by spawned shell handle). */
   async function rmRetry(dir: string, retries = 5, delay = 200): Promise<void> {
-    for (let i = 0; i < retries; i++) {
-      try {
-        // Move to a stable dir so the temp dir is no longer anyone's cwd.
-        chdir(tmpdir())
-        await rm(dir, { recursive: true, force: true })
-        return
-      } catch (e: any) {
-        if ((e as NodeJS.ErrnoException).code === 'EBUSY' && i < retries - 1) {
-          await new Promise(r => setTimeout(r, delay))
-          continue
+    const originalCwd = process.cwd()
+    try {
+      // Move to a stable dir so the temp dir is no longer anyone's cwd.
+      chdir(tmpdir())
+      for (let i = 0; i < retries; i++) {
+        try {
+          await rm(dir, { recursive: true, force: true })
+          return
+        } catch (e: any) {
+          if ((e as NodeJS.ErrnoException).code === 'EBUSY' && i < retries - 1) {
+            await new Promise(r => setTimeout(r, delay))
+            continue
+          }
+          throw e
         }
-        throw e
       }
+    } finally {
+      chdir(originalCwd)
     }
   }
 
@@ -223,18 +228,21 @@ describe('builtInCommandNames', () => {
       checkEmptyIndicator(promptText, '(If empty: no git history or not a git repo)')
       checkEmptyIndicator(promptText, '(If empty: no diff available or not a git repo)')
     } finally {
-      await rmRetry(cwd)
-      if (originalUserType !== undefined) {
-        process.env['USER_TYPE'] = originalUserType
-      } else {
-        delete process.env['USER_TYPE']
+      try {
+        await rmRetry(cwd)
+      } finally {
+        if (originalUserType !== undefined) {
+          process.env['USER_TYPE'] = originalUserType
+        } else {
+          delete process.env['USER_TYPE']
+        }
+        if (originalIsDemo !== undefined) {
+          process.env['IS_DEMO'] = originalIsDemo
+        } else {
+          delete process.env['IS_DEMO']
+        }
+        clearCommandMemoizationCaches()
       }
-      if (originalIsDemo !== undefined) {
-        process.env['IS_DEMO'] = originalIsDemo
-      } else {
-        delete process.env['IS_DEMO']
-      }
-      clearCommandMemoizationCaches()
     }
   })
 
@@ -266,18 +274,21 @@ describe('builtInCommandNames', () => {
       // Accept either bash output or the static echo fallback text (for Windows/no-bash)
       expect(promptText).toMatch(/(If empty:|bash completed with no output)/i)
     } finally {
-      await rmRetry(cwd)
-      if (originalUserType !== undefined) {
-        process.env['USER_TYPE'] = originalUserType
-      } else {
-        delete process.env['USER_TYPE']
+      try {
+        await rmRetry(cwd)
+      } finally {
+        if (originalUserType !== undefined) {
+          process.env['USER_TYPE'] = originalUserType
+        } else {
+          delete process.env['USER_TYPE']
+        }
+        if (originalIsDemo !== undefined) {
+          process.env['IS_DEMO'] = originalIsDemo
+        } else {
+          delete process.env['IS_DEMO']
+        }
+        clearCommandMemoizationCaches()
       }
-      if (originalIsDemo !== undefined) {
-        process.env['IS_DEMO'] = originalIsDemo
-      } else {
-        delete process.env['IS_DEMO']
-      }
-      clearCommandMemoizationCaches()
     }
   })
 
@@ -307,18 +318,21 @@ describe('builtInCommandNames', () => {
       checkEmptyIndicator(promptText, '(If empty: no git history or not a git repo)')
       checkEmptyIndicator(promptText, '(If empty: no diff available or not a git repo)')
     } finally {
-      await rmRetry(cwd)
-      if (originalUserType !== undefined) {
-        process.env['USER_TYPE'] = originalUserType
-      } else {
-        delete process.env['USER_TYPE']
+      try {
+        await rmRetry(cwd)
+      } finally {
+        if (originalUserType !== undefined) {
+          process.env['USER_TYPE'] = originalUserType
+        } else {
+          delete process.env['USER_TYPE']
+        }
+        if (originalIsDemo !== undefined) {
+          process.env['IS_DEMO'] = originalIsDemo
+        } else {
+          delete process.env['IS_DEMO']
+        }
+        clearCommandMemoizationCaches()
       }
-      if (originalIsDemo !== undefined) {
-        process.env['IS_DEMO'] = originalIsDemo
-      } else {
-        delete process.env['IS_DEMO']
-      }
-      clearCommandMemoizationCaches()
     }
   })
 
@@ -348,18 +362,21 @@ describe('builtInCommandNames', () => {
       checkEmptyIndicator(promptText, '(If empty: no git history or not a git repo)')
       checkEmptyIndicator(promptText, '(If empty: no diff available or not a git repo)')
     } finally {
-      await rmRetry(cwd)
-      if (originalUserType !== undefined) {
-        process.env['USER_TYPE'] = originalUserType
-      } else {
-        delete process.env['USER_TYPE']
+      try {
+        await rmRetry(cwd)
+      } finally {
+        if (originalUserType !== undefined) {
+          process.env['USER_TYPE'] = originalUserType
+        } else {
+          delete process.env['USER_TYPE']
+        }
+        if (originalIsDemo !== undefined) {
+          process.env['IS_DEMO'] = originalIsDemo
+        } else {
+          delete process.env['IS_DEMO']
+        }
+        clearCommandMemoizationCaches()
       }
-      if (originalIsDemo !== undefined) {
-        process.env['IS_DEMO'] = originalIsDemo
-      } else {
-        delete process.env['IS_DEMO']
-      }
-      clearCommandMemoizationCaches()
     }
   })
 
