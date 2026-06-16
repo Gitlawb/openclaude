@@ -760,7 +760,7 @@ export function parseUserSpecifiedModel(
       case 'opus':
         return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
       case 'best':
-        return getBestModel()
+        return getBestModel() + (has1mTag ? '[1m]' : '')
       default:
     }
   }
