@@ -10,7 +10,7 @@ const SECRET_ENV_KEYS = [
 ] as const
 
 export type SecretValueSource = Partial<
-  Record<(typeof SECRET_ENV_KEYS)[number], string | undefined>
+  Record<string, string | undefined>
 >
 
 export function sanitizeApiKey(
@@ -35,6 +35,18 @@ function looksLikeSecretValue(value: string): boolean {
   return false
 }
 
+function isSecretEnvKey(key: string): boolean {
+  return (
+    SECRET_ENV_KEYS.includes(key as (typeof SECRET_ENV_KEYS)[number]) ||
+    key.endsWith('_API_KEY') ||
+    key.endsWith('_AUTH_HEADER_VALUE') ||
+    key.endsWith('_SECRET') ||
+    key.endsWith('_SECRET_ACCESS_KEY') ||
+    key.endsWith('_SECRET_KEY') ||
+    key.endsWith('_TOKEN')
+  )
+}
+
 function collectSecretValues(
   sources: Array<SecretValueSource | null | undefined>,
 ): string[] {
@@ -43,7 +55,9 @@ function collectSecretValues(
   for (const source of sources) {
     if (!source) continue
 
-    for (const key of SECRET_ENV_KEYS) {
+    for (const key of Object.keys(source)) {
+      if (!isSecretEnvKey(key)) continue
+
       const value = sanitizeApiKey(source[key])
       if (value) {
         values.add(value)

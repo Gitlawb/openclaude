@@ -1535,6 +1535,7 @@ test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
 test('redactSecretValueForDisplay masks poisoned display fields that equal configured secrets', () => {
   const apiKey = 'sk-secret-12345678'
   const authHeaderValue = 'hicap-header-secret'
+  const routeApiKey = 'gsk-route-secret-value'
 
   assert.equal(
     redactSecretValueForDisplay(apiKey, { OPENAI_API_KEY: apiKey }),
@@ -1547,7 +1548,15 @@ test('redactSecretValueForDisplay masks poisoned display fields that equal confi
     'hic...ret',
   )
   assert.equal(
+    redactSecretValueForDisplay(routeApiKey, { GROQ_API_KEY: routeApiKey }),
+    'gsk...lue',
+  )
+  assert.equal(
     redactSecretValueForDisplay('gpt-4o', { OPENAI_API_KEY: apiKey }),
+    'gpt-4o',
+  )
+  assert.equal(
+    redactSecretValueForDisplay('gpt-4o', { OPENAI_MODEL: 'gpt-4o' }),
     'gpt-4o',
   )
 })

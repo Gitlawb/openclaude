@@ -123,6 +123,34 @@ function pushRedactedProperty(
   });
 }
 
+function readTrimmedEnvValue(name: string): string | undefined {
+  return process.env[name]?.trim() || undefined;
+}
+
+/**
+ * Builds a process env copy whose OpenAI base URL aliases follow the same
+ * trimming and fallback rules used by the status display fields.
+ */
+function buildRouteResolutionEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const openAIBaseUrl = readTrimmedEnvValue('OPENAI_BASE_URL');
+  const openAIApiBase = readTrimmedEnvValue('OPENAI_API_BASE');
+
+  if (openAIBaseUrl) {
+    env.OPENAI_BASE_URL = openAIBaseUrl;
+  } else {
+    delete env.OPENAI_BASE_URL;
+  }
+
+  if (openAIApiBase) {
+    env.OPENAI_API_BASE = openAIApiBase;
+  } else {
+    delete env.OPENAI_API_BASE;
+  }
+
+  return env;
+}
+
 /**
  * Resolves the active provider route from the environment. Returns the route id
  * when it identifies a concrete gateway/vendor (e.g. "openrouter", "groq",
@@ -130,7 +158,7 @@ function pushRedactedProperty(
  * first-party "anthropic" route, or when route resolution is unavailable.
  */
 function resolveDisplayRouteId(): string | null {
-  const routeId = resolveActiveRouteIdFromEnv(process.env);
+  const routeId = resolveActiveRouteIdFromEnv(buildRouteResolutionEnv());
   if (!routeId || routeId === 'custom' || routeId === 'anthropic') {
     return null;
   }
@@ -152,21 +180,43 @@ function buildRouteCredentialSummary(routeId: string): string | null {
   return configured.map(name => `${name} configured`).join(', ');
 }
 
+/**
+ * Collects route-specific credential env values so status fields redact secrets
+ * from descriptor-backed providers, not only legacy provider buckets.
+ */
+function buildRouteSecretSource(routeId: string | null): SecretValueSource {
+  if (!routeId) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    getRouteCredentialEnvVars(routeId).map(name => [name, process.env[name]]),
+  );
+}
+
+/**
+ * Returns the active OpenAI-compatible base URL shown in status, including the
+ * legacy OPENAI_API_BASE alias and descriptor defaults for env-only routes.
+ */
 function getOpenAICompatibleBaseUrlForStatus(
   routeId: string | null,
 ): string | undefined {
   return (
-    process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE?.trim() ||
+    readTrimmedEnvValue('OPENAI_BASE_URL') ||
+    readTrimmedEnvValue('OPENAI_API_BASE') ||
     (routeId ? getRouteDefaultBaseUrl(routeId) : undefined)
   );
 }
 
+/**
+ * Returns the active OpenAI-compatible model shown in status, falling back to
+ * descriptor defaults for routes selected only by credential env vars.
+ */
 function getOpenAICompatibleModelForStatus(
   routeId: string | null,
 ): string | undefined {
   return (
-    process.env.OPENAI_MODEL?.trim() ||
+    readTrimmedEnvValue('OPENAI_MODEL') ||
     (routeId ? getRouteDefaultModel(routeId) : undefined)
   );
 }
@@ -485,6 +535,10 @@ export function buildAPIProviderProperties(): Property[] {
     const transportLabel = routeId
       ? getRouteProviderTypeLabel(routeId)
       : null;
+    const redactionSource: SecretValueSource = {
+      ...secretSource,
+      ...buildRouteSecretSource(routeId),
+    };
     if (transportLabel) {
       properties.push({
         label: 'Transport',
@@ -495,7 +549,7 @@ export function buildAPIProviderProperties(): Property[] {
       properties,
       metadata.baseUrlLabel,
       getOpenAICompatibleBaseUrlForStatus(routeId),
-      secretSource,
+      redactionSource,
     );
     const openaiModel = getOpenAICompatibleModelForStatus(routeId);
     if (openaiModel) {
@@ -507,7 +561,7 @@ export function buildAPIProviderProperties(): Property[] {
         properties,
         'Model',
         modelDisplay,
-        secretSource,
+        redactionSource,
       );
     }
     if (routeId) {
