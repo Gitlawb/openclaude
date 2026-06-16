@@ -106,29 +106,41 @@ function looksLikeSecretValue(value: string): boolean {
   return looksLikeOpaqueToken(trimmed)
 }
 
-// Opaque provider tokens are typically long, mixed-case, alphanumeric strings
-// with dashes/underscores. False positives here only mask a display value, so
-// the threshold is tuned to avoid common model/base URL strings.
+// Opaque provider tokens are typically long, mixed-case alphanumeric payloads,
+// sometimes with short prefix segments separated by dashes/underscores.
 function looksLikeOpaqueToken(value: string): boolean {
   if (value.length < 24) return false
   if (value.includes('://')) return false
   if (value.includes(' ')) return false
   if (value.includes('/')) return false
 
+  for (const ch of value) {
+    const isAllowed =
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch === '-' ||
+      ch === '_'
+    if (!isAllowed) return false
+  }
+
+  return value
+    .split(/[-_]+/)
+    .some(segment => segment.length >= 16 && hasLowerUpperDigit(segment))
+}
+
+function hasLowerUpperDigit(value: string): boolean {
   let hasLower = false
   let hasUpper = false
   let hasDigit = false
+
   for (const ch of value) {
     if (ch >= 'a' && ch <= 'z') hasLower = true
     else if (ch >= 'A' && ch <= 'Z') hasUpper = true
     else if (ch >= '0' && ch <= '9') hasDigit = true
-    else if (ch !== '-' && ch !== '_') return false
   }
 
-  // Require all three of {lower, upper, digit} to avoid catching model slugs
-  // that happen to be long (e.g. "claude-sonnet-4-6-preview").
-  const classes = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasDigit ? 1 : 0)
-  return classes >= 3
+  return hasLower && hasUpper && hasDigit
 }
 
 function collectSecretValues(

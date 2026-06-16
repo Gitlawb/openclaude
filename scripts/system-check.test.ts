@@ -157,8 +157,15 @@ describe('system-check provider diagnostics', () => {
     process.env.GITHUB_TOKEN = 'ghp_FAKEgithubToken0123456789'
     delete process.env.OPENAI_API_KEY
 
+    const results = checkOpenAIEnv()
     const summary = serializeSafeEnvSummary()
+    const credentialResult = results.find(result => result.label === 'OPENAI_API_KEY')
 
+    expect(credentialResult).toEqual({
+      ok: false,
+      label: 'OPENAI_API_KEY',
+      detail: 'Missing key for non-local provider URL. Set OPENAI_API_KEY.',
+    })
     expect(summary.PROVIDER_API_KEY_SET).toBe(false)
   })
 })

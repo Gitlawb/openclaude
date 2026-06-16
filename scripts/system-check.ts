@@ -311,11 +311,13 @@ function getOpenAICompatibleRouteId(baseUrl: string): string {
 }
 
 function getOpenAICompatibleCredentialContext(baseUrl: string): {
+  routeId: string
   envVars: string[]
   value: string | undefined
 } {
   const routeId = getOpenAICompatibleRouteId(baseUrl)
   return {
+    routeId,
     envVars: getRouteCredentialEnvVars(routeId),
     value: getRouteCredentialValue(routeId, process.env),
   }
@@ -483,15 +485,17 @@ export function checkOpenAIEnv(): CheckResult[] {
       ? credentialContext.envVars.join(' or ')
       : 'OPENAI_API_KEY'
   const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
+  const hasGithubRouteCredential =
+    credentialContext.routeId === 'github' && Boolean(githubToken?.trim())
   if (key === 'SUA_CHAVE' || providerCredential === 'SUA_CHAVE') {
     results.push(fail(credentialLabel, 'Placeholder value detected: SUA_CHAVE.'))
   } else if (
     !providerCredential &&
     !isLocalBaseUrl(request.baseUrl) &&
-    !(useGithub && githubToken?.trim())
+    !hasGithubRouteCredential
   ) {
     results.push(fail(credentialLabel, `Missing key for non-local provider URL. Set ${credentialLabel}.`))
-  } else if (!providerCredential && useGithub && githubToken?.trim()) {
+  } else if (!providerCredential && hasGithubRouteCredential) {
     results.push(
       pass('OPENAI_API_KEY', 'Not set; GITHUB_TOKEN/GH_TOKEN will be used for GitHub Models.'),
     )

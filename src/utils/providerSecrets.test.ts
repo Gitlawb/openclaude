@@ -186,6 +186,7 @@ describe('redactSecretValueForDisplay', () => {
     expect(redactSecretValueForDisplay('claude-sonnet-4-6')).toBe('claude-sonnet-4-6')
     expect(redactSecretValueForDisplay('claude-sonnet-4-6-preview')).toBe('claude-sonnet-4-6-preview')
     expect(redactSecretValueForDisplay('qwen3-coder-480b-a35b-instruct')).toBe('qwen3-coder-480b-a35b-instruct')
+    expect(redactSecretValueForDisplay('Qwen3-Coder-480B-A35B-Instruct')).toBe('Qwen3-Coder-480B-A35B-Instruct')
   })
 
   test('returns undefined for empty input', () => {
@@ -253,5 +254,6 @@ describe('sanitizeProviderConfigValue', () => {
   test('keeps non-secret config values visible', () => {
     expect(sanitizeProviderConfigValue('gpt-4o', { OPENAI_API_KEY: FAKE_OPENAI_KEY })).toBe('gpt-4o')
     expect(sanitizeProviderConfigValue('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
+    expect(sanitizeProviderConfigValue('Qwen3-Coder-480B-A35B-Instruct')).toBe('Qwen3-Coder-480B-A35B-Instruct')
   })
 })
