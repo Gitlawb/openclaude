@@ -95,6 +95,11 @@ const SECRET_PREFIX_PATTERNS = [
   /^github_pat_/,
 ]
 
+const SECRET_PREFIX_SUBSTRING_PATTERN =
+  /(?:sk-ant-|sk-|AIza|ghp_|gho_|ghs_|ghr_|github_pat_)[A-Za-z0-9._-]{8,}/g
+const JWT_SUBSTRING_PATTERN =
+  /\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g
+
 function looksLikeSecretValue(value: string): boolean {
   const trimmed = value.trim()
   if (!trimmed) return false
@@ -195,6 +200,33 @@ export function redactSecretValueForDisplay(
   }
 
   return trimmed
+}
+
+export function redactSecretSubstringsForDisplay(
+  value: string | null | undefined,
+  ...sources: Array<SecretValueSource | null | undefined>
+): string | undefined {
+  if (!value) return undefined
+
+  let redacted = value
+  const secretValues = collectSecretValues(sources).sort(
+    (a, b) => b.length - a.length,
+  )
+  for (const secretValue of secretValues) {
+    const mask = maskSecretForDisplay(secretValue) ?? 'configured'
+    redacted = redacted.split(secretValue).join(mask)
+  }
+
+  redacted = redacted.replace(
+    SECRET_PREFIX_SUBSTRING_PATTERN,
+    match => maskSecretForDisplay(match) ?? 'configured',
+  )
+  redacted = redacted.replace(
+    JWT_SUBSTRING_PATTERN,
+    match => maskSecretForDisplay(match) ?? 'configured',
+  )
+
+  return redacted
 }
 
 export function sanitizeProviderConfigValue(

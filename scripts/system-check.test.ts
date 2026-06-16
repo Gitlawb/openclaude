@@ -81,6 +81,25 @@ describe('formatReachabilityFailureDetail', () => {
     )
   })
 
+  test('redacts secret-shaped values embedded in response bodies', () => {
+    const leakedKey = 'sk-liveLeakToken1234567890ABCdef'
+    const detail = formatReachabilityFailureDetail(
+      'https://api.openai.com/v1/models',
+      401,
+      `{"error":"Invalid API key: ${leakedKey}"}`,
+      {
+        transport: 'chat_completions',
+        requestedModel: 'gpt-4o',
+        resolvedModel: 'gpt-4o',
+      },
+    )
+
+    expect(detail).toBe(
+      'Unexpected status 401 from https://api.openai.com/v1/models. Body: {"error":"Invalid API key: sk-...def"}',
+    )
+    expect(detail).not.toContain(leakedKey)
+  })
+
   test('adds alias/entitlement hint for codex model support 400s', () => {
     const detail = formatReachabilityFailureDetail(
       'https://chatgpt.com/backend-api/codex/responses',

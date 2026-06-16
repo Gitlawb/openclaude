@@ -12,6 +12,7 @@ import {
   getKnownProviderSecretEnvKeys,
   maskSecretForDisplay,
   redactSecretValueForDisplay,
+  redactSecretSubstringsForDisplay,
   sanitizeApiKey,
   sanitizeProviderConfigValue,
 } from './providerSecrets.js'
@@ -222,6 +223,39 @@ describe('redactSecretValueForDisplay', () => {
         OPENGATEWAY_API_KEY: ` ${providerSecret} `,
       }),
     ).toBe('ogw...ret')
+  })
+})
+
+describe('redactSecretSubstringsForDisplay', () => {
+  test('redacts configured provider secrets embedded in longer messages', () => {
+    const message = `Provider rejected API key ${FAKE_OPENAI_KEY} for this request`
+
+    const redacted = redactSecretSubstringsForDisplay(message, {
+      OPENAI_API_KEY: FAKE_OPENAI_KEY,
+    })
+
+    expect(redacted).toBe('Provider rejected API key sk-...def for this request')
+    expect(redacted).not.toContain(FAKE_OPENAI_KEY)
+  })
+
+  test('redacts secret-shaped values embedded in longer messages', () => {
+    const leakedKey = 'sk-liveLeakToken1234567890ABCdef'
+
+    const redacted = redactSecretSubstringsForDisplay(
+      `Invalid API key: ${leakedKey}`,
+    )
+
+    expect(redacted).toBe('Invalid API key: sk-...def')
+    expect(redacted).not.toContain(leakedKey)
+  })
+
+  test('redacts JWT-shaped values embedded in longer messages', () => {
+    const redacted = redactSecretSubstringsForDisplay(
+      `Authentication failed: ${FAKE_JWT_TOKEN} is invalid`,
+    )
+
+    expect(redacted).toBe('Authentication failed: eyJ...w5c is invalid')
+    expect(redacted).not.toContain(FAKE_JWT_TOKEN)
   })
 })
 

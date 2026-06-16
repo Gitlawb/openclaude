@@ -20,6 +20,7 @@ import {
 import { DEFAULT_GEMINI_MODEL } from '../src/utils/providerProfile.js'
 import {
   redactSecretValueForDisplay,
+  redactSecretSubstringsForDisplay,
   type SecretValueSource,
 } from '../src/utils/providerSecrets.js'
 import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
@@ -99,7 +100,7 @@ export function formatReachabilityFailureDetail(
     resolvedModel: string
   },
 ): string {
-  const compactBody = safeDisplayValue(
+  const compactBody = safeDiagnosticText(
     responseBody.trim().replace(/\s+/g, ' ').slice(0, 240),
     '',
   )
@@ -292,6 +293,13 @@ function safeDisplayValue(
   fallback: string,
 ): string {
   return redactSecretValueForDisplay(value, currentSecretSource()) ?? fallback
+}
+
+function safeDiagnosticText(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  return redactSecretSubstringsForDisplay(value, currentSecretSource()) ?? fallback
 }
 
 function safeBaseUrlDisplay(
@@ -695,7 +703,8 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
     )
   }
 
-  const detailSuffix = readiness.detail ? ` Detail: ${readiness.detail}.` : ''
+  const detail = safeDiagnosticText(readiness.detail, '')
+  const detailSuffix = detail ? ` Detail: ${detail}.` : ''
   return fail(
     'Provider generation readiness',
     `Ollama is reachable, but generation failed for ${safeDisplayValue(readiness.probeModel ?? request.requestedModel, 'the requested model')}.${detailSuffix}`,
