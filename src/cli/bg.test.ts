@@ -207,6 +207,18 @@ describe('background session CLI parsing', () => {
     expect(launch.childArgs).toEqual(['--from-pr', '1642', '--print'])
   })
 
+  it('fails when a non-forked PR resume selector cannot be resolved', async () => {
+    await expect(
+      buildBackgroundSessionLaunch(
+        ['--from-pr', '1642', '--print'],
+        '00000000-0000-4000-8000-000000000001',
+        {
+          resolvePrResumeSessionId: async () => null,
+        },
+      ),
+    ).rejects.toThrow('No conversation found linked to PR selector: 1642')
+  })
+
   it('inserts generated flags before -- so dash-prefixed prompts stay positional', () => {
     const parsed = parseBackgroundInvocation(['--bg', '--', '--fix-tests'])
 
