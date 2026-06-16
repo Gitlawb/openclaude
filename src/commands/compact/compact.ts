@@ -13,7 +13,10 @@ import {
   ERROR_MESSAGE_USER_ABORT,
   mergeHookInstructions,
 } from '../../services/compact/compact.js'
-import { suppressCompactWarning } from '../../services/compact/compactWarningState.js'
+import {
+  clearBreakerTrippedState,
+  suppressCompactWarning,
+} from '../../services/compact/compactWarningState.js'
 import { microcompactMessages } from '../../services/compact/microCompact.js'
 import { runPostCompactCleanup } from '../../services/compact/postCompactCleanup.js'
 import { trySessionMemoryCompaction } from '../../services/compact/sessionMemoryCompact.js'
@@ -62,6 +65,11 @@ export const call: LocalCommandCall = async (args, context) => {
       if (sessionMemoryResult) {
         getUserContext.cache.clear?.()
         runPostCompactCleanup()
+        // Issue #1373: reset the session-level breaker-trip state on a
+        // successful manual /compact session-memory compaction. The
+        // reset must live at the successful-compaction call site
+        // rather than in `runPostCompactCleanup` (see comment there).
+        clearBreakerTrippedState()
         // Reset cache read baseline so the post-compact drop isn't flagged
         // as a break. compactConversation does this internally; SM-compact doesn't.
         if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
@@ -116,6 +124,10 @@ export const call: LocalCommandCall = async (args, context) => {
 
     getUserContext.cache.clear?.()
     runPostCompactCleanup()
+    // Issue #1373: reset the session-level breaker-trip state on a
+    // successful manual /compact traditional compaction. See the
+    // session-memory success path above for the full rationale.
+    clearBreakerTrippedState()
 
     return {
       type: 'compact',
@@ -199,6 +211,10 @@ async function compactViaReactive(
     // type:'compact' results.
     setLastSummarizedMessageId(undefined)
     runPostCompactCleanup()
+    // Issue #1373: reset the session-level breaker-trip state on a
+    // successful reactive /compact. See the session-memory success
+    // path above for the full rationale.
+    clearBreakerTrippedState()
     suppressCompactWarning()
     getUserContext.cache.clear?.()
 

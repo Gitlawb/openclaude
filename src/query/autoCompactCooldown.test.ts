@@ -1256,6 +1256,106 @@ test('memory-pressure cool-down holds even when the pressure request keeps re-ar
   expect(consumeCompactionRequest).toHaveBeenCalledTimes(1)
 })
 
+// ---------------------------------------------------------------------------
+// Issue #1373 follow-up: an old forced-failure timestamp must not
+// suppress the hard cap when paired with a future `nextRetryAtMs` from
+// an unrelated token-threshold trip. The reachable state is:
+//
+//   1. A forced (memory-pressure or hard-message-count) attempt fails,
+//      writing `lastForcedFailureAtMs = T1` and the cool-down window
+//      starts. The provider is healthy, so a normal token-threshold
+//      compaction fires on a later turn, fails, trips the breaker, and
+//      writes `nextRetryAtMs = T2 > now` with `consecutiveFailures >=
+//      MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES`.
+//   2. The forced cool-down window elapses (T1 is now long enough ago
+//      that `now - T1 > cooldownMs`), but T2 is still in the future.
+//   3. The hard cap is exceeded.
+//
+// Under that state, the hard cap must restamp
+// `forceReason: 'hard-message-count'`. If the cap-check gate treats
+// the future `nextRetryAtMs` as the active cool-down, the safety net
+// is suppressed even though the breaker is just sitting on its
+// unrelated token-threshold retry clock. This regression test seeds
+// the exact state and asserts the hard cap still fires.
+// ---------------------------------------------------------------------------
+
+test('hard-cap fires when forced cool-down expired but unrelated nextRetryAtMs is in the future', async () => {
+  process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '1'
+  process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '60000'
+  // Two short messages — under the token-threshold so shouldAutoCompact
+  // would return false on a non-forced turn. Only the hard-cap branch
+  // can force compaction.
+  const messages = [userMessage('short'), userMessage('also short')]
+
+  // Forced failure long enough ago that the 60s cool-down has elapsed.
+  // The future `nextRetryAtMs` is unrelated (a later token-threshold
+  // trip), not from the same forced attempt.
+  const longAgoMs = Date.now() - 10 * 60_000
+  const unrelatedRetryAtMs = Date.now() + 60_000
+
+  // The cap must stamp `forceReason: 'hard-message-count'` and the
+  // mock must see it on the call. If the bug regressed, the gate
+  // would treat the future `nextRetryAtMs` as active and the mock
+  // would receive a tracking with `forceReason: undefined`, letting
+  // the forced attempt be skipped.
+  const seenTracking: Array<AutoCompactTrackingState | undefined> = []
+  const autocompact = mock(
+    async (
+      _messages: never,
+      _toolUseContext: never,
+      _params: never,
+      _querySource: never,
+      tracking: AutoCompactTrackingState | undefined,
+    ) => {
+      seenTracking.push(tracking)
+      expect(tracking?.forceReason).toBe('hard-message-count')
+      return {
+        wasCompacted: true,
+        consecutiveFailures: 0,
+      }
+    },
+  )
+  const deps = {
+    callModel: mock(async function* () {
+      yield assistantToolUseMessage()
+    }),
+    microcompact: mock(async (input: Message[]) => ({
+      messages: input,
+    })),
+    autocompact,
+    uuid: () => 'test-uuid',
+  } as never
+
+  const { terminal } = await drain(
+    query({
+      messages,
+      systemPrompt: asSystemPrompt([]),
+      userContext: {},
+      systemContext: {},
+      canUseTool,
+      toolUseContext: toolUseContext(),
+      querySource: 'repl_main_thread',
+      maxTurns: 1,
+      deps,
+      autoCompactTracking: {
+        compacted: false,
+        turnCounter: 0,
+        turnId: 'turn',
+        consecutiveFailures: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES,
+        // Unrelated future retry time from a token-threshold trip.
+        nextRetryAtMs: unrelatedRetryAtMs,
+        // The forced-failure timestamp from a much older attempt;
+        // the 60s cool-down has elapsed.
+        lastForcedFailureAtMs: longAgoMs,
+      },
+    }),
+  )
+
+  expect(terminal.reason).toBe('max_turns')
+  expect(seenTracking).toHaveLength(1)
+  expect(seenTracking[0]?.forceReason).toBe('hard-message-count')
+})
+
 test('memory pressure overrides user message-count forceReason', async () => {
   process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP = '0'
   process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES = '1'

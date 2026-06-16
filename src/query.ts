@@ -621,25 +621,50 @@ async function* queryLoop(
       // pressure — gate their restamp on this flag. A failed forced
       // attempt of either kind sets `lastForcedFailureAtMs`; the gate
       // is symmetric and the cool-down is shared.
+      //
+      // The cool-down window from `lastForcedFailureAtMs` is the
+      // authoritative gate. `nextRetryAtMs` is the breaker's skip
+      // signal, but it can belong to a token-threshold trip that has
+      // nothing to do with the forced path — honoring it here would
+      // let a normal breaker trip suppress the hard-cap safety net
+      // even though the forced cool-down has already expired. So we
+      // only treat `nextRetryAtMs` as primary evidence when
+      // `lastForcedFailureAtMs` is still inside its own cool-down
+      // window; otherwise the field is treated as unrelated and
+      // ignored, so the hard cap can stamp its force reason. The
+      // belt-and-suspenders check on `lastForcedFailureAtMs` then
+      // guarantees the forced path doesn't re-fire while the
+      // provider is still recovering.
       const forcedCooldownActive = (() => {
         const lastForced = tracking?.lastForcedFailureAtMs
         if (typeof lastForced !== 'number' || !Number.isFinite(lastForced)) {
           return false
         }
-        // Primary signal: explicit `nextRetryAtMs` from a tripped breaker.
+        const inForcedWindow =
+          Date.now() - lastForced < getAutoCompactFailureCooldownMs()
+        if (!inForcedWindow) {
+          // Forced cool-down has expired. Any `nextRetryAtMs` in the
+          // store belongs to a later, unrelated token-threshold trip
+          // and must not gate the hard cap (or memory-pressure)
+          // safety net. Issue #1373 follow-up: returning false here
+          // is what allows the hard cap to restamp `forceReason:
+          // 'hard-message-count'` after the forced cool-down has
+          // elapsed.
+          return false
+        }
+        // Forced cool-down is still active. Honor `nextRetryAtMs` as
+        // a primary signal when present — the breaker may have moved
+        // the retry time forward (or it may have been cleared by a
+        // non-forced skip on a subsequent turn). Either way the
+        // natural cool-down window from `lastForcedFailureAtMs` is
+        // the authoritative gate.
         const nextRetry = tracking?.nextRetryAtMs
         if (typeof nextRetry === 'number' && Number.isFinite(nextRetry)) {
           if (Date.now() < nextRetry) {
             return true
           }
         }
-        // Belt-and-suspenders: honor the cool-down window from the last
-        // forced attempt even if `nextRetryAtMs` was cleared by a
-        // non-forced skip. Without this, a token-threshold skip that
-        // returns no `nextRetryAtMs` would let the forced path re-fire
-        // while the provider is still recovering — recreating the retry
-        // storm the breaker is supposed to contain.
-        return Date.now() - lastForced < getAutoCompactFailureCooldownMs()
+        return true
       })()
 
       if (

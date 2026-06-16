@@ -24,7 +24,10 @@ import {
   ERROR_MESSAGE_USER_ABORT,
   type RecompactionInfo,
 } from './compact.js'
-import { recordBreakerTripped } from './compactWarningState.js'
+import {
+  clearBreakerTrippedState,
+  recordBreakerTripped,
+} from './compactWarningState.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 
@@ -583,6 +586,17 @@ export async function autoCompactIfNeeded(
     // and the old message UUID will no longer exist after the REPL replaces messages
     setLastSummarizedMessageId(undefined)
     runPostCompactCleanup(querySource)
+    // Issue #1373: reset the session-level breaker-trip state on a
+    // successful session-memory compaction. The state must be cleared
+    // by every successful-compaction call site (auto session-memory,
+    // auto traditional, manual /compact session-memory, manual
+    // /compact traditional). It cannot live in `runPostCompactCleanup`
+    // because that helper is also called from `clearSessionCaches`
+    // on resume/continue, which is not a compaction event — clearing
+    // there would silently reset recovery state without a real
+    // compaction succeeding. Microcompact intentionally does not
+    // call this.
+    clearBreakerTrippedState()
     // Reset cache read baseline so the post-compact drop isn't flagged as a
     // break. compactConversation does this internally; SM-compact doesn't.
     // BQ 2026-03-01: missing this made 20% of tengu_prompt_cache_break events
@@ -613,6 +627,14 @@ export async function autoCompactIfNeeded(
     // and the old message UUID will no longer exist in the new messages array
     setLastSummarizedMessageId(undefined)
     runPostCompactCleanup(querySource)
+    // Issue #1373: reset the session-level breaker-trip state on a
+    // successful traditional compaction. See the session-memory
+    // success path above for the full rationale; the same funnel
+    // constraint applies — `runPostCompactCleanup` is also called
+    // from `clearSessionCaches` on resume/continue, so the reset
+    // must live at successful-compaction call sites, not in the
+    // shared helper.
+    clearBreakerTrippedState()
 
     return {
       wasCompacted: true,

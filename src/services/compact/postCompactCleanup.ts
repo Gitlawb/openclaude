@@ -7,7 +7,6 @@ import { clearClassifierApprovals } from '../../utils/classifierApprovals.js'
 import { resetGetMemoryFilesCache } from '../../utils/claudemd.js'
 import { clearSessionMessagesCache } from '../../utils/sessionStorage.js'
 import { resetMicrocompactState } from './microCompact.js'
-import { clearBreakerTrippedState } from './compactWarningState.js'
 
 /**
  * Run cleanup of caches and tracking state after compaction.
@@ -27,6 +26,15 @@ import { clearBreakerTrippedState } from './compactWarningState.js'
  * would corrupt the MAIN thread's state. All compaction callers should
  * pass querySource — undefined is only safe for callers that are
  * genuinely main-thread-only (/compact, /clear).
+ *
+ * Note: This helper does NOT clear the breaker-trip store. That is
+ * session-level state tied to autocompact recovery, not cache state,
+ * and `runPostCompactCleanup` is also called from `clearSessionCaches`
+ * on resume/continue, which is not a compaction event. Successful
+ * compaction call sites (auto session-memory, auto traditional,
+ * manual /compact session-memory, manual /compact traditional)
+ * invoke `clearBreakerTrippedState()` directly so resume/continue
+ * don't silently reset recovery state without a real compaction.
  */
 export function runPostCompactCleanup(querySource?: QuerySource): void {
   // Subagents (agent:*) run in the same process and share module-level
@@ -73,16 +81,4 @@ export function runPostCompactCleanup(querySource?: QuerySource): void {
     )
   }
   clearSessionMessagesCache()
-  // Issue #1373: reset the session-level breaker-trip state once
-  // compaction has actually succeeded. Without this, a breaker that
-  // tripped earlier in the session would stay sticky for the rest of
-  // the process and the REPL/SDK would keep showing "auto-compact
-  // paused" even after compaction recovered. Resetting here means every
-  // successful-compaction call site (auto session-memory, auto
-  // traditional, manual /compact session-memory, manual /compact
-  // traditional) clears it through the same funnel. Microcompact
-  // (clearOldToolResults, time-based MC) intentionally does not — it
-  // doesn't actually compact the conversation, so the breaker state
-  // must persist.
-  clearBreakerTrippedState()
 }
