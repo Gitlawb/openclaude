@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { ToolUseContext } from '../../Tool.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 
@@ -14,21 +18,26 @@ const { renderPromptTemplate } = (await import(
 const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL
 const originalOpenAIApiBase = process.env.OPENAI_API_BASE
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('tools/FileReadTool/prompt.vision.test.ts')
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
 })
 
 afterEach(() => {
-  if (originalOpenAIBaseUrl === undefined) {
-    delete process.env.OPENAI_BASE_URL
-  } else {
-    process.env.OPENAI_BASE_URL = originalOpenAIBaseUrl
-  }
-  if (originalOpenAIApiBase === undefined) {
-    delete process.env.OPENAI_API_BASE
-  } else {
-    process.env.OPENAI_API_BASE = originalOpenAIApiBase
+  try {
+    if (originalOpenAIBaseUrl === undefined) {
+      delete process.env.OPENAI_BASE_URL
+    } else {
+      process.env.OPENAI_BASE_URL = originalOpenAIBaseUrl
+    }
+    if (originalOpenAIApiBase === undefined) {
+      delete process.env.OPENAI_API_BASE
+    } else {
+      process.env.OPENAI_API_BASE = originalOpenAIApiBase
+    }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
