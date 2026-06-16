@@ -54,16 +54,15 @@ export function AgentDetail(t0) {
     t2 = $[3];
   }
   const backgroundColor = t2;
-  let t3;
-  if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = {
-      context: "Confirmation"
-    };
-    $[4] = t3;
-  } else {
-    t3 = $[4];
-  }
-  useKeybinding("confirm:no", onBack, t3);
+  // While the route picker is open it owns Esc (its Select registers
+  // select:cancel via onClose). Deactivate the detail-level back handler so a
+  // bare Esc only closes the picker instead of exiting the detail view.
+  // Passed inline rather than memoized: useKeybinding keys its effect on the
+  // destructured values, not the options object identity.
+  useKeybinding("confirm:no", onBack, {
+    context: "Confirmation",
+    isActive: !routing
+  });
   let t4;
   if ($[5] !== onBack) {
     t4 = e => {
