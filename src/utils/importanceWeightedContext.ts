@@ -238,10 +238,16 @@ export function selectWeightedMessages(
 
   scores.sort((a, b) => b.score - a.score)
 
+  const recentSet = new Set(recent)
   const selected: Message[] = []
   let totalTokens = recentTokens  // Start with recent tokens
 
   for (const { message } of scores) {
+    // Skip recent messages — their tokens are already counted in recentTokens
+    if (recentSet.has(message)) {
+      continue
+    }
+
     const content = getContent(message.message?.content)
     const tokens = roughTokenCountEstimation(content)
 

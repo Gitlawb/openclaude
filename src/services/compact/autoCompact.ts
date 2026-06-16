@@ -468,12 +468,14 @@ export async function autoCompactIfNeeded(
     const autoCompactThreshold = getAutoCompactThreshold(model)
     const messagesTokenCount = tokenCountWithEstimation(messages)
     if (messagesTokenCount > autoCompactThreshold * 0.8) {
-      const prunedMessages = selectWeightedMessages(messages, {
+      const systemMessages = messages.filter(m => m.message?.role === 'system')
+      const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
+      const prunedNonSystem = selectWeightedMessages(nonSystemMessages, {
         maxTokens: Math.floor(autoCompactThreshold * 0.85),
         preserveRecent: 5,
       })
-      if (prunedMessages.length > 0 && prunedMessages.length < messages.length) {
-        messages = prunedMessages
+      if (prunedNonSystem.length > 0 && prunedNonSystem.length < nonSystemMessages.length) {
+        messages = [...systemMessages, ...prunedNonSystem]
       }
     }
   }
