@@ -1,6 +1,7 @@
 ﻿import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { chdir } from 'node:process'
 
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { CommandBase, PromptCommand } from './types/command.js'
@@ -173,6 +174,24 @@ describe('builtInCommandNames', () => {
       },
     }) as any
 
+  /** Retry rm on EBUSY (Windows: dir held by spawned shell handle). */
+  async function rmRetry(dir: string, retries = 5, delay = 200): Promise<void> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        // Move to a stable dir so the temp dir is no longer anyone's cwd.
+        chdir(tmpdir())
+        await rm(dir, { recursive: true, force: true })
+        return
+      } catch (e: any) {
+        if ((e as NodeJS.ErrnoException).code === 'EBUSY' && i < retries - 1) {
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        throw e
+      }
+    }
+  }
+
   test('bughunter prompt generation works in non-git directory', async () => {
     const originalUserType = process.env['USER_TYPE']
     const originalIsDemo = process.env['IS_DEMO']
@@ -204,7 +223,7 @@ describe('builtInCommandNames', () => {
       checkEmptyIndicator(promptText, '(If empty: no git history or not a git repo)')
       checkEmptyIndicator(promptText, '(If empty: no diff available or not a git repo)')
     } finally {
-      await rm(cwd, { recursive: true, force: true })
+      await rmRetry(cwd)
       if (originalUserType !== undefined) {
         process.env['USER_TYPE'] = originalUserType
       } else {
@@ -247,7 +266,7 @@ describe('builtInCommandNames', () => {
       // Accept either bash output or the static echo fallback text (for Windows/no-bash)
       expect(promptText).toMatch(/(If empty:|bash completed with no output)/i)
     } finally {
-      await rm(cwd, { recursive: true, force: true })
+      await rmRetry(cwd)
       if (originalUserType !== undefined) {
         process.env['USER_TYPE'] = originalUserType
       } else {
@@ -288,7 +307,7 @@ describe('builtInCommandNames', () => {
       checkEmptyIndicator(promptText, '(If empty: no git history or not a git repo)')
       checkEmptyIndicator(promptText, '(If empty: no diff available or not a git repo)')
     } finally {
-      await rm(cwd, { recursive: true, force: true })
+      await rmRetry(cwd)
       if (originalUserType !== undefined) {
         process.env['USER_TYPE'] = originalUserType
       } else {
@@ -329,7 +348,7 @@ describe('builtInCommandNames', () => {
       checkEmptyIndicator(promptText, '(If empty: no git history or not a git repo)')
       checkEmptyIndicator(promptText, '(If empty: no diff available or not a git repo)')
     } finally {
-      await rm(cwd, { recursive: true, force: true })
+      await rmRetry(cwd)
       if (originalUserType !== undefined) {
         process.env['USER_TYPE'] = originalUserType
       } else {

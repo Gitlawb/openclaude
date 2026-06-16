@@ -2,7 +2,7 @@ import { parseFrontmatter } from '../../utils/frontmatterParser.js'
 import { createGetAppStateWithAllowedTools } from '../../utils/forkedAgent.js'
 import { parseSlashCommandToolsFromFrontmatter } from '../../utils/markdownConfigLoader.js'
 import { executeShellCommandsInPrompt } from '../../utils/promptShellExecution.js'
-import { ShellError } from '../../utils/errors.js'
+import { MalformedCommandError, ShellError } from '../../utils/errors.js'
 import { createMovedToPluginCommand } from '../createMovedToPluginCommand.js'
 
 const BUGHUNTER_PERF_PROMPT = `---
@@ -241,12 +241,12 @@ const bughunterPerf = createMovedToPluginCommand({
         'bughunter-perf',
       )
     } catch (e) {
-      // Surface interruptions — don't convert a cancellation into a normal prompt.
-      if (e instanceof ShellError && e.interrupted) {
+      // Permission denial and interruption — surface instead of falling back.
+      if (e instanceof MalformedCommandError || (e instanceof ShellError && e.interrupted)) {
         throw e
       }
-      // Shell unavailable (e.g. Windows without Git Bash).
-      // Static fallback text outside the code blocks will show in the prompt.
+      // Shell unavailable (e.g. Windows without Git Bash) or git command
+      // failed — static fallback text outside code blocks shows in the prompt.
       processedContent = parsed.content.replace(/!`[^`]+`/g, '')
     }
 

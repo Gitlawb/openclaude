@@ -178,18 +178,6 @@ function formatBashOutput(
   return parts.join(inline ? ' ' : '\n')
 }
 
-function formatBashError(e: unknown, pattern: string, inline = false): never {
-  if (e instanceof ShellError) {
-    if (e.interrupted) {
-      throw e
-    }
-    const output = formatBashOutput(e.stdout, e.stderr, inline)
-    throw new MalformedCommandError(
-      `Shell command failed for pattern "${pattern}": ${output}`,
-    )
-  }
-
-  const message = errorMessage(e)
-  const formatted = inline ? `[Error: ${message}]` : `[Error]\n${message}`
-  throw new MalformedCommandError(formatted)
+function formatBashError(e: unknown, _pattern: string, _inline = false): never {
+  throw e as Error
 }
