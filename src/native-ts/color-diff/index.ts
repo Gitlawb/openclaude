@@ -429,7 +429,7 @@ function detectLanguage(
   // Filename-based lookup (handles Dockerfile, Makefile, CMakeLists.txt, etc.)
   const stem = base.split('.')[0] ?? ''
   const byName = FILENAME_LANGS[base] ?? FILENAME_LANGS[stem]
-  if (byName && hljs().getLanguage(byName)) return byName
+  if (typeof byName === 'string' && hljs().getLanguage(byName)) return byName
   if (ext) {
     const lang = hljs().getLanguage(ext)
     if (lang) return ext
