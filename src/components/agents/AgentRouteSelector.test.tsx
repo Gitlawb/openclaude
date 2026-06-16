@@ -5,6 +5,7 @@ import React from 'react'
 import stripAnsi from 'strip-ansi'
 
 import { createRoot } from '../../ink.js'
+import { AppStateProvider } from '../../state/AppState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -137,7 +138,11 @@ async function renderSelector(props: {
     stdin: stdin as unknown as NodeJS.ReadStream,
     patchConsole: false,
   })
-  root.render(<AgentRouteSelector {...props} />)
+  root.render(
+    <AppStateProvider>
+      <AgentRouteSelector {...props} />
+    </AppStateProvider>,
+  )
   return { root, stdin, getOutput }
 }
 
@@ -228,6 +233,56 @@ test('a failed save is surfaced and keeps the dialog open', async () => {
     const frame = await waitForOutput(getOutput, f => f.includes('Could not save'))
     expect(frame).toContain('disk full')
     expect(closed).toBe(false)
+  } finally {
+    root.unmount()
+    stdin.end()
+  }
+})
+
+test('typing a custom model id persists the full id on submit', async () => {
+  // Regression: the custom-input option once committed on its first keystroke,
+  // so typing "gpt-5-mini" saved only "g". The component now buffers the typed
+  // value in customIdRef and only calls setAgentRoute on submit. Type the id one
+  // character at a time (so a per-keystroke commit would surface as an early or
+  // truncated call) and assert exactly one save with the full id.
+  shadowSource = null
+  let closed = false
+  const { root, stdin, getOutput } = await renderSelector({
+    agentType: 'verification',
+    current: { kind: 'none' },
+    onClose: () => {
+      closed = true
+    },
+  })
+  try {
+    // The custom-input option is appended last; its index depends on how many
+    // model aliases the host's settings produce, so read it from the frame
+    // instead of hardcoding. Pressing its digit focuses the empty input (the
+    // useInput digit handler focuses, rather than submits, an empty input option).
+    const listed = await waitForOutput(
+      getOutput,
+      f => f.includes('Set model route') && f.includes('gpt-5-mini'),
+    )
+    const inputLine = listed.split('\n').find(l => l.includes('e.g. gpt-5-mini'))!
+    const inputIndex = inputLine.trim().match(/^(\d+)\./)?.[1]
+    expect(inputIndex).toBeDefined()
+    stdin.write(inputIndex!)
+    await waitForOutput(getOutput, f =>
+      f.split('\n').some(line => line.includes('❯') && line.includes('gpt-5-mini')),
+    )
+    for (const ch of 'gpt-5-mini') {
+      stdin.write(ch)
+      await Bun.sleep(5)
+    }
+    // The typed value replaces the "e.g. gpt-5-mini" placeholder once non-empty.
+    await waitForOutput(getOutput, f =>
+      f.split('\n').some(line => line.includes('gpt-5-mini') && !line.includes('e.g.')),
+    )
+    stdin.write('\r')
+    await waitForOutput(getOutput, () => setCalls.length > 0 || closed)
+    expect(setCalls.length).toBe(1)
+    expect(setCalls[0]).toEqual(['verification', 'gpt-5-mini'])
+    expect(closed).toBe(true)
   } finally {
     root.unmount()
     stdin.end()
