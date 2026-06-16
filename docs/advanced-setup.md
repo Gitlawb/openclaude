@@ -485,23 +485,39 @@ For `dev:atomic-chat`, make sure Atomic Chat is running with a model loaded befo
 
 ## Message-Count Compaction Threshold
 
-By default, OpenClaude compacts conversations based on token usage. A secondary
-message-count-based trigger (`OPENCLAUDE_MAX_ACTIVE_MESSAGES`) exists for
-diagnostics but is disabled by default.
+By default, OpenClaude compacts conversations based on token usage. Two
+independent message-count triggers exist:
+
+1. **User-configured threshold** (opt-in via `/config` → "Message-count
+   compaction" or the legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` env var).
+   Disabled by default (`off`). When set, fires once the active message
+   count crosses the chosen value. Respects `DISABLE_AUTO_COMPACT`,
+   `DISABLE_COMPACT`, and `autoCompactEnabled: false`.
+2. **Operator hard cap** (default: 1000 messages, overridable via
+   `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP`). A runtime safety net that
+   fires once `state.messages` exceeds the cap, even when the
+   user-configured threshold is `off`. This is independent of the user's
+   opt-out flags — its job is to prevent runaway message growth when the
+   token-based auto-compact circuit breaker is engaged (issue #1373).
+   Set `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0` to disable the cap
+   (not recommended in production).
 
 If you frequently resume long sessions that accumulate hundreds of small
-tool-result messages with negligible token cost, you can opt in to message-count
-compaction via the in-app `/config` command:
+tool-result messages with negligible token cost, you can opt in to the
+user-configured threshold via the in-app `/config` command:
 
 ```text
 /config
 ```
 
-Select **Message-count compaction** and choose a threshold (`100`, `200`, `500`,
-or `1000`). Setting it to `off` (default) disables the message-count trigger.
+Select **Message-count compaction** and choose a threshold (`100`, `200`,
+`500`, or `1000`). Setting it to `off` (default) disables the
+*user-configured* message-count trigger; the operator hard cap is a
+separate setting and is not affected.
 
 This setting is intended for power users debugging specific edge cases. Most
 users should leave it at `off`.
 
 The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
-honored when the setting is `off`.
+honored when the user-configured setting is `off`. It does not control the
+operator hard cap — only `OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP` does.

@@ -1218,7 +1218,14 @@ export function Config({
     }
     if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
       const threshold = globalConfig.maxMessagesCompactionThreshold ?? 'off';
-      formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
+      // The "off" wording intentionally only refers to the
+      // user-configured threshold. The operator hard cap
+      // (OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP, default 1000) is
+      // a separate runtime safety net that fires regardless of this
+      // setting; toggling it to "off" here does not disable the
+      // hard cap. Issue #1373 follow-up: doc copy must match the
+      // two-layer mental model.
+      formattedChanges.push(threshold === 'off' ? 'Disabled user-configured message-count compaction (operator hard cap still applies)' : `Set message-count compaction to ${threshold}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

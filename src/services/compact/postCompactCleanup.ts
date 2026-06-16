@@ -9,6 +9,27 @@ import { clearSessionMessagesCache } from '../../utils/sessionStorage.js'
 import { resetMicrocompactState } from './microCompact.js'
 
 /**
+ * Predicate for "is this compaction running on the main thread?".
+ * Subagents (agent:*) run in the same Node process and share
+ * module-level state with the main thread. Callers that mutate
+ * module-level singletons (context-collapse store, getUserContext
+ * cache, breaker-trip store) MUST gate on this predicate to avoid a
+ * subagent compaction corrupting the main session's view.
+ *
+ * Exported so the breaker-trip store's main-thread guard in
+ * `autoCompact.ts` can reuse the same predicate as the cleanup
+ * helper below. The same startsWith pattern is also used by
+ * `isMainThread` in index.ts:188.
+ */
+export function isMainThreadCompact(querySource?: QuerySource): boolean {
+  return (
+    querySource === undefined ||
+    querySource.startsWith('repl_main_thread') ||
+    querySource === 'sdk'
+  )
+}
+
+/**
  * Run cleanup of caches and tracking state after compaction.
  * Call this after both auto-compact and manual /compact to free memory
  * held by tracking structures that are invalidated by compaction.
@@ -35,20 +56,16 @@ import { resetMicrocompactState } from './microCompact.js'
  * manual /compact session-memory, manual /compact traditional)
  * invoke `clearBreakerTrippedState()` directly so resume/continue
  * don't silently reset recovery state without a real compaction.
+ * Those call sites are also gated on `isMainThreadCompact(querySource)`
+ * so a subagent auto-compact cannot clear the main session's recovery
+ * signal.
  */
 export function runPostCompactCleanup(querySource?: QuerySource): void {
-  // Subagents (agent:*) run in the same process and share module-level
-  // state with the main thread. Only reset main-thread module-level state
-  // (context-collapse, memory file cache) for main-thread compacts.
-  // Same startsWith pattern as isMainThread (index.ts:188).
-  const isMainThreadCompact =
-    querySource === undefined ||
-    querySource.startsWith('repl_main_thread') ||
-    querySource === 'sdk'
+  const isMainThread = isMainThreadCompact(querySource)
 
   resetMicrocompactState()
   if (feature('CONTEXT_COLLAPSE')) {
-    if (isMainThreadCompact) {
+    if (isMainThread) {
       /* eslint-disable @typescript-eslint/no-require-imports */
       ;(
         require('../contextCollapse/index.js') as typeof import('../contextCollapse/index.js')
@@ -56,7 +73,7 @@ export function runPostCompactCleanup(querySource?: QuerySource): void {
       /* eslint-enable @typescript-eslint/no-require-imports */
     }
   }
-  if (isMainThreadCompact) {
+  if (isMainThread) {
     // getUserContext is a memoized outer layer wrapping getClaudeMds() →
     // getMemoryFiles(). If only the inner getMemoryFiles cache is cleared,
     // the next turn hits the getUserContext cache and never reaches

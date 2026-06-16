@@ -28,7 +28,10 @@ import {
   clearBreakerTrippedState,
   recordBreakerTripped,
 } from './compactWarningState.js'
-import { runPostCompactCleanup } from './postCompactCleanup.js'
+import {
+  isMainThreadCompact,
+  runPostCompactCleanup,
+} from './postCompactCleanup.js'
 import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 
 // Reserve this many tokens for output during compaction
@@ -596,7 +599,16 @@ export async function autoCompactIfNeeded(
     // there would silently reset recovery state without a real
     // compaction succeeding. Microcompact intentionally does not
     // call this.
-    clearBreakerTrippedState()
+    //
+    // Subagent guard: `breakerTripStore` is module-level, and
+    // subagents (agent:*) share the process with the main thread.
+    // A subagent's success must not clear the main session's
+    // "auto-compact paused" signal — the recovery is per-session,
+    // not per-compaction. Reuse the same predicate as
+    // `runPostCompactCleanup` so the two stay in sync.
+    if (isMainThreadCompact(querySource)) {
+      clearBreakerTrippedState()
+    }
     // Reset cache read baseline so the post-compact drop isn't flagged as a
     // break. compactConversation does this internally; SM-compact doesn't.
     // BQ 2026-03-01: missing this made 20% of tengu_prompt_cache_break events
@@ -634,7 +646,12 @@ export async function autoCompactIfNeeded(
     // from `clearSessionCaches` on resume/continue, so the reset
     // must live at successful-compaction call sites, not in the
     // shared helper.
-    clearBreakerTrippedState()
+    //
+    // Subagent guard: same as above — `breakerTripStore` is
+    // module-level and shared with the main thread.
+    if (isMainThreadCompact(querySource)) {
+      clearBreakerTrippedState()
+    }
 
     return {
       wasCompacted: true,
@@ -676,10 +693,19 @@ export async function autoCompactIfNeeded(
       // Surface the trip to the breaker-trip store (issue #1373). The REPL
       // and SDK can read this to show "auto-compact paused, retrying in N
       // minutes" instead of failing silently while state.messages grows.
-      recordBreakerTripped({
-        failureCount: nextFailures,
-        trippedAtMs: failureAtMs,
-      })
+      //
+      // Subagent guard: a subagent failure must not mark the main
+      // session's breaker as tripped — the recovery signal is
+      // per-session, and a subagent's compactConversation failure is
+      // not the main session's failure. `breakerTripStore` is
+      // module-level, so without this guard a wedged subagent would
+      // make the main session look paused for 5 minutes.
+      if (isMainThreadCompact(querySource)) {
+        recordBreakerTripped({
+          failureCount: nextFailures,
+          trippedAtMs: failureAtMs,
+        })
+      }
     }
     return {
       wasCompacted: false,
