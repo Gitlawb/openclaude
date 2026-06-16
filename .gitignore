@@ -17,7 +17,7 @@ package-lock.json
 coverage/
 __pycache__/
 *.py[cod]
-pytest-cache-files-*/
+.pytest_cache/
 agent.log
 plan/
 .tmp
