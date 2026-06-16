@@ -155,6 +155,20 @@ test('OpenRouter route displays OPENAI_API_BASE when it selected the route', asy
   )
 })
 
+test('OPENAI_API_BASE query credentials are redacted from status display', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE =
+    'https://openrouter.ai/api/v1?api_key=sk-or-query-secret&timeout=30'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
+  process.env.OPENROUTER_API_KEY = 'sk-or-test-key'
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://openrouter.ai/api/v1?api_key=redacted&timeout=30',
+  )
+  expect(JSON.stringify(properties)).not.toContain('sk-or-query-secret')
+})
+
 test('blank OPENAI_BASE_URL falls back to OPENAI_API_BASE for route display', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = '   '

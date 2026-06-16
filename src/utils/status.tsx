@@ -22,6 +22,7 @@ import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
 import { redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
+import { redactUrlForDisplay } from './urlRedaction.js';
 import {
   getRouteCredentialEnvVars,
   getRouteDefaultBaseUrl,
@@ -120,6 +121,23 @@ function pushRedactedProperty(
   properties.push({
     label,
     value: redactSecretValueForDisplay(value, secretSource) ?? value
+  });
+}
+
+function pushRedactedUrlProperty(
+  properties: Property[],
+  label: string,
+  value: string | undefined,
+  secretSource: SecretValueSource,
+): void {
+  if (!value) {
+    return;
+  }
+
+  const secretRedacted = redactSecretValueForDisplay(value, secretSource) ?? value;
+  properties.push({
+    label,
+    value: redactUrlForDisplay(secretRedacted)
   });
 }
 
@@ -461,18 +479,22 @@ export function buildAPIProviderProperties(): Property[] {
   if (apiProvider === 'firstParty') {
     const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
     if (anthropicBaseUrl) {
-      properties.push({
-        label: 'Anthropic base URL',
-        value: anthropicBaseUrl
-      });
+      pushRedactedUrlProperty(
+        properties,
+        'Anthropic base URL',
+        anthropicBaseUrl,
+        secretSource,
+      );
     }
   } else if (apiProvider === 'bedrock') {
     const bedrockBaseUrl = process.env.BEDROCK_BASE_URL;
     if (bedrockBaseUrl) {
-      properties.push({
-        label: 'Bedrock base URL',
-        value: bedrockBaseUrl
-      });
+      pushRedactedUrlProperty(
+        properties,
+        'Bedrock base URL',
+        bedrockBaseUrl,
+        secretSource,
+      );
     }
     properties.push({
       label: 'AWS region',
@@ -486,10 +508,12 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider === 'vertex') {
     const vertexBaseUrl = process.env.VERTEX_BASE_URL;
     if (vertexBaseUrl) {
-      properties.push({
-        label: 'Vertex base URL',
-        value: vertexBaseUrl
-      });
+      pushRedactedUrlProperty(
+        properties,
+        'Vertex base URL',
+        vertexBaseUrl,
+        secretSource,
+      );
     }
     const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
     if (gcpProject) {
@@ -510,10 +534,12 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider === 'foundry') {
     const foundryBaseUrl = process.env.ANTHROPIC_FOUNDRY_BASE_URL;
     if (foundryBaseUrl) {
-      properties.push({
-        label: 'Microsoft Foundry base URL',
-        value: foundryBaseUrl
-      });
+      pushRedactedUrlProperty(
+        properties,
+        'Microsoft Foundry base URL',
+        foundryBaseUrl,
+        secretSource,
+      );
     }
     const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
     if (foundryResource) {
@@ -543,7 +569,7 @@ export function buildAPIProviderProperties(): Property[] {
         value: transportLabel,
       });
     }
-    pushRedactedProperty(
+    pushRedactedUrlProperty(
       properties,
       metadata.baseUrlLabel,
       getOpenAICompatibleBaseUrlForStatus(routeId),
@@ -573,12 +599,12 @@ export function buildAPIProviderProperties(): Property[] {
     }
   } else if (apiProvider === 'gemini') {
     const geminiBaseUrl = process.env.GEMINI_BASE_URL;
-    pushRedactedProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
+    pushRedactedUrlProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
     const geminiModel = process.env.GEMINI_MODEL;
     pushRedactedProperty(properties, 'Model', geminiModel, secretSource);
   } else if (apiProvider === 'mistral') {
     const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
-    pushRedactedProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
+    pushRedactedUrlProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
     const mistralModel = process.env.MISTRAL_MODEL;
     pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
   }
