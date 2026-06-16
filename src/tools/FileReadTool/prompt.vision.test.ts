@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import type { ToolUseContext } from '../../Tool.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
@@ -7,6 +7,11 @@ import { renderPromptTemplate } from './prompt.js'
 
 const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL
 const originalOpenAIApiBase = process.env.OPENAI_API_BASE
+
+beforeEach(() => {
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+})
 
 afterEach(() => {
   if (originalOpenAIBaseUrl === undefined) {
