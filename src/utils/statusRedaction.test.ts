@@ -1,6 +1,10 @@
 import { homedir } from 'os'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { redactPathForStatus, redactUrlForStatus } from './statusRedaction.ts'
 
 const REAL_HOMEDIR = homedir()
@@ -90,11 +94,19 @@ describe('redactUrlForStatus', () => {
 })
 
 describe('redactPathForStatus', () => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/statusRedaction.test.ts')
+  })
+
   afterEach(() => {
-    // Defensive: tests below mutate env. Restore so subsequent suites see
-    // the real environment.
-    restoreEnvValue('HOME', ORIGINAL_HOME)
-    restoreEnvValue('USERPROFILE', ORIGINAL_USERPROFILE)
+    try {
+      // Defensive: tests below mutate env. Restore so subsequent suites see
+      // the real environment.
+      restoreEnvValue('HOME', ORIGINAL_HOME)
+      restoreEnvValue('USERPROFILE', ORIGINAL_USERPROFILE)
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   test('shortens POSIX home directory paths to ~', () => {
@@ -118,6 +130,15 @@ describe('redactPathForStatus', () => {
     const result = redactPathForStatus(`${fakeProfile}\\secrets\\client.key`)
     expect(result).toBe('~\\secrets\\client.key')
     expect(result).not.toContain('bob')
+  })
+
+  test('redacts Windows home paths when path casing differs', () => {
+    const fakeProfile = 'C:\\Users\\Bob'
+    delete process.env.HOME
+    process.env.USERPROFILE = fakeProfile
+    const result = redactPathForStatus('c:\\users\\bob\\secrets\\client.key')
+    expect(result).toBe('~\\secrets\\client.key')
+    expect(result.toLowerCase()).not.toContain('bob')
   })
 
   test('falls back to os.homedir() when HOME and USERPROFILE are unset', () => {

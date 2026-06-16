@@ -35,20 +35,35 @@ export function redactUrlForStatus(rawUrl: string): string {
 export function redactPathForStatus(rawPath: string): string {
   if (!rawPath) return rawPath
 
+  const stripTrailingSep = (path: string) => path.replace(/[\\/]+$/, '')
+  const isWindowsLike = (path: string) =>
+    /^[a-zA-Z]:[\\/]/.test(path) || path.includes('\\')
+  const normalizeForCompare = (path: string) =>
+    isWindowsLike(path) ? path.toLowerCase() : path
+  const normalizedRawPath = stripTrailingSep(rawPath)
+  const rawPathForCompare = normalizeForCompare(normalizedRawPath)
+
   // Cover POSIX (`HOME`), Windows (`USERPROFILE`), and containers where
   // neither is set (`os.homedir()` reads the OS passwd db). Check each
-  // candidate; redact on the first prefix match. Filter out `/` so a
-  // misconfigured root homedir never causes mass over-redaction.
+  // candidate; redact on the first prefix match. Filter out root-like
+  // candidates so a misconfigured homedir never causes mass over-redaction.
   const candidates = [
     process.env.HOME,
     process.env.USERPROFILE,
     homedir(),
-  ].filter((h): h is string => Boolean(h) && h !== '/')
+  ]
+    .filter((h): h is string => Boolean(h))
+    .map(stripTrailingSep)
+    .filter(home => home !== '' && home !== '/' && !/^[a-zA-Z]:$/.test(home))
 
   for (const home of candidates) {
-    if (rawPath === home) return '~'
+    const homeForCompare = normalizeForCompare(home)
+    if (rawPathForCompare === homeForCompare) return '~'
     // Match either `/home/user/...` or `C:\Users\user\...` style prefixes.
-    if (rawPath.startsWith(home + '/') || rawPath.startsWith(home + '\\')) {
+    if (
+      rawPathForCompare.startsWith(homeForCompare + '/') ||
+      rawPathForCompare.startsWith(homeForCompare + '\\')
+    ) {
       return '~' + rawPath.slice(home.length)
     }
   }
