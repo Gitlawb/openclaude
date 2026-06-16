@@ -24,6 +24,7 @@ const PROVIDER_ENV_VARS = [
   'OPENAI_MODEL',
   'OPENROUTER_API_KEY',
   'GROQ_API_KEY',
+  'FIREWORKS_API_KEY',
   'GEMINI_BASE_URL',
   'GEMINI_MODEL',
   'GEMINI_API_KEY',
@@ -62,6 +63,15 @@ async function buildPropertiesWithProvider(provider: string): Promise<
     isFirstPartyAnthropicBaseUrl: () => true,
     isGithubNativeAnthropicMode: () => false,
   }))
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
+  return buildAPIProviderProperties()
+}
+
+async function buildPropertiesWithRealProvider(): Promise<
+  Array<{ label?: string; value: unknown }>
+> {
+  mock.restore()
   const nonce = `${Date.now()}-${Math.random()}`
   const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
   return buildAPIProviderProperties()
@@ -132,6 +142,19 @@ test('OpenRouter route shows its route label instead of OpenAI-compatible', asyn
   expect(credential).not.toContain('sk-or-test-key')
 })
 
+test('OpenRouter route displays OPENAI_API_BASE when it selected the route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
+  process.env.OPENROUTER_API_KEY = 'sk-or-test-key'
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'Provider route')).toBe('OpenRouter')
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://openrouter.ai/api/v1',
+  )
+})
+
 test('Groq route shows its route label instead of OpenAI-compatible', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
@@ -146,6 +169,22 @@ test('Groq route shows its route label instead of OpenAI-compatible', async () =
       'GROQ_API_KEY',
     ),
   ).toBe(true)
+})
+
+test('env-only Fireworks route displays descriptor defaults', async () => {
+  process.env.FIREWORKS_API_KEY = 'fw-test-key'
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'Provider route')).toBe('Fireworks AI')
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://api.fireworks.ai/inference/v1',
+  )
+  expect(findValue(properties, 'Model')).toBe(
+    'accounts/fireworks/models/llama-v3p1-70b-instruct',
+  )
+  expect(findValue(properties, 'Credential')).toBe(
+    'FIREWORKS_API_KEY configured',
+  )
 })
 
 test('Gemini route remains clear', async () => {
@@ -200,15 +239,12 @@ test('secrets are never leaked in status properties', async () => {
 test('end-to-end: real getAPIProvider resolves OpenRouter without mocking', async () => {
   // Do NOT mock getAPIProvider. Verify the full chain: env -> getAPIProvider
   // collapses to 'openai' -> route resolution surfaces 'OpenRouter'.
-  mock.restore()
-  const nonce = `${Date.now()}-${Math.random()}`
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
   process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
   process.env.OPENROUTER_API_KEY = 'sk-or-test-key'
 
-  const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
-  const properties = buildAPIProviderProperties()
+  const properties = await buildPropertiesWithRealProvider()
   expect(findValue(properties, 'Provider route')).toBe('OpenRouter')
   expect(findValue(properties, 'API provider')).toBeUndefined()
   expect(findValue(properties, 'Transport')).toBe('OpenAI-compatible API')

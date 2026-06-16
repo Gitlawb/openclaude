@@ -24,6 +24,8 @@ import type { ThemeName } from './theme.js';
 import { redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
 import {
   getRouteCredentialEnvVars,
+  getRouteDefaultBaseUrl,
+  getRouteDefaultModel,
   getRouteLabel,
   getRouteProviderTypeLabel,
   resolveActiveRouteIdFromEnv,
@@ -124,8 +126,8 @@ function pushRedactedProperty(
 /**
  * Resolves the active provider route from the environment. Returns the route id
  * when it identifies a concrete gateway/vendor (e.g. "openrouter", "groq",
- * "ollama", "openai"), and null for the generic "custom" fallback or when route
- * resolution is unavailable.
+ * "ollama", "openai"), and null for the generic "custom" fallback, the
+ * first-party "anthropic" route, or when route resolution is unavailable.
  */
 function resolveDisplayRouteId(): string | null {
   const routeId = resolveActiveRouteIdFromEnv(process.env);
@@ -148,6 +150,25 @@ function buildRouteCredentialSummary(routeId: string): string | null {
     return null;
   }
   return configured.map(name => `${name} configured`).join(', ');
+}
+
+function getOpenAICompatibleBaseUrlForStatus(
+  routeId: string | null,
+): string | undefined {
+  return (
+    process.env.OPENAI_BASE_URL?.trim() ||
+    process.env.OPENAI_API_BASE?.trim() ||
+    (routeId ? getRouteDefaultBaseUrl(routeId) : undefined)
+  );
+}
+
+function getOpenAICompatibleModelForStatus(
+  routeId: string | null,
+): string | undefined {
+  return (
+    process.env.OPENAI_MODEL?.trim() ||
+    (routeId ? getRouteDefaultModel(routeId) : undefined)
+  );
 }
 export function buildSandboxProperties(): Property[] {
   if (process.env.USER_TYPE !== 'ant') {
@@ -473,10 +494,10 @@ export function buildAPIProviderProperties(): Property[] {
     pushRedactedProperty(
       properties,
       metadata.baseUrlLabel,
-      process.env.OPENAI_BASE_URL,
+      getOpenAICompatibleBaseUrlForStatus(routeId),
       secretSource,
     );
-    const openaiModel = process.env.OPENAI_MODEL;
+    const openaiModel = getOpenAICompatibleModelForStatus(routeId);
     if (openaiModel) {
       const modelDisplay = formatOpenAICompatibleModelDisplay(
         openaiModel,
