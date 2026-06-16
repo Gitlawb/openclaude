@@ -104,8 +104,9 @@ function getBuiltInCommandNames(): Set<string> {
   if (builtInCommandNamesCache) return builtInCommandNamesCache
   const commands =
     require('../commands.js') as typeof import('../commands.js')
-  builtInCommandNamesCache = commands.builtInCommandNames()
-  return builtInCommandNamesCache
+  const names = commands.builtInCommandNames()
+  builtInCommandNamesCache = names
+  return names
 }
 
 type Transcript = (

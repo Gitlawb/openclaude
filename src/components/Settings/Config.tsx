@@ -27,7 +27,7 @@ import { Dialog } from '../design-system/Dialog.js';
 import { Select } from '../CustomSelect/index.js';
 import { OutputStylePicker } from '../OutputStylePicker.js';
 import { LanguagePicker } from '../LanguagePicker.js';
-import { getExternalClaudeMdIncludes, getMemoryFiles, hasExternalClaudeMdIncludes } from 'src/utils/claudemd.js';
+import { getExternalClaudeMdIncludes, getMemoryFiles, hasExternalClaudeMdIncludes, type MemoryFileInfo } from 'src/utils/claudemd.js';
 import { KeyboardShortcutHint } from '../design-system/KeyboardShortcutHint.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { Byline } from '../design-system/Byline.js';
@@ -198,7 +198,7 @@ export function Config({
   }, [ownsEsc, onIsSearchModeChange]);
   const isConnectedToIde = hasAccessToIDEExtensionDiffFeature(context.options.mcpClients);
   const isFileCheckpointingAvailable = !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING);
-  const memoryFiles = React.use(getMemoryFiles(true));
+  const memoryFiles = React.use(getMemoryFiles(true)) as MemoryFileInfo[];
   function getPendingExternalIncludesScope(): 'User' | 'Project' | null {
     const cfg = getCurrentProjectConfig();
     // Project/Local first (mirrors startup priority in shouldShowClaudeMdExternalIncludesWarning)

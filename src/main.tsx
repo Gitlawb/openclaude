@@ -1454,7 +1454,7 @@ async function run(): Promise<CommanderCommand> {
         const {
           allowed,
           blocked
-        } = filterMcpServersByPolicy(scopedConfigs);
+        } = filterMcpServersByPolicy(scopedConfigs as Record<string, ScopedMcpServerConfig>);
         if (blocked.length > 0) {
           process.stderr.write(`Warning: MCP ${plural(blocked.length, 'server')} blocked by enterprise policy: ${blocked.join(', ')}\n`);
         }
