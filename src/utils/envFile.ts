@@ -271,6 +271,16 @@ export function parseProviderEnvFileArgs(args: string[]): {
 }
 
 /**
+ * Reapplies values that were explicitly loaded from --provider-env-file.
+ */
+export function applyLoadedEnvFileValues(
+  values: Record<string, string>,
+  targetEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  Object.assign(targetEnv, values)
+}
+
+/**
  * Loads an environment file into process.env.
  * Existing process.env variables take precedence over the file's variables.
  * Returns only the values applied from the file so explicit CLI inputs can be

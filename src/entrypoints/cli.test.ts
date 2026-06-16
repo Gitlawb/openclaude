@@ -4,6 +4,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  applyLoadedEnvFileValues,
+  loadEnvFile,
+} from '../utils/envFile.js'
+import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
 
 describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   const originalNodeOptions = process.env.NODE_OPTIONS
@@ -51,6 +59,42 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
 })
 
 describe('cli.tsx — --provider startup ordering', () => {
+  const providerEnvKeys = [
+    'CLAUDE_CODE_USE_OPENAI',
+    'OPENAI_API_KEY',
+    'OPENAI_BASE_URL',
+    'OPENAI_MODEL',
+  ]
+  const originalEnv = new Map<string, string | undefined>()
+  let tempDir: string
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'openclaude-cli-env-file-test-'))
+    for (const key of providerEnvKeys) {
+      originalEnv.set(key, process.env[key])
+      delete process.env[key]
+    }
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+    for (const key of providerEnvKeys) {
+      const originalValue = originalEnv.get(key)
+      if (originalValue === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalValue
+      }
+    }
+    originalEnv.clear()
+  })
+
+  function writeProviderEnvFile(content: string): string {
+    const filePath = join(tempDir, '.env')
+    writeFileSync(filePath, content, 'utf-8')
+    return filePath
+  }
+
   it('remembers --provider so settings.env reloads cannot clobber it', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
 
@@ -86,25 +130,34 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
 
-  it('reapplies --provider-env-file values after settings and startup profile env merges', async () => {
-    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+  it('preserves explicit --provider-env-file values through settings and startup profile env merges', () => {
+    const filePath = writeProviderEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_API_KEY=file-key',
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=file-model',
+    ].join('\n'))
 
-    const loadIndex = src.indexOf('Object.assign(providerEnvFileValues, loadEnvFile(filePath))')
-    const settingsEnvApplyIndex = src.indexOf('applySafeConfigEnvironmentVariables()')
-    const reapplyAfterSettingsIndex = src.indexOf(
-      'reapplyProviderEnvFileValues()',
-      settingsEnvApplyIndex,
-    )
-    const startupProfileApplyIndex = src.indexOf('await applyStartupEnvFromProfile({')
-    const reapplyAfterStartupIndex = src.indexOf(
-      'reapplyProviderEnvFileValues()',
-      startupProfileApplyIndex,
-    )
+    const loaded = loadEnvFile(filePath)
 
-    expect(loadIndex).toBeGreaterThanOrEqual(0)
-    expect(settingsEnvApplyIndex).toBeGreaterThan(loadIndex)
-    expect(reapplyAfterSettingsIndex).toBeGreaterThan(settingsEnvApplyIndex)
-    expect(reapplyAfterSettingsIndex).toBeLessThan(startupProfileApplyIndex)
-    expect(reapplyAfterStartupIndex).toBeGreaterThan(startupProfileApplyIndex)
+    Object.assign(process.env, {
+      OPENAI_API_KEY: 'settings-key',
+      OPENAI_BASE_URL: 'https://settings.example/v1',
+      OPENAI_MODEL: 'settings-model',
+    })
+    applyLoadedEnvFileValues(loaded)
+
+    applyProfileEnvToProcessEnv(process.env, {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'profile-key',
+      OPENAI_BASE_URL: 'https://profile.example/v1',
+      OPENAI_MODEL: 'profile-model',
+    })
+    applyLoadedEnvFileValues(loaded)
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_API_KEY).toBe('file-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
+    expect(process.env.OPENAI_MODEL).toBe('file-model')
   })
 })

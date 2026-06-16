@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  applyLoadedEnvFileValues,
   loadEnvFile,
   parseEnvFile,
   parseProviderEnvFileArgs,
@@ -173,9 +174,7 @@ describe('loadEnvFile', () => {
     process.env.OPENAI_BASE_URL = 'https://settings.example/v1'
     process.env.OPENAI_MODEL = 'from-settings'
 
-    for (const [key, value] of Object.entries(loaded)) {
-      process.env[key] = value
-    }
+    applyLoadedEnvFileValues(loaded)
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
     expect(process.env.OPENAI_MODEL).toBe('from-file')
