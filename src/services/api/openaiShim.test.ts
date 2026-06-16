@@ -6911,6 +6911,45 @@ test('non-streaming: rejects mixed JSON array where some items are not valid too
   ])
 })
 
+test('non-streaming: rejects array containing non-tool objects without name field', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-mixed-notool',
+        model: 'gpt-4',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '[{"name": "WebSearch", "arguments": {"query": "Paris"}}, {"note": "keep me"}]',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const message = await client.beta.messages.create({
+    model: 'gpt-4',
+    messages: [{ role: 'user', content: 'search and note' }],
+    max_tokens: 64,
+    tools: [
+      { name: 'WebSearch', description: 'Search', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+    ],
+    stream: false,
+  }) as { content?: Array<Record<string, unknown>> }
+
+  // Array with non-tool object: {"note":"keep me"} has no "name" field,
+  // so the entire array is preserved as text rather than dropping the note
+  expect(message.content).toEqual([
+    { type: 'text', text: '[{"name": "WebSearch", "arguments": {"query": "Paris"}}, {"note": "keep me"}]' },
+  ])
+})
+
 test('non-streaming: does not treat arbitrary JSON with name but no arguments as tool call (PR #433 P1)', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(

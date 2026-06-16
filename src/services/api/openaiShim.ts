@@ -1076,22 +1076,21 @@ function parseRawJsonToolCallsFromContent(text: string, validToolNames?: Set<str
     const parsed = JSON.parse(trimmed)
     const items = Array.isArray(parsed) ? parsed : [parsed]
 
-    // For arrays: reject mixed content. Every tool-call-shaped item must
-    // match a valid requested tool, or the whole array is left as text.
-    // This prevents silently dropping non-tool items (e.g. a "note" object
-    // alongside a "WebSearch" object) while still accepting pure tool-call
-    // arrays like [{"name":"Bash","arguments":{...}},{"name":"Read",...}].
+    // For arrays: reject mixed content. Every item must be a valid requested
+    // raw tool call, or the whole array is left as text. This prevents
+    // silently dropping non-tool items (e.g. a "note" object alongside a
+    // "WebSearch" object) while still accepting pure tool-call arrays like
+    // [{"name":"Bash","arguments":{...}},{"name":"Read",...}].
     if (Array.isArray(parsed)) {
       for (const item of items) {
-        if (
+        const isValidToolCall =
           item &&
           typeof item === 'object' &&
           typeof item.name === 'string' &&
-          (item.arguments != null || item.input != null)
-        ) {
-          if (!validToolNames.has(item.name)) {
-            return null
-          }
+          (item.arguments != null || item.input != null) &&
+          validToolNames.has(item.name)
+        if (!isValidToolCall) {
+          return null
         }
       }
     }
