@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  buildBackgroundSessionLaunch,
   buildBackgroundChildProcessConfig,
   terminateBackgroundProcessTree,
   parseBackgroundInvocation,
@@ -131,6 +132,39 @@ describe('background session CLI parsing', () => {
       sessionId,
       '--print',
       'continue the fix',
+    ])
+  })
+
+  it('does not inject a generated session id when resuming without forking', () => {
+    const resumeSessionId = '550e8400-e29b-41d4-a716-446655440000'
+    const generatedSessionId = '00000000-0000-4000-8000-000000000001'
+
+    const launch = buildBackgroundSessionLaunch(
+      ['--resume', resumeSessionId, '--print'],
+      generatedSessionId,
+    )
+
+    expect(launch.sessionId).toBe(resumeSessionId)
+    expect(launch.childArgs).toEqual(['--resume', resumeSessionId, '--print'])
+  })
+
+  it('uses a generated session id for forked background resumes', () => {
+    const resumeSessionId = '550e8400-e29b-41d4-a716-446655440000'
+    const generatedSessionId = '00000000-0000-4000-8000-000000000001'
+
+    const launch = buildBackgroundSessionLaunch(
+      ['--resume', resumeSessionId, '--fork-session', '--print'],
+      generatedSessionId,
+    )
+
+    expect(launch.sessionId).toBe(generatedSessionId)
+    expect(launch.childArgs).toEqual([
+      '--resume',
+      resumeSessionId,
+      '--fork-session',
+      '--print',
+      '--session-id',
+      generatedSessionId,
     ])
   })
 

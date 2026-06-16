@@ -247,12 +247,37 @@ function withGeneratedSessionId(args: string[], sessionId: string): string[] {
   return insertBeforePrompt(args, ['--session-id', sessionId])
 }
 
+function hasForkSession(args: string[]): boolean {
+  return argsBeforeDelimiter(args).includes('--fork-session')
+}
+
 function hasResumeSource(args: string[]): boolean {
   return Boolean(
     findFlagValue(args, '--resume') ??
       findFlagValue(args, '-r') ??
       findFlagValue(args, '--from-pr'),
   )
+}
+
+export function buildBackgroundSessionLaunch(
+  childArgs: string[],
+  generatedSessionId: string,
+): { childArgs: string[]; sessionId: string } {
+  const explicitSessionId = findFlagValue(childArgs, '--session-id')
+  if (explicitSessionId) {
+    return { childArgs, sessionId: explicitSessionId }
+  }
+
+  const resumeSessionId =
+    findFlagValue(childArgs, '--resume') ?? findFlagValue(childArgs, '-r')
+  if (resumeSessionId && !hasForkSession(childArgs)) {
+    return { childArgs, sessionId: resumeSessionId }
+  }
+
+  return {
+    childArgs: withGeneratedSessionId(childArgs, generatedSessionId),
+    sessionId: generatedSessionId,
+  }
 }
 
 export function parseBackgroundInvocation(
@@ -555,9 +580,10 @@ export async function handleBgFlag(args: string[]): Promise<void> {
   }
 
   const id = backgroundSessionId()
-  const sessionId =
-    findFlagValue(parsed.childArgs, '--session-id') ?? randomUUID()
-  const childArgs = withGeneratedSessionId(parsed.childArgs, sessionId)
+  const { childArgs, sessionId } = buildBackgroundSessionLaunch(
+    parsed.childArgs,
+    randomUUID(),
+  )
   const logPaths = getBackgroundSessionLogPaths(id)
   await ensureBackgroundSessionDirs()
   const entrypoint = process.argv[1]

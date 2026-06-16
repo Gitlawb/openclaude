@@ -83,6 +83,8 @@ const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
 // enough room for normal compacted sessions plus resume hook context.
 const MAX_RESUME_MESSAGE_BYTES = 8 * 1024 * 1024
 
+type PrResumeSelector = true | number | string
+
 export class ResumeTranscriptTooLargeError extends Error {
   constructor(
     readonly bytes: number,
@@ -221,6 +223,38 @@ function shouldPreserveThinkingBlocksForProviderReplay(): boolean {
       model: process.env.OPENAI_MODEL,
     }).openaiShimConfig.preserveReasoningContent === true
   )
+}
+
+function parsePrIdentifier(value: string): number | null {
+  const directNumber = parseInt(value, 10)
+  if (!isNaN(directNumber) && directNumber > 0) {
+    return directNumber
+  }
+  const urlMatch = value.match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/)
+  if (urlMatch?.[1]) {
+    return parseInt(urlMatch[1], 10)
+  }
+  return null
+}
+
+export function findResumeLogByPrSelector(
+  logs: LogOption[],
+  selector: PrResumeSelector,
+): LogOption | null {
+  const candidates = logs.filter(log => !log.isSidechain)
+  if (selector === true) {
+    return candidates.find(log => log.prNumber !== undefined) ?? null
+  }
+  if (typeof selector === 'number') {
+    return candidates.find(log => log.prNumber === selector) ?? null
+  }
+
+  const prNumber = parsePrIdentifier(selector)
+  if (prNumber !== null) {
+    return candidates.find(log => log.prNumber === prNumber) ?? null
+  }
+
+  return null
 }
 
 /**
@@ -756,4 +790,12 @@ export async function loadConversationForResume(
     logError(error as Error)
     throw error
   }
+}
+
+export async function loadConversationForResumeFromPr(
+  selector: true | string,
+): ReturnType<typeof loadConversationForResume> {
+  const log = findResumeLogByPrSelector(await loadMessageLogs(), selector)
+  if (!log) return null
+  return loadConversationForResume(log, undefined)
 }

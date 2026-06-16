@@ -194,6 +194,51 @@ test('loadConversationForResume preserves goal metadata from jsonl transcript pa
   expect(result?.goal).toEqual(goal)
 })
 
+test('findResumeLogByPrSelector selects the first non-sidechain PR match', async () => {
+  const { findResumeLogByPrSelector } = await importFreshConversationRecovery()
+  const linked = {
+    date: ts,
+    messages: [user(id(12), 'linked')],
+    value: 0,
+    created: new Date(ts),
+    modified: new Date(ts),
+    firstPrompt: 'linked',
+    messageCount: 1,
+    isSidechain: false,
+    sessionId: id(12),
+    prNumber: 1642,
+    prUrl: 'https://github.com/Gitlawb/openclaude/pull/1642',
+    prRepository: 'Gitlawb/openclaude',
+  } as any
+  const sidechain = {
+    ...linked,
+    isSidechain: true,
+    sessionId: id(13),
+  } as any
+  const unrelated = {
+    ...linked,
+    sessionId: id(14),
+    prNumber: 17,
+    prUrl: 'https://github.com/Gitlawb/openclaude/pull/17',
+  } as any
+
+  expect(findResumeLogByPrSelector([sidechain, linked, unrelated], true)).toBe(
+    linked,
+  )
+  expect(
+    findResumeLogByPrSelector([sidechain, linked, unrelated], '1642'),
+  ).toBe(linked)
+  expect(
+    findResumeLogByPrSelector(
+      [sidechain, linked, unrelated],
+      'https://github.com/Gitlawb/openclaude/pull/1642',
+    ),
+  ).toBe(linked)
+  expect(
+    findResumeLogByPrSelector([sidechain, linked, unrelated], 'missing'),
+  ).toBeNull()
+})
+
 test('loadConversationForResume rejects oversized reconstructed transcripts', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
   const hugeContent = 'x'.repeat(8 * 1024 * 1024 + 32 * 1024)
