@@ -783,7 +783,12 @@ async function* queryLoop(
     // sending an oversized request that only a real 413 could recover.
     let collapseOwnsIt = false
     if (feature('CONTEXT_COLLAPSE')) {
+      // Only the main thread that owns the reduction may skip the blocking
+      // preempt: the store is shared with in-process subagents (agent:*), and a
+      // subagent must still preempt its own oversized turn rather than defer to
+      // a reduction that does not apply to its messages.
       collapseOwnsIt =
+        (contextCollapse?.isMainThreadSource(querySource) ?? false) &&
         (contextCollapse?.hasActiveReduction() ?? false) &&
         isAutoCompactEnabled()
     }

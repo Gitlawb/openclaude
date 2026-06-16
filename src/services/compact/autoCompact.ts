@@ -313,14 +313,15 @@ export async function shouldAutoCompact(
   // getEffectiveContextWindowSize which collapse's index imports).
   if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const { hasActiveReduction } =
+    const { hasActiveReduction, isMainThreadSource } =
       require('../contextCollapse/index.js') as typeof import('../contextCollapse/index.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
     // Suppress only when collapse actually holds the headroom (a committed or
-    // staged reduction). If it is enabled but could not reduce this turn,
-    // autocompact stays live as the fallback instead of letting an oversized
-    // transcript reach the API.
-    if (hasActiveReduction()) {
+    // staged reduction) AND this is the main thread that owns it. The store is
+    // shared across in-process subagents (agent:*); a subagent must still
+    // autocompact its own oversized transcript instead of being suppressed by a
+    // reduction that only applies to the main transcript.
+    if (isMainThreadSource(querySource) && hasActiveReduction()) {
       return false
     }
   }

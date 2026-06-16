@@ -182,7 +182,7 @@ describe('spawnCtxAgent (via maybeSpawnCtxAgent)', () => {
     idx.resetContextCollapse()
     idx.initContextCollapse()
     const before = idx.getStats()
-    await idx.applyCollapsesIfNeeded(bigTranscript(), ctx(), 'agent')
+    await idx.applyCollapsesIfNeeded(bigTranscript(), ctx(), 'repl_main_thread')
     const stats = idx.getStats()
     // At least one span was collapsed or staged — real work happened.
     expect(stats.collapsedSpans + stats.stagedSpans).toBeGreaterThan(before.collapsedSpans + before.stagedSpans)
@@ -195,7 +195,7 @@ describe('spawnCtxAgent (via maybeSpawnCtxAgent)', () => {
     const idx = await import('./index.js')
     idx.resetContextCollapse()
     idx.initContextCollapse()
-    await idx.applyCollapsesIfNeeded(bigTranscript(), ctx(), 'agent')
+    await idx.applyCollapsesIfNeeded(bigTranscript(), ctx(), 'repl_main_thread')
     expect(idx.getStats().health.totalErrors).toBeGreaterThan(0)
   })
 })

@@ -95,6 +95,25 @@ export function hasActiveReduction(): boolean {
   return enabled && (commitLog.length > 0 || stagedQueue.length > 0)
 }
 
+/**
+ * Whether a query source owns the main-thread transcript that the collapse
+ * store reduces. In-process subagents (agent:*) and the ctx-agent
+ * (marble_origami) run in the SAME process and share this module-level store,
+ * but their message arrays are not the main transcript. Collapse must apply and
+ * suppress fallbacks only for the owning thread: a subagent staging/committing
+ * here would flip hasActiveReduction() globally and make the next main-thread
+ * turn suppress autocompact/blocking while projectView() no-ops on main
+ * messages, sending an oversized transcript to the API. Mirrors the
+ * main-thread classification in postCompactCleanup.ts.
+ */
+export function isMainThreadSource(querySource?: QuerySource): boolean {
+  return (
+    querySource === undefined ||
+    querySource.startsWith('repl_main_thread') ||
+    querySource === 'sdk'
+  )
+}
+
 export function getContextCollapseState(): {
   committedSpans: number
   stagedSpans: number
@@ -187,7 +206,11 @@ export async function applyCollapsesIfNeeded(
   querySource: QuerySource,
 ): Promise<{ messages: Message[] }> {
   if (!enabled) return { messages }
-  if (querySource === 'marble_origami') return { messages }
+  // Main-thread only: subagents (agent:*) and the ctx-agent (marble_origami)
+  // share this store but do not own the main transcript. Applying/staging here
+  // for them would mutate the shared store against the wrong messages. This
+  // subsumes the marble_origami skip.
+  if (!isMainThreadSource(querySource)) return { messages }
 
   // Re-apply committed collapses. messagesForQuery is rebuilt from the REPL's
   // full history every turn (and the commit log is repopulated on resume), so
@@ -213,9 +236,12 @@ export async function applyCollapsesIfNeeded(
 export function isWithheldPromptTooLong(
   message: Message | StreamEvent | undefined,
   isPromptTooLongMessage: (msg: AssistantMessage) => boolean,
-  _querySource: QuerySource,
+  querySource: QuerySource,
 ): boolean {
   if (!enabled) return false
+  // The staged queue belongs to the main transcript; a subagent's PTL must not
+  // be withheld against it (see isMainThreadSource).
+  if (!isMainThreadSource(querySource)) return false
   if (stagedQueue.length === 0) return false
   if (!message || message.type !== 'assistant') return false
   return isPromptTooLongMessage(message as AssistantMessage)
@@ -223,9 +249,12 @@ export function isWithheldPromptTooLong(
 
 export function recoverFromOverflow(
   messages: Message[],
-  _querySource: QuerySource,
+  querySource: QuerySource,
 ): { messages: Message[]; committed: number } {
   if (!enabled) return { messages, committed: 0 }
+  // Draining the shared staged queue against a subagent's messages would corrupt
+  // the main-thread reduction; only the owning thread recovers here.
+  if (!isMainThreadSource(querySource)) return { messages, committed: 0 }
 
   const beforeCount = commitLog.length
   messages = drainStaged(messages, true)

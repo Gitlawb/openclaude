@@ -210,6 +210,133 @@ describe('hasActiveReduction', () => {
     )
     expect(idx.hasActiveReduction()).toBe(true)
   })
+
+  test('true when only staged (no committed spans)', async () => {
+    // The pre-commit staged state is what decides whether autocompact and the
+    // blocking preempt are suppressed; a regression here recreates the
+    // fallback bug without any committed-state test failing.
+    await cleanState()
+    process.env.CLAUDE_CONTEXT_COLLAPSE = '1'
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState([], {
+      type: 'marble-origami-snapshot' as const,
+      sessionId: uid('s1'),
+      staged: [
+        { startUuid: uid('a'), endUuid: uid('b'), summary: 'pending', risk: 0.7, stagedAt: Date.now() },
+      ],
+      armed: true,
+      lastSpawnTokens: 1000,
+    })
+    expect(idx.getStats().collapsedSpans).toBe(0)
+    expect(idx.getStats().stagedSpans).toBe(1)
+    expect(idx.hasActiveReduction()).toBe(true)
+  })
+})
+
+describe('isMainThreadSource', () => {
+  test('true for main-thread sources, false for subagent/fork sources', async () => {
+    const idx = await import('./index.js')
+    expect(idx.isMainThreadSource('repl_main_thread' as any)).toBe(true)
+    expect(idx.isMainThreadSource('repl_main_thread:resume' as any)).toBe(true)
+    expect(idx.isMainThreadSource('sdk' as any)).toBe(true)
+    expect(idx.isMainThreadSource(undefined)).toBe(true)
+    expect(idx.isMainThreadSource('agent:explore' as any)).toBe(false)
+    expect(idx.isMainThreadSource('marble_origami' as any)).toBe(false)
+    expect(idx.isMainThreadSource('compact' as any)).toBe(false)
+    expect(idx.isMainThreadSource('session_memory' as any)).toBe(false)
+  })
+})
+
+describe('subagent sources do not touch the shared store', () => {
+  // Regression for the fallback bug: an in-process subagent (agent:*) shares the
+  // module-level collapse store but does not own the main transcript. It must
+  // not apply/stage/commit (which would flip hasActiveReduction() globally and
+  // suppress the main thread's autocompact/blocking fallback while projectView()
+  // no-ops on main messages).
+  function committedSpan() {
+    return [
+      {
+        type: 'marble-origami-commit' as const,
+        sessionId: uid('s1'),
+        collapseId: '0000000000000001',
+        summaryUuid: uid('sum'),
+        summaryContent: '<collapsed id="0000000000000001">summary</collapsed>',
+        summary: 'summary',
+        firstArchivedUuid: uid('a1'),
+        lastArchivedUuid: uid('a3'),
+      },
+    ]
+  }
+  const fullHistory: Message[] = [
+    makeUserMsg('u0'),
+    makeUserMsg('a1'),
+    makeAssistantMsg('a2'),
+    makeUserMsg('a3'),
+    makeUserMsg('u4'),
+  ]
+
+  test('applyCollapsesIfNeeded does not project a committed collapse for an agent:* source', async () => {
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState(committedSpan(), undefined)
+
+    const { messages } = await idx.applyCollapsesIfNeeded(
+      fullHistory,
+      makeFakeToolUseContext(),
+      'agent:explore' as any,
+    )
+    // Untouched: the archived span is still present, no summary injected.
+    expect(messages).toEqual(fullHistory)
+
+    // Sanity: the same state DOES project on the main thread.
+    const main = await idx.applyCollapsesIfNeeded(
+      fullHistory,
+      makeFakeToolUseContext(),
+      'repl_main_thread' as any,
+    )
+    expect(main.messages.map(m => m.uuid)).toContain(uid('sum'))
+    expect(main.messages.map(m => m.uuid)).not.toContain(uid('a2'))
+  })
+
+  test('isWithheldPromptTooLong is false for an agent:* source even with staged spans', async () => {
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState([], {
+      type: 'marble-origami-snapshot' as const,
+      sessionId: uid('s1'),
+      staged: [
+        { startUuid: uid('a'), endUuid: uid('b'), summary: 'pending', risk: 0.7, stagedAt: Date.now() },
+      ],
+      armed: true,
+      lastSpawnTokens: 1000,
+    })
+    const msg = makeAssistantMsg('a', 'prompt too long')
+    expect(idx.isWithheldPromptTooLong(msg, () => true, 'agent:explore' as any)).toBe(false)
+    // Main thread with the same staged span does withhold.
+    expect(idx.isWithheldPromptTooLong(msg, () => true, 'repl_main_thread' as any)).toBe(true)
+  })
+
+  test('recoverFromOverflow does not drain staged spans for an agent:* source', async () => {
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState([], {
+      type: 'marble-origami-snapshot' as const,
+      sessionId: uid('s1'),
+      staged: [
+        { startUuid: uid('a1'), endUuid: uid('a3'), summary: 'pending', risk: 0.7, stagedAt: Date.now() },
+      ],
+      armed: true,
+      lastSpawnTokens: 1000,
+    })
+    const result = idx.recoverFromOverflow(fullHistory, 'agent:explore' as any)
+    expect(result.committed).toBe(0)
+    expect(result.messages).toEqual(fullHistory)
+    expect(idx.getStats().stagedSpans).toBe(1)
+  })
 })
 
 describe('core API (no staged spans)', () => {
