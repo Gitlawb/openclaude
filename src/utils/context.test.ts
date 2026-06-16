@@ -6,6 +6,7 @@ import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
+  modelSupports1M,
 } from './context.ts'
 
 const originalEnv = {
@@ -831,4 +832,45 @@ test('Anthropic model with high CLAUDE_CODE_MAX_OUTPUT_TOKENS still caps at mode
   expect(getMaxOutputTokensForModel('sonnet-4-6')).toBe(128_000)
   expect(getMaxOutputTokensForModel('opus-4-1')).toBe(32_000)
   expect(getMaxOutputTokensForModel('claude-3-opus')).toBe(4_096)
+})
+
+test('modelSupports1M recognizes the current default Opus (4.7) as 1M-capable', () => {
+  const original = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+  delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+  try {
+    // Regression: the firstParty default session model is claude-opus-4-7[1m]
+    // (getDefaultMainLoopModelSetting), so dropping 4.7 here downgrades a 1M
+    // session to 200K and trips a spurious "Context limit reached" — exactly
+    // what resolveSkillModelOverride relies on this predicate to prevent.
+    expect(modelSupports1M('claude-opus-4-7')).toBe(true)
+    expect(modelSupports1M('claude-opus-4-7[1m]')).toBe(true)
+    // Existing 1M models must keep working.
+    expect(modelSupports1M('claude-opus-4-6')).toBe(true)
+    expect(modelSupports1M('claude-sonnet-4-6')).toBe(true)
+    expect(modelSupports1M('claude-sonnet-4-5')).toBe(true)
+    // Models without a 1M variant must stay false.
+    expect(modelSupports1M('claude-opus-4-1')).toBe(false)
+    expect(modelSupports1M('claude-opus-4-0')).toBe(false)
+    expect(modelSupports1M('claude-3-5-haiku')).toBe(false)
+  } finally {
+    if (original === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = original
+    }
+  }
+})
+
+test('modelSupports1M honors the 1M disable switch even for Opus 4.7', () => {
+  const original = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+  process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = '1'
+  try {
+    expect(modelSupports1M('claude-opus-4-7')).toBe(false)
+  } finally {
+    if (original === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = original
+    }
+  }
 })
