@@ -38,7 +38,7 @@ STAGED CHANGES (index):
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git log -10 --name-only --diff-filter=AM 2>/dev/null\`
+!\`git log -10 --pretty=format: --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
 (If empty: no git history or not a git repo)
 
