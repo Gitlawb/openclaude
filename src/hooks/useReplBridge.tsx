@@ -11,6 +11,7 @@ import { getSlashCommandToolSkills, isBridgeSafeCommand } from '../commands.js';
 import { getRemoteSessionUrl } from '../constants/product.js';
 import { useNotifications } from '../context/notifications.js';
 import type { PermissionMode, SDKMessage } from '../entrypoints/agentSdkTypes.js';
+import { EXTERNAL_PERMISSION_MODES } from '../types/permissions.js';
 import type { SDKControlResponse } from '../entrypoints/sdk/controlTypes.js';
 import { Text } from '../ink.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js';
@@ -295,6 +296,8 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
                         const skills = await getSlashCommandToolSkills(getCwd());
                         if (cancelled) return;
                         const state_0 = store.getState();
+                                    const rawPermissionMode = state_0.toolPermissionContext.mode
+            const validPermissionMode: PermissionMode = (EXTERNAL_PERMISSION_MODES as readonly string[]).includes(rawPermissionMode) ? (rawPermissionMode as PermissionMode) : 'default'
                         handleRef.current?.writeSdkMessages([buildSystemInitMessage({
                           // tools/mcpClients/plugins redacted for REPL-bridge:
                           // MCP-prefixed tool names and server names leak which
@@ -307,8 +310,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
                           tools: [],
                           mcpClients: [],
                           model: mainLoopModelRef.current,
-                          permissionMode: state_0.toolPermissionContext.mode as PermissionMode,
-                          // TODO: avoid the cast
+                                        permissionMode: validPermissionMode,
                           // Remote clients can only invoke bridge-safe commands —
                           // advertising unsafe ones (local-jsx, unallowed local)
                           // would let mobile/web attempt them and hit errors.
