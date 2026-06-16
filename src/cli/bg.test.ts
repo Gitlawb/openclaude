@@ -76,36 +76,62 @@ describe('background session CLI parsing', () => {
     ])
   })
 
-  it('treats optional resume and PR values as prompts unless supplied inline', () => {
+  it('preserves space-separated resume and PR option values', () => {
+    const sessionId = '550e8400-e29b-41d4-a716-446655440000'
     const resumeParsed = parseBackgroundInvocation([
       '--bg',
       '--resume',
-      'continue work',
+      sessionId,
     ])
     const fromPrParsed = parseBackgroundInvocation([
       '--bg',
       '--from-pr',
-      'review 123',
+      '1642',
+    ])
+    const shortResumeParsed = parseBackgroundInvocation([
+      '--bg',
+      '-r',
+      sessionId,
     ])
     const inlineResumeParsed = parseBackgroundInvocation([
       '--bg',
       '--resume=auth',
     ])
 
-    expect(resumeParsed.prompt).toBe('continue work')
+    expect(resumeParsed.prompt).toBeUndefined()
     expect(resumeParsed.childArgs).toEqual([
       '--resume',
+      sessionId,
       '--print',
-      'continue work',
     ])
-    expect(fromPrParsed.prompt).toBe('review 123')
+    expect(fromPrParsed.prompt).toBeUndefined()
     expect(fromPrParsed.childArgs).toEqual([
       '--from-pr',
+      '1642',
       '--print',
-      'review 123',
     ])
+    expect(shortResumeParsed.prompt).toBeUndefined()
+    expect(shortResumeParsed.childArgs).toEqual(['-r', sessionId, '--print'])
     expect(inlineResumeParsed.prompt).toBeUndefined()
     expect(inlineResumeParsed.childArgs).toEqual(['--resume=auth', '--print'])
+  })
+
+  it('finds the prompt after a space-separated resume option value', () => {
+    const sessionId = '550e8400-e29b-41d4-a716-446655440000'
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--resume',
+      sessionId,
+      'continue the fix',
+    ])
+
+    expect(parsed.prompt).toBe('continue the fix')
+    expect(parsed.childArgs).toEqual([
+      '--resume',
+      sessionId,
+      '--print',
+      'continue the fix',
+    ])
   })
 
   it('inserts generated flags before -- so dash-prefixed prompts stay positional', () => {

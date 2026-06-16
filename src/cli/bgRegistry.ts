@@ -501,8 +501,7 @@ export function isBackgroundSessionProcessAlive(
 
   const readCommand = options?.getProcessCommand ?? getProcessCommand
   const command = readCommand(session.pid)
-  if (command == null) return true
-  return command.includes(session.sessionId)
+  return command != null && command.includes(session.sessionId)
 }
 
 export async function markBackgroundSessionKilled(

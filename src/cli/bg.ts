@@ -96,11 +96,14 @@ const REQUIRED_OPTION_VALUE_FLAGS = new Set([
   '-n',
 ])
 
-const OPTIONAL_OPTION_VALUE_FLAGS = new Set([
+const INLINE_OPTIONAL_VALUE_FLAGS = new Set([
   '--debug',
+  '-d',
+])
+
+const SPACE_OPTIONAL_VALUE_FLAGS = new Set([
   '--from-pr',
   '--resume',
-  '-d',
   '-r',
 ])
 
@@ -179,9 +182,17 @@ function findPromptIndex(args: string[]): number {
       i++
       continue
     }
-    if (OPTIONAL_OPTION_VALUE_FLAGS.has(arg)) {
-      // Commander only accepts optional option values inline (`--debug=api`),
-      // so the following token remains eligible to be the positional prompt.
+    if (SPACE_OPTIONAL_VALUE_FLAGS.has(arg)) {
+      const next = args[i + 1]
+      if (next && !next.startsWith('-')) {
+        consumedValues.add(i + 1)
+        i++
+      }
+      continue
+    }
+    if (INLINE_OPTIONAL_VALUE_FLAGS.has(arg)) {
+      // Keep debug filters inline-only here so `--debug "prompt"` remains a
+      // background prompt instead of being consumed as a logging filter.
       continue
     }
   }
@@ -201,7 +212,13 @@ function findFlagValue(args: string[], flag: string): string | undefined {
   for (let i = 0; i < searchable.length; i++) {
     const arg = searchable[i]
     if (arg.startsWith(inlinePrefix)) return arg.slice(inlinePrefix.length)
-    if (arg === flag && i + 1 < searchable.length) return searchable[i + 1]
+    if (
+      arg === flag &&
+      i + 1 < searchable.length &&
+      !searchable[i + 1]?.startsWith('-')
+    ) {
+      return searchable[i + 1]
+    }
   }
   return undefined
 }
@@ -229,6 +246,14 @@ function insertBeforePrompt(args: string[], values: string[]): string[] {
 function withGeneratedSessionId(args: string[], sessionId: string): string[] {
   if (findFlagValue(args, '--session-id')) return args
   return insertBeforePrompt(args, ['--session-id', sessionId])
+}
+
+function hasResumeSource(args: string[]): boolean {
+  return Boolean(
+    findFlagValue(args, '--resume') ??
+      findFlagValue(args, '-r') ??
+      findFlagValue(args, '--from-pr'),
+  )
 }
 
 export function parseBackgroundInvocation(
@@ -515,7 +540,7 @@ export async function killHandler(
 
 export async function handleBgFlag(args: string[]): Promise<void> {
   const parsed = parseBackgroundInvocation(args)
-  if (!parsed.prompt) {
+  if (!parsed.prompt && !hasResumeSource(parsed.childArgs)) {
     fail('Usage: openclaude --bg [--name <name>] "<prompt>"')
   }
 

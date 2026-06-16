@@ -547,6 +547,29 @@ describe('background session registry', () => {
     })
   })
 
+  it('marks sessions stale when a live PID command identity cannot be read', async () => {
+    await createBackgroundSession({
+      id: 'bg-unreadable-pid',
+      pid: 333,
+      cwd: '/repo',
+      command: ['openclaude', '--session-id', 'conversation-1', '--print', 'work'],
+      sessionId: 'conversation-1',
+      now: new Date('2026-06-15T08:00:00.000Z'),
+    })
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => true,
+      getProcessCommand: () => null,
+      now: new Date('2026-06-15T08:05:00.000Z'),
+    })
+
+    expect(refreshed[0]).toMatchObject({
+      id: 'bg-unreadable-pid',
+      status: 'stale',
+      updatedAt: '2026-06-15T08:05:00.000Z',
+    })
+  })
+
   it('marks a session killed without deleting its logs or metadata', async () => {
     await createBackgroundSession({
       id: 'bg-kill',
