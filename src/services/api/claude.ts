@@ -67,6 +67,7 @@ import {
   CAPPED_DEFAULT_MAX_TOKENS,
   getModelMaxOutputTokens,
   getSonnet1mExpTreatmentEnabled,
+  shouldUseIntegrationRuntimeLimits,
 } from '../../utils/context.js'
 import { resolveAppliedEffort } from '../../utils/effort.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
@@ -2301,8 +2302,10 @@ async function* queryModel(
               logEvent('tengu_max_tokens_reached', {
                 max_tokens: maxOutputTokens,
               })
+              const is3pProvider = shouldUseIntegrationRuntimeLimits()
+              const providerNoun = is3pProvider ? "Model's" : "OpenClaude's"
               yield createAssistantAPIErrorMessage({
-                content: `${API_ERROR_MESSAGE_PREFIX}: Claude's response exceeded the ${
+                content: `${API_ERROR_MESSAGE_PREFIX}: ${providerNoun} response exceeded the ${
                   maxOutputTokens
                 } output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.`,
                 apiError: 'max_output_tokens',

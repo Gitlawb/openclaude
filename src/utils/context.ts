@@ -67,7 +67,7 @@ export function modelSupports1M(model: string): boolean {
   return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
 }
 
-function shouldUseIntegrationRuntimeLimits(
+export function shouldUseIntegrationRuntimeLimits(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const routeId = resolveActiveRouteIdFromEnv(processEnv)
@@ -237,6 +237,16 @@ export function getModelMaxOutputTokens(model: string): {
         default: runtimeLimits.maxOutputTokens,
         upperLimit: runtimeLimits.maxOutputTokens,
       }
+    }
+    // 3P provider with no runtime maxOutputTokens (e.g. ad-hoc Ollama models
+    // like `gemma4:e4b` not in the route catalog) — fall through to a
+    // permissive upper limit so CLAUDE_CODE_MAX_OUTPUT_TOKENS isn't silently
+    // capped to the Anthropic 64k fallback below (issue #1604). Bound by the
+    // runtime context window when known; otherwise use the same fallback as
+    // context budgeting so output reservation cannot exceed the window.
+    return {
+      default: MAX_OUTPUT_TOKENS_DEFAULT,
+      upperLimit: runtimeLimits.contextWindow ?? OPENAI_FALLBACK_CONTEXT_WINDOW,
     }
   }
 
