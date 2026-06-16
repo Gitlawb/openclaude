@@ -24,73 +24,81 @@ export interface WeightedContextOptions {
   maxTokens: number
   minScore?: number
   preserveRecent?: number
-  decayFactor?: number
 }
 
 const DEFAULT_OPTIONS: Required<WeightedContextOptions> = {
   maxTokens: 50000,
   minScore: 0.3,
   preserveRecent: 3,
-  decayFactor: 0.95,
 }
 
 function filterOrphanedToolCalls(messages: Message[], allMessages?: Message[]): Message[] {
   const source = allMessages ?? messages
-  const sourceToolUseIds = new Set<string>()
-  const pairedToolUseIds = new Set<string>()
-  for (const msg of source) {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block) {
-          if (block.type === 'tool_use' && 'id' in block) {
-            sourceToolUseIds.add((block as { id: string }).id)
-          }
-          if (block.type === 'tool_result' && 'tool_use_id' in block) {
-            pairedToolUseIds.add((block as { tool_use_id: string }).tool_use_id)
-          }
-        }
-      }
-    }
-  }
-  const keptToolUseIds = new Set<string>()
-  const keptToolResultIds = new Set<string>()
-  for (const msg of messages) {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block) {
-          if (block.type === 'tool_use' && 'id' in block) {
-            keptToolUseIds.add((block as { id: string }).id)
-          }
-          if (block.type === 'tool_result' && 'tool_use_id' in block) {
-            keptToolResultIds.add((block as { tool_use_id: string }).tool_use_id)
-          }
-        }
-      }
-    }
-  }
-  return messages.filter(msg => {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block) {
-          if (block.type === 'tool_result' && 'tool_use_id' in block) {
-            if (!keptToolUseIds.has((block as { tool_use_id: string }).tool_use_id)) {
-              return false
+  let result = messages
+
+  // Fixed-point filtering: repeat until no more messages are removed,
+  // because dropping a message can orphan previously-valid pairs.
+  for (let iter = 0; iter < 3; iter++) {
+    const sourceToolUseIds = new Set<string>()
+    const pairedToolUseIds = new Set<string>()
+    for (const msg of source) {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block && typeof block === 'object' && 'type' in block) {
+            if (block.type === 'tool_use' && 'id' in block) {
+              sourceToolUseIds.add((block as { id: string }).id)
             }
-          }
-          if (block.type === 'tool_use' && 'id' in block) {
-            const id = (block as { id: string }).id
-            if (pairedToolUseIds.has(id) && !keptToolResultIds.has(id)) {
-              return false
+            if (block.type === 'tool_result' && 'tool_use_id' in block) {
+              pairedToolUseIds.add((block as { tool_use_id: string }).tool_use_id)
             }
           }
         }
       }
     }
-    return true
-  })
+    const keptToolUseIds = new Set<string>()
+    const keptToolResultIds = new Set<string>()
+    for (const msg of result) {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block && typeof block === 'object' && 'type' in block) {
+            if (block.type === 'tool_use' && 'id' in block) {
+              keptToolUseIds.add((block as { id: string }).id)
+            }
+            if (block.type === 'tool_result' && 'tool_use_id' in block) {
+              keptToolResultIds.add((block as { tool_use_id: string }).tool_use_id)
+            }
+          }
+        }
+      }
+    }
+    const filtered = result.filter(msg => {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block && typeof block === 'object' && 'type' in block) {
+            if (block.type === 'tool_result' && 'tool_use_id' in block) {
+              if (!keptToolUseIds.has((block as { tool_use_id: string }).tool_use_id)) {
+                return false
+              }
+            }
+            if (block.type === 'tool_use' && 'id' in block) {
+              const id = (block as { id: string }).id
+              if (pairedToolUseIds.has(id) && !keptToolResultIds.has(id)) {
+                return false
+              }
+            }
+          }
+        }
+      }
+      return true
+    })
+    if (filtered.length === result.length) break
+    result = filtered
+  }
+
+  return result
 }
 
 function getContent(content: unknown): string {
