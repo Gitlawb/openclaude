@@ -1950,7 +1950,11 @@ test('preserves image tool results as placeholders in follow-up requests', async
     text?: string
     image_url?: { url: string }
   }>
+  // Issue #1421: image-only tool results now get a placeholder text part
+  // prepended so OpenAI-compatible providers that require a `text` field on
+  // `role: "tool"` messages (e.g. Xiaomi Mimo) don't 400 with "text is not set".
   expect(parts).toEqual([
+    { type: 'text', text: 'Image attached.' },
     {
       type: 'image_url',
       image_url: { url: 'data:image/png;base64,ZmFrZQ==' },

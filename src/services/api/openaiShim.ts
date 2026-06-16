@@ -408,7 +408,12 @@ function convertToolResultContent(
     parts.unshift({ type: 'text', text: 'Error:' })
   }
 
-  return parts
+  // Defense in depth (issue #1421): some OpenAI-compatible providers (e.g.
+  // Xiaomi Mimo) reject `role: "tool"` messages whose `content` is image-only
+  // with a 400 "text is not set". Prepend a placeholder text part so the
+  // payload always carries a text component alongside any images, mirroring
+  // the existing behavior for user-role messages.
+  return ensureTextPartForImageContent(parts)
 }
 
 function convertContentBlocks(

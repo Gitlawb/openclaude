@@ -36,6 +36,7 @@ import {
   getPdfPasswordProtectedErrorMessage,
   getPdfTooLargeErrorMessage,
   getRequestTooLargeErrorMessage,
+  getVisionNotSupportedErrorMessages,
 } from '../services/api/errors.js'
 import type { AnyObject, Progress } from '../Tool.js'
 import { isConnectorTextBlock } from '../types/connectorText.js'
@@ -2069,6 +2070,17 @@ export function normalizeMessagesForAPI(
     [getPdfInvalidErrorMessage()]: new Set(['document']),
     [getImageTooLargeErrorMessage()]: new Set(['image']),
     [getRequestTooLargeErrorMessage()]: new Set(['document', 'image']),
+    // Issue #1421: existing transcripts poisoned by a 400 "text is not set"
+    // (Xiaomi Mimo + non-vision model) carry an image-only tool_result that
+    // would re-trigger the same 400 on every retry. Match the canonical
+    // message so `normalizeMessagesForAPI` strips the `image` blocks from
+    // the preceding tool_result user message on resume / next turn.
+    ...Object.fromEntries(
+      getVisionNotSupportedErrorMessages().map(message => [
+        message,
+        new Set(['image']),
+      ]),
+    ),
   }
 
   // Walk the reordered messages to build a targeted strip map:
