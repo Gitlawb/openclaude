@@ -345,6 +345,51 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
   ])
 })
 
+test('nests reasoning under reasoning.effort (not flat reasoning_effort) on the responses endpoint (#1638)', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {},
+    reasoningEffort: 'high',
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  // The Responses API rejects the flat chat_completions fields with
+  // `Unsupported parameter: 'reasoning_effort'`; reasoning must be nested.
+  expect(capturedBody?.reasoning).toEqual({ effort: 'high', summary: 'auto' })
+  expect(capturedBody && 'reasoning_effort' in capturedBody).toBe(false)
+  expect(capturedBody && 'reasoning_summary' in capturedBody).toBe(false)
+  expect(capturedBody?.include).toEqual(['reasoning.encrypted_content'])
+})
+
 test('uses OpenAI-compatible responses endpoint with text chunk types when OPENAI_API_FORMAT=responses_compat', async () => {
   process.env.OPENAI_API_FORMAT = 'responses_compat'
   let capturedUrl = ''
