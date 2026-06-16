@@ -57,7 +57,7 @@ describe('slidingContextWindow', () => {
           created_at: Date.now() 
         },
         sender: 'assistant',
-      }]
+      }] as any[]
 
       const state = createSlidingWindow(messages, { maxTokens: 10000, preserveTools: true })
 
