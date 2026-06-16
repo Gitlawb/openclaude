@@ -15,9 +15,29 @@ import {
 const TEST_ENV_KEYS = [
   'NODE_OPTIONS',
   'AZURE_OPENAI_API_VERSION',
+  'CODEX_AUTH_JSON_PATH',
+  'CODEX_HOME',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'WEB_AUTH_HEADER',
+  'WEB_AUTH_SCHEME',
+  'WEB_BODY_TEMPLATE',
+  'WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS',
+  'WEB_CUSTOM_ALLOW_HTTP',
+  'WEB_CUSTOM_ALLOW_PRIVATE',
+  'WEB_CUSTOM_MAX_BODY_KB',
+  'WEB_CUSTOM_TIMEOUT_SEC',
+  'WEB_HEADERS',
+  'WEB_JSON_PATH',
+  'WEB_KEY',
+  'WEB_METHOD',
+  'WEB_PARAMS',
+  'WEB_PROVIDER',
+  'WEB_QUERY_PARAM',
+  'WEB_SEARCH_API',
+  'WEB_SEARCH_PROVIDER',
+  'WEB_URL_TEMPLATE',
 ]
 
 const originalEnv = new Map<string, string | undefined>()
@@ -213,6 +233,58 @@ describe('loadEnvFile', () => {
     expect(loaded).toEqual({
       AZURE_OPENAI_API_VERSION: '2024-12-01-preview',
     })
+  })
+
+  it('loads documented custom web search and Codex auth-file setup values', () => {
+    const filePath = writeTempEnvFile([
+      'WEB_SEARCH_PROVIDER=custom',
+      'WEB_PROVIDER=searxng',
+      'WEB_KEY=web-key',
+      'WEB_SEARCH_API=https://search.example.com/search',
+      'WEB_QUERY_PARAM=query',
+      'WEB_METHOD=POST',
+      'WEB_PARAMS={"lang":"en","count":"10"}',
+      'WEB_URL_TEMPLATE=https://api.example.com/v2/search/{query}',
+      'WEB_BODY_TEMPLATE={"input":{"text":"{query}"}}',
+      'WEB_AUTH_HEADER=X-Api-Key',
+      'WEB_AUTH_SCHEME=',
+      'WEB_HEADERS=Accept: application/json; X-Tenant: acme',
+      'WEB_JSON_PATH=response.payload.results',
+      'WEB_CUSTOM_TIMEOUT_SEC=15',
+      'WEB_CUSTOM_MAX_BODY_KB=300',
+      'WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true',
+      'WEB_CUSTOM_ALLOW_HTTP=true',
+      'WEB_CUSTOM_ALLOW_PRIVATE=true',
+      'CODEX_AUTH_JSON_PATH=/tmp/codex-auth.json',
+      'CODEX_HOME=/tmp/codex',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(loaded).toEqual({
+      WEB_SEARCH_PROVIDER: 'custom',
+      WEB_PROVIDER: 'searxng',
+      WEB_KEY: 'web-key',
+      WEB_SEARCH_API: 'https://search.example.com/search',
+      WEB_QUERY_PARAM: 'query',
+      WEB_METHOD: 'POST',
+      WEB_PARAMS: '{"lang":"en","count":"10"}',
+      WEB_URL_TEMPLATE: 'https://api.example.com/v2/search/{query}',
+      WEB_BODY_TEMPLATE: '{"input":{"text":"{query}"}}',
+      WEB_AUTH_HEADER: 'X-Api-Key',
+      WEB_AUTH_SCHEME: '',
+      WEB_HEADERS: 'Accept: application/json; X-Tenant: acme',
+      WEB_JSON_PATH: 'response.payload.results',
+      WEB_CUSTOM_TIMEOUT_SEC: '15',
+      WEB_CUSTOM_MAX_BODY_KB: '300',
+      WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS: 'true',
+      WEB_CUSTOM_ALLOW_HTTP: 'true',
+      WEB_CUSTOM_ALLOW_PRIVATE: 'true',
+      CODEX_AUTH_JSON_PATH: '/tmp/codex-auth.json',
+      CODEX_HOME: '/tmp/codex',
+    })
+    expect(process.env.WEB_SEARCH_API).toBe('https://search.example.com/search')
+    expect(process.env.CODEX_AUTH_JSON_PATH).toBe('/tmp/codex-auth.json')
   })
 
   it('rejects unsupported variables before mutating process environment', () => {
