@@ -24,21 +24,14 @@ async function main() {
   const { hydrateGithubModelsTokenFromSecureStorage } = await import('../src/utils/githubModelsCredentials.js')
   hydrateGithubModelsTokenFromSecureStorage()
 
-  const {
-    buildStartupEnvFromProfile,
-    applyProfileEnvToProcessEnv,
-    isDefaultStartupProviderEnv,
-  } = await import('../src/utils/providerProfile.js')
-  const { getProviderValidationError, validateProviderEnvOrExit } = await import('../src/utils/providerValidation.js')
-  const startupEnv = await buildStartupEnvFromProfile({ processEnv: process.env })
-  if (startupEnv !== process.env) {
-    const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
-      console.warn(`Warning: ignoring saved provider profile. ${startupProfileError}`)
-    } else {
-      applyProfileEnvToProcessEnv(process.env, startupEnv)
-    }
-  }
+  const { applyStartupEnvFromProfile } = await import('../src/utils/providerProfile.js')
+  const { validateProviderEnvOrExit } = await import('../src/utils/providerValidation.js')
+  await applyStartupEnvFromProfile({
+    processEnv: process.env,
+    onValidationError: message => {
+      console.warn(message)
+    },
+  })
   await validateProviderEnvOrExit()
 
   const port = process.env.GRPC_PORT ? parseInt(process.env.GRPC_PORT, 10) : 50051

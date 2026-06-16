@@ -45,3 +45,16 @@ test('WebFetch binds the real ssrfGuardedLookup in the CLI bundle', () => {
   // ...and ssrfGuard must not have been replaced by a missing-module stub.
   expect(bundle).not.toMatch(/missing-module-stub:.*ssrfGuard/)
 })
+
+test('CLI bundle includes the real sandbox runtime instead of the native stub', () => {
+  if (!existsSync(DIST)) {
+    throw new Error(
+      'dist/cli.mjs not found — run `bun run build` before this test',
+    )
+  }
+
+  const bundle = readFileSync(DIST, 'utf-8')
+
+  expect(bundle).not.toContain('native-stub:@anthropic-ai/sandbox-runtime')
+  expect(bundle).toContain('bubblewrap (bwrap) not installed')
+})

@@ -7,6 +7,8 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 [![PR Checks](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml)
 [![Release](https://img.shields.io/github/v/tag/Gitlawb/openclaude?label=release&color=0ea5e9)](https://github.com/Gitlawb/openclaude/tags)
 [![Discussions](https://img.shields.io/badge/discussions-open-7c3aed)](https://github.com/Gitlawb/openclaude/discussions)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/k68zFR6AcB)
+[![X](https://img.shields.io/badge/X-@gitlawb-000000?logo=x&logoColor=white)](https://x.com/gitlawb)
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
@@ -69,6 +71,9 @@ OpenClaude is also mirrored to GitLawb:
 ## Quick Start
 
 ### Install
+
+OpenClaude requires Node.js `>=22.0.0` for npm installs and runtime. Bun is
+only needed for source builds and local development.
 
 ```bash
 npm install -g @gitlawb/openclaude@latest
@@ -355,6 +360,8 @@ npm run dev:grpc:cli
 
 ## Source Build And Local Development
 
+Use Node.js `>=22.0.0` and Bun `1.3.13` or newer for source builds.
+
 ```bash
 bun install
 bun run build
@@ -436,6 +443,8 @@ If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
 
 - Use [GitHub Discussions](https://github.com/Gitlawb/openclaude/discussions) for Q&A, ideas, and community conversation
 - Use [GitHub Issues](https://github.com/Gitlawb/openclaude/issues) for confirmed bugs and actionable feature work
+- Join the [Discord](https://discord.gg/k68zFR6AcB) to chat with the community in real time
+- Follow [@gitlawb on X](https://x.com/gitlawb) for updates and announcements
 
 ## Contributing
 
@@ -457,4 +466,4 @@ OpenClaude originated from the Claude Code codebase and has since been substanti
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT for OpenClaude contributors' modifications; the derived Claude Code remains Anthropic's. [See more](LICENSE).

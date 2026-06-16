@@ -26,14 +26,11 @@ const mockKillHandler = mock(async (_args: string[]) => {})
 const mockHandleBgFlag = mock(async (_args: string[]) => {})
 const mockEnableConfigs = mock(() => {})
 const mockApplySafeConfigEnvironmentVariables = mock(() => {})
-const mockBuildStartupEnvFromProfile = mock(
-  async (_input: { processEnv: NodeJS.ProcessEnv }) => process.env,
-)
-const mockIsDefaultStartupProviderEnv = mock(
-  (_env: NodeJS.ProcessEnv) => true,
-)
-const mockApplyProfileEnvToProcessEnv = mock(
-  (_target: NodeJS.ProcessEnv, _source: NodeJS.ProcessEnv) => {},
+const mockApplyStartupEnvFromProfile = mock(
+  async (_input: {
+    processEnv: NodeJS.ProcessEnv
+    onValidationError: (message: string) => void
+  }) => {},
 )
 const mockGetProviderValidationError = mock(
   async (_env: NodeJS.ProcessEnv) => undefined,
@@ -60,9 +57,7 @@ const runtimeMocks = [
   mockHandleBgFlag,
   mockEnableConfigs,
   mockApplySafeConfigEnvironmentVariables,
-  mockBuildStartupEnvFromProfile,
-  mockIsDefaultStartupProviderEnv,
-  mockApplyProfileEnvToProcessEnv,
+  mockApplyStartupEnvFromProfile,
   mockGetProviderValidationError,
   mockEagerLoadSettingsFromArgs,
   mockResolveOutOfProcessTeammateProviderFromCliArgs,
@@ -180,9 +175,7 @@ describe('cli.tsx — --provider startup ordering', () => {
 
   it('keeps background spawn after profile routing but before provider validation', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
-    const profileApplyIndex = src.indexOf(
-      'applyProfileEnvToProcessEnv(process.env, startupEnv)',
-    )
+    const profileApplyIndex = src.indexOf('await applyStartupEnvFromProfile')
     const bgFlagIndex = src.indexOf("optionArgs.includes('--bg')")
     const providerValidationIndex = src.indexOf(
       'await validateProviderEnvForStartupOrExit()',
@@ -219,9 +212,7 @@ describe('cli.tsx — background routing behavior', () => {
           mockApplySafeConfigEnvironmentVariables,
       }),
       providerProfile: async () => ({
-        applyProfileEnvToProcessEnv: mockApplyProfileEnvToProcessEnv,
-        buildStartupEnvFromProfile: mockBuildStartupEnvFromProfile,
-        isDefaultStartupProviderEnv: mockIsDefaultStartupProviderEnv,
+        applyStartupEnvFromProfile: mockApplyStartupEnvFromProfile,
       }),
       providerValidation: async () => ({
         getProviderValidationError: mockGetProviderValidationError,
@@ -327,7 +318,7 @@ describe('cli.tsx — background routing behavior', () => {
 
     expect(mockEnableConfigs).toHaveBeenCalledTimes(1)
     expect(mockApplySafeConfigEnvironmentVariables).toHaveBeenCalledTimes(1)
-    expect(mockBuildStartupEnvFromProfile).toHaveBeenCalledTimes(1)
+    expect(mockApplyStartupEnvFromProfile).toHaveBeenCalledTimes(1)
     expect(mockEagerLoadSettingsFromArgs.mock.calls).toEqual([[args]])
     expect(mockHandleBgFlag.mock.calls).toEqual([[args]])
     expect(mockRefreshGithubModelsTokenIfNeeded).not.toHaveBeenCalled()

@@ -215,7 +215,6 @@ result = await Bun.build({
           'color-diff-napi',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
-          '@anthropic-ai/sandbox-runtime',
           'asciichart',
           'plist',
           'cacache',
