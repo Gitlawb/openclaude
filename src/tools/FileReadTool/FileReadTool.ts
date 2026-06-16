@@ -525,14 +525,6 @@ export const FileReadTool = buildTool({
       }
     }
 
-    // SECURITY: UNC path check (no I/O) — defer filesystem operations
-    // until after user grants permission to prevent NTLM credential leaks
-    const isUncPath =
-      fullFilePath.startsWith('\\\\') || fullFilePath.startsWith('//')
-    if (isUncPath) {
-      return { result: true }
-    }
-
     // Binary extension check (string check on extension only, no I/O).
     // PDF, images, and SVG are excluded - this tool renders them natively.
     const ext = path.extname(fullFilePath).toLowerCase()
@@ -567,6 +559,14 @@ export const FileReadTool = buildTool({
     )
     if (visionCheck.result === false) {
       return visionCheck
+    }
+
+    // SECURITY: UNC path check (no I/O) — defer filesystem operations
+    // until after user grants permission to prevent NTLM credential leaks
+    const isUncPath =
+      fullFilePath.startsWith('\\\\') || fullFilePath.startsWith('//')
+    if (isUncPath) {
+      return { result: true }
     }
 
     // Block specific device files that would hang (infinite output or blocking input).

@@ -63,6 +63,7 @@ test('vision_not_supported from Xiaomi Mimo 400 "text is not set" uses the same 
   expect(text).toContain('image')
   expect(text).toContain('does not support')
   expect(text).toMatch(/(\/model|--model)/)
+  expect(text).not.toContain('OPENAI_BASE_URL')
 })
 
 test('endpoint_not_found from a remote host shows the actual host, not Ollama (issue #926)', () => {
