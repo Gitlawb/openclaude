@@ -69,7 +69,6 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
  */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const providerEnvFileValues: Record<string, string> = {};
   let reapplyProviderEnvFileValues = () => {};
 
   // Fast-path for --version/-v: zero module loading needed
@@ -83,13 +82,12 @@ async function main(): Promise<void> {
   // --provider-env-file: Load explicit environment files before any provider resolution.
   {
     const {
-      applyLoadedEnvFileValues,
       loadEnvFile,
       parseProviderEnvFileArgs,
+      reapplyRememberedEnvFileValues,
+      rememberLoadedEnvFileValues,
     } = await import('../utils/envFile.js');
-    reapplyProviderEnvFileValues = () => {
-      applyLoadedEnvFileValues(providerEnvFileValues);
-    };
+    reapplyProviderEnvFileValues = reapplyRememberedEnvFileValues;
     const providerEnvFiles = parseProviderEnvFileArgs(args);
     if (providerEnvFiles.error) {
       // biome-ignore lint/suspicious/noConsole:: intentional error output
@@ -98,7 +96,7 @@ async function main(): Promise<void> {
     }
     for (const filePath of providerEnvFiles.paths) {
       try {
-        Object.assign(providerEnvFileValues, loadEnvFile(filePath));
+        rememberLoadedEnvFileValues(loadEnvFile(filePath));
       } catch (err: unknown) {
         // biome-ignore lint/suspicious/noConsole:: intentional error output
         console.error(err instanceof Error ? err.message : String(err));

@@ -20,6 +20,7 @@ const ALLOWED_ENV_FILE_KEYS = new Set([
   'AWS_PROFILE',
   'AWS_REGION',
   'AZURE_OPENAI_API_KEY',
+  'AZURE_OPENAI_API_VERSION',
   'BANKR_BASE_URL',
   'BANKR_MODEL',
   'BING_API_KEY',
@@ -108,6 +109,8 @@ const ALLOWED_ENV_FILE_KEYS = new Set([
 const ALLOWED_ENV_FILE_PREFIXES = [
   'VERTEX_REGION_CLAUDE_',
 ]
+
+let rememberedEnvFileValues: Record<string, string> | null = null
 
 /**
  * Returns true when an env key is explicitly safe for provider setup files.
@@ -278,6 +281,35 @@ export function applyLoadedEnvFileValues(
   targetEnv: NodeJS.ProcessEnv = process.env,
 ): void {
   Object.assign(targetEnv, values)
+}
+
+/**
+ * Remembers values that were explicitly loaded from --provider-env-file.
+ */
+export function rememberLoadedEnvFileValues(
+  values: Record<string, string>,
+): void {
+  if (Object.keys(values).length === 0) {
+    return
+  }
+  rememberedEnvFileValues ??= {}
+  Object.assign(rememberedEnvFileValues, values)
+}
+
+/**
+ * Reapplies remembered --provider-env-file values after settings/profile env merges.
+ */
+export function reapplyRememberedEnvFileValues(
+  targetEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!rememberedEnvFileValues) {
+    return
+  }
+  applyLoadedEnvFileValues(rememberedEnvFileValues, targetEnv)
+}
+
+export function clearRememberedEnvFileValuesForTests(): void {
+  rememberedEnvFileValues = null
 }
 
 /**

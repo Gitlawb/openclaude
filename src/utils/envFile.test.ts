@@ -4,13 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   applyLoadedEnvFileValues,
+  clearRememberedEnvFileValuesForTests,
   loadEnvFile,
   parseEnvFile,
   parseProviderEnvFileArgs,
+  reapplyRememberedEnvFileValues,
+  rememberLoadedEnvFileValues,
 } from './envFile.js'
 
 const TEST_ENV_KEYS = [
   'NODE_OPTIONS',
+  'AZURE_OPENAI_API_VERSION',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
@@ -28,6 +32,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  clearRememberedEnvFileValuesForTests()
   rmSync(tempDir, { recursive: true, force: true })
   for (const key of TEST_ENV_KEYS) {
     const originalValue = originalEnv.get(key)
@@ -178,6 +183,36 @@ describe('loadEnvFile', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
     expect(process.env.OPENAI_MODEL).toBe('from-file')
+  })
+
+  it('reapplies remembered loaded values after later settings mutations', () => {
+    const filePath = writeTempEnvFile([
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=from-file',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    rememberLoadedEnvFileValues(loaded)
+    process.env.OPENAI_BASE_URL = 'https://settings.example/v1'
+    process.env.OPENAI_MODEL = 'from-settings'
+
+    reapplyRememberedEnvFileValues()
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
+    expect(process.env.OPENAI_MODEL).toBe('from-file')
+  })
+
+  it('loads documented Azure OpenAI API version values', () => {
+    const filePath = writeTempEnvFile(
+      'AZURE_OPENAI_API_VERSION=2024-12-01-preview',
+    )
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.AZURE_OPENAI_API_VERSION).toBe('2024-12-01-preview')
+    expect(loaded).toEqual({
+      AZURE_OPENAI_API_VERSION: '2024-12-01-preview',
+    })
   })
 
   it('rejects unsupported variables before mutating process environment', () => {

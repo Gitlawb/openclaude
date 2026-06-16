@@ -130,6 +130,17 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
 
+  it('remembers provider env-file values so later managed settings env merges can restore them', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const envFileImportIndex = src.indexOf('rememberLoadedEnvFileValues')
+    const rememberLoadedFileIndex = src.indexOf(
+      'rememberLoadedEnvFileValues(loadEnvFile(filePath))',
+    )
+
+    expect(envFileImportIndex).toBeGreaterThanOrEqual(0)
+    expect(rememberLoadedFileIndex).toBeGreaterThan(envFileImportIndex)
+  })
+
   it('preserves explicit --provider-env-file values through settings and startup profile env merges', () => {
     const filePath = writeProviderEnvFile([
       'CLAUDE_CODE_USE_OPENAI=1',
