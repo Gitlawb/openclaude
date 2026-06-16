@@ -100,6 +100,24 @@ export function findModelKeyShadowingSource(
   return null
 }
 
+/**
+ * Every agentModels key defined ABOVE userSettings in the effective chain.
+ * The offer path (buildRouteOptions shadow flag) and the save guard
+ * (setAgentRoute via findModelKeyShadowingSource) must agree on what counts as
+ * shadowed; both derive from this same set so they cannot drift. Pure.
+ */
+export function collectShadowedModelKeys(
+  sources: SettingsWithSources['sources'],
+): Set<string> {
+  const userIdx = sources.findIndex(s => s.source === 'userSettings')
+  const keys = new Set<string>()
+  for (let i = sources.length - 1; i > userIdx; i--) {
+    const models = sources[i]!.settings.agentModels
+    if (models) for (const k of Object.keys(models)) keys.add(k)
+  }
+  return keys
+}
+
 /** Build the route descriptor for a resolved model key. Pure. */
 function describeModelKey(
   settings: SettingsJson | null,
@@ -284,14 +302,7 @@ export function getModelKeyShadowSource(modelKey: string): SettingSource | null 
 
 /** agentModels keys defined above userSettings in the effective chain. */
 export function getShadowedModelKeys(): Set<string> {
-  const { sources } = getSettingsWithSources()
-  const userIdx = sources.findIndex(s => s.source === 'userSettings')
-  const keys = new Set<string>()
-  for (let i = sources.length - 1; i > userIdx; i--) {
-    const models = sources[i]!.settings.agentModels
-    if (models) for (const k of Object.keys(models)) keys.add(k)
-  }
-  return keys
+  return collectShadowedModelKeys(getSettingsWithSources().sources)
 }
 
 /**
@@ -318,17 +329,14 @@ export function setAgentRoute(
   const shadow = getRouteShadowSource(agentType)
   if (shadow) return { error: shadowError(agentType, shadow) }
   // A higher-priority source defining agentModels[modelKey] wins on merge, so a
-  // user-level route to it would resolve to that entry, not the model the
-  // option promised. Refuse rather than silently save a misleading route. Skip
-  // when the user already owns this key in userSettings (selecting their own
-  // pre-defined entry is intentional).
-  const userSettings = getSettingsForSource('userSettings')
-  const ownsKey = Boolean(userSettings?.agentModels?.[modelKey])
-  if (!ownsKey) {
-    const modelShadow = getModelKeyShadowSource(modelKey)
-    if (modelShadow) return { error: modelKeyShadowError(modelKey, modelShadow) }
-  }
-  const next = computeSetRouteUpdate(userSettings, agentType, modelKey)
+  // user-level route to it resolves to that entry, not the model the option
+  // promised. Refuse rather than silently save a misleading route. This holds
+  // even when userSettings also defines the key: the user's entry is the one
+  // being shadowed, so the save still would not take effect. Mirrors the
+  // shadow flag buildRouteOptions shows for the same keys.
+  const modelShadow = getModelKeyShadowSource(modelKey)
+  if (modelShadow) return { error: modelKeyShadowError(modelKey, modelShadow) }
+  const next = computeSetRouteUpdate(getSettingsForSource('userSettings'), agentType, modelKey)
   return updateSettingsForSource('userSettings', next)
 }
 

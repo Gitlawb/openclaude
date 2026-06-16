@@ -6,6 +6,7 @@ import {
   clearAgentRoute,
   computeClearRouteUpdate,
   computeSetRouteUpdate,
+  collectShadowedModelKeys,
   currentRouteValue,
   describeRouteLine,
   findModelKeyShadowingSource,
@@ -337,6 +338,33 @@ describe('findModelKeyShadowingSource', () => {
       src('policySettings', { sonnet: {} }),
     ]
     expect(findModelKeyShadowingSource(sources, 'sonnet')).toBe('policySettings')
+  })
+
+  test('shadows a key the user also defines (the user entry is the one shadowed)', () => {
+    const sources = [
+      src('userSettings', { sonnet: { model: 'sonnet' } }),
+      src('projectSettings', { sonnet: { base_url: 'x', api_key: 'k', model: 'team' } }),
+    ]
+    // Owning the key in userSettings does not save it from being shadowed.
+    expect(findModelKeyShadowingSource(sources, 'sonnet')).toBe('projectSettings')
+  })
+
+  test('collectShadowedModelKeys agrees with findModelKeyShadowingSource', () => {
+    // The offer path (this set) and the save guard (find...) must never disagree
+    // on what is shadowed, or the picker flags a key it still lets you save.
+    const sources = [
+      src('userSettings', { sonnet: { model: 'sonnet' }, mine: {} }),
+      src('projectSettings', { sonnet: {}, teamModel: {} }),
+      src('policySettings', { locked: {} }),
+    ]
+    const set = collectShadowedModelKeys(sources)
+    expect(set).toEqual(new Set(['sonnet', 'teamModel', 'locked']))
+    for (const key of set) {
+      expect(findModelKeyShadowingSource(sources, key)).not.toBeNull()
+    }
+    // A user-only key is not in the set and is not shadowed.
+    expect(set.has('mine')).toBe(false)
+    expect(findModelKeyShadowingSource(sources, 'mine')).toBeNull()
   })
 })
 
