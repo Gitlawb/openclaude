@@ -426,6 +426,56 @@ describe('restoreContextCollapseState', () => {
     expect(idx.getStats().stagedSpans).toBe(1)
   })
 
+  test('restored commit reports its archivedCount in collapsedMessages', async () => {
+    // After a resume the archived messages are not held per-commit; getStats
+    // must use the persisted count so /context, ctx_inspect, and the token
+    // warning report the same figure as a live session, not "0 messages".
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState(
+      [
+        {
+          type: 'marble-origami-commit' as const,
+          sessionId: uid('s1'),
+          collapseId: '0000000000000007',
+          summaryUuid: uid('sum'),
+          summaryContent: '<collapsed id="0000000000000007">summary</collapsed>',
+          summary: 'summary',
+          firstArchivedUuid: uid('a'),
+          lastArchivedUuid: uid('b'),
+          archivedCount: 5,
+        },
+      ],
+      undefined,
+    )
+    expect(idx.getStats().collapsedSpans).toBe(1)
+    expect(idx.getStats().collapsedMessages).toBe(5)
+  })
+
+  test('pre-field commit (no archivedCount) restores as 0 messages', async () => {
+    await cleanState()
+    const idx = await import('./index.js')
+    idx.initContextCollapse()
+    idx.restoreContextCollapseState(
+      [
+        {
+          type: 'marble-origami-commit' as const,
+          sessionId: uid('s1'),
+          collapseId: '0000000000000008',
+          summaryUuid: uid('sum2'),
+          summaryContent: '<collapsed id="0000000000000008">summary</collapsed>',
+          summary: 'summary',
+          firstArchivedUuid: uid('a'),
+          lastArchivedUuid: uid('b'),
+        },
+      ],
+      undefined,
+    )
+    expect(idx.getStats().collapsedSpans).toBe(1)
+    expect(idx.getStats().collapsedMessages).toBe(0)
+  })
+
   test('ID counter reseeded from max collapseId', async () => {
     await cleanState()
     const idx = await import('./index.js')

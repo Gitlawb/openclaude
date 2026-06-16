@@ -1589,6 +1589,7 @@ export async function recordContextCollapseCommit(commit: {
   summary: string
   firstArchivedUuid: string
   lastArchivedUuid: string
+  archivedCount: number
 }): Promise<void> {
   const sessionId = getSessionId() as UUID
   if (!sessionId) return

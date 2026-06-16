@@ -30,7 +30,10 @@ type CommittedCollapse = {
   summary: string
   firstArchivedUuid: string
   lastArchivedUuid: string
-  archived: Message[]
+  // Count only: the archived messages are never read back (projectView splices
+  // by boundary uuid), so we keep the count for getStats and persist it so a
+  // resumed session reports the same figure as a live one.
+  archivedCount: number
 }
 
 type StagedSpan = {
@@ -153,7 +156,7 @@ export function initContextCollapse(): void {
 export function getStats(): ContextCollapseStats {
   let collapsedMessages = 0
   for (const c of commitLog) {
-    collapsedMessages += c.archived.length
+    collapsedMessages += c.archivedCount
   }
   return {
     collapsedSpans: commitLog.length,
@@ -290,7 +293,7 @@ function drainStaged(
 
     if (firstIdx === -1 || lastIdx === -1 || firstIdx > lastIdx) continue
 
-    const archived = messages.slice(firstIdx, lastIdx + 1)
+    const archivedCount = lastIdx - firstIdx + 1
     const collapseId = deriveCollapseId(span.startUuid)
     const summaryUuid = randomUUID()
     const summaryContent = buildCollapsePlaceholder(collapseId, span.summary)
@@ -314,7 +317,7 @@ function drainStaged(
       summary: span.summary,
       firstArchivedUuid: span.startUuid,
       lastArchivedUuid: span.endUuid,
-      archived,
+      archivedCount,
     }
 
     commitLog.push(committed)
@@ -509,6 +512,7 @@ async function persistCommits(count: number): Promise<void> {
       summary: c.summary,
       firstArchivedUuid: c.firstArchivedUuid,
       lastArchivedUuid: c.lastArchivedUuid,
+      archivedCount: c.archivedCount,
     })
   }
 }
@@ -541,7 +545,6 @@ export function getCommitLogForProjection(): ReadonlyArray<{
   summary: string
   firstArchivedUuid: string
   lastArchivedUuid: string
-  archived: Message[]
 }> {
   return commitLog
 }
@@ -576,7 +579,8 @@ export function restoreContextCollapseState(
       summary: entry.summary,
       firstArchivedUuid: entry.firstArchivedUuid,
       lastArchivedUuid: entry.lastArchivedUuid,
-      archived: [],
+      // Pre-field sessions persisted no count; report 0 rather than guess.
+      archivedCount: entry.archivedCount ?? 0,
     }
 
     commitLog.push(c)
