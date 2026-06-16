@@ -362,21 +362,19 @@ export function buildAPIProviderProperties(): Property[] {
     });
   }
   if (apiProvider === 'firstParty') {
-    const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
-    if (anthropicBaseUrl) {
-      properties.push({
-        label: 'Anthropic base URL',
-        value: redactUrlForStatus(anthropicBaseUrl)
-      });
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Anthropic base URL',
+      process.env.ANTHROPIC_BASE_URL,
+      secretSource,
+    );
   } else if (apiProvider === 'bedrock') {
-    const bedrockBaseUrl = process.env.BEDROCK_BASE_URL;
-    if (bedrockBaseUrl) {
-      properties.push({
-        label: 'Bedrock base URL',
-        value: redactUrlForStatus(bedrockBaseUrl)
-      });
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Bedrock base URL',
+      process.env.BEDROCK_BASE_URL,
+      secretSource,
+    );
     properties.push({
       label: 'AWS region',
       value: getAWSRegion()
@@ -387,13 +385,12 @@ export function buildAPIProviderProperties(): Property[] {
       });
     }
   } else if (apiProvider === 'vertex') {
-    const vertexBaseUrl = process.env.VERTEX_BASE_URL;
-    if (vertexBaseUrl) {
-      properties.push({
-        label: 'Vertex base URL',
-        value: redactUrlForStatus(vertexBaseUrl)
-      });
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Vertex base URL',
+      process.env.VERTEX_BASE_URL,
+      secretSource,
+    );
     const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
     if (gcpProject) {
       properties.push({
@@ -411,13 +408,12 @@ export function buildAPIProviderProperties(): Property[] {
       });
     }
   } else if (apiProvider === 'foundry') {
-    const foundryBaseUrl = process.env.ANTHROPIC_FOUNDRY_BASE_URL;
-    if (foundryBaseUrl) {
-      properties.push({
-        label: 'Microsoft Foundry base URL',
-        value: redactUrlForStatus(foundryBaseUrl)
-      });
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Microsoft Foundry base URL',
+      process.env.ANTHROPIC_FOUNDRY_BASE_URL,
+      secretSource,
+    );
     const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
     if (foundryResource) {
       properties.push({
@@ -464,12 +460,7 @@ export function buildAPIProviderProperties(): Property[] {
     pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
   }
   const proxyUrl = getProxyUrl();
-  if (proxyUrl) {
-    properties.push({
-      label: 'Proxy',
-      value: redactUrlForStatus(proxyUrl)
-    });
-  }
+  pushRedactedUrlProperty(properties, 'Proxy', proxyUrl, secretSource);
   const mtlsConfig = getMTLSConfig();
   if (process.env.NODE_EXTRA_CA_CERTS) {
     properties.push({
