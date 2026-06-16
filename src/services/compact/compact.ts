@@ -98,6 +98,7 @@ import {
 } from '../../utils/toolSearch.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { isAnthropicProvider } from '../../utils/betas.js'
+import { parseUserSpecifiedModel } from '../../utils/model/model.js'
 import { isGithubNativeAnthropicMode } from '../../utils/model/providers.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -459,7 +460,11 @@ export async function compactConversation(
     // The GB flag is kept as a kill-switch.
     // streamCompactSummary() (below) follows the same gate; see also the
     // provider-gate tests in src/services/compact/compact.test.ts.
-    const compactModel = getGlobalConfig().compactModel
+    const rawCompactModel = getGlobalConfig().compactModel
+    const compactModel =
+      rawCompactModel !== undefined
+        ? parseUserSpecifiedModel(rawCompactModel)
+        : undefined
     const modelChangesForCompaction =
       compactModel !== undefined && compactModel !== context.options.mainLoopModel
     const promptCacheSharingEnabled =
@@ -1190,7 +1195,11 @@ async function streamCompactSummary({
   // prompt cache; other 3P providers are incompatible and would send
   // Anthropic-only params that they reject. The shared predicate makes this
   // safe to call from 3P provider paths.
-  const compactModel = getGlobalConfig().compactModel
+  const rawCompactModel = getGlobalConfig().compactModel
+  const compactModel =
+    rawCompactModel !== undefined
+      ? parseUserSpecifiedModel(rawCompactModel)
+      : undefined
   const modelChangesForCompaction =
     compactModel !== undefined && compactModel !== context.options.mainLoopModel
   const cacheSharingAvailable = isCompactionCacheSharingCompatible(

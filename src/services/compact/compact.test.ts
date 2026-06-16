@@ -677,13 +677,57 @@ describe('compactConversation provider gate', () => {
 })
 
 describe('compactConversation compactModel override', () => {
+  test('resolves a compact model alias to full model ID before comparing and sending', async () => {
+    // The ModelPicker stores alias values like 'sonnet' directly; compact must
+    // resolve them with parseUserSpecifiedModel before comparing to mainLoopModel
+    // or passing to the API, so 'sonnet' → 'claude-sonnet-4-6-20251001' etc.
+    const compactModelAlias = 'sonnet'
+    const resolvedModel = _realModelModule.parseUserSpecifiedModel(compactModelAlias)
+    const queryModelWithStreaming = mock(async function* () {
+      yield {
+        type: 'assistant' as const,
+        message: {
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: 'Alias summary.' }],
+        },
+        uuid: `alias-${Math.random()}`,
+        timestamp: new Date().toISOString(),
+      }
+    })
+
+    const { compactConversation } = await importCompact({
+      getGlobalConfig: mock(() => ({
+        ..._realConfigModule.getGlobalConfig(),
+        compactModel: compactModelAlias,
+      })),
+      queryModelWithStreaming,
+    })
+
+    const messages = [userMessage('Hello'), assistantMessage('Hi there!')]
+    const ctx = toolUseContext()
+    const csp = cacheSafeParams(messages)
+
+    await compactConversation(messages, ctx, csp, false)
+
+    expect(queryModelWithStreaming).toHaveBeenCalled()
+    const [{ options: streamOptions }] = queryModelWithStreaming.mock.calls[0] as unknown as [
+      { options: { model: string } },
+    ]
+    // The alias must be expanded — never sent verbatim to the API.
+    expect(streamOptions.model).toBe(resolvedModel)
+    expect(streamOptions.model).not.toBe(compactModelAlias)
+  })
+
   test('skips cache-sharing and routes streaming compaction to compactModel when it differs from mainLoopModel', async () => {
     // All provider env vars are cleared by beforeEach, so this would normally
     // be eligible for forked-agent cache-sharing (Anthropic provider). Setting
     // compactModel to a different model than mainLoopModel must override that.
     const compactModel = 'claude-opus-4-1'
+    // parseUserSpecifiedModel remaps legacy opus IDs to the current default —
+    // the resolved form is what compact.ts sends to the API.
+    const resolvedCompactModel = _realModelModule.parseUserSpecifiedModel(compactModel)
     const getMaxOutputTokensForModel = mock((model: string) =>
-      model === compactModel ? 4096 : 8192,
+      model === resolvedCompactModel ? 4096 : 8192,
     )
     const queryModelWithStreaming = mock(async function* () {
       yield {
@@ -721,7 +765,7 @@ describe('compactConversation compactModel override', () => {
     const [{ options: streamOptions }] = queryModelWithStreaming.mock.calls[0] as unknown as [
       { options: { model: string; maxOutputTokensOverride: number } },
     ]
-    expect(streamOptions.model).toBe(compactModel)
+    expect(streamOptions.model).toBe(resolvedCompactModel)
     expect(streamOptions.maxOutputTokensOverride).toBe(4096)
   })
 })
