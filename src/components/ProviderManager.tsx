@@ -1233,6 +1233,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // startup no longer replays a third-party profile, and keeps saved
         // profiles for later re-selection (#1426).
         clearActiveProviderProfile()
+        // Clear any startup provider override persisted in user settings
+        // (CLAUDE_CODE_USE_OPENAI, OPENAI_BASE_URL, provider API keys, ...) so a
+        // restart does not replay the third-party provider. The saved-profile
+        // and GitHub activation paths perform the same cleanup; surface any
+        // failure as a warning the same way the saved-profile path does.
+        const settingsOverrideError = clearStartupProviderOverrideFromUserSettings()
         const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
         setAppState(prev => ({
           ...prev,
@@ -1240,13 +1246,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           mainLoopModelForSession: null,
         }))
         refreshProfiles()
-        setStatusMessage(`Active provider: ${ANTHROPIC_PROVIDER_LABEL}`)
+        setStatusMessage(
+          settingsOverrideError
+            ? `Active provider: ${ANTHROPIC_PROVIDER_LABEL}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Active provider: ${ANTHROPIC_PROVIDER_LABEL}`,
+        )
         setIsActivating(false)
         onDone({
           action: 'activated',
           activeProviderName: ANTHROPIC_PROVIDER_LABEL,
           activeProviderModel: anthropicModel,
-          message: `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel})`,
+          message: settingsOverrideError
+            ? `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel}). Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel})`,
         })
         returnToMenu()
         return

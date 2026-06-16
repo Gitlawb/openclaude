@@ -1231,6 +1231,10 @@ describe('clearActiveProviderProfile', () => {
 
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = 'saved_deepseek'
+    // Managed provider env that a third-party profile would have applied.
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.deepseek.com'
+    process.env.OPENAI_API_KEY = 'sk-test'
 
     saveMockGlobalConfig(current => ({
       ...current,
@@ -1246,6 +1250,11 @@ describe('clearActiveProviderProfile', () => {
     expect(
       process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
     ).toBeUndefined()
+    // The managed provider env itself must be gone too, otherwise the switch
+    // back to Anthropic would not take effect for the current session.
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 })
 
