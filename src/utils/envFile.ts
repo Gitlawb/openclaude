@@ -255,7 +255,7 @@ export function parseProviderEnvFileArgs(args: string[]): {
       }
       paths.push(nextArg.trim())
       i++
-    } else if (arg?.startsWith('--provider-env-file=')) {
+    } else if (arg.startsWith('--provider-env-file=')) {
       const filePath = arg.slice('--provider-env-file='.length).trim()
       if (!filePath) {
         return {
