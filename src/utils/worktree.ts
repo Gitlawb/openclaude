@@ -967,7 +967,10 @@ export async function cleanupWorktree(): Promise<void> {
  * global session state (currentWorktreeSession, process.chdir, project config).
  * Falls back to hook-based creation if not in a git repository.
  */
-export async function createAgentWorktree(slug: string): Promise<{
+export async function createAgentWorktree(
+  slug: string,
+  options?: { cwd?: string },
+): Promise<{
   worktreePath: string
   worktreeBranch?: string
   headCommit?: string
@@ -975,6 +978,11 @@ export async function createAgentWorktree(slug: string): Promise<{
   hookBased?: boolean
 }> {
   validateWorktreeSlug(slug)
+
+  // Resolve the parent session's working directory once. Defaults to the
+  // ambient session cwd; callers (and tests) may pin it explicitly so both the
+  // canonical-root and parent-HEAD lookups below stay consistent.
+  const sessionCwd = options?.cwd ?? getCwd()
 
   // Try hook-based worktree creation first (allows user-configured VCS)
   if (hasWorktreeCreateHook()) {
@@ -991,7 +999,7 @@ export async function createAgentWorktree(slug: string): Promise<{
   // the main repo's .claude/worktrees/ even when spawned from inside a session
   // worktree — otherwise they nest at <worktree>/.claude/worktrees/ and the
   // periodic cleanup (which scans the canonical root) never finds them.
-  const gitRoot = findCanonicalGitRoot(getCwd())
+  const gitRoot = findCanonicalGitRoot(sessionCwd)
   if (!gitRoot) {
     throw new Error(
       'Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured. ' +
@@ -1008,7 +1016,7 @@ export async function createAgentWorktree(slug: string): Promise<{
   // repo with no commits yet).
   const { stdout: headStdout, code: headCode } =
     await execFileNoThrowWithCwd(gitExe(), ['rev-parse', 'HEAD'], {
-      cwd: getCwd(),
+      cwd: sessionCwd,
     })
   const parentHeadRef =
     headCode === 0 && headStdout.trim() ? headStdout.trim() : undefined

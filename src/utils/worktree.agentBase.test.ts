@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { createAgentWorktree } from './worktree.js'
-import { runWithCwdOverride } from './cwd.js'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
@@ -14,6 +13,11 @@ import {
 // based on the parent session's current HEAD, not origin/<defaultBranch>.
 // Otherwise the isolated agent sees an older tree and misses files that only
 // exist on the active branch.
+//
+// The parent cwd is passed explicitly (createAgentWorktree's `cwd` option)
+// rather than via the ambient getCwd(): bun runs test files concurrently in
+// one process and a sibling test mutates the global cwd state, which would
+// otherwise race this test.
 
 let repoDir: string
 let cfgDir: string
@@ -71,9 +75,7 @@ afterEach(() => {
 test('agent worktree is based on the parent session HEAD, not origin/main', async () => {
   const parentHead = git(repoDir, 'rev-parse', 'HEAD')
 
-  const result = await runWithCwdOverride(repoDir, () =>
-    createAgentWorktree('issue-1586-base'),
-  )
+  const result = await createAgentWorktree('issue-1586-base', { cwd: repoDir })
 
   expect(result.worktreePath).toBeDefined()
   expect(existsSync(result.worktreePath)).toBe(true)
