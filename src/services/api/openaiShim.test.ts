@@ -6870,7 +6870,6 @@ test('non-streaming: parses plain-content JSON tool call array from Ollama conte
     { type: 'tool_use', id: 'tc-0-Bash', name: 'Bash', input: { command: 'ls' } },
     { type: 'tool_use', id: 'tc-1-Read', name: 'Read', input: { file_path: 'src/main.ts' } },
   ])
->>>>>>> fix(openai-shim): handle plain-content JSON tool calls from Ollama and add regression tests (PR #433 review)
 })
 
 test('non-streaming: rejects mixed JSON array where some items are not valid tool calls', async () => {
