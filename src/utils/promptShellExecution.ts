@@ -270,5 +270,6 @@ function applyLineLimit(
   if (lines.length <= bestLimit) {
     return output
   }
-  return lines.slice(0, bestLimit).join('\n')
+  const truncated = lines.slice(0, bestLimit).join('\n')
+  return output.endsWith('\n') ? truncated + '\n' : truncated
 }
