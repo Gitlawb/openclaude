@@ -118,9 +118,10 @@ function pushRedactedProperty(
     return;
   }
 
+  const secretRedacted = redactSecretValueForDisplay(value, secretSource) ?? value;
   properties.push({
     label,
-    value: redactSecretValueForDisplay(value, secretSource) ?? value
+    value: redactConfiguredSecretSubstrings(secretRedacted, secretSource)
   });
 }
 

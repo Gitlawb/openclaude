@@ -181,6 +181,20 @@ test('OPENAI_API_BASE query credentials are redacted from status display', async
   expect(JSON.stringify(properties)).not.toContain('sk-or-query-secret')
 })
 
+test('OPENAI_API_BASE fragments are removed from status display', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE =
+    'https://openrouter.ai/api/v1?api_key=querysecret#access_token=fragsecret'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
+  process.env.OPENROUTER_API_KEY = 'sk-or-test-key'
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://openrouter.ai/api/v1?api_key=redacted',
+  )
+  expect(JSON.stringify(properties)).not.toContain('fragsecret')
+})
+
 test('configured route secrets inside base URL query values are redacted', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_API_BASE =
@@ -235,6 +249,18 @@ test('route-specific credential values are redacted from displayed fields', asyn
   const serialized = JSON.stringify(properties)
   expect(serialized).not.toContain('gsk-route-secret-value-123')
   expect(findValue(properties, 'Model')).toBe('gsk...123')
+})
+
+test('route-specific credential substrings are redacted from displayed model fields', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'prefix-sk-or-SECRET-VALUE-123-suffix'
+  process.env.OPENROUTER_API_KEY = 'sk-or-SECRET-VALUE-123'
+
+  const properties = await buildPropertiesWithRealProvider()
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('sk-or-SECRET-VALUE-123')
+  expect(findValue(properties, 'Model')).toBe('prefix-redacted-suffix')
 })
 
 test('env-only Fireworks route displays descriptor defaults', async () => {

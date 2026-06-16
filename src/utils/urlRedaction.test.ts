@@ -26,6 +26,14 @@ describe('redactUrlForDisplay', () => {
     )
   })
 
+  test('drops fragments before displaying URLs', () => {
+    const redacted = redactUrlForDisplay(
+      'https://example.com/v1?api_key=secret#access_token=fragment-secret',
+    )
+
+    expect(redacted).toBe('https://example.com/v1?api_key=redacted')
+  })
+
   test('falls back to regex redaction for malformed URLs', () => {
     const redacted = redactUrlForDisplay(
       '//user:pass@localhost:11434?token=abc&mode=test',
