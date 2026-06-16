@@ -504,6 +504,27 @@ export async function refreshBackgroundSessionStatuses(options?: {
 
 type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
 
+function commandLineContainsArgs(commandLine: string, args: string[]): boolean {
+  if (args.length === 0) return false
+  let offset = 0
+  for (const arg of args) {
+    const index = commandLine.indexOf(arg, offset)
+    if (index === -1) return false
+    offset = index + arg.length
+  }
+  return true
+}
+
+function commandLineMatchesBackgroundSession(
+  commandLine: string,
+  session: BackgroundSession,
+): boolean {
+  if (commandLine.includes(session.sessionId)) return true
+  // PR resume launches write to the resumed transcript id without carrying
+  // that id on argv, so use the stored launch invocation as the PID guard.
+  return commandLineContainsArgs(commandLine, session.command)
+}
+
 function getBackgroundSessionProcessState(
   session: BackgroundSession,
   options?: {
@@ -517,7 +538,7 @@ function getBackgroundSessionProcessState(
   const readCommand = options?.getProcessCommand ?? getProcessCommand
   const command = readCommand(session.pid)
   if (command == null) return 'unknown'
-  return command.includes(session.sessionId) ? 'alive' : 'dead'
+  return commandLineMatchesBackgroundSession(command, session) ? 'alive' : 'dead'
 }
 
 export function isBackgroundSessionProcessAlive(

@@ -135,11 +135,11 @@ describe('background session CLI parsing', () => {
     ])
   })
 
-  it('does not inject a generated session id when resuming without forking', () => {
+  it('does not inject a generated session id when resuming without forking', async () => {
     const resumeSessionId = '550e8400-e29b-41d4-a716-446655440000'
     const generatedSessionId = '00000000-0000-4000-8000-000000000001'
 
-    const launch = buildBackgroundSessionLaunch(
+    const launch = await buildBackgroundSessionLaunch(
       ['--resume', resumeSessionId, '--print'],
       generatedSessionId,
     )
@@ -148,11 +148,11 @@ describe('background session CLI parsing', () => {
     expect(launch.childArgs).toEqual(['--resume', resumeSessionId, '--print'])
   })
 
-  it('preserves an explicit session id without injecting a generated one', () => {
+  it('preserves an explicit session id without injecting a generated one', async () => {
     const explicitSessionId = '550e8400-e29b-41d4-a716-446655440000'
     const generatedSessionId = '00000000-0000-4000-8000-000000000001'
 
-    const launch = buildBackgroundSessionLaunch(
+    const launch = await buildBackgroundSessionLaunch(
       ['--session-id', explicitSessionId, '--print', 'fix failing tests'],
       generatedSessionId,
     )
@@ -166,11 +166,11 @@ describe('background session CLI parsing', () => {
     ])
   })
 
-  it('uses a generated session id for forked background resumes', () => {
+  it('uses a generated session id for forked background resumes', async () => {
     const resumeSessionId = '550e8400-e29b-41d4-a716-446655440000'
     const generatedSessionId = '00000000-0000-4000-8000-000000000001'
 
-    const launch = buildBackgroundSessionLaunch(
+    const launch = await buildBackgroundSessionLaunch(
       ['--resume', resumeSessionId, '--fork-session', '--print'],
       generatedSessionId,
     )
@@ -184,6 +184,27 @@ describe('background session CLI parsing', () => {
       '--session-id',
       generatedSessionId,
     ])
+  })
+
+  it('registers non-forked PR resumes under the selected transcript id', async () => {
+    const generatedSessionId = '00000000-0000-4000-8000-000000000001'
+    const prSessionId = '550e8400-e29b-41d4-a716-446655440000'
+    const seenSelectors: unknown[] = []
+
+    const launch = await buildBackgroundSessionLaunch(
+      ['--from-pr', '1642', '--print'],
+      generatedSessionId,
+      {
+        resolvePrResumeSessionId: async selector => {
+          seenSelectors.push(selector)
+          return prSessionId
+        },
+      },
+    )
+
+    expect(seenSelectors).toEqual(['1642'])
+    expect(launch.sessionId).toBe(prSessionId)
+    expect(launch.childArgs).toEqual(['--from-pr', '1642', '--print'])
   })
 
   it('inserts generated flags before -- so dash-prefixed prompts stay positional', () => {

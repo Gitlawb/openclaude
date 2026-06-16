@@ -799,3 +799,11 @@ export async function loadConversationForResumeFromPr(
   if (!log) return null
   return loadConversationForResume(log, undefined)
 }
+
+export async function findResumeSessionIdByPrSelector(
+  selector: true | string,
+): Promise<UUID | null> {
+  const log = findResumeLogByPrSelector(await loadMessageLogs(), selector)
+  if (!log) return null
+  return getSessionIdFromLog(log) ?? null
+}

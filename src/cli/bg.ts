@@ -46,6 +46,14 @@ export type BuildBackgroundChildProcessConfigInput = {
   stdoutLogPath: string
 }
 
+type PrResumeSelector = true | string
+
+export type BuildBackgroundSessionLaunchDeps = {
+  resolvePrResumeSessionId?: (
+    selector: PrResumeSelector,
+  ) => Promise<string | null | undefined>
+}
+
 const HEAP_RELAUNCHED_ENV = 'OPENCLAUDE_HEAP_RELAUNCHED'
 const DEFAULT_TERM_GRACE_MS = 2_000
 const DEFAULT_KILL_GRACE_MS = 2_000
@@ -251,18 +259,48 @@ function hasForkSession(args: string[]): boolean {
   return argsBeforeDelimiter(args).includes('--fork-session')
 }
 
+function findFromPrSelector(args: string[]): PrResumeSelector | undefined {
+  const searchable = argsBeforeDelimiter(args)
+  const inlinePrefix = '--from-pr='
+  for (let i = 0; i < searchable.length; i++) {
+    const arg = searchable[i]
+    if (arg.startsWith(inlinePrefix)) {
+      return arg.slice(inlinePrefix.length) || true
+    }
+    if (arg === '--from-pr') {
+      const next = searchable[i + 1]
+      return next && !next.startsWith('-') ? next : true
+    }
+  }
+  return undefined
+}
+
 function hasResumeSource(args: string[]): boolean {
   return Boolean(
     findFlagValue(args, '--resume') ??
       findFlagValue(args, '-r') ??
-      findFlagValue(args, '--from-pr'),
+      findFromPrSelector(args),
   )
 }
 
-export function buildBackgroundSessionLaunch(
+async function resolvePrResumeSessionId(
+  selector: PrResumeSelector,
+  deps: BuildBackgroundSessionLaunchDeps,
+): Promise<string | null | undefined> {
+  if (deps.resolvePrResumeSessionId) {
+    return deps.resolvePrResumeSessionId(selector)
+  }
+  const { findResumeSessionIdByPrSelector } = await import(
+    '../utils/conversationRecovery.js'
+  )
+  return findResumeSessionIdByPrSelector(selector)
+}
+
+export async function buildBackgroundSessionLaunch(
   childArgs: string[],
   generatedSessionId: string,
-): { childArgs: string[]; sessionId: string } {
+  deps: BuildBackgroundSessionLaunchDeps = {},
+): Promise<{ childArgs: string[]; sessionId: string }> {
   const explicitSessionId = findFlagValue(childArgs, '--session-id')
   if (explicitSessionId) {
     return { childArgs, sessionId: explicitSessionId }
@@ -272,6 +310,17 @@ export function buildBackgroundSessionLaunch(
     findFlagValue(childArgs, '--resume') ?? findFlagValue(childArgs, '-r')
   if (resumeSessionId && !hasForkSession(childArgs)) {
     return { childArgs, sessionId: resumeSessionId }
+  }
+
+  const fromPrSelector = findFromPrSelector(childArgs)
+  if (fromPrSelector !== undefined && !hasForkSession(childArgs)) {
+    const sessionId = await resolvePrResumeSessionId(fromPrSelector, deps)
+    if (!sessionId) {
+      const description =
+        fromPrSelector === true ? 'any PR' : `PR selector: ${fromPrSelector}`
+      throw new Error(`No conversation found linked to ${description}`)
+    }
+    return { childArgs, sessionId }
   }
 
   return {
@@ -580,10 +629,12 @@ export async function handleBgFlag(args: string[]): Promise<void> {
   }
 
   const id = backgroundSessionId()
-  const { childArgs, sessionId } = buildBackgroundSessionLaunch(
+  const { childArgs, sessionId } = await buildBackgroundSessionLaunch(
     parsed.childArgs,
     randomUUID(),
-  )
+  ).catch(error => {
+    fail(errorMessage(error))
+  })
   const logPaths = getBackgroundSessionLogPaths(id)
   await ensureBackgroundSessionDirs()
   const entrypoint = process.argv[1]

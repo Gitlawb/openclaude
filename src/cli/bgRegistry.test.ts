@@ -525,6 +525,29 @@ describe('background session registry', () => {
     })
   })
 
+  it('keeps PR-resume sessions fresh when the live command matches the stored invocation', async () => {
+    await createBackgroundSession({
+      id: 'bg-from-pr',
+      pid: 333,
+      cwd: '/repo',
+      command: ['openclaude', '--from-pr', '1642', '--print'],
+      sessionId: '550e8400-e29b-41d4-a716-446655440000',
+      now: new Date('2026-06-15T08:00:00.000Z'),
+    })
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => true,
+      getProcessCommand: () => 'node openclaude --from-pr 1642 --print',
+      now: new Date('2026-06-15T08:05:00.000Z'),
+    })
+
+    expect(refreshed[0]).toMatchObject({
+      id: 'bg-from-pr',
+      status: 'running',
+      updatedAt: '2026-06-15T08:00:00.000Z',
+    })
+  })
+
   it('marks sessions stale when a live PID no longer matches the session command', async () => {
     await createBackgroundSession({
       id: 'bg-reused-pid',
