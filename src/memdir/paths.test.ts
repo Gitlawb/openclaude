@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, mock } from 'bun:test'
-import * as realConstants from '../utils/settings/constants.js'
+import { setAllowedSettingSources } from '../bootstrap/state.js'
+import { SETTING_SOURCES } from '../utils/settings/constants.js'
 import * as realSettings from '../utils/settings/settings.js'
 import { isAutoMemoryEnabled } from './paths.ts'
 
@@ -15,9 +16,11 @@ let _originalEnv: Record<string, string | undefined> = {}
 type SourceFixture = { source: string; settings: Record<string, unknown> }
 let _sources: SourceFixture[] = []
 
-// Drive the raw per-source view that isAutoMemoryEnabled() now reads. Sources
-// are listed low-to-high priority (userSettings lowest, policySettings highest)
-// — the same order getEnabledSettingSources() yields.
+// Drive the raw per-source view that isAutoMemoryEnabled() reads. Sources are
+// listed low-to-high priority (userSettings lowest, policySettings highest) —
+// the order getEnabledSettingSources() yields. We use the REAL enabled-sources
+// list (all sources are allowed below) and only stub getSettingsForSource, so
+// no shared module other than settings.js is mocked.
 function mockSources(sources: SourceFixture[]): void {
   _sources = sources
 }
@@ -35,12 +38,11 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_REMOTE_MEMORY_DIR
 
   _sources = []
-  // Spread the real modules so every other export keeps its real binding; only
-  // the two seams isAutoMemoryEnabled() depends on are overridden.
-  mock.module('../utils/settings/constants.js', () => ({
-    ...realConstants,
-    getEnabledSettingSources: () => _sources.map(s => s.source),
-  }))
+  // Enable every source so getEnabledSettingSources() returns the full set in
+  // priority order; the fixtures decide which of them carry a value.
+  setAllowedSettingSources([...SETTING_SOURCES])
+  // Stub only the per-source reader. Spread the real module so every other
+  // export keeps its real binding.
   mock.module('../utils/settings/settings.js', () => ({
     ...realSettings,
     getSettingsForSource: (source: string) =>
@@ -56,6 +58,11 @@ afterEach(() => {
       process.env[k] = v
     }
   }
+  setAllowedSettingSources([...SETTING_SOURCES])
+  // mock.restore() undoes spies but NOT mock.module() registrations, which
+  // otherwise leak into later test files in the same (serial) run. Re-register
+  // the real settings module so the process is left clean.
+  mock.module('../utils/settings/settings.js', () => ({ ...realSettings }))
   mock.restore()
 })
 
