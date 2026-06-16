@@ -2,8 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import type { ToolUseContext } from '../../Tool.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
-import { FileReadTool } from './FileReadTool.js'
-import { renderPromptTemplate } from './prompt.js'
+
+const moduleNonce = `vision-${Date.now()}-${Math.random()}`
+const { FileReadTool } = (await import(
+  `./FileReadTool.js?${moduleNonce}`
+)) as typeof import('./FileReadTool.js')
+const { renderPromptTemplate } = (await import(
+  `./prompt.js?${moduleNonce}`
+)) as typeof import('./prompt.js')
 
 const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL
 const originalOpenAIApiBase = process.env.OPENAI_API_BASE
@@ -66,7 +72,7 @@ describe('renderPromptTemplate — vision sentence (issue #1421)', () => {
 
 describe('FileReadTool.validateInput — vision gate (issue #1421)', () => {
   test('returns a structured denial for image reads on registered non-vision models', async () => {
-    const result = await FileReadTool.validateInput?.(
+    const result = await FileReadTool.validateInput(
       { file_path: 'fixture.png' },
       createToolUseContext('mimo-v2.5-pro'),
     )
@@ -81,7 +87,7 @@ describe('FileReadTool.validateInput — vision gate (issue #1421)', () => {
   test('provider override base URL wins over ambient OpenAI-compatible env', async () => {
     process.env.OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1'
 
-    const result = await FileReadTool.validateInput?.(
+    const result = await FileReadTool.validateInput(
       { file_path: 'fixture.png' },
       createToolUseContext('mimo-v2.5', {
         model: 'mimo-v2.5',
@@ -96,7 +102,7 @@ describe('FileReadTool.validateInput — vision gate (issue #1421)', () => {
   test('falls back to OPENAI_BASE_URL when no provider override is present', async () => {
     process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
 
-    const result = await FileReadTool.validateInput?.(
+    const result = await FileReadTool.validateInput(
       { file_path: 'fixture.png' },
       createToolUseContext('mimo-v2.5'),
     )
@@ -105,7 +111,7 @@ describe('FileReadTool.validateInput — vision gate (issue #1421)', () => {
   })
 
   test('validates UNC image paths before the UNC no-I/O early return', async () => {
-    const result = await FileReadTool.validateInput?.(
+    const result = await FileReadTool.validateInput(
       { file_path: '\\\\server\\share\\fixture.png' },
       createToolUseContext('mimo-v2.5-pro'),
     )
