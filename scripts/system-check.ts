@@ -304,8 +304,8 @@ function safeBaseUrlDisplay(
 
 function getOpenAICompatibleRouteId(baseUrl: string): string {
   return (
-    resolveActiveRouteIdFromEnv(process.env) ??
     resolveRouteIdFromBaseUrl(baseUrl) ??
+    resolveActiveRouteIdFromEnv(process.env) ??
     'custom'
   )
 }

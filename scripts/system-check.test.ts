@@ -150,7 +150,7 @@ describe('system-check provider diagnostics', () => {
     expect(JSON.stringify(summary)).not.toContain(providerSecret)
   })
 
-  test('uses active GitHub provider credentials before default OpenAI route matching', () => {
+  test('does not use active GitHub credentials for a default OpenAI base URL', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
@@ -159,7 +159,7 @@ describe('system-check provider diagnostics', () => {
 
     const summary = serializeSafeEnvSummary()
 
-    expect(summary.PROVIDER_API_KEY_SET).toBe(true)
+    expect(summary.PROVIDER_API_KEY_SET).toBe(false)
   })
 })
 
