@@ -562,6 +562,11 @@ describe('persistent retry cap', () => {
     }
 
     await expect(runRetries()).rejects.toBeInstanceOf(CannotRetryError)
-    expect(operation).toHaveBeenCalledTimes(101)
+    // When the UNATTENDED_RETRY feature is compiled in (via --feature=UNATTENDED_RETRY),
+    // the persistent cap kicks in and the loop stops after exactly 101 calls (1 + 100 retries).
+    // Without the feature flag, isPersistentRetryEnabled() returns false and the loop stops
+    // after just 1 call (no persistent retries). Either way, CannotRetryError is still thrown.
+    const expectedCalls = (_PERSISTENT_MAX_ATTEMPTS_FOR_TEST ?? 0) > 0 ? 101 : 1
+    expect(operation).toHaveBeenCalledTimes(expectedCalls)
   })
 })
