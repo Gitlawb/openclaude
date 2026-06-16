@@ -467,6 +467,7 @@ export function createUserMessage({
   isVisibleInTranscriptOnly,
   isVirtual,
   isCompactSummary,
+  isCollapseSummary,
   summarizeMetadata,
   toolUseResult,
   mcpMeta,
@@ -482,6 +483,7 @@ export function createUserMessage({
   isVisibleInTranscriptOnly?: boolean
   isVirtual?: boolean
   isCompactSummary?: boolean
+  isCollapseSummary?: boolean
   toolUseResult?: unknown // Matches tool's `Output` type
   /** MCP protocol metadata to pass through to SDK consumers (never sent to model) */
   mcpMeta?: {
@@ -518,6 +520,7 @@ export function createUserMessage({
     isVisibleInTranscriptOnly,
     isVirtual,
     isCompactSummary,
+    isCollapseSummary,
     summarizeMetadata,
     uuid: (uuid as UUID | undefined) || randomUUID(),
     timestamp: timestamp ?? new Date().toISOString(),
@@ -1634,7 +1637,10 @@ function stripUnavailableToolReferencesFromUserMessage(
 export function appendMessageTagToUserMessage(
   message: UserMessage,
 ): UserMessage {
-  if (message.isMeta) {
+  // isCollapseSummary blocks must never carry a snip id: the model could queue
+  // the only replacement for an archived span for removal. A merge can clear
+  // isMeta while keeping isCollapseSummary, so both are checked here.
+  if (message.isMeta || message.isCollapseSummary) {
     return message
   }
 
@@ -1723,6 +1729,35 @@ export function appendMessageTagToUserMessage(
       content: newContent as typeof content,
     },
   }
+}
+
+// Matches the exact internal snip marker appended by appendMessageTagToUserMessage
+// (with or without the leading newline used for the no-text-block variant). The
+// body has no '<' chars, so [^<]* terminates cleanly at the closing tag.
+const SNIP_TAG_PATTERN =
+  /\n?<system-reminder>snip_id=[^<]*<\/system-reminder>/g
+
+/**
+ * Remove any internal snip marker from user content. Used when a merge folds a
+ * collapse summary into a real user turn: the real turn may have been tagged
+ * before the merge, and the merged block must not present a snip id (it carries
+ * the only replacement for an archived span).
+ */
+function stripSnipTagsFromContent(
+  content: string | ContentBlockParam[],
+): string | ContentBlockParam[] {
+  if (typeof content === 'string') {
+    return content.replace(SNIP_TAG_PATTERN, '')
+  }
+  if (!Array.isArray(content)) return content
+  return content.map(block =>
+    block?.type === 'text'
+      ? {
+          ...block,
+          text: (block as TextBlockParam).text.replace(SNIP_TAG_PATTERN, ''),
+        }
+      : block,
+  ) as ContentBlockParam[]
 }
 
 /**
@@ -2169,6 +2204,11 @@ export function normalizeMessagesForAPI(
             uuid: message.uuid,
             timestamp: message.timestamp,
             isMeta: message.isMeta,
+            // Carry the collapse-summary marker onto the user message so it
+            // stays non-snippable even after a merge clears isMeta (a merge
+            // with an adjacent real user turn would otherwise expose the
+            // <collapsed> summary under a snippable id).
+            isCollapseSummary: isCollapseSummaryMessage(message),
           })
           const lastMessage = last(result)
           if (lastMessage?.type === 'user') {
@@ -2512,6 +2552,15 @@ function isToolResultMessage(msg: Message): boolean {
 export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   const lastContent = normalizeUserTextContent(a.message.content)
   const currentContent = normalizeUserTextContent(b.message.content)
+  // A merge that absorbs a collapse summary stays non-snippable: the combined
+  // block holds the only replacement for an archived span, so it must keep the
+  // marker and shed any snip id a real-user operand was tagged with pre-merge.
+  const isCollapseSummary =
+    a.isCollapseSummary || b.isCollapseSummary ? (true as const) : undefined
+  const finalize = (
+    content: string | ContentBlockParam[],
+  ): string | ContentBlockParam[] =>
+    isCollapseSummary ? stripSnipTagsFromContent(content) : content
   if (feature('HISTORY_SNIP')) {
     // A merged message is only meta if ALL merged messages are meta. If any
     // operand is real user content, the result must not be flagged isMeta
@@ -2527,11 +2576,12 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
       return {
         ...a,
         isMeta: a.isMeta && b.isMeta ? (true as const) : undefined,
+        isCollapseSummary,
         uuid: a.isMeta ? b.uuid : a.uuid,
         message: {
           ...a.message,
-          content: hoistToolResults(
-            joinTextAtSeam(lastContent, currentContent),
+          content: finalize(
+            hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
           ),
         },
       }
@@ -2539,12 +2589,15 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   }
   return {
     ...a,
+    isCollapseSummary,
     // Preserve the non-meta message's uuid so snip ids (derived from uuid)
     // stay stable across API calls (meta messages like system context get fresh uuids each call)
     uuid: a.isMeta ? b.uuid : a.uuid,
     message: {
       ...a.message,
-      content: hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
+      content: finalize(
+        hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
+      ),
     },
   }
 }

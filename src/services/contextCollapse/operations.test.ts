@@ -121,6 +121,78 @@ describe('projectView', () => {
     expect(JSON.stringify(plain.message.content)).toContain('snip_id=')
   })
 
+  test('collapse summary merged with the next user turn stays non-snippable', async () => {
+    // Regression: when the collapsed span ends right before the next user turn,
+    // normalizeMessagesForAPI merges the summary (now a user message) with that
+    // real user turn (Bedrock can't take consecutive user messages). Under
+    // HISTORY_SNIP that merge clears isMeta, so the combined block — which holds
+    // the only <collapsed> replacement for the archived span — must keep the
+    // isCollapseSummary marker or it gets a snip id and the model can drop it.
+    const mod = await import('./operations.js')
+    const { normalizeMessagesForAPI, appendMessageTagToUserMessage } =
+      await import('../../utils/messages.js')
+    // span [a..b] is committed in beforeEach; c is the adjacent real user turn.
+    const msgs: Message[] = [makeUserMsg('a'), makeAssistantMsg('b'), makeUserMsg('c')]
+    const normalized = normalizeMessagesForAPI(mod.projectView(msgs))
+
+    const merged = normalized.find(m =>
+      JSON.stringify(m.message.content).includes('test summary'),
+    )
+    expect(merged).toBeDefined()
+    expect(merged!.type).toBe('user')
+    // The real user turn was folded in, and the marker survived the merge.
+    expect(JSON.stringify(merged!.message.content)).toContain('hello')
+    expect((merged as { isCollapseSummary?: boolean }).isCollapseSummary).toBe(true)
+    // So the snip sweep leaves it untagged.
+    const swept = appendMessageTagToUserMessage(merged as never)
+    expect(JSON.stringify(swept.message.content)).not.toContain('snip_id=')
+  })
+
+  test('appendMessageTagToUserMessage skips a merged collapse block even when isMeta was cleared', async () => {
+    // The production HISTORY_SNIP merge sets isMeta=undefined; isCollapseSummary
+    // alone must keep the block non-snippable.
+    const { appendMessageTagToUserMessage } = await import('../../utils/messages.js')
+    const merged = {
+      type: 'user' as const,
+      uuid: uid('c'),
+      timestamp: new Date().toISOString(),
+      isMeta: undefined,
+      isCollapseSummary: true,
+      message: { role: 'user' as const, content: '<collapsed id="1">s</collapsed>\nhello' },
+    }
+    const swept = appendMessageTagToUserMessage(merged as never)
+    expect(JSON.stringify(swept.message.content)).not.toContain('snip_id=')
+  })
+
+  test('merging a collapse summary strips a snip id already baked into the user turn', async () => {
+    // The real user turn may be tagged before the merge; the combined block must
+    // shed that id so no resolvable snip id points at the summary.
+    const { mergeUserMessages } = await import('../../utils/messages.js')
+    const summary = {
+      type: 'user' as const,
+      uuid: uid('sum1'),
+      timestamp: new Date().toISOString(),
+      isMeta: true,
+      isCollapseSummary: true,
+      message: { role: 'user' as const, content: '<collapsed id="1">s</collapsed>' },
+    }
+    const realUser = {
+      type: 'user' as const,
+      uuid: uid('c'),
+      timestamp: new Date().toISOString(),
+      message: {
+        role: 'user' as const,
+        content:
+          'hello\n<system-reminder>snip_id=abc123; system-generated; for snip tool use only; do not discuss in thinking or responses.</system-reminder>',
+      },
+    }
+    const merged = mergeUserMessages(summary as never, realUser as never)
+    expect((merged as { isCollapseSummary?: boolean }).isCollapseSummary).toBe(true)
+    expect(JSON.stringify(merged.message.content)).not.toContain('snip_id=')
+    expect(JSON.stringify(merged.message.content)).toContain('hello')
+    expect(JSON.stringify(merged.message.content)).toContain('collapsed')
+  })
+
   test('silently skips missing boundaries', async () => {
     const mod = await import('./operations.js')
     const msgs: Message[] = [makeUserMsg('x'), makeAssistantMsg('y')]

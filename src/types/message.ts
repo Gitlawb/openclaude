@@ -100,6 +100,14 @@ export interface UserMessage<C = string | ContentBlockParam[]> {
   isVisibleInTranscriptOnly?: boolean
   isVirtual?: boolean
   isCompactSummary?: boolean
+  /**
+   * Set when a context-collapse summary placeholder is converted to (or merged
+   * into) a user message. Keeps the `<collapsed>` summary non-snippable: the
+   * snip-tag sweep skips these, and merges that absorb a summary inherit the
+   * flag and drop any pre-baked snip id, so the only replacement for an archived
+   * span can never be queued for removal.
+   */
+  isCollapseSummary?: boolean
   summarizeMetadata?: {
     messagesSummarized: number
     userContext?: string
