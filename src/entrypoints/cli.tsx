@@ -78,6 +78,26 @@ async function main(): Promise<void> {
     return;
   }
 
+  // --provider-env-file: Load explicit environment files before any provider resolution.
+  {
+    const { loadEnvFile, parseProviderEnvFileArgs } = await import('../utils/envFile.js');
+    const providerEnvFiles = parseProviderEnvFileArgs(args);
+    if (providerEnvFiles.error) {
+      // biome-ignore lint/suspicious/noConsole:: intentional error output
+      console.error(providerEnvFiles.error);
+      process.exit(1);
+    }
+    for (const filePath of providerEnvFiles.paths) {
+      try {
+        loadEnvFile(filePath);
+      } catch (err: unknown) {
+        // biome-ignore lint/suspicious/noConsole:: intentional error output
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+    }
+  }
+
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {

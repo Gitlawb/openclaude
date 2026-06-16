@@ -1,0 +1,247 @@
+import { readFileSync } from 'node:fs'
+
+const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+const ALLOWED_ENV_FILE_KEYS = new Set([
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_BEDROCK_BASE_URL',
+  'ANTHROPIC_CUSTOM_HEADERS',
+  'ANTHROPIC_FOUNDRY_API_KEY',
+  'ANTHROPIC_FOUNDRY_BASE_URL',
+  'ANTHROPIC_FOUNDRY_RESOURCE',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_VERTEX_BASE_URL',
+  'ANTHROPIC_VERTEX_PROJECT_ID',
+  'ATLAS_CLOUD_API_KEY',
+  'AWS_BEARER_TOKEN_BEDROCK',
+  'AWS_DEFAULT_REGION',
+  'AWS_PROFILE',
+  'AWS_REGION',
+  'AZURE_OPENAI_API_KEY',
+  'BANKR_BASE_URL',
+  'BANKR_MODEL',
+  'BING_API_KEY',
+  'BNKR_API_KEY',
+  'BRAVE_API_KEY',
+  'CHATGPT_ACCOUNT_ID',
+  'CLAUDE_CODE_DEFAULT_STARTUP_PROVIDER',
+  'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
+  'CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW',
+  'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
+  'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
+  'CLAUDE_CODE_SKIP_FOUNDRY_AUTH',
+  'CLAUDE_CODE_SKIP_VERTEX_AUTH',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLOUD_ML_REGION',
+  'CODEX_ACCOUNT_ID',
+  'CODEX_API_KEY',
+  'CODEX_CREDENTIAL_SOURCE',
+  'DASHSCOPE_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'EXA_API_KEY',
+  'FIRECRAWL_API_KEY',
+  'FIRECRAWL_API_URL',
+  'FIREWORKS_API_KEY',
+  'GEMINI_ACCESS_TOKEN',
+  'GEMINI_API_KEY',
+  'GEMINI_AUTH_MODE',
+  'GEMINI_BASE_URL',
+  'GEMINI_MODEL',
+  'GH_TOKEN',
+  'GITHUB_COPILOT_ALLOW_SUBAGENTS',
+  'GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS',
+  'GITHUB_COPILOT_MAX_SUBAGENTS',
+  'GITHUB_COPILOT_OPTIMIZATION_DISABLED',
+  'GITHUB_TOKEN',
+  'GOOGLE_API_KEY',
+  'GOOGLE_CLOUD_PROJECT',
+  'GOOGLE_CSE_ID',
+  'GROQ_API_KEY',
+  'HICAP_API_KEY',
+  'JINA_API_KEY',
+  'KIMI_API_KEY',
+  'LINKUP_API_KEY',
+  'MINIMAX_API_KEY',
+  'MINIMAX_BASE_URL',
+  'MINIMAX_MODEL',
+  'MIMO_API_KEY',
+  'MISTRAL_API_KEY',
+  'MISTRAL_BASE_URL',
+  'MISTRAL_MODEL',
+  'MOJEEK_API_KEY',
+  'MOONSHOT_API_KEY',
+  'NEARAI_API_KEY',
+  'NVIDIA_API_KEY',
+  'NVIDIA_MODEL',
+  'NVIDIA_NIM',
+  'OPENCODE_API_KEY',
+  'OPENGATEWAY_API_KEY',
+  'OPENGATEWAY_BASE_URL',
+  'OPENROUTER_API_KEY',
+  'OPENAI_API_BASE',
+  'OPENAI_API_FORMAT',
+  'OPENAI_API_KEY',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_HEADER_VALUE',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'TAVILY_API_KEY',
+  'TOGETHER_API_KEY',
+  'VENICE_API_KEY',
+  'WEB_KEY',
+  'WEB_PROVIDER',
+  'WEB_SEARCH_PROVIDER',
+  'XAI_API_KEY',
+  'XAI_CREDENTIAL_SOURCE',
+  'YOU_API_KEY',
+])
+
+const ALLOWED_ENV_FILE_PREFIXES = [
+  'VERTEX_REGION_CLAUDE_',
+]
+
+function isAllowedEnvFileKey(key: string): boolean {
+  return (
+    ALLOWED_ENV_FILE_KEYS.has(key) ||
+    ALLOWED_ENV_FILE_PREFIXES.some(prefix => key.startsWith(prefix))
+  )
+}
+
+function parseEnvValue(value: string, lineNumber: number): string {
+  if (!value.startsWith('"') && !value.startsWith("'")) {
+    const commentIdx = value.indexOf(' #')
+    return commentIdx === -1 ? value : value.substring(0, commentIdx).trim()
+  }
+
+  const quote = value[0]!
+  const closingQuoteIdx = value.indexOf(quote, 1)
+  if (closingQuoteIdx === -1) {
+    throw new Error(`Invalid line ${lineNumber}: unterminated quoted value`)
+  }
+
+  const trailing = value.slice(closingQuoteIdx + 1).trim()
+  if (trailing && !trailing.startsWith('#')) {
+    throw new Error(`Invalid line ${lineNumber}: unexpected content after quoted value`)
+  }
+
+  return value.slice(1, closingQuoteIdx)
+}
+
+/**
+ * Parses a simple .env file content.
+ * Supports:
+ * - KEY=VALUE
+ * - KEY="VALUE"
+ * - KEY='VALUE'
+ * - export KEY=VALUE
+ * - Ignores comments (#) and empty lines
+ *
+ * It does NOT support advanced features like variable expansion ($VAR).
+ */
+export function parseEnvFile(content: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  const lines = content.split(/\r?\n/)
+
+  for (const [lineIdx, line] of lines.entries()) {
+    const lineNumber = lineIdx + 1
+    const trimmed = line.trim()
+    // Ignore empty lines and comments
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue
+    }
+
+    // Strip optional "export " prefix
+    const expression = trimmed.startsWith('export ')
+      ? trimmed.slice('export '.length).trim()
+      : trimmed
+
+    const equalsIdx = expression.indexOf('=')
+    if (equalsIdx === -1) {
+      throw new Error(`Invalid line ${lineNumber}: expected KEY=VALUE`)
+    }
+
+    const key = expression.slice(0, equalsIdx).trim()
+    if (!ENV_KEY_PATTERN.test(key)) {
+      throw new Error(`Invalid variable name on line ${lineNumber}`)
+    }
+
+    result[key] = parseEnvValue(
+      expression.slice(equalsIdx + 1).trim(),
+      lineNumber,
+    )
+  }
+
+  return result
+}
+
+export function parseProviderEnvFileArgs(args: string[]): {
+  paths: string[]
+  error?: string
+} {
+  const paths: string[] = []
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--') {
+      break
+    }
+
+    if (arg === '--provider-env-file') {
+      const nextArg = args[i + 1]
+      if (!nextArg || nextArg.startsWith('-') || !nextArg.trim()) {
+        return {
+          paths: [],
+          error: 'Error: --provider-env-file requires a path',
+        }
+      }
+      paths.push(nextArg.trim())
+      i++
+    } else if (arg?.startsWith('--provider-env-file=')) {
+      const filePath = arg.slice('--provider-env-file='.length).trim()
+      if (!filePath) {
+        return {
+          paths: [],
+          error: 'Error: --provider-env-file requires a path',
+        }
+      }
+      paths.push(filePath)
+    }
+  }
+
+  return { paths }
+}
+
+/**
+ * Loads an environment file into process.env.
+ * Existing process.env variables take precedence over the file's variables.
+ */
+export function loadEnvFile(filePath: string): void {
+  try {
+    const content = readFileSync(filePath, 'utf-8')
+    const parsed = parseEnvFile(content)
+
+    for (const key of Object.keys(parsed)) {
+      if (!isAllowedEnvFileKey(key)) {
+        throw new Error(`Unsupported variable ${key} in --provider-env-file`)
+      }
+    }
+
+    for (const [key, value] of Object.entries(parsed)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = value
+      }
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Failed to load --provider-env-file at ${filePath}: ${message}`)
+  }
+}
