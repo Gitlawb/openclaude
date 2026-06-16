@@ -22,6 +22,7 @@ import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
 import { redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
+import { redactPathForStatus, redactUrlForStatus } from './statusRedaction.js';
 export type Property = {
   label?: string;
   value: React.ReactNode | Array<string>;
@@ -450,27 +451,27 @@ export function buildAPIProviderProperties(): Property[] {
   if (proxyUrl) {
     properties.push({
       label: 'Proxy',
-      value: proxyUrl
+      value: redactUrlForStatus(proxyUrl)
     });
   }
   const mtlsConfig = getMTLSConfig();
   if (process.env.NODE_EXTRA_CA_CERTS) {
     properties.push({
       label: 'Additional CA cert(s)',
-      value: process.env.NODE_EXTRA_CA_CERTS
+      value: redactPathForStatus(process.env.NODE_EXTRA_CA_CERTS)
     });
   }
   if (mtlsConfig) {
     if (mtlsConfig.cert && process.env.CLAUDE_CODE_CLIENT_CERT) {
       properties.push({
         label: 'mTLS client cert',
-        value: process.env.CLAUDE_CODE_CLIENT_CERT
+        value: redactPathForStatus(process.env.CLAUDE_CODE_CLIENT_CERT)
       });
     }
     if (mtlsConfig.key && process.env.CLAUDE_CODE_CLIENT_KEY) {
       properties.push({
         label: 'mTLS client key',
-        value: process.env.CLAUDE_CODE_CLIENT_KEY
+        value: 'configured'
       });
     }
   }

@@ -98,3 +98,99 @@ test('buildAPIProviderProperties keeps Codex-specific labels on the shared OpenA
   )
   expect(await readPropertyValue('Model', 'codex')).toBe('gpt-5.5 (high)')
 })
+
+test('buildAPIProviderProperties redacts proxy credentials and mTLS paths', async () => {
+  const home = '/home/openclaude-status-test'
+  process.env.HOME = home
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.http_proxy
+  delete process.env.https_proxy
+  delete process.env.HTTP_PROXY
+  process.env.HTTPS_PROXY = 'https://alice:secret@proxy.example.com:8080'
+  process.env.NODE_EXTRA_CA_CERTS = `${home}/.config/ca-bundle.crt`
+  process.env.CLAUDE_CODE_CLIENT_CERT = `${home}/.config/client.crt`
+  process.env.CLAUDE_CODE_CLIENT_KEY = `${home}/.config/client.key`
+
+  mock.restore()
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'openai',
+    getAPIProviderForStatsig: () => 'openai',
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
+  }))
+  // getProxyUrl accepts env directly (not memoized), so no stub needed.
+  mock.module('./mtls.js', () => ({
+    getMTLSConfig: () => ({
+      cert: 'loaded-cert',
+      key: 'loaded-key',
+    }),
+  }))
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
+  const properties = buildAPIProviderProperties()
+  const byLabel = (label: string): unknown =>
+    properties.find(property => property.label === label)?.value
+
+  // Proxy URL is fully redacted: no username, no password.
+  expect(byLabel('Proxy')).toBe(
+    'https://redacted:redacted@proxy.example.com:8080/',
+  )
+
+  // CA cert path: home directory shortened to ~.
+  expect(byLabel('Additional CA cert(s)')).toBe('~/.config/ca-bundle.crt')
+
+  // mTLS cert path: home directory shortened to ~.
+  expect(byLabel('mTLS client cert')).toBe('~/.config/client.crt')
+
+  // mTLS client key: never reveal the private key path.
+  expect(byLabel('mTLS client key')).toBe('configured')
+
+  // No raw secrets leak into any property value. Cover every home-directory
+  // source redactPathForStatus consults (HOME, USERPROFILE, os.homedir()).
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('alice')
+  expect(serialized).not.toContain('secret')
+  const homeCandidates = [
+    process.env.HOME,
+    process.env.USERPROFILE,
+  ].filter((v): v is string => Boolean(v))
+  for (const candidate of homeCandidates) {
+    expect(serialized).not.toContain(candidate)
+  }
+})
+
+test('buildAPIProviderProperties redacts proxy credentials from lowercase https_proxy', async () => {
+  // getProxyUrl() prefers the lowercase variant. Confirm the redaction path
+  // covers it — both env spellings flow through the same redactUrlForStatus.
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.http_proxy
+  delete process.env.HTTPS_PROXY
+  delete process.env.HTTP_PROXY
+  process.env.https_proxy = 'https://bob:hunter2@proxy.example.com:9090'
+
+  mock.restore()
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'openai',
+    getAPIProviderForStatsig: () => 'openai',
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
+  }))
+  mock.module('./mtls.js', () => ({
+    getMTLSConfig: () => undefined,
+  }))
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
+  const properties = buildAPIProviderProperties()
+  const byLabel = (label: string): unknown =>
+    properties.find(property => property.label === label)?.value
+
+  expect(byLabel('Proxy')).toBe(
+    'https://redacted:redacted@proxy.example.com:9090/',
+  )
+
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('bob')
+  expect(serialized).not.toContain('hunter2')
+})
