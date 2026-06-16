@@ -263,6 +263,49 @@ export function resolveOutOfProcessTeammateProvider({
   return route && isProviderOverride(route) ? route : null
 }
 
+/**
+ * Resolve the model a pane/window teammate should run when its configured route
+ * is model-only (no cross-provider override). The provider twin above filters to
+ * ProviderOverride, so model-only routes the menu writes (e.g. agentRouting set
+ * to a plain agentModels key) are dropped and the teammate inherits the parent.
+ * This returns that route's provider-aware model so the spawn path can apply it.
+ * Mirrors resolveAgentRunModelRouting's lookup order (tool model, then agent
+ * name/type, then agent-definition model). Returns undefined when there is no
+ * model-only route, so the caller keeps the inherit-parent default.
+ */
+export function resolveOutOfProcessTeammateModelOnly({
+  cliModel,
+  agentName,
+  agentType,
+  agentDefinitionModel,
+  parentModel,
+  permissionMode,
+  settings,
+}: {
+  cliModel?: string
+  agentName?: string
+  agentType?: string
+  agentDefinitionModel?: string
+  parentModel: string
+  permissionMode?: PermissionMode
+  settings: SettingsJson | null
+}): string | undefined {
+  const requestedModel = cliModel?.trim()
+  if (requestedModel) {
+    const route = resolveAgentModelProvider(requestedModel, settings)
+    return route && !isProviderOverride(route)
+      ? resolveModelOnlyModel(route.model, parentModel, permissionMode)
+      : undefined
+  }
+
+  const route =
+    resolveAgentProvider(agentName, agentType, settings) ??
+    resolveAgentModelProvider(agentDefinitionModel, settings)
+  return route && !isProviderOverride(route)
+    ? resolveModelOnlyModel(route.model, parentModel, permissionMode)
+    : undefined
+}
+
 export function resolveOutOfProcessTeammateProviderFromCliArgs(
   args: readonly string[],
   settings: SettingsJson | null,

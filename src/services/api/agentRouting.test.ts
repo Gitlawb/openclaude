@@ -5,11 +5,13 @@ import {
   resolveAgentModelProvider,
   resolveAgentProvider,
   resolveAgentRunModelRouting,
+  resolveOutOfProcessTeammateModelOnly,
   resolveOutOfProcessTeammateProvider,
   resolveOutOfProcessTeammateProviderFromCliArgs,
   shouldEnforceModelAllowlist,
 } from './agentRouting.js'
 import { getAgentModel } from '../../utils/model/agent.js'
+import * as agentModelModule from '../../utils/model/agent.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 const baseSettings = {
@@ -440,6 +442,39 @@ describe('resolveAgentRunModelRouting', () => {
     })
     expect(result).toEqual({ mainLoopModel: 'gpt-5-mini' })
   })
+
+  test('permissionMode is threaded into alias resolution, not dropped', () => {
+    // The plan-mode-sensitive paths in getAgentModel (inherit, opusplan, haiku)
+    // all key off global model state, so a value comparison cannot prove the mode
+    // reached getAgentModel. Spy on the resolver dependency and assert the exact
+    // permissionMode is forwarded as the 4th arg, locking the contract threaded
+    // through AgentTool/runAgent/resolveModelOnlyModel.
+    const spy = spyOn(agentModelModule, 'getAgentModel').mockReturnValue(
+      'effective-from-getAgentModel',
+    )
+    try {
+      const settings = {
+        agentModels: { sonnet: { model: 'sonnet' } },
+        agentRouting: { verification: 'sonnet' },
+      } as unknown as SettingsJson
+      const result = resolveAgentRunModelRouting({
+        resolvedAgentModel: 'should-not-be-used',
+        parentModel: 'claude-sonnet-4-5',
+        subagentType: 'verification',
+        settings,
+        permissionMode: 'plan',
+      })
+      expect(result.mainLoopModel).toBe('effective-from-getAgentModel')
+      expect(spy).toHaveBeenCalledWith(
+        'sonnet',
+        'claude-sonnet-4-5',
+        undefined,
+        'plan',
+      )
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
 
 describe('resolveOutOfProcessTeammateProvider', () => {
@@ -507,6 +542,76 @@ describe('resolveOutOfProcessTeammateProvider', () => {
     })
 
     expect(result?.model).toBe('deepseek-chat')
+  })
+})
+
+describe('resolveOutOfProcessTeammateModelOnly', () => {
+  const modelOnlySettings = {
+    agentModels: {
+      'gpt-5-mini': { model: 'gpt-5-mini' },
+      'deepseek-chat': { base_url: 'https://api.deepseek.com/v1', api_key: 'sk-ds' },
+    },
+    agentRouting: {
+      verification: 'gpt-5-mini',
+      'frontend-dev': 'deepseek-chat',
+    },
+  } as unknown as SettingsJson
+
+  test('returns the model-only route model for a routed teammate type', () => {
+    expect(
+      resolveOutOfProcessTeammateModelOnly({
+        agentType: 'verification',
+        parentModel: 'claude-sonnet-4-5',
+        settings: modelOnlySettings,
+      }),
+    ).toBe('gpt-5-mini')
+  })
+
+  test('returns undefined when the route is cross-provider (handled by the provider resolver)', () => {
+    expect(
+      resolveOutOfProcessTeammateModelOnly({
+        agentType: 'frontend-dev',
+        parentModel: 'claude-sonnet-4-5',
+        settings: modelOnlySettings,
+      }),
+    ).toBeUndefined()
+  })
+
+  test('returns undefined when there is no route', () => {
+    expect(
+      resolveOutOfProcessTeammateModelOnly({
+        agentType: 'unrouted-type',
+        parentModel: 'claude-sonnet-4-5',
+        settings: modelOnlySettings,
+      }),
+    ).toBeUndefined()
+  })
+
+  test('built-in alias route resolves through getAgentModel, not literally', () => {
+    const aliasSettings = {
+      agentModels: { sonnet: { model: 'sonnet' } },
+      agentRouting: { verification: 'sonnet' },
+    } as unknown as SettingsJson
+    const result = resolveOutOfProcessTeammateModelOnly({
+      agentType: 'verification',
+      parentModel: 'claude-sonnet-4-5',
+      settings: aliasSettings,
+    })
+    expect(result).toBe(
+      getAgentModel('sonnet', 'claude-sonnet-4-5', undefined, undefined),
+    )
+    expect(result).not.toBe('sonnet')
+  })
+
+  test('an explicit configured cli model takes precedence and is not treated as model-only when cross-provider', () => {
+    expect(
+      resolveOutOfProcessTeammateModelOnly({
+        cliModel: 'deepseek-chat',
+        agentType: 'verification',
+        parentModel: 'claude-sonnet-4-5',
+        settings: modelOnlySettings,
+      }),
+    ).toBeUndefined()
   })
 })
 
