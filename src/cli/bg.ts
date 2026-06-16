@@ -12,7 +12,6 @@ import {
   createBackgroundSession,
   ensureBackgroundSessionDirs,
   getBackgroundSessionLogPaths,
-  isTerminalBackgroundSession,
   listBackgroundSessions,
   markBackgroundSessionKilled,
   refreshBackgroundSessionStatuses,
@@ -526,7 +525,12 @@ export async function killHandler(
 
   await refreshBackgroundSessionStatuses()
   const session = await resolveSessionOrExit(target)
-  if (!isTerminalBackgroundSession(session) && isProcessRunning(session.pid)) {
+  if (session.status === 'unknown' && isProcessRunning(session.pid)) {
+    fail(
+      `Cannot safely kill background session ${session.id}: process identity could not be verified`,
+    )
+  }
+  if (session.status === 'running' && isProcessRunning(session.pid)) {
     await terminateBackgroundProcessTree(session.pid).catch(error => {
       fail(
         `Failed to kill background session ${session.id}: ${errorMessage(error)}`,

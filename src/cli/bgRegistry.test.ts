@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   _setBackgroundSessionsRootForTesting,
   createBackgroundSession,
+  isTerminalBackgroundSession,
   listBackgroundSessions,
   markBackgroundSessionKilled,
   refreshBackgroundSessionStatuses,
@@ -547,7 +548,7 @@ describe('background session registry', () => {
     })
   })
 
-  it('marks sessions stale when a live PID command identity cannot be read', async () => {
+  it('marks sessions unknown when a live PID command identity cannot be read', async () => {
     await createBackgroundSession({
       id: 'bg-unreadable-pid',
       pid: 333,
@@ -565,9 +566,10 @@ describe('background session registry', () => {
 
     expect(refreshed[0]).toMatchObject({
       id: 'bg-unreadable-pid',
-      status: 'stale',
+      status: 'unknown',
       updatedAt: '2026-06-15T08:05:00.000Z',
     })
+    expect(isTerminalBackgroundSession(refreshed[0]!)).toBe(false)
   })
 
   it('marks a session killed without deleting its logs or metadata', async () => {

@@ -18,6 +18,7 @@ import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 
 export type BackgroundSessionStatus =
   | 'running'
+  | 'unknown'
   | 'exited'
   | 'failed'
   | 'stale'
@@ -69,6 +70,7 @@ const TERMINAL_STATUSES = new Set<BackgroundSessionStatus>([
 ])
 const ALL_STATUSES = new Set<BackgroundSessionStatus>([
   'running',
+  'unknown',
   ...TERMINAL_STATUSES,
 ])
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
@@ -470,23 +472,52 @@ export async function refreshBackgroundSessionStatuses(options?: {
   const refreshed: BackgroundSession[] = []
 
   for (const session of sessions) {
-    if (
-      session.status === 'running' &&
-      !isBackgroundSessionProcessAlive(session, options)
-    ) {
+    if (session.status !== 'running' && session.status !== 'unknown') {
+      refreshed.push(session)
+      continue
+    }
+
+    const processState = getBackgroundSessionProcessState(session, options)
+    const nextStatus: BackgroundSessionStatus =
+      processState === 'alive'
+        ? 'running'
+        : processState === 'unknown'
+          ? 'unknown'
+          : 'stale'
+
+    if (session.status !== nextStatus) {
       const updated = {
         ...session,
-        status: 'stale' as const,
+        status: nextStatus,
         updatedAt: timestamp,
       }
       await writeSession(updated)
       refreshed.push(updated)
       continue
     }
+
     refreshed.push(session)
   }
 
   return refreshed
+}
+
+type BackgroundSessionProcessState = 'alive' | 'dead' | 'unknown'
+
+function getBackgroundSessionProcessState(
+  session: BackgroundSession,
+  options?: {
+    isProcessAlive?: (pid: number) => boolean
+    getProcessCommand?: (pid: number) => string | null
+  },
+): BackgroundSessionProcessState {
+  const isAlive = options?.isProcessAlive ?? isProcessRunning
+  if (!isAlive(session.pid)) return 'dead'
+
+  const readCommand = options?.getProcessCommand ?? getProcessCommand
+  const command = readCommand(session.pid)
+  if (command == null) return 'unknown'
+  return command.includes(session.sessionId) ? 'alive' : 'dead'
 }
 
 export function isBackgroundSessionProcessAlive(
@@ -496,12 +527,7 @@ export function isBackgroundSessionProcessAlive(
     getProcessCommand?: (pid: number) => string | null
   },
 ): boolean {
-  const isAlive = options?.isProcessAlive ?? isProcessRunning
-  if (!isAlive(session.pid)) return false
-
-  const readCommand = options?.getProcessCommand ?? getProcessCommand
-  const command = readCommand(session.pid)
-  return command != null && command.includes(session.sessionId)
+  return getBackgroundSessionProcessState(session, options) === 'alive'
 }
 
 export async function markBackgroundSessionKilled(
