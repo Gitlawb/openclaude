@@ -1,5 +1,6 @@
 import { afterEach, describe, test, expect, vi } from 'vitest'
 import { QueryGuard } from './QueryGuard.js'
+import { QueryLifecycleOperationTracker } from './queryLifecycle.js'
 
 describe('QueryGuard', () => {
   afterEach(() => {
@@ -51,16 +52,14 @@ describe('QueryGuard', () => {
     guard.tryStart()
     expect(guard.isActive).toBe(true)
 
-    // Just before timeout
     vi.advanceTimersByTime(5 * 60 * 1000 - 1)
     expect(guard.isActive).toBe(true)
 
-    // At timeout
     vi.advanceTimersByTime(1)
     expect(guard.isActive).toBe(false)
   })
 
-  test('timeout notifies owner with the timed-out generation and reason', () => {
+  test('timeout notifies owner with lifecycle context and timeout reason', () => {
     vi.useFakeTimers()
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const guard = new QueryGuard()
@@ -71,8 +70,110 @@ describe('QueryGuard', () => {
     vi.advanceTimersByTime(5 * 60 * 1000)
 
     expect(onTimeout).toHaveBeenCalledTimes(1)
-    expect(onTimeout).toHaveBeenCalledWith(gen, 'idle')
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: gen,
+        reason: 'idle',
+        timeoutMs: 5 * 60 * 1000,
+        context: expect.objectContaining({
+          queryGeneration: gen,
+          terminalReason: 'query-timeout',
+          abortReason: 'idle',
+        }),
+      }),
+    )
     expect(guard.isActive).toBe(false)
+  })
+
+  test('tryStart accepts explicit query identity and returns lifecycle context', () => {
+    const guard = new QueryGuard()
+    const start = guard.tryStart({
+      queryId: 'query-1',
+      querySource: 'repl_main_thread',
+      parentQueryId: 'parent-query',
+      subagentId: 'agent-1',
+      startedAt: 1234,
+    })
+
+    expect(start).toEqual({
+      generation: 1,
+      context: {
+        queryId: 'query-1',
+        queryGeneration: 1,
+        querySource: 'repl_main_thread',
+        parentQueryId: 'parent-query',
+        subagentId: 'agent-1',
+        startedAt: 1234,
+      },
+    })
+    expect(guard.activeContext).toEqual(start!.context)
+  })
+
+  test('timeout callback receives explicit query identity and active operation snapshot', () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const tracker = new QueryLifecycleOperationTracker()
+    tracker.startApiCall({
+      clientRequestId: 'client-request-1',
+      requestId: 'server-request-1',
+      model: 'model-name',
+      querySource: 'repl_main_thread',
+      startedAt: 10,
+    })
+    tracker.startToolUse({
+      toolUseId: 'tool-use-1',
+      toolName: 'Bash',
+      startedAt: 20,
+      isBash: true,
+      timeoutMs: 120_000,
+    })
+
+    const guard = new QueryGuard()
+    const onTimeout = vi.fn()
+    guard.setTimeoutHandler(onTimeout)
+    const start = guard.tryStart({
+      queryId: 'query-1',
+      querySource: 'repl_main_thread',
+      startedAt: 1,
+      getActiveOperations: () => tracker.snapshot(),
+    })!
+
+    vi.advanceTimersByTime(5 * 60 * 1000)
+
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith({
+      generation: start.generation,
+      reason: 'idle',
+      timeoutMs: 5 * 60 * 1000,
+      elapsedMs: expect.any(Number),
+      context: {
+        ...start.context,
+        terminalReason: 'query-timeout',
+        abortReason: 'idle',
+      },
+      activeOperations: {
+        apiCalls: [
+          {
+            clientRequestId: 'client-request-1',
+            requestId: 'server-request-1',
+            model: 'model-name',
+            querySource: 'repl_main_thread',
+            startedAt: 10,
+          },
+        ],
+        toolUses: [
+          {
+            toolUseId: 'tool-use-1',
+            toolName: 'Bash',
+            startedAt: 20,
+            isBash: true,
+            timeoutMs: 120_000,
+          },
+        ],
+      },
+    })
+    expect(guard.lastContext?.terminalReason).toBe('query-timeout')
+    expect(guard.lastContext?.abortReason).toBe('idle')
   })
 
   test('timeout handler cleanup prevents stale notification', () => {
@@ -103,7 +204,10 @@ describe('QueryGuard', () => {
 
     expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
     expect(guard.isActive).toBe(false)
-    expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
+    expect(consoleError).toHaveBeenCalledWith(
+      '[QueryGuard] Timeout handler failed',
+      handlerError,
+    )
   })
 
   test('API stream activity extends the idle deadline only while progress continues', () => {
@@ -147,11 +251,14 @@ describe('QueryGuard', () => {
       toolLeaseGraceMs: 10,
     })
     const gen = guard.tryStart()!
-    const lease = guard.acquireLease({
-      owner: 'bash',
-      id: 'toolu_1',
-      timeoutMs: 500,
-    }, gen)
+    const lease = guard.acquireLease(
+      {
+        owner: 'bash',
+        id: 'toolu_1',
+        timeoutMs: 500,
+      },
+      gen,
+    )
 
     vi.advanceTimersByTime(500)
 
@@ -171,18 +278,31 @@ describe('QueryGuard', () => {
     const onTimeout = vi.fn()
     guard.setTimeoutHandler(onTimeout)
     const gen = guard.tryStart()!
-    guard.acquireLease({
-      owner: 'bash',
-      id: 'toolu_1',
-      timeoutMs: 500,
-    }, gen)
+    guard.acquireLease(
+      {
+        owner: 'bash',
+        id: 'toolu_1',
+        timeoutMs: 500,
+      },
+      gen,
+    )
 
     vi.advanceTimersByTime(509)
     expect(guard.isActive).toBe(true)
     vi.advanceTimersByTime(1)
 
     expect(guard.isActive).toBe(false)
-    expect(onTimeout).toHaveBeenCalledWith(gen, 'lease_expired')
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: gen,
+        reason: 'lease_expired',
+        timeoutMs: 510,
+        context: expect.objectContaining({
+          terminalReason: 'query-timeout',
+          abortReason: 'lease_expired',
+        }),
+      }),
+    )
   })
 
   test('hard maximum aborts even with active leases and activity', () => {
@@ -196,11 +316,14 @@ describe('QueryGuard', () => {
     const onTimeout = vi.fn()
     guard.setTimeoutHandler(onTimeout)
     const gen = guard.tryStart()!
-    guard.acquireLease({
-      owner: 'bash',
-      id: 'toolu_1',
-      timeoutMs: 5_000,
-    }, gen)
+    guard.acquireLease(
+      {
+        owner: 'bash',
+        id: 'toolu_1',
+        timeoutMs: 5_000,
+      },
+      gen,
+    )
 
     for (let elapsed = 0; elapsed < 900; elapsed += 90) {
       vi.advanceTimersByTime(90)
@@ -211,7 +334,17 @@ describe('QueryGuard', () => {
     vi.advanceTimersByTime(100)
 
     expect(guard.isActive).toBe(false)
-    expect(onTimeout).toHaveBeenCalledWith(gen, 'hard_max')
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: gen,
+        reason: 'hard_max',
+        timeoutMs: 1_000,
+        context: expect.objectContaining({
+          terminalReason: 'hard-max-query-timeout',
+          abortReason: 'hard_max',
+        }),
+      }),
+    )
   })
 
   test('lease hard cap is relative to acquisition and capped by query remaining budget', () => {
@@ -227,19 +360,28 @@ describe('QueryGuard', () => {
     const gen = guard.tryStart()!
 
     vi.advanceTimersByTime(400)
-    guard.acquireLease({
-      owner: 'tool',
-      id: 'toolu_late',
-      timeoutMs: 500,
-      hardCapMs: 300,
-    }, gen)
+    guard.acquireLease(
+      {
+        owner: 'tool',
+        id: 'toolu_late',
+        timeoutMs: 500,
+        hardCapMs: 300,
+      },
+      gen,
+    )
 
     vi.advanceTimersByTime(299)
     expect(guard.isActive).toBe(true)
     vi.advanceTimersByTime(1)
 
     expect(guard.isActive).toBe(false)
-    expect(onTimeout).toHaveBeenCalledWith(gen, 'lease_expired')
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: gen,
+        reason: 'lease_expired',
+        timeoutMs: 300,
+      }),
+    )
   })
 
   test('stale generations cannot extend or release a newer query', () => {
@@ -254,19 +396,25 @@ describe('QueryGuard', () => {
     guard.setTimeoutHandler(onTimeout)
 
     const gen1 = guard.tryStart()!
-    const staleLease = guard.acquireLease({
-      owner: 'bash',
-      id: 'toolu_stale',
-      timeoutMs: 500,
-    }, gen1)
+    const staleLease = guard.acquireLease(
+      {
+        owner: 'bash',
+        id: 'toolu_stale',
+        timeoutMs: 500,
+      },
+      gen1,
+    )
     guard.forceEnd()
 
     const gen2 = guard.tryStart()!
-    const liveLease = guard.acquireLease({
-      owner: 'bash',
-      id: 'toolu_live',
-      timeoutMs: 500,
-    }, gen2)
+    const liveLease = guard.acquireLease(
+      {
+        owner: 'bash',
+        id: 'toolu_live',
+        timeoutMs: 500,
+      },
+      gen2,
+    )
 
     staleLease.release()
     vi.advanceTimersByTime(100)
@@ -276,7 +424,46 @@ describe('QueryGuard', () => {
     guard.registerActivity('stale_api_stream', gen1)
     vi.advanceTimersByTime(100)
     expect(guard.isActive).toBe(false)
-    expect(onTimeout).toHaveBeenCalledWith(gen2, 'idle')
+    expect(onTimeout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: gen2,
+        reason: 'idle',
+      }),
+    )
+  })
+
+  test('end stamps terminal reason on the completed lifecycle context', () => {
+    const guard = new QueryGuard()
+    const start = guard.tryStart({
+      queryId: 'query-1',
+      querySource: 'repl_main_thread',
+    })!
+
+    expect(guard.end(start.generation, 'user-abort')).toBe(true)
+    expect(guard.lastContext).toEqual({
+      ...start.context,
+      terminalReason: 'user-abort',
+    })
+  })
+
+  test('query metadata from one start does not leak into the next start', () => {
+    const guard = new QueryGuard()
+    const child = guard.tryStart({
+      queryId: 'child-query',
+      querySource: 'agent:general-purpose',
+      parentQueryId: 'parent-query',
+      subagentId: 'agent-1',
+    })!
+    expect(guard.end(child.generation, 'ok')).toBe(true)
+
+    const parent = guard.tryStart({
+      queryId: 'parent-query',
+      querySource: 'repl_main_thread',
+    })!
+
+    expect(parent.context.parentQueryId).toBeUndefined()
+    expect(parent.context.subagentId).toBeUndefined()
+    expect(parent.context.queryId).toBe('parent-query')
   })
 
   test('timeout is cleared when end() is called normally', () => {
@@ -285,15 +472,113 @@ describe('QueryGuard', () => {
     const gen = guard.tryStart()!
     guard.end(gen)
 
-    // Advance past timeout — should not affect anything
     vi.advanceTimersByTime(10 * 60 * 1000)
     expect(guard.isActive).toBe(false)
 
-    // Should be able to start a new query
     const gen2 = guard.tryStart()
     expect(gen2).not.toBeNull()
     expect(guard.isActive).toBe(true)
 
     guard.forceEnd()
+  })
+})
+
+describe('QueryLifecycleOperationTracker', () => {
+  test('tracks and cleans up active API and tool operations', () => {
+    const tracker = new QueryLifecycleOperationTracker()
+    const apiKey = tracker.startApiCall({
+      clientRequestId: 'client-request-1',
+      model: 'model-name',
+      querySource: 'repl_main_thread',
+      startedAt: 100,
+    })
+    tracker.updateApiCall(apiKey, { requestId: 'server-request-1' })
+    tracker.startToolUse({
+      toolUseId: 'tool-use-1',
+      toolName: 'Bash',
+      startedAt: 200,
+      isBash: true,
+      timeoutMs: 300_000,
+    })
+
+    expect(tracker.snapshot()).toEqual({
+      apiCalls: [
+        {
+          clientRequestId: 'client-request-1',
+          requestId: 'server-request-1',
+          model: 'model-name',
+          querySource: 'repl_main_thread',
+          startedAt: 100,
+        },
+      ],
+      toolUses: [
+        {
+          toolUseId: 'tool-use-1',
+          toolName: 'Bash',
+          startedAt: 200,
+          isBash: true,
+          timeoutMs: 300_000,
+        },
+      ],
+    })
+
+    tracker.endApiCall(apiKey)
+    tracker.endToolUse('tool-use-1')
+
+    expect(tracker.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('snapshots contain only safe operation metadata', () => {
+    const tracker = new QueryLifecycleOperationTracker()
+    const apiKey = tracker.startApiCall({
+      clientRequestId: 'client-request-1',
+      model: 'model-name',
+      querySource: 'repl_main_thread',
+      startedAt: 1,
+      prompt: 'tool output',
+      apiKey: 'ANTHROPIC_API_KEY=secret',
+    } as Parameters<QueryLifecycleOperationTracker['startApiCall']>[0])
+    tracker.updateApiCall(apiKey, {
+      requestId: 'server-request-1',
+      cwd: '/home/user/project',
+    } as Partial<Parameters<QueryLifecycleOperationTracker['startApiCall']>[0]>)
+    tracker.updateApiCall(apiKey, {
+      requestId: undefined,
+      model: undefined,
+      querySource: undefined,
+      startedAt: undefined,
+      cwd: '/home/user/project',
+    } as Partial<Parameters<QueryLifecycleOperationTracker['startApiCall']>[0]>)
+    tracker.startToolUse({
+      toolUseId: 'tool-use-1',
+      toolName: 'Bash',
+      startedAt: 1,
+      isBash: true,
+      timeoutMs: 300_000,
+      command: 'cat /home/user/project/.env',
+      output: 'tool output',
+    } as Parameters<QueryLifecycleOperationTracker['startToolUse']>[0])
+
+    const snapshot = tracker.snapshot()
+
+    expect(snapshot.apiCalls).toEqual([
+      {
+        clientRequestId: 'client-request-1',
+        requestId: 'server-request-1',
+        model: 'model-name',
+        querySource: 'repl_main_thread',
+        startedAt: 1,
+      },
+    ])
+    expect(Object.keys(snapshot.toolUses[0]!)).toEqual([
+      'toolUseId',
+      'toolName',
+      'startedAt',
+      'isBash',
+      'timeoutMs',
+    ])
+    expect(JSON.stringify(snapshot)).not.toContain('/home/')
+    expect(JSON.stringify(snapshot)).not.toContain('ANTHROPIC_API_KEY')
+    expect(JSON.stringify(snapshot)).not.toContain('tool output')
   })
 })

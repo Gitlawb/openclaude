@@ -36,6 +36,7 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
+import { QueryLifecycleOperationTracker, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -550,6 +551,38 @@ function _temp2(setFrame_0) {
 }
 function _temp(f) {
   return (f + 1) % TITLE_ANIMATION_FRAMES.length;
+}
+function getAbortReasonLabel(reason: unknown): string | undefined {
+  if (reason === undefined) return undefined;
+  if (typeof reason === 'string') return reason;
+  if (reason instanceof Error) return reason.name;
+  return String(reason);
+}
+function getQueryTerminalReason(signal: AbortSignal, didThrow: boolean): QueryTerminalReason {
+  if (!signal.aborted) return didThrow ? 'unknown' : 'ok';
+  switch (getAbortReasonLabel(signal.reason)) {
+    case 'query-timeout':
+      return 'query-timeout';
+    case 'user-cancel':
+    case 'interrupt':
+      return 'user-abort';
+    case 'background':
+      return 'parent-ended';
+    default:
+      return 'unknown';
+  }
+}
+function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): string {
+  const apiIds = snapshot.apiCalls.map(call => call.requestId ?? call.clientRequestId ?? 'unknown').join(',');
+  const toolIds = snapshot.toolUses.map(tool => `${tool.toolName}:${tool.toolUseId}`).join(',');
+  return `activeApiCalls=${snapshot.apiCalls.length} activeToolUses=${snapshot.toolUses.length}` + (apiIds ? ` apiIds=${apiIds}` : '') + (toolIds ? ` toolIds=${toolIds}` : '');
+}
+function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras = ''): void {
+  const parent = context.parentQueryId ? ` parentQueryId=${context.parentQueryId}` : '';
+  const subagent = context.subagentId ? ` subagentId=${context.subagentId}` : '';
+  const terminal = context.terminalReason ? ` terminalReason=${context.terminalReason}` : '';
+  const abort = context.abortReason ? ` abortReason=${context.abortReason}` : '';
+  logForDebugging(`query.${event} queryId=${context.queryId} generation=${context.queryGeneration} source=${context.querySource}${parent}${subagent}${terminal}${abort}${extras ? ` ${extras}` : ''}`);
 }
 export type Props = {
   commands: Command[];
@@ -1449,6 +1482,7 @@ export function REPL({
   }, [setLocalCommands]);
   const [inProgressToolUseIDs, setInProgressToolUseIDs] = useState<Set<string>>(new Set());
   const hasInterruptibleToolInProgressRef = useRef(false);
+  const queryLifecycleTrackerRef = useRef(new QueryLifecycleOperationTracker());
 
   // Remote session hook - manages WebSocket connection and message handling for --remote mode
   const remoteSession = useRemoteSession({
@@ -1726,11 +1760,20 @@ export function REPL({
   const mrOnBeforeQuery = useCallback(async (_input: string, _allMessages: MessageType[], _newMessageCount: number) => true, []);
   const mrOnTurnComplete = useCallback(async (_allMessages: MessageType[], _aborted: boolean) => { }, []);
   const mrRender = useCallback(() => null, []);
-  const abortTimedOutQuery = useCallback(() => {
+  const abortTimedOutQuery = useCallback((timeout: QueryGuardTimeoutInfo) => {
+    const timeoutOperations = summarizeActiveOperations(timeout.activeOperations);
+    logQueryLifecycle('timeout', timeout.context, timeoutOperations);
     const activeAbortController = abortControllerRef.current;
     if (activeAbortController && !activeAbortController.signal.aborted) {
+      logQueryLifecycle('abort_requested', timeout.context, 'abortReason=query-timeout');
       activeAbortController.abort('query-timeout');
     }
+    if (timeout.activeOperations.apiCalls.length > 0) {
+      logForDebugging(`api.call.orphaned_on_query_end queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`, {
+        level: 'warn'
+      });
+    }
+    logQueryLifecycle('end', timeout.context, timeoutOperations);
     if (feature('TOKEN_BUDGET')) {
       snapshotOutputTokensForTurn(null);
     }
@@ -1738,6 +1781,7 @@ export function REPL({
     // QueryGuard calls this before forceEnd(); defer UI cleanup until after
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
+      logQueryLifecycle('abort_acknowledged', timeout.context, 'abortReason=query-timeout');
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);
@@ -2229,7 +2273,17 @@ export function REPL({
     if (feature('PROACTIVE') || feature('KAIROS')) {
       proactiveModule?.pauseProactive();
     }
-    queryGuard.forceEnd();
+    const cancelContext = queryGuard.activeContext;
+    const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
+    const completedCancelContext = cancelContext ? {
+      ...cancelContext,
+      terminalReason: 'user-abort' as const,
+      abortReason: 'user-cancel'
+    } : null;
+    if (cancelContext) {
+      logQueryLifecycle('abort_requested', cancelContext, 'abortReason=user-cancel');
+    }
+    queryGuard.forceEnd('user-abort', 'user-cancel');
     skipIdleCheckRef.current = false;
 
     // Preserve partially-streamed text so the user can read what was
@@ -2264,6 +2318,18 @@ export function REPL({
       activeRemote.cancelRequest();
     } else {
       abortController?.abort('user-cancel');
+    }
+    if (cancelContext) {
+      logQueryLifecycle('abort_acknowledged', cancelContext, 'abortReason=user-cancel');
+    }
+    if (completedCancelContext) {
+      const cancelOperationSummary = summarizeActiveOperations(cancelOperations);
+      if (cancelOperations.apiCalls.length > 0) {
+        logForDebugging(`api.call.orphaned_on_query_end queryId=${completedCancelContext.queryId} generation=${completedCancelContext.queryGeneration} ${cancelOperationSummary}`, {
+          level: 'warn'
+        });
+      }
+      logQueryLifecycle('end', completedCancelContext, cancelOperationSummary);
     }
 
     // Clear the controller so subsequent Escape presses don't see a stale
@@ -2530,6 +2596,7 @@ export function REPL({
     } satisfies ProcessUserInputContext['queryActivity'];
     return {
       abortController,
+      queryLifecycle: queryLifecycleTrackerRef.current,
       options: {
         commands,
         tools: computeTools(),
@@ -2977,10 +3044,17 @@ export function REPL({
     }
 
     // Concurrent guard via state machine. tryStart() atomically checks
-    // and transitions idle→running, returning the generation number.
+    // and transitions idle→running, returning lifecycle context.
     // Returns null if already running — no separate check-then-set.
-    const thisGeneration = queryGuard.tryStart();
-    if (thisGeneration === null) {
+    const lifecycleTracker = queryLifecycleTrackerRef.current;
+    const querySource = getQuerySourceForREPL();
+    const startResult = queryGuard.tryStart({
+      queryId: randomUUID(),
+      querySource,
+      startedAt: Date.now(),
+      getActiveOperations: () => lifecycleTracker.snapshot()
+    });
+    if (startResult === null) {
       logEvent('tengu_concurrent_onquery_detected', {});
 
       // Extract and enqueue user message text, skipping meta messages
@@ -2997,6 +3071,12 @@ export function REPL({
       });
       return;
     }
+    lifecycleTracker.clear();
+    const thisGeneration = startResult.generation;
+    const queryContext = startResult.context;
+    logQueryLifecycle('start', queryContext);
+    logQueryLifecycle('guard_start', queryContext);
+    let didThrow = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3035,11 +3115,31 @@ export function REPL({
         }
       }
       await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort);
+    } catch (error) {
+      didThrow = true;
+      throw error;
     } finally {
+      const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
+      const abortReason = getAbortReasonLabel(abortController.signal.reason);
+      const activeOperations = lifecycleTracker.snapshot();
+      const completedContext = {
+        ...queryContext,
+        terminalReason,
+        ...(abortReason !== undefined && {
+          abortReason
+        })
+      };
       // queryGuard.end() atomically checks generation and transitions
       // running→idle. Returns false if a newer query owns the guard
       // (cancel+resubmit race where the stale finally fires as a microtask).
-      if (queryGuard.end(thisGeneration)) {
+      if (queryGuard.end(thisGeneration, terminalReason, abortReason)) {
+        logQueryLifecycle('end', completedContext, summarizeActiveOperations(activeOperations));
+        if (activeOperations.apiCalls.length > 0) {
+          logForDebugging(`api.call.orphaned_on_query_end queryId=${queryContext.queryId} generation=${thisGeneration} ${summarizeActiveOperations(activeOperations)}`, {
+            level: 'warn'
+          });
+        }
+        lifecycleTracker.clear();
         setLastQueryCompletionTime(Date.now());
         skipIdleCheckRef.current = false;
         // Always reset loading state in finally - this ensures cleanup even
@@ -3125,6 +3225,8 @@ export function REPL({
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
         // propagating to the double-press exit flow.
         setAbortController(null);
+      } else if (!queryGuard.isActive) {
+        lifecycleTracker.clear();
       }
 
       // Auto-restore: if the user interrupted before any meaningful response

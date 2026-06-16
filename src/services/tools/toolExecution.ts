@@ -1224,6 +1224,17 @@ async function checkPermissionsAndCallTool(
   const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
 
   const startTime = Date.now()
+  const bashTimeoutMs =
+    tool.name === BASH_TOOL_NAME && 'timeout' in processedInput
+      ? (processedInput as BashToolInput).timeout
+      : undefined
+  toolUseContext.queryLifecycle?.startToolUse({
+    toolUseId: toolUseID,
+    toolName: tool.name,
+    startedAt: startTime,
+    ...(tool.name === BASH_TOOL_NAME && { isBash: true }),
+    ...(bashTimeoutMs !== undefined && { timeoutMs: bashTimeoutMs }),
+  })
 
   startSessionActivity('tool_exec')
   // If processedInput still points at the backfill clone, no hook/permission
@@ -1723,6 +1734,7 @@ async function checkPermissionsAndCallTool(
       queryActivityLease?.release()
       toolUseContext.queryActivity?.registerActivity(`tool:${tool.name}:end`)
     } finally {
+      toolUseContext.queryLifecycle?.endToolUse(toolUseID)
       stopSessionActivity('tool_exec')
       // Clean up decision info after logging
       if (decisionInfo) {

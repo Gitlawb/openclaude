@@ -170,6 +170,7 @@ import { COMPACT_MAX_OUTPUT_TOKENS, getContextWindowForModel, getMaxThinkingToke
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import { type EffortValue, modelSupportsEffort } from 'src/utils/effort.js'
+import type { QueryLifecycleOperationTracker } from 'src/utils/queryLifecycle.js'
 import {
   isFastModeAvailable,
   isFastModeCooldown,
@@ -716,6 +717,7 @@ export type Options = {
   // (query.ts decrements across the agentic loop).
   taskBudget?: { total: number; remaining?: number }
   providerOverride?: { model: string; baseURL: string; apiKey: string }
+  queryLifecycle?: QueryLifecycleOperationTracker
 }
 
 export async function queryModelWithoutStreaming({
@@ -1537,6 +1539,7 @@ async function* queryModel(
   let stream: Stream<BetaRawMessageStreamEvent> | undefined = undefined
   let streamRequestId: string | null | undefined = undefined
   let clientRequestId: string | undefined = undefined
+  let activeApiCallKey: string | null = null
   // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in supported Node runtimes and is used by the SDK
   let streamResponse: Response | undefined = undefined
 
@@ -1849,6 +1852,17 @@ async function* queryModel(
           getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
             ? randomUUID()
             : undefined
+        if (activeApiCallKey) {
+          options.queryLifecycle?.endApiCall(activeApiCallKey)
+          activeApiCallKey = null
+        }
+        activeApiCallKey =
+          options.queryLifecycle?.startApiCall({
+            clientRequestId,
+            model: options.model,
+            querySource: options.querySource,
+            startedAt: start,
+          }) ?? null
 
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
@@ -1867,6 +1881,11 @@ async function* queryModel(
           .withResponse()
         queryCheckpoint('query_response_headers_received')
         streamRequestId = result.request_id
+        if (activeApiCallKey) {
+          options.queryLifecycle?.updateApiCall(activeApiCallKey, {
+            requestId: streamRequestId,
+          })
+        }
         streamResponse = result.response
         return result.data
       },
@@ -2841,6 +2860,10 @@ async function* queryModel(
       return
     }
   } finally {
+    if (activeApiCallKey) {
+      options.queryLifecycle?.endApiCall(activeApiCallKey)
+      activeApiCallKey = null
+    }
     stopSessionActivity('api_call')
     // Must be in the finally block: if the generator is terminated early
     // via .return() (e.g. consumer breaks out of for-await-of, or query.ts

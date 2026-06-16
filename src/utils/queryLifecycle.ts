@@ -1,0 +1,109 @@
+export type QueryTerminalReason =
+  | 'ok'
+  | 'query-timeout'
+  | 'hard-max-query-timeout'
+  | 'user-abort'
+  | 'api-error'
+  | 'tool-error'
+  | 'budget-exhausted'
+  | 'parent-ended'
+  | 'unknown'
+
+export type QueryGuardTimeoutReason = 'idle' | 'hard_max' | 'lease_expired'
+
+export type QueryActiveApiCall = {
+  clientRequestId?: string
+  requestId?: string | null
+  model?: string
+  querySource?: string
+  startedAt: number
+}
+
+export type QueryActiveToolUse = {
+  toolUseId: string
+  toolName: string
+  startedAt: number
+  isBash?: boolean
+  timeoutMs?: number
+}
+
+export type QueryActiveOperationSnapshot = {
+  apiCalls: QueryActiveApiCall[]
+  toolUses: QueryActiveToolUse[]
+}
+
+export type QueryLifecycleContext = {
+  queryId: string
+  queryGeneration: number
+  querySource: string
+  parentQueryId?: string
+  subagentId?: string
+  startedAt: number
+  terminalReason?: QueryTerminalReason
+  abortReason?: string
+}
+
+export type QueryGuardMetadata = {
+  queryId: string
+  querySource: string
+  parentQueryId?: string
+  subagentId?: string
+  startedAt?: number
+  getActiveOperations?: () => QueryActiveOperationSnapshot
+}
+
+export type QueryGuardStart = {
+  generation: number
+  context: QueryLifecycleContext
+}
+
+export type QueryGuardTimeoutInfo = {
+  generation: number
+  reason: QueryGuardTimeoutReason
+  timeoutMs: number
+  elapsedMs: number
+  context: QueryLifecycleContext
+  activeOperations: QueryActiveOperationSnapshot
+}
+
+export class QueryLifecycleOperationTracker {
+  private apiCalls = new Map<string, QueryActiveApiCall>()
+  private toolUses = new Map<string, QueryActiveToolUse>()
+  private apiCallSeq = 0
+
+  startApiCall(call: QueryActiveApiCall): string {
+    const key = call.clientRequestId ?? call.requestId ?? `api-call-${++this.apiCallSeq}`
+    this.apiCalls.set(key, { ...call })
+    return key
+  }
+
+  updateApiCall(key: string, update: Partial<QueryActiveApiCall>): void {
+    const current = this.apiCalls.get(key)
+    if (!current) return
+    this.apiCalls.set(key, { ...current, ...update })
+  }
+
+  endApiCall(key: string): void {
+    this.apiCalls.delete(key)
+  }
+
+  startToolUse(toolUse: QueryActiveToolUse): void {
+    this.toolUses.set(toolUse.toolUseId, { ...toolUse })
+  }
+
+  endToolUse(toolUseId: string): void {
+    this.toolUses.delete(toolUseId)
+  }
+
+  clear(): void {
+    this.apiCalls.clear()
+    this.toolUses.clear()
+  }
+
+  snapshot(): QueryActiveOperationSnapshot {
+    return {
+      apiCalls: [...this.apiCalls.values()].map(call => ({ ...call })),
+      toolUses: [...this.toolUses.values()].map(toolUse => ({ ...toolUse })),
+    }
+  }
+}
