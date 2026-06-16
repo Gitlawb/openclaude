@@ -12,6 +12,11 @@ import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/
 import { QueryEngine } from '../../QueryEngine.js'
 import { getTools } from '../../tools.js'
 import { init } from '../init.js'
+import {
+  checkCriticalImportsForStubs,
+  safelyAccess,
+  type CriticalImport,
+} from './stubLeakDetection.js'
 
 // ============================================================================
 // Stub leak detection
@@ -28,23 +33,14 @@ import { init } from '../init.js'
  * whole detector (#1287 — `npm run dev:grpc` tripped the check at
  * `QueryEngine` via a TDZ ReferenceError from the script's import order).
  * TDZ is a separate bug class than stub-leak: an uninitialized binding
- * can't carry `__stub: true`, so treat the access failure as "nothing
- * to check here" and move on. Real stub leaks still throw the explicit
- * SDK init error below.
+ * can't carry `__stub: true`, so the access failure is treated as "nothing
+ * to check here". Real stub leaks still throw the explicit SDK init error.
+ *
+ * The detection primitives live in ./stubLeakDetection so the real path can
+ * be unit-tested directly (see tests/sdk/stub-leak-detect.test.ts).
  */
-function safelyAccess<T>(fn: () => T): T | undefined {
-  try {
-    return fn()
-  } catch {
-    return undefined
-  }
-}
-
 function detectStubLeaks(): void {
-  const criticalImports: Array<{
-    name: string
-    get: () => Record<string, unknown> | undefined
-  }> = [
+  const criticalImports: CriticalImport[] = [
     // QueryEngine is the core SDK engine — must never be a stub
     {
       name: 'QueryEngine',
@@ -63,16 +59,7 @@ function detectStubLeaks(): void {
     },
   ]
 
-  for (const { name, get } of criticalImports) {
-    const mod = get()
-    if (mod && '__stub' in mod && mod.__stub === true) {
-      throw new Error(
-        `SDK init error: "${name}" resolved to a build stub at runtime. ` +
-        `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
-        `Report this at https://github.com/Gitlawb/openclaude/issues`,
-      )
-    }
-  }
+  checkCriticalImportsForStubs(criticalImports)
 }
 
 // Run leak detection on the next microtask so every same-tick module init
