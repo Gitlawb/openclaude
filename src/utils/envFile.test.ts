@@ -109,6 +109,18 @@ BAZ=qux
     expect(result).toEqual({ FOO: ' bar ', BAZ: ' qux ' })
   })
 
+  it('handles escaped quote characters inside quoted values', () => {
+    const result = parseEnvFile([
+      'FOO="{\\"k\\":\\"v\\"}"',
+      "BAZ='it\\'s ok'",
+    ].join('\n'))
+
+    expect(result).toEqual({
+      FOO: '{"k":"v"}',
+      BAZ: "it's ok",
+    })
+  })
+
   it('strips inline comments from unquoted values', () => {
     const result = parseEnvFile('FOO=bar # comment\nBAZ=qux')
     expect(result).toEqual({ FOO: 'bar', BAZ: 'qux' })
@@ -184,9 +196,14 @@ describe('loadEnvFile', () => {
   it('wraps file read errors with env-file context', () => {
     const filePath = join(tempDir, 'missing.env')
 
-    expect(() => loadEnvFile(filePath)).toThrow(
-      new RegExp(`Failed to load --provider-env-file at ${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:`),
-    )
+    let message = ''
+    try {
+      loadEnvFile(filePath)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+
+    expect(message).toContain(`Failed to load --provider-env-file at ${filePath}:`)
   })
 
   it('wraps parse errors without exposing secret values from the file', () => {

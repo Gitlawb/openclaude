@@ -109,6 +109,9 @@ const ALLOWED_ENV_FILE_PREFIXES = [
   'VERTEX_REGION_CLAUDE_',
 ]
 
+/**
+ * Returns true when an env key is explicitly safe for provider setup files.
+ */
 function isAllowedEnvFileKey(key: string): boolean {
   return (
     ALLOWED_ENV_FILE_KEYS.has(key) ||
@@ -116,6 +119,50 @@ function isAllowedEnvFileKey(key: string): boolean {
   )
 }
 
+/**
+ * Checks whether a quote is escaped by an odd-length backslash run.
+ */
+function isEscapedQuote(value: string, quoteIdx: number): boolean {
+  let backslashCount = 0
+  for (let i = quoteIdx - 1; i >= 0 && value[i] === '\\'; i--) {
+    backslashCount++
+  }
+  return backslashCount % 2 === 1
+}
+
+/**
+ * Finds the next matching quote that is not escaped.
+ */
+function findClosingQuote(value: string, quote: string): number {
+  for (let i = 1; i < value.length; i++) {
+    if (value[i] === quote && !isEscapedQuote(value, i)) {
+      return i
+    }
+  }
+  return -1
+}
+
+/**
+ * Unescapes the active quote delimiter in a quoted env value.
+ */
+function unescapeQuotedValue(raw: string, quote: string): string {
+  let result = ''
+
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '\\' && raw[i + 1] === quote) {
+      result += quote
+      i++
+      continue
+    }
+    result += raw[i]
+  }
+
+  return result
+}
+
+/**
+ * Parses an individual env value, handling simple quoted values and comments.
+ */
 function parseEnvValue(value: string, lineNumber: number): string {
   if (!value.startsWith('"') && !value.startsWith("'")) {
     const commentIdx = value.indexOf(' #')
@@ -123,7 +170,7 @@ function parseEnvValue(value: string, lineNumber: number): string {
   }
 
   const quote = value[0]!
-  const closingQuoteIdx = value.indexOf(quote, 1)
+  const closingQuoteIdx = findClosingQuote(value, quote)
   if (closingQuoteIdx === -1) {
     throw new Error(`Invalid line ${lineNumber}: unterminated quoted value`)
   }
@@ -133,7 +180,7 @@ function parseEnvValue(value: string, lineNumber: number): string {
     throw new Error(`Invalid line ${lineNumber}: unexpected content after quoted value`)
   }
 
-  return value.slice(1, closingQuoteIdx)
+  return unescapeQuotedValue(value.slice(1, closingQuoteIdx), quote)
 }
 
 /**
@@ -183,6 +230,9 @@ export function parseEnvFile(content: string): Record<string, string> {
   return result
 }
 
+/**
+ * Extracts repeatable --provider-env-file paths from raw CLI arguments.
+ */
 export function parseProviderEnvFileArgs(args: string[]): {
   paths: string[]
   error?: string
