@@ -8,6 +8,7 @@ import {
   computeSetRouteUpdate,
   currentRouteValue,
   describeRouteLine,
+  findModelKeyShadowingSource,
   findShadowingSource,
   readAgentRoute,
   setAgentRoute,
@@ -202,6 +203,40 @@ describe('buildRouteOptions', () => {
     expect(String(entry?.label)).toContain('unconfigured')
     expect(String(entry?.label)).not.toContain('cross-provider')
   })
+
+  test('clear label promises default route, not parent, when a default applies', () => {
+    const opts = buildRouteOptions(
+      modelOnly,
+      { kind: 'model-only', routeKey: 'mini', model: 'gpt-5-mini' },
+      { defaultRouteApplies: true },
+    )
+    const clear = opts.find(o => o.value === CLEAR_ROUTE_VALUE)
+    expect(String(clear?.label)).toContain('default route')
+    expect(String(clear?.label)).not.toContain('inherit from parent')
+  })
+
+  test('clear label promises parent inheritance when no default applies', () => {
+    const opts = buildRouteOptions(
+      modelOnly,
+      { kind: 'model-only', routeKey: 'mini', model: 'gpt-5-mini' },
+      { defaultRouteApplies: false },
+    )
+    const clear = opts.find(o => o.value === CLEAR_ROUTE_VALUE)
+    expect(String(clear?.label)).toContain('inherit from parent')
+  })
+
+  test('flags a model key shadowed by a higher source', () => {
+    const opts = buildRouteOptions(
+      {} as SettingsJson,
+      { kind: 'none' },
+      { shadowedModelKeys: new Set(['sonnet']) },
+    )
+    const sonnet = opts.find(o => o.value === 'sonnet')
+    expect(String(sonnet?.label)).toContain('shadowed by higher settings')
+    // Non-shadowed built-ins are unaffected.
+    const opus = opts.find(o => o.value === 'opus')
+    expect(String(opus?.label)).not.toContain('shadowed')
+  })
 })
 
 describe('currentRouteValue', () => {
@@ -264,6 +299,44 @@ describe('findShadowingSource', () => {
       src('policySettings', { verification: 'pol' }),
     ]
     expect(findShadowingSource(sources, 'verification')).toBe('policySettings')
+  })
+})
+
+describe('findModelKeyShadowingSource', () => {
+  const src = (
+    source: string,
+    agentModels: Record<string, unknown>,
+  ): SettingsWithSources['sources'][number] =>
+    ({ source, settings: { agentModels } } as unknown as SettingsWithSources['sources'][number])
+
+  test('null when only userSettings defines the model key', () => {
+    expect(findModelKeyShadowingSource([src('userSettings', { sonnet: { model: 'sonnet' } })], 'sonnet')).toBeNull()
+  })
+
+  test('returns a higher source that defines the same agentModels key', () => {
+    const sources = [
+      src('userSettings', {}),
+      src('projectSettings', { sonnet: { base_url: 'x', api_key: 'k', model: 'team-sonnet' } }),
+    ]
+    expect(findModelKeyShadowingSource(sources, 'sonnet')).toBe('projectSettings')
+  })
+
+  test('uses exact key match (not normalized), mirroring the resolver', () => {
+    const sources = [src('userSettings', {}), src('projectSettings', { 'gpt_5': {} })]
+    expect(findModelKeyShadowingSource(sources, 'gpt-5')).toBeNull()
+  })
+
+  test('shadows even when userSettings is absent', () => {
+    expect(findModelKeyShadowingSource([src('policySettings', { sonnet: {} })], 'sonnet')).toBe('policySettings')
+  })
+
+  test('returns the highest-priority shadowing source', () => {
+    const sources = [
+      src('userSettings', { sonnet: { model: 'sonnet' } }),
+      src('projectSettings', { sonnet: {} }),
+      src('policySettings', { sonnet: {} }),
+    ]
+    expect(findModelKeyShadowingSource(sources, 'sonnet')).toBe('policySettings')
   })
 })
 

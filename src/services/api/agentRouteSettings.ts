@@ -76,6 +76,30 @@ export function findShadowingSource(
   return null
 }
 
+/**
+ * The highest-priority settings source ranked ABOVE userSettings that defines
+ * `agentModels[modelKey]`, or null. A route saved here points an agent at
+ * `modelKey`, but `agentModels` merges by source priority, so a higher source's
+ * entry for the same key wins — the user's model-only entry (e.g. the
+ * synthesized `{ model: "sonnet" }` for the built-in Sonnet option) is shadowed
+ * and the agent resolves to the higher source's (often cross-provider) route
+ * instead of the current-provider model the picker promised. `agentModels` keys
+ * are exact (not normalized) to match the runtime resolver. Pure.
+ */
+export function findModelKeyShadowingSource(
+  sources: SettingsWithSources['sources'],
+  modelKey: string,
+): SettingSource | null {
+  const userIdx = sources.findIndex(s => s.source === 'userSettings')
+  for (let i = sources.length - 1; i > userIdx; i--) {
+    const models = sources[i]!.settings.agentModels
+    if (models && Object.prototype.hasOwnProperty.call(models, modelKey)) {
+      return sources[i]!.source
+    }
+  }
+  return null
+}
+
 /** Build the route descriptor for a resolved model key. Pure. */
 function describeModelKey(
   settings: SettingsJson | null,
@@ -172,11 +196,23 @@ export function describeRouteLine(current: CurrentAgentRoute): string {
 /**
  * Build the Select options for the route picker (excluding the inline custom
  * input option, which the component appends with its own onChange). Pure.
+ *
+ * opts.shadowedModelKeys: agentModels keys defined by a higher-priority source
+ * than userSettings. A user-level route to such a key resolves to the higher
+ * source's entry (see findModelKeyShadowingSource), so they are flagged here
+ * and rejected on save rather than presented as a current-provider model.
+ *
+ * opts.defaultRouteApplies: whether a `default` agentRouting entry is in effect.
+ * When it is, clearing an agent's own key does not inherit the parent model; the
+ * default route still applies. The clear label reflects that instead of
+ * promising parent inheritance.
  */
 export function buildRouteOptions(
   settings: SettingsJson | null,
   current: CurrentAgentRoute,
+  opts?: { shadowedModelKeys?: ReadonlySet<string>; defaultRouteApplies?: boolean },
 ): OptionWithDescription<string>[] {
+  const shadowed = opts?.shadowedModelKeys
   const modelOptions: OptionWithDescription<string>[] = getAgentModelOptions(settings)
     .filter(o => o.value !== 'inherit')
     .map(o => {
@@ -186,7 +222,8 @@ export function buildRouteOptions(
       const hasBase = Boolean(entry?.base_url?.trim())
       const hasKey = Boolean(entry?.api_key?.trim())
       let label = o.label
-      if (hasBase && hasKey) label = `${o.label} (cross-provider)`
+      if (shadowed?.has(o.value)) label = `${o.label} (shadowed by higher settings)`
+      else if (hasBase && hasKey) label = `${o.label} (cross-provider)`
       else if (hasBase || hasKey) label = `${o.label} (unconfigured, inherits)`
       return {
         value: o.value,
@@ -196,14 +233,20 @@ export function buildRouteOptions(
     })
 
   // Only offer "clear" when the agent has its OWN routing key. A route inherited
-  // via `default` has nothing agent-specific to remove, and clearing wouldn't
-  // make it inherit the parent (default would still apply), so the option would
-  // claim a change the runtime ignores.
+  // via `default` has nothing agent-specific to remove.
   if (current.kind !== 'none' && !current.viaDefault) {
+    // Clearing only removes the agent's own key. If a `default` route is still
+    // in effect the agent falls back to it, not the parent model, so don't
+    // promise parent inheritance the runtime won't deliver.
+    const defaultApplies = opts?.defaultRouteApplies ?? false
     modelOptions.push({
       value: CLEAR_ROUTE_VALUE,
-      label: 'Clear route (inherit from parent)',
-      description: "Remove this agent's model assignment",
+      label: defaultApplies
+        ? 'Clear route (use default route)'
+        : 'Clear route (inherit from parent)',
+      description: defaultApplies
+        ? "Remove this agent's own route; the default route still applies"
+        : "Remove this agent's model assignment",
     })
   }
   return modelOptions
@@ -230,6 +273,28 @@ export function getRouteShadowSource(agentType: string): SettingSource | null {
 }
 
 /**
+ * The settings source whose `agentModels[modelKey]` would shadow a user-level
+ * route to `modelKey`, or null. The picker uses this to refuse saving (and to
+ * flag) a route that would resolve to a higher source's entry rather than the
+ * current-provider model the option promised.
+ */
+export function getModelKeyShadowSource(modelKey: string): SettingSource | null {
+  return findModelKeyShadowingSource(getSettingsWithSources().sources, modelKey)
+}
+
+/** agentModels keys defined above userSettings in the effective chain. */
+export function getShadowedModelKeys(): Set<string> {
+  const { sources } = getSettingsWithSources()
+  const userIdx = sources.findIndex(s => s.source === 'userSettings')
+  const keys = new Set<string>()
+  for (let i = sources.length - 1; i > userIdx; i--) {
+    const models = sources[i]!.settings.agentModels
+    if (models) for (const k of Object.keys(models)) keys.add(k)
+  }
+  return keys
+}
+
+/**
  * Error for when user settings are not an enabled setting source this session
  * (e.g. launched with `--setting-sources project`). The picker reads and writes
  * userSettings, but the runtime resolves from the enabled chain only, so a write
@@ -252,7 +317,18 @@ export function setAgentRoute(
   if (!isSettingSourceEnabled('userSettings')) return { error: userSettingsDisabledError() }
   const shadow = getRouteShadowSource(agentType)
   if (shadow) return { error: shadowError(agentType, shadow) }
-  const next = computeSetRouteUpdate(getSettingsForSource('userSettings'), agentType, modelKey)
+  // A higher-priority source defining agentModels[modelKey] wins on merge, so a
+  // user-level route to it would resolve to that entry, not the model the
+  // option promised. Refuse rather than silently save a misleading route. Skip
+  // when the user already owns this key in userSettings (selecting their own
+  // pre-defined entry is intentional).
+  const userSettings = getSettingsForSource('userSettings')
+  const ownsKey = Boolean(userSettings?.agentModels?.[modelKey])
+  if (!ownsKey) {
+    const modelShadow = getModelKeyShadowSource(modelKey)
+    if (modelShadow) return { error: modelKeyShadowError(modelKey, modelShadow) }
+  }
+  const next = computeSetRouteUpdate(userSettings, agentType, modelKey)
   return updateSettingsForSource('userSettings', next)
 }
 
@@ -282,5 +358,13 @@ function shadowError(agentType: string, source: SettingSource): Error {
   return new Error(
     `${agentType} is routed by ${source} settings, which override your user settings. ` +
       `A user-level change won't take effect. ${shadowRemediation(source)}`,
+  )
+}
+
+function modelKeyShadowError(modelKey: string, source: SettingSource): Error {
+  return new Error(
+    `"${modelKey}" is defined in ${source} settings, which override your user settings. ` +
+      `A user-level route to it would resolve to that entry, not a current-provider model. ` +
+      `${shadowRemediation(source)}`,
   )
 }

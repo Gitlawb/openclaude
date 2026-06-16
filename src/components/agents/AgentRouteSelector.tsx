@@ -8,13 +8,14 @@ import {
   clearAgentRoute,
   currentRouteValue,
   getRouteShadowSource,
+  getShadowedModelKeys,
   setAgentRoute,
   shadowRemediation,
   type CurrentAgentRoute,
 } from '../../services/api/agentRouteSettings.js'
 import type { OptionWithDescription } from '../CustomSelect/select.js'
 import { Select } from '../CustomSelect/select.js'
-import { getSettingsForSource } from '../../utils/settings/settings.js'
+import { getInitialSettings, getSettingsForSource } from '../../utils/settings/settings.js'
 
 type Props = {
   agentType: string
@@ -60,11 +61,16 @@ export function AgentRouteSelector({ agentType, current, onClose }: Props): Reac
     )
   }
 
-  // Build options from the same scope we persist to (user settings), so a key
-  // shown here can never create a shadow agentModels entry on a different scope.
+  // Options are built from userSettings (the scope we persist to), but a key
+  // here can still collide with a higher-priority agentModels entry that wins on
+  // merge, so flag those as shadowed. A `default` route also changes what
+  // clearing means, so surface that in the clear label.
   const settings = getSettingsForSource('userSettings')
   const options: OptionWithDescription<string>[] = [
-    ...buildRouteOptions(settings, current),
+    ...buildRouteOptions(settings, current, {
+      shadowedModelKeys: getShadowedModelKeys(),
+      defaultRouteApplies: Boolean(getInitialSettings()?.agentRouting?.default),
+    }),
     {
       type: 'input',
       value: CUSTOM_MODEL_VALUE,
