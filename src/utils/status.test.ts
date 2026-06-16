@@ -27,6 +27,10 @@ function restoreEnv(): void {
 async function readPropertyValue(
   label: string,
   provider:
+    | 'firstParty'
+    | 'bedrock'
+    | 'vertex'
+    | 'foundry'
     | 'openai'
     | 'codex'
     | 'nvidia-nim'
@@ -43,6 +47,31 @@ async function readPropertyValue(
   const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
   return buildAPIProviderProperties().find(property => property.label === label)
     ?.value
+}
+
+async function readAPIProviderProperties(
+  provider:
+    | 'firstParty'
+    | 'bedrock'
+    | 'vertex'
+    | 'foundry'
+    | 'openai'
+    | 'gemini'
+    | 'mistral',
+) {
+  mock.restore()
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => provider,
+    getAPIProviderForStatsig: () => provider,
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
+  }))
+  mock.module('./mtls.js', () => ({
+    getMTLSConfig: () => undefined,
+  }))
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
+  return buildAPIProviderProperties()
 }
 
 beforeEach(async () => {
@@ -97,6 +126,83 @@ test('buildAPIProviderProperties keeps Codex-specific labels on the shared OpenA
     DEFAULT_CODEX_BASE_URL,
   )
   expect(await readPropertyValue('Model', 'codex')).toBe('gpt-5.5 (high)')
+})
+
+test('buildAPIProviderProperties redacts token-bearing OpenAI-compatible base URLs', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.example.test/v1?token=OPENAI_LEAK&mode=test#access_token=fragment-leak'
+
+  const properties = await readAPIProviderProperties('openai')
+  const value = properties.find(property => property.label === 'OpenAI base URL')
+    ?.value
+
+  expect(value).toBe('https://api.example.test/v1?token=redacted&mode=test')
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('OPENAI_LEAK')
+  expect(serialized).not.toContain('fragment-leak')
+})
+
+test('buildAPIProviderProperties redacts token-bearing Gemini base URLs', async () => {
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_BASE_URL =
+    'https://gemini.example.test/v1?api_key=GEMINI_LEAK&mode=test#secret=fragment-leak'
+
+  const properties = await readAPIProviderProperties('gemini')
+  const value = properties.find(property => property.label === 'Gemini base URL')
+    ?.value
+
+  expect(value).toBe('https://gemini.example.test/v1?api_key=redacted&mode=test')
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('GEMINI_LEAK')
+  expect(serialized).not.toContain('fragment-leak')
+})
+
+test('buildAPIProviderProperties redacts token-bearing direct provider base URLs', async () => {
+  const cases = [
+    {
+      provider: 'firstParty' as const,
+      env: 'ANTHROPIC_BASE_URL',
+      label: 'Anthropic base URL',
+    },
+    {
+      provider: 'bedrock' as const,
+      env: 'BEDROCK_BASE_URL',
+      label: 'Bedrock base URL',
+    },
+    {
+      provider: 'vertex' as const,
+      env: 'VERTEX_BASE_URL',
+      label: 'Vertex base URL',
+    },
+    {
+      provider: 'foundry' as const,
+      env: 'ANTHROPIC_FOUNDRY_BASE_URL',
+      label: 'Microsoft Foundry base URL',
+    },
+    {
+      provider: 'mistral' as const,
+      env: 'MISTRAL_BASE_URL',
+      label: 'Mistral base URL',
+    },
+  ]
+
+  for (const { provider, env, label } of cases) {
+    restoreEnv()
+    const host = provider.toLowerCase()
+    process.env[env] =
+      `https://${host}.example.test/v1?authorization=${provider}-leak&mode=test#token=fragment-leak`
+
+    const properties = await readAPIProviderProperties(provider)
+    const value = properties.find(property => property.label === label)?.value
+
+    expect(value).toBe(
+      `https://${host}.example.test/v1?authorization=redacted&mode=test`,
+    )
+    const serialized = JSON.stringify(properties)
+    expect(serialized).not.toContain(`${provider}-leak`)
+    expect(serialized).not.toContain('fragment-leak')
+  }
 })
 
 test('buildAPIProviderProperties redacts proxy credentials and mTLS paths', async () => {

@@ -115,6 +115,22 @@ function pushRedactedProperty(
     value: redactSecretValueForDisplay(value, secretSource) ?? value
   });
 }
+function pushRedactedUrlProperty(
+  properties: Property[],
+  label: string,
+  value: string | undefined,
+  secretSource: SecretValueSource,
+): void {
+  if (!value) {
+    return;
+  }
+
+  const redactedUrl = redactUrlForStatus(value);
+  properties.push({
+    label,
+    value: redactSecretValueForDisplay(redactedUrl, secretSource) ?? redactedUrl
+  });
+}
 export function buildSandboxProperties(): Property[] {
   if (process.env.USER_TYPE !== 'ant') {
     return [];
@@ -350,7 +366,7 @@ export function buildAPIProviderProperties(): Property[] {
     if (anthropicBaseUrl) {
       properties.push({
         label: 'Anthropic base URL',
-        value: anthropicBaseUrl
+        value: redactUrlForStatus(anthropicBaseUrl)
       });
     }
   } else if (apiProvider === 'bedrock') {
@@ -358,7 +374,7 @@ export function buildAPIProviderProperties(): Property[] {
     if (bedrockBaseUrl) {
       properties.push({
         label: 'Bedrock base URL',
-        value: bedrockBaseUrl
+        value: redactUrlForStatus(bedrockBaseUrl)
       });
     }
     properties.push({
@@ -375,7 +391,7 @@ export function buildAPIProviderProperties(): Property[] {
     if (vertexBaseUrl) {
       properties.push({
         label: 'Vertex base URL',
-        value: vertexBaseUrl
+        value: redactUrlForStatus(vertexBaseUrl)
       });
     }
     const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
@@ -399,7 +415,7 @@ export function buildAPIProviderProperties(): Property[] {
     if (foundryBaseUrl) {
       properties.push({
         label: 'Microsoft Foundry base URL',
-        value: foundryBaseUrl
+        value: redactUrlForStatus(foundryBaseUrl)
       });
     }
     const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
@@ -417,7 +433,7 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider in OPENAI_COMPATIBLE_STATUS_METADATA) {
     const metadata =
       OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider]!;
-    pushRedactedProperty(
+    pushRedactedUrlProperty(
       properties,
       metadata.baseUrlLabel,
       process.env.OPENAI_BASE_URL,
@@ -438,12 +454,12 @@ export function buildAPIProviderProperties(): Property[] {
     }
   } else if (apiProvider === 'gemini') {
     const geminiBaseUrl = process.env.GEMINI_BASE_URL;
-    pushRedactedProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
+    pushRedactedUrlProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
     const geminiModel = process.env.GEMINI_MODEL;
     pushRedactedProperty(properties, 'Model', geminiModel, secretSource);
   } else if (apiProvider === 'mistral') {
     const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
-    pushRedactedProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
+    pushRedactedUrlProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
     const mistralModel = process.env.MISTRAL_MODEL;
     pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
   }
