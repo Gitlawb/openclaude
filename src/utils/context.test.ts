@@ -8,6 +8,7 @@ import {
   getModelMaxOutputTokens,
 } from './context.ts'
 import { calculateTokenBudget } from './tokenBudgetCalculator.ts'
+import type { Message } from '../types/message.ts'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -786,7 +787,7 @@ test('calculateTokenBudget returns expected structure for Message[] history', ()
           content: [{ type: 'text', text: 'Write a function to calculate fibonacci numbers.' }],
         },
       },
-    ],
+    ] as Message[],
   })
   expect(budget.total).toBeGreaterThan(0)
   expect(budget.systemPrompt).toBeGreaterThan(0)
