@@ -443,14 +443,14 @@ export function buildAPIProviderProperties(): Property[] {
     BNKR_API_KEY: process.env.BNKR_API_KEY,
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
   };
+  const routeId =
+    apiProvider === 'openai' ? resolveDisplayRouteId() : null;
   if (apiProvider !== 'firstParty') {
     // The legacy "openai" bucket collapses many concrete providers (OpenRouter,
     // Groq, Ollama, Fireworks, etc.) into a single "OpenAI-compatible" label.
     // When route resolution identifies a concrete provider, surface its real
     // label instead. Dedicated buckets (nvidia-nim, minimax, codex, github,
     // xai, ...) already have accurate labels and are left untouched.
-    const routeId =
-      apiProvider === 'openai' ? resolveDisplayRouteId() : null;
     const routeLabel = routeId ? getRouteLabel(routeId) : null;
     const providerLabel = routeLabel ?? API_PROVIDER_LABELS[apiProvider];
     properties.push({
@@ -530,8 +530,6 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider in OPENAI_COMPATIBLE_STATUS_METADATA) {
     const metadata =
       OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider]!;
-    const routeId =
-      apiProvider === 'openai' ? resolveDisplayRouteId() : null;
     const transportLabel = routeId
       ? getRouteProviderTypeLabel(routeId)
       : null;
