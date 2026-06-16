@@ -8,7 +8,10 @@ import {
 describe('providerSecrets LLMTR coverage', () => {
   // A bare LLMTR key has no sk-/AIza prefix, so it is only recognised as a
   // secret when LLMTR_API_KEY is part of the shared SECRET_ENV_KEYS list.
-  const llmtrKey = 'llmtr-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
+  // Obviously-fake, low-entropy fixture so leak scanners don't flag it
+  // (must be >8 chars so maskSecretForDisplay masks rather than returns
+  // 'configured').
+  const llmtrKey = 'fake-llmtr-test-key'
 
   test('sanitizeProviderConfigValue drops a poisoned field carrying the LLMTR key', () => {
     expect(
