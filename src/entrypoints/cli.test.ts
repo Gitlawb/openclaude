@@ -85,4 +85,26 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
+
+  it('reapplies --provider-env-file values after settings and startup profile env merges', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+
+    const loadIndex = src.indexOf('Object.assign(providerEnvFileValues, loadEnvFile(filePath))')
+    const settingsEnvApplyIndex = src.indexOf('applySafeConfigEnvironmentVariables()')
+    const reapplyAfterSettingsIndex = src.indexOf(
+      'reapplyProviderEnvFileValues()',
+      settingsEnvApplyIndex,
+    )
+    const startupProfileApplyIndex = src.indexOf('await applyStartupEnvFromProfile({')
+    const reapplyAfterStartupIndex = src.indexOf(
+      'reapplyProviderEnvFileValues()',
+      startupProfileApplyIndex,
+    )
+
+    expect(loadIndex).toBeGreaterThanOrEqual(0)
+    expect(settingsEnvApplyIndex).toBeGreaterThan(loadIndex)
+    expect(reapplyAfterSettingsIndex).toBeGreaterThan(settingsEnvApplyIndex)
+    expect(reapplyAfterSettingsIndex).toBeLessThan(startupProfileApplyIndex)
+    expect(reapplyAfterStartupIndex).toBeGreaterThan(startupProfileApplyIndex)
+  })
 })

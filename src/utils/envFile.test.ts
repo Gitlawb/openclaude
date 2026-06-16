@@ -11,6 +11,7 @@ import {
 const TEST_ENV_KEYS = [
   'NODE_OPTIONS',
   'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
   'OPENAI_MODEL',
 ]
 
@@ -155,9 +156,28 @@ describe('loadEnvFile', () => {
       'OPENAI_API_KEY=from-file',
     ].join('\n'))
 
-    loadEnvFile(filePath)
+    const loaded = loadEnvFile(filePath)
 
     expect(process.env.OPENAI_API_KEY).toBe('from-shell')
+    expect(process.env.OPENAI_MODEL).toBe('from-file')
+    expect(loaded).toEqual({ OPENAI_MODEL: 'from-file' })
+  })
+
+  it('returns loaded values that can be restored after later settings mutations', () => {
+    const filePath = writeTempEnvFile([
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=from-file',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    process.env.OPENAI_BASE_URL = 'https://settings.example/v1'
+    process.env.OPENAI_MODEL = 'from-settings'
+
+    for (const [key, value] of Object.entries(loaded)) {
+      process.env[key] = value
+    }
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
     expect(process.env.OPENAI_MODEL).toBe('from-file')
   })
 

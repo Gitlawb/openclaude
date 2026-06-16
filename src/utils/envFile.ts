@@ -273,8 +273,10 @@ export function parseProviderEnvFileArgs(args: string[]): {
 /**
  * Loads an environment file into process.env.
  * Existing process.env variables take precedence over the file's variables.
+ * Returns only the values applied from the file so explicit CLI inputs can be
+ * restored after later settings/profile env merges.
  */
-export function loadEnvFile(filePath: string): void {
+export function loadEnvFile(filePath: string): Record<string, string> {
   try {
     const content = readFileSync(filePath, 'utf-8')
     const parsed = parseEnvFile(content)
@@ -285,11 +287,14 @@ export function loadEnvFile(filePath: string): void {
       }
     }
 
+    const loaded: Record<string, string> = {}
     for (const [key, value] of Object.entries(parsed)) {
       if (process.env[key] === undefined) {
         process.env[key] = value
+        loaded[key] = value
       }
     }
+    return loaded
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Failed to load --provider-env-file at ${filePath}: ${message}`)

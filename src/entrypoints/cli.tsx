@@ -69,6 +69,10 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
  */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  const providerEnvFileValues: Record<string, string> = {};
+  const reapplyProviderEnvFileValues = () => {
+    Object.assign(process.env, providerEnvFileValues);
+  };
 
   // Fast-path for --version/-v: zero module loading needed
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
@@ -89,7 +93,7 @@ async function main(): Promise<void> {
     }
     for (const filePath of providerEnvFiles.paths) {
       try {
-        loadEnvFile(filePath);
+        Object.assign(providerEnvFileValues, loadEnvFile(filePath));
       } catch (err: unknown) {
         // biome-ignore lint/suspicious/noConsole:: intentional error output
         console.error(err instanceof Error ? err.message : String(err));
@@ -123,6 +127,7 @@ async function main(): Promise<void> {
     const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
     applySafeConfigEnvironmentVariables()
   }
+  reapplyProviderEnvFileValues()
 
   const { applyStartupEnvFromProfile } = await import(
     '../utils/providerProfile.js'
@@ -133,6 +138,7 @@ async function main(): Promise<void> {
       console.error(message)
     },
   })
+  reapplyProviderEnvFileValues()
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider
