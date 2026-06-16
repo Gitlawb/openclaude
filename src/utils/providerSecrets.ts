@@ -1,17 +1,78 @@
-const SECRET_ENV_KEYS = [
+import type { ProviderPresetManifestEntry } from '../integrations/descriptors.js'
+import {
+  ANTHROPIC_PROXY_DESCRIPTORS,
+  GATEWAY_DESCRIPTORS,
+  PROVIDER_PRESET_MANIFEST,
+  VENDOR_DESCRIPTORS,
+} from '../integrations/generated/integrationArtifacts.generated.js'
+
+// Manually-curated fallback. Kept defensive for legacy and OAuth/token
+// credential paths that either predate descriptors or are accepted by
+// provider-specific auth helpers outside setup.credentialEnvVars.
+const FALLBACK_SECRET_ENV_KEYS: readonly string[] = [
   'OPENAI_API_KEY',
   'OPENAI_AUTH_HEADER_VALUE',
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
+  'GEMINI_ACCESS_TOKEN',
   'MISTRAL_API_KEY',
   'BNKR_API_KEY',
   'XAI_API_KEY',
-] as const
+]
 
-export type SecretValueSource = Partial<
-  Record<(typeof SECRET_ENV_KEYS)[number], string | undefined>
->
+function readDescriptorCredentialEnvKeys(): readonly string[] {
+  const keys = new Set<string>()
+
+  const presets: readonly ProviderPresetManifestEntry[] = PROVIDER_PRESET_MANIFEST
+  for (const preset of presets) {
+    for (const key of preset.apiKeyEnvVars ?? []) {
+      if (key) keys.add(key)
+    }
+  }
+
+  const descriptorsWithSetup = [
+    ...VENDOR_DESCRIPTORS,
+    ...GATEWAY_DESCRIPTORS,
+    ...(ANTHROPIC_PROXY_DESCRIPTORS as readonly { setup?: { credentialEnvVars?: readonly string[] } }[]),
+  ]
+  for (const descriptor of descriptorsWithSetup) {
+    for (const key of descriptor.setup?.credentialEnvVars ?? []) {
+      if (key) keys.add(key)
+    }
+
+    const validation = (descriptor as { validation?: { credentialEnvVars?: readonly string[] } }).validation
+    for (const key of validation?.credentialEnvVars ?? []) {
+      if (key) keys.add(key)
+    }
+  }
+
+  return [...keys]
+}
+
+let cachedKnownSecretKeys: readonly string[] | null = null
+
+/**
+ * Every environment variable name that the integration registry declares as
+ * holding a provider credential. Used to decide which display values must be
+ * redacted. Derived from PROVIDER_PRESET_MANIFEST plus descriptor setup and
+ * validation metadata so adding a new provider cannot silently create an
+ * unredacted path.
+ */
+export function getKnownProviderSecretEnvKeys(): readonly string[] {
+  if (cachedKnownSecretKeys) return cachedKnownSecretKeys
+  const merged = new Set<string>(FALLBACK_SECRET_ENV_KEYS)
+  for (const key of readDescriptorCredentialEnvKeys()) {
+    merged.add(key)
+  }
+  cachedKnownSecretKeys = Object.freeze([...merged])
+  return cachedKnownSecretKeys
+}
+
+// Secret sources are intentionally open: a provider can declare new credential
+// env vars at any time, and forcing callers through a closed union would
+// re-introduce the drift this module exists to prevent.
+export type SecretValueSource = Partial<Record<string, string | undefined>>
 
 export function sanitizeApiKey(
   key: string | null | undefined,
@@ -20,31 +81,67 @@ export function sanitizeApiKey(
   return key
 }
 
+// Heuristic masks for secret-shaped values whose env var name is not known.
+// These catch values that slipped into display fields through unexpected paths
+// (profile files, custom base URLs with embedded tokens, hand-edited configs).
+const SECRET_PREFIX_PATTERNS = [
+  /^sk-/,
+  /^sk-ant-/,
+  /^AIza/,
+  /^ghp_/,
+  /^gho_/,
+  /^ghs_/,
+  /^ghr_/,
+  /^github_pat_/,
+]
+
 function looksLikeSecretValue(value: string): boolean {
   const trimmed = value.trim()
   if (!trimmed) return false
 
-  if (trimmed.startsWith('sk-') || trimmed.startsWith('sk-ant-')) {
-    return true
+  for (const pattern of SECRET_PREFIX_PATTERNS) {
+    if (pattern.test(trimmed)) return true
   }
 
-  if (trimmed.startsWith('AIza')) {
-    return true
+  return looksLikeOpaqueToken(trimmed)
+}
+
+// Opaque provider tokens are typically long, mixed-case, alphanumeric strings
+// with dashes/underscores. False positives here only mask a display value, so
+// the threshold is tuned to avoid common model/base URL strings.
+function looksLikeOpaqueToken(value: string): boolean {
+  if (value.length < 24) return false
+  if (value.includes('://')) return false
+  if (value.includes(' ')) return false
+  if (value.includes('/')) return false
+
+  let hasLower = false
+  let hasUpper = false
+  let hasDigit = false
+  for (const ch of value) {
+    if (ch >= 'a' && ch <= 'z') hasLower = true
+    else if (ch >= 'A' && ch <= 'Z') hasUpper = true
+    else if (ch >= '0' && ch <= '9') hasDigit = true
+    else if (ch !== '-' && ch !== '_') return false
   }
 
-  return false
+  // Require all three of {lower, upper, digit} to avoid catching model slugs
+  // that happen to be long (e.g. "claude-sonnet-4-6-preview").
+  const classes = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasDigit ? 1 : 0)
+  return classes >= 3
 }
 
 function collectSecretValues(
   sources: Array<SecretValueSource | null | undefined>,
 ): string[] {
+  const knownKeys = getKnownProviderSecretEnvKeys()
   const values = new Set<string>()
 
   for (const source of sources) {
     if (!source) continue
 
-    for (const key of SECRET_ENV_KEYS) {
-      const value = sanitizeApiKey(source[key])
+    for (const key of knownKeys) {
+      const value = sanitizeApiKey(source[key])?.trim()
       if (value) {
         values.add(value)
       }
@@ -74,7 +171,7 @@ export function redactSecretValueForDisplay(
   if (!value) return undefined
 
   const trimmed = value.trim()
-  if (!trimmed) return trimmed
+  if (!trimmed) return value
 
   const secretValues = collectSecretValues(sources)
   if (secretValues.includes(trimmed) || looksLikeSecretValue(trimmed)) {

@@ -82,7 +82,7 @@ import {
   classifyOpenAINetworkFailure,
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
-import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
+import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
 import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
 import {
   normalizeToolArguments,
@@ -95,16 +95,6 @@ import {
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
-
-type SecretValueSource = Partial<{
-  OPENAI_API_KEY: string
-  OPENAI_AUTH_HEADER_VALUE: string
-  CODEX_API_KEY: string
-  GEMINI_API_KEY: string
-  GOOGLE_API_KEY: string
-  GEMINI_ACCESS_TOKEN: string
-  MISTRAL_API_KEY: string
-}>
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1

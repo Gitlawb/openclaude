@@ -1,12 +1,50 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import {
   buildSandboxRuntimeCheck,
+  checkOpenAIEnv,
   checkNodeVersion,
   formatReachabilityFailureDetail,
   isCliSandboxRuntimeStubbed,
   readNodeExecutableVersion,
+  serializeSafeEnvSummary,
 } from './system-check.ts'
+
+const ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_SIMPLE',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENGATEWAY_API_KEY',
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'CODEX_API_KEY',
+  'CODEX_AUTH_JSON_PATH',
+  'CODEX_HOME',
+] as const
+
+const originalEnv: Record<string, string | undefined> = {}
+
+beforeEach(() => {
+  for (const key of ENV_KEYS) {
+    originalEnv[key] = process.env[key]
+    delete process.env[key]
+  }
+})
+
+afterEach(() => {
+  for (const key of ENV_KEYS) {
+    if (originalEnv[key] === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = originalEnv[key]
+    }
+  }
+})
 
 describe('formatReachabilityFailureDetail', () => {
   test('returns generic failure detail for non-codex transport', () => {
@@ -61,6 +99,67 @@ describe('formatReachabilityFailureDetail', () => {
     expect(detail).toContain(
       'Try "codexplan" or another entitled Codex model.',
     )
+  })
+
+  test('redacts descriptor-declared provider secret values in codex model hints', () => {
+    const providerSecret = 'ogw-provider-secret'
+    process.env.OPENGATEWAY_API_KEY = providerSecret
+
+    const detail = formatReachabilityFailureDetail(
+      'https://chatgpt.com/backend-api/codex/responses',
+      400,
+      '{"detail":"model is not supported with this chatgpt account"}',
+      {
+        transport: 'codex_responses',
+        requestedModel: providerSecret,
+        resolvedModel: providerSecret,
+      },
+    )
+
+    expect(detail).toContain('model alias "ogw...ret" resolved to "ogw...ret"')
+    expect(detail).not.toContain(providerSecret)
+  })
+})
+
+describe('system-check provider diagnostics', () => {
+  test('redacts descriptor-declared provider secret values in displayed model fields', () => {
+    const providerSecret = 'ogw-provider-secret'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+    process.env.OPENAI_MODEL = providerSecret
+    process.env.OPENGATEWAY_API_KEY = providerSecret
+
+    const results = checkOpenAIEnv()
+    const serialized = JSON.stringify(results)
+
+    expect(serialized).toContain('ogw...ret')
+    expect(serialized).not.toContain(providerSecret)
+  })
+
+  test('summarizes descriptor-declared provider credentials without exposing values', () => {
+    const providerSecret = 'ogw-provider-secret'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1'
+    process.env.OPENAI_MODEL = providerSecret
+    process.env.OPENGATEWAY_API_KEY = providerSecret
+
+    const summary = serializeSafeEnvSummary()
+
+    expect(summary.OPENAI_MODEL).toBe('ogw...ret')
+    expect(summary.PROVIDER_API_KEY_SET).toBe(true)
+    expect(JSON.stringify(summary)).not.toContain(providerSecret)
+  })
+
+  test('uses active GitHub provider credentials before default OpenAI route matching', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.GITHUB_TOKEN = 'ghp_FAKEgithubToken0123456789'
+    delete process.env.OPENAI_API_KEY
+
+    const summary = serializeSafeEnvSummary()
+
+    expect(summary.PROVIDER_API_KEY_SET).toBe(true)
   })
 })
 

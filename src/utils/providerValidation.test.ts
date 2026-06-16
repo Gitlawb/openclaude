@@ -16,6 +16,8 @@ const ENV_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'CODEX_API_KEY',
+  'CODEX_AUTH_JSON_PATH',
+  'CODEX_HOME',
   'CHATGPT_ACCOUNT_ID',
   'CODEX_ACCOUNT_ID',
   'CLAUDE_CODE_USE_GITHUB',
@@ -23,11 +25,13 @@ const ENV_KEYS = [
   'GH_TOKEN',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_SIMPLE',
   'MISTRAL_API_KEY',
   'MINIMAX_API_KEY',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'BNKR_API_KEY',
+  'OPENGATEWAY_API_KEY',
   'OPENROUTER_API_KEY',
   'DEEPSEEK_API_KEY',
   'MOONSHOT_API_KEY',
@@ -130,6 +134,24 @@ test('openai missing key error includes recovery guidance and config locations',
     'set CLAUDE_CODE_USE_OPENAI=0 in your shell environment',
   )
   expect(message!).toContain('Saved startup settings can come from')
+})
+
+test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {
+  const providerSecret = 'ogw-provider-secret'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  process.env.CODEX_AUTH_JSON_PATH = `/tmp/openclaude-provider-validation-missing-auth-${process.pid}.json`
+  process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+  process.env.OPENAI_MODEL = providerSecret
+  process.env.OPENGATEWAY_API_KEY = providerSecret
+  delete process.env.CODEX_API_KEY
+  delete process.env.CHATGPT_ACCOUNT_ID
+  delete process.env.CODEX_ACCOUNT_ID
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).not.toBeNull()
+  expect(message!).toContain('Codex auth is required for ogw...ret')
+  expect(message!).not.toContain(providerSecret)
 })
 
 test('mistral validation is descriptor-backed and requires MISTRAL_API_KEY', async () => {
