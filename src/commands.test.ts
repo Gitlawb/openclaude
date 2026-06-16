@@ -135,7 +135,7 @@ describe('builtInCommandNames', () => {
     'git status',
     'git diff --name-only --diff-filter=AM',
     'git diff --cached --name-only --diff-filter=AM',
-    'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+    'git log -10 --name-only --diff-filter=AM',
     'git ls-files',
     'git diff HEAD -- .',
     'git rev-parse --git-dir',
@@ -144,7 +144,7 @@ describe('builtInCommandNames', () => {
     'git status 2>/dev/null',
     'git diff --name-only --diff-filter=AM 2>/dev/null',
     'git diff --cached --name-only --diff-filter=AM 2>/dev/null',
-    'git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null',
+    'git log -10 --name-only --diff-filter=AM 2>/dev/null',
     'git diff HEAD -- . 2>/dev/null',
   ]
 
@@ -246,6 +246,128 @@ describe('builtInCommandNames', () => {
     }
   })
 
+  test('bughunter keeps git context populated in a fresh single-commit repo', async () => {
+    // Regression: in a one-commit repo, the prior `git diff --name-only
+    // HEAD~10..HEAD` snippet exited 128, which the outer catch converted to
+    // stripping every snippet. Switched to `git log -10` so all the other
+    // git-context blocks (status, staged, diff) still populate even when
+    // the repo is too shallow for HEAD~10 to resolve.
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    clearCommandMemoizationCaches()
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-fresh-'))
+    try {
+      // Build a real one-commit repo with an unstaged change
+      const { spawnSync } = await import('node:child_process')
+      const run = (args: string[]) =>
+        spawnSync('git', args, { cwd, encoding: 'utf8' })
+      run(['init', '-q'])
+      run(['config', 'user.email', 't@t'])
+      run(['config', 'user.name', 't'])
+      run(['config', 'commit.gpgsign', 'false'])
+      await Bun.write(join(cwd, 'a.txt'), 'a\n')
+      run(['add', 'a.txt'])
+      run(['commit', '-q', '-m', 'init'])
+      await Bun.write(join(cwd, 'b.txt'), 'b\n') // untracked / unstaged
+
+      const cmds = await getCommands(cwd)
+      const bughunterCmd = findPromptCommand(cmds, 'bughunter')
+      const mockContext = createMockToolContext(cwd, FULL_GIT_COMMANDS)
+      const promptBlocks = await runWithCwdOverride(cwd, async () => {
+        return bughunterCmd.getPromptForCommand('', mockContext)
+      })
+      const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
+      // git status should mention the new untracked b.txt (not "(Bash completed
+      // with no output)" — that would mean the catch-all stripped it).
+      expect(promptText).toContain('b.txt')
+      // The diff block should at least mention the file or the diff marker —
+      // and crucially must not be the "head -10 revision" error.
+      expect(promptText).not.toMatch(/unknown revision|HEAD~10/)
+    } finally {
+      try {
+        await rmRetry(cwd)
+      } finally {
+        if (originalUserType !== undefined) {
+          process.env['USER_TYPE'] = originalUserType
+        } else {
+          delete process.env['USER_TYPE']
+        }
+        if (originalIsDemo !== undefined) {
+          process.env['IS_DEMO'] = originalIsDemo
+        } else {
+          delete process.env['IS_DEMO']
+        }
+        clearCommandMemoizationCaches()
+      }
+    }
+  })
+
+  test('bughunter diff block is bounded to 400 lines', async () => {
+    // Regression: the prompt label advertises "first 400 lines" but commit
+    // 73d0bcb dropped the `| head -400` cap. Reproduce with a 1000-line diff
+    // and assert the diff code block in the rendered prompt has ≤ 400 lines.
+    const originalUserType = process.env['USER_TYPE']
+    const originalIsDemo = process.env['IS_DEMO']
+    delete process.env['USER_TYPE']
+    delete process.env['IS_DEMO']
+    clearCommandMemoizationCaches()
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-bughunter-cap-'))
+    try {
+      const { spawnSync } = await import('node:child_process')
+      const run = (args: string[]) =>
+        spawnSync('git', args, { cwd, encoding: 'utf8' })
+      run(['init', '-q'])
+      run(['config', 'user.email', 't@t'])
+      run(['config', 'user.name', 't'])
+      run(['config', 'commit.gpgsign', 'false'])
+      // Commit a baseline file with 1000 lines
+      const baseline = Array.from({ length: 1000 }, (_, i) => `line${i + 1}`).join('\n') + '\n'
+      await Bun.write(join(cwd, 'big.txt'), baseline)
+      run(['add', 'big.txt'])
+      run(['commit', '-q', '-m', 'baseline'])
+      // Modify every line to force a 1000+-line diff
+      const modified = Array.from({ length: 1000 }, (_, i) => `+line${i + 1}`).join('\n') + '\n'
+      await Bun.write(join(cwd, 'big.txt'), modified)
+
+      const cmds = await getCommands(cwd)
+      const bughunterCmd = findPromptCommand(cmds, 'bughunter')
+      const mockContext = createMockToolContext(cwd, FULL_GIT_COMMANDS)
+      const promptBlocks = await runWithCwdOverride(cwd, async () => {
+        return bughunterCmd.getPromptForCommand('', mockContext)
+      })
+      const promptText = promptBlocks[0].type === 'text' ? promptBlocks[0].text : ''
+      // Locate the DIFF code block and count its lines
+      const diffMatch = promptText.match(
+        /DIFF OF UNSTAGED \+ STAGED CHANGES[\s\S]*?```\n([\s\S]*?)\n```/,
+      )
+      expect(diffMatch).not.toBeNull()
+      const diffBody = diffMatch![1]
+      const diffLineCount = diffBody.split('\n').length
+      expect(diffLineCount).toBeLessThanOrEqual(400)
+      // And the line cap is actually being applied, not just truncating by
+      // chance: the diff body should have hundreds of lines truncated.
+      expect(diffLineCount).toBeGreaterThan(100)
+    } finally {
+      try {
+        await rmRetry(cwd)
+      } finally {
+        if (originalUserType !== undefined) {
+          process.env['USER_TYPE'] = originalUserType
+        } else {
+          delete process.env['USER_TYPE']
+        }
+        if (originalIsDemo !== undefined) {
+          process.env['IS_DEMO'] = originalIsDemo
+        } else {
+          delete process.env['IS_DEMO']
+        }
+        clearCommandMemoizationCaches()
+      }
+    }
+  })
+
   test('bughunter does not execute shell snippets in user-provided args', async () => {
     const originalUserType = process.env['USER_TYPE']
     const originalIsDemo = process.env['IS_DEMO']
@@ -259,7 +381,7 @@ describe('builtInCommandNames', () => {
       const mockContext = createMockToolContext(cwd, [
         'git status', 'git diff --name-only --diff-filter=AM',
         'git diff --cached --name-only --diff-filter=AM',
-        'git diff --name-only HEAD~10..HEAD --diff-filter=AM',
+        'git log -10 --name-only --diff-filter=AM',
         'git ls-files', 'git diff HEAD -- .', 'head -400', 'head -50',
       ])
       // Pass args containing shell-like syntax - it must appear verbatim, not executed

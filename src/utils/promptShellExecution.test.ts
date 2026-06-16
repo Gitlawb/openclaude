@@ -87,3 +87,111 @@ test('executeShellCommandsInPrompt normalizes null shell output', async () => {
     interrupted: false,
   })
 })
+
+test('executeShellCommandsInPrompt applies per-prefix line limits', async () => {
+  BashTool.call = (async () => ({
+    data: {
+      stdout: 'line1\nline2\nline3\nline4\nline5\n',
+      stderr: '',
+      interrupted: false,
+    },
+  })) as unknown as typeof BashTool.call
+
+  BashTool.mapToolResultToToolResultBlockParam = (result, toolUseID) =>
+    originalMapToolResultToToolResultBlockParam(
+      result as never,
+      toolUseID,
+    )
+
+  const result = await executeShellCommandsInPrompt(
+    '```!\ngit diff HEAD -- .\n```',
+    {
+      abortController: new AbortController(),
+      options: {
+        commands: [],
+        debug: false,
+        mainLoopModel: 'sonnet',
+        tools: new Map(),
+        verbose: false,
+        thinkingConfig: { type: 'disabled' },
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: false,
+        agentDefinitions: {
+          systemDefinitions: [],
+          projectDefinitions: [],
+          userDefinitions: [],
+        },
+      },
+      readFileState: new Map(),
+      getAppState() {
+        return {
+          toolPermissionContext: {
+            ...getEmptyToolPermissionContext(),
+            alwaysAllowRules: { command: ['Bash(*)'] },
+          },
+        }
+      },
+      setAppState() {},
+    } as never,
+    'bughunter',
+    undefined,
+    { lineLimits: { 'git diff HEAD -- .': 3 } },
+  )
+
+  expect(result).toBe('line1\nline2\nline3')
+})
+
+test('executeShellCommandsInPrompt does not truncate below the cap', async () => {
+  BashTool.call = (async () => ({
+    data: {
+      stdout: 'line1\nline2\n',
+      stderr: '',
+      interrupted: false,
+    },
+  })) as unknown as typeof BashTool.call
+
+  BashTool.mapToolResultToToolResultBlockParam = (result, toolUseID) =>
+    originalMapToolResultToToolResultBlockParam(
+      result as never,
+      toolUseID,
+    )
+
+  const result = await executeShellCommandsInPrompt(
+    '```!\ngit diff HEAD -- .\n```',
+    {
+      abortController: new AbortController(),
+      options: {
+        commands: [],
+        debug: false,
+        mainLoopModel: 'sonnet',
+        tools: new Map(),
+        verbose: false,
+        thinkingConfig: { type: 'disabled' },
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: false,
+        agentDefinitions: {
+          systemDefinitions: [],
+          projectDefinitions: [],
+          userDefinitions: [],
+        },
+      },
+      readFileState: new Map(),
+      getAppState() {
+        return {
+          toolPermissionContext: {
+            ...getEmptyToolPermissionContext(),
+            alwaysAllowRules: { command: ['Bash(*)'] },
+          },
+        }
+      },
+      setAppState() {},
+    } as never,
+    'bughunter',
+    undefined,
+    { lineLimits: { 'git diff HEAD -- .': 400 } },
+  )
+
+  expect(result).toBe('line1\nline2')
+})

@@ -40,7 +40,7 @@ STAGED CHANGES (index):
 RECENTLY COMMITTED FILES (last 10 commits):
 
 \`\`\`
-!\`git diff --name-only HEAD~10..HEAD --diff-filter=AM 2>/dev/null\`
+!\`git log -10 --name-only --diff-filter=AM 2>/dev/null\`
 \`\`\`
 (If empty: no git history or not a git repo)
 
@@ -227,6 +227,7 @@ const bughunterPerf = createMovedToPluginCommand({
     // then inject user-provided scope so shell snippets in args cannot execute.
     // On platforms without bash (e.g. Windows without Git Bash), shell
     // execution may fail — fall back to the prompt with static placeholder text.
+    // lineLimits bounds the diff snippet to 400 lines as the prompt advertises.
     let processedContent: string
     try {
       processedContent = await executeShellCommandsInPrompt(
@@ -239,6 +240,8 @@ const bughunterPerf = createMovedToPluginCommand({
           ),
         },
         'bughunter-perf',
+        undefined,
+        { lineLimits: { 'git diff HEAD -- .': 400 } },
       )
     } catch (e) {
       // Permission denial and interruption — surface instead of falling back.

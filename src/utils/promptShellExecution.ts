@@ -69,14 +69,22 @@ const INLINE_PATTERN = /(?<=^|\s)!`([^`]+)`/gm
  *   This is *never* read from settings.defaultShell — it comes from .md
  *   frontmatter (author's choice) or is undefined for built-in commands.
  *   See docs/design/ps-shell-selection.md §5.3.
+ * @param options.lineLimits - Map of command-prefix → max output lines.
+ *   When a snippet's executed command (trimmed) starts with one of the
+ *   prefixes, the output is sliced to that many lines before being
+ *   substituted. Use to bound diffs or other potentially-large outputs
+ *   without widening the Bash allowlist (avoids `| head -N` in commands,
+ *   which the permission parser treats as a compound and may reject).
  */
 export async function executeShellCommandsInPrompt(
   text: string,
   context: ToolUseContext,
   slashCommandName: string,
   shell?: FrontmatterShell,
+  options?: { lineLimits?: Record<string, number> },
 ): Promise<string> {
   let result = text
+  const lineLimits = options?.lineLimits ?? {}
 
   // Resolve the tool once. `shell === undefined` and `shell === 'bash'` both
   // hit BashTool. PowerShell only when the runtime gate allows — a skill
@@ -117,9 +125,21 @@ export async function executeShellCommandsInPrompt(
           }
 
           const { data } = await shellTool.call({ command }, context)
+          // Apply per-prefix line limit to the raw stdout BEFORE persistence
+          // so the trimmed output flows through processToolResultBlock and
+          // its empty-content guard fires correctly when truncation empties
+          // the block entirely. Also avoids the 30k-char Bash result cap
+          // short-circuit for huge diffs.
+          const trimmedStdout =
+            typeof data.stdout === 'string' ? data.stdout : ''
+          const boundedStdout = applyLineLimit(
+            command,
+            trimmedStdout,
+            lineLimits,
+          )
           const normalizedData = {
             ...data,
-            stdout: typeof data.stdout === 'string' ? data.stdout : '',
+            stdout: boundedStdout,
             stderr: typeof data.stderr === 'string' ? data.stderr : '',
           }
           // Reuse the same persistence flow as regular Bash tool calls
@@ -180,4 +200,38 @@ function formatBashOutput(
 
 function formatBashError(e: unknown, _pattern: string, _inline = false): never {
   throw e as Error
+}
+
+/**
+ * If `command` (trimmed) starts with a key from `limits`, slice `output` to
+ * at most that many lines. Longest prefix wins so callers can register
+ * `git diff HEAD -- .` and `git diff` and get the more specific cap.
+ * Returns `output` unchanged when no key matches or the output is already
+ * under the cap. A trailing-newline-preserving split keeps the file as
+ * the diff tool would have rendered it.
+ */
+function applyLineLimit(
+  command: string,
+  output: string,
+  limits: Record<string, number>,
+): string {
+  const trimmed = command.trim()
+  let bestPrefix = ''
+  let bestLimit = Infinity
+  for (const [prefix, limit] of Object.entries(limits)) {
+    if (trimmed === prefix || trimmed.startsWith(prefix + ' ')) {
+      if (prefix.length > bestPrefix.length) {
+        bestPrefix = prefix
+        bestLimit = limit
+      }
+    }
+  }
+  if (bestPrefix === '') {
+    return output
+  }
+  const lines = output.split('\n')
+  if (lines.length <= bestLimit) {
+    return output
+  }
+  return lines.slice(0, bestLimit).join('\n')
 }
