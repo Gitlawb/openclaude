@@ -820,6 +820,7 @@ export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
               toolUseResult: message.toolUseResult,
               mcpMeta: message.mcpMeta,
               isMeta: message.isMeta,
+              isCollapseSummary: message.isCollapseSummary,
               isVisibleInTranscriptOnly: message.isVisibleInTranscriptOnly,
               isVirtual: message.isVirtual,
               timestamp: message.timestamp,
@@ -1750,14 +1751,21 @@ function stripSnipTagsFromContent(
     return content.replace(SNIP_TAG_PATTERN, '')
   }
   if (!Array.isArray(content)) return content
-  return content.map(block =>
-    block?.type === 'text'
-      ? {
-          ...block,
-          text: (block as TextBlockParam).text.replace(SNIP_TAG_PATTERN, ''),
-        }
-      : block,
-  ) as ContentBlockParam[]
+  const result: ContentBlockParam[] = []
+  for (const block of content) {
+    if (block?.type === 'text') {
+      const original = (block as TextBlockParam).text
+      const text = original.replace(SNIP_TAG_PATTERN, '')
+      // Drop a text block whose only content was the snip marker; sending an
+      // empty text block alongside the collapse summary is invalid. Pre-existing
+      // empty blocks are left untouched so this stays scoped to the merge path.
+      if (text === '' && original !== '') continue
+      result.push({ ...block, text })
+    } else {
+      result.push(block)
+    }
+  }
+  return result
 }
 
 /**

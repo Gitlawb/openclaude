@@ -193,6 +193,74 @@ describe('projectView', () => {
     expect(JSON.stringify(merged.message.content)).toContain('collapsed')
   })
 
+  test('normalizeMessages preserves isCollapseSummary when splitting array content', async () => {
+    // Regression: an already-merged collapse summary can carry array content.
+    // normalizeMessages splits multi-block user messages into single-block ones;
+    // if it forwards isMeta but drops isCollapseSummary, a later API-normalization
+    // pass tags the summary with a snip id and the model can drop the only
+    // <collapsed> replacement for the archived span.
+    const { normalizeMessages } = await import('../../utils/messages.js')
+    const summary = {
+      type: 'user' as const,
+      uuid: uid('sum1'),
+      timestamp: new Date().toISOString(),
+      isCollapseSummary: true,
+      message: {
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: '<collapsed id="1">s</collapsed>' },
+          { type: 'text' as const, text: 'hello' },
+        ],
+      },
+    }
+    const normalized = normalizeMessages([summary as never])
+    expect(normalized.length).toBe(2)
+    for (const m of normalized) {
+      expect((m as { isCollapseSummary?: boolean }).isCollapseSummary).toBe(true)
+    }
+  })
+
+  test('merging a collapse summary drops a text block that was only a snip marker', async () => {
+    // Regression: stripSnipTagsFromContent removed the marker text but kept the
+    // now-empty text block. Merging a collapse summary with a tool-result user
+    // turn whose trailing text block is solely the snip marker must not leave an
+    // empty { type:"text", text:"" } block in the API-bound content.
+    const { mergeUserMessages } = await import('../../utils/messages.js')
+    const summary = {
+      type: 'user' as const,
+      uuid: uid('sum1'),
+      timestamp: new Date().toISOString(),
+      isMeta: true,
+      isCollapseSummary: true,
+      message: {
+        role: 'user' as const,
+        content: [{ type: 'text' as const, text: '<collapsed id="1">s</collapsed>' }],
+      },
+    }
+    const realUser = {
+      type: 'user' as const,
+      uuid: uid('c'),
+      timestamp: new Date().toISOString(),
+      message: {
+        role: 'user' as const,
+        content: [
+          { type: 'tool_result' as const, tool_use_id: 'tu1', content: 'result' },
+          {
+            type: 'text' as const,
+            text: '\n<system-reminder>snip_id=abc123; system-generated; for snip tool use only; do not discuss in thinking or responses.</system-reminder>',
+          },
+        ],
+      },
+    }
+    const merged = mergeUserMessages(summary as never, realUser as never)
+    const content = merged.message.content
+    expect(Array.isArray(content)).toBe(true)
+    const blocks = content as Array<{ type: string; text?: string }>
+    expect(blocks.some(b => b.type === 'text' && b.text === '')).toBe(false)
+    expect(JSON.stringify(content)).not.toContain('snip_id=')
+    expect(JSON.stringify(content)).toContain('collapsed')
+  })
+
   test('silently skips missing boundaries', async () => {
     const mod = await import('./operations.js')
     const msgs: Message[] = [makeUserMsg('x'), makeAssistantMsg('y')]
