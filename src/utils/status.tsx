@@ -21,7 +21,7 @@ import { getSettingsWithAllErrors } from './settings/allErrors.js';
 import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from './settings/constants.js';
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
-import { redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
+import { redactSecretValueForDisplay, sanitizeApiKey, type SecretValueSource } from './providerSecrets.js';
 import { redactUrlForDisplay } from './urlRedaction.js';
 import {
   getRouteCredentialEnvVars,
@@ -124,6 +124,26 @@ function pushRedactedProperty(
   });
 }
 
+function redactConfiguredSecretSubstrings(
+  value: string,
+  secretSource: SecretValueSource,
+): string {
+  let redacted = value;
+  const secrets = Array.from(
+    new Set(
+      Object.values(secretSource)
+        .map(secret => sanitizeApiKey(secret))
+        .filter((secret): secret is string => Boolean(secret)),
+    ),
+  ).sort((a, b) => b.length - a.length);
+
+  for (const secret of secrets) {
+    redacted = redacted.split(secret).join('redacted');
+  }
+
+  return redacted;
+}
+
 function pushRedactedUrlProperty(
   properties: Property[],
   label: string,
@@ -134,10 +154,17 @@ function pushRedactedUrlProperty(
     return;
   }
 
-  const secretRedacted = redactSecretValueForDisplay(value, secretSource) ?? value;
+  const urlRedacted = redactUrlForDisplay(value);
+  const secretSubstringsRedacted = redactConfiguredSecretSubstrings(
+    urlRedacted,
+    secretSource,
+  );
+  const displayValue =
+    redactSecretValueForDisplay(secretSubstringsRedacted, secretSource) ??
+    secretSubstringsRedacted;
   properties.push({
     label,
-    value: redactUrlForDisplay(secretRedacted)
+    value: displayValue
   });
 }
 

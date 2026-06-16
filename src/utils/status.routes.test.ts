@@ -7,28 +7,38 @@ import {
 
 const ORIGINAL_ENV = { ...process.env }
 
-// Env vars that influence provider/route resolution. Cleared before every test
-// so assertions are deterministic regardless of the host shell environment.
-const PROVIDER_ENV_VARS = [
-  'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
-  'CLAUDE_CODE_USE_GITHUB',
-  'CLAUDE_CODE_USE_MISTRAL',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
-  'OPENAI_BASE_URL',
-  'OPENAI_API_BASE',
-  'OPENAI_API_KEY',
-  'OPENAI_MODEL',
-  'OPENROUTER_API_KEY',
-  'GROQ_API_KEY',
-  'FIREWORKS_API_KEY',
-  'GEMINI_BASE_URL',
-  'GEMINI_MODEL',
-  'GEMINI_API_KEY',
-  'NVIDIA_NIM',
+// Provider env vars influence route resolution. Clear by prefix before every
+// test so assertions stay deterministic regardless of the developer shell.
+const PROVIDER_ENV_PREFIXES = [
+  'ANTHROPIC_',
+  'ATLAS_',
+  'AWS_',
+  'BEDROCK_',
+  'BNKR_',
+  'CLAUDE_CODE_PROVIDER_PROFILE_',
+  'CLAUDE_CODE_USE_',
+  'DASHSCOPE_',
+  'DEEPSEEK_',
+  'FIREWORKS_',
+  'GEMINI_',
+  'GITHUB_',
+  'GOOGLE_',
+  'GROQ_',
+  'MINIMAX_',
+  'MIMO_',
+  'MISTRAL_',
+  'MOONSHOT_',
+  'NEARAI_',
+  'NVIDIA_',
+  'OLLAMA_',
+  'OPENAI_',
+  'OPENGATEWAY_',
+  'OPENROUTER_',
+  'VENICE_',
+  'VERTEX_',
+  'XAI_',
+  'XIAOMI_MIMO_',
+  'ZAI_',
 ]
 
 function restoreEnv(): void {
@@ -48,8 +58,10 @@ function restoreEnv(): void {
 }
 
 function clearProviderEnv(): void {
-  for (const key of PROVIDER_ENV_VARS) {
-    delete process.env[key]
+  for (const key of Object.keys(process.env)) {
+    if (PROVIDER_ENV_PREFIXES.some(prefix => key.startsWith(prefix))) {
+      delete process.env[key]
+    }
   }
 }
 
@@ -165,6 +177,20 @@ test('OPENAI_API_BASE query credentials are redacted from status display', async
   const properties = await buildPropertiesWithRealProvider()
   expect(findValue(properties, 'OpenAI base URL')).toBe(
     'https://openrouter.ai/api/v1?api_key=redacted&timeout=30',
+  )
+  expect(JSON.stringify(properties)).not.toContain('sk-or-query-secret')
+})
+
+test('configured route secrets inside base URL query values are redacted', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE =
+    'https://openrouter.ai/api/v1?credential=sk-or-query-secret&timeout=30'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
+  process.env.OPENROUTER_API_KEY = 'sk-or-query-secret'
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://openrouter.ai/api/v1?credential=redacted&timeout=30',
   )
   expect(JSON.stringify(properties)).not.toContain('sk-or-query-secret')
 })
