@@ -122,7 +122,9 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
 /**
  * Reads MCP server configurations from the Claude Desktop config file.
  * Returns an empty record if the config file does not exist or cannot be
- * parsed, making it safe to call without error handling at the call site.
+ * parsed, making it safe to call without error handling at the call site
+ * on macOS and WSL. On Windows, may throw if the APPDATA environment
+ * variable is not set.
  */
 export async function readClaudeDesktopMcpServers(): Promise<
   Record<string, McpServerConfig>

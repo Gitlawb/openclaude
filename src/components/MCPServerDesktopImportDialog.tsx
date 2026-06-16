@@ -163,7 +163,7 @@ export function MCPServerDesktopImportDialog(t0) {
   }
   let t15;
   if ($[23] !== handleEscCancel || $[24] !== onSubmit || $[25] !== t13 || $[26] !== t14) {
-    t15 = <SelectMulti options={t13} defaultValue={[]} onSubmit={onSubmit} onCancel={handleEscCancel} hideIndexes={true} />;
+    t15 = <SelectMulti options={t13} defaultValue={t14} onSubmit={onSubmit} onCancel={handleEscCancel} hideIndexes={true} />;
     $[23] = handleEscCancel;
     $[24] = onSubmit;
     $[25] = t13;
