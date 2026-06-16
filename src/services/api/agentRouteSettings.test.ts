@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import type { SettingsJson } from '../../utils/settings/types.js'
+import * as settingsModule from '../../utils/settings/settings.js'
 import {
   CLEAR_ROUTE_VALUE,
   buildRouteOptions,
@@ -378,6 +379,68 @@ describe('shadowRemediation', () => {
     const msg = shadowRemediation('flagSettings')
     expect(msg).not.toContain('Edit the')
     expect(msg).toContain('--settings flag')
+  })
+})
+
+describe('setAgentRoute model-key shadow guard', () => {
+  const sourcesWith = (
+    entries: Array<[string, Record<string, unknown>]>,
+  ): SettingsWithSources =>
+    ({
+      effective: {} as SettingsJson,
+      sources: entries.map(([source, agentModels]) => ({
+        source,
+        settings: { agentModels },
+      })),
+    } as unknown as SettingsWithSources)
+
+  let withSources: ReturnType<typeof spyOn> | undefined
+  let update: ReturnType<typeof spyOn> | undefined
+  let forSource: ReturnType<typeof spyOn> | undefined
+
+  afterEach(() => {
+    withSources?.mockRestore()
+    update?.mockRestore()
+    forSource?.mockRestore()
+    withSources = update = forSource = undefined
+  })
+
+  test('rejects a key shadowed by a higher-priority source', () => {
+    // projectSettings defines agentModels.mini, which wins on merge, so a
+    // user-level route to "mini" would resolve to the project entry, not the
+    // current-provider model the option promised. The save must be refused.
+    withSources = spyOn(settingsModule, 'getSettingsWithSources').mockReturnValue(
+      sourcesWith([
+        ['userSettings', { mini: { model: 'gpt-5-mini' } }],
+        ['projectSettings', { mini: { model: 'project-model' } }],
+      ]),
+    )
+    update = spyOn(settingsModule, 'updateSettingsForSource')
+
+    const { error } = setAgentRoute('verification', 'mini')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('projectSettings')
+    // The guard must short-circuit before any write lands.
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  test('saves a user-only key that nothing higher shadows', () => {
+    withSources = spyOn(settingsModule, 'getSettingsWithSources').mockReturnValue(
+      sourcesWith([['userSettings', { mine: { model: 'gpt-5-mini' } }]]),
+    )
+    forSource = spyOn(settingsModule, 'getSettingsForSource').mockReturnValue(
+      { agentModels: { mine: { model: 'gpt-5-mini' } } } as unknown as SettingsJson,
+    )
+    update = spyOn(settingsModule, 'updateSettingsForSource').mockReturnValue({
+      error: null,
+    })
+
+    const { error } = setAgentRoute('verification', 'mine')
+    expect(error).toBeNull()
+    expect(update).toHaveBeenCalledTimes(1)
+    const [source, next] = update.mock.calls[0] as [string, SettingsJson]
+    expect(source).toBe('userSettings')
+    expect((next.agentRouting as Record<string, string>).verification).toBe('mine')
   })
 })
 
