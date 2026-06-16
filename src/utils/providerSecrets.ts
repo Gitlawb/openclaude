@@ -114,6 +114,10 @@ function looksLikeOpaqueToken(value: string): boolean {
   if (value.includes(' ')) return false
   if (value.includes('/')) return false
 
+  if (/^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/.test(value)) {
+    return true
+  }
+
   for (const ch of value) {
     const isAllowed =
       (ch >= 'a' && ch <= 'z') ||

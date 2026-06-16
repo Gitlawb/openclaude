@@ -20,6 +20,7 @@ const FAKE_OPENAI_KEY = 'sk-fake-openai-1234567890abcdef'
 const FAKE_GEMINI_KEY = 'AIzaSyFAKEGEMINIkey1234567890abcdefghijklmnopqr'
 const FAKE_GITHUB_PAT = 'ghp_FAKEgithubPat0123456789abcdefghij'
 const FAKE_LONG_OPAQUE = 'live-pr-1234567890abcdefABCDEF1234567890abcdef'
+const FAKE_JWT_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
 
 describe('getKnownProviderSecretEnvKeys', () => {
   test('returns a cached readonly array', () => {
@@ -178,6 +179,7 @@ describe('redactSecretValueForDisplay', () => {
     expect(redactSecretValueForDisplay('AIzaSyFAKEGEMINIkey1234567890abcdefghijklmnopqr')).toBe('AIz...pqr')
     expect(redactSecretValueForDisplay(FAKE_GITHUB_PAT)).toBe('ghp...hij')
     expect(redactSecretValueForDisplay(FAKE_LONG_OPAQUE)).toBe('liv...def')
+    expect(redactSecretValueForDisplay(FAKE_JWT_TOKEN)).toBe('eyJ...w5c')
   })
 
   test('keeps non-secret values visible', () => {
@@ -249,6 +251,7 @@ describe('sanitizeProviderConfigValue', () => {
     expect(sanitizeProviderConfigValue('sk-ant-looks-like-a-key-1234567890')).toBeUndefined()
     expect(sanitizeProviderConfigValue('AIzaSySomeGeminiKey1234567890abcdefghijklmnopqr')).toBeUndefined()
     expect(sanitizeProviderConfigValue(FAKE_GITHUB_PAT)).toBeUndefined()
+    expect(sanitizeProviderConfigValue(FAKE_JWT_TOKEN)).toBeUndefined()
   })
 
   test('keeps non-secret config values visible', () => {
