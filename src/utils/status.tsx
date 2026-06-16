@@ -22,6 +22,12 @@ import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
 import { redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
+import {
+  getRouteCredentialEnvVars,
+  getRouteLabel,
+  getRouteProviderTypeLabel,
+  resolveActiveRouteIdFromEnv,
+} from '../integrations/routeMetadata.js';
 export type Property = {
   label?: string;
   value: React.ReactNode | Array<string>;
@@ -113,6 +119,35 @@ function pushRedactedProperty(
     label,
     value: redactSecretValueForDisplay(value, secretSource) ?? value
   });
+}
+
+/**
+ * Resolves the active provider route from the environment. Returns the route id
+ * when it identifies a concrete gateway/vendor (e.g. "openrouter", "groq",
+ * "ollama", "openai"), and null for the generic "custom" fallback or when route
+ * resolution is unavailable.
+ */
+function resolveDisplayRouteId(): string | null {
+  const routeId = resolveActiveRouteIdFromEnv(process.env);
+  if (!routeId || routeId === 'custom' || routeId === 'anthropic') {
+    return null;
+  }
+  return routeId;
+}
+
+/**
+ * Builds a credential source summary (env var names only, never values) for the
+ * given route. Returns null when no credential env vars are configured or known.
+ */
+function buildRouteCredentialSummary(routeId: string): string | null {
+  const envVars = getRouteCredentialEnvVars(routeId);
+  const configured = envVars.filter(name =>
+    Boolean(process.env[name]?.trim()),
+  );
+  if (configured.length === 0) {
+    return null;
+  }
+  return configured.map(name => `${name} configured`).join(', ');
 }
 export function buildSandboxProperties(): Property[] {
   if (process.env.USER_TYPE !== 'ant') {
@@ -338,9 +373,17 @@ export function buildAPIProviderProperties(): Property[] {
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
   };
   if (apiProvider !== 'firstParty') {
-    const providerLabel = API_PROVIDER_LABELS[apiProvider];
+    // The legacy "openai" bucket collapses many concrete providers (OpenRouter,
+    // Groq, Ollama, Fireworks, etc.) into a single "OpenAI-compatible" label.
+    // When route resolution identifies a concrete provider, surface its real
+    // label instead. Dedicated buckets (nvidia-nim, minimax, codex, github,
+    // xai, ...) already have accurate labels and are left untouched.
+    const routeId =
+      apiProvider === 'openai' ? resolveDisplayRouteId() : null;
+    const routeLabel = routeId ? getRouteLabel(routeId) : null;
+    const providerLabel = routeLabel ?? API_PROVIDER_LABELS[apiProvider];
     properties.push({
-      label: 'API provider',
+      label: routeId ? 'Provider route' : 'API provider',
       value: providerLabel
     });
   }
@@ -416,6 +459,17 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider in OPENAI_COMPATIBLE_STATUS_METADATA) {
     const metadata =
       OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider]!;
+    const routeId =
+      apiProvider === 'openai' ? resolveDisplayRouteId() : null;
+    const transportLabel = routeId
+      ? getRouteProviderTypeLabel(routeId)
+      : null;
+    if (transportLabel) {
+      properties.push({
+        label: 'Transport',
+        value: transportLabel,
+      });
+    }
     pushRedactedProperty(
       properties,
       metadata.baseUrlLabel,
@@ -434,6 +488,15 @@ export function buildAPIProviderProperties(): Property[] {
         modelDisplay,
         secretSource,
       );
+    }
+    if (routeId) {
+      const credentialSummary = buildRouteCredentialSummary(routeId);
+      if (credentialSummary) {
+        properties.push({
+          label: 'Credential',
+          value: credentialSummary,
+        });
+      }
     }
   } else if (apiProvider === 'gemini') {
     const geminiBaseUrl = process.env.GEMINI_BASE_URL;
