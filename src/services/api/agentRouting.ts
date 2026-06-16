@@ -13,6 +13,17 @@ export interface ProviderOverride {
   apiKey: string
 }
 
+/** A model-only route: reuse the session's current provider, just change the model. */
+export type AgentModelOnly = { model: string }
+
+/** A resolved agent route — a full cross-provider override or a model-only swap. */
+export type AgentRoute = ProviderOverride | AgentModelOnly
+
+/** Narrow an AgentRoute to a full cross-provider ProviderOverride. */
+export function isProviderOverride(route: AgentRoute): route is ProviderOverride {
+  return 'apiKey' in route && 'baseURL' in route
+}
+
 export interface AgentRunModelRouting {
   mainLoopModel: string
   providerOverride?: ProviderOverride
@@ -51,20 +62,28 @@ function normalize(key: string): string {
   return key.toLowerCase().replace(/[-_]/g, '')
 }
 
-function toProviderOverride(
+function toAgentRoute(
   configuredModelKey: string,
   modelConfig: AgentModelConfig | undefined,
-): ProviderOverride | null {
+): AgentRoute | null {
   if (!modelConfig) return null
 
-  const apiKey = modelConfig.api_key.trim()
-  if (!apiKey) return null
+  const model = modelConfig.model?.trim() || configuredModelKey
+  const baseURL = modelConfig.base_url?.trim()
+  const apiKey = modelConfig.api_key?.trim()
 
-  return {
-    model: modelConfig.model?.trim() || configuredModelKey,
-    baseURL: modelConfig.base_url,
-    apiKey,
+  // Model-only route: no credentials → reuse the active provider, swap the model.
+  if (!baseURL && !apiKey) return { model }
+
+  // Misconfiguration: a cross-provider route needs BOTH endpoint and key.
+  if (!baseURL || !apiKey) {
+    console.error(
+      `[agentRouting] Warning: agentModels entry "${configuredModelKey}" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.`,
+    )
+    return null
   }
+
+  return { model, baseURL, apiKey }
 }
 
 /**
@@ -76,7 +95,7 @@ export function resolveAgentProvider(
   name: string | undefined,
   subagentType: string | undefined,
   settings: SettingsJson | null,
-): ProviderOverride | null {
+): AgentRoute | null {
   if (!settings) return null
 
   const routing = settings.agentRouting
@@ -113,21 +132,21 @@ export function resolveAgentProvider(
 
   if (!modelName) return null
 
-  return toProviderOverride(modelName, models[modelName])
+  return toAgentRoute(modelName, models[modelName])
 }
 
 /**
- * Resolve provider override directly from a requested model name.
+ * Resolve an agent route directly from a requested model name (cross-provider or model-only).
  * Checks for an exact match in agentModels. Does not fuzzy match or normalize case.
  */
 export function resolveAgentModelProvider(
   modelName: string | undefined,
   settings: SettingsJson | null,
-): ProviderOverride | null {
+): AgentRoute | null {
   if (!settings || !settings.agentModels || !modelName) return null
 
   const trimmedModelName = modelName.trim()
-  return toProviderOverride(trimmedModelName, settings.agentModels[trimmedModelName])
+  return toAgentRoute(trimmedModelName, settings.agentModels[trimmedModelName])
 }
 
 export function resolveAgentRunModelRouting({
@@ -150,21 +169,36 @@ export function resolveAgentRunModelRouting({
     // Tool-specified models are explicit. If the request is not a configured
     // agentModels key, preserve getAgentModel() alias/inherit/custom-ID behavior
     // instead of falling through to persistent agentRouting.
-    const providerOverride = resolveAgentModelProvider(toolRequestedModel, settings)
-    return {
-      mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
-      ...(providerOverride && { providerOverride }),
+    const route = resolveAgentModelProvider(toolRequestedModel, settings)
+    if (!route) return { mainLoopModel: resolvedAgentModel }
+    if (isProviderOverride(route)) {
+      return { mainLoopModel: route.model, providerOverride: route }
     }
+    return { mainLoopModel: route.model }
   }
 
-  const providerOverride =
+  const route =
     resolveAgentProvider(agentName, subagentType, settings) ??
     resolveAgentModelProvider(agentDefinitionModel, settings)
-
-  return {
-    mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
-    ...(providerOverride && { providerOverride }),
+  if (!route) return { mainLoopModel: resolvedAgentModel }
+  if (isProviderOverride(route)) {
+    return { mainLoopModel: route.model, providerOverride: route }
   }
+  return { mainLoopModel: route.model }
+}
+
+/**
+ * Whether the org model allowlist must be enforced for a resolved agent run.
+ * Enforce whenever routing changed the model: a cross-provider override is set,
+ * or a model-only route changed the effective model from what getAgentModel()
+ * resolved. An unchanged inherited model was already vetted upstream.
+ */
+export function shouldEnforceModelAllowlist(
+  resolvedAgentModel: string,
+  effectiveModel: string,
+  hasProviderOverride: boolean,
+): boolean {
+  return hasProviderOverride || effectiveModel !== resolvedAgentModel
 }
 
 /**
@@ -189,13 +223,14 @@ export function resolveOutOfProcessTeammateProvider({
 }): ProviderOverride | null {
   const requestedModel = cliModel?.trim()
   if (requestedModel) {
-    return resolveAgentModelProvider(requestedModel, settings)
+    const route = resolveAgentModelProvider(requestedModel, settings)
+    return route && isProviderOverride(route) ? route : null
   }
 
-  return (
+  const route =
     resolveAgentProvider(agentName, agentType, settings) ??
     resolveAgentModelProvider(agentDefinitionModel, settings)
-  )
+  return route && isProviderOverride(route) ? route : null
 }
 
 export function resolveOutOfProcessTeammateProviderFromCliArgs(

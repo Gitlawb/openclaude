@@ -57,6 +57,7 @@ const featureFlags: Record<string, boolean> = {
   SHOT_STATS: true,                   // Shot distribution stats in session summary
   EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
   FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  RESUME_COMPACT_PROMPT: true,        // Prompt to compact on /resume + determinate progress bar
   VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
   PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
   HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
@@ -224,13 +225,10 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'color-diff-napi',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
-          '@anthropic-ai/sandbox-runtime',
           'asciichart',
           'plist',
           'cacache',
           'fuse',
-          'code-excerpt',
-          'stack-utils',
         ]) {
           build.onResolve({ filter: new RegExp(`^${mod}$`) }, () => ({
             path: mod,
@@ -504,7 +502,7 @@ sdkResult = await Bun.build({
           '@anthropic-ai/sandbox-runtime',
           'audio-capture-napi', 'audio-capture.node',
           'image-processor-napi', 'modifiers-napi', 'url-handler-napi', 'color-diff-napi',
-          'asciichart', 'plist', 'cacache', 'fuse', 'code-excerpt', 'stack-utils',
+          'asciichart', 'plist', 'cacache', 'fuse',
         ]
         for (const mod of missingModules) {
           const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

@@ -15,6 +15,9 @@ CLAUDE.md
 package-lock.json
 /.claude
 coverage/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 agent.log
 plan/
 .tmp

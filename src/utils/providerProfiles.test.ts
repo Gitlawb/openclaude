@@ -63,6 +63,7 @@ const RESTORED_KEYS = [
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
   'HICAP_API_KEY',
+  'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
 ] as const
 
 type MockConfigState = {
@@ -778,6 +779,82 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
     expect(getFreshAPIProvider()).toBe('xai')
   })
+
+  test('openai-compatible profile applies maxContextLength env override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://localhost:4000/v1',
+        model: 'gpt-4o',
+        maxContextLength: 200_000,
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:4000/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
+      JSON.stringify({ 'gpt-4o': 200_000 }),
+    )
+  })
+
+  test('openai-compatible profile switch clears previous same-model context override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const { resolveModelRuntimeLimits } = await import(
+      '../integrations/runtimeMetadata.js'
+    )
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://localhost:4000/v1',
+        model: 'gpt-4o',
+        maxContextLength: 1_000_000,
+      }),
+    )
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-4o',
+        processEnv: process.env,
+      }).contextWindow,
+    ).toBe(1_000_000)
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-4o',
+        processEnv: process.env,
+      }).contextWindow,
+    ).not.toBe(1_000_000)
+  })
+
+  test('non-openai-compatible profile ignores maxContextLength override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-6',
+        maxContextLength: 200_000,
+      }),
+    )
+
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
+  })
 })
 
 describe('getProviderProfiles', () => {
@@ -801,6 +878,34 @@ describe('getProviderProfiles', () => {
 
     expect(profiles).toHaveLength(1)
     expect(profiles[0]?.provider).toBe('moonshot')
+  })
+
+  test('sanitizes maxContextLength to positive finite integers', async () => {
+    const { getProviderProfiles } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [
+        buildProfile({ id: 'valid', maxContextLength: 128_000 }),
+        buildProfile({ id: 'negative', maxContextLength: -1 }),
+        buildProfile({ id: 'float', maxContextLength: 128_000.5 }),
+        buildProfile({ id: 'zero', maxContextLength: 0 }),
+        buildProfile({ id: 'infinity', maxContextLength: Infinity }),
+        buildProfile({ id: 'string', maxContextLength: '128000' as unknown as number }),
+        buildProfile({ id: 'missing' }),
+      ],
+    }))
+
+    const profiles = getProviderProfiles()
+
+    const byId = (id: string) => profiles.find(p => p.id === id)
+    expect(byId('valid')?.maxContextLength).toBe(128_000)
+    expect(byId('negative')?.maxContextLength).toBeUndefined()
+    expect(byId('float')?.maxContextLength).toBeUndefined()
+    expect(byId('zero')?.maxContextLength).toBeUndefined()
+    expect(byId('infinity')?.maxContextLength).toBeUndefined()
+    expect(byId('string')?.maxContextLength).toBeUndefined()
+    expect(byId('missing')?.maxContextLength).toBeUndefined()
   })
 })
 
@@ -1002,6 +1107,34 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(applied?.id).toBe('saved_openai')
     expect(process.env.OPENAI_MODEL).toBe('kimi-k2.5:cloud')
     expect(process.env.OPENAI_BASE_URL).toBe('http://192.168.33.108:11434/v1')
+  })
+
+  test('re-applies active profile when context-window override drifts', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_openai',
+      baseUrl: 'http://localhost:4000/v1',
+      model: 'gpt-4o',
+      maxContextLength: 1_000_000,
+    })
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    // Simulate an upgraded or partially restored process where the profile
+    // marker and core OpenAI env survived, but this PR's new override did not.
+    delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied?.id).toBe('saved_openai')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:4000/v1')
+    expect(String(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS)).toBe(
+      JSON.stringify({ 'gpt-4o': 1_000_000 }),
+    )
   })
 
   test('does not re-apply active profile when flags conflict with current provider', async () => {

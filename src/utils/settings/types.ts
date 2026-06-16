@@ -754,14 +754,22 @@ export const SettingsSchema = lazySchema(() =>
               .string()
               .optional()
               .describe('Actual model name to send to the API. Defaults to the surrounding agentModels key.'),
-            base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
-            api_key: z.string().describe('API key for this provider'),
+            base_url: z
+              .string()
+              .url()
+              .optional()
+              .describe('OpenAI-compatible API endpoint (must be https:// or http://). Omit together with api_key to reuse the current provider (model-only route).'),
+            api_key: z
+              .string()
+              .optional()
+              .describe('API key for this provider. Omit together with base_url to reuse the current provider (model-only route).'),
           }),
         )
         .optional()
         .describe(
           'Map of route key to provider connection info. ' +
-            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }. ' +
+            'Cross-provider: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }. ' +
+            'Model-only (reuse current provider): { "mini": { "model": "gpt-5-mini" } }. ' +
             'Use "model" when the route key is an alias for a different API model name.',
         ),
       agentRouting: z

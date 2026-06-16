@@ -85,7 +85,8 @@ export async function findModifiedFiles(
       continue
     }
     if (entry.isFile()) {
-      // entry.parentPath is available in Node 20+, fallback to entry.path for older versions
+      // entry.parentPath is the supported Node path; entry.path keeps test
+      // doubles and unusual embedded runtimes defensive.
       const parentPath = getEntryParentPath(entry, outputsDir)
       filePaths.push(path.join(parentPath, entry.name))
     }

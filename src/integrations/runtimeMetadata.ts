@@ -6,6 +6,11 @@ import {
   getOpenAIContextWindowMatches,
   getOpenAIMaxOutputTokenMatches,
 } from '../utils/model/openaiContextWindows.js'
+import { getCachedModelsSync } from './discoveryCache.js'
+import {
+  getDiscoveryCacheKey,
+  getDiscoveryCacheTtlMs,
+} from './discoveryService.js'
 import { ensureIntegrationsLoaded } from './index.js'
 import {
   getAllModels,
@@ -14,10 +19,12 @@ import {
 } from './registry.js'
 import {
   getRouteDescriptor,
+  resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
   type RouteDescriptor,
 } from './routeMetadata.js'
+import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 
 function normalizeModelApiName(
   value: string | undefined,
@@ -329,6 +336,40 @@ function findCatalogEntryForApiName(
   return getCatalogEntryForModel(routeId, modelApiName)
 }
 
+function findCachedCatalogEntryForApiName(
+  routeId: string | null,
+  modelApiName: string | undefined,
+  runtimeEnv: NodeJS.ProcessEnv,
+): ModelCatalogEntry | null {
+  const normalizedModel = normalizeModelApiName(modelApiName)
+  if (!routeId || routeId === 'anthropic' || !normalizedModel) {
+    return null
+  }
+
+  const catalog = getRouteDescriptor(routeId)?.catalog
+  if (!catalog?.discovery) {
+    return null
+  }
+
+  const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
+  const cacheKey = getDiscoveryCacheKey(routeId, {
+    baseUrl,
+    apiKey: resolveRouteCredentialValue({
+      routeId,
+      baseUrl,
+      processEnv: runtimeEnv,
+    }),
+    headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
+  })
+  const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))
+
+  return (
+    cached?.models.find(entry =>
+      matchesCatalogEntryModel(routeId, entry, normalizedModel),
+    ) ?? null
+  )
+}
+
 export function resolveModelRuntimeLimits(options: {
   model: string
   processEnv?: NodeJS.ProcessEnv
@@ -345,8 +386,14 @@ export function resolveModelRuntimeLimits(options: {
     activeProfileProvider: options.activeProfileProvider,
   })
   const catalogEntry = findCatalogEntryForApiName(routeId, options.model)
+  const cachedCatalogEntry = findCachedCatalogEntryForApiName(
+    routeId,
+    options.model,
+    runtimeEnv,
+  )
   const modelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
+    getModelDescriptorForCatalogEntry(cachedCatalogEntry) ??
     findModelDescriptorForApiName(routeId, options.model)
   const externalContextWindow = getOpenAIContextWindowMatches(
     options.model,
@@ -361,11 +408,13 @@ export function resolveModelRuntimeLimits(options: {
     contextWindow:
       externalContextWindow.exact ??
       catalogEntry?.contextWindow ??
+      cachedCatalogEntry?.contextWindow ??
       externalContextWindow.prefix ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
       externalMaxOutputTokens.exact ??
       catalogEntry?.maxOutputTokens ??
+      cachedCatalogEntry?.maxOutputTokens ??
       externalMaxOutputTokens.prefix ??
       modelDescriptor?.maxOutputTokens,
   }

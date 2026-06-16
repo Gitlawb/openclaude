@@ -19,7 +19,9 @@ import { checkStatsigFeatureGate_CACHED_MAY_BE_STALE } from '../../services/anal
 import type { AnyObject, Tool, ToolPermissionContext } from '../../Tool.js'
 import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { getCwd } from '../cwd.js'
+import { logForDebugging } from '../debug.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
+import { isFsInaccessible } from '../errors.js'
 import {
   getFsImplementation,
   getPathsForPermissionCheck,
@@ -332,6 +334,21 @@ export function getClaudeTempDirName(): string {
   return `claude-${uid}`
 }
 
+function ensureUsableTempDir(
+  fs: ReturnType<typeof getFsImplementation>,
+  dirPath: string,
+): void {
+  fs.mkdirSync(dirPath, { mode: 0o700 })
+  const probeDir = join(
+    dirPath,
+    `.write-probe-${process.pid}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`,
+  )
+  fs.mkdirSync(probeDir, { mode: 0o700 })
+  fs.rmdirSync(probeDir)
+}
+
 /**
  * Returns the Claude temp directory path with symlinks resolved.
  * Uses TMPDIR env var if set, otherwise:
@@ -361,7 +378,36 @@ export const getClaudeTempDir = memoize(function getClaudeTempDir(): string {
     // If resolution fails, use the original path
   }
 
-  return join(resolvedBaseTmpDir, getClaudeTempDirName()) + sep
+  const fullPath = join(resolvedBaseTmpDir, getClaudeTempDirName()) + sep
+
+  // Verify the directory is actually usable - on systems with restricted /tmp
+  // (container environments, systemd private tmp namespaces), the base temp dir
+  // may exist but reject mkdir/writes with EACCES.
+  try {
+    ensureUsableTempDir(fs, fullPath)
+  } catch (e: unknown) {
+    if (isFsInaccessible(e)) {
+      const fallbackDirs = [
+        join(tmpdir(), 'claude-code', getClaudeTempDirName()) + sep,
+        join(getClaudeConfigHomeDir(), 'tmp', getClaudeTempDirName()) + sep,
+      ]
+      for (const fallbackDir of fallbackDirs) {
+        try {
+          ensureUsableTempDir(fs, fallbackDir)
+          logForDebugging(
+            `Claude temp directory ${fullPath} is not writable; ` +
+              `falling back to ${fallbackDir}`,
+          )
+          return fallbackDir
+        } catch (fallbackError: unknown) {
+          if (!isFsInaccessible(fallbackError)) throw fallbackError
+        }
+      }
+    }
+    throw e
+  }
+
+  return fullPath
 })
 
 /**

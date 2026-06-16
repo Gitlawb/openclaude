@@ -4,6 +4,10 @@ import type { UUID } from 'crypto';
 import figures from 'figures';
 import * as React from 'react';
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js';
+import { buildGoalStartInstruction } from '../../services/goal/instructions.js';
+import { saveGoalState } from '../../services/goal/persistence.js';
+import { resumeGoal } from '../../services/goal/state.js';
+import type { GoalState } from '../../services/goal/types.js';
 import type { CommandResultDisplay, ResumeEntrypoint } from '../../commands.js';
 import { LogSelector } from '../../components/LogSelector.js';
 import { MessageResponse } from '../../components/MessageResponse.js';
@@ -14,6 +18,7 @@ import { setClipboard } from '../../ink/termio/osc.js';
 import { Box, Text } from '../../ink.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
 import type { LogOption } from '../../types/logs.js';
+import type { TodoItem, TodoList } from '../../utils/todo/types.js';
 import { agenticSessionSearch } from '../../utils/agenticSessionSearch.js';
 import { checkCrossProjectResume } from '../../utils/crossProjectResume.js';
 import { getWorktreePaths } from '../../utils/getWorktreePaths.js';
@@ -191,6 +196,117 @@ function ResumeCommand({
 export function filterResumableSessions(logs: LogOption[], currentSessionId: string): LogOption[] {
   return logs.filter(l => !l.isSidechain && getSessionIdFromLog(l) !== currentSessionId);
 }
+
+function isResumableGoal(goal: GoalState | null): goal is GoalState {
+  return goal != null && (goal.status === 'active' || goal.status === 'paused');
+}
+
+function formatTodoStatus(status: TodoItem['status']): string {
+  switch (status) {
+    case 'in_progress':
+      return 'in progress';
+    case 'completed':
+      return 'done';
+    default:
+      return status;
+  }
+}
+
+function formatTodosMessage(todos: TodoList): string {
+  const lines = todos.map(todo => `- [${formatTodoStatus(todo.status)}] ${todo.content}`);
+  return lines.length === 0
+    ? 'No todos are currently tracked.'
+    : ['Current todos:', ...lines].join('\n');
+}
+
+const CONTINUE_INSTRUCTION = `The user asked you to continue.
+
+Resume the most recent task based on the conversation transcript. Do not simply acknowledge the request. Pick up exactly where you left off and take the next concrete step. Only ask for clarification if the next action is genuinely ambiguous.`;
+
+function buildGenericContinueMessage(extraContext: string | null): string {
+  return extraContext
+    ? `${extraContext}\n\n${CONTINUE_INSTRUCTION}`
+    : CONTINUE_INSTRUCTION;
+}
+
+function formatContinuationHint(hint: string | null): string | null {
+  return hint ? `User continuation hint:\n${hint}` : null;
+}
+
+function appendContinuationHint(message: string, hint: string | null): string {
+  const formattedHint = formatContinuationHint(hint);
+  return formattedHint ? `${message}\n\n${formattedHint}` : message;
+}
+
+async function tryContinueCurrentTask(
+  context: Parameters<LocalJSXCommandCall>[1],
+  onDone: Parameters<LocalJSXCommandCall>[0],
+  continuationHint: string | null = null,
+): Promise<boolean> {
+  const appState = context.getAppState();
+  const currentGoal = appState.goal ?? null;
+
+  if (isResumableGoal(currentGoal)) {
+    const goal =
+      currentGoal.status === 'paused' ? resumeGoal(currentGoal) : currentGoal;
+    if (goal !== currentGoal) {
+      context.setAppState(prev => ({ ...prev, goal }));
+      try {
+        await saveGoalState(goal);
+      } catch (error) {
+        logError(error as Error);
+      }
+    }
+    onDone(
+      currentGoal.status === 'active'
+        ? 'Goal already active; continuing.'
+        : 'Goal resumed.',
+      {
+        shouldQuery: true,
+        metaMessages: [
+          appendContinuationHint(
+            buildGoalStartInstruction(goal),
+            continuationHint,
+          ),
+        ],
+      },
+    );
+    return true;
+  }
+
+  const sessionId = context.agentId ?? getSessionId();
+  const todos = appState.todos[sessionId];
+
+  if (todos && todos.length > 0) {
+    const todoContext = [
+      formatTodosMessage(todos),
+      formatContinuationHint(continuationHint),
+    ].filter(Boolean).join('\n\n');
+    onDone('Continuing current task.', {
+      shouldQuery: true,
+      metaMessages: [buildGenericContinueMessage(todoContext)],
+    });
+    return true;
+  }
+
+  return false;
+}
+
+export const continueCall: LocalJSXCommandCall = async (onDone, context, args) => {
+  const arg = args?.trim() || null;
+  if (await tryContinueCurrentTask(context, onDone, arg)) {
+    return null;
+  }
+
+  onDone('Continuing current task.', {
+    shouldQuery: true,
+    metaMessages: [
+      buildGenericContinueMessage(formatContinuationHint(arg)),
+    ],
+  });
+  return null;
+};
+
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   const onResume = async (sessionId: UUID, log: LogOption, entrypoint: ResumeEntrypoint) => {
     try {

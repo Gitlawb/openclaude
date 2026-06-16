@@ -64,6 +64,7 @@ export type ProviderProfileInput = {
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
+  maxContextLength?: ProviderProfile['maxContextLength']
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -172,6 +173,14 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     return null
   }
 
+  const maxContextLength =
+    typeof profile.maxContextLength === 'number' &&
+    Number.isFinite(profile.maxContextLength) &&
+    profile.maxContextLength > 0 &&
+    Number.isInteger(profile.maxContextLength)
+      ? profile.maxContextLength
+      : undefined
+
   const sanitized: ProviderProfile = {
     id,
     name,
@@ -192,6 +201,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   }
   if (customHeaders) {
     sanitized.customHeaders = customHeaders
+  }
+  if (maxContextLength !== undefined) {
+    sanitized.maxContextLength = maxContextLength
   }
   return sanitized
 }
@@ -232,6 +244,7 @@ function toProfile(
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
     customHeaders: input.customHeaders,
+    maxContextLength: input.maxContextLength,
   })
 }
 
@@ -517,6 +530,12 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
+  const expectedContextWindows = profile.maxContextLength
+    ? JSON.stringify({
+        [getPrimaryModel(profile.model)]: profile.maxContextLength,
+      })
+    : undefined
+
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
     processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
@@ -531,6 +550,10 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
+    sameOptionalEnvValue(
+      processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
+      expectedContextWindows,
+    ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
@@ -708,6 +731,11 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
+    }
+    if (profile.maxContextLength) {
+      openAIProfileEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+        [primaryModel]: profile.maxContextLength,
+      })
     }
 
     profileEnv = openAIProfileEnv
@@ -941,6 +969,7 @@ function buildOpenAICompatibleStartupEnv(
       authHeader: activeProfile.authHeader,
       authScheme: activeProfile.authScheme,
       authHeaderValue: activeProfile.authHeaderValue,
+      maxContextLength: activeProfile.maxContextLength,
       processEnv: {},
     })
     if (strictEnv) {
@@ -967,6 +996,13 @@ function buildOpenAICompatibleStartupEnv(
     ...(activeProfile.authHeader ? { OPENAI_AUTH_HEADER: activeProfile.authHeader } : {}),
     ...(activeProfile.authScheme ? { OPENAI_AUTH_SCHEME: activeProfile.authScheme } : {}),
     ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),
+    ...(activeProfile.maxContextLength
+      ? {
+          CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+            [getPrimaryModel(activeProfile.model)]: activeProfile.maxContextLength,
+          }),
+        }
+      : {}),
   }
 
   if (activeProfile.apiKey) {

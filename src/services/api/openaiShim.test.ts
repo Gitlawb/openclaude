@@ -1950,7 +1950,11 @@ test('preserves image tool results as placeholders in follow-up requests', async
     text?: string
     image_url?: { url: string }
   }>
+  // Issue #1421: image-only tool results now get a placeholder text part
+  // prepended so OpenAI-compatible providers that require a `text` field on
+  // `role: "tool"` messages (e.g. Xiaomi Mimo) don't 400 with "text is not set".
   expect(parts).toEqual([
+    { type: 'text', text: 'Image attached.' },
     {
       type: 'image_url',
       image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
@@ -5275,6 +5279,43 @@ test('drops empty assistant message when only thinking block was present and str
 
   const messages = requestBody?.messages as Array<Record<string, unknown>>
   // The assistant msg is dropped because thinking is stripped.
+  // The two user messages are coalesced.
+  expect(messages.length).toBe(1)
+  expect(messages[0].role).toBe('user')
+  expect(String(messages[0].content)).toContain('Initial')
+  expect(String(messages[0].content)).toContain('Interrupting query')
+})
+
+test('drops empty assistant message when only redacted_thinking block was present and stripped', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { role: 'user', content: 'Initial' },
+      { role: 'assistant', content: [{ type: 'redacted_thinking', data: '[thinking hidden]' }] },
+      { role: 'user', content: 'Interrupting query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // The assistant msg is dropped because redacted_thinking is stripped.
   // The two user messages are coalesced.
   expect(messages.length).toBe(1)
   expect(messages[0].role).toBe('user')

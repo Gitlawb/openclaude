@@ -1,7 +1,12 @@
-import { describe, test, expect, vi } from 'vitest'
+import { afterEach, describe, test, expect, vi } from 'vitest'
 import { QueryGuard } from './QueryGuard.js'
 
 describe('QueryGuard', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
   test('starts idle', () => {
     const guard = new QueryGuard()
     expect(guard.isActive).toBe(false)
@@ -52,8 +57,50 @@ describe('QueryGuard', () => {
     // At timeout
     vi.advanceTimersByTime(1)
     expect(guard.isActive).toBe(false)
+  })
 
-    vi.useRealTimers()
+  test('timeout notifies owner with the timed-out generation', () => {
+    vi.useFakeTimers()
+    const guard = new QueryGuard()
+    const onTimeout = vi.fn()
+    guard.setTimeoutHandler(onTimeout)
+
+    const gen = guard.tryStart()!
+    vi.advanceTimersByTime(5 * 60 * 1000)
+
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith(gen)
+    expect(guard.isActive).toBe(false)
+  })
+
+  test('timeout handler cleanup prevents stale notification', () => {
+    vi.useFakeTimers()
+    const guard = new QueryGuard()
+    const onTimeout = vi.fn()
+    const cleanup = guard.setTimeoutHandler(onTimeout)
+    cleanup()
+
+    guard.tryStart()
+    vi.advanceTimersByTime(5 * 60 * 1000)
+
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(guard.isActive).toBe(false)
+  })
+
+  test('timeout handler errors do not escape the watchdog callback', () => {
+    vi.useFakeTimers()
+    const guard = new QueryGuard()
+    const handlerError = new Error('handler failed')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    guard.setTimeoutHandler(() => {
+      throw handlerError
+    })
+
+    guard.tryStart()
+
+    expect(() => vi.advanceTimersByTime(5 * 60 * 1000)).not.toThrow()
+    expect(guard.isActive).toBe(false)
+    expect(consoleError).toHaveBeenCalledWith('[QueryGuard] Timeout handler failed', handlerError)
   })
 
   test('timeout is cleared when end() is called normally', () => {
@@ -72,6 +119,5 @@ describe('QueryGuard', () => {
     expect(guard.isActive).toBe(true)
 
     guard.forceEnd()
-    vi.useRealTimers()
   })
 })

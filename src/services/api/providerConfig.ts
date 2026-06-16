@@ -618,18 +618,20 @@ export function resolveProviderRequest(options?: {
   fallbackModel?: string
   reasoningEffortOverride?: ReasoningEffort
   apiFormat?: OpenAICompatibleApiFormat | string
+  processEnv?: NodeJS.ProcessEnv
 }): ResolvedProviderRequest {
-  const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-  const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
-  const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const processEnv = options?.processEnv ?? process.env
+  const isGithubMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)
+  const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
+  const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
-      ? process.env.MISTRAL_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
+      ? processEnv.MISTRAL_MODEL?.trim()
+      : processEnv.OPENAI_MODEL?.trim()) ||
     (isGeminiMode
-      ? process.env.GEMINI_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
+      ? processEnv.GEMINI_MODEL?.trim()
+      : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
@@ -637,12 +639,12 @@ export function resolveProviderRequest(options?: {
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
-    process.env.MISTRAL_BASE_URL,
+    processEnv.MISTRAL_BASE_URL,
     'MISTRAL_BASE_URL',
   )
 
   const normalizedGeminiEnvBaseUrl = asNamedEnvUrl(
-    process.env.GEMINI_BASE_URL,
+    processEnv.GEMINI_BASE_URL,
     'GEMINI_BASE_URL',
   )
 
@@ -650,21 +652,21 @@ export function resolveProviderRequest(options?: {
     ? normalizedMistralEnvBaseUrl
     : isGeminiMode
     ? normalizedGeminiEnvBaseUrl
-    : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
+    : asNamedEnvUrl(processEnv.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
   // In Mistral mode, a literal "undefined" MISTRAL_BASE_URL is treated as
   // misconfiguration and falls back to OPENAI_API_BASE, then
   // DEFAULT_MISTRAL_BASE_URL for a safe default endpoint.
   const fallbackEnvBaseUrl = isMistralMode
     ? (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
+      ? asNamedEnvUrl(processEnv.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
       : undefined)
     : isGeminiMode
     ? (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
+      ? asNamedEnvUrl(processEnv.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
       : undefined)
     : (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
+      ? asNamedEnvUrl(processEnv.OPENAI_API_BASE, 'OPENAI_API_BASE')
       : undefined)
 
   const envBaseUrlRaw =
@@ -680,7 +682,7 @@ export function resolveProviderRequest(options?: {
 
   const rawBaseUrl = explicitBaseUrl ?? envBaseUrl
 
-  const shellModel = process.env.OPENAI_MODEL?.trim() ?? ''
+  const shellModel = processEnv.OPENAI_MODEL?.trim() ?? ''
   const envIsCodexShortcut = isOpenAICodexShortcutAlias(shellModel)
   const envResolvedCodexModel = envIsCodexShortcut
     ? parseModelDescriptor(shellModel).baseModel
@@ -713,12 +715,12 @@ export function resolveProviderRequest(options?: {
     isGithubMode
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
-        parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+        parseOpenAICompatibleApiFormat(processEnv.OPENAI_API_FORMAT)
   const supportsRequestedApiFormat =
     (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||
     (() => {
       const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-        processEnv: process.env,
+        processEnv,
         baseUrl: finalBaseUrl,
         model: descriptor.baseModel,
         treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,

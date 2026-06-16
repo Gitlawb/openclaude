@@ -22,15 +22,17 @@ For most first-time users, OpenAI is the easiest option.
 
 You need:
 
-1. Node.js 20 or newer installed
+1. Node.js 22 LTS or newer installed
 2. A terminal window
 3. An API key from your provider, unless you are using a local model like Ollama
 
 ## Fastest Path
 
 1. Install OpenClaude with npm
-2. Set 3 environment variables
-3. Run `openclaude`
+2. Run `openclaude`
+3. Inside the CLI, run `/provider` for guided provider setup
+
+The `/provider` command walks you through choosing a provider and entering credentials. You do not need to set environment variables beforehand.
 
 ## Choose Your Operating System
 
@@ -39,11 +41,13 @@ You need:
 
 ## Which Provider Should You Choose?
 
+Once you have picked a provider, run `/provider` inside OpenClaude to set it up with guided prompts.
+
 ### OpenAI
 
 Choose this if:
 
-- you want the easiest setup
+- you want the easiest cloud setup
 - you already have an OpenAI API key
 
 ### Ollama
@@ -111,7 +115,7 @@ Cause:
 Fix:
 
 1. Get a fresh key from your provider
-2. Paste it again carefully
+2. Run `/provider` inside OpenClaude to update your credentials
 3. Re-run `openclaude`
 
 ### Ollama not working
@@ -132,3 +136,27 @@ If you want source builds, advanced provider profiles, diagnostics, or Bun-based
 
 - [Advanced Setup](advanced-setup.md)
   This is also where to find Codex, Gemini, Mistral, LiteLLM, and profile-launcher setup.
+
+## Getting Help
+
+- **GitHub Discussions**: https://github.com/Gitlawb/openclaude/discussions
+  Use this for Q&A, setup help, and community conversation.
+
+- **GitHub Issues**: https://github.com/Gitlawb/openclaude/issues
+  Use this for confirmed bugs and feature requests.
+
+### Quick diagnostic check
+
+If OpenClaude is not working after setup, run:
+
+```bash
+openclaude --version
+```
+
+If this prints a version number, the install succeeded. If it says "command not found," close your terminal, open a new one, and try again. On Windows, you may also need to add npm's global bin folder to your user `Path` (see the [Windows Quick Start](quick-start-windows.md) guide for details).
+
+When filing a bug, run this and paste the redacted output into the issue:
+
+```bash
+openclaude doctor report --markdown
+```

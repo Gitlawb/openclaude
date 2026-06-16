@@ -1,14 +1,14 @@
 import { feature } from 'bun:bundle';
 
-// OpenClaude: polyfill globalThis.File for Node < 20.
-// undici v7 references `File` at module evaluation time (webidl type
-// assertions). Node 18 lacks the global, causing a ReferenceError inside
-// the bundled __commonJS require chain which deadlocks the process when a
-// proxy is configured (configureGlobalAgents → require_undici).
+// Defensive compatibility guard for environments where globalThis.File is
+// unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
+// not a Node 18 support guarantee. The guard is harmless on supported Node
+// versions and prevents undici's module evaluation from throwing in unusual
+// embedded/runtime setups.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 if (typeof globalThis.File === 'undefined') {
   try {
-    // Node 18.13+ exposes File in node:buffer but not as a global.
+    // Some runtimes expose File in node:buffer but not as a global.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { File: NodeFile } = require('node:buffer')
     globalThis.File = NodeFile
@@ -104,27 +104,15 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
-  const {
-    applyProfileEnvToProcessEnv,
-    buildStartupEnvFromProfile,
-    isDefaultStartupProviderEnv,
-  } = await import('../utils/providerProfile.js')
-  const startupEnv = await buildStartupEnvFromProfile({
+  const { applyStartupEnvFromProfile } = await import(
+    '../utils/providerProfile.js'
+  )
+  await applyStartupEnvFromProfile({
     processEnv: process.env,
+    onValidationError: message => {
+      console.error(message)
+    },
   })
-  if (startupEnv !== process.env) {
-    const { getProviderValidationError } = await import(
-      '../utils/providerValidation.js'
-    )
-    const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError && !isDefaultStartupProviderEnv(startupEnv)) {
-      console.error(
-        `Warning: ignoring saved provider profile. ${startupProfileError}`,
-      )
-    } else {
-      applyProfileEnvToProcessEnv(process.env, startupEnv)
-    }
-  }
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider

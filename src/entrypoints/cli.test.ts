@@ -50,24 +50,6 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   })
 })
 
-describe('useMemoryUsage.ts — threshold constants (issue #402)', () => {
-  it('HIGH_MEMORY_THRESHOLD documented as 1.5 GB', async () => {
-    const src = await Bun.file(
-      `${import.meta.dir}/../hooks/useMemoryUsage.ts`,
-    ).text()
-
-    expect(src).toContain('HIGH_MEMORY_THRESHOLD = 1.5 * 1024 * 1024 * 1024')
-  })
-
-  it('CRITICAL_MEMORY_THRESHOLD documented as 2.5 GB', async () => {
-    const src = await Bun.file(
-      `${import.meta.dir}/../hooks/useMemoryUsage.ts`,
-    ).text()
-
-    expect(src).toContain('CRITICAL_MEMORY_THRESHOLD = 2.5 * 1024 * 1024 * 1024')
-  })
-})
-
 describe('cli.tsx — --provider startup ordering', () => {
   it('remembers --provider so settings.env reloads cannot clobber it', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()

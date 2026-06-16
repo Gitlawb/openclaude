@@ -408,7 +408,12 @@ function convertToolResultContent(
     parts.unshift({ type: 'text', text: 'Error:' })
   }
 
-  return parts
+  // Defense in depth (issue #1421): some OpenAI-compatible providers (e.g.
+  // Xiaomi Mimo) reject `role: "tool"` messages whose `content` is image-only
+  // with a 400 "text is not set". Prepend a placeholder text part so the
+  // payload always carries a text component alongside any images, mirroring
+  // the existing behavior for user-role messages.
+  return ensureTextPartForImageContent(parts)
 }
 
 function convertContentBlocks(
@@ -655,9 +660,9 @@ function convertMessages(
         // (harmless) or strict-reject unknown fields (harmful).
         if (preserveReasoningContent) {
           // `thinking` blocks carry their content in `.thinking`; `redacted_thinking`
-          // blocks carry it in `.data` (see thinkingTokenExtractor, token estimation,
-          // and message-size accounting). Read the right field per type so a real
-          // redacted block with non-empty content is not silently dropped to "".
+          // blocks carry it in `.data` (see token estimation and message-size
+          // accounting). Read the right field per type so a real redacted block
+          // with non-empty content is not silently dropped to "".
           const block = thinkingBlock as
             | { type?: string; thinking?: string; data?: string }
             | undefined

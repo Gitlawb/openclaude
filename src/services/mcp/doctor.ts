@@ -467,6 +467,7 @@ async function getLiveCheck(
           error: connection.error,
         }
     }
+    return { attempted: true, result: 'failed', durationMs }
   } finally {
     await deps.clearServerCache(name, activeConfig).catch(() => {
       // Best-effort cleanup for diagnostic connections.

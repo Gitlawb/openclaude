@@ -29,6 +29,7 @@ import {
   probeAtomicChatReadiness,
   probeOllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
+import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
 export type RouteDiscoveryResult = {
@@ -72,7 +73,7 @@ function getCatalogEntries(
   return getRouteCatalog(routeId)?.models ?? []
 }
 
-function getDiscoveryCacheTtlMs(
+export function getDiscoveryCacheTtlMs(
   routeId: string,
 ): number {
   const ttl = getRouteCatalog(routeId)?.discoveryCacheTtl ?? 0
@@ -435,13 +436,15 @@ export async function refreshStartupDiscoveryForActiveRoute(
     }) ??
     resolveRouteIdFromBaseUrl(baseUrl)
 
-  if (!routeId || routeId === 'anthropic' || routeId === 'custom') {
+  if (!routeId || routeId === 'anthropic') {
     return null
   }
 
   return refreshStartupDiscoveryForRoute(routeId, {
     baseUrl,
-    headers: options?.headers,
+    headers:
+      options?.headers ??
+      parseCustomHeadersEnv(processEnv.ANTHROPIC_CUSTOM_HEADERS),
     apiKey:
       options?.apiKey ??
       resolveRouteCredentialValue({

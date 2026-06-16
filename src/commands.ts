@@ -48,7 +48,7 @@ import {
   requestSize,
   requestSizeNonInteractive,
 } from './commands/request-size/index.js'
-import resume from './commands/resume/index.js'
+import resume, { continueCommand } from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
 import share from './commands/share/index.js'
@@ -242,7 +242,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   bughunter,
   commit,
   commitPushPr,
-  ctx_viz,
   goodClaude,
   issue,
   initVerifiers,
@@ -283,11 +282,13 @@ const COMMANDS = memoize((): Command[] => [
   compact,
   commitMessage,
   config,
+  continueCommand,
   copy,
   desktop,
   context,
   contextNonInteractive,
   cost,
+  ctx_viz,
   diff,
   dream,
   doctor,
@@ -657,6 +658,7 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   color, // Change agent color
   vim, // Toggle vim mode
   cost, // Show session cost (local cost tracking)
+  ctx_viz, // Context window usage
   usage, // Show usage info
   copy, // Copy last message
   btw, // Quick note
@@ -686,6 +688,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     compact, // Shrink context — useful mid-session from a phone
     clear, // Wipe transcript
     cost, // Show session cost
+    ctx_viz, // Context window usage
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files

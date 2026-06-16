@@ -31,12 +31,14 @@
 import { createSignal } from './signal.js'
 
 const QUERY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+type QueryTimeoutHandler = (generation: number) => void
 
 export class QueryGuard {
   private _status: 'idle' | 'dispatching' | 'running' = 'idle'
   private _generation = 0
   private _changed = createSignal()
   private _timeoutId: ReturnType<typeof setTimeout> | null = null
+  private _timeoutHandler: QueryTimeoutHandler | null = null
 
   /**
    * Reserve the guard for queue processing. Transitions idle → dispatching.
@@ -114,6 +116,20 @@ export class QueryGuard {
     return this._generation
   }
 
+  /**
+   * Register a single owner callback for watchdog timeouts. The callback runs
+   * before forceEnd(), so callers can abort in-flight work while the timed-out
+   * generation is still current.
+   */
+  setTimeoutHandler(handler: QueryTimeoutHandler | null): () => void {
+    this._timeoutHandler = handler
+    return () => {
+      if (this._timeoutHandler === handler) {
+        this._timeoutHandler = null
+      }
+    }
+  }
+
   // --
   // useSyncExternalStore interface
 
@@ -138,7 +154,13 @@ export class QueryGuard {
     this._timeoutId = setTimeout(() => {
       if (this._status === 'running') {
         console.error(`[QueryGuard] Query timeout after ${QUERY_TIMEOUT_MS}ms — force-ending to prevent infinite spinner`)
-        this.forceEnd()
+        try {
+          this._timeoutHandler?.(this._generation)
+        } catch (error) {
+          console.error('[QueryGuard] Timeout handler failed', error)
+        } finally {
+          this.forceEnd()
+        }
       }
     }, QUERY_TIMEOUT_MS)
   }
