@@ -90,9 +90,6 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
   delete process.env.FIREWORKS_API_KEY
-  delete process.env.OPENAI_AUTH_HEADER
-  delete process.env.OPENAI_AUTH_SCHEME
-  delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
   delete process.env.ANTHROPIC_API_KEY
