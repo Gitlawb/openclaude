@@ -225,8 +225,10 @@ const bughunterPerf = createMovedToPluginCommand({
 
     // Execute shell commands first ({{ARGS}} is inert to shell patterns),
     // then inject user-provided scope so shell snippets in args cannot execute.
-    // On platforms without bash (e.g. Windows without Git Bash), shell
-    // execution may fail — fall back to the prompt with static placeholder text.
+    // On platforms without bash (e.g. Windows without Git Bash) or in a repo
+    // where one git command fails (e.g. zero-commit `git log`), use the
+    // granular fallback so a single failing snippet is blanked in place
+    // rather than discarding the rest of the successful git context.
     // lineLimits bounds the diff snippet to 400 lines as the prompt advertises.
     let processedContent: string
     try {
@@ -241,16 +243,18 @@ const bughunterPerf = createMovedToPluginCommand({
         },
         'bughunter-perf',
         undefined,
-        { lineLimits: { 'git diff HEAD -- .': 400 } },
+        {
+          lineLimits: { 'git diff HEAD -- .': 400 },
+          granularFallback: true,
+        },
       )
     } catch (e) {
       // Permission denial and interruption — surface instead of falling back.
       if (e instanceof MalformedCommandError || (e instanceof ShellError && e.interrupted)) {
         throw e
       }
-      // Shell unavailable (e.g. Windows without Git Bash) or git command
-      // failed — static fallback text outside code blocks shows in the prompt.
-      processedContent = parsed.content.replace(/!`[^`]+`/g, '')
+      // Granular fallback already blanked any failing snippets in place.
+      throw e
     }
 
     const finalContent = processedContent.replace('{{ARGS}}', () => scope)

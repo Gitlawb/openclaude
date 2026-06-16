@@ -81,10 +81,18 @@ export async function executeShellCommandsInPrompt(
   context: ToolUseContext,
   slashCommandName: string,
   shell?: FrontmatterShell,
-  options?: { lineLimits?: Record<string, number> },
+  options?: { lineLimits?: Record<string, number>; granularFallback?: boolean },
 ): Promise<string> {
   let result = text
   const lineLimits = options?.lineLimits ?? {}
+  // Default path: any non-permission, non-interrupted shell failure is wrapped
+  // in a MalformedCommandError with the failing pattern + formatted stderr so
+  // /commit, /security-review, loaded skills, and plugin commands show a
+  // useful message instead of the raw "ShellError: Shell command failed".
+  // Opt-in `granularFallback: true` rethrows the raw error and lets the caller
+  // blank just the failed snippet in place (used by the bughunter siblings
+  // where one bad git command should not discard the rest of the context).
+  const granularFallback = options?.granularFallback === true
 
   // Resolve the tool once. `shell === undefined` and `shell === 'bash'` both
   // hit BashTool. PowerShell only when the runtime gate allows — a skill
@@ -165,7 +173,15 @@ export async function executeShellCommandsInPrompt(
           if (e instanceof MalformedCommandError) {
             throw e
           }
-          formatBashError(e, match[0])
+          if (granularFallback) {
+            // Blank the failed snippet in place so the other successful
+            // snippets (e.g. git status, git diff) are preserved. Callers
+            // can render their own fallback text outside the code blocks
+            // if they need to explain the gap.
+            result = result.replace(match[0], () => '')
+            return
+          }
+          throw formatBashError(e, match[0])
         }
       }
     }),
@@ -198,8 +214,29 @@ function formatBashOutput(
   return parts.join(inline ? ' ' : '\n')
 }
 
-function formatBashError(e: unknown, _pattern: string, _inline = false): never {
-  throw e as Error
+function formatBashError(
+  e: unknown,
+  pattern: string,
+  _inline = false,
+): MalformedCommandError {
+  // Restore the original rich diagnostic: include the failing pattern and the
+  // formatted stdout/stderr so processSlashCommand can render something a user
+  // can act on. Permission denials and aborts are surfaced as
+  // MalformedCommandError by the caller; this path is for everything else.
+  if (e instanceof MalformedCommandError) {
+    return e
+  }
+  const stderr =
+    e instanceof Error && 'stderr' in e && typeof (e as { stderr?: unknown }).stderr === 'string'
+      ? (e as { stderr: string }).stderr
+      : ''
+  const stdout =
+    e instanceof Error && 'stdout' in e && typeof (e as { stdout?: unknown }).stdout === 'string'
+      ? (e as { stdout: string }).stdout
+      : ''
+  const formatted = formatBashOutput(stdout, stderr, false)
+  const message = `Shell command failed for pattern "${pattern}": ${errorMessage(e)}${formatted ? `\n${formatted}` : ''}`
+  return new MalformedCommandError(message)
 }
 
 /**
