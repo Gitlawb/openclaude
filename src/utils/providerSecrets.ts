@@ -35,11 +35,16 @@ function looksLikeSecretValue(value: string): boolean {
   return false
 }
 
+// Redaction sources may be full process env objects, so only collect values
+// from keys that look credential-bearing. The suffix list intentionally covers
+// route API keys plus common auth tokens and cloud/database secrets; masking too
+// much is safer than leaking a credential in status or provider displays.
 function isSecretEnvKey(key: string): boolean {
   return (
     SECRET_ENV_KEYS.includes(key as (typeof SECRET_ENV_KEYS)[number]) ||
     key.endsWith('_API_KEY') ||
     key.endsWith('_AUTH_HEADER_VALUE') ||
+    key.endsWith('_PASSWORD') ||
     key.endsWith('_SECRET') ||
     key.endsWith('_SECRET_ACCESS_KEY') ||
     key.endsWith('_SECRET_KEY') ||
