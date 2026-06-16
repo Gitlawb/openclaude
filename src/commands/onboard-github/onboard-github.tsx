@@ -203,7 +203,7 @@ function OnboardGithub(props: {
       if (!activated.ok) {
         setErrorMsg(
           `Token saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
-            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.claude/settings.json manually.`,
+            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.openclaude/settings.json manually.`,
         )
         setStep('error')
         return
