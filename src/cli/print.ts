@@ -565,14 +565,20 @@ export async function runHeadless(
   // Without this, the disk cache is empty and all flags fall back to defaults.
   void initializeGrowthBook()
 
-  if (options.resumeSessionAt && !options.resume) {
-    process.stderr.write(`Error: --resume-session-at requires --resume\n`)
+  const hasRequestedResumeSource = Boolean(options.resume || options.fromPr)
+
+  if (options.resumeSessionAt && !hasRequestedResumeSource) {
+    process.stderr.write(
+      `Error: --resume-session-at requires --resume or --from-pr\n`,
+    )
     gracefulShutdownSync(1)
     return
   }
 
-  if (options.rewindFiles && !options.resume) {
-    process.stderr.write(`Error: --rewind-files requires --resume\n`)
+  if (options.rewindFiles && !hasRequestedResumeSource) {
+    process.stderr.write(
+      `Error: --rewind-files requires --resume or --from-pr\n`,
+    )
     gracefulShutdownSync(1)
     return
   }
@@ -777,9 +783,11 @@ export async function runHeadless(
   const hasValidResumeSessionId =
     typeof options.resume === 'string' &&
     (Boolean(validateUuid(options.resume)) || options.resume.endsWith('.jsonl'))
+  const hasValidResumeSource =
+    hasValidResumeSessionId || Boolean(options.fromPr)
   const isUsingSdkUrl = Boolean(options.sdkUrl)
 
-  if (!inputPrompt && !hasValidResumeSessionId && !isUsingSdkUrl) {
+  if (!inputPrompt && !hasValidResumeSource && !isUsingSdkUrl) {
     process.stderr.write(
       `Error: Input must be provided either through stdin or as a prompt argument when using --print\n`,
     )

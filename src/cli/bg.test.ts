@@ -148,6 +148,24 @@ describe('background session CLI parsing', () => {
     expect(launch.childArgs).toEqual(['--resume', resumeSessionId, '--print'])
   })
 
+  it('preserves an explicit session id without injecting a generated one', () => {
+    const explicitSessionId = '550e8400-e29b-41d4-a716-446655440000'
+    const generatedSessionId = '00000000-0000-4000-8000-000000000001'
+
+    const launch = buildBackgroundSessionLaunch(
+      ['--session-id', explicitSessionId, '--print', 'fix failing tests'],
+      generatedSessionId,
+    )
+
+    expect(launch.sessionId).toBe(explicitSessionId)
+    expect(launch.childArgs).toEqual([
+      '--session-id',
+      explicitSessionId,
+      '--print',
+      'fix failing tests',
+    ])
+  })
+
   it('uses a generated session id for forked background resumes', () => {
     const resumeSessionId = '550e8400-e29b-41d4-a716-446655440000'
     const generatedSessionId = '00000000-0000-4000-8000-000000000001'

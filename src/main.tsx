@@ -2516,7 +2516,7 @@ async function run(): Promise<CommanderCommand> {
       // undefined and the ?? fallback runs). Also skip when setupTrigger is
       // set — those paths run setup hooks first (print.ts:544), and session
       // start hooks must wait until setup completes.
-      const sessionStartHooksPromise = options.continue || options.resume || teleport || setupTrigger ? undefined : processSessionStartHooks('startup');
+      const sessionStartHooksPromise = options.continue || options.resume || options.fromPr || teleport || setupTrigger ? undefined : processSessionStartHooks('startup');
       // Suppress transient unhandledRejection if this rejects before
       // loadInitialMessages awaits it. Downstream await still observes the
       // rejection — this just prevents the spurious global handler fire.
