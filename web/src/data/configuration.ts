@@ -23,7 +23,7 @@ export const settingsFiles: SettingsFile[] = [
     notes: 'Per-machine overrides for one project; typically gitignored.',
   },
   {
-    path: '~/.claude/keybindings.json',
+    path: '~/.openclaude/keybindings.json',
     scope: 'user',
     notes: 'Keyboard shortcut overrides — see the keybindings page.',
   },
