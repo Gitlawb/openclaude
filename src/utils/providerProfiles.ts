@@ -90,7 +90,7 @@ function resolveProfileCompatibility(provider: string): {
 } {
   const route = resolveProfileRoute(provider)
 
-  if (route.gatewayId === 'github') {
+  if (route.gatewayId === 'github' || route.gatewayId === 'github-enterprise') {
     return { route, compatibilityMode: 'github' }
   }
   if (route.gatewayId === 'bedrock') {
@@ -113,6 +113,43 @@ function resolveProfileCompatibility(provider: string): {
   }
 
   return { route, compatibilityMode: 'openai' }
+}
+
+function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl?.trim()) return undefined
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.origin === 'https://api.githubcopilot.com') {
+      return undefined
+    }
+    return parsed.origin
+  } catch {
+    return undefined
+  }
+}
+
+function buildGithubCompatibleProfileEnv(options: {
+  model: string
+  baseUrl?: string
+  gatewayId?: string
+  apiKey?: string
+}): ProfileEnv {
+  const env = buildGithubProfileEnv({
+    model: options.model,
+    baseUrl: options.baseUrl,
+  })
+
+  if (options.gatewayId === 'github-enterprise') {
+    const enterpriseUrl = deriveGithubEnterpriseUrl(options.baseUrl)
+    if (enterpriseUrl) {
+      env.GITHUB_ENTERPRISE_URL = enterpriseUrl
+    }
+    if (options.apiKey?.trim()) {
+      env.GITHUB_COPILOT_KEY = options.apiKey.trim()
+    }
+  }
+
+  return env
 }
 
 function trimValue(value: string | undefined): string {
@@ -651,9 +688,11 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
     }
   } else if (compatibilityMode === 'github') {
-    profileEnv = buildGithubProfileEnv({
+    profileEnv = buildGithubCompatibleProfileEnv({
       model: primaryModel,
       baseUrl: profile.baseUrl,
+      gatewayId: route.gatewayId,
+      apiKey: profile.apiKey,
     })
   } else if (compatibilityMode === 'bedrock') {
     profileEnv = buildBedrockProfileEnv({
@@ -1094,14 +1133,23 @@ function buildStartupProfileFromActiveProfile(
         ? { profile: 'mistral', env: applySupportedProfileCustomHeaders(activeProfile, env) }
         : null
     }
-    case 'github':
+    case 'github': {
       return {
         profile: 'github',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildGithubProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
+        env: applySupportedProfileCustomHeaders(
+          activeProfile,
+          buildGithubCompatibleProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            gatewayId:
+              activeProfile.provider === 'github-enterprise'
+                ? 'github-enterprise'
+                : 'github',
+          }),
+        ),
       }
+    }
     case 'bedrock':
       return {
         profile: 'bedrock',

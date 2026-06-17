@@ -506,8 +506,12 @@ function hydrateOpenAIShimCompatibilityEnv(
   }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    processEnv.OPENAI_API_KEY ??=
-      processEnv.GITHUB_TOKEN ?? processEnv.GH_TOKEN ?? ''
+    processEnv.OPENAI_API_KEY =
+      processEnv.GITHUB_COPILOT_KEY ??
+      processEnv.GITHUB_TOKEN ??
+      processEnv.GH_TOKEN ??
+      processEnv.OPENAI_API_KEY ??
+      ''
     return
   }
 
@@ -2455,7 +2459,7 @@ class OpenAIShimMessages {
     const isLocal = isLocalProviderUrl(request.baseUrl)
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
+    const isGithubCopilot = isGithub && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
     const shouldStripResponsesStore =
       (shimConfig.removeBodyFields ?? []).includes('store') ||

@@ -71,6 +71,8 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
@@ -144,6 +146,7 @@ export type ProviderProfile =
   | 'minimax'
   | 'mistral'
   | 'github'
+  | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
   | 'xai'
@@ -164,6 +167,8 @@ export type ProfileEnv = {
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
   OPENAI_API_KEY?: string
+  GITHUB_COPILOT_KEY?: string
+  GITHUB_ENTERPRISE_URL?: string
   CODEX_API_KEY?: string
   CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
   CHATGPT_ACCOUNT_ID?: string
@@ -332,6 +337,7 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'minimax' ||
     value === 'mistral' ||
     value === 'github' ||
+    value === 'github-enterprise' ||
     value === 'bedrock' ||
     value === 'vertex' ||
     value === 'xai' ||
@@ -356,6 +362,19 @@ export function buildGithubProfileEnv(options: {
   }
 
   return env
+}
+
+function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl?.trim()) return undefined
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.origin === 'https://api.githubcopilot.com') {
+      return undefined
+    }
+    return parsed.origin
+  } catch {
+    return undefined
+  }
 }
 
 export function buildOllamaProfileEnv(
@@ -1179,8 +1198,9 @@ export async function buildLaunchEnv(options: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options.processEnv ?? process.env
+  let selectedProfile = options.profile
   const persistedEnv =
-    options.persisted?.profile === options.profile
+    options.persisted?.profile === selectedProfile
       ? options.persisted.env ?? {}
       : {}
   const persistedOpenAIModel = normalizeProfileModel(
@@ -1255,29 +1275,43 @@ export async function buildLaunchEnv(options: {
     for (const [envKey, provider] of explicitProfileOverrides) {
       if (isEnvTruthy(processEnv[envKey])) {
         const isCodexOAuthProfile =
-          options.profile === 'codex' &&
+          selectedProfile === 'codex' &&
           provider === 'openai' &&
           persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
         if (!isCodexOAuthProfile) {
-          options.profile = provider
+          selectedProfile = provider
         }
         break
       }
     }
   }
 
-  if (options.profile === 'github') {
+  if (selectedProfile === 'github' || selectedProfile === 'github-enterprise') {
+    const baseUrl = shellOpenAIBaseUrl || persistedOpenAIBaseUrl
+    const profileEnv = buildGithubProfileEnv({
+      model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
+      baseUrl,
+    })
+    if (selectedProfile === 'github-enterprise') {
+      const enterpriseUrl = deriveGithubEnterpriseUrl(baseUrl)
+      if (enterpriseUrl) {
+        profileEnv.GITHUB_ENTERPRISE_URL = enterpriseUrl
+      }
+      const copilotKey =
+        sanitizeApiKey(processEnv.GITHUB_COPILOT_KEY) ||
+        sanitizeApiKey(persistedEnv.GITHUB_COPILOT_KEY)
+      if (copilotKey) {
+        profileEnv.GITHUB_COPILOT_KEY = copilotKey
+      }
+    }
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'github',
-      profileEnv: buildGithubProfileEnv({
-        model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
-        baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
-      }),
+      profileEnv,
     })
   }
 
-  if (options.profile === 'anthropic') {
+  if (selectedProfile === 'anthropic') {
     const anthropicBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BASE_URL)
@@ -1307,7 +1341,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'bedrock') {
+  if (selectedProfile === 'bedrock') {
     const bedrockBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_BEDROCK_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BEDROCK_BASE_URL)
@@ -1329,7 +1363,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'vertex') {
+  if (selectedProfile === 'vertex') {
     const vertexBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_VERTEX_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_VERTEX_BASE_URL)
@@ -1351,7 +1385,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'gemini') {
+  if (selectedProfile === 'gemini') {
     const env: ProfileEnv = {
       GEMINI_MODEL:
         shellGeminiModel ||
@@ -1388,7 +1422,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'mistral') {
+  if (selectedProfile === 'mistral') {
     const shellMistralModel = normalizeProfileModel(
       sanitizeProviderConfigValue(
         processEnv.MISTRAL_MODEL,
@@ -1432,7 +1466,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'xai') {
+  if (selectedProfile === 'xai') {
     // For OAuth-tagged profiles, do not fall back to OPENAI_API_KEY /
     // persisted OPENAI_API_KEY. The user's shell OpenAI key is for
     // api.openai.com — sending it as a bearer to api.x.ai/v1 just
@@ -1490,7 +1524,7 @@ export async function buildLaunchEnv(options: {
     return result
   }
 
-  if (options.profile === 'opencode') {
+  if (selectedProfile === 'opencode') {
     const opencodeKey =
       sanitizeApiKey(processEnv.OPENCODE_API_KEY) ||
       sanitizeApiKey(persistedEnv.OPENCODE_API_KEY)
@@ -1512,7 +1546,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'ollama') {
+  if (selectedProfile === 'ollama') {
     const getOllamaBaseUrl =
       options.getOllamaChatBaseUrl ?? (() => 'http://localhost:11434/v1')
     const resolveOllamaModel =
@@ -1530,7 +1564,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'atomic-chat') {
+  if (selectedProfile === 'atomic-chat') {
     const getAtomicChatBaseUrl =
       options.getAtomicChatChatBaseUrl ?? (() => 'http://127.0.0.1:1337/v1')
     const resolveModel =
@@ -1549,7 +1583,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'codex') {
+  if (selectedProfile === 'codex') {
     const isCodexOAuthProfile = persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
     const codexKey = isCodexOAuthProfile
       ? undefined

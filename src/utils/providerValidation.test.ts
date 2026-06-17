@@ -19,6 +19,8 @@ const ENV_KEYS = [
   'CHATGPT_ACCOUNT_ID',
   'CODEX_ACCOUNT_ID',
   'CLAUDE_CODE_USE_GITHUB',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
   'GITHUB_TOKEN',
   'GH_TOKEN',
   'CLAUDE_CODE_USE_GEMINI',
@@ -380,6 +382,8 @@ test('opengateway validation still requires a key on the model-specific path', a
 test('github validation stays descriptor-selected and reports missing auth', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.GITHUB_ENTERPRISE_URL
+  delete process.env.OPENAI_BASE_URL
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
 
@@ -388,6 +392,32 @@ test('github validation stays descriptor-selected and reports missing auth', asy
       'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
       'This will store your OAuth token securely and enable Copilot models.',
   )
+})
+
+test('github enterprise validation reports Enterprise auth guidance when Enterprise URL is set', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.GITHUB_COPILOT_KEY
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'GitHub Copilot Enterprise authentication required.\n' +
+      'Set GITHUB_ENTERPRISE_URL to your GHE instance URL (e.g. https://github.mycompany.com).\n' +
+      'Then run /onboard-github to sign in, or set GITHUB_COPILOT_KEY for direct API key auth.',
+  )
+})
+
+test('github enterprise validation accepts PAT when Enterprise URL is set without OPENAI_BASE_URL', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  process.env.GITHUB_TOKEN = 'ghp_enterprisepat'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.GH_TOKEN
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
 test('github validation is skipped when openai mode is also active', async () => {

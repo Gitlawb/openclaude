@@ -33,6 +33,8 @@ const RESTORED_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
@@ -339,6 +341,60 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
     expect(process.env.OPENAI_MODEL).toBe('github:copilot')
     expect(getFreshAPIProvider()).toBe('github')
+  })
+
+  test('github-enterprise profile uses GitHub compatibility env', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'github-enterprise',
+        baseUrl: 'https://github.mycompany.com/api/copilot',
+        model: 'github:copilot:gpt-5.3-codex',
+        apiKey: 'enterprise-profile-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+    const { resolveProviderRequest } = await import(
+      `../services/api/providerConfig.ts?ts=${Date.now()}-${Math.random()}`
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://github.mycompany.com/api/copilot',
+    )
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com',
+    )
+    expect(process.env.GITHUB_COPILOT_KEY).toBe('enterprise-profile-key')
+    expect(process.env.OPENAI_MODEL).toBe('github:copilot:gpt-5.3-codex')
+    expect(getFreshAPIProvider()).toBe('github')
+    expect(resolveProviderRequest()).toMatchObject({
+      baseUrl: 'https://github.mycompany.com/api/copilot',
+      resolvedModel: 'gpt-5.3-codex',
+      transport: 'codex_responses',
+    })
+  })
+
+  test('github-enterprise profile does not derive Enterprise URL from public Copilot default', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'github-enterprise',
+        baseUrl: 'https://api.githubcopilot.com',
+        model: 'github:copilot:gpt-5.3-codex',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.githubcopilot.com')
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBeUndefined()
   })
 
   test('nvidia-nim profile keeps openai-compatible routing but stamps NVIDIA_NIM', async () => {

@@ -2,6 +2,8 @@ import * as React from 'react'
 import { useCallback, useState } from 'react'
 import { Select } from '../../components/CustomSelect/select.js'
 import { Spinner } from '../../components/Spinner.js'
+import TextInput from '../../components/TextInput.js'
+import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
 import {
   exchangeForCopilotToken,
@@ -27,7 +29,7 @@ const FORCE_RELOGIN_ARGS = new Set([
   '--reauth',
 ])
 
-type Step = 'menu' | 'device-busy' | 'error'
+type Step = 'menu' | 'ghe-url' | 'copilot-key' | 'device-busy' | 'error'
 
 const PROVIDER_SPECIFIC_KEYS = new Set([
   'CLAUDE_CODE_USE_OPENAI',
@@ -39,6 +41,8 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
   'GEMINI_BASE_URL',
@@ -83,10 +87,12 @@ export function hasExistingGithubModelsLoginToken(
 
 export function buildGithubOnboardingSettingsEnv(
   model: string,
+  gheUrl?: string,
 ): Record<string, string | undefined> {
   return {
     CLAUDE_CODE_USE_GITHUB: '1',
     OPENAI_MODEL: model,
+    GITHUB_ENTERPRISE_URL: gheUrl,
     OPENAI_API_KEY: undefined,
     OPENAI_ORG: undefined,
     OPENAI_PROJECT: undefined,
@@ -103,10 +109,16 @@ export function buildGithubOnboardingSettingsEnv(
 
 export function applyGithubOnboardingProcessEnv(
   model: string,
+  gheUrl?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   env.CLAUDE_CODE_USE_GITHUB = '1'
   env.OPENAI_MODEL = model
+  if (gheUrl) {
+    env.GITHUB_ENTERPRISE_URL = gheUrl
+  } else {
+    delete env.GITHUB_ENTERPRISE_URL
+  }
 
   delete env.OPENAI_API_KEY
   delete env.OPENAI_ORG
@@ -114,6 +126,7 @@ export function applyGithubOnboardingProcessEnv(
   delete env.OPENAI_ORGANIZATION
   delete env.OPENAI_BASE_URL
   delete env.OPENAI_API_BASE
+  delete env.GITHUB_COPILOT_KEY
 
   delete env.CLAUDE_CODE_USE_OPENAI
   delete env.CLAUDE_CODE_USE_GEMINI
@@ -124,7 +137,10 @@ export function applyGithubOnboardingProcessEnv(
   delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 }
 
-function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
+function mergeUserSettingsEnv(
+  model: string,
+  gheUrl?: string,
+): { ok: boolean; detail?: string } {
   const currentSettings = getSettingsForSource('userSettings')
   const currentEnv = currentSettings?.env ?? {}
 
@@ -137,6 +153,11 @@ function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
 
   newEnv.CLAUDE_CODE_USE_GITHUB = '1'
   newEnv.OPENAI_MODEL = model
+  if (gheUrl) {
+    newEnv.GITHUB_ENTERPRISE_URL = gheUrl
+  } else {
+    delete newEnv.GITHUB_ENTERPRISE_URL
+  }
 
   const { error } = updateSettingsForSource('userSettings', {
     env: newEnv,
@@ -150,8 +171,12 @@ function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
 export function activateGithubOnboardingMode(
   model: string = DEFAULT_MODEL,
   options?: {
-    mergeSettingsEnv?: (model: string) => { ok: boolean; detail?: string }
-    applyProcessEnv?: (model: string) => void
+    gheUrl?: string
+    mergeSettingsEnv?: (
+      model: string,
+      gheUrl?: string,
+    ) => { ok: boolean; detail?: string }
+    applyProcessEnv?: (model: string, gheUrl?: string) => void
     hydrateToken?: () => void
     onChangeAPIKey?: () => void
   },
@@ -162,15 +187,125 @@ export function activateGithubOnboardingMode(
   const hydrateToken =
     options?.hydrateToken ?? hydrateGithubModelsTokenFromSecureStorage
 
-  const merged = mergeSettingsEnv(normalizedModel)
+  const merged = mergeSettingsEnv(normalizedModel, options?.gheUrl)
   if (!merged.ok) {
     return merged
   }
 
-  applyProcessEnv(normalizedModel)
+  applyProcessEnv(normalizedModel, options?.gheUrl)
   hydrateToken()
   options?.onChangeAPIKey?.()
   return { ok: true }
+}
+
+export function normalizeGithubEnterpriseInputUrl(value: string): string {
+  const parsed = new URL(value.trim())
+  if (!parsed.hostname) {
+    throw new Error('Invalid URL: must include a hostname.')
+  }
+  return parsed.origin
+}
+
+function GheUrlInput(props: {
+  onSubmit: (url: string) => void
+  onCancel: () => void
+}): React.ReactNode {
+  const { onSubmit, onCancel } = props
+  const [input, setInput] = useState('')
+  const [cursorOffset, setCursorOffset] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const { columns } = useTerminalSize()
+
+  const handleSubmit = useCallback((value: string = input) => {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      setError('URL cannot be empty.')
+      return
+    }
+    // Validate URL format
+    try {
+      onSubmit(normalizeGithubEnterpriseInputUrl(trimmed))
+    } catch {
+      setError('Invalid URL format. Enter the full URL (e.g. https://github.mycompany.com)')
+    }
+  }, [input, onSubmit])
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold>GitHub Enterprise URL</Text>
+      <Text dimColor>
+        Enter your GitHub Enterprise Server URL (e.g. https://github.mycompany.com)
+      </Text>
+      {error && <Text color="red">{error}</Text>}
+      <Box>
+        <Text>URL: </Text>
+        <TextInput
+          value={input}
+          onChange={(value) => {
+            setInput(value)
+            setError(null)
+          }}
+          onSubmit={handleSubmit}
+          onExit={onCancel}
+          placeholder="https://github.mycompany.com"
+          columns={Math.max(20, columns - 6)}
+          cursorOffset={cursorOffset}
+          onChangeCursorOffset={setCursorOffset}
+          focus
+          showCursor
+        />
+      </Box>
+    </Box>
+  )
+}
+
+function CopilotKeyInput(props: {
+  onSubmit: (key: string) => void
+  onCancel: () => void
+}): React.ReactNode {
+  const { onSubmit, onCancel } = props
+  const [input, setInput] = useState('')
+  const [cursorOffset, setCursorOffset] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const { columns } = useTerminalSize()
+
+  const handleSubmit = useCallback((value: string = input) => {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      setError('API key cannot be empty.')
+      return
+    }
+    onSubmit(trimmed)
+  }, [input, onSubmit])
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold>GitHub Copilot API Key</Text>
+      <Text dimColor>
+        Enter your GitHub Copilot API key for direct authentication.
+      </Text>
+      {error && <Text color="red">{error}</Text>}
+      <Box>
+        <Text>Key: </Text>
+        <TextInput
+          value={input}
+          onChange={(value) => {
+            setInput(value)
+            setError(null)
+          }}
+          onSubmit={handleSubmit}
+          onExit={onCancel}
+          placeholder="Copilot API key"
+          mask="*"
+          columns={Math.max(20, columns - 6)}
+          cursorOffset={cursorOffset}
+          onChangeCursorOffset={setCursorOffset}
+          focus
+          showCursor
+        />
+      </Box>
+    </Box>
+  )
 }
 
 function OnboardGithub(props: {
@@ -180,6 +315,7 @@ function OnboardGithub(props: {
   const { onDone, onChangeAPIKey } = props
   const [step, setStep] = useState<Step>('menu')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [gheUrl, setGheUrl] = useState<string | null>(null)
   const [deviceHint, setDeviceHint] = useState<{
     user_code: string
     verification_uri: string
@@ -198,6 +334,7 @@ function OnboardGithub(props: {
         return
       }
       const activated = activateGithubOnboardingMode(model, {
+        gheUrl: gheUrl ?? undefined,
         onChangeAPIKey,
       })
       if (!activated.ok) {
@@ -216,14 +353,22 @@ function OnboardGithub(props: {
       }
       process.env.CLAUDE_CODE_USE_GITHUB = '1'
       process.env.OPENAI_MODEL = model.trim() || DEFAULT_MODEL
+      // Set GITHUB_ENTERPRISE_URL if provided
+      if (gheUrl) {
+        process.env.GITHUB_ENTERPRISE_URL = gheUrl
+      }
       hydrateGithubModelsTokenFromSecureStorage()
       onChangeAPIKey()
+      const successMsg = gheUrl
+        ? `GitHub Copilot Enterprise onboard complete for ${gheUrl}. `
+        : 'GitHub Copilot onboard complete. '
       onDone(
-        'GitHub Copilot onboard complete. Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.claude/.credentials.json, macOS: Keychain fallback to ~/.claude/.credentials.json); user settings updated. Restart if the model does not switch.',
+        successMsg +
+          'Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.claude/.credentials.json, macOS: Keychain fallback to ~/.claude/.credentials.json); user settings updated. Restart if the model does not switch.',
         { display: 'user' },
       )
     },
-    [onChangeAPIKey, onDone],
+    [gheUrl, onChangeAPIKey, onDone],
   )
 
   const runDeviceFlow = useCallback(async () => {
@@ -231,7 +376,7 @@ function OnboardGithub(props: {
     setErrorMsg(null)
     setDeviceHint(null)
     try {
-      const device = await requestDeviceCode()
+      const device = await requestDeviceCode({ gheUrl: gheUrl ?? undefined })
       setDeviceHint({
         user_code: device.user_code,
         verification_uri: device.verification_uri,
@@ -240,14 +385,70 @@ function OnboardGithub(props: {
       const oauthToken = await pollAccessToken(device.device_code, {
         initialInterval: device.interval,
         timeoutSeconds: device.expires_in,
+        gheUrl: gheUrl ?? undefined,
       })
-      const copilotToken = await exchangeForCopilotToken(oauthToken)
+      const copilotToken = await exchangeForCopilotToken(
+        oauthToken,
+        undefined,
+        gheUrl ?? undefined,
+      )
       await finalize(copilotToken.token, DEFAULT_MODEL, oauthToken)
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
       setStep('error')
     }
-  }, [finalize])
+  }, [finalize, gheUrl])
+
+  const handleCopilotKeySubmit = useCallback(
+    async (key: string) => {
+      const trimmed = key.trim()
+      if (!trimmed) {
+        setErrorMsg('Copilot key cannot be empty.')
+        setStep('error')
+        return
+      }
+      // Store the Copilot key directly
+      const saved = saveGithubModelsToken(trimmed, undefined, {
+        credentialType: 'copilot_key',
+      })
+      if (!saved.success) {
+        setErrorMsg(saved.warning ?? 'Could not save key to secure storage.')
+        setStep('error')
+        return
+      }
+      const activated = activateGithubOnboardingMode(DEFAULT_MODEL, {
+        gheUrl: gheUrl ?? undefined,
+        onChangeAPIKey,
+      })
+      if (!activated.ok) {
+        setErrorMsg(
+          `Key saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
+            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.claude/settings.json manually.`,
+        )
+        setStep('error')
+        return
+      }
+      for (const key of PROVIDER_SPECIFIC_KEYS) {
+        delete process.env[key]
+      }
+      process.env.CLAUDE_CODE_USE_GITHUB = '1'
+      process.env.OPENAI_MODEL = DEFAULT_MODEL
+      process.env.GITHUB_COPILOT_KEY = trimmed
+      if (gheUrl) {
+        process.env.GITHUB_ENTERPRISE_URL = gheUrl
+      }
+      hydrateGithubModelsTokenFromSecureStorage()
+      onChangeAPIKey()
+      const successMsg = gheUrl
+        ? `GitHub Copilot Enterprise onboard complete for ${gheUrl}. `
+        : 'GitHub Copilot onboard complete. '
+      onDone(
+        successMsg + 'Copilot key stored in secure storage; user settings updated.',
+        { display: 'user' },
+      )
+    },
+    [gheUrl, onChangeAPIKey, onDone],
+  )
 
   if (step === 'error' && errorMsg) {
     const options = [
@@ -281,7 +482,7 @@ function OnboardGithub(props: {
   if (step === 'device-busy') {
     return (
       <Box flexDirection="column" gap={1}>
-        <Text>GitHub Copilot sign-in</Text>
+        <Text>GitHub Copilot{gheUrl ? ' Enterprise' : ''} sign-in</Text>
         {deviceHint ? (
           <>
             <Text>
@@ -300,10 +501,43 @@ function OnboardGithub(props: {
     )
   }
 
+  if (step === 'ghe-url') {
+    return (
+      <GheUrlInput
+        onSubmit={(url) => {
+          setGheUrl(url)
+          setStep('menu')
+        }}
+        onCancel={() => setStep('menu')}
+      />
+    )
+  }
+
+  if (step === 'copilot-key') {
+    return (
+      <CopilotKeyInput
+        onSubmit={handleCopilotKeySubmit}
+        onCancel={() => setStep('menu')}
+      />
+    )
+  }
+
   const menuOptions = [
     {
       label: 'Sign in with browser',
       value: 'device' as const,
+    },
+    ...(gheUrl
+      ? [
+          {
+            label: 'Use Copilot API key instead',
+            value: 'copilot-key' as const,
+          },
+        ]
+      : []),
+    {
+      label: gheUrl ? 'Change Enterprise URL' : 'Use GitHub Enterprise',
+      value: 'ghe-url' as const,
     },
     {
       label: 'Cancel',
@@ -313,7 +547,12 @@ function OnboardGithub(props: {
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Text bold>GitHub Copilot setup</Text>
+      <Text bold>GitHub Copilot{gheUrl ? ' Enterprise' : ''} setup</Text>
+      {gheUrl && (
+        <Text dimColor>
+          Enterprise URL: {gheUrl}
+        </Text>
+      )}
       <Text dimColor>
         Stores your token in the OS credential store (macOS Keychain when available)
         and enables CLAUDE_CODE_USE_GITHUB in your user settings - no export
@@ -324,6 +563,14 @@ function OnboardGithub(props: {
         onChange={(v: string) => {
           if (v === 'cancel') {
             onDone('GitHub onboard cancelled', { display: 'system' })
+            return
+          }
+          if (v === 'ghe-url') {
+            setStep('ghe-url')
+            return
+          }
+          if (v === 'copilot-key') {
+            setStep('copilot-key')
             return
           }
           void runDeviceFlow()

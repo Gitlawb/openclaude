@@ -172,6 +172,39 @@ test('openai launch omits api key when no key is resolved', async () => {
   assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false)
 })
 
+test('github-enterprise launch does not derive Enterprise URL from public Copilot default', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'github-enterprise',
+    persisted: profile('github-enterprise', {
+      OPENAI_BASE_URL: 'https://api.githubcopilot.com',
+      OPENAI_MODEL: 'github:copilot:gpt-5.3-codex',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GITHUB, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.githubcopilot.com')
+  assert.equal(env.GITHUB_ENTERPRISE_URL, undefined)
+})
+
+test('github-enterprise launch preserves persisted direct Copilot key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'github-enterprise',
+    persisted: profile('github-enterprise', {
+      OPENAI_BASE_URL: 'https://github.mycompany.com/api/copilot',
+      OPENAI_MODEL: 'github:copilot:gpt-5.3-codex',
+      GITHUB_COPILOT_KEY: 'enterprise-profile-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GITHUB, '1')
+  assert.equal(env.GITHUB_ENTERPRISE_URL, 'https://github.mycompany.com')
+  assert.equal(env.GITHUB_COPILOT_KEY, 'enterprise-profile-key')
+})
+
 test('openai launch preserves persisted dedicated vendor credentials across restart', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
