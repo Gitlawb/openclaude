@@ -538,12 +538,10 @@ describe('persistent retry cap', () => {
     // isPersistentRetryEnabled() returns false and the cap never triggers.
     process.env.CLAUDE_CODE_UNATTENDED_RETRY = '1'
     const retryModule = await importFreshWithRetryModule('firstParty')
-    const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST } = retryModule
-
+        const { CannotRetryError, withRetry, _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, isPersistentRetryEnabled } = retryModule
     expect(_PERSISTENT_MAX_ATTEMPTS_FOR_TEST).toBe(100)
 
-    const retryableRateLimit = makeError({ 'retry-after': '1' })
-    const operation = mock(async () => {
+            const operation = mock(async () => {
       throw retryableRateLimit
     })
 
@@ -562,11 +560,10 @@ describe('persistent retry cap', () => {
     }
 
     await expect(runRetries()).rejects.toBeInstanceOf(CannotRetryError)
-    // When the UNATTENDED_RETRY feature is compiled in (via --feature=UNATTENDED_RETRY),
-    // the persistent cap kicks in and the loop stops after exactly 101 calls (1 + 100 retries).
-    // Without the feature flag, isPersistentRetryEnabled() returns false and the loop stops
-    // after just 1 call (no persistent retries). Either way, CannotRetryError is still thrown.
-    const expectedCalls = (_PERSISTENT_MAX_ATTEMPTS_FOR_TEST ?? 0) > 0 ? 101 : 1
+    // isPersistentRetryEnabled() checks the real Bun compile-time feature gate.
+    // Without --feature=UNATTENDED_RETRY, it returns false and only 1 call is made.
+    // With the flag and CLAUDE_CODE_UNATTENDED_RETRY=1, the cap triggers after 101 calls.
+    const expectedCalls = isPersistentRetryEnabled() ? 101 : 1
     expect(operation).toHaveBeenCalledTimes(expectedCalls)
   })
 })
