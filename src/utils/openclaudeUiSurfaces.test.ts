@@ -21,6 +21,8 @@ const originalOpenClaudeConfigDir = process.env.OPENCLAUDE_CONFIG_DIR
 beforeEach(async () => {
   await acquireSharedMutationLock('openclaudeUiSurfaces.test.ts')
   mock.restore()
+  delete process.env.CLAUDE_CONFIG_DIR
+  delete process.env.OPENCLAUDE_CONFIG_DIR
 })
 
 afterEach(() => {

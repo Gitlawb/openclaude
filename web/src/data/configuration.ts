@@ -10,7 +10,7 @@ export const settingsFiles: SettingsFile[] = [
   {
     path: '~/.openclaude/settings.json',
     scope: 'user',
-    notes: 'Global settings for every project on the machine.',
+    notes: 'Default global settings path for every project on the machine; OPENCLAUDE_CONFIG_DIR moves this under the configured config home.',
   },
   {
     path: '.openclaude/settings.json',
@@ -25,7 +25,7 @@ export const settingsFiles: SettingsFile[] = [
   {
     path: '~/.openclaude/keybindings.json',
     scope: 'user',
-    notes: 'Keyboard shortcut overrides — see the keybindings page.',
+    notes: 'Default keyboard shortcut overrides path; OPENCLAUDE_CONFIG_DIR moves this under the configured config home.',
   },
   {
     path: 'CLAUDE.md / .claude/CLAUDE.md',

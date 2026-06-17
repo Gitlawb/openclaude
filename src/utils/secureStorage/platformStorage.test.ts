@@ -123,6 +123,8 @@ describe("Secure Storage Platform Implementations", () => {
 
   describe("Config-Dir Isolation", () => {
     test("service name changes with CLAUDE_CONFIG_DIR", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
       const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       process.env.CLAUDE_CONFIG_DIR = "/tmp/other-config";
@@ -134,6 +136,8 @@ describe("Secure Storage Platform Implementations", () => {
     });
 
     test("service name changes with OPENCLAUDE_CONFIG_DIR", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
       const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       process.env.OPENCLAUDE_CONFIG_DIR = "/tmp/preferred-config";
@@ -146,6 +150,8 @@ describe("Secure Storage Platform Implementations", () => {
     });
 
     test("Linux storage uses scoped service name", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = "/tmp/linux-scoped";
       const expectedName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
@@ -167,6 +173,8 @@ describe("Secure Storage Platform Implementations", () => {
     });
 
     test("Windows storage uses scoped resource name", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = "/tmp/win-scoped";
       const expectedName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 

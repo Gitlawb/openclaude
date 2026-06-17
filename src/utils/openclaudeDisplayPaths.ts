@@ -1,6 +1,7 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import {
+  getClaudeConfigHomeDir,
   resolveClaudeConfigHomeDir,
   resolveConfigDirEnv,
 } from './envUtils.js'
@@ -12,10 +13,14 @@ function getUserConfigHomeForDisplay(): string {
     legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
   })
 
-  return resolveClaudeConfigHomeDir({
-    configDirEnv,
-    homeDir: homedir(),
-  })
+  if (configDirEnv) {
+    return resolveClaudeConfigHomeDir({
+      configDirEnv,
+      homeDir: homedir(),
+    })
+  }
+
+  return getClaudeConfigHomeDir()
 }
 
 export function getUserSettingsDisplayPath(): string {

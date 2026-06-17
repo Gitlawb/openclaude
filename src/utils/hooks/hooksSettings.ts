@@ -1,7 +1,8 @@
-import { resolve } from 'path'
+import { join, resolve } from 'path'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
 import { getSessionId } from '../../bootstrap/state.js'
 import type { AppState } from '../../state/AppState.js'
+import { getClaudeConfigHomeDir } from '../envUtils.js'
 import type { EditableSettingSource } from '../settings/constants.js'
 import { SOURCES } from '../settings/constants.js'
 import {
@@ -173,6 +174,9 @@ export function hookSourceDescriptionDisplayString(source: HookSource): string {
     const filePath = getSettingsFilePathForSource(settingsSource)
     return filePath ? getDisplayPath(filePath) : 'settings.json'
   }
+  const pluginHooksPath = getDisplayPath(
+    join(getClaudeConfigHomeDir(), 'plugins', '*', 'hooks', 'hooks.json'),
+  )
 
   switch (source) {
     case 'userSettings':
@@ -184,8 +188,8 @@ export function hookSourceDescriptionDisplayString(source: HookSource): string {
     case 'pluginHook':
       // TODO: Get the actual plugin hook file paths instead of using glob pattern
       // We should capture the specific plugin paths during hook registration and display them here
-      // e.g., "Plugin hooks (~/.openclaude/plugins/repos/source/example-plugin/example-plugin/hooks/hooks.json)"
-      return 'Plugin hooks (~/.openclaude/plugins/*/hooks/hooks.json)'
+      // e.g., "Plugin hooks (<config-home>/plugins/repos/source/example-plugin/example-plugin/hooks/hooks.json)"
+      return `Plugin hooks (${pluginHooksPath})`
     case 'sessionHook':
       return 'Session hooks (in-memory, temporary)'
     case 'builtinHook':
