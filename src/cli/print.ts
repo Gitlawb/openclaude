@@ -3794,7 +3794,7 @@ function runHeadlessStreaming(
           const { description, persist } = message.request
           // Reuse the live controller only if it has not already been aborted
           // (e.g. by interrupt()); an aborted signal would cause queryHaiku to
-          // immediately throw APIUserAbortError → {title: null}.
+          // immediately throw APIUserAbortError and return the default title.
           const titleSignal = (
             abortController && !abortController.signal.aborted
               ? abortController
@@ -3813,7 +3813,7 @@ function runHeadlessStreaming(
               sendControlResponseSuccess(message, { title })
             } catch (e) {
               // Unreachable in practice — generateSessionTitle wraps its
-              // own body and returns null, saveAiGeneratedTitle is wrapped
+              // own body and returns a default title, saveAiGeneratedTitle is wrapped
               // above. Propagate (not swallow) so unexpected failures are
               // visible to the SDK caller (hostComms.ts catches and logs).
               sendControlResponseError(message, errorMessage(e))

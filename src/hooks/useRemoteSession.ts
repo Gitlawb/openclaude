@@ -477,8 +477,8 @@ export function useRemoteSession({
             ? content
             : extractTextContent(content, ' ')
         if (description) {
-          // generateSessionTitle never rejects (wraps body in try/catch,
-          // returns null on failure), so no .catch needed on this chain.
+          // generateSessionTitle never rejects (wraps body in try/catch),
+          // so no .catch needed on this chain.
           void generateSessionTitle(
             description,
             new AbortController().signal,
