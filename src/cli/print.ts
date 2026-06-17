@@ -149,7 +149,10 @@ import {
 } from 'src/utils/permissions/PermissionPromptToolResultSchema.js'
 import { createAbortController } from 'src/utils/abortController.js'
 import { createCombinedAbortSignal } from 'src/utils/combinedAbortSignal.js'
-import { generateSessionTitle } from 'src/utils/sessionTitle.js'
+import {
+  generateSessionTitle,
+  titleOrNullForPromptFallback,
+} from 'src/utils/sessionTitle.js'
 import { buildSideQuestionFallbackParams } from 'src/utils/queryContext.js'
 import { runSideQuestion } from 'src/utils/sideQuestion.js'
 import {
@@ -3803,9 +3806,10 @@ function runHeadlessStreaming(
           void (async () => {
             try {
               const title = await generateSessionTitle(description, titleSignal)
-              if (title && persist) {
+              const titleToPersist = titleOrNullForPromptFallback(title)
+              if (titleToPersist && persist) {
                 try {
-                  saveAiGeneratedTitle(getSessionId() as UUID, title)
+                  saveAiGeneratedTitle(getSessionId() as UUID, titleToPersist)
                 } catch (e) {
                   logError(e)
                 }

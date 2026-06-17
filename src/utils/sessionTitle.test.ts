@@ -25,6 +25,7 @@ let analyticsEvents: Array<{ name: string; metadata: Record<string, unknown> }> 
 let debugMessages: Array<{ message: string; level?: string }> = []
 let combinedAbortTimeouts: Array<number | undefined> = []
 let forcedCombinedTimeoutMs: number | null = null
+const COLD_MODULE_IMPORT_TEST_TIMEOUT_MS = 15_000
 
 function assistantText(text: string): unknown {
   return {
@@ -183,7 +184,7 @@ describe('generateSessionTitle', () => {
       name: 'tengu_session_title_generated',
       metadata: { success: true },
     })
-  })
+  }, COLD_MODULE_IMPORT_TEST_TIMEOUT_MS)
 
   test('falls back when title generation times out', async () => {
     forcedCombinedTimeoutMs = 1
@@ -298,6 +299,20 @@ describe('generateSessionTitle', () => {
     expect(title).toBe('Fix login button on mobile')
   })
 
+  test('skips provider intro lines before short-line title candidates', async () => {
+    structuredOutputsSupported = false
+    queryHaikuText =
+      'Here are some title ideas:\nFix login button on mobile\nPossible titles:'
+
+    const { generateSessionTitle } = await importSubject()
+    const title = await generateSessionTitle(
+      'The login button is broken on mobile',
+      new AbortController().signal,
+    )
+
+    expect(title).toBe('Fix login button on mobile')
+  })
+
   test('cleans title labels from short-line fallback output', async () => {
     structuredOutputsSupported = false
     queryHaikuText = 'Title: Debug failing CI tests'
@@ -374,6 +389,22 @@ describe('generateSessionTitle', () => {
 
     expect(title).toBe('OpenClaude')
     expect(titleOrNullForPromptFallback(title)).toBeNull()
+  })
+
+  test('lets persistence callers skip the generic default title', async () => {
+    forcedCombinedTimeoutMs = 1
+    queryHaikuImpl = async ({ signal }) => rejectWhenAborted(signal)
+
+    const { generateSessionTitle, titleOrNullForPromptFallback } =
+      await importSubject()
+    const title = await generateSessionTitle(
+      'Name a slow SDK title request',
+      new AbortController().signal,
+    )
+
+    const persistedTitle = titleOrNullForPromptFallback(title)
+    expect(title).toBe('OpenClaude')
+    expect(persistedTitle).toBeNull()
   })
 
   test('falls back when terminal sequence stripping leaves no title text', async () => {

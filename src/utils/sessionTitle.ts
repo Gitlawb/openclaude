@@ -175,7 +175,7 @@ function sanitizeTitleCandidate(candidate: unknown): string | null {
   if (/^title$/i.test(title)) return null
 
   const assistantProse =
-    /^(?:i['\u2019]?ll|i will|i can|i would|let me|here['\u2019]?s|here is|sure[, ]|certainly[, ]|of course[, ]|the title (?:is|should be)|this (?:session|title)|based on)\b/i
+    /^(?:i['\u2019]?ll|i will|i can|i would|let me|here['\u2019]?s|here is|here are|sure[, ]|certainly[, ]|of course[, ]|the title (?:is|should be)|this (?:session|title)|based on|possible (?:session )?titles?|(?:title )?(?:ideas|options|suggestions))\b/i
   if (assistantProse.test(title)) return null
 
   const words = title.split(/\s+/).filter(Boolean)
