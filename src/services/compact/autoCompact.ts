@@ -1,6 +1,5 @@
 import { feature } from 'bun:bundle'
-import { markPostCompaction } from 'src/bootstrap/state.js'
-import { getSdkBetas, getSessionId } from '../../bootstrap/state.js'
+import { getSdkBetas, getSessionId, markPostCompaction } from '../../bootstrap/state.js'
 import type { QuerySource } from '../../constants/querySource.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
