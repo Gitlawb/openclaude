@@ -109,7 +109,7 @@ const PERSISTENT_MAX_ATTEMPTS = 100
 // driven by isPersistentRetryEnabled() — there is no runtime override seam
 // (tests must enable UNATTENDED_RETRY via `bun test --feature=UNATTENDED_RETRY`
 // and set CLAUDE_CODE_UNATTENDED_RETRY to exercise this path).
-export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST }
+export { PERSISTENT_MAX_ATTEMPTS as _PERSISTENT_MAX_ATTEMPTS_FOR_TEST, isPersistentRetryEnabled }
 
 function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
