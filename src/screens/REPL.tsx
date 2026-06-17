@@ -128,7 +128,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { textForResubmit, handleMessageFromStream, type StreamingToolUse, type StreamingThinking, isCompactBoundaryMessage, getMessagesAfterCompactBoundary, getContentText, createUserMessage, createAssistantMessage, createTurnDurationMessage, createAgentsKilledMessage, createSystemMessage, createCommandInputMessage, formatCommandInputTags } from '../utils/messages.js';
 import { getCurrentTurnCacheMetrics, resetCurrentTurn } from '../services/api/cacheStatsTracker.js';
 import { formatCacheMetricsCompact, formatCacheMetricsFull } from '../services/api/cacheMetrics.js';
-import { generateSessionTitle } from '../utils/sessionTitle.js';
+import { generateSessionTitle, titleOrNullForPromptFallback } from '../utils/sessionTitle.js';
 import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
@@ -2819,7 +2819,8 @@ export function REPL({
       if (text && !text.startsWith(`<${LOCAL_COMMAND_STDOUT_TAG}>`) && !text.startsWith(`<${COMMAND_MESSAGE_TAG}>`) && !text.startsWith(`<${COMMAND_NAME_TAG}>`) && !text.startsWith(`<${BASH_INPUT_TAG}>`)) {
         haikuTitleAttemptedRef.current = true;
         void generateSessionTitle(text, new AbortController().signal).then(title => {
-          if (title) setHaikuTitle(title); else haikuTitleAttemptedRef.current = false;
+          const generatedTitle = titleOrNullForPromptFallback(title);
+          if (generatedTitle) setHaikuTitle(generatedTitle); else haikuTitleAttemptedRef.current = false;
         }, () => {
           haikuTitleAttemptedRef.current = false;
         });

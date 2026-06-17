@@ -28,7 +28,10 @@ import {
   handleMessageFromStream,
   type StreamingToolUse,
 } from '../utils/messages.js'
-import { generateSessionTitle } from '../utils/sessionTitle.js'
+import {
+  generateSessionTitle,
+  titleOrNullForPromptFallback,
+} from '../utils/sessionTitle.js'
 import type { RemoteMessageContent } from '../utils/teleport/api.js'
 import { updateSessionTitle } from '../utils/teleport/api.js'
 
@@ -483,9 +486,10 @@ export function useRemoteSession({
             description,
             new AbortController().signal,
           ).then(title => {
+            const generatedTitle = titleOrNullForPromptFallback(title)
             void updateSessionTitle(
               sessionId,
-              title ?? truncateToWidth(description, 75),
+              generatedTitle ?? truncateToWidth(description, 75),
             )
           })
         }

@@ -23,6 +23,8 @@ let smallFastModel = 'claude-haiku-4-5'
 let analyticsEvents: Array<{ name: string; metadata: Record<string, unknown> }> =
   []
 let debugMessages: Array<{ message: string; level?: string }> = []
+let combinedAbortTimeouts: Array<number | undefined> = []
+let forcedCombinedTimeoutMs: number | null = null
 
 function assistantText(text: string): unknown {
   return {
@@ -32,12 +34,29 @@ function assistantText(text: string): unknown {
   }
 }
 
+function rejectWhenAborted(signal: AbortSignal): Promise<never> {
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), {
+      once: true,
+    })
+  })
+}
+
 async function importSubject() {
+  // Force Bun to load fresh module instances so each test sees current mocks.
   const nonce = `${Date.now()}-${Math.random()}`
-  const [actualAnalytics, actualBetas, actualDebug, actualModel, actualProviders] =
-    await Promise.all([
+  const [
+    actualAnalytics,
+    actualBetas,
+    actualCombinedAbortSignal,
+    actualDebug,
+    actualModel,
+    actualProviders,
+  ] = await Promise.all([
       import(`../services/analytics/index.ts?actual=${nonce}`),
       import(`./betas.ts?actual=${nonce}`),
+      import(`./combinedAbortSignal.ts?actual=${nonce}`),
       import(`./debug.ts?actual=${nonce}`),
       import(`./model/model.ts?actual=${nonce}`),
       import(`./model/providers.ts?actual=${nonce}`),
@@ -58,6 +77,44 @@ async function importSubject() {
   mock.module('./betas.js', () => ({
     ...actualBetas,
     modelSupportsStructuredOutputs: () => structuredOutputsSupported,
+  }))
+  mock.module('./combinedAbortSignal.js', () => ({
+    ...actualCombinedAbortSignal,
+    createCombinedAbortSignal: (
+      signal: AbortSignal | undefined,
+      opts?: { signalB?: AbortSignal; timeoutMs?: number },
+    ) => {
+      combinedAbortTimeouts.push(opts?.timeoutMs)
+      if (forcedCombinedTimeoutMs === null) {
+        return actualCombinedAbortSignal.createCombinedAbortSignal(signal, opts)
+      }
+
+      const combined = new AbortController()
+      if (signal?.aborted) {
+        combined.abort(signal.reason)
+        return { signal: combined.signal, cleanup: () => {} }
+      }
+
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const cleanup = () => {
+        if (timer !== undefined) clearTimeout(timer)
+        signal?.removeEventListener('abort', abortFromSignal)
+      }
+      const abortFromSignal = () => {
+        cleanup()
+        combined.abort(signal?.reason)
+      }
+
+      signal?.addEventListener('abort', abortFromSignal)
+      timer = setTimeout(() => {
+        cleanup()
+        combined.abort(
+          new DOMException('The operation timed out.', 'TimeoutError'),
+        )
+      }, forcedCombinedTimeoutMs)
+
+      return { signal: combined.signal, cleanup }
+    },
   }))
   mock.module('./debug.js', () => ({
     ...actualDebug,
@@ -90,6 +147,8 @@ beforeEach(() => {
   smallFastModel = 'claude-haiku-4-5'
   analyticsEvents = []
   debugMessages = []
+  combinedAbortTimeouts = []
+  forcedCombinedTimeoutMs = null
 })
 
 afterEach(() => {
@@ -117,13 +176,68 @@ describe('generateSessionTitle', () => {
     expect(call.options.agents).toEqual([])
     expect(call.options.mcpTools).toEqual([])
     expect(call.options.maxOutputTokensOverride).toBe(64)
-    expect(call.options.maxOutputTokensOverride).toBeLessThanOrEqual(128)
     expect(call.options.temperatureOverride).toBe(0)
     expect(call.options.enablePromptCaching).toBe(false)
     expect(call.options.skipCacheWrite).toBe(true)
     expect(analyticsEvents).toContainEqual({
       name: 'tengu_session_title_generated',
       metadata: { success: true },
+    })
+  })
+
+  test('falls back when title generation times out', async () => {
+    forcedCombinedTimeoutMs = 1
+    queryHaikuImpl = async ({ signal }) => rejectWhenAborted(signal)
+
+    const { generateSessionTitle } = await importSubject()
+    const title = await generateSessionTitle(
+      'Name a slow provider response',
+      new AbortController().signal,
+    )
+
+    expect(title).toBe('OpenClaude')
+    expect(combinedAbortTimeouts).toEqual([12_000])
+    expect(queryHaikuCalls).toHaveLength(1)
+    expect(queryHaikuCalls[0]!.signal.aborted).toBe(true)
+    expect((queryHaikuCalls[0]!.signal.reason as DOMException).name).toBe(
+      'TimeoutError',
+    )
+    expect(debugMessages.at(-1)?.message).toContain(
+      'parse_failure=query_error',
+    )
+    expect(debugMessages.at(-1)?.message).toContain('error_name=TimeoutError')
+    expect(analyticsEvents).toContainEqual({
+      name: 'tengu_session_title_generated',
+      metadata: { success: false },
+    })
+  })
+
+  test('propagates caller aborts to the internal title signal', async () => {
+    queryHaikuImpl = async ({ signal }) => rejectWhenAborted(signal)
+
+    const { generateSessionTitle } = await importSubject()
+    const callerAbort = new AbortController()
+    const titlePromise = generateSessionTitle(
+      'Name an aborted session',
+      callerAbort.signal,
+    )
+
+    expect(queryHaikuCalls).toHaveLength(1)
+    expect(queryHaikuCalls[0]!.signal).not.toBe(callerAbort.signal)
+
+    const reason = new Error('caller cancelled')
+    callerAbort.abort(reason)
+
+    await expect(titlePromise).resolves.toBe('OpenClaude')
+    expect(queryHaikuCalls[0]!.signal.aborted).toBe(true)
+    expect(queryHaikuCalls[0]!.signal.reason).toBe(reason)
+    expect(debugMessages.at(-1)?.message).toContain(
+      'parse_failure=query_error',
+    )
+    expect(debugMessages.at(-1)?.message).toContain('error_name=Error')
+    expect(analyticsEvents).toContainEqual({
+      name: 'tengu_session_title_generated',
+      metadata: { success: false },
     })
   })
 
@@ -140,6 +254,7 @@ describe('generateSessionTitle', () => {
     )
 
     expect(title).toBe('OpenClaude')
+    expect(queryHaikuCalls).toHaveLength(1)
     expect(queryHaikuCalls[0]!.outputFormat).toBeUndefined()
     expect(debugMessages).toContainEqual({
       message:
@@ -207,6 +322,72 @@ describe('generateSessionTitle', () => {
     )
 
     expect(title).toBe('Debug failing CI tests')
+  })
+
+  test('strips terminal control sequences from structured titles', async () => {
+    queryHaikuText = JSON.stringify({
+      title: '\x1b]8;;https://example.invalid\x07Click\x1b]8;;\x07',
+    })
+
+    const { generateSessionTitle } = await importSubject()
+    const title = await generateSessionTitle(
+      'Open the linked issue',
+      new AbortController().signal,
+    )
+
+    expect(title).toBe('Click')
+  })
+
+  test('strips ANSI escape sequences from short-line fallback output', async () => {
+    structuredOutputsSupported = false
+    queryHaikuText = '\x1b[31mDebug failing CI tests\x1b[0m'
+
+    const { generateSessionTitle } = await importSubject()
+    const title = await generateSessionTitle(
+      'CI has a failing provider test',
+      new AbortController().signal,
+    )
+
+    expect(title).toBe('Debug failing CI tests')
+  })
+
+  test('lets prompt-fallback callers ignore the generic default title', async () => {
+    const { titleOrNullForPromptFallback } = await importSubject()
+
+    expect(titleOrNullForPromptFallback('Refactor API client errors')).toBe(
+      'Refactor API client errors',
+    )
+    expect(titleOrNullForPromptFallback('OpenClaude')).toBeNull()
+    expect(titleOrNullForPromptFallback(null)).toBeNull()
+  })
+
+  test('preserves prompt-fallback signal for empty provider output', async () => {
+    structuredOutputsSupported = false
+    queryHaikuText = ''
+
+    const { generateSessionTitle, titleOrNullForPromptFallback } =
+      await importSubject()
+    const title = await generateSessionTitle(
+      'Investigate remote session startup failure',
+      new AbortController().signal,
+    )
+
+    expect(title).toBe('OpenClaude')
+    expect(titleOrNullForPromptFallback(title)).toBeNull()
+  })
+
+  test('falls back when terminal sequence stripping leaves no title text', async () => {
+    queryHaikuText = JSON.stringify({
+      title: '\x1b]8;;https://example.invalid\x07\x1b]8;;\x07',
+    })
+
+    const { generateSessionTitle } = await importSubject()
+    const title = await generateSessionTitle(
+      'Open the linked issue',
+      new AbortController().signal,
+    )
+
+    expect(title).toBe('OpenClaude')
   })
 
   test('rejects huge unusable responses safely', async () => {

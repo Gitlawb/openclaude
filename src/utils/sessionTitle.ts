@@ -36,6 +36,11 @@ const MAX_TITLE_WORDS = 10
 const MAX_CANDIDATE_CHARS = 200
 const MAX_CANDIDATE_WORDS = 20
 const FALLBACK_SESSION_TITLE = 'OpenClaude'
+const TERMINAL_CONTROL_SEQUENCE_PATTERN =
+  /\x1B(?:\][\s\S]*?(?:\x07|\x1B\\)|[PX^_][\s\S]*?\x1B\\|\[[0-?]*[ -/]*[@-~]|[@-_])|\x9B[0-?]*[ -/]*[@-~]/g
+const CONTROL_CHARACTER_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g
+const ESCAPED_CONTROL_CHARACTER_PATTERN =
+  /\\(?:x(?:0[0-8BCEFbcef]|1[0-9A-Fa-f]|7[Ff]|[89][0-9A-Fa-f])|u00(?:0[0-8BCEFbcef]|1[0-9A-Fa-f]|7[Ff]|[89][0-9A-Fa-f]))/
 
 /**
  * Flatten a message array into a single text string for Haiku title input.
@@ -114,10 +119,32 @@ type SessionTitleParseResult = {
   parseFailure: SessionTitleParseFailure
 }
 
+function stripTerminalControlSequences(value: string): string {
+  return value
+    .replace(TERMINAL_CONTROL_SEQUENCE_PATTERN, '')
+    .replace(CONTROL_CHARACTER_PATTERN, '')
+}
+
+function hasStringTitleField(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { title?: unknown }).title === 'string'
+  )
+}
+
+export function titleOrNullForPromptFallback(
+  title: string | null,
+): string | null {
+  return title === FALLBACK_SESSION_TITLE ? null : title
+}
+
 function sanitizeTitleCandidate(candidate: unknown): string | null {
   if (typeof candidate !== 'string') return null
+  if (ESCAPED_CONTROL_CHARACTER_PATTERN.test(candidate)) return null
 
-  let title = candidate
+  let title = stripTerminalControlSequences(candidate)
     .replace(/\r\n?/g, '\n')
     .replace(/^```[a-z0-9_-]*\s*/i, '')
     .replace(/```\s*$/i, '')
@@ -251,13 +278,22 @@ function parseSessionTitleResponse(text: string): SessionTitleParseResult {
     }
   }
 
-  const strictTitle = parseTitleFromJSON(safeParseJSON(response, false))
+  const strictJSON = safeParseJSON(response, false)
+  const strictTitle = parseTitleFromJSON(strictJSON)
   if (strictTitle) {
     return {
       title: strictTitle,
       success: true,
       fallback: 'strict_json',
       parseFailure: 'none',
+    }
+  }
+  if (hasStringTitleField(strictJSON)) {
+    return {
+      title: FALLBACK_SESSION_TITLE,
+      success: false,
+      fallback: 'default',
+      parseFailure: 'unusable_response',
     }
   }
 
