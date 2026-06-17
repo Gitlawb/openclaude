@@ -1,6 +1,10 @@
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import type { Command } from '../commands.js';
 import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js';
+import { getSettingsFilePathForSource } from '../utils/settings/settings.js';
+
+const userSettingsPath = getSettingsFilePathForSource('userSettings') ?? '~/.openclaude/settings.json';
+
 const statusline = {
   type: 'prompt',
   description: "Set up OpenClaude's status line UI",
@@ -9,7 +13,7 @@ const statusline = {
   aliases: [],
   name: 'statusline',
   progressMessage: 'setting up statusLine',
-  allowedTools: [AGENT_TOOL_NAME, 'Read(~/**)', 'Edit(~/.openclaude/settings.json)'],
+  allowedTools: [AGENT_TOOL_NAME, 'Read(~/**)', `Edit(${userSettingsPath})`],
   source: 'builtin',
   disableNonInteractive: true,
   async getPromptForCommand(args): Promise<ContentBlockParam[]> {
