@@ -66,6 +66,7 @@ export type QueryGuardTimeoutInfo = {
   activeOperations: QueryActiveOperationSnapshot
 }
 
+// Rebuild snapshots from an allowlist so debug logging cannot leak runtime extras.
 function toSafeApiCallSnapshot(call: QueryActiveApiCall): QueryActiveApiCall {
   return {
     ...(call.clientRequestId !== undefined ? { clientRequestId: call.clientRequestId } : {}),
@@ -76,6 +77,17 @@ function toSafeApiCallSnapshot(call: QueryActiveApiCall): QueryActiveApiCall {
   }
 }
 
+function toDefinedApiCallUpdate(update: Partial<QueryActiveApiCall>): Partial<QueryActiveApiCall> {
+  return {
+    ...(update.clientRequestId !== undefined ? { clientRequestId: update.clientRequestId } : {}),
+    ...(update.requestId !== undefined ? { requestId: update.requestId } : {}),
+    ...(update.model !== undefined ? { model: update.model } : {}),
+    ...(update.querySource !== undefined ? { querySource: update.querySource } : {}),
+    ...(update.startedAt !== undefined ? { startedAt: update.startedAt } : {}),
+  }
+}
+
+// Keep tool snapshots on the same explicit allowlist boundary as API calls.
 function toSafeToolUseSnapshot(toolUse: QueryActiveToolUse): QueryActiveToolUse {
   return {
     toolUseId: toolUse.toolUseId,
@@ -100,7 +112,7 @@ export class QueryLifecycleOperationTracker {
   updateApiCall(key: string, update: Partial<QueryActiveApiCall>): void {
     const current = this.apiCalls.get(key)
     if (!current) return
-    this.apiCalls.set(key, toSafeApiCallSnapshot({ ...current, ...update }))
+    this.apiCalls.set(key, toSafeApiCallSnapshot({ ...current, ...toDefinedApiCallUpdate(update) }))
   }
 
   endApiCall(key: string): void {
