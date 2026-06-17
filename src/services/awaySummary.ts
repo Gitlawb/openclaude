@@ -5,6 +5,7 @@ import { logForDebugging } from '../utils/debug.js'
 import {
   createUserMessage,
   getAssistantMessageText,
+  selectToolPairSafeMessageRange,
 } from '../utils/messages.js'
 import { getSmallFastModel } from '../utils/model/model.js'
 import { asSystemPrompt } from '../utils/systemPromptType.js'
@@ -36,7 +37,20 @@ export async function generateAwaySummary(
 
   try {
     const memory = await getSessionMemoryContent()
-    const recent = messages.slice(-RECENT_MESSAGE_WINDOW)
+    const requestedStart = Math.max(0, messages.length - RECENT_MESSAGE_WINDOW)
+    const recentRange = selectToolPairSafeMessageRange(
+      messages,
+      requestedStart,
+      messages.length,
+      {
+        projectionName: 'away_summary',
+        querySource: 'away_summary',
+        // Keep recaps bounded: if a matching pair is farther back than one
+        // recent window, drop the partial pair instead of expanding indefinitely.
+        maxExtraMessages: RECENT_MESSAGE_WINDOW,
+      },
+    )
+    const recent = [...recentRange.messages]
     recent.push(createUserMessage({ content: buildAwaySummaryPrompt(memory) }))
     const response = await queryModelWithoutStreaming({
       messages: recent,
