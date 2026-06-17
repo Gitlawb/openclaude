@@ -224,6 +224,21 @@ function getNonEmptyEnvValue(value: string | undefined): string | undefined {
   return trimmed && trimmed !== 'undefined' ? trimmed : undefined
 }
 
+const SAFE_PROMPT_CACHE_PROVIDER_ROUTES = new Set<string>([
+  'anthropic',
+  'openai',
+  'custom',
+  'gemini',
+  'mistral',
+  'github',
+  'bedrock',
+  'vertex',
+  'nvidia-nim',
+  'minimax',
+  'xiaomi-mimo',
+  'xai',
+])
+
 /** MCP tool names are user-controlled (server config) and may leak filepaths.
  *  Collapse them to 'mcp'; built-in names are a fixed vocabulary. */
 function sanitizeToolName(name: string): string {
@@ -374,17 +389,33 @@ function getPromptCacheBreakProviderMetadata(model: string): {
       getNonEmptyEnvValue(process.env.OPENAI_BASE_URL) ??
       getNonEmptyEnvValue(process.env.OPENAI_API_BASE),
   })
-  let providerRoute = activeRouteId ?? apiProvider
-  if (apiProvider === 'codex') {
-    providerRoute = 'codex'
-  } else if (activeRouteId === 'anthropic' && apiProvider !== 'firstParty') {
-    providerRoute = apiProvider
-  }
   return {
     cacheProvider,
     cacheMetricsReliability: getCacheMetricsReliability(cacheProvider),
-    providerRoute,
+    providerRoute: getPromptCacheBreakProviderRoute(
+      activeRouteId,
+      apiProvider,
+    ),
   }
+}
+
+function getPromptCacheBreakProviderRoute(
+  activeRouteId: string | null,
+  apiProvider: APIProvider,
+): string {
+  if (apiProvider === 'codex') {
+    return 'codex'
+  }
+  if (activeRouteId === 'anthropic' && apiProvider !== 'firstParty') {
+    return apiProvider
+  }
+  if (!activeRouteId) {
+    return apiProvider
+  }
+  if (SAFE_PROMPT_CACHE_PROVIDER_ROUTES.has(activeRouteId)) {
+    return activeRouteId
+  }
+  return getTransportKindForRoute(activeRouteId) ?? apiProvider
 }
 
 function resolvePromptCacheBreakAPIProvider(

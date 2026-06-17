@@ -115,6 +115,13 @@ function useCodexAliasWithLiteralUndefinedBaseUrl(): void {
   process.env.OPENAI_MODEL = 'codexplan'
 }
 
+function useOpenRouterProvider(): void {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+}
+
 function useUnsupportedGithubProvider(): void {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -434,6 +441,28 @@ describe('prompt cache break taxonomy', () => {
       providerRoute: 'codex',
       severity: 'info',
     })
+  })
+
+  test('descriptor OpenAI-compatible route IDs are normalized before logging', async () => {
+    useOpenRouterProvider()
+
+    const event = await triggerCacheDrop({
+      first: snapshot({ model: 'gpt-4o' }),
+      second: snapshot({ model: 'gpt-4o' }),
+    })
+    const debug = debugCalls.findLast(call =>
+      call.message.startsWith('[PROMPT CACHE BREAK]'),
+    )
+
+    expect(event.metadata).toMatchObject({
+      classification: 'provider_cache_instability',
+      cacheMetricsReliability: 'advisory',
+      cacheProvider: 'openai',
+      providerRoute: 'openai-compatible',
+      severity: 'info',
+    })
+    expect(debug?.message).toContain('route=openai-compatible')
+    expect(debug?.message).not.toContain('openrouter')
   })
 
   test('TTL-window cache drops classify as possible TTL expiry', async () => {
