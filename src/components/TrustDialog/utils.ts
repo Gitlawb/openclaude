@@ -8,6 +8,11 @@ import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { SAFE_ENV_VARS } from '../../utils/managedEnvConstants.js'
 import { getPermissionRulesForSource } from '../../utils/permissions/permissionsLoader.js'
 
+const projectSettingsPath = () =>
+  getRelativeSettingsFilePathForSource('projectSettings')
+const localSettingsPath = () =>
+  getRelativeSettingsFilePathForSource('localSettings')
+
 function hasHooks(settings: SettingsJson | null): boolean {
   if (settings === null || settings.disableAllHooks) {
     return false
@@ -34,12 +39,12 @@ export function getHooksSources(): string[] {
 
   const projectSettings = getSettingsForSource('projectSettings')
   if (hasHooks(projectSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localSettings = getSettingsForSource('localSettings')
   if (hasHooks(localSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources
@@ -63,12 +68,12 @@ export function getBashPermissionSources(): string[] {
 
   const projectRules = getPermissionRulesForSource('projectSettings')
   if (hasBashPermission(projectRules)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localRules = getPermissionRulesForSource('localSettings')
   if (hasBashPermission(localRules)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources
@@ -122,12 +127,12 @@ export function getOtelHeadersHelperSources(): string[] {
 
   const projectSettings = getSettingsForSource('projectSettings')
   if (hasOtelHeadersHelper(projectSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localSettings = getSettingsForSource('localSettings')
   if (hasOtelHeadersHelper(localSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources
@@ -149,12 +154,12 @@ export function getApiKeyHelperSources(): string[] {
 
   const projectSettings = getSettingsForSource('projectSettings')
   if (hasApiKeyHelper(projectSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localSettings = getSettingsForSource('localSettings')
   if (hasApiKeyHelper(localSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources
@@ -176,12 +181,12 @@ export function getAwsCommandsSources(): string[] {
 
   const projectSettings = getSettingsForSource('projectSettings')
   if (hasAwsCommands(projectSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localSettings = getSettingsForSource('localSettings')
   if (hasAwsCommands(localSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources
@@ -203,12 +208,12 @@ export function getGcpCommandsSources(): string[] {
 
   const projectSettings = getSettingsForSource('projectSettings')
   if (hasGcpCommands(projectSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localSettings = getSettingsForSource('localSettings')
   if (hasGcpCommands(localSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources
@@ -236,12 +241,12 @@ export function getDangerousEnvVarsSources(): string[] {
 
   const projectSettings = getSettingsForSource('projectSettings')
   if (hasDangerousEnvVars(projectSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('projectSettings'))
+    sources.push(projectSettingsPath())
   }
 
   const localSettings = getSettingsForSource('localSettings')
   if (hasDangerousEnvVars(localSettings)) {
-    sources.push(getRelativeSettingsFilePathForSource('localSettings'))
+    sources.push(localSettingsPath())
   }
 
   return sources

@@ -46,7 +46,7 @@ export function SelectEventMode(t0) {
   const subtitle = `${totalHooksCount} ${t1} configured`;
   let t2;
   if ($[2] !== restrictedByPolicy) {
-    t2 = restrictedByPolicy && <Box flexDirection="column"><Text color="suggestion">{figures.info} Hooks Restricted by Policy</Text><Text dimColor={true}>Only hooks from managed settings can run. User-defined hooks from ~/.openclaude/settings.json (user), .openclaude/settings.json (project), and .openclaude/settings.local.json (local) are blocked.</Text></Box>;
+    t2 = restrictedByPolicy && <Box flexDirection="column"><Text color="suggestion">{figures.info} Hooks Restricted by Policy</Text><Text dimColor={true}>Only hooks from managed settings can run. User-defined hooks from ~/.openclaude/settings.json, .openclaude/settings.json, and .openclaude/settings.local.json are blocked.</Text></Box>;
     $[2] = restrictedByPolicy;
     $[3] = t2;
   } else {

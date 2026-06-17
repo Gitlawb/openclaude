@@ -1,5 +1,4 @@
 import { toJSONSchema } from 'zod/v4'
-import { getRelativeSettingsFilePathForSource } from '../../utils/settings/settings.js'
 import { SettingsSchema } from '../../utils/settings/types.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { registerBundledSkill } from '../bundledSkills.js'
@@ -13,19 +12,15 @@ function generateSettingsSchema(): string {
   return jsonStringify(jsonSchema, null, 2)
 }
 
-const USER_SETTINGS_PATH = '~/.openclaude/settings.json'
-const PROJECT_SETTINGS_PATH = getRelativeSettingsFilePathForSource('projectSettings')
-const LOCAL_SETTINGS_PATH = getRelativeSettingsFilePathForSource('localSettings')
-
 const SETTINGS_EXAMPLES_DOCS = `## Settings File Locations
 
 Choose the appropriate file based on scope:
 
 | File | Scope | Git | Use For |
 |------|-------|-----|---------|
-| \`${USER_SETTINGS_PATH}\` | Global | N/A | Personal preferences for all projects |
-| \`${PROJECT_SETTINGS_PATH}\` | Project | Commit | Team-wide hooks, permissions, plugins |
-| \`${LOCAL_SETTINGS_PATH}\` | Project | Gitignore | Personal overrides for this project |
+| \`~/.openclaude/settings.json\` | Global | N/A | Personal preferences for all projects |
+| \`.openclaude/settings.json\` | Project | Commit | Team-wide hooks, permissions, plugins |
+| \`.openclaude/settings.local.json\` | Project | Gitignore | Personal overrides for this project |
 
 Settings load in order: user → project → local (later overrides earlier).
 
@@ -35,7 +30,7 @@ Settings load in order: user → project → local (later overrides earlier).
 \`\`\`json
 {
   "permissions": {
-    "allow": ["Bash(npm:*)", "Edit(.claude)", "Read"],
+    "allow": ["Bash(npm:*)", "Edit(.openclaude)", "Read"],
     "deny": ["Bash(rm -rf:*)"],
     "ask": ["Write(/etc/*)"],
     "defaultMode": "default" | "plan" | "acceptEdits" | "dontAsk",
@@ -241,7 +236,7 @@ Hooks can return JSON to control behavior:
       "matcher": "Bash",
       "hooks": [{
         "type": "command",
-        "command": "jq -r '.tool_input.command' >> ~/.claude/bash-log.txt"
+        "command": "jq -r '.tool_input.command' >> ~/.openclaude/bash-log.txt"
       }]
     }]
   }
@@ -291,7 +286,7 @@ Given an event, matcher, target file, and desired behavior, follow this flow. Ea
 
    Check exit code AND side effect (file actually formatted, test actually ran). If it fails you get a real error — fix (wrong package manager? tool not installed? jq path wrong?) and retest. Once it works, wrap with \`2>/dev/null || true\` (unless the user wants a blocking check).
 
-4. **Write the JSON.** Merge into the target file (schema shape in the "Hook Structure" section above). If this creates \`${LOCAL_SETTINGS_PATH}\` for the first time, add it to .gitignore — the Write tool doesn't auto-gitignore it.
+4. **Write the JSON.** Merge into the target file (schema shape in the "Hook Structure" section above). If this creates \`.openclaude/settings.local.json\` for the first time, add it to .gitignore — the Write tool doesn't auto-gitignore it.
 
 5. **Validate syntax + schema in one shot:**
 
@@ -374,7 +369,7 @@ When adding to permission arrays or hook arrays, **merge with existing**, don't 
   "permissions": {
     "allow": [
       "Bash(git:*)",      // existing
-      "Edit(.claude)",    // existing
+      "Edit(.openclaude)",    // existing
       "Bash(npm:*)"       // new
     ]
   }
@@ -394,7 +389,7 @@ ${HOOK_VERIFICATION_FLOW}
 User: "Format my code after Claude writes it"
 
 1. **Clarify**: Which formatter? (prettier, gofmt, etc.)
-2. **Read**: \`${PROJECT_SETTINGS_PATH}\` (or create if missing)
+2. **Read**: \`.openclaude/settings.json\` (or create if missing)
 3. **Merge**: Add to existing hooks, don't replace
 4. **Result**:
 \`\`\`json
@@ -440,7 +435,7 @@ User: "Set DEBUG=true"
 ## Troubleshooting Hooks
 
 If a hook isn't running:
-1. **Check the settings file** - Read ${USER_SETTINGS_PATH}, ${PROJECT_SETTINGS_PATH}, or ${LOCAL_SETTINGS_PATH}
+1. **Check the settings file** - Read ~/.openclaude/settings.json or .openclaude/settings.json
 2. **Verify JSON syntax** - Invalid JSON silently fails
 3. **Check the matcher** - Does it match the tool name? (e.g., "Bash", "Write", "Edit")
 4. **Check hook type** - Is it "command", "prompt", or "agent"?

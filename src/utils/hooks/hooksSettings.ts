@@ -8,6 +8,7 @@ import {
   getSettingsFilePathForSource,
   getSettingsForSource,
 } from '../settings/settings.js'
+import { getDisplayPath } from '../file.js'
 import type { HookCommand, HookMatcher } from '../settings/types.js'
 import { DEFAULT_HOOK_SHELL } from '../shell/shellProvider.js'
 import { getSessionHooks } from './sessionHooks.js'
@@ -108,7 +109,7 @@ export function getAllHooks(appState: AppState): IndividualHookConfig[] {
 
     // Track which settings files we've already processed to avoid duplicates
     // (e.g., when running from home directory, userSettings and projectSettings
-    // both resolve to ~/.claude/settings.json)
+    // both resolve to the same settings.json)
     const seenFiles = new Set<string>()
 
     for (const source of sources) {
@@ -168,13 +169,18 @@ export function getHooksForEvent(
 }
 
 export function hookSourceDescriptionDisplayString(source: HookSource): string {
+  const settingsPath = (settingsSource: EditableSettingSource) => {
+    const filePath = getSettingsFilePathForSource(settingsSource)
+    return filePath ? getDisplayPath(filePath) : 'settings.json'
+  }
+
   switch (source) {
     case 'userSettings':
-      return 'User settings (~/.openclaude/settings.json)'
+      return `User settings (${settingsPath('userSettings')})`
     case 'projectSettings':
-      return 'Project settings (.openclaude/settings.json)'
+      return `Project settings (${settingsPath('projectSettings')})`
     case 'localSettings':
-      return 'Local settings (.openclaude/settings.local.json)'
+      return `Local settings (${settingsPath('localSettings')})`
     case 'pluginHook':
       // TODO: Get the actual plugin hook file paths instead of using glob pattern
       // We should capture the specific plugin paths during hook registration and display them here
