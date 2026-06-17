@@ -37,3 +37,17 @@ export function getMaxBashTimeoutMs(env: EnvLike = process.env): number {
   // Always ensure max is at least as large as default
   return Math.max(MAX_TIMEOUT_MS, getDefaultBashTimeoutMs(env))
 }
+
+export function getEffectiveBashTimeoutMs(
+  requestedTimeout: unknown,
+  env: EnvLike = process.env,
+): number {
+  const timeoutMs =
+    typeof requestedTimeout === 'number' &&
+    Number.isFinite(requestedTimeout) &&
+    requestedTimeout > 0
+      ? requestedTimeout
+      : getDefaultBashTimeoutMs(env)
+
+  return Math.min(timeoutMs, getMaxBashTimeoutMs(env))
+}

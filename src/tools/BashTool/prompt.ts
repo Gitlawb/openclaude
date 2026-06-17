@@ -9,6 +9,7 @@ import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import {
   getDefaultBashTimeoutMs,
+  getEffectiveBashTimeoutMs,
   getMaxBashTimeoutMs,
 } from '../../utils/timeouts.js'
 import {
@@ -30,6 +31,10 @@ export function getDefaultTimeoutMs(): number {
 
 export function getMaxTimeoutMs(): number {
   return getMaxBashTimeoutMs()
+}
+
+export function getEffectiveTimeoutMs(timeout: unknown): number {
+  return getEffectiveBashTimeoutMs(timeout)
 }
 
 function getBackgroundUsageNote(): string | null {

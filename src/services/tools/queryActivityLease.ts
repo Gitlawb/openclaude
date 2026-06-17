@@ -1,8 +1,5 @@
 import type { QueryGuardLeaseInput } from '../../utils/QueryGuard.js'
-import {
-  getDefaultBashTimeoutMs,
-  getMaxBashTimeoutMs,
-} from '../../utils/timeouts.js'
+import { getEffectiveBashTimeoutMs } from '../../utils/timeouts.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { POWERSHELL_TOOL_NAME } from '../../tools/PowerShellTool/toolName.js'
 
@@ -11,17 +8,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function getShellTimeoutMs(input: Record<string, unknown>): number {
-  const declaredTimeout = input.timeout
   // PowerShell already shares the Bash timeout helpers and env vars; keep that
   // compatibility surface stable here.
-  const timeoutMs =
-    typeof declaredTimeout === 'number' &&
-    Number.isFinite(declaredTimeout) &&
-    declaredTimeout > 0
-      ? declaredTimeout
-      : getDefaultBashTimeoutMs()
-
-  return Math.min(timeoutMs, getMaxBashTimeoutMs())
+  return getEffectiveBashTimeoutMs(input.timeout)
 }
 
 export function createToolQueryLeaseInput(
