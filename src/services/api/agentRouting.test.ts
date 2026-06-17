@@ -742,3 +742,50 @@ describe('shouldEnforceModelAllowlist', () => {
     expect(shouldEnforceModelAllowlist('m', 'm', false)).toBe(false)
   })
 })
+
+describe('resolveAgentRunModelRouting: in-process teammate route identity', () => {
+  // In-process teammates run runAgent() with a synthetic agentDefinition whose
+  // agentType is the teammate's display name. Routing must use the original
+  // subagent_type instead, or the configured cross-provider route is missed and
+  // the teammate runs on the parent provider.
+  const settings = {
+    agentModels: {
+      'deepseek-chat': {
+        base_url: 'https://api.deepseek.com/v1',
+        api_key: 'sk-ds',
+      },
+    },
+    agentRouting: {
+      verification: 'deepseek-chat',
+    },
+  } as unknown as SettingsJson
+
+  test('teammate display name misses the configured route', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      parentModel: 'parent-model',
+      agentName: 'worker-a',
+      subagentType: 'worker-a',
+      settings,
+    })
+    expect(result).toEqual({ mainLoopModel: 'parent-model' })
+  })
+
+  test('original subagent_type resolves the cross-provider override', () => {
+    const result = resolveAgentRunModelRouting({
+      resolvedAgentModel: 'parent-model',
+      parentModel: 'parent-model',
+      agentName: 'worker-a',
+      subagentType: 'verification',
+      settings,
+    })
+    expect(result).toEqual({
+      mainLoopModel: 'deepseek-chat',
+      providerOverride: {
+        model: 'deepseek-chat',
+        baseURL: 'https://api.deepseek.com/v1',
+        apiKey: 'sk-ds',
+      },
+    })
+  })
+})

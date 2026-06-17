@@ -20,13 +20,17 @@ type Props = {
   tools: Tools;
   allAgents?: AgentDefinition[];
   onBack: () => void;
+  /** Notifies the parent when the route picker opens/closes so an enclosing
+   *  Dialog can deactivate its own Esc handler while the picker owns Esc. */
+  onRoutingChange?: (routing: boolean) => void;
 };
 export function AgentDetail(t0) {
   const $ = _c(48);
   const {
     agent,
     tools,
-    onBack
+    onBack,
+    onRoutingChange
   } = t0;
   const resolvedTools = resolveAgentTools(agent, tools, false);
   const [routing, setRouting] = React.useState(false);
@@ -34,6 +38,7 @@ export function AgentDetail(t0) {
   useInput((input) => {
     if (!routing && (input === 'm' || input === 'M')) {
       setRouting(true);
+      onRoutingChange?.(true);
     }
   }, { isActive: !routing });
   let t1;
@@ -225,7 +230,10 @@ export function AgentDetail(t0) {
     t24 = $[47];
   }
   if (routing) {
-    return <AgentRouteSelector agentType={agent.agentType} current={currentRoute} onClose={() => setRouting(false)} />;
+    return <AgentRouteSelector agentType={agent.agentType} current={currentRoute} onClose={() => {
+      setRouting(false);
+      onRoutingChange?.(false);
+    }} />;
   }
   return <Box flexDirection="column">{t24}<Text dimColor={true}>{describeRouteLine(currentRoute)}  (press "m" to change)</Text></Box>;
 }
