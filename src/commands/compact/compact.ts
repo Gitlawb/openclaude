@@ -1,6 +1,6 @@
 import { feature } from 'bun:bundle'
 import chalk from 'chalk'
-import { markPostCompaction } from 'src/bootstrap/state.js'
+import { markPostCompaction, getSessionId } from 'src/bootstrap/state.js'
 import { getSystemPrompt } from '../../constants/prompts.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js'
@@ -56,31 +56,10 @@ export const call: LocalCommandCall = async (args, context) => {
 
   try {
     // Try session memory compaction first if no custom instructions
-    // (session memory compaction doesn't support custom instructions)
+    // (session memory compaction doesn't support custom instructions).
+    // This is a single attempt: on success it returns; on null (nothing to
+    // summarize) it falls through to the traditional compaction path below.
     if (!customInstructions) {
-      const sessionMemoryResult = await trySessionMemoryCompaction(
-        messages,
-        context.agentId,
-      )
-      if (sessionMemoryResult) {
-        getUserContext.cache.clear?.()
-        runPostCompactCleanup()
-        // Issue #1373: reset the session-level breaker-trip state on a
-        // successful manual /compact session-memory compaction. The
-        // reset must live at the successful-compaction call site
-        // rather than in `runPostCompactCleanup` (see comment there).
-        clearBreakerTrippedState()
-        // Reset cache read baseline so the post-compact drop isn't flagged
-        // as a break. compactConversation does this internally; SM-compact doesn't.
-        if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
-          notifyCompaction(
-            context.options.querySource ?? 'compact',
-            context.agentId,
-          )
-        }
-        markPostCompaction()
-        // Suppress warning immediately after successful compaction
-        suppressCompactWarning()
       context.onCompactProgress?.({
         type: 'hooks_start',
         hookType: 'pre_compact',
@@ -94,6 +73,11 @@ export const call: LocalCommandCall = async (args, context) => {
         if (sessionMemoryResult) {
           getUserContext.cache.clear?.()
           runPostCompactCleanup()
+          // Issue #1373: reset the session-level breaker-trip state on a
+          // successful manual /compact session-memory compaction. The
+          // reset must live at the successful-compaction call site
+          // rather than in `runPostCompactCleanup` (see comment there).
+          clearBreakerTrippedState(getSessionId())
           // Reset cache read baseline so the post-compact drop isn't flagged
           // as a break. compactConversation does this internally; SM-compact doesn't.
           if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
@@ -156,7 +140,7 @@ export const call: LocalCommandCall = async (args, context) => {
     // Issue #1373: reset the session-level breaker-trip state on a
     // successful manual /compact traditional compaction. See the
     // session-memory success path above for the full rationale.
-    clearBreakerTrippedState()
+    clearBreakerTrippedState(getSessionId())
 
     return {
       type: 'compact',
@@ -243,7 +227,7 @@ async function compactViaReactive(
     // Issue #1373: reset the session-level breaker-trip state on a
     // successful reactive /compact. See the session-memory success
     // path above for the full rationale.
-    clearBreakerTrippedState()
+    clearBreakerTrippedState(getSessionId())
     suppressCompactWarning()
     getUserContext.cache.clear?.()
 

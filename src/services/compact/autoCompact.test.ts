@@ -11,6 +11,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { getSessionId } from '../../bootstrap/state.js'
 import type { Message } from '../../types/message.js'
 import * as realConfig from '../../utils/config.js'
 
@@ -1345,12 +1346,13 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
 
     const { recordBreakerTripped, getBreakerTripState, clearBreakerTrippedState } =
       await import('./compactWarningState.js')
+    const sessionId = getSessionId()
     // Seed: main session's breaker is tripped. Without the
     // `isMainThreadCompact` guard, a subagent success below would
     // silently clear this and the REPL/SDK would lose the
     // "auto-compact paused" signal.
-    recordBreakerTripped({ failureCount: 3, trippedAtMs: Date.now() - 30_000 })
-    expect(getBreakerTripState().tripped).toBe(true)
+    recordBreakerTripped(sessionId, { failureCount: 3, trippedAtMs: Date.now() - 30_000 })
+    expect(getBreakerTripState(sessionId).tripped).toBe(true)
 
     const messages = overThresholdMessages()
     const result = await autoCompactIfNeeded(
@@ -1364,10 +1366,10 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
 
     // Main session's breaker must remain tripped. A subagent success
     // is not a main-thread recovery event.
-    expect(getBreakerTripState().tripped).toBe(true)
-    expect(getBreakerTripState().lastFailureCount).toBe(3)
+    expect(getBreakerTripState(sessionId).tripped).toBe(true)
+    expect(getBreakerTripState(sessionId).lastFailureCount).toBe(3)
 
-    clearBreakerTrippedState()
+    clearBreakerTrippedState(sessionId)
   })
 
   test('a subagent failure does not record a trip on the main-session breaker', async () => {
@@ -1384,9 +1386,10 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
     const { getBreakerTripState, clearBreakerTrippedState } = await import(
       './compactWarningState.js'
     )
+    const sessionId = getSessionId()
     // Baseline: main session's breaker is NOT tripped.
-    clearBreakerTrippedState()
-    expect(getBreakerTripState().tripped).toBe(false)
+    clearBreakerTrippedState(sessionId)
+    expect(getBreakerTripState(sessionId).tripped).toBe(false)
 
     // Drive consecutive subagent failures to cross the breaker
     // threshold. Each call returns the updated tracking, which the
@@ -1414,7 +1417,7 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
 
     // Main session's breaker must remain un-tripped. A subagent
     // failure is not a main-thread outage.
-    expect(getBreakerTripState().tripped).toBe(false)
+    expect(getBreakerTripState(sessionId).tripped).toBe(false)
   })
 
   test('a main-thread success still clears a tripped breaker (regression guard)', async () => {
@@ -1430,8 +1433,9 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
 
     const { recordBreakerTripped, getBreakerTripState, clearBreakerTrippedState } =
       await import('./compactWarningState.js')
-    recordBreakerTripped({ failureCount: 3, trippedAtMs: Date.now() - 30_000 })
-    expect(getBreakerTripState().tripped).toBe(true)
+    const sessionId = getSessionId()
+    recordBreakerTripped(sessionId, { failureCount: 3, trippedAtMs: Date.now() - 30_000 })
+    expect(getBreakerTripState(sessionId).tripped).toBe(true)
 
     const messages = overThresholdMessages()
     const result = await autoCompactIfNeeded(
@@ -1445,8 +1449,8 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
 
     // Main-thread success must clear the breaker — that's the
     // recovery signal the REPL/SDK reads.
-    expect(getBreakerTripState().tripped).toBe(false)
+    expect(getBreakerTripState(sessionId).tripped).toBe(false)
 
-    clearBreakerTrippedState()
+    clearBreakerTrippedState(sessionId)
   })
 })

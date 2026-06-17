@@ -1,6 +1,6 @@
 import { feature } from 'bun:bundle'
 import { markPostCompaction } from 'src/bootstrap/state.js'
-import { getSdkBetas } from '../../bootstrap/state.js'
+import { getSdkBetas, getSessionId } from '../../bootstrap/state.js'
 import type { QuerySource } from '../../constants/querySource.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
@@ -607,7 +607,7 @@ export async function autoCompactIfNeeded(
     // not per-compaction. Reuse the same predicate as
     // `runPostCompactCleanup` so the two stay in sync.
     if (isMainThreadCompact(querySource)) {
-      clearBreakerTrippedState()
+      clearBreakerTrippedState(getSessionId())
     }
     // Reset cache read baseline so the post-compact drop isn't flagged as a
     // break. compactConversation does this internally; SM-compact doesn't.
@@ -650,7 +650,7 @@ export async function autoCompactIfNeeded(
     // Subagent guard: same as above — `breakerTripStore` is
     // module-level and shared with the main thread.
     if (isMainThreadCompact(querySource)) {
-      clearBreakerTrippedState()
+      clearBreakerTrippedState(getSessionId())
     }
 
     return {
@@ -701,7 +701,7 @@ export async function autoCompactIfNeeded(
       // module-level, so without this guard a wedged subagent would
       // make the main session look paused for 5 minutes.
       if (isMainThreadCompact(querySource)) {
-        recordBreakerTripped({
+        recordBreakerTripped(getSessionId(), {
           failureCount: nextFailures,
           trippedAtMs: failureAtMs,
         })
