@@ -1,6 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
 import capitalize from 'lodash-es/capitalize.js';
-import { join } from 'path';
 import * as React from 'react';
 import { useMemo } from 'react';
 import { type Command, type CommandBase, type CommandResultDisplay, getCommandName, type PromptCommand } from '../../commands.js';
@@ -8,6 +7,7 @@ import { Box, Text } from '../../ink.js';
 import { estimateSkillFrontmatterTokens, getSkillsPath } from '../../skills/loadSkillsDir.js';
 import { getDisplayPath } from '../../utils/file.js';
 import { formatTokens } from '../../utils/format.js';
+import { getUserSkillExampleDisplayPath } from '../../utils/openclaudeDisplayPaths.js';
 import { getSettingSourceName, type SettingSource } from '../../utils/settings/constants.js';
 import { plural } from '../../utils/stringUtils.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
@@ -51,7 +51,7 @@ function getSkillListLabel(skill: SkillCommand): string {
   return leafName === skill.name ? skill.name : `${skill.name} - ${leafName}`;
 }
 export function getEmptySkillsMenuMessage(): string {
-  return `Create skills in .claude/skills/<name>/SKILL.md or ${getDisplayPath(join(getSkillsPath('userSettings', 'skills'), '<name>', 'SKILL.md'))}`;
+  return `Create skills in .claude/skills/<name>/SKILL.md or ${getUserSkillExampleDisplayPath()}`;
 }
 export function SkillsMenu(t0) {
   const $ = _c(35);

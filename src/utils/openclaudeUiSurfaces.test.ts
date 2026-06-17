@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { homedir } from 'os'
 import { join } from 'path'
 import {
@@ -7,9 +7,6 @@ import {
 } from '../test/sharedMutationLock.js'
 
 import { isInGlobalClaudeFolder } from '../components/permissions/FilePermissionDialog/permissionOptions.tsx'
-import { optionForPermissionSaveDestination } from '../components/permissions/rules/AddPermissionRules.tsx'
-import { getEmptySkillsMenuMessage } from '../components/skills/SkillsMenu.tsx'
-import { getCustomCommandsTipContent } from '../services/tips/tipRegistry.ts'
 import { getDisplayPath } from './file.ts'
 import { getDefaultPermissionModeOptions } from './permissions/defaultPermissionModeOptions.ts'
 import {
@@ -23,6 +20,7 @@ const originalOpenClaudeConfigDir = process.env.OPENCLAUDE_CONFIG_DIR
 
 beforeEach(async () => {
   await acquireSharedMutationLock('openclaudeUiSurfaces.test.ts')
+  mock.restore()
 })
 
 afterEach(() => {
@@ -57,10 +55,13 @@ describe('OpenClaude settings path surfaces', () => {
     ).toBe(true)
   })
 
-  test('permission save destinations point user settings to configured OPENCLAUDE_CONFIG_DIR', () => {
+  test('permission save destinations point user settings to configured OPENCLAUDE_CONFIG_DIR', async () => {
     const customConfigDir = join(homedir(), 'custom-openclaude')
     process.env.OPENCLAUDE_CONFIG_DIR = customConfigDir
     delete process.env.CLAUDE_CONFIG_DIR
+    const { optionForPermissionSaveDestination } = await import(
+      '../components/permissions/rules/AddPermissionRules.tsx'
+    )
 
     expect(optionForPermissionSaveDestination('userSettings')).toEqual({
       label: 'User settings',
@@ -69,10 +70,16 @@ describe('OpenClaude settings path surfaces', () => {
     })
   })
 
-  test('skills help surfaces point user skills to configured OPENCLAUDE_CONFIG_DIR', () => {
+  test('skills help surfaces point user skills to configured OPENCLAUDE_CONFIG_DIR', async () => {
     const customConfigDir = join(homedir(), 'custom-openclaude')
     process.env.OPENCLAUDE_CONFIG_DIR = customConfigDir
     delete process.env.CLAUDE_CONFIG_DIR
+    const { getEmptySkillsMenuMessage } = await import(
+      '../components/skills/SkillsMenu.tsx'
+    )
+    const { getCustomCommandsTipContent } = await import(
+      '../services/tips/tipRegistry.ts'
+    )
     const customSkillPath = getDisplayPath(
       join(customConfigDir, 'skills', '<name>', 'SKILL.md'),
     )
@@ -81,7 +88,11 @@ describe('OpenClaude settings path surfaces', () => {
     expect(getCustomCommandsTipContent()).toContain(customSkillPath)
   })
 
-  test('permission save destinations point project settings to .openclaude', () => {
+  test('permission save destinations point project settings to .openclaude', async () => {
+    const { optionForPermissionSaveDestination } = await import(
+      '../components/permissions/rules/AddPermissionRules.tsx'
+    )
+
     expect(optionForPermissionSaveDestination('projectSettings')).toEqual({
       label: 'Project settings',
       description: 'Checked in at .openclaude/settings.json',

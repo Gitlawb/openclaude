@@ -80,12 +80,14 @@ describe("Secure Storage Platform Implementations", () => {
 
   beforeAll(async () => {
     await acquireSharedMutationLock("platformStorage.test.ts");
+    mock.restore();
     mock.module("execa", () => ({
       ...realExeca,
       execaSync: mockExecaSync,
     }));
-    ({ linuxSecretStorage } = await import("./linuxSecretStorage.js"));
-    ({ windowsCredentialStorage } = await import("./windowsCredentialStorage.js"));
+    const moduleSuffix = `?platformStorageTest=${Date.now()}-${Math.random()}`;
+    ({ linuxSecretStorage } = await import(`./linuxSecretStorage.js${moduleSuffix}`));
+    ({ windowsCredentialStorage } = await import(`./windowsCredentialStorage.js${moduleSuffix}`));
   });
 
   beforeEach(() => {
