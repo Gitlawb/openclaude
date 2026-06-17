@@ -1691,7 +1691,8 @@ export function getReplayIndexBuilder(): ReplayIndexBuilder {
   let entry = STATE.replayIndexBuilders.get(sessionId)
   if (!entry) {
     // Lazy import to avoid circular dependencies
-    const { ReplayIndexBuilder } = require('src/utils/replayIndexBuilder.js')
+    const { ReplayIndexBuilder } =
+      require('src/utils/replayIndexBuilder.js') as typeof import('src/utils/replayIndexBuilder.js')
     entry = {
       builder: new ReplayIndexBuilder(),
       projectDir: getSessionProjectDir(),

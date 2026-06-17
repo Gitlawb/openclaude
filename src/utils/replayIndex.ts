@@ -9,7 +9,7 @@ import { logError } from './log.js'
  * Pattern: <projectDir>/<sessionId>.replay.json
  */
 function getReplayIndexPath(sessionId: string, transcriptPath: string): string {
-  return transcriptPath.replace(/\.jsonl$/, '.replay.json')
+  return join(dirname(transcriptPath), `${sessionId}.replay.json`)
 }
 
 /**
@@ -74,7 +74,10 @@ export async function writeReplayIndex(
       await mkdir(dir, { recursive: true })
     }
     
-    await writeFile(replayPath, JSON.stringify(index, null, 2), 'utf-8')
+    await writeFile(replayPath, JSON.stringify(index, null, 2), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    })
     logForDebugging(`Wrote replay index for session ${sessionId} to ${replayPath}`)
   } catch (error) {
     logError(error)

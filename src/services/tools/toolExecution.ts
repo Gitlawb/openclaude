@@ -1032,21 +1032,6 @@ async function checkPermissionsAndCallTool(
   const permissionDecision = resolved.decision
   processedInput = resolved.input
   const permissionDurationMs = Date.now() - permissionStart
-  let replayStarted = false
-
-  // Track tool execution for replay index after hooks have finalized input,
-  // but before permission denial can return early.
-  try {
-    const replayBuilder = getReplayIndexBuilder()
-    replayBuilder.trackToolStart(
-      toolUseID,
-      tool.name,
-      processedInput as Record<string, unknown>,
-    )
-    replayStarted = true
-  } catch {
-    // Ignore errors in replay tracking - don't break tool execution
-  }
 
   // In auto mode, canUseTool awaits the classifier (side_query) — if that's
   // slow the collapsed view shows "Running…" with no (Ns) tick since
@@ -1102,7 +1087,17 @@ async function checkPermissionsAndCallTool(
     // Track permission denied for replay index
     try {
       const replayBuilder = getReplayIndexBuilder()
-      replayBuilder.trackToolEnd(toolUseID, tool.name, 'permission_denied', permissionDecision.message)
+      replayBuilder.trackToolStart(
+        toolUseID,
+        tool.name,
+        processedInput as Record<string, unknown>,
+      )
+      replayBuilder.trackToolEnd(
+        toolUseID,
+        tool.name,
+        'permission_denied',
+        permissionDecision.message,
+      )
     } catch {
       // Ignore errors in replay tracking
     }
@@ -1205,7 +1200,49 @@ async function checkPermissionsAndCallTool(
     })
   }
 
-  trackLifecycleToolUse(parsedInput.data)
+  const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
+
+  const startTime = Date.now()
+
+  startSessionActivity('tool_exec')
+  // If processedInput still points at the backfill clone, no hook/permission
+  // replaced it — pass the pre-backfill callInput so call() sees the model's
+  // original field values. Otherwise converge on the hook-supplied input.
+  // Permission/hook flows may return a fresh object derived from the
+  // backfilled clone (e.g. via inputSchema.parse). If its file_path matches
+  // the backfill-expanded value, restore the model's original so the tool
+  // result string embeds the path the model emitted — keeps transcript/VCR
+  // hashes stable. Other hook modifications flow through unchanged.
+  if (
+    backfilledClone &&
+    processedInput !== callInput &&
+    typeof processedInput === 'object' &&
+    processedInput !== null &&
+    'file_path' in processedInput &&
+    'file_path' in (callInput as Record<string, unknown>) &&
+    (processedInput as Record<string, unknown>).file_path ===
+      (backfilledClone as Record<string, unknown>).file_path
+  ) {
+    callInput = {
+      ...processedInput,
+      file_path: (callInput as Record<string, unknown>).file_path,
+    } as typeof processedInput
+  } else if (processedInput !== backfilledClone) {
+    callInput = processedInput
+  }
+
+  let queryActivityLease: { release(): void } | undefined
+
+  try {
+    getReplayIndexBuilder().trackToolStart(
+      toolUseID,
+      tool.name,
+      callInput as Record<string, unknown>,
+    )
+  } catch {
+    // Ignore errors in replay tracking
+  }
+
   try {
     const queryActivityLeaseInput = createToolQueryLeaseInput(
       tool.name,
@@ -1244,13 +1281,6 @@ async function checkPermissionsAndCallTool(
     try {
       const replayBuilder = getReplayIndexBuilder()
       const resultPreview = typeof result.data === 'string' ? result.data.slice(0, 200) : undefined
-      if (!replayStarted) {
-        replayBuilder.trackToolStart(
-          toolUseID,
-          tool.name,
-          callInput as Record<string, unknown>,
-        )
-      }
       replayBuilder.trackToolEnd(
         toolUseID,
         tool.name,

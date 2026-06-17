@@ -1,11 +1,18 @@
+import { PassThrough } from 'node:stream'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
+
+import type { UUID } from 'crypto'
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import React from 'react'
 
 import {
   achieveGoal,
   createGoalState,
   pauseGoal,
 } from '../../services/goal/state.js'
+import { createRoot } from '../../ink.js'
 import { getDefaultAppState, type AppState } from '../../state/AppStateStore.js'
+import type { LogOption, ReplaySummary } from '../../types/logs.js'
 import type {
   LocalJSXCommandContext,
   LocalJSXCommandOnDone,
@@ -45,6 +52,100 @@ function makeContext(
       agentId: 'agent-test-123',
     } as unknown as LocalJSXCommandContext,
     getState: () => state,
+  }
+}
+
+function createTestStreams(): {
+  stdout: PassThrough
+  stdin: PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  getOutput: () => string
+} {
+  let output = ''
+  const stdout = new PassThrough()
+  stdout.on('data', chunk => {
+    output += chunk.toString()
+  })
+  ;(stdout as unknown as { columns: number }).columns = 80
+
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+
+  return { stdout, stdin, getOutput: () => stripAnsi(output) }
+}
+
+const replaySummary: ReplaySummary = {
+  totalSteps: 3,
+  toolBreakdown: { Read: 1 },
+  filesModified: ['src/a.ts'],
+  durationMs: 1000,
+  startTimestamp: '2026-01-01T00:00:00.000Z',
+  endTimestamp: '2026-01-01T00:00:01.000Z',
+  userRequests: 1,
+  retryAttempts: 0,
+  repeatedAttempts: 0,
+}
+
+const replaySession = {
+  sessionId: '00000000-0000-4000-8000-000000000000' as UUID,
+  log: {
+    date: '2026-01-01',
+    messages: [],
+    value: 0,
+    created: new Date('2026-01-01T00:00:00.000Z'),
+    modified: new Date('2026-01-01T00:00:00.000Z'),
+    firstPrompt: 'hello',
+    messageCount: 1,
+    isSidechain: false,
+  } as LogOption,
+}
+
+async function renderResumeConfirmation() {
+  const { stdin, stdout, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    patchConsole: false,
+  })
+  const onResume = mock(() => {})
+  const onCancel = mock(() => {})
+  const { ResumeConfirmation } = await importFreshResumeModule()
+
+  root.render(
+    <ResumeConfirmation
+      selectedSession={replaySession}
+      sessionSummary={replaySummary}
+      resuming={false}
+      onResume={onResume}
+      onCancel={onCancel}
+    />,
+  )
+  await Bun.sleep(10)
+
+  return {
+    stdin,
+    root,
+    getOutput,
+    onResume,
+    onCancel,
+    cleanup: async () => {
+      root.unmount()
+      stdin.end()
+      stdout.end()
+      await Bun.sleep(0)
+    },
   }
 }
 
@@ -303,5 +404,42 @@ describe('/resume and /continue unified command', () => {
 
     expect(element).toBeTruthy()
     expect(onDone).not.toHaveBeenCalled()
+  })
+
+  test('replay summary confirmation renders without resuming immediately', async () => {
+    const rendered = await renderResumeConfirmation()
+    try {
+      expect(rendered.getOutput()).toContain('Session Summary')
+      expect(rendered.getOutput()).toContain('Press Enter to resume')
+      expect(rendered.onResume).not.toHaveBeenCalled()
+    } finally {
+      await rendered.cleanup()
+    }
+  })
+
+  test('replay summary confirmation resumes on Enter', async () => {
+    const rendered = await renderResumeConfirmation()
+    try {
+      rendered.stdin.write('\r')
+      await Bun.sleep(10)
+
+      expect(rendered.onResume).toHaveBeenCalledWith(replaySession)
+      expect(rendered.onCancel).not.toHaveBeenCalled()
+    } finally {
+      await rendered.cleanup()
+    }
+  })
+
+  test('replay summary confirmation cancels on Escape', async () => {
+    const rendered = await renderResumeConfirmation()
+    try {
+      rendered.stdin.write('\x1B\x1B')
+      await Bun.sleep(50)
+
+      expect(rendered.onCancel).toHaveBeenCalled()
+      expect(rendered.onResume).not.toHaveBeenCalled()
+    } finally {
+      await rendered.cleanup()
+    }
   })
 })

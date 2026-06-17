@@ -1,7 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
-import chalk from 'chalk';
 import * as React from 'react';
 import { Box, Text, useInput } from '../../ink.js';
+import { SessionSummary } from '../../components/SessionSummary.js';
 import type { ReplayIndex, ReplayStep, ReplayToolStep, ReplayUserStep, ReplayRetryStep, ReplayErrorStep } from '../../types/logs.js';
 
 function formatDuration(ms: number): string {
@@ -10,12 +10,6 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(ms / 60000)
   const seconds = Math.floor((ms % 60000) / 1000)
   return `${minutes}m ${seconds}s`
-}
-
-function formatToolBreakdown(breakdown: Record<string, number>): string {
-  return Object.entries(breakdown)
-    .map(([tool, count]) => `${count} ${tool}`)
-    .join(', ')
 }
 
 function getStepIcon(step: ReplayStep): string {
@@ -50,48 +44,6 @@ function getStepColor(step: ReplayStep): string {
     case 'error': return 'red'
     default: return 'white'
   }
-}
-
-function SessionSummary({ summary }: { summary: ReplayIndex['summary'] }) {
-  return (
-    <Box flexDirection="column" borderStyle="round" padding={1} marginBottom={1}>
-      <Text bold>
-        {chalk.cyan('Session Summary')}
-      </Text>
-      <Text>
-        {chalk.gray('Duration:')} {formatDuration(summary.durationMs)}
-      </Text>
-      <Text>
-        {chalk.gray('Steps:')} {summary.totalSteps} ({summary.userRequests} user requests)
-      </Text>
-      <Text>
-        {chalk.gray('Tools:')} {formatToolBreakdown(summary.toolBreakdown)}
-      </Text>
-      <Text>
-        {chalk.gray('Files modified:')} {summary.filesModified.length}
-      </Text>
-      <Text>
-        {chalk.gray('Retries:')} {summary.retryAttempts ?? 0}
-      </Text>
-      <Text>
-        {chalk.gray('Repeated attempts:')} {summary.repeatedAttempts ?? 0}
-      </Text>
-      {summary.filesModified.length > 0 && (
-        <Box marginLeft={2} flexDirection="column">
-          {summary.filesModified.slice(0, 5).map((file, i) => (
-            <Text key={i} dimColor>
-              {file}
-            </Text>
-          ))}
-          {summary.filesModified.length > 5 && (
-            <Text dimColor>
-              ...and {summary.filesModified.length - 5} more
-            </Text>
-          )}
-        </Box>
-      )}
-    </Box>
-  );
 }
 
 function ReplayStepRow({ step, isSelected }: {

@@ -214,9 +214,17 @@ export class ReplayIndexBuilder {
       }
     }
 
-    const timestamps = this.steps.map(s => s.timestamp).filter(Boolean)
-    const startTimestamp = timestamps[0] ?? this.sessionStart
-    const endTimestamp = timestamps[timestamps.length - 1] ?? new Date().toISOString()
+    const timestampValues = this.steps
+      .map(step => Date.parse(step.timestamp))
+      .filter(timestamp => Number.isFinite(timestamp))
+    const startTimestamp =
+      timestampValues.length > 0
+        ? new Date(Math.min(...timestampValues)).toISOString()
+        : this.sessionStart
+    const endTimestamp =
+      timestampValues.length > 0
+        ? new Date(Math.max(...timestampValues)).toISOString()
+        : new Date().toISOString()
 
     return {
       totalSteps: this.steps.length,

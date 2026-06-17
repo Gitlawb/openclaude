@@ -96,4 +96,17 @@ describe('ReplayIndexBuilder', () => {
     expect(index.summary.retryAttempts).toBe(2)
     expect(index.summary.repeatedAttempts).toBe(0)
   })
+
+  test('uses earliest and latest timestamps for session boundaries', () => {
+    const builder = new ReplayIndexBuilder()
+
+    builder.trackUserMessage('later request', '2026-01-01T00:00:10.000Z')
+    builder.trackRetry('api', 'middle retry', '2026-01-01T00:00:05.000Z')
+    builder.trackUserMessage('earlier request', '2026-01-01T00:00:01.000Z')
+
+    const index = builder.build('session-1')
+
+    expect(index.summary.startTimestamp).toBe('2026-01-01T00:00:01.000Z')
+    expect(index.summary.endTimestamp).toBe('2026-01-01T00:00:10.000Z')
+  })
 })

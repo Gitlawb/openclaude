@@ -7,6 +7,7 @@ import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
+import { ReplayIndexBuilder } from '../../utils/replayIndexBuilder.js'
 import {
   getReplayModifiedFiles,
   getSchemaValidationErrorOverride,
@@ -133,6 +134,79 @@ describe('getReplayModifiedFiles', () => {
         },
       }),
     ).toEqual(['src/a.ts'])
+  })
+})
+
+describe('replay tool lifecycle records', () => {
+  test('records permission denied completions', () => {
+    const builder = new ReplayIndexBuilder()
+
+    builder.trackToolStart('tool-1', BASH_TOOL_NAME, { command: 'git status' })
+    builder.trackToolEnd('tool-1', BASH_TOOL_NAME, 'permission_denied', 'denied')
+
+    const step = builder.build('session-1').steps[0]
+    expect(step?.type).toBe('tool')
+    if (step?.type !== 'tool') {
+      throw new Error('expected tool replay step')
+    }
+    expect(step.resultStatus).toBe('permission_denied')
+    expect(step.resultPreview).toBe('denied')
+  })
+
+  test('records success completions with modified files', () => {
+    const builder = new ReplayIndexBuilder()
+
+    builder.trackToolStart('tool-1', FILE_EDIT_TOOL_NAME, {
+      file_path: 'src/final.ts',
+      old_string: 'old',
+      new_string: 'new',
+    })
+    builder.trackToolEnd('tool-1', FILE_EDIT_TOOL_NAME, 'success', 'patched', [
+      'src/final.ts',
+    ])
+
+    const step = builder.build('session-1').steps[0]
+    expect(step?.type).toBe('tool')
+    if (step?.type !== 'tool') {
+      throw new Error('expected tool replay step')
+    }
+    expect(step.resultStatus).toBe('success')
+    expect(step.filesModified).toEqual(['src/final.ts'])
+  })
+
+  test('records error completions', () => {
+    const builder = new ReplayIndexBuilder()
+
+    builder.trackToolStart('tool-1', BASH_TOOL_NAME, { command: 'bun test' })
+    builder.trackToolEnd('tool-1', BASH_TOOL_NAME, 'error', 'failed')
+
+    const step = builder.build('session-1').steps[0]
+    expect(step?.type).toBe('tool')
+    if (step?.type !== 'tool') {
+      throw new Error('expected tool replay step')
+    }
+    expect(step.resultStatus).toBe('error')
+    expect(step.resultPreview).toBe('failed')
+  })
+
+  test('captures the final executable input', () => {
+    const builder = new ReplayIndexBuilder()
+    const finalInput = {
+      file_path: 'src/final.ts',
+      old_string: 'before',
+      new_string: 'after',
+    }
+
+    builder.trackToolStart('tool-1', FILE_EDIT_TOOL_NAME, finalInput)
+    builder.trackToolEnd('tool-1', FILE_EDIT_TOOL_NAME, 'success')
+
+    const step = builder.build('session-1').steps[0]
+    expect(step?.type).toBe('tool')
+    if (step?.type !== 'tool') {
+      throw new Error('expected tool replay step')
+    }
+    expect(step.input).toEqual(finalInput)
+    expect(step.inputSummary).toBe('Edit src/final.ts')
   })
 })
 

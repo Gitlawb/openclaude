@@ -43,6 +43,49 @@ function resumeHelpMessage(result: ResumeResult): string {
       return `Found ${result.count} sessions matching ${chalk.bold(result.arg)}. Please use /resume to pick a specific session.`;
   }
 }
+
+type ResumeConfirmationSession = {
+  sessionId: UUID;
+  log: LogOption;
+}
+
+export function ResumeConfirmation({
+  selectedSession,
+  sessionSummary,
+  resuming,
+  onResume,
+  onCancel,
+}: {
+  selectedSession: ResumeConfirmationSession;
+  sessionSummary: import('../../types/logs.js').ReplaySummary;
+  resuming: boolean;
+  onResume: (session: ResumeConfirmationSession) => void;
+  onCancel: () => void;
+}): React.ReactNode {
+  useInput((_input, key) => {
+    if (key.return) {
+      onResume(selectedSession);
+    } else if (key.escape) {
+      onCancel();
+    }
+  }, {
+    isActive: !resuming,
+  });
+
+  return (
+    <Box flexDirection="column">
+      <SessionSummary summary={sessionSummary} />
+      <Box marginTop={1}>
+        <Text>Press </Text>
+        <Text bold color="green">Enter</Text>
+        <Text> to resume, </Text>
+        <Text bold color="red">Escape</Text>
+        <Text> to cancel</Text>
+      </Box>
+    </Box>
+  );
+}
+
 function ResumeError(t0) {
   const $ = _c(10);
   const {
@@ -195,10 +238,10 @@ function ResumeCommand({
     }
   }
 
-  function handleConfirmResume() {
-    if (selectedSession) {
+  function handleConfirmResume(session = selectedSession) {
+    if (session) {
       setResuming(true);
-      void onResume(selectedSession.sessionId, selectedSession.log, 'slash_command_picker');
+      void onResume(session.sessionId, session.log, 'slash_command_picker');
     }
   }
 
@@ -206,16 +249,6 @@ function ResumeCommand({
     setSelectedSession(null);
     setSessionSummary(null);
   }
-
-  useInput((_input, key) => {
-    if (key.return) {
-      handleConfirmResume();
-    } else if (key.escape) {
-      handleCancelResume();
-    }
-  }, {
-    isActive: Boolean(selectedSession && sessionSummary && !resuming)
-  });
 
   function handleCancel() {
     onDone('Resume cancelled', {
@@ -237,18 +270,7 @@ function ResumeCommand({
 
   // Show session summary confirmation if a session is selected
   if (selectedSession && sessionSummary) {
-    return (
-      <Box flexDirection="column">
-        <SessionSummary summary={sessionSummary} />
-        <Box marginTop={1}>
-          <Text>Press </Text>
-          <Text bold color="green">Enter</Text>
-          <Text> to resume, </Text>
-          <Text bold color="red">Escape</Text>
-          <Text> to cancel</Text>
-        </Box>
-      </Box>
-    );
+    return <ResumeConfirmation selectedSession={selectedSession} sessionSummary={sessionSummary} resuming={resuming} onResume={handleConfirmResume} onCancel={handleCancelResume} />;
   }
 
   return <LogSelector logs={logs} maxHeight={insideModal ? Math.floor(rows / 2) : rows - 2} onCancel={handleCancel} onSelect={handleSelect} onLogsChanged={() => loadLogs(showAllProjects, worktreePaths)} showAllProjects={showAllProjects} onToggleAllProjects={handleToggleAllProjects} onAgenticSearch={agenticSessionSearch} />;
