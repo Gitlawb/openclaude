@@ -693,7 +693,10 @@ export function checkForLSPDiagnostics(): Array<{
       maybeLogStormSummary(serverName, statsAfterDelivery, now)
     }
 
-    trackDeliveredDiagnostics(limitResult.files)
+    // Volume caps intentionally drop diagnostics for the turn; account for the
+    // full deduplicated batch so unchanged storms cannot trickle old diagnostics
+    // into later turns one capped slice at a time.
+    trackDeliveredDiagnostics(deduplicationResult.files)
     deliveredFiles.push(...limitResult.files)
     remainingCapacity -= limitResult.deliveredCount
     duplicateCount += deduplicationResult.duplicateCount

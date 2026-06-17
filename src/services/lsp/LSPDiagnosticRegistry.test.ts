@@ -13,8 +13,15 @@ mock.module('../../utils/debug.js', () => ({
     debugMessages.push(message)
   }),
 }))
+// Other tests mock slowOperations process-wide; restore the real serializer so
+// diagnostic keys keep message/range/code entropy under full-suite ordering.
+mock.module('../../utils/slowOperations.js', () => ({
+  jsonStringify: JSON.stringify,
+}))
 
-const registry = await import('./LSPDiagnosticRegistry.ts')
+const registry = await import(
+  `./LSPDiagnosticRegistry.ts?test=${Date.now()}-${Math.random()}`
+)
 
 function diagnostic(message: string, line = 0): Diagnostic {
   return {
@@ -185,6 +192,34 @@ describe('LSPDiagnosticRegistry storm control', () => {
       'do not leak raw diagnostic text',
     )
     expect(stormLogs).toHaveLength(1)
+  })
+
+  test('does not trickle capped storm diagnostics into later turns', () => {
+    const stormFile = diagnosticFile(
+      '/repo/noisy.ts',
+      Array.from({ length: 210 }, (_, index) => `storm diagnostic ${index}`),
+    )
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [stormFile],
+    })
+    const firstFiles = registry.checkForLSPDiagnostics()[0]?.files ?? []
+    const firstRegularFile = firstFiles.find(file => file.uri === stormFile.uri)
+
+    expect(firstRegularFile?.diagnostics.map(diag => diag.code)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `TS${index}`),
+    )
+
+    registry.registerPendingLSPDiagnostic({
+      serverName: 'typescript',
+      files: [stormFile],
+    })
+    const secondFiles = registry.checkForLSPDiagnostics()[0]?.files ?? []
+
+    expect(secondFiles.map(file => file.uri)).toEqual([
+      'lsp://diagnostic-storm/typescript',
+    ])
   })
 
   test('reserves compact summaries for multiple storming servers before full diagnostics', () => {
