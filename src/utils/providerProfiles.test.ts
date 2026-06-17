@@ -1522,7 +1522,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('zai')
     expect(defaults.name).toBe('Z.AI - GLM Coding Plan')
     expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
-    expect(defaults.model).toBe('GLM-5.1')
+    expect(defaults.model).toBe('glm-5.2')
     expect(defaults.requiresApiKey).toBe(true)
   })
 

@@ -70,6 +70,39 @@ describe('resolveModelRuntimeLimits', () => {
       ).toBe(1_000_000)
     })
   })
+
+  it('uses built-in Z.AI GLM-5.2 runtime limits', () => {
+    const limits = resolveModelRuntimeLimits({
+      model: 'glm-5.2',
+      processEnv: {
+        OPENAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4',
+      },
+    })
+
+    expect(limits.contextWindow).toBe(1_000_000)
+    expect(limits.maxOutputTokens).toBe(131_072)
+  })
+})
+
+describe('resolveOpenAIShimRuntimeContext - Z.AI GLM-5.2', () => {
+  it.each([
+    'glm-5.2',
+    'glm-5.2?reasoning=high',
+    'glm-5.2?thinking=disabled',
+  ])('uses Z.AI GLM-5.2 shim settings for %s', model => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model,
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      processEnv: {},
+    })
+
+    expect(result.routeId).toBe('zai')
+    expect(result.catalogEntry?.id).toBe('glm-5.2')
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
+  })
 })
 
 describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {

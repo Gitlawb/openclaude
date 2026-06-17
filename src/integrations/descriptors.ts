@@ -37,7 +37,8 @@ export interface OpenAIShimTransportConfig {
   preserveReasoningContent?: boolean
   requireReasoningContentOnAssistantMessages?: boolean
   reasoningContentFallback?: '' | 'omit'
-  thinkingRequestFormat?: 'none' | 'deepseek-compatible'
+  thinkingRequestFormat?: 'none' | 'deepseek-compatible' | 'zai-compatible'
+  enableToolStreaming?: boolean
   maxTokensField?: OpenAIShimTokenField
   removeBodyFields?: string[]
   /** Override the endpoint path for this model (e.g., '/responses', '/messages'). */

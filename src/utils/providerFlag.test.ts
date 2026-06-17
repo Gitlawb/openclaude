@@ -512,7 +512,7 @@ describe('applyProviderFlag - zai', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
-    expect(process.env.OPENAI_MODEL).toBe('GLM-5.1')
+    expect(process.env.OPENAI_MODEL).toBe('glm-5.2')
   })
 })
 

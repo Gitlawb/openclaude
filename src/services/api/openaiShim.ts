@@ -207,6 +207,25 @@ function normalizeDeepSeekReasoningEffort(
   return effort === 'xhigh' ? 'max' : 'high'
 }
 
+function normalizeZaiReasoningEffort(
+  effort: 'low' | 'medium' | 'high' | 'xhigh',
+): 'high' | 'max' {
+  return effort === 'xhigh' ? 'max' : 'high'
+}
+
+function normalizeThinkingType(
+  value: string | undefined,
+): 'enabled' | 'disabled' | undefined {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === 'disabled') {
+    return 'disabled'
+  }
+  if (normalized === 'enabled' || normalized === 'adaptive') {
+    return 'enabled'
+  }
+  return undefined
+}
+
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
@@ -2476,11 +2495,7 @@ class OpenAIShimMessages {
     if (shimConfig.thinkingRequestFormat === 'deepseek-compatible') {
       const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
       const deepSeekThinkingType =
-        requestedThinkingType === 'disabled'
-          ? 'disabled'
-          : requestedThinkingType === 'enabled' || requestedThinkingType === 'adaptive'
-            ? 'enabled'
-            : undefined
+        normalizeThinkingType(requestedThinkingType)
 
       if (deepSeekThinkingType) {
         body.thinking = { type: deepSeekThinkingType }
@@ -2491,6 +2506,26 @@ class OpenAIShimMessages {
         if (effort) {
           body.reasoning_effort = normalizeDeepSeekReasoningEffort(effort)
         }
+      }
+    }
+
+    if (shimConfig.thinkingRequestFormat === 'zai-compatible') {
+      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
+      const zaiThinkingType =
+        normalizeThinkingType(requestedThinkingType) ??
+        normalizeThinkingType(request.thinking?.type)
+
+      if (zaiThinkingType === 'disabled') {
+        body.thinking = { type: 'disabled' }
+        delete body.reasoning_effort
+      } else if (zaiThinkingType === 'enabled' || request.reasoning?.effort) {
+        body.thinking = { type: 'enabled' }
+      }
+
+      if (zaiThinkingType !== 'disabled' && request.reasoning?.effort) {
+        body.reasoning_effort = normalizeZaiReasoningEffort(
+          request.reasoning.effort,
+        )
       }
     }
 
@@ -2505,6 +2540,13 @@ class OpenAIShimMessages {
       )
       if (converted.length > 0) {
         body.tools = converted
+        if (
+          effectiveTransport === 'chat_completions' &&
+          params.stream &&
+          shimConfig.enableToolStreaming === true
+        ) {
+          body.tool_stream = true
+        }
         if (params.tool_choice) {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {
@@ -3237,6 +3279,7 @@ class OpenAIShimMessages {
         didRetryWithoutTools = true
         delete body.tools
         delete body.tool_choice
+        delete body.tool_stream
         omitResponsesTools = true
         omitAnthropicTools = true
         omitGeminiTools = true

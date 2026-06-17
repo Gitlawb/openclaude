@@ -29,6 +29,7 @@ function glmModel(
 }
 
 export default [
+  glmModel('glm-5.2', 'GLM 5.2', 1_000_000, 131_072),
   glmModel('GLM-5.1', 'GLM-5.1', 202_752, 131_072),
   glmModel('GLM-5-Turbo', 'GLM-5-Turbo', 202_752, 131_072),
   glmModel('GLM-5', 'GLM-5', 202_752, 131_072),

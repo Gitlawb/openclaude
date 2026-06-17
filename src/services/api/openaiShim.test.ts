@@ -5151,6 +5151,7 @@ test('self-heals tool-call incompatibility by retrying local Ollama requests wit
       (Array.isArray(requestBodies[1]?.tools) && requestBodies[1]?.tools.length === 0),
   ).toBe(true)
   expect(requestBodies[1]?.tool_choice).toBeUndefined()
+  expect(requestBodies[1]?.tool_stream).toBeUndefined()
 })
 
 test('preserves valid tool_result and drops orphan tool_result', async () => {
@@ -6293,6 +6294,352 @@ test('Z.AI: thinking mode enabled when requested', async () => {
   expect((requestBody?.thinking as Record<string, string>)?.type).toBe('enabled')
   expect(requestBody?.max_completion_tokens).toBeUndefined()
   expect(requestBody?.max_tokens).toBe(1024)
+})
+
+test('Z.AI GLM-5.2: default request relies on provider thinking defaults', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.2')
+  expect(requestBody?.thinking).toBeUndefined()
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+test.each([
+  ['glm-5.2?reasoning=low', 'high'],
+  ['glm-5.2?reasoning=medium', 'high'],
+  ['glm-5.2?reasoning=high', 'high'],
+  ['glm-5.2?reasoning=xhigh', 'max'],
+] as const)('Z.AI GLM-5.2: %s enables mapped reasoning effort', async (model, effort) => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.2')
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe(effort)
+})
+
+test('Z.AI GLM-5.2: model-query thinking disable omits reasoning effort', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2?thinking=disabled&reasoning=xhigh',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.2')
+  expect(requestBody?.thinking).toEqual({ type: 'disabled' })
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+test('Z.AI GLM-5.2: per-turn thinking overrides model-query default', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2?thinking=disabled&reasoning=high',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('high')
+})
+
+test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools: [
+      {
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      },
+    ],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  expect(requestBody?.tool_stream).toBe(true)
+})
+
+test('Z.AI GLM-5.2: remote tool incompatibility does not use local toolless retry', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    return new Response('tool_calls are not supported', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'glm-5.2',
+      messages: [{ role: 'user', content: 'run pwd' }],
+      tools: [
+        {
+          name: 'Bash',
+          description: 'Run a shell command',
+          input_schema: {
+            type: 'object',
+            properties: { command: { type: 'string' } },
+            required: ['command'],
+          },
+        },
+      ],
+      max_tokens: 64,
+      stream: true,
+    }),
+  ).rejects.toThrow()
+
+  expect(requestBodies).toHaveLength(1)
+  expect(requestBodies[0]?.tool_stream).toBe(true)
+})
+
+test.each([
+  ['non-streaming Z.AI request with tools', 'https://api.z.ai/api/coding/paas/v4', false, true, 'glm-5.2'],
+  ['streaming Z.AI request without tools', 'https://api.z.ai/api/coding/paas/v4', true, false, 'glm-5.2'],
+  ['streaming non-Z.AI request with tools', 'https://api.openai.com/v1', true, true, 'gpt-4o'],
+] as const)('does not send tool_stream for %s', async (_name, baseUrl, stream, includeTools, model) => {
+  process.env.OPENAI_BASE_URL = baseUrl
+  process.env.OPENAI_API_KEY = 'sk-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    if (stream) {
+      return makeSseResponse(makeStreamChunks([
+        {
+          id: 'chatcmpl-1',
+          object: 'chat.completion.chunk',
+          model,
+          choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+        },
+        {
+          id: 'chatcmpl-1',
+          object: 'chat.completion.chunk',
+          model,
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        },
+      ]))
+    }
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model,
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    tools: includeTools
+      ? [
+          {
+            name: 'Bash',
+            description: 'Run a shell command',
+            input_schema: {
+              type: 'object',
+              properties: { command: { type: 'string' } },
+              required: ['command'],
+            },
+          },
+        ]
+      : undefined,
+    max_tokens: 64,
+    stream,
+  })
+
+  expect(requestBody?.tool_stream).toBeUndefined()
+})
+
+test('Z.AI GLM-5.2: preserved thinking round-trips with tool calls', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [
+      { role: 'user', content: 'inspect files' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'Need to list files before answering.' },
+          {
+            type: 'tool_use',
+            id: 'call_bash_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_bash_1', content: 'README.md' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    message => message.role === 'assistant' && Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to list files before answering.',
+  )
+  expect(assistantWithToolCall?.tool_calls).toEqual([
+    {
+      id: 'call_bash_1',
+      type: 'function',
+      function: {
+        name: 'Bash',
+        arguments: JSON.stringify({ command: 'ls' }),
+      },
+    },
+  ])
 })
 
 test('strips Anthropic attribution header block from chat-completions system prompt (#607)', async () => {

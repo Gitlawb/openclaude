@@ -718,10 +718,15 @@ test('DashScope glm-4.7 uses provider-specific context and output caps', () => {
   })
 })
 
-test('Z.AI uppercase GLM models use Coding Plan output caps', () => {
+test('Z.AI GLM models use Coding Plan output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 
+  expect(getContextWindowForModel('glm-5.2')).toBe(1_000_000)
+  expect(getModelMaxOutputTokens('glm-5.2')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
   expect(getContextWindowForModel('GLM-5.1')).toBe(202_752)
   expect(getModelMaxOutputTokens('GLM-5.1')).toEqual({
     default: 131_072,
