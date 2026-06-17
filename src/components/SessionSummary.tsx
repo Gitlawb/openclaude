@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import * as React from 'react';
 import { Box, Text } from '../ink.js';
 import type { ReplaySummary } from '../types/logs.js';
-import { formatDuration } from '../utils/format.js';
+import { formatReplayDuration } from '../utils/replayFormat.js';
 
 function formatToolBreakdown(breakdown: Record<string, number>): string {
   return Object.entries(breakdown)
@@ -23,7 +23,7 @@ export function SessionSummary({ summary, compact = false }: SessionSummaryProps
     return (
       <Box>
       <Text color="cyan">
-          {summary.totalSteps} steps | {totalTools} tools | {summary.filesModified.length} files | {summary.retryAttempts ?? 0} retries | {summary.repeatedAttempts ?? 0} repeats | {formatDuration(summary.durationMs)}
+          {summary.totalSteps} steps | {totalTools} tools | {summary.filesModified.length} files | {summary.retryAttempts ?? 0} retries | {summary.repeatedAttempts ?? 0} repeats | {formatReplayDuration(summary.durationMs)}
       </Text>
       </Box>
     );
@@ -36,7 +36,7 @@ export function SessionSummary({ summary, compact = false }: SessionSummaryProps
         {chalk.cyan('Session Summary')}
       </Text>
       <Text>
-        {chalk.gray('Duration:')} {formatDuration(summary.durationMs)}
+        {chalk.gray('Duration:')} {formatReplayDuration(summary.durationMs)}
       </Text>
       <Text>
         {chalk.gray('Steps:')} {summary.totalSteps} ({summary.userRequests} user requests)

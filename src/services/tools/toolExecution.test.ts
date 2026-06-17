@@ -7,8 +7,10 @@ import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
+import { AbortError } from '../../utils/errors.js'
 import { ReplayIndexBuilder } from '../../utils/replayIndexBuilder.js'
 import {
+  getReplayResultStatusForError,
   getReplayModifiedFiles,
   getSchemaValidationErrorOverride,
   getSchemaValidationToolUseResult,
@@ -187,6 +189,13 @@ describe('replay tool lifecycle records', () => {
     }
     expect(step.resultStatus).toBe('error')
     expect(step.resultPreview).toBe('failed')
+  })
+
+  test('classifies abort-shaped tool failures as cancelled', () => {
+    expect(getReplayResultStatusForError(new AbortError('interrupted'))).toBe(
+      'cancelled',
+    )
+    expect(getReplayResultStatusForError(new Error('failed'))).toBe('error')
   })
 
   test('captures the final executable input', () => {

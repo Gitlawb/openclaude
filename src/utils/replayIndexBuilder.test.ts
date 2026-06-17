@@ -109,4 +109,15 @@ describe('ReplayIndexBuilder', () => {
     expect(index.summary.startTimestamp).toBe('2026-01-01T00:00:01.000Z')
     expect(index.summary.endTimestamp).toBe('2026-01-01T00:00:10.000Z')
   })
+
+  test('uses elapsed session bounds for summary duration', () => {
+    const builder = new ReplayIndexBuilder()
+
+    builder.trackUserMessage('start', '2026-01-01T00:00:00.000Z')
+    builder.trackRetry('api', 'rate limited', '2026-01-01T00:00:05.000Z')
+
+    const index = builder.build('session-1')
+
+    expect(index.summary.durationMs).toBe(5000)
+  })
 })

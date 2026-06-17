@@ -185,7 +185,6 @@ export class ReplayIndexBuilder {
   private calculateSummary(): ReplaySummary {
     const toolBreakdown: Record<string, number> = {}
     const filesModifiedSet = new Set<string>()
-    let durationMs = 0
     let userRequests = 0
     let retryAttempts = 0
     let repeatedAttempts = 0
@@ -201,9 +200,6 @@ export class ReplayIndexBuilder {
             filesModifiedSet.add(file)
           }
         }
-
-        // Sum duration
-        durationMs += step.durationMs
         if (step.isRepeatedAttempt) {
           repeatedAttempts++
         }
@@ -225,6 +221,10 @@ export class ReplayIndexBuilder {
       timestampValues.length > 0
         ? new Date(Math.max(...timestampValues)).toISOString()
         : new Date().toISOString()
+    const durationMs =
+      timestampValues.length > 0
+        ? Math.max(0, Date.parse(endTimestamp) - Date.parse(startTimestamp))
+        : 0
 
     return {
       totalSteps: this.steps.length,

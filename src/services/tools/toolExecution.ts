@@ -67,6 +67,7 @@ import {
   AbortError,
   errorMessage,
   getErrnoCode,
+  isAbortError,
   ShellError,
   TelemetrySafeError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 } from '../../utils/errors.js'
@@ -148,6 +149,12 @@ export function getReplayModifiedFiles(
         : undefined
 
   return typeof path === 'string' && path.length > 0 ? [path] : undefined
+}
+
+export function getReplayResultStatusForError(
+  error: unknown,
+): 'error' | 'cancelled' {
+  return isAbortError(error) ? 'cancelled' : 'error'
 }
 
 function getReplayBashModifiedFile(
@@ -1547,7 +1554,12 @@ async function checkPermissionsAndCallTool(
     try {
       const replayBuilder = getReplayIndexBuilder()
       const errorMsg = error instanceof Error ? error.message : String(error)
-      replayBuilder.trackToolEnd(toolUseID, tool.name, 'error', errorMsg.slice(0, 200))
+      replayBuilder.trackToolEnd(
+        toolUseID,
+        tool.name,
+        getReplayResultStatusForError(error),
+        errorMsg.slice(0, 200),
+      )
     } catch {
       // Ignore errors in replay tracking
     }
