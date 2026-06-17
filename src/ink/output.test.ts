@@ -200,6 +200,28 @@ test('flags suspicious terminal columns only once', () => {
   expect(logSpy.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
 })
 
+test('continues sustained unknown aggregation at suspicious terminal widths', () => {
+  const harness = createHarness(1201, 1)
+
+  for (let frame = 0; frame < 3; frame++) {
+    if (frame > 0) {
+      resetOutput(harness, 1201, 1)
+    }
+    writeFullFrame(harness.output, 1201, 1)
+    harness.output.get()
+  }
+
+  expect(logSpy).toHaveBeenCalledTimes(2)
+  expect(logSpy.mock.calls[0]?.[0]).toContain(
+    'reason=suspicious-terminal-columns',
+  )
+  expect(logSpy.mock.calls[0]?.[0]).toContain('frames=1')
+  expect(logSpy.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
+  expect(logSpy.mock.calls[1]?.[0]).toContain('reason=unknown')
+  expect(logSpy.mock.calls[1]?.[0]).toContain('frames=3')
+  expect(logSpy.mock.calls[1]?.[1]).toEqual({ level: 'warn' })
+})
+
 test('suspicious terminal columns can be flagged again after returning to normal width', () => {
   const harness = createHarness(1201, 1)
 

@@ -598,8 +598,6 @@ export default class Output {
         })
         this.suspiciousColumnsLogged = true
       }
-      this.resetHighWriteRatioStreak()
-      return
     }
 
     const reason = options.highWriteRatioReason ?? 'unknown'
