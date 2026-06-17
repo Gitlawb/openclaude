@@ -56,8 +56,11 @@ export function getShellAbortMessage(reason: AbortReason): string {
     case 'tool-timeout':
       return 'Command timed out before completion.'
     case 'user-abort':
+      return 'Command was interrupted because the enclosing query was aborted.'
     case 'interrupt':
+      return 'Command was interrupted because the enclosing query was aborted.'
     case 'parent-ended':
+      return 'Command was interrupted because the enclosing query was aborted.'
     case 'unknown-abort':
       return 'Command was interrupted because the enclosing query was aborted.'
   }
