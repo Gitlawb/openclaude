@@ -1,7 +1,25 @@
 import { toJSONSchema } from 'zod/v4'
+import { join } from 'path'
+import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
+import { getDisplayPath } from '../../utils/file.js'
 import { SettingsSchema } from '../../utils/settings/types.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { registerBundledSkill } from '../bundledSkills.js'
+
+const USER_CONFIG_HOME_TOKEN = '{{USER_CONFIG_HOME}}'
+const USER_SETTINGS_PATH_TOKEN = '{{USER_SETTINGS_PATH}}'
+const USER_BASH_LOG_PATH_TOKEN = '{{USER_BASH_LOG_PATH}}'
+
+function getUserConfigFileDisplayPath(fileName: string): string {
+  return getDisplayPath(join(getClaudeConfigHomeDir(), fileName))
+}
+
+function withConfigPaths(text: string): string {
+  return text
+    .replaceAll(USER_CONFIG_HOME_TOKEN, getDisplayPath(getClaudeConfigHomeDir()))
+    .replaceAll(USER_SETTINGS_PATH_TOKEN, getUserConfigFileDisplayPath('settings.json'))
+    .replaceAll(USER_BASH_LOG_PATH_TOKEN, getUserConfigFileDisplayPath('bash-log.txt'))
+}
 
 /**
  * Generate JSON Schema from the settings Zod schema.
@@ -18,7 +36,7 @@ Choose the appropriate file based on scope:
 
 | File | Scope | Git | Use For |
 |------|-------|-----|---------|
-| \`~/.openclaude/settings.json\` | Global | N/A | Personal preferences for all projects |
+| \`${USER_SETTINGS_PATH_TOKEN}\` | Global | N/A | Personal preferences for all projects |
 | \`.openclaude/settings.json\` | Project | Commit | Team-wide hooks, permissions, plugins |
 | \`.openclaude/settings.local.json\` | Project | Gitignore | Personal overrides for this project |
 
@@ -236,7 +254,7 @@ Hooks can return JSON to control behavior:
       "matcher": "Bash",
       "hooks": [{
         "type": "command",
-        "command": "jq -r '.tool_input.command' >> ~/.openclaude/bash-log.txt"
+        "command": "jq -r '.tool_input.command' >> ${USER_BASH_LOG_PATH_TOKEN}"
       }]
     }]
   }
@@ -435,7 +453,7 @@ User: "Set DEBUG=true"
 ## Troubleshooting Hooks
 
 If a hook isn't running:
-1. **Check the settings file** - Read ~/.openclaude/settings.json or .openclaude/settings.json
+1. **Check the settings file** - Read ${USER_SETTINGS_PATH_TOKEN} or .openclaude/settings.json
 2. **Verify JSON syntax** - Invalid JSON silently fails
 3. **Check the matcher** - Does it match the tool name? (e.g., "Bash", "Write", "Edit")
 4. **Check hook type** - Is it "command", "prompt", or "agent"?
@@ -454,7 +472,7 @@ export function registerUpdateConfigSkill(): void {
     async getPromptForCommand(args) {
       if (args.startsWith('[hooks-only]')) {
         const req = args.slice('[hooks-only]'.length).trim()
-        let prompt = HOOKS_DOCS + '\n\n' + HOOK_VERIFICATION_FLOW
+        let prompt = withConfigPaths(HOOKS_DOCS + '\n\n' + HOOK_VERIFICATION_FLOW)
         if (req) {
           prompt += `\n\n## Task\n\n${req}`
         }
@@ -464,7 +482,7 @@ export function registerUpdateConfigSkill(): void {
       // Generate schema dynamically to stay in sync with types
       const jsonSchema = generateSettingsSchema()
 
-      let prompt = UPDATE_CONFIG_PROMPT
+      let prompt = withConfigPaths(UPDATE_CONFIG_PROMPT)
       prompt += `\n\n## Full Settings JSON Schema\n\n\`\`\`json\n${jsonSchema}\n\`\`\``
 
       if (args) {
