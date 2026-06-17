@@ -216,7 +216,8 @@ function isTruthyEnvValue(value: string | undefined): boolean {
 }
 
 function getNonEmptyEnvValue(value: string | undefined): string | undefined {
-  return value?.trim() ? value : undefined
+  const trimmed = value?.trim()
+  return trimmed || undefined
 }
 
 /** MCP tool names are user-controlled (server config) and may leak filepaths.

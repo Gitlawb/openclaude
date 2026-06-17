@@ -95,10 +95,10 @@ function useOpenAIProvider(): void {
   process.env.OPENAI_MODEL = 'gpt-5.5'
 }
 
-function useOpenAIProviderWithLegacyBaseFallback(): void {
+function useOpenAIProviderWithWhitespaceBaseFallback(): void {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL = ''
+  process.env.OPENAI_BASE_URL = '   '
   process.env.OPENAI_API_BASE = 'https://api.deepseek.com/v1'
   process.env.OPENAI_MODEL = 'deepseek-chat'
 }
@@ -371,8 +371,8 @@ describe('prompt cache break taxonomy', () => {
     expect(debug?.message).not.toMatch(/app crash|crash|local mutation/i)
   })
 
-  test('empty OpenAI base URL falls back to legacy API base for cache provider metadata', async () => {
-    useOpenAIProviderWithLegacyBaseFallback()
+  test('blank OpenAI base URL falls back to legacy API base for cache provider metadata', async () => {
+    useOpenAIProviderWithWhitespaceBaseFallback()
 
     const event = await triggerCacheDrop({
       first: snapshot({ model: 'deepseek-chat' }),
