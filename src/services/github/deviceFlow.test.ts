@@ -79,6 +79,34 @@ describe('requestDeviceCode', () => {
     expect(r.interval).toBe(5)
   })
 
+  test('uses normalized Enterprise endpoint when gheUrl is provided', async () => {
+    const { requestDeviceCode } = await importFreshModule()
+    let capturedUrl = ''
+    const fetchImpl = mock((url: RequestInfo | URL) => {
+      capturedUrl = String(url)
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            device_code: 'abc',
+            user_code: 'ABCD-1234',
+            verification_uri: 'https://github.mycompany.com/login/device',
+          }),
+          { status: 200 },
+        ),
+      )
+    })
+
+    await requestDeviceCode({
+      clientId: 'test-client',
+      fetchImpl,
+      gheUrl: 'https://github.mycompany.com/api/copilot/',
+    })
+
+    expect(capturedUrl).toBe(
+      'https://github.mycompany.com/login/device/code',
+    )
+  })
+
   test('throws on HTTP error', async () => {
     const { requestDeviceCode, GitHubDeviceFlowError } =
       await importFreshModule()
