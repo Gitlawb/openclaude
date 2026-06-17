@@ -342,6 +342,39 @@ describe('OpenClaude paths', () => {
     expect(warnings.length).toBe(1)
     expect(warnings[0]).toContain('OPENCLAUDE_CONFIG_DIR=/a')
     expect(warnings[0]).toContain('CLAUDE_CONFIG_DIR=/b')
+
+    resolveConfigDirEnv({
+      openClaudeConfigDir: '/x',
+      legacyConfigDir: '/y',
+      warn: m => warnings.push(m),
+    })
+    expect(warnings.length).toBe(1)
+  })
+
+  test('resolveConfigDirEnv silent callers do not consume the conflict warning', async () => {
+    await acquireEnvMutex()
+    const { resolveConfigDirEnv, __resetConfigDirEnvWarningForTesting } =
+      await importFreshEnvUtils()
+    __resetConfigDirEnvWarningForTesting()
+
+    expect(
+      resolveConfigDirEnv({
+        openClaudeConfigDir: '/silent-open',
+        legacyConfigDir: '/silent-legacy',
+      }),
+    ).toBe('/silent-open')
+
+    const warnings: string[] = []
+    expect(
+      resolveConfigDirEnv({
+        openClaudeConfigDir: '/warn-open',
+        legacyConfigDir: '/warn-legacy',
+        warn: m => warnings.push(m),
+      }),
+    ).toBe('/warn-open')
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('OPENCLAUDE_CONFIG_DIR=/warn-open')
+    expect(warnings[0]).toContain('CLAUDE_CONFIG_DIR=/warn-legacy')
   })
 
   test('resolveConfigDirEnv does not warn when both env vars agree', async () => {

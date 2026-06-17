@@ -159,10 +159,11 @@ export function resolveConfigDirEnv(options?: {
   const open = options?.openClaudeConfigDir
   const legacy = options?.legacyConfigDir
   if (open && legacy && open !== legacy && !warnedAboutConflictingConfigDirEnvs) {
-    warnedAboutConflictingConfigDirEnvs = true
-    options?.warn?.(
-      `Both OPENCLAUDE_CONFIG_DIR and CLAUDE_CONFIG_DIR are set to different values. Using OPENCLAUDE_CONFIG_DIR=${open}; ignoring CLAUDE_CONFIG_DIR=${legacy}.`,
-    )
+    const message = `Both OPENCLAUDE_CONFIG_DIR and CLAUDE_CONFIG_DIR are set to different values. Using OPENCLAUDE_CONFIG_DIR=${open}; ignoring CLAUDE_CONFIG_DIR=${legacy}.`
+    if (options?.warn) {
+      warnedAboutConflictingConfigDirEnvs = true
+      options.warn(message)
+    }
   }
   return open || legacy || undefined
 }
