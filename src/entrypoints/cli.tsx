@@ -141,6 +141,11 @@ export async function main(
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
   let reapplyProviderEnvFileValues = () => {}
+  let reapplyProviderFlagValues = () => {}
+  const reapplyExplicitProviderInputs = () => {
+    reapplyProviderEnvFileValues()
+    reapplyProviderFlagValues()
+  }
 
   // Fast-path for --version/-v: zero module loading needed
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
@@ -205,7 +210,11 @@ export async function main(
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
-    const { applyProviderFlagFromArgs } = await importers.providerFlag();
+    const {
+      applyProviderFlagFromArgs,
+      reapplyRememberedProviderFlag,
+    } = await importers.providerFlag()
+    reapplyProviderFlagValues = reapplyRememberedProviderFlag
     const result = applyProviderFlagFromArgs(args, {
       rememberForSettingsEnv: true,
     });
@@ -228,7 +237,7 @@ export async function main(
       await importers.managedEnv()
     applySafeConfigEnvironmentVariables()
   }
-  reapplyProviderEnvFileValues()
+  reapplyExplicitProviderInputs()
 
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
   await applyStartupEnvFromProfile({
@@ -237,7 +246,7 @@ export async function main(
       console.error(message)
     },
   })
-  reapplyProviderEnvFileValues()
+  reapplyExplicitProviderInputs()
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider

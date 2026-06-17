@@ -20,6 +20,11 @@ import {
   applyLoadedEnvFileValues,
   loadEnvFile,
 } from '../utils/envFile.js'
+import {
+  applyProviderFlagFromArgs,
+  clearRememberedProviderFlagForTests,
+  reapplyRememberedProviderFlag,
+} from '../utils/providerFlag.js'
 import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
 
 type CliMain = typeof import('./cli.js')['main']
@@ -143,14 +148,17 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
 describe('cli.tsx — --provider startup ordering', () => {
   const providerEnvKeys = [
     'CLAUDE_CODE_USE_OPENAI',
+    'CLAUDE_CODE_USE_GEMINI',
     'OPENAI_API_KEY',
     'OPENAI_BASE_URL',
     'OPENAI_MODEL',
+    'GEMINI_MODEL',
   ]
   const originalEnv = new Map<string, string | undefined>()
   let tempDir: string
 
   beforeEach(() => {
+    clearRememberedProviderFlagForTests()
     tempDir = mkdtempSync(join(tmpdir(), 'openclaude-cli-env-file-test-'))
     for (const key of providerEnvKeys) {
       originalEnv.set(key, process.env[key])
@@ -169,6 +177,7 @@ describe('cli.tsx — --provider startup ordering', () => {
       }
     }
     originalEnv.clear()
+    clearRememberedProviderFlagForTests()
   })
 
   function writeProviderEnvFile(content: string): string {
@@ -252,6 +261,31 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(process.env.OPENAI_API_KEY).toBe('file-key')
     expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
     expect(process.env.OPENAI_MODEL).toBe('file-model')
+  })
+
+  it('keeps explicit --provider values ahead of provider env-file reapply checkpoints', () => {
+    const filePath = writeProviderEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_API_KEY=file-key',
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=file-model',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    const result = applyProviderFlagFromArgs(
+      ['--provider', 'gemini', '--model', 'gemini-2.0-flash'],
+      { rememberForSettingsEnv: true },
+    )
+    expect(result?.error).toBeUndefined()
+
+    applyLoadedEnvFileValues(loaded)
+    reapplyRememberedProviderFlag()
+    applyLoadedEnvFileValues(loaded)
+    reapplyRememberedProviderFlag()
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+    expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
   })
 
   it('dispatches background session management before config and provider validation', async () => {
