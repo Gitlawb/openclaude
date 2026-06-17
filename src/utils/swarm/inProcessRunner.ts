@@ -108,6 +108,7 @@ import {
   sendPermissionRequestViaMailbox,
 } from './permissionSync.js'
 import { TEAMMATE_SYSTEM_PROMPT_ADDENDUM } from './teammatePromptAddendum.js'
+import { capTeammateMessages } from './teammateRetention.js'
 
 type SetAppStateFn = (updater: (prev: AppState) => AppState) => void
 
@@ -1297,6 +1298,18 @@ export async function runInProcessTeammate(
           return { success: true, messages: iterationMessages }
         })
       })
+
+      // Hard cap on the accumulated context buffer. Token-based auto-compaction
+      // above is the primary bound, but it only fires at the token threshold;
+      // a long session of many small messages can grow allMessages unbounded
+      // and contribute to JS-heap OOM (#1379). Prune to the most recent
+      // messages here (cheap, every turn), preserving tool_use/tool_result
+      // pairing so the next iteration's forkContextMessages stays API-valid.
+      const cappedMessages = capTeammateMessages(allMessages)
+      if (cappedMessages !== allMessages) {
+        allMessages.length = 0
+        allMessages.push(...cappedMessages)
+      }
 
       // Clear the work controller from state (it's no longer valid)
       updateTaskState(
