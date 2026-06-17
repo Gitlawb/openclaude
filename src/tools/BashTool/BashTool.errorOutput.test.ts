@@ -66,4 +66,59 @@ describe('BashTool error output (#1231)', () => {
     expect(err.code).toBe(1)
     expect(formatError(err)).toBe('Exit code 1')
   })
+
+  test('query-timeout abort returns cancellation metadata and specific message', async () => {
+    const ctx = makeCtx() as {
+      abortController: AbortController
+    }
+
+    setTimeout(() => ctx.abortController.abort('query-timeout'), 50).unref()
+
+    const response = await BashTool.call(
+      { command: 'sleep 5', description: 'wait' } as never,
+      ctx as never,
+    )
+
+    expect(response.data?.interrupted).toBe(true)
+    expect(response.data?.isAbort).toBe(true)
+    expect(response.data?.abortReason).toBe('query-timeout')
+    expect(response.data?.abortMessage).toBe(
+      'Command was interrupted because the query hit its timeout.',
+    )
+
+    const toolResult = BashTool.mapToolResultToToolResultBlockParam(
+      response.data!,
+      'toolu_timeout',
+    )
+    expect(toolResult.is_error).toBe(true)
+    expect(String(toolResult.content)).toContain(
+      'Command was interrupted because the query hit its timeout.',
+    )
+  })
+
+  test('user-cancel abort returns cancellation metadata without treating exit 1 as abort', async () => {
+    const ctx = makeCtx() as {
+      abortController: AbortController
+    }
+
+    setTimeout(() => ctx.abortController.abort('user-cancel'), 50).unref()
+
+    const response = await BashTool.call(
+      { command: 'sleep 5', description: 'wait' } as never,
+      ctx as never,
+    )
+
+    expect(response.data?.interrupted).toBe(true)
+    expect(response.data?.isAbort).toBe(true)
+    expect(response.data?.abortReason).toBe('user-abort')
+    expect(response.data?.abortMessage).toBe(
+      'Command was interrupted because the enclosing query was aborted.',
+    )
+
+    // Negative case: a separate non-aborted command failure must remain an
+    // ordinary ShellError without inheriting abort metadata from this test.
+    const err = await expectShellError('exit 1')
+    expect(err.interrupted).toBe(false)
+    expect(err.abortReason).toBeUndefined()
+  })
 })

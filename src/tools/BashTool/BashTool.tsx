@@ -288,6 +288,9 @@ const outputSchema = lazySchema(() => z.object({
   stderr: z.string().describe('The standard error output of the command'),
   rawOutputPath: z.string().optional().describe('Path to raw output file for large MCP tool outputs'),
   interrupted: z.boolean().describe('Whether the command was interrupted'),
+  isAbort: z.boolean().optional().describe('Whether the command was cancelled through the abort path'),
+  abortReason: z.string().optional().describe('Normalized abort reason when the command was cancelled'),
+  abortMessage: z.string().optional().describe('Safe user-facing abort explanation'),
   isImage: z.boolean().optional().describe('Flag to indicate if stdout contains image data'),
   backgroundTaskId: z.string().optional().describe('ID of the background task if command is running in background'),
   backgroundedByUser: z.boolean().optional().describe('True if the user manually backgrounded the command with Ctrl+B'),
@@ -567,6 +570,7 @@ export const BashTool = buildTool({
     backgroundTaskId,
     backgroundedByUser,
     assistantAutoBackgrounded,
+    abortMessage,
     structuredContent,
     persistedOutputPath,
     persistedOutputSize
@@ -610,7 +614,7 @@ export const BashTool = buildTool({
     let errorMessage = normalizedStderr.trim();
     if (interrupted) {
       if (normalizedStderr) errorMessage += EOL;
-      errorMessage += '<error>Command was aborted before completion</error>';
+      errorMessage += `<error>${abortMessage ?? 'Command was aborted before completion'}</error>`;
     }
     let backgroundInfo = '';
     if (backgroundTaskId) {
@@ -699,7 +703,7 @@ export const BashTool = buildTool({
       // Get the final result from the generator's return value
       result = generatorResult.value;
       trackGitOperations(input.command, result.code, result.stdout);
-      const isInterrupt = result.interrupted && abortController.signal.reason === 'interrupt';
+      const isAbort = result.isAbort === true;
 
       // stderr is interleaved in stdout (merged fd) — result.stdout has both
       stdoutAccumulator.append((result.stdout || '').trimEnd() + EOL);
@@ -745,14 +749,18 @@ export const BashTool = buildTool({
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }
-      if (interpretationResult.isError && !isInterrupt) {
+      if (interpretationResult.isError && !isAbort) {
         // Merged-fd setup puts both streams into result.stdout. Carry it on
         // the stdout slot of ShellError (matches PowerShellTool.tsx:595) so
         // getErrorParts() emits the captured output alongside "Exit code N"
         // — without this, a non-zero exit hides the very output users need
         // to debug the failure (issue #1231). result.stderr is empty in
         // file mode but populated in pipe mode (hooks).
-        throw new ShellError(outputWithSbFailures, result.stderr || '', result.code, result.interrupted);
+        throw new ShellError(outputWithSbFailures, result.stderr || '', result.code, result.interrupted, {
+          abortReason: result.abortReason,
+          abortMessage: result.abortMessage,
+          isAbort: result.isAbort
+        });
       }
       wasInterrupted = result.interrupted;
     } finally {
@@ -794,7 +802,14 @@ export const BashTool = buildTool({
       stdout_length: stdout.length,
       stderr_length: 0,
       exit_code: result.code,
-      interrupted: wasInterrupted
+      interrupted: wasInterrupted,
+      duration_ms: result.durationMs,
+      signal: result.signal as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS | undefined,
+      signal_aborted: result.signalAborted,
+      is_abort: result.isAbort,
+      abort_reason: result.abortReason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS | undefined,
+      result_stdout_length: result.stdoutLength,
+      result_stderr_length: result.stderrLength
     });
 
     // Log code indexing tool usage
@@ -841,6 +856,9 @@ export const BashTool = buildTool({
       stdout: compressedStdout,
       stderr: stderrForShellReset,
       interrupted: wasInterrupted,
+      isAbort: result.isAbort,
+      abortReason: result.abortReason,
+      abortMessage: result.abortMessage,
       isImage,
       returnCodeInterpretation: interpretationResult?.message,
       noOutputExpected: isSilentBashCommand(input.command),

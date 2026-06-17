@@ -253,6 +253,9 @@ const outputSchema = lazySchema(() => z.object({
   stdout: z.string().describe('The standard output of the command'),
   stderr: z.string().describe('The standard error output of the command'),
   interrupted: z.boolean().describe('Whether the command was interrupted'),
+  isAbort: z.boolean().optional().describe('Whether the command was cancelled through the abort path'),
+  abortReason: z.string().optional().describe('Normalized abort reason when the command was cancelled'),
+  abortMessage: z.string().optional().describe('Safe user-facing abort explanation'),
   returnCodeInterpretation: z.string().optional().describe('Semantic interpretation for non-error exit codes with special meaning'),
   isImage: z.boolean().optional().describe('Flag to indicate if stdout contains image data'),
   persistedOutputPath: z.string().optional().describe('Path to persisted full output when too large for inline'),
@@ -396,7 +399,8 @@ export const PowerShellTool = buildTool({
     persistedOutputSize,
     backgroundTaskId,
     backgroundedByUser,
-    assistantAutoBackgrounded
+    assistantAutoBackgrounded,
+    abortMessage
   }: Out, toolUseID: string): ToolResultBlockParam {
     // For image data, format as image content block for Claude
     if (isImage) {
@@ -425,7 +429,7 @@ export const PowerShellTool = buildTool({
     let errorMessage = normalizedStderr.trim();
     if (interrupted) {
       if (normalizedStderr) errorMessage += EOL;
-      errorMessage += '<error>Command was aborted before completion</error>';
+      errorMessage += `<error>${abortMessage ?? 'Command was aborted before completion'}</error>`;
     }
     let backgroundInfo = '';
     if (backgroundTaskId) {
@@ -515,11 +519,10 @@ export const PowerShellTool = buildTool({
         trackGitOperations(input.command, result.code, result.stdout);
       }
 
-      // Distinguish user-driven interrupt (new message submitted) from other
-      // interrupted states. Only user-interrupt should suppress ShellError —
-      // timeout-kill or process-kill with isError should still throw.
-      // Matches BashTool's isInterrupt.
-      const isInterrupt = result.interrupted && abortController.signal.reason === 'interrupt';
+      // Suppress ShellError only for commands killed through the abort path.
+      // Tool timeouts and ordinary non-zero exits still surface as failures.
+      // Matches BashTool's abort classification.
+      const isAbort = result.isAbort === true;
 
       // Only the main thread tracks/resets cwd; agents have their own cwd
       // isolation. Matches BashTool's !preventCwdChanges guard.
@@ -549,6 +552,7 @@ export const PowerShellTool = buildTool({
             stdout: bgExtracted.stripped,
             stderr: [result.stderr || '', stderrForShellReset].filter(Boolean).join('\n'),
             interrupted: false,
+            isAbort: false,
             backgroundTaskId: result.backgroundTaskId,
             backgroundedByUser: result.backgroundedByUser,
             assistantAutoBackgrounded: result.assistantAutoBackgrounded
@@ -591,8 +595,12 @@ export const PowerShellTool = buildTool({
       if (result.preSpawnError) {
         throw new Error(result.preSpawnError);
       }
-      if (interpretation.isError && !isInterrupt) {
-        throw new ShellError(stdout, result.stderr || '', result.code, result.interrupted);
+      if (interpretation.isError && !isAbort) {
+        throw new ShellError(stdout, result.stderr || '', result.code, result.interrupted, {
+          abortReason: result.abortReason,
+          abortMessage: result.abortMessage,
+          isAbort: result.isAbort
+        });
       }
 
       // Large output: file on disk has more than getMaxOutputLength() bytes.
@@ -650,13 +658,23 @@ export const PowerShellTool = buildTool({
         stdout_length: compressedStdout.length,
         stderr_length: finalStderr.length,
         exit_code: result.code,
-        interrupted: result.interrupted
+        interrupted: result.interrupted,
+        duration_ms: result.durationMs,
+        signal: result.signal as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS | undefined,
+        signal_aborted: result.signalAborted,
+        is_abort: result.isAbort,
+        abort_reason: result.abortReason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS | undefined,
+        result_stdout_length: result.stdoutLength,
+        result_stderr_length: result.stderrLength
       });
       return {
         data: {
           stdout: compressedStdout,
           stderr: finalStderr,
           interrupted: result.interrupted,
+          isAbort: result.isAbort,
+          abortReason: result.abortReason,
+          abortMessage: result.abortMessage,
           returnCodeInterpretation: interpretation.message,
           isImage,
           persistedOutputPath,
