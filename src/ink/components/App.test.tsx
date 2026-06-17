@@ -101,4 +101,19 @@ describe('App stdin mode setup', () => {
 
     app.handleSetRawMode(false)
   })
+
+  test('uses data mode when OPENCLAUDE_USE_READABLE_STDIN=0', () => {
+    delete process.env.OPENCLAUDE_USE_DATA_STDIN
+    process.env.OPENCLAUDE_USE_READABLE_STDIN = '0'
+    const stdin = createFakeStdin()
+    const app = createApp(stdin)
+
+    app.handleSetRawMode(true)
+
+    expect(stdin.listeners('data')).toContain(app.handleDataChunk)
+    expect(stdin.listeners('readable')).not.toContain(app.handleReadable)
+    expect(stdin.resume).toHaveBeenCalledTimes(1)
+
+    app.handleSetRawMode(false)
+  })
 })
