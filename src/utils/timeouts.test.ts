@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { getEffectiveBashTimeoutMs } from './timeouts.js'
+import { DEFAULT_QUERY_HARD_MAX_MS } from './QueryGuard.js'
+import {
+  getDefaultBashTimeoutMs,
+  getEffectiveBashTimeoutMs,
+  getMaxBashTimeoutMs,
+} from './timeouts.js'
 
 describe('bash timeout helpers', () => {
   test('effective timeout clamps explicit values to the configured max', () => {
@@ -9,6 +14,22 @@ describe('bash timeout helpers', () => {
     }
 
     expect(getEffectiveBashTimeoutMs(900_000, env)).toBe(300_000)
+  })
+
+  test('configured defaults and max values cannot exceed the query hard cap', () => {
+    const env = {
+      BASH_DEFAULT_TIMEOUT_MS: String(DEFAULT_QUERY_HARD_MAX_MS * 2),
+      BASH_MAX_TIMEOUT_MS: String(DEFAULT_QUERY_HARD_MAX_MS * 3),
+    }
+
+    expect(getDefaultBashTimeoutMs(env)).toBe(DEFAULT_QUERY_HARD_MAX_MS)
+    expect(getMaxBashTimeoutMs(env)).toBe(DEFAULT_QUERY_HARD_MAX_MS)
+    expect(getEffectiveBashTimeoutMs(DEFAULT_QUERY_HARD_MAX_MS * 4, env)).toBe(
+      DEFAULT_QUERY_HARD_MAX_MS,
+    )
+    expect(getEffectiveBashTimeoutMs(undefined, env)).toBe(
+      DEFAULT_QUERY_HARD_MAX_MS,
+    )
   })
 
   test('effective timeout uses the configured default for invalid explicit values', () => {
