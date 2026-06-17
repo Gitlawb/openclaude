@@ -334,6 +334,25 @@ export function isFireworksBaseUrl(value: string | undefined): boolean {
   }
 }
 
+/**
+ * Checks whether the given URL value targets the LLMTR gateway by matching the
+ * hostname against `llmtr.com` (or a subdomain). Hostname parsing avoids
+ * lookalike hosts such as `not-llmtr.com` that a substring check would accept.
+ */
+export function isLlmtrBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const hostname = new URL(trimmed).hostname.toLowerCase()
+    return hostname === 'llmtr.com' || hostname.endsWith('.llmtr.com')
+  } catch {
+    return false
+  }
+}
+
 export function getNearaiBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {

@@ -6,9 +6,21 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  isLlmtrBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+
+test('isLlmtrBaseUrl matches llmtr.com by hostname, not substring', () => {
+  expect(isLlmtrBaseUrl('https://llmtr.com/v1')).toBe(true)
+  expect(isLlmtrBaseUrl('https://api.llmtr.com/v1')).toBe(true)
+  // Lookalike hosts that a substring check would wrongly accept.
+  expect(isLlmtrBaseUrl('https://not-llmtr.com/v1')).toBe(false)
+  expect(isLlmtrBaseUrl('https://llmtr.com.evil.example/v1')).toBe(false)
+  expect(isLlmtrBaseUrl('https://api.openai.com/v1')).toBe(false)
+  expect(isLlmtrBaseUrl(undefined)).toBe(false)
+  expect(isLlmtrBaseUrl('not a url')).toBe(false)
+})
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
   expect(getRouteProviderTypeLabel('anthropic')).toBe('Anthropic native API')

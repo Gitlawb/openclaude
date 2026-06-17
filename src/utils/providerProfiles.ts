@@ -45,7 +45,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { isFireworksBaseUrl, isNearaiBaseUrl, isXaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import { isFireworksBaseUrl, isLlmtrBaseUrl, isNearaiBaseUrl, isXaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -578,7 +578,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('llmtr.com')
+    (isLlmtrBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.LLMTR_API_KEY, profile.apiKey)
       : true) &&
@@ -727,7 +727,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
-      if (route.gatewayId === 'llmtr' || profile.baseUrl.toLowerCase().includes('llmtr.com')) {
+      if (route.gatewayId === 'llmtr' || isLlmtrBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.LLMTR_API_KEY = profile.apiKey
       }
       if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
@@ -987,7 +987,7 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
-      if (activeProfile.baseUrl?.toLowerCase().includes('llmtr.com')) {
+      if (isLlmtrBaseUrl(activeProfile.baseUrl)) {
         strictEnv.LLMTR_API_KEY = activeProfile.apiKey
       }
       if (isNearaiBaseUrl(activeProfile.baseUrl)) {
@@ -1036,7 +1036,7 @@ function buildOpenAICompatibleStartupEnv(
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
     }
-    if (activeProfile.baseUrl?.toLowerCase().includes('llmtr.com')) {
+    if (isLlmtrBaseUrl(activeProfile.baseUrl)) {
       env.LLMTR_API_KEY = activeProfile.apiKey
     }
     if (isNearaiBaseUrl(activeProfile.baseUrl)) {

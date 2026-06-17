@@ -627,6 +627,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
   })
 
+  test('generic openai profile on an llmtr.com lookalike host does NOT mirror LLMTR_API_KEY', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://not-llmtr.com/v1',
+        model: 'some-model',
+        apiKey: 'not-llmtr-key',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://not-llmtr.com/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('not-llmtr-key')
+    // Hostname parsing must not treat a lookalike host as LLMTR.
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
