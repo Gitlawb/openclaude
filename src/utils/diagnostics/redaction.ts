@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { PROVIDER_PRESET_MANIFEST } from '../../integrations/index.js'
+import { getKnownProviderSecretEnvKeys } from '../providerSecrets.js'
 import { redactUrlForDisplay } from '../urlRedaction.js'
 
 const SECRET_KEY_PATTERN =
@@ -40,11 +40,7 @@ function escapeRegExp(value: string): string {
 }
 
 export function collectProviderSecretEnvVars(): string[] {
-  return unique(
-    PROVIDER_PRESET_MANIFEST.flatMap(preset =>
-      'apiKeyEnvVars' in preset ? [...preset.apiKeyEnvVars] : [],
-    ),
-  )
+  return unique(getKnownProviderSecretEnvKeys())
 }
 
 export function summarizeSecretEnvPresence(

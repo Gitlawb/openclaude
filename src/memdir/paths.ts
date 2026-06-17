@@ -13,10 +13,8 @@ import {
 } from '../utils/envUtils.js'
 import { findCanonicalGitRoot } from '../utils/git.js'
 import { sanitizePath } from '../utils/path.js'
-import {
-  getInitialSettings,
-  getSettingsForSource,
-} from '../utils/settings/settings.js'
+import { getEnabledSettingSources } from '../utils/settings/constants.js'
+import { getSettingsForSource } from '../utils/settings/settings.js'
 
 /**
  * Whether auto-memory features are enabled (memdir, agent memory, past session search).
@@ -24,7 +22,10 @@ import {
  *   1. CLAUDE_CODE_DISABLE_AUTO_MEMORY env var (1/true → OFF, 0/false → ON)
  *   2. CLAUDE_CODE_SIMPLE (--bare) → OFF
  *   3. CCR without persistent storage → OFF (no CLAUDE_CODE_REMOTE_MEMORY_DIR)
- *   4. autoMemoryEnabled in settings.json (supports project-level opt-out)
+ *   4. settings.json — `memory.autoWrite` and `autoMemoryEnabled` are equivalent
+ *      opt-outs (#1326), evaluated across the raw per-source settings so a
+ *      single `false` in any source wins. A parent-scope opt-out can't be
+ *      silently re-enabled by a narrower scope flipping the same key to `true`.
  *   5. Default: enabled
  */
 export function isAutoMemoryEnabled(): boolean {
@@ -47,9 +48,23 @@ export function isAutoMemoryEnabled(): boolean {
   ) {
     return false
   }
-  const settings = getInitialSettings()
-  if (settings.autoMemoryEnabled !== undefined) {
-    return settings.autoMemoryEnabled
+  // Evaluate the opt-out across the raw per-source settings rather than the
+  // merged object. Source precedence collapses same-key values, so a
+  // lower-priority `false` opt-out would otherwise be silently overwritten by a
+  // higher-priority `true` (e.g. a shared/project `memory.autoWrite: false`
+  // beaten by a local/flag `memory.autoWrite: true`). `memory.autoWrite` and
+  // `autoMemoryEnabled` are equivalent; a single `false` in any source wins, so
+  // a parent-scope opt-out cannot be re-enabled by a narrower scope (#1326).
+  // Per-source reads are cached (getSettingsForSource), so this stays cheap on
+  // the hot path.
+  for (const source of getEnabledSettingSources()) {
+    const sourceSettings = getSettingsForSource(source)
+    if (
+      sourceSettings?.autoMemoryEnabled === false ||
+      sourceSettings?.memory?.autoWrite === false
+    ) {
+      return false
+    }
   }
   return true
 }

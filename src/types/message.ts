@@ -100,6 +100,14 @@ export interface UserMessage<C = string | ContentBlockParam[]> {
   isVisibleInTranscriptOnly?: boolean
   isVirtual?: boolean
   isCompactSummary?: boolean
+  /**
+   * Set when a context-collapse summary placeholder is converted to (or merged
+   * into) a user message. Keeps the `<collapsed>` summary non-snippable: the
+   * snip-tag sweep skips these, and merges that absorb a summary inherit the
+   * flag and drop any pre-baked snip id, so the only replacement for an archived
+   * span can never be queued for removal.
+   */
+  isCollapseSummary?: boolean
   summarizeMetadata?: {
     messagesSummarized: number
     userContext?: string
@@ -202,6 +210,13 @@ interface SystemMessageBase {
 export interface SystemInformationalMessage extends SystemMessageBase {
   subtype: 'informational'
   content: string
+  /**
+   * Marks a context-collapse summary placeholder. The transcript renders it
+   * like any informational notice, but normalizeMessagesForAPI converts it into
+   * a user message so the `<collapsed>` summary still reaches the model after
+   * the archived span is removed.
+   */
+  isCollapseSummary?: boolean
 }
 
 export interface SystemPermissionRetryMessage extends SystemMessageBase {

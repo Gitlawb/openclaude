@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 import { extractDraggedFilePaths } from './dragDropPaths.js'
 
 function escapeFinderDraggedPath(filePath: string): string {
@@ -11,7 +12,9 @@ function escapeFinderDraggedPath(filePath: string): string {
 describe('extractDraggedFilePaths', () => {
   // Paths that exist on any system.
   const thisFile = import.meta.path
-  const packageJson = `${process.cwd()}/package.json`
+  // Resolve package.json relative to this test file so it works
+  // regardless of process.cwd() changes from other tests (e.g. xaiAuth).
+  const packageJson = join(dirname(fileURLToPath(import.meta.url)), '../../package.json')
 
   // Fixtures created synchronously at describe-load time (not in
   // `beforeAll`) so their paths are available to `test.each` tables,

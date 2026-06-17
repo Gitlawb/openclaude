@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { homedir } from 'node:os'
-import { PROVIDER_PRESET_MANIFEST } from '../../integrations/index.js'
+import { getKnownProviderSecretEnvKeys } from '../providerSecrets.js'
 import {
   collectProviderSecretEnvVars,
   redactDiagnosticObject,
@@ -10,18 +10,17 @@ import {
 } from './redaction.js'
 
 describe('diagnostic redaction', () => {
-  test('collects every provider preset API key env var from the generated manifest', () => {
-    const expected = new Set(
-      PROVIDER_PRESET_MANIFEST.flatMap(preset =>
-        'apiKeyEnvVars' in preset ? [...preset.apiKeyEnvVars] : [],
-      ),
-    )
+  test('collects every known provider secret env var from the centralized registry', () => {
+    const expected = new Set(getKnownProviderSecretEnvKeys())
 
     expect(new Set(collectProviderSecretEnvVars())).toEqual(expected)
+    expect(expected.has('GEMINI_ACCESS_TOKEN')).toBe(true)
+    expect(expected.has('GITHUB_TOKEN')).toBe(true)
+    expect(expected.has('OPENGATEWAY_API_KEY')).toBe(true)
     expect(expected.size).toBeGreaterThan(10)
   })
 
-  test('represents provider preset secret env vars as presence booleans only', () => {
+  test('represents provider secret env vars as presence booleans only', () => {
     const envVars = collectProviderSecretEnvVars()
     const env = Object.fromEntries(
       envVars.map((name, index) => [name, `sk-${name}-secret-${index}`]),

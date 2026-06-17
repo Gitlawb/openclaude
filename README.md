@@ -107,6 +107,31 @@ Inside OpenClaude:
 
 > **Note:** OpenClaude does not automatically load project `.env` files. We recommend using the `/provider` command for setup, which securely stores credentials. If you prefer environment variables, export them explicitly or run `openclaude --provider-env-file .env` for provider/setup variables. Export runtime/debug knobs from your shell or launcher.
 
+### Background sessions
+
+Run long non-interactive prompts detached from the current terminal:
+
+```bash
+openclaude --bg "fix failing tests"
+openclaude --bg --name auth-refactor "refactor auth middleware"
+openclaude ps
+openclaude logs auth-refactor
+openclaude logs auth-refactor -f
+openclaude kill auth-refactor
+```
+
+Background sessions are local child processes. OpenClaude does not start a daemon
+or network service, and permission/provider/model/settings flags are passed to
+the child process the same way they are for a foreground `--print` run. Session
+metadata and logs are stored under the resolved OpenClaude config directory,
+usually `~/.openclaude/bg-sessions/`; `CLAUDE_CONFIG_DIR` can point OpenClaude
+somewhere else. Session names can be reused after older sessions reach a
+terminal state; use the session ID to inspect older logs with the same name.
+
+`openclaude attach <id-or-name>` currently reports the matching session and
+points to `openclaude logs <id> -f`; full terminal reattach is not implemented
+for local background sessions yet.
+
 ### Fastest OpenAI setup
 
 macOS / Linux:
