@@ -4,6 +4,9 @@ This guide is for users who want source builds, Bun workflows, provider profiles
 
 ## Install Options
 
+OpenClaude requires Node.js `>=22.0.0` for npm installs and runtime. Bun is
+only required when building or running from source.
+
 ### Option A: npm
 
 ```bash
@@ -12,7 +15,7 @@ npm install -g @gitlawb/openclaude@latest
 
 ### Option B: From source with Bun
 
-Use Bun `1.3.13` or newer for source builds on Windows. Older Bun versions can fail during `bun run build`.
+Use Bun `1.3.13` or newer for source builds. Older Bun versions can fail during `bun run build`.
 
 ```bash
 git clone https://github.com/Gitlawb/openclaude.git
@@ -367,6 +370,12 @@ bun run doctor:runtime:json
 # persist a diagnostics report to reports/doctor-runtime.json
 bun run doctor:report
 
+# print a redacted public issue report
+openclaude doctor report --markdown
+
+# write a redacted JSON issue report for attachment
+openclaude doctor report --json --out openclaude-report.json
+
 # full local hardening check (smoke + runtime doctor)
 bun run hardening:check
 
@@ -380,6 +389,7 @@ Notes:
 - `doctor:runtime` also validates the dedicated Gemini and Mistral env paths when `CLAUDE_CODE_USE_GEMINI=1` or `CLAUDE_CODE_USE_MISTRAL=1`.
 - Local providers such as `http://localhost:11434/v1`, `http://10.0.0.1:11434/v1`, and `http://127.0.0.1:1337/v1` can run without `OPENAI_API_KEY`.
 - Codex profiles validate `CODEX_API_KEY` or the Codex CLI auth file and probe `POST /responses` instead of `GET /models`.
+- `openclaude doctor report` is redacted by default and is intended for GitHub issues. It summarizes provider/runtime/build/settings state without prompts, transcripts, raw settings files, API keys, MCP command details, or full home-directory paths.
 
 ## Provider Launch Profiles
 

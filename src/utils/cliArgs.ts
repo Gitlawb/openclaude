@@ -28,6 +28,11 @@ export function eagerParseCliFlag(
   return undefined
 }
 
+export function argsBeforeDelimiter(args: string[]): string[] {
+  const delimiterIndex = args.indexOf('--')
+  return delimiterIndex === -1 ? args : args.slice(0, delimiterIndex)
+}
+
 /**
  * Handle the standard Unix `--` separator convention in CLI arguments.
  *

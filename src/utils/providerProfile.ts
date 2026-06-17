@@ -30,6 +30,7 @@ import {
   redactSecretValueForDisplay,
   sanitizeApiKey,
   sanitizeProviderConfigValue,
+  type SecretValueSource,
 } from './providerSecrets.js'
 
 export {
@@ -115,26 +116,6 @@ export type CompatibilityProfileMode =
   | 'bedrock'
   | 'vertex'
 
-const SECRET_ENV_KEYS = [
-  'OPENAI_API_KEY',
-  'OPENAI_AUTH_HEADER_VALUE',
-  'CODEX_API_KEY',
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'NVIDIA_API_KEY',
-  'MINIMAX_API_KEY',
-  'MISTRAL_API_KEY',
-  'BNKR_API_KEY',
-  'XAI_API_KEY',
-  'VENICE_API_KEY',
-  'MIMO_API_KEY',
-  'ATLAS_CLOUD_API_KEY',
-  'NEARAI_API_KEY',
-  'FIREWORKS_API_KEY',
-  'LLMTR_API_KEY',
-  'OPENCODE_API_KEY',
-] as const
-
 export type ProviderProfile =
   | 'anthropic'
   | 'openai'
@@ -205,28 +186,10 @@ export type ProfileFile = {
   createdAt: string
 }
 
-type SecretValueSource = Partial<
-  Record<
-    | 'OPENAI_API_KEY'
-    | 'ANTHROPIC_API_KEY'
-    | 'OPENAI_AUTH_HEADER_VALUE'
-    | 'CODEX_API_KEY'
-    | 'GEMINI_API_KEY'
-    | 'GOOGLE_API_KEY'
-    | 'NVIDIA_API_KEY'
-    | 'MINIMAX_API_KEY'
-    | 'MISTRAL_API_KEY'
-    | 'BNKR_API_KEY'
-    | 'XAI_API_KEY'
-    | 'VENICE_API_KEY'
-    | 'MIMO_API_KEY'
-    | 'ATLAS_CLOUD_API_KEY'
-    | 'NEARAI_API_KEY'
-    | 'FIREWORKS_API_KEY'
-    | 'LLMTR_API_KEY',
-    string | undefined
-  >
->
+// SecretValueSource is intentionally open (Partial<Record<string, ...>>) so
+// that newly declared provider credential env vars are redactable without a
+// matching type update. See providerSecrets.ts for the canonical definition.
+export type { SecretValueSource } from './providerSecrets.js'
 
 export type ProfileFileLocation = {
   configDir?: string
@@ -1811,6 +1774,33 @@ export function applyProfileEnvToProcessEnv(
 ): void {
   clearManagedProfileEnv(targetEnv)
   Object.assign(targetEnv, nextEnv)
+}
+
+type StartupEnvOptions = NonNullable<Parameters<typeof buildStartupEnvFromProfile>[0]>
+
+export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
+  onValidationError?: (message: string) => void
+}): Promise<string | null> {
+  const processEnv = options?.processEnv ?? process.env
+  const { onValidationError, ...startupOptions } = options ?? {}
+  const startupEnv = await buildStartupEnvFromProfile({
+    ...startupOptions,
+    processEnv,
+  })
+  if (startupEnv === processEnv) {
+    return null
+  }
+
+  const validationError = await getProviderValidationError(startupEnv)
+  if (validationError) {
+    onValidationError?.(
+      `Warning: ignoring saved provider profile. ${validationError}`,
+    )
+    return validationError
+  }
+
+  applyProfileEnvToProcessEnv(processEnv, startupEnv)
+  return null
 }
 
 export async function applySavedProfileToCurrentSession(options: {

@@ -758,6 +758,11 @@ export function useTypeahead({
         // (set above when hasExactlyOneTrailingSpace is true)
       }
       const commandItems = generateCommandSuggestions(value, commands);
+      // Command results are re-ranked by relevance on every keystroke, so the
+      // highlight must snap to the top (best) match — NOT follow the previously
+      // selected command by id. Preserving selection here makes the highlight
+      // "stick" to e.g. /simplify (the recently-used top entry for bare "/")
+      // as the user narrows, instead of moving to the best prefix match.
       setSuggestionsState(() => ({
         commandArgumentHint,
         suggestions: commandItems,

@@ -98,3 +98,13 @@ test('buildAPIProviderProperties keeps Codex-specific labels on the shared OpenA
   )
   expect(await readPropertyValue('Model', 'codex')).toBe('gpt-5.5 (high)')
 })
+
+test('buildAPIProviderProperties redacts credentials in OpenAI-compatible base URLs', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://user:pass@example.com/v1?api_key=sk-statusLeak1234567890ABCdef&model=qwen'
+
+  expect(await readPropertyValue('OpenAI base URL', 'openai')).toBe(
+    'https://redacted:redacted@example.com/v1?api_key=redacted&model=qwen',
+  )
+})

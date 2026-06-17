@@ -778,10 +778,18 @@ async function* queryLoop(
     // API call and starve both recovery paths. The isAutoCompactEnabled()
     // conjunct preserves the user's explicit "no automatic anything"
     // config — if they set DISABLE_AUTO_COMPACT, they get the preempt.
+    // hasActiveReduction() (not mere enablement) means a turn where collapse
+    // could not reduce anything still hits the blocking preempt instead of
+    // sending an oversized request that only a real 413 could recover.
     let collapseOwnsIt = false
     if (feature('CONTEXT_COLLAPSE')) {
+      // Only the main thread that owns the reduction may skip the blocking
+      // preempt: the store is shared with in-process subagents (agent:*), and a
+      // subagent must still preempt its own oversized turn rather than defer to
+      // a reduction that does not apply to its messages.
       collapseOwnsIt =
-        (contextCollapse?.isContextCollapseEnabled() ?? false) &&
+        (contextCollapse?.isMainThreadSource(querySource) ?? false) &&
+        (contextCollapse?.hasActiveReduction() ?? false) &&
         isAutoCompactEnabled()
     }
     // Hoist media-recovery gate once per turn. Withholding (inside the
@@ -1215,8 +1223,8 @@ async function* queryLoop(
 
       // Surface the real error instead of a misleading "[Request interrupted
       // by user]" — this path is a model/runtime failure, not a user action.
-      // SDK consumers were seeing phantom interrupts on e.g. Node 18's missing
-      // Array.prototype.with(), masking the actual cause.
+      // SDK consumers were seeing phantom interrupts on unsupported runtimes
+      // with missing built-ins, masking the actual cause.
       yield createAssistantAPIErrorMessage({
         content: errorMessage,
       })

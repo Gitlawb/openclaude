@@ -104,8 +104,9 @@ function getBuiltInCommandNames(): Set<string> {
   if (builtInCommandNamesCache) return builtInCommandNamesCache
   const commands =
     require('../commands.js') as typeof import('../commands.js')
-  builtInCommandNamesCache = commands.builtInCommandNames()
-  return builtInCommandNamesCache
+  const names = commands.builtInCommandNames()
+  builtInCommandNamesCache = names
+  return names
 }
 
 type Transcript = (
@@ -1589,6 +1590,7 @@ export async function recordContextCollapseCommit(commit: {
   summary: string
   firstArchivedUuid: string
   lastArchivedUuid: string
+  archivedCount: number
 }): Promise<void> {
   const sessionId = getSessionId() as UUID
   if (!sessionId) return

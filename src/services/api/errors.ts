@@ -99,8 +99,9 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
 
     case 'vision_not_supported':
       return createAssistantAPIErrorMessage({
-        content: `The provider at ${options.host} returned 404 for a request containing images. The model (${options.model}) may not support image/vision inputs. Try removing images from your message, or ${switchCmd} to a vision-capable model.`,
+        content: getVisionNotSupportedErrorMessage(),
         error: 'invalid_request',
+        errorDetails: stripOpenAICompatibilityMetadata(options.rawMessage),
       })
 
     case 'model_not_found':
@@ -398,6 +399,31 @@ export function getRequestTooLargeErrorMessage(): string {
   return getIsNonInteractiveSession()
     ? `Request too large (${limits}). Try with a smaller file.`
     : `Request too large (${limits}). Double press esc to go back and try with a smaller file.`
+}
+
+const VISION_NOT_SUPPORTED_MESSAGE_PREFIX =
+  'The active model does not support image/vision inputs. The provider rejected the request because it contained an image. Remove the image, or'
+
+export function getVisionNotSupportedErrorMessages(): string[] {
+  return [
+    `${VISION_NOT_SUPPORTED_MESSAGE_PREFIX} switch to a vision-capable model with --model.`,
+    `${VISION_NOT_SUPPORTED_MESSAGE_PREFIX} run /model to switch to a vision-capable model.`,
+  ]
+}
+
+/**
+ * Canonical message for the `vision_not_supported` OpenAI compatibility
+ * failure (issue #1421). Returned as a stable string so that
+ * `normalizeMessagesForAPI`'s `errorToBlockTypes` map can self-heal existing
+ * transcripts by stripping `image` blocks from the preceding user message
+ * on resume.
+ */
+export function getVisionNotSupportedErrorMessage(): string {
+  const [nonInteractiveMessage, interactiveMessage] =
+    getVisionNotSupportedErrorMessages()
+  return getIsNonInteractiveSession()
+    ? nonInteractiveMessage!
+    : interactiveMessage!
 }
 export const OAUTH_ORG_NOT_ALLOWED_ERROR_MESSAGE =
   'Your account does not have access to OpenClaude. Please run /login.'

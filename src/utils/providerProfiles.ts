@@ -45,7 +45,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { isFireworksBaseUrl, isNearaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import { isFireworksBaseUrl, isNearaiBaseUrl, isXaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -561,7 +561,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('x.ai')
+    (isXaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
       : true) &&
@@ -715,7 +715,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'bankr' || profile.baseUrl.toLowerCase().includes('bankr')) {
         openAIProfileEnv.BNKR_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xai' || profile.baseUrl.toLowerCase().includes('x.ai')) {
+      if (route.routeId === 'xai' || isXaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.XAI_API_KEY = profile.apiKey
       }
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
@@ -1021,7 +1021,7 @@ function buildOpenAICompatibleStartupEnv(
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
-    if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
+    if (isXaiBaseUrl(activeProfile.baseUrl)) {
       env.XAI_API_KEY = activeProfile.apiKey
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {

@@ -27,7 +27,7 @@ import { Dialog } from '../design-system/Dialog.js';
 import { Select } from '../CustomSelect/index.js';
 import { OutputStylePicker } from '../OutputStylePicker.js';
 import { LanguagePicker } from '../LanguagePicker.js';
-import { getExternalClaudeMdIncludes, getMemoryFiles, hasExternalClaudeMdIncludes } from 'src/utils/claudemd.js';
+import { getExternalClaudeMdIncludes, getMemoryFiles, hasExternalClaudeMdIncludes, type MemoryFileInfo } from 'src/utils/claudemd.js';
 import { KeyboardShortcutHint } from '../design-system/KeyboardShortcutHint.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { Byline } from '../design-system/Byline.js';
@@ -82,7 +82,7 @@ type Setting = (SettingBase & {
   onChange(value: string): void;
   type: 'managedEnum';
 });
-type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
+type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
 export function Config({
   onClose,
   context,
@@ -198,7 +198,7 @@ export function Config({
   }, [ownsEsc, onIsSearchModeChange]);
   const isConnectedToIde = hasAccessToIDEExtensionDiffFeature(context.options.mcpClients);
   const isFileCheckpointingAvailable = !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING);
-  const memoryFiles = React.use(getMemoryFiles(true));
+  const memoryFiles = React.use(getMemoryFiles(true)) as MemoryFileInfo[];
   function getPendingExternalIncludesScope(): 'User' | 'Project' | null {
     const cfg = getCurrentProjectConfig();
     // Project/Local first (mirrors startup priority in shouldShowClaudeMdExternalIncludesWarning)
@@ -329,7 +329,32 @@ export function Config({
         enabled: toolHistoryCompressionEnabled
       });
     }
-  }, {
+  }, ...(feature('CONTEXT_COLLAPSE') ? [{
+    id: 'contextCollapseEnabled',
+    label: 'Context collapse (lossy)',
+    value: globalConfig.contextCollapseEnabled,
+    type: 'boolean' as const,
+    onChange(contextCollapseEnabled: boolean) {
+      saveGlobalConfig(current_cc => ({
+        ...current_cc,
+        contextCollapseEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        contextCollapseEnabled
+      });
+      // Refresh runtime state so the toggle applies without a restart:
+      // initContextCollapse re-reads env + this config key.
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state: ${error}`);
+      }
+      logEvent('tengu_context_collapse_setting_changed', {
+        enabled: contextCollapseEnabled
+      });
+    }
+  }] : []), {
     id: 'showCacheStats',
     label: 'Cache stats display',
     value: globalConfig.showCacheStats,
@@ -888,6 +913,12 @@ export function Config({
     value: mainLoopModel === null ? 'Default (recommended)' : mainLoopModel,
     type: 'managedEnum' as const,
     onChange: onChangeMainModelConfig
+  }, {
+    id: 'compactModel',
+    label: 'Compaction model',
+    value: compactModelDisplayString(globalConfig.compactModel),
+    type: 'managedEnum' as const,
+    onChange() {}
   }, ...(isConnectedToIde ? [{
     id: 'diffTool',
     label: 'Diff tool',
@@ -1217,6 +1248,9 @@ export function Config({
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
     }
+    if (feature('CONTEXT_COLLAPSE') && globalConfig.contextCollapseEnabled !== initialConfig.current.contextCollapseEnabled) {
+      formattedChanges.push(`${globalConfig.contextCollapseEnabled ? 'Enabled' : 'Disabled'} context collapse (lossy)`);
+    }
     if (globalConfig.respectGitignore !== initialConfig.current.respectGitignore) {
       formattedChanges.push(`${globalConfig.respectGitignore ? 'Enabled' : 'Disabled'} respect .gitignore in file picker`);
     }
@@ -1268,6 +1302,17 @@ export function Config({
     // the returned ref equals current (test mode checks ref; prod writes to
     // disk but content is identical).
     saveGlobalConfig(() => initialConfig.current);
+    // Context collapse: the toggle's onChange calls initContextCollapse() to
+    // refresh the module-level enabled/armed cache. The global config restore
+    // above rewrites the key on disk but doesn't touch that cache, so re-init
+    // here to keep runtime state in sync with the reverted config.
+    if (feature('CONTEXT_COLLAPSE')) {
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state on cancel: ${error}`);
+      }
+    }
     // Settings files: restore each key Config may have touched. undefined
     // deletes the key (updateSettingsForSource customizer at settings.ts:368).
     const il = initialLocalSettings;
@@ -1378,7 +1423,7 @@ export function Config({
       }
       return;
     }
-    if (setting_0.id === 'theme' || setting_0.id === 'model' || setting_0.id === 'teammateDefaultModel' || setting_0.id === 'showExternalIncludesDialog' || setting_0.id === 'outputStyle' || setting_0.id === 'language') {
+    if (setting_0.id === 'theme' || setting_0.id === 'model' || setting_0.id === 'compactModel' || setting_0.id === 'teammateDefaultModel' || setting_0.id === 'showExternalIncludesDialog' || setting_0.id === 'outputStyle' || setting_0.id === 'language') {
       // managedEnum items open a submenu — isDirty is set by the submenu's
       // completion callback, not here (submenu may be cancelled).
       switch (setting_0.id) {
@@ -1388,6 +1433,10 @@ export function Config({
           return;
         case 'model':
           setShowSubmenu('Model');
+          setTabsHidden(true);
+          return;
+        case 'compactModel':
+          setShowSubmenu('CompactModel');
           setTabsHidden(true);
           return;
         case 'teammateDefaultModel':
@@ -1588,6 +1637,45 @@ export function Config({
         }));
         logEvent('tengu_teammate_default_model_changed', {
           model: model_1 as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+        });
+      }} onCancel={() => {
+        setShowSubmenu(null);
+        setTabsHidden(false);
+      }} />
+          <Text dimColor>
+            <Byline>
+              <KeyboardShortcutHint shortcut="Enter" action="confirm" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+            </Byline>
+          </Text>
+        </> : showSubmenu === 'CompactModel' ? <>
+          <ModelPicker initial={globalConfig.compactModel ?? null} skipSettingsWrite headerText="Model used for conversation compaction. Defaults to the main model when unset." onSelect={(model_2, _effort_1) => {
+        setShowSubmenu(null);
+        setTabsHidden(false);
+        if ((globalConfig.compactModel ?? null) === model_2) {
+          return;
+        }
+        isDirty.current = true;
+        saveGlobalConfig(current_24 => {
+          if (model_2 === null) {
+            const {
+              compactModel,
+              ...rest
+            } = current_24;
+            return rest;
+          }
+          return {
+            ...current_24,
+            compactModel: model_2
+          };
+        });
+        setGlobalConfig(getGlobalConfig());
+        setChanges(prev_26 => ({
+          ...prev_26,
+          compactModel: compactModelDisplayString(model_2 ?? undefined)
+        }));
+        logEvent('tengu_compact_model_changed', {
+          model: model_2 as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
         });
       }} onCancel={() => {
         setShowSubmenu(null);
@@ -1821,6 +1909,10 @@ function teammateModelDisplayString(value: string | null | undefined): string {
     return modelDisplayString(getHardcodedTeammateModelFallback());
   }
   if (value === null) return "Default (leader's model)";
+  return modelDisplayString(value);
+}
+function compactModelDisplayString(value: string | undefined): string {
+  if (value === undefined) return 'Default (main model)';
   return modelDisplayString(value);
 }
 const THEME_LABELS: Record<string, string> = {

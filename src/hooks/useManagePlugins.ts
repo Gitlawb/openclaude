@@ -13,6 +13,7 @@ import {
   subscribePluginCommands,
 } from '../state/pluginCommandsStore.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
+import type { LoadedPlugin } from '../types/plugin.js'
 import { count } from '../utils/array.js'
 import { logForDebugging } from '../utils/debug.js'
 import { logForDiagnosticsNoPII } from '../utils/diagLogs.js'
@@ -26,6 +27,7 @@ import { loadPluginMcpServers } from '../utils/plugins/mcpPluginIntegration.js'
 import { detectAndUninstallDelistedPlugins } from '../utils/plugins/pluginBlocklist.js'
 import { getFlaggedPlugins } from '../utils/plugins/pluginFlagging.js'
 import { loadAllPlugins } from '../utils/plugins/pluginLoader.js'
+import type { HookMatcher, HooksSettings } from '../utils/settings/types.js'
 
 /**
  * Hook to manage plugin state and synchronize with AppState.
@@ -62,6 +64,7 @@ export function useManagePlugins({
     try {
       // Load all plugins - capture errors array
       const { enabled, disabled, errors } = await loadAllPlugins()
+      const enabledPlugins = enabled as LoadedPlugin[]
 
       // Detect delisted plugins, auto-uninstall them, and record as flagged.
       await detectAndUninstallDelistedPlugins()
@@ -130,7 +133,7 @@ export function useManagePlugins({
       // Runs BEFORE setAppState so any errors pushed by these loaders make it
       // into AppState.plugins.errors (Doctor UI), not just telemetry.
       const mcpServerCounts = await Promise.all(
-        enabled.map(async p => {
+        enabledPlugins.map(async p => {
           if (p.mcpServers) return Object.keys(p.mcpServers).length
           const servers = await loadPluginMcpServers(p, errors)
           if (servers) p.mcpServers = servers
@@ -146,7 +149,7 @@ export function useManagePlugins({
       // invalidation happened between main.tsx:3203 and REPL mount (e.g.
       // seed marketplace registration or policySettings hot-reload).
       const lspServerCounts = await Promise.all(
-        enabled.map(async p => {
+        enabledPlugins.map(async p => {
           if (p.lspServers) return Object.keys(p.lspServers).length
           const servers = await loadPluginLspServers(p, errors)
           if (servers) p.lspServers = servers
@@ -183,7 +186,7 @@ export function useManagePlugins({
           ...prevState,
           plugins: {
             ...prevState.plugins,
-            enabled,
+            enabled: enabledPlugins,
             disabled,
             commands: [],
             errors: mergedErrors,
@@ -192,15 +195,17 @@ export function useManagePlugins({
       })
 
       logForDebugging(
-        `Loaded plugins - Enabled: ${enabled.length}, Disabled: ${disabled.length}, Commands: ${commands.length}, Agents: ${agents.length}, Errors: ${errors.length}`,
+        `Loaded plugins - Enabled: ${enabledPlugins.length}, Disabled: ${disabled.length}, Commands: ${commands.length}, Agents: ${agents.length}, Errors: ${errors.length}`,
       )
 
       // Count component types across enabled plugins
-      const hook_count = enabled.reduce((sum, p) => {
+      const hook_count = enabledPlugins.reduce((sum, p) => {
         if (!p.hooksConfig) return sum
         return (
           sum +
-          Object.values(p.hooksConfig).reduce(
+          (Object.values(p.hooksConfig as HooksSettings) as Array<
+            HookMatcher[] | undefined
+          >).reduce(
             (s, matchers) =>
               s + (matchers?.reduce((h, m) => h + m.hooks.length, 0) ?? 0),
             0,
@@ -209,10 +214,10 @@ export function useManagePlugins({
       }, 0)
 
       return {
-        enabled_count: enabled.length,
+        enabled_count: enabledPlugins.length,
         disabled_count: disabled.length,
-        inline_count: count(enabled, p => p.source.endsWith('@inline')),
-        marketplace_count: count(enabled, p => !p.source.endsWith('@inline')),
+        inline_count: count(enabledPlugins, p => p.source.endsWith('@inline')),
+        marketplace_count: count(enabledPlugins, p => !p.source.endsWith('@inline')),
         error_count: errors.length,
         skill_count: commands.length,
         agent_count: agents.length,

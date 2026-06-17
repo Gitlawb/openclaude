@@ -7,6 +7,8 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 [![PR Checks](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml)
 [![Release](https://img.shields.io/github/v/tag/Gitlawb/openclaude?label=release&color=0ea5e9)](https://github.com/Gitlawb/openclaude/tags)
 [![Discussions](https://img.shields.io/badge/discussions-open-7c3aed)](https://github.com/Gitlawb/openclaude/discussions)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/k68zFR6AcB)
+[![X](https://img.shields.io/badge/X-@gitlawb-000000?logo=x&logoColor=white)](https://x.com/gitlawb)
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
@@ -70,6 +72,9 @@ OpenClaude is also mirrored to GitLawb:
 
 ### Install
 
+OpenClaude requires Node.js `>=22.0.0` for npm installs and runtime. Bun is
+only needed for source builds and local development.
+
 ```bash
 npm install -g @gitlawb/openclaude@latest
 ```
@@ -99,6 +104,31 @@ Inside OpenClaude:
 
 - run `/provider` for guided provider setup and saved profiles
 - run `/onboard-github` for GitHub Models onboarding
+
+### Background sessions
+
+Run long non-interactive prompts detached from the current terminal:
+
+```bash
+openclaude --bg "fix failing tests"
+openclaude --bg --name auth-refactor "refactor auth middleware"
+openclaude ps
+openclaude logs auth-refactor
+openclaude logs auth-refactor -f
+openclaude kill auth-refactor
+```
+
+Background sessions are local child processes. OpenClaude does not start a daemon
+or network service, and permission/provider/model/settings flags are passed to
+the child process the same way they are for a foreground `--print` run. Session
+metadata and logs are stored under the resolved OpenClaude config directory,
+usually `~/.openclaude/bg-sessions/`; `CLAUDE_CONFIG_DIR` can point OpenClaude
+somewhere else. Session names can be reused after older sessions reach a
+terminal state; use the session ID to inspect older logs with the same name.
+
+`openclaude attach <id-or-name>` currently reports the matching session and
+points to `openclaude logs <id> -f`; full terminal reattach is not implemented
+for local background sessions yet.
 
 ### Fastest OpenAI setup
 
@@ -331,6 +361,8 @@ npm run dev:grpc:cli
 
 ## Source Build And Local Development
 
+Use Node.js `>=22.0.0` and Bun `1.3.13` or newer for source builds.
+
 ```bash
 bun install
 bun run build
@@ -412,6 +444,8 @@ If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
 
 - Use [GitHub Discussions](https://github.com/Gitlawb/openclaude/discussions) for Q&A, ideas, and community conversation
 - Use [GitHub Issues](https://github.com/Gitlawb/openclaude/issues) for confirmed bugs and actionable feature work
+- Join the [Discord](https://discord.gg/k68zFR6AcB) to chat with the community in real time
+- Follow [@gitlawb on X](https://x.com/gitlawb) for updates and announcements
 
 ## Contributing
 
@@ -433,4 +467,4 @@ OpenClaude originated from the Claude Code codebase and has since been substanti
 
 ## License
 
-See [LICENSE](LICENSE).
+MIT for OpenClaude contributors' modifications; the derived Claude Code remains Anthropic's. [See more](LICENSE).

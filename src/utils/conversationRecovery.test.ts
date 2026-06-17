@@ -6,6 +6,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realUdsClient from './udsClient.js'
 import * as realProviders from './model/providers.js'
 
 const tempDirs: string[] = []
@@ -92,6 +93,9 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     mock.restore()
+    // Bun 1.3.13 can leave restored module instances visible to later test
+    // files, so re-register full exports after using partial module mocks.
+    mock.module('./udsClient.js', () => realUdsClient)
     mock.module('./model/providers.js', () => realProviders)
     if (originalSimple === undefined) {
       delete process.env.CLAUDE_CODE_SIMPLE
@@ -190,6 +194,51 @@ test('loadConversationForResume preserves goal metadata from jsonl transcript pa
   expect(result?.goal).toEqual(goal)
 })
 
+test('findResumeLogByPrSelector selects the first non-sidechain PR match', async () => {
+  const { findResumeLogByPrSelector } = await importFreshConversationRecovery()
+  const linked = {
+    date: ts,
+    messages: [user(id(12), 'linked')],
+    value: 0,
+    created: new Date(ts),
+    modified: new Date(ts),
+    firstPrompt: 'linked',
+    messageCount: 1,
+    isSidechain: false,
+    sessionId: id(12),
+    prNumber: 1642,
+    prUrl: 'https://github.com/Gitlawb/openclaude/pull/1642',
+    prRepository: 'Gitlawb/openclaude',
+  } as any
+  const sidechain = {
+    ...linked,
+    isSidechain: true,
+    sessionId: id(13),
+  } as any
+  const unrelated = {
+    ...linked,
+    sessionId: id(14),
+    prNumber: 17,
+    prUrl: 'https://github.com/Gitlawb/openclaude/pull/17',
+  } as any
+
+  expect(findResumeLogByPrSelector([sidechain, linked, unrelated], true)).toBe(
+    linked,
+  )
+  expect(
+    findResumeLogByPrSelector([sidechain, linked, unrelated], '1642'),
+  ).toBe(linked)
+  expect(
+    findResumeLogByPrSelector(
+      [sidechain, linked, unrelated],
+      'https://github.com/Gitlawb/openclaude/pull/1642',
+    ),
+  ).toBe(linked)
+  expect(
+    findResumeLogByPrSelector([sidechain, linked, unrelated], 'missing'),
+  ).toBeNull()
+})
+
 test('loadConversationForResume rejects oversized reconstructed transcripts', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
   const hugeContent = 'x'.repeat(8 * 1024 * 1024 + 32 * 1024)
@@ -210,6 +259,80 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
   expect((caught as Error).message).toContain(
     'Reconstructed transcript is too large to resume safely',
   )
+})
+
+test('collectLiveBackgroundSessionIds includes local registry sessions when UDS is empty', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const liveSessionId = '00000000-0000-4000-8000-000000000111'
+  const staleSessionId = '00000000-0000-4000-8000-000000000222'
+  const { collectLiveBackgroundSessionIds } =
+    await importFreshConversationRecovery()
+
+  expect(
+    await collectLiveBackgroundSessionIds({
+      listAllLiveSessions: async () => [],
+      refreshBackgroundSessionStatuses: async () => [
+        {
+          sessionId: liveSessionId,
+          status: 'running',
+        },
+        {
+          sessionId: staleSessionId,
+          status: 'stale',
+        },
+      ],
+      isTerminalBackgroundSession: session => session.status !== 'running',
+    }),
+  ).toEqual(new Set([liveSessionId]))
+})
+
+test('collectLiveBackgroundSessionIds falls back to registry sessions when UDS fails', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const liveSessionId = '00000000-0000-4000-8000-000000000333'
+  const { collectLiveBackgroundSessionIds } =
+    await importFreshConversationRecovery()
+
+  expect(
+    await collectLiveBackgroundSessionIds({
+      listAllLiveSessions: async () => {
+        throw new Error('UDS unavailable')
+      },
+      refreshBackgroundSessionStatuses: async () => [
+        {
+          sessionId: liveSessionId,
+          status: 'running',
+        },
+      ],
+      isTerminalBackgroundSession: session => session.status !== 'running',
+    }),
+  ).toEqual(new Set([liveSessionId]))
+})
+
+test('collectLiveBackgroundSessionIds falls back to UDS sessions when registry refresh fails', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  const liveSessionId = '00000000-0000-4000-8000-000000000444'
+  const interactiveSessionId = '00000000-0000-4000-8000-000000000555'
+  const { collectLiveBackgroundSessionIds } =
+    await importFreshConversationRecovery()
+
+  expect(
+    await collectLiveBackgroundSessionIds({
+      listAllLiveSessions: async () => [
+        {
+          kind: 'background',
+          sessionId: liveSessionId,
+        },
+        {
+          kind: 'interactive',
+          sessionId: interactiveSessionId,
+        },
+      ],
+      refreshBackgroundSessionStatuses: async () => {
+        throw new Error('Registry unavailable')
+      },
+      isTerminalBackgroundSession: session => session.status !== 'running',
+    }),
+  ).toEqual(new Set([liveSessionId]))
 })
 
 test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', async () => {

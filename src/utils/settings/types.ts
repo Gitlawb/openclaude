@@ -218,7 +218,7 @@ export const DeniedMcpServerEntrySchema = lazySchema(() =>
  *
  * ⚠️ BACKWARD COMPATIBILITY NOTICE ⚠️
  *
- * This schema defines the structure of user settings files (.claude/settings.json).
+ * This schema defines the structure of user settings files (~/.openclaude/settings.json).
  * We support backward-compatible changes! Here's how:
  *
  * ✅ ALLOWED CHANGES:
@@ -619,7 +619,7 @@ export const SettingsSchema = lazySchema(() =>
         })
         .optional()
         .describe(
-          'Additional marketplaces to make available for this repository. Typically used in repository .claude/settings.json to ensure team members have required plugin sources.',
+          'Additional marketplaces to make available for this repository. Typically used in repository .openclaude/settings.json to ensure team members have required plugin sources.',
         ),
       // Enterprise strict list of allowed marketplace sources (policy settings only)
       // When set, ONLY these exact sources can be added. Check happens BEFORE download.
@@ -1015,13 +1015,26 @@ export const SettingsSchema = lazySchema(() =>
         .boolean()
         .optional()
         .describe(
-          'Enable auto-memory for this project. When false, Claude will not read from or write to the auto-memory directory.',
+          'Enable auto-memory for this project. When false, Claude will not read from or write to the auto-memory directory. Equivalent to `memory.autoWrite` — see that setting for the governance-focused shape requested in #1326.',
+        ),
+      memory: z
+        .object({
+          autoWrite: z
+            .boolean()
+            .optional()
+            .describe(
+              'When false, disables auto-memory reads and writes for this project. Discoverable alias for `autoMemoryEnabled`; the two are equivalent and either one can be used to opt out for governance / regulated / client-sensitive repos (issue #1326). When both are set, the more restrictive (false) value wins so a parent-scope opt-out cannot be silently re-enabled by a narrower scope.',
+            ),
+        })
+        .optional()
+        .describe(
+          'Memory governance settings. Currently exposes `autoWrite` as the discoverable shape requested in #1326; further opt-in fields (e.g. approval gates) may be added under this namespace without taking a new top-level key each time.',
         ),
       autoMemoryDirectory: z
         .string()
         .optional()
         .describe(
-          'Custom directory path for auto-memory storage. Supports ~/ prefix for home directory expansion. Ignored if set in projectSettings (checked-in .claude/settings.json) for security. When unset, defaults to ~/.claude/projects/<sanitized-cwd>/memory/.',
+          'Custom directory path for auto-memory storage. Supports ~/ prefix for home directory expansion. Ignored if set in projectSettings (checked-in .openclaude/settings.json) for security. When unset, defaults to ~/.openclaude/projects/<sanitized-cwd>/memory/.',
         ),
       autoDreamEnabled: z
         .boolean()
