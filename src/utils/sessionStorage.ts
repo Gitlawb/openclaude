@@ -25,6 +25,7 @@ import {
   getOriginalCwd,
   getPlanSlugCache,
   getPromptId,
+  getReplayIndexBuilder,
   getSessionId,
   getSessionProjectDir,
   isSessionPersistenceDisabled,
@@ -466,11 +467,43 @@ function getProject(): Project {
         } catch {
           // Best-effort — don't let metadata re-append crash the cleanup
         }
+
+        if (!shouldSkipSessionPersistence()) {
+          // Write replay index if available
+          try {
+            const { resetAllReplayIndexBuilders } = await import('src/bootstrap/state.js')
+            const { writeReplayIndex } = await import('./replayIndex.js')
+            for (const { sessionId, builder, projectDir } of resetAllReplayIndexBuilders()) {
+              const transcriptPath = projectDir
+                ? join(projectDir, `${sessionId}.jsonl`)
+                : getTranscriptPathForSession(sessionId)
+              const index = builder.build(sessionId)
+              await writeReplayIndex(sessionId, transcriptPath, index)
+            }
+          } catch {
+            // Best-effort — don't let replay index writing crash the cleanup
+          }
+        }
       })
       cleanupRegistered = true
     }
   }
   return project
+}
+
+function shouldSkipSessionPersistence(): boolean {
+  const allowTestPersistence = isEnvTruthy(
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE,
+  )
+  if (allowTestPersistence) {
+    return false
+  }
+  return (
+    getNodeEnv() === 'test' ||
+    getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
+    isSessionPersistenceDisabled() ||
+    isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
+  )
 }
 
 /**
@@ -977,18 +1010,7 @@ class Project {
    * test sessions don't pollute the user's --resume list.
    */
   private shouldSkipPersistence(): boolean {
-    const allowTestPersistence = isEnvTruthy(
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE,
-    )
-    if (allowTestPersistence) {
-      return false
-    }
-    return (
-      getNodeEnv() === 'test' ||
-      getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
-      isSessionPersistenceDisabled() ||
-      isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
-    )
+    return shouldSkipSessionPersistence()
   }
 
   /**
@@ -1085,6 +1107,46 @@ class Project {
           slug,
         }
         await this.appendEntry(transcriptMessage)
+        if (!isSidechain && message.type === 'user') {
+          const content = getFirstMeaningfulUserMessageTextContent([message])
+          if (content) {
+            try {
+              getReplayIndexBuilder().trackUserMessage(
+                content,
+                message.timestamp ?? new Date().toISOString(),
+              )
+            } catch {
+              // Replay tracking is best-effort and must not affect transcript writes.
+            }
+          }
+        }
+        if (!isSidechain && message.type === 'system') {
+          try {
+            if (message.subtype === 'api_error') {
+              getReplayIndexBuilder().trackRetry(
+                'api',
+                message.error.message || `API error ${message.error.status ?? ''}`.trim(),
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  attempt: message.retryAttempt,
+                  maxRetries: message.maxRetries,
+                  retryDelayMs: message.retryInMs,
+                },
+              )
+            } else if (message.subtype === 'permission_retry') {
+              getReplayIndexBuilder().trackRetry(
+                'permission',
+                message.content,
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  commands: message.commands,
+                },
+              )
+            }
+          } catch {
+            // Replay tracking is best-effort and must not affect transcript writes.
+          }
+        }
         if (isChainParticipant(message)) {
           parentUuid = message.uuid
         }

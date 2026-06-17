@@ -4,16 +4,11 @@ import { z } from 'zod/v4'
 import { SkillTool } from '../../tools/SkillTool/SkillTool.js'
 import { AskUserQuestionTool } from '../../tools/AskUserQuestionTool/AskUserQuestionTool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
-import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
-import { createToolFixture } from '../../test/toolFixtures.js'
+import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
+import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
+import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
 import {
-  getEmptyToolPermissionContext,
-  type Tool,
-  type ToolUseContext,
-} from '../../Tool.js'
-import type { AssistantMessage } from '../../types/message.js'
-import { QueryLifecycleOperationTracker } from '../../utils/queryLifecycle.js'
-import {
+  getReplayModifiedFiles,
   getSchemaValidationErrorOverride,
   getSchemaValidationToolUseResult,
   type MessageUpdateLazy,
@@ -113,202 +108,31 @@ describe('getSchemaValidationErrorOverride', () => {
   })
 })
 
-describe('runToolUse lifecycle tracking', () => {
-  test('tracks the tool use while async input validation is pending and clears it on validation failure', async () => {
-    const queryLifecycle = new QueryLifecycleOperationTracker()
-    const snapshots: ReturnType<QueryLifecycleOperationTracker['snapshot']>[] =
-      []
-    const tool = createToolFixture(lifecycleToolInputSchema, {
-      name: 'LifecycleTestTool',
-      async validateInput() {
-        snapshots.push(queryLifecycle.snapshot())
-        return {
-          result: false,
-          message: 'blocked by validation',
-          errorCode: 123,
-        }
-      },
-      async call() {
-        throw new Error('call should not run after validation failure')
-      },
-    })
-    const toolUseContext = makeToolUseContext([tool], queryLifecycle)
-    const canUseTool = (async () => ({
-      behavior: 'allow',
-    })) as CanUseToolFn
-
-    const updates = await collectToolUseUpdates(
-      tool,
-      { command: 'echo hi', timeout: 1234 },
-      canUseTool,
-      toolUseContext,
-    )
-
-    expect(updates).toHaveLength(1)
-    expect(snapshots).toHaveLength(1)
-    expect(snapshots[0]?.apiCalls).toEqual([])
-    expect(snapshots[0]?.toolUses).toHaveLength(1)
-    expect(snapshots[0]?.toolUses[0]).toMatchObject({
-      toolUseId: 'tool-use-1',
-      toolName: 'LifecycleTestTool',
-    })
-    expect(typeof snapshots[0]?.toolUses[0]?.startedAt).toBe('number')
-    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+describe('getReplayModifiedFiles', () => {
+  test('captures file-editing tool paths', () => {
+    expect(
+      getReplayModifiedFiles(FILE_EDIT_TOOL_NAME, { file_path: 'src/a.ts' }),
+    ).toEqual(['src/a.ts'])
+    expect(
+      getReplayModifiedFiles(FILE_WRITE_TOOL_NAME, { file_path: 'src/b.ts' }),
+    ).toEqual(['src/b.ts'])
+    expect(
+      getReplayModifiedFiles(NOTEBOOK_EDIT_TOOL_NAME, {
+        notebook_path: 'notebooks/a.ipynb',
+      }),
+    ).toEqual(['notebooks/a.ipynb'])
   })
 
-  test('tracks Bash timeout metadata while async input validation is pending', async () => {
-    const queryLifecycle = new QueryLifecycleOperationTracker()
-    const snapshots: ReturnType<QueryLifecycleOperationTracker['snapshot']>[] =
-      []
-    const tool = createToolFixture(lifecycleToolInputSchema, {
-      name: BASH_TOOL_NAME,
-      async validateInput() {
-        snapshots.push(queryLifecycle.snapshot())
-        return {
-          result: false,
-          message: 'blocked by validation',
-          errorCode: 123,
-        }
-      },
-      async call() {
-        throw new Error('call should not run after validation failure')
-      },
-    })
-    const toolUseContext = makeToolUseContext([tool], queryLifecycle)
-    const canUseTool = (async () => ({
-      behavior: 'allow',
-    })) as CanUseToolFn
-
-    await collectToolUseUpdates(
-      tool,
-      { command: 'sleep 1', timeout: 4321 },
-      canUseTool,
-      toolUseContext,
-    )
-
-    expect(snapshots).toHaveLength(1)
-    expect(snapshots[0]?.toolUses).toHaveLength(1)
-    expect(snapshots[0]?.toolUses[0]).toMatchObject({
-      toolUseId: 'tool-use-1',
-      toolName: BASH_TOOL_NAME,
-      isBash: true,
-      timeoutMs: 4321,
-    })
-    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
-  })
-
-  test('tracks the tool use while permission resolution is pending and clears it on denial', async () => {
-    const queryLifecycle = new QueryLifecycleOperationTracker()
-    const snapshots: ReturnType<QueryLifecycleOperationTracker['snapshot']>[] =
-      []
-    const tool = createToolFixture(lifecycleToolInputSchema, {
-      name: 'LifecyclePermissionTool',
-      async validateInput() {
-        return { result: true }
-      },
-      async call() {
-        throw new Error('call should not run after permission denial')
-      },
-    })
-    const toolUseContext = makeToolUseContext([tool], queryLifecycle)
-    const canUseTool = (async () => {
-      snapshots.push(queryLifecycle.snapshot())
-      return {
-        behavior: 'deny',
-        message: 'denied by test',
-        decisionReason: {
-          type: 'other',
-          reason: 'denied by test',
+  test('captures Bash simulated sed edit paths', () => {
+    expect(
+      getReplayModifiedFiles(BASH_TOOL_NAME, {
+        command: "sed -i 's/a/b/' src/a.ts",
+        _simulatedSedEdit: {
+          filePath: 'src/a.ts',
+          newContent: 'updated',
         },
-      }
-    }) as CanUseToolFn
-
-    const previousSimpleMode = process.env.CLAUDE_CODE_SIMPLE
-    process.env.CLAUDE_CODE_SIMPLE = '1'
-    let updates: Awaited<ReturnType<typeof collectToolUseUpdates>>
-    try {
-      updates = await collectToolUseUpdates(
-        tool,
-        { command: 'echo hi' },
-        canUseTool,
-        toolUseContext,
-      )
-    } finally {
-      if (previousSimpleMode === undefined) {
-        delete process.env.CLAUDE_CODE_SIMPLE
-      } else {
-        process.env.CLAUDE_CODE_SIMPLE = previousSimpleMode
-      }
-    }
-
-    expect(updates).toHaveLength(1)
-    expect(snapshots).toHaveLength(1)
-    expect(snapshots[0]?.apiCalls).toEqual([])
-    expect(snapshots[0]?.toolUses).toHaveLength(1)
-    expect(snapshots[0]?.toolUses[0]).toMatchObject({
-      toolUseId: 'tool-use-1',
-      toolName: 'LifecyclePermissionTool',
-    })
-    expect(typeof snapshots[0]?.toolUses[0]?.startedAt).toBe('number')
-    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
-  })
-
-  test('refreshes Bash timeout metadata after permission input rewrites', async () => {
-    const queryLifecycle = new QueryLifecycleOperationTracker()
-    const permissionSnapshots: ReturnType<
-      QueryLifecycleOperationTracker['snapshot']
-    >[] = []
-    const callSnapshots: ReturnType<QueryLifecycleOperationTracker['snapshot']>[] =
-      []
-    const tool = createToolFixture(lifecycleToolInputSchema, {
-      name: BASH_TOOL_NAME,
-      async validateInput() {
-        return { result: true }
-      },
-      async call(input) {
-        callSnapshots.push(queryLifecycle.snapshot())
-        expect(input).toMatchObject({
-          command: 'sleep 2',
-          timeout: 2222,
-        })
-        return { data: 'ok' }
-      },
-    })
-    const toolUseContext = makeToolUseContext([tool], queryLifecycle)
-    const canUseTool = (async () => {
-      permissionSnapshots.push(queryLifecycle.snapshot())
-      return {
-        behavior: 'allow',
-        updatedInput: { command: 'sleep 2', timeout: 2222 },
-        decisionReason: {
-          type: 'other',
-          reason: 'allowed by test',
-        },
-      }
-    }) as CanUseToolFn
-
-    await collectToolUseUpdates(
-      tool,
-      { command: 'sleep 1', timeout: 1111 },
-      canUseTool,
-      toolUseContext,
-    )
-
-    expect(permissionSnapshots).toHaveLength(1)
-    expect(permissionSnapshots[0]?.toolUses[0]).toMatchObject({
-      toolUseId: 'tool-use-1',
-      toolName: BASH_TOOL_NAME,
-      isBash: true,
-      timeoutMs: 1111,
-    })
-    expect(callSnapshots).toHaveLength(1)
-    expect(callSnapshots[0]?.toolUses[0]).toMatchObject({
-      toolUseId: 'tool-use-1',
-      toolName: BASH_TOOL_NAME,
-      isBash: true,
-      timeoutMs: 2222,
-    })
-    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+      }),
+    ).toEqual(['src/a.ts'])
   })
 })
 

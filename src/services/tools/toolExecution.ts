@@ -20,6 +20,7 @@ import {
 } from 'src/services/analytics/metadata.js'
 import {
   addToToolDuration,
+  getReplayIndexBuilder,
   getStatsStore,
 } from '../../bootstrap/state.js'
 import {
@@ -127,6 +128,37 @@ export const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 500
 /** Log a debug warning when hooks/permission-decision block for this long. Matches
  * BashTool's PROGRESS_THRESHOLD_MS — the collapsed view feels stuck past this. */
 const SLOW_PHASE_LOG_THRESHOLD_MS = 2000
+
+export function getReplayModifiedFiles(
+  toolName: string,
+  input: unknown,
+): string[] | undefined {
+  if (!input || typeof input !== 'object') {
+    return undefined
+  }
+
+  const record = input as Record<string, unknown>
+  const path =
+    toolName === NOTEBOOK_EDIT_TOOL_NAME
+      ? record.notebook_path
+      : toolName === BASH_TOOL_NAME
+        ? getReplayBashModifiedFile(record)
+      : toolName === FILE_EDIT_TOOL_NAME || toolName === FILE_WRITE_TOOL_NAME
+        ? record.file_path
+        : undefined
+
+  return typeof path === 'string' && path.length > 0 ? [path] : undefined
+}
+
+function getReplayBashModifiedFile(
+  input: Record<string, unknown>,
+): unknown {
+  const simulatedSedEdit = input._simulatedSedEdit
+  if (!simulatedSedEdit || typeof simulatedSedEdit !== 'object') {
+    return undefined
+  }
+  return (simulatedSedEdit as Record<string, unknown>).filePath
+}
 
 /**
  * Classify a tool execution error into a telemetry-safe string.
@@ -756,8 +788,399 @@ async function checkPermissionsAndCallTool(
     ]
   }
 
-  const lifecycleStartTime = Date.now()
-  function getLifecycleBashTimeoutMs(input: unknown): number | undefined {
+  // Validate input values. Each tool has its own validation logic
+  const isValidCall = await tool.validateInput?.(
+    parsedInput.data,
+    toolUseContext,
+  )
+  if (isValidCall?.result === false) {
+    logForDebugging(
+      `${tool.name} tool validation error: ${isValidCall.message?.slice(0, 200)}`,
+    )
+    logEvent('tengu_tool_use_error', {
+      messageID:
+        messageId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      toolName: sanitizeToolNameForAnalytics(tool.name),
+      error:
+        isValidCall.message as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      errorCode: isValidCall.errorCode,
+      isMcp: tool.isMcp ?? false,
+
+      queryChainId: toolUseContext.queryTracking
+        ?.chainId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      queryDepth: toolUseContext.queryTracking?.depth,
+      ...(mcpServerType && {
+        mcpServerType:
+          mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...(mcpServerBaseUrl && {
+        mcpServerBaseUrl:
+          mcpServerBaseUrl as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...(requestId && {
+        requestId:
+          requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...mcpToolDetailsForAnalytics(tool.name, mcpServerType, mcpServerBaseUrl),
+    })
+    return [
+      {
+        message: createUserMessage({
+          content: [
+            {
+              type: 'tool_result',
+              content: `<tool_use_error>${isValidCall.message}</tool_use_error>`,
+              is_error: true,
+              tool_use_id: toolUseID,
+            },
+          ],
+          toolUseResult: `Error: ${isValidCall.message}`,
+          sourceToolAssistantUUID: assistantMessage.uuid,
+        }),
+      },
+    ]
+  }
+  // Speculatively start the bash allow classifier check early so it runs in
+  // parallel with pre-tool hooks, deny/ask classifiers, and permission dialog
+  // setup. The UI indicator (setClassifierChecking) is NOT set here — it's
+  // set in interactiveHandler.ts only when the permission check returns `ask`
+  // with a pendingClassifierCheck. This avoids flashing "classifier running"
+  // for commands that auto-allow via prefix rules.
+  if (
+    tool.name === BASH_TOOL_NAME &&
+    parsedInput.data &&
+    'command' in parsedInput.data
+  ) {
+    const appState = toolUseContext.getAppState()
+    startSpeculativeClassifierCheck(
+      (parsedInput.data as BashToolInput).command,
+      appState.toolPermissionContext,
+      toolUseContext.abortController.signal,
+      toolUseContext.options.isNonInteractiveSession,
+    )
+  }
+
+  const resultingMessages: MessageUpdateLazy[] = []
+
+  // Defense-in-depth: strip _simulatedSedEdit from model-provided Bash input.
+  // This field is internal-only — it must only be injected by the permission
+  // system (SedEditPermissionRequest) after user approval. If the model supplies
+  // it, the schema's strictObject should already reject it, but we strip here
+  // as a safeguard against future regressions.
+  let processedInput = parsedInput.data
+  if (
+    tool.name === BASH_TOOL_NAME &&
+    processedInput &&
+    typeof processedInput === 'object' &&
+    '_simulatedSedEdit' in processedInput
+  ) {
+    const { _simulatedSedEdit: _, ...rest } =
+      processedInput as typeof processedInput & {
+        _simulatedSedEdit: unknown
+      }
+    processedInput = rest as typeof processedInput
+  }
+
+  // Backfill legacy/derived fields on a shallow clone so hooks/canUseTool see
+  // them without affecting tool.call(). SendMessageTool adds fields; file
+  // tools overwrite file_path with expandPath — that mutation must not reach
+  // call() because tool results embed the input path verbatim (e.g. "File
+  // created successfully at: {path}"), and changing it alters the serialized
+  // transcript and VCR fixture hashes. If a hook/permission later returns a
+  // fresh updatedInput, callInput converges on it below — that replacement
+  // is intentional and should reach call().
+  let callInput = processedInput
+  const backfilledClone =
+    tool.backfillObservableInput &&
+    typeof processedInput === 'object' &&
+    processedInput !== null
+      ? ({ ...processedInput } as typeof processedInput)
+      : null
+  if (backfilledClone) {
+    tool.backfillObservableInput!(backfilledClone as Record<string, unknown>)
+    processedInput = backfilledClone
+  }
+
+  let shouldPreventContinuation = false
+  let stopReason: string | undefined
+  let hookPermissionResult: PermissionResult | undefined
+  const preToolHookInfos: StopHookInfo[] = []
+  const preToolHookStart = Date.now()
+  for await (const result of runPreToolUseHooks(
+    toolUseContext,
+    tool,
+    processedInput,
+    toolUseID,
+    assistantMessage.message.id,
+    requestId,
+    mcpServerType,
+    mcpServerBaseUrl,
+  )) {
+    switch (result.type) {
+      case 'message':
+        if (result.message.message.type === 'progress') {
+          onToolProgress(result.message.message)
+        } else {
+          resultingMessages.push(result.message)
+          const att = result.message.message.attachment
+          if (
+            att &&
+            'command' in att &&
+            att.command !== undefined &&
+            'durationMs' in att &&
+            att.durationMs !== undefined
+          ) {
+            preToolHookInfos.push({
+              command: att.command,
+              durationMs: att.durationMs,
+            })
+          }
+        }
+        break
+      case 'hookPermissionResult':
+        hookPermissionResult = result.hookPermissionResult
+        break
+      case 'hookUpdatedInput':
+        // Hook provided updatedInput without making a permission decision (passthrough)
+        // Update processedInput so it's used in the normal permission flow
+        processedInput = result.updatedInput
+        break
+      case 'preventContinuation':
+        shouldPreventContinuation = result.shouldPreventContinuation
+        break
+      case 'stopReason':
+        stopReason = result.stopReason
+        break
+      case 'additionalContext':
+        resultingMessages.push(result.message)
+        break
+      case 'stop':
+        getStatsStore()?.observe(
+          'pre_tool_hook_duration_ms',
+          Date.now() - preToolHookStart,
+        )
+        resultingMessages.push({
+          message: createUserMessage({
+            content: [createToolResultStopMessage(toolUseID)],
+            toolUseResult: `Error: ${stopReason}`,
+            sourceToolAssistantUUID: assistantMessage.uuid,
+          }),
+        })
+        return resultingMessages
+    }
+  }
+  const preToolHookDurationMs = Date.now() - preToolHookStart
+  getStatsStore()?.observe('pre_tool_hook_duration_ms', preToolHookDurationMs)
+  if (preToolHookDurationMs >= SLOW_PHASE_LOG_THRESHOLD_MS) {
+    logForDebugging(
+      `Slow PreToolUse hooks: ${preToolHookDurationMs}ms for ${tool.name} (${preToolHookInfos.length} hooks)`,
+      { level: 'info' },
+    )
+  }
+
+  // Emit PreToolUse summary immediately so it's visible while the tool executes.
+  // Use wall-clock time (not sum of individual durations) since hooks run in parallel.
+  if (process.env.USER_TYPE === 'ant' && preToolHookInfos.length > 0) {
+    if (preToolHookDurationMs > HOOK_TIMING_DISPLAY_THRESHOLD_MS) {
+      resultingMessages.push({
+        message: createStopHookSummaryMessage(
+          preToolHookInfos.length,
+          preToolHookInfos,
+          [],
+          false,
+          undefined,
+          false,
+          'suggestion',
+          undefined,
+          'PreToolUse',
+          preToolHookDurationMs,
+        ),
+      })
+    }
+  }
+
+  const toolAttributes: Record<string, string | number | boolean> = {}
+  if (processedInput && typeof processedInput === 'object') {
+    if (tool.name === FILE_READ_TOOL_NAME && 'file_path' in processedInput) {
+      toolAttributes.file_path = String(processedInput.file_path)
+    } else if (
+      (tool.name === FILE_EDIT_TOOL_NAME ||
+        tool.name === FILE_WRITE_TOOL_NAME) &&
+      'file_path' in processedInput
+    ) {
+      toolAttributes.file_path = String(processedInput.file_path)
+    } else if (tool.name === BASH_TOOL_NAME && 'command' in processedInput) {
+      const bashInput = processedInput as BashToolInput
+      toolAttributes.full_command = bashInput.command
+    }
+  }
+
+  // Check whether we have permission to use the tool,
+  // and ask the user for permission if we don't
+  const permissionMode = toolUseContext.getAppState().toolPermissionContext.mode
+  const permissionStart = Date.now()
+
+  const resolved = await resolveHookPermissionDecision(
+    hookPermissionResult,
+    tool,
+    processedInput,
+    toolUseContext,
+    canUseTool,
+    assistantMessage,
+    toolUseID,
+  )
+  const permissionDecision = resolved.decision
+  processedInput = resolved.input
+  const permissionDurationMs = Date.now() - permissionStart
+  let replayStarted = false
+
+  // Track tool execution for replay index after hooks have finalized input,
+  // but before permission denial can return early.
+  try {
+    const replayBuilder = getReplayIndexBuilder()
+    replayBuilder.trackToolStart(
+      toolUseID,
+      tool.name,
+      processedInput as Record<string, unknown>,
+    )
+    replayStarted = true
+  } catch {
+    // Ignore errors in replay tracking - don't break tool execution
+  }
+
+  // In auto mode, canUseTool awaits the classifier (side_query) — if that's
+  // slow the collapsed view shows "Running…" with no (Ns) tick since
+  // bash_progress hasn't started yet. Auto-only: in default mode this timer
+  // includes interactive-dialog wait (user think time), which is just noise.
+  if (
+    permissionDurationMs >= SLOW_PHASE_LOG_THRESHOLD_MS &&
+    permissionMode === 'auto'
+  ) {
+    logForDebugging(
+      `Slow permission decision: ${permissionDurationMs}ms for ${tool.name} ` +
+        `(mode=${permissionMode}, behavior=${permissionDecision.behavior})`,
+      { level: 'info' },
+    )
+  }
+
+  // Emit tool_decision OTel event and code-edit counter if the interactive
+  // permission path didn't already log it (headless mode bypasses permission
+  // logging, so we need to emit both the generic event and the code-edit
+  // counter here)
+  if (
+    permissionDecision.behavior !== 'ask' &&
+    !toolUseContext.toolDecisions?.has(toolUseID)
+  ) {
+    const decision =
+      permissionDecision.behavior === 'allow' ? 'accept' : 'reject'
+    const source = decisionReasonToOTelSource(
+      permissionDecision.decisionReason,
+      permissionDecision.behavior,
+    )
+  }
+
+  // Add message if permission was granted/denied by PermissionRequest hook
+  if (
+    permissionDecision.decisionReason?.type === 'hook' &&
+    permissionDecision.decisionReason.hookName === 'PermissionRequest' &&
+    permissionDecision.behavior !== 'ask'
+  ) {
+    resultingMessages.push({
+      message: createAttachmentMessage({
+        type: 'hook_permission_decision',
+        decision: permissionDecision.behavior,
+        toolUseID,
+        hookEvent: 'PermissionRequest',
+      }),
+    })
+  }
+
+  if (permissionDecision.behavior !== 'allow') {
+    logForDebugging(`${tool.name} tool permission denied`)
+    const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
+
+    // Track permission denied for replay index
+    try {
+      const replayBuilder = getReplayIndexBuilder()
+      replayBuilder.trackToolEnd(toolUseID, tool.name, 'permission_denied', permissionDecision.message)
+    } catch {
+      // Ignore errors in replay tracking
+    }
+
+    logEvent('tengu_tool_use_can_use_tool_rejected', {
+      messageID:
+        messageId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      toolName: sanitizeToolNameForAnalytics(tool.name),
+
+      queryChainId: toolUseContext.queryTracking
+        ?.chainId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      queryDepth: toolUseContext.queryTracking?.depth,
+      ...(mcpServerType && {
+        mcpServerType:
+          mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...(mcpServerBaseUrl && {
+        mcpServerBaseUrl:
+          mcpServerBaseUrl as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...(requestId && {
+        requestId:
+          requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...mcpToolDetailsForAnalytics(tool.name, mcpServerType, mcpServerBaseUrl),
+    })
+    let errorMessage = permissionDecision.message
+    // Only use generic "Execution stopped" message if we don't have a detailed hook message
+    if (shouldPreventContinuation && !errorMessage) {
+      errorMessage = `Execution stopped by PreToolUse hook${stopReason ? `: ${stopReason}` : ''}`
+    }
+
+    // Build top-level content: tool_result (text-only for is_error compatibility) + images alongside
+    const messageContent: ContentBlockParam[] = [
+      {
+        type: 'tool_result',
+        content: errorMessage,
+        is_error: true,
+        tool_use_id: toolUseID,
+      },
+    ]
+
+    // Add image blocks at top level (not inside tool_result, which rejects non-text with is_error)
+    const rejectContentBlocks =
+      permissionDecision.behavior === 'ask'
+        ? permissionDecision.contentBlocks
+        : undefined
+    if (rejectContentBlocks?.length) {
+      messageContent.push(...rejectContentBlocks)
+    }
+
+    // Generate sequential imagePasteIds so each image renders with a distinct label
+    let rejectImageIds: number[] | undefined
+    if (rejectContentBlocks?.length) {
+      const imageCount = count(
+        rejectContentBlocks,
+        (b: ContentBlockParam) => b.type === 'image',
+      )
+      if (imageCount > 0) {
+        const startId = getNextImagePasteId(toolUseContext.messages)
+        rejectImageIds = Array.from(
+          { length: imageCount },
+          (_, i) => startId + i,
+        )
+      }
+    }
+
+    resultingMessages.push({
+      message: createUserMessage({
+        content: messageContent,
+        imagePasteIds: rejectImageIds,
+        toolUseResult: `Error: ${errorMessage}`,
+        sourceToolAssistantUUID: assistantMessage.uuid,
+      }),
+    })
+
+    // Run PermissionDenied hooks for auto mode classifier denials.
+    // If a hook returns {retry: true}, tell the model it may retry.
     if (
       tool.name !== BASH_TOOL_NAME ||
       !input ||
@@ -784,15 +1207,361 @@ async function checkPermissionsAndCallTool(
 
   trackLifecycleToolUse(parsedInput.data)
   try {
-    // Validate input values. Each tool has its own validation logic
-    const isValidCall = await tool.validateInput?.(
-      parsedInput.data,
+    const queryActivityLeaseInput = createToolQueryLeaseInput(
+      tool.name,
+      toolUseID,
+      callInput,
+    )
+    queryActivityLease = queryActivityLeaseInput
+      ? toolUseContext.queryActivity?.acquireLease(queryActivityLeaseInput)
+      : undefined
+    toolUseContext.queryActivity?.registerActivity(`tool:${tool.name}:start`)
+
+    const result = await tool.call(
+      callInput,
+      {
+        ...toolUseContext,
+        toolUseId: toolUseID,
+        hookChainsCanUseTool: canUseTool,
+        userModified: permissionDecision.userModified ?? false,
+      },
+      canUseTool,
+      assistantMessage,
+      progress => {
+        toolUseContext.queryActivity?.registerActivity(
+          `tool:${tool.name}:progress`,
+        )
+        onToolProgress({
+          toolUseID: progress.toolUseID,
+          data: progress.data,
+        })
+      },
+    )
+    const durationMs = Date.now() - startTime
+    addToToolDuration(durationMs)
+
+    // Track successful tool execution for replay index
+    try {
+      const replayBuilder = getReplayIndexBuilder()
+      const resultPreview = typeof result.data === 'string' ? result.data.slice(0, 200) : undefined
+      if (!replayStarted) {
+        replayBuilder.trackToolStart(
+          toolUseID,
+          tool.name,
+          callInput as Record<string, unknown>,
+        )
+      }
+      replayBuilder.trackToolEnd(
+        toolUseID,
+        tool.name,
+        'success',
+        resultPreview,
+        getReplayModifiedFiles(tool.name, callInput),
+      )
+    } catch {
+      // Ignore errors in replay tracking
+    }
+
+    // Capture structured output from tool result if present
+    if (typeof result === 'object' && 'structured_output' in result) {
+      // Store the structured output in an attachment message
+      resultingMessages.push({
+        message: createAttachmentMessage({
+          type: 'structured_output',
+          data: result.structured_output,
+        }),
+      })
+    }
+
+    // Map the tool result to API format once and cache it. This block is reused
+    // by addToolResult (skipping the remap) and measured here for analytics.
+    const mappedToolResultBlock = tool.mapToolResultToToolResultBlockParam(
+      result.data,
+      toolUseID,
+    )
+    const mappedContent = mappedToolResultBlock.content
+    const toolResultSizeBytes = !mappedContent
+      ? 0
+      : typeof mappedContent === 'string'
+        ? mappedContent.length
+        : jsonStringify(mappedContent).length
+
+    // Extract file extension for file-related tools
+    let fileExtension: ReturnType<typeof getFileExtensionForAnalytics>
+    if (processedInput && typeof processedInput === 'object') {
+      if (
+        (tool.name === FILE_READ_TOOL_NAME ||
+          tool.name === FILE_EDIT_TOOL_NAME ||
+          tool.name === FILE_WRITE_TOOL_NAME) &&
+        'file_path' in processedInput
+      ) {
+        fileExtension = getFileExtensionForAnalytics(
+          String(processedInput.file_path),
+        )
+      } else if (
+        tool.name === NOTEBOOK_EDIT_TOOL_NAME &&
+        'notebook_path' in processedInput
+      ) {
+        fileExtension = getFileExtensionForAnalytics(
+          String(processedInput.notebook_path),
+        )
+      } else if (tool.name === BASH_TOOL_NAME && 'command' in processedInput) {
+        const bashInput = processedInput as BashToolInput
+        fileExtension = getFileExtensionsFromBashCommand(
+          bashInput.command,
+          bashInput._simulatedSedEdit?.filePath,
+        )
+      }
+    }
+
+    logEvent('tengu_tool_use_success', {
+      messageID:
+        messageId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      toolName: sanitizeToolNameForAnalytics(tool.name),
+      isMcp: tool.isMcp ?? false,
+      durationMs,
+      preToolHookDurationMs,
+      toolResultSizeBytes,
+      ...(fileExtension !== undefined && { fileExtension }),
+
+      queryChainId: toolUseContext.queryTracking
+        ?.chainId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      queryDepth: toolUseContext.queryTracking?.depth,
+      ...(mcpServerType && {
+        mcpServerType:
+          mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...(mcpServerBaseUrl && {
+        mcpServerBaseUrl:
+          mcpServerBaseUrl as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...(requestId && {
+        requestId:
+          requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      }),
+      ...mcpToolDetailsForAnalytics(tool.name, mcpServerType, mcpServerBaseUrl),
+    })
+
+    // Enrich tool parameters with git commit ID from successful git commit output
+    if (
+      isToolDetailsLoggingEnabled() &&
+      (tool.name === BASH_TOOL_NAME || tool.name === POWERSHELL_TOOL_NAME) &&
+      'command' in processedInput &&
+      typeof processedInput.command === 'string' &&
+      processedInput.command.match(/\bgit\s+commit\b/) &&
+      result.data &&
+      typeof result.data === 'object' &&
+      'stdout' in result.data
+    ) {
+      const gitCommitId = parseGitCommitId(String(result.data.stdout))
+      if (gitCommitId) {
+        toolParameters.git_commit_id = gitCommitId
+      }
+    }
+
+    // Log tool result event for OTLP with tool parameters and decision context
+    const mcpServerScope = isMcpTool(tool)
+      ? getMcpServerScopeFromToolName(tool.name)
+      : null
+
+
+    // Run PostToolUse hooks
+    let toolOutput = result.data
+    const hookResults: MessageUpdateLazy<HookResultMessage>[] = []
+    const toolContextModifier = result.contextModifier
+    const mcpMeta = result.mcpMeta
+
+    async function addToolResult(
+      toolUseResult: unknown,
+      preMappedBlock?: ToolResultBlockParam,
+    ) {
+      // Use the pre-mapped block when available (non-MCP tools where hooks
+      // don't modify the output), otherwise map from scratch.
+      const toolResultBlock = preMappedBlock
+        ? await processPreMappedToolResultBlock(
+            preMappedBlock,
+            tool.name,
+            tool.maxResultSizeChars,
+          )
+        : await processToolResultBlock(tool, toolUseResult, toolUseID)
+
+      // Build content blocks - tool result first, then optional feedback
+      const contentBlocks: ContentBlockParam[] = [toolResultBlock]
+      // Add accept feedback if user provided feedback when approving
+      // (acceptFeedback only exists on PermissionAllowDecision, which is guaranteed here)
+      if (
+        'acceptFeedback' in permissionDecision &&
+        permissionDecision.acceptFeedback
+      ) {
+        contentBlocks.push({
+          type: 'text',
+          text: permissionDecision.acceptFeedback,
+        })
+      }
+
+      // Add content blocks (e.g., pasted images) from the permission decision
+      const allowContentBlocks =
+        'contentBlocks' in permissionDecision
+          ? permissionDecision.contentBlocks
+          : undefined
+      if (allowContentBlocks?.length) {
+        contentBlocks.push(...allowContentBlocks)
+      }
+
+      // Generate sequential imagePasteIds so each image renders with a distinct label
+      let allowImageIds: number[] | undefined
+      if (allowContentBlocks?.length) {
+        const imageCount = count(
+          allowContentBlocks,
+          (b: ContentBlockParam) => b.type === 'image',
+        )
+        if (imageCount > 0) {
+          const startId = getNextImagePasteId(toolUseContext.messages)
+          allowImageIds = Array.from(
+            { length: imageCount },
+            (_, i) => startId + i,
+          )
+        }
+      }
+
+      resultingMessages.push({
+        message: createUserMessage({
+          content: contentBlocks,
+          imagePasteIds: allowImageIds,
+          toolUseResult:
+            toolUseContext.agentId && !toolUseContext.preserveToolUseResults
+              ? undefined
+              : toolUseResult,
+          mcpMeta: toolUseContext.agentId ? undefined : mcpMeta,
+          sourceToolAssistantUUID: assistantMessage.uuid,
+        }),
+        contextModifier: toolContextModifier
+          ? {
+              toolUseID: toolUseID,
+              modifyContext: toolContextModifier,
+            }
+          : undefined,
+      })
+    }
+
+    // TOOD(hackyon): refactor so we don't have different experiences for MCP tools
+    if (!isMcpTool(tool)) {
+      await addToolResult(toolOutput, mappedToolResultBlock)
+    }
+
+    const postToolHookInfos: StopHookInfo[] = []
+    const postToolHookStart = Date.now()
+    for await (const hookResult of runPostToolUseHooks(
       toolUseContext,
     )
     if (isValidCall?.result === false) {
       logForDebugging(
         `${tool.name} tool validation error: ${isValidCall.message?.slice(0, 200)}`,
       )
+    }
+
+    if (isMcpTool(tool)) {
+      await addToolResult(toolOutput)
+    }
+
+    // Show PostToolUse hook timing inline below tool result when > 500ms.
+    // Use wall-clock time (not sum of individual durations) since hooks run in parallel.
+    if (process.env.USER_TYPE === 'ant' && postToolHookInfos.length > 0) {
+      if (postToolHookDurationMs > HOOK_TIMING_DISPLAY_THRESHOLD_MS) {
+        resultingMessages.push({
+          message: createStopHookSummaryMessage(
+            postToolHookInfos.length,
+            postToolHookInfos,
+            [],
+            false,
+            undefined,
+            false,
+            'suggestion',
+            undefined,
+            'PostToolUse',
+            postToolHookDurationMs,
+          ),
+        })
+      }
+    }
+
+    // If the tool provided new messages, add them to the list to return.
+    if (result.newMessages && result.newMessages.length > 0) {
+      for (const message of result.newMessages) {
+        resultingMessages.push({ message })
+      }
+    }
+    // If hook indicated to prevent continuation after successful execution, yield a stop reason message
+    if (shouldPreventContinuation) {
+      resultingMessages.push({
+        message: createAttachmentMessage({
+          type: 'hook_stopped_continuation',
+          message: stopReason || 'Execution stopped by hook',
+          hookName: `PreToolUse:${tool.name}`,
+          toolUseID: toolUseID,
+          hookEvent: 'PreToolUse',
+        }),
+      })
+    }
+
+    // Yield the remaining hook results after the other messages are sent
+    for (const hookResult of hookResults) {
+      resultingMessages.push(hookResult)
+    }
+    return resultingMessages
+  } catch (error) {
+    const durationMs = Date.now() - startTime
+    addToToolDuration(durationMs)
+
+    // Track failed tool execution for replay index
+    try {
+      const replayBuilder = getReplayIndexBuilder()
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      replayBuilder.trackToolEnd(toolUseID, tool.name, 'error', errorMsg.slice(0, 200))
+    } catch {
+      // Ignore errors in replay tracking
+    }
+
+    // Handle MCP auth errors by updating the client status to 'needs-auth'
+    // This updates the /mcp display to show the server needs re-authorization
+    if (error instanceof McpAuthError) {
+      toolUseContext.setAppState(prevState => {
+        const serverName = error.serverName
+        const existingClientIndex = prevState.mcp.clients.findIndex(
+          c => c.name === serverName,
+        )
+        if (existingClientIndex === -1) {
+          return prevState
+        }
+        const existingClient = prevState.mcp.clients[existingClientIndex]
+        // Only update if client was connected (don't overwrite other states)
+        if (!existingClient || existingClient.type !== 'connected') {
+          return prevState
+        }
+        const updatedClients = [...prevState.mcp.clients]
+        updatedClients[existingClientIndex] = {
+          name: serverName,
+          type: 'needs-auth' as const,
+          config: existingClient.config,
+        }
+        return {
+          ...prevState,
+          mcp: {
+            ...prevState.mcp,
+            clients: updatedClients,
+          },
+        }
+      })
+    }
+
+    if (!(error instanceof AbortError)) {
+      const errorMsg = errorMessage(error)
+      logForDebugging(
+        `${tool.name} tool error (${durationMs}ms): ${errorMsg.slice(0, 200)}`,
+      )
+      if (!(error instanceof ShellError)) {
+        logError(error)
+      }
       logEvent('tengu_tool_use_error', {
         messageID:
           messageId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

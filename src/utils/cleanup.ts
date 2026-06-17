@@ -180,7 +180,11 @@ export async function cleanupOldSessionFiles(): Promise<CleanupResult> {
 
     for (const entry of entries) {
       if (entry.isFile()) {
-        if (!entry.name.endsWith('.jsonl') && !entry.name.endsWith('.cast')) {
+        if (
+          !entry.name.endsWith('.jsonl') &&
+          !entry.name.endsWith('.cast') &&
+          !entry.name.endsWith('.replay.json')
+        ) {
           continue
         }
         try {
