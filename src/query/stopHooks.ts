@@ -74,6 +74,15 @@ export type StopHookExecutionDeps = {
   isTeammate?: typeof isTeammate
 }
 
+/**
+ * Whether a query source is the main session (vs a subagent) for the purpose of
+ * saving cache-safe params. Matches `repl_main_thread` and its suffixed forms
+ * (e.g. `repl_main_thread:outputStyle:custom`) plus `sdk`, but not subagents.
+ */
+export function isMainThreadCacheParamSource(querySource: QuerySource): boolean {
+  return querySource.startsWith('repl_main_thread') || querySource === 'sdk'
+}
+
 export async function* handleStopHooks(
   messagesForQuery: Message[],
   assistantMessages: AssistantMessage[],
@@ -116,8 +125,10 @@ export async function* handleStopHooks(
   // Only save params for main session queries — subagents must not overwrite.
   // Outside the prompt-suggestion gate: the REPL /btw command and the
   // side_question SDK control_request both read this snapshot, and neither
-  // depends on prompt suggestions being enabled.
-  if (querySource === 'repl_main_thread' || querySource === 'sdk') {
+  // depends on prompt suggestions being enabled. Match repl_main_thread:* too,
+  // since the REPL tags non-default output styles as repl_main_thread:outputStyle:*
+  // and the context-collapse ctx-agent relies on this snapshot being present.
+  if (isMainThreadCacheParamSource(querySource)) {
     saveCacheSafeParams(createCacheSafeParams(stopHookContext))
   }
 

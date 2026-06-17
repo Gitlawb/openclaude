@@ -283,6 +283,7 @@ export type GlobalConfig = {
   bypassPermissionsModeAccepted?: boolean
   hasUsedBackslashReturn?: boolean
   autoCompactEnabled: boolean // Controls whether auto-compact is enabled
+  contextCollapseEnabled: boolean // Opt-in: collapse old transcript spans into summaries (lossy; off by default)
   toolHistoryCompressionEnabled: boolean // Compress old tool_result content for small-context providers
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
@@ -696,6 +697,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     verbose: false,
     editorMode: 'normal',
     autoCompactEnabled: true,
+    contextCollapseEnabled: false,
     toolHistoryCompressionEnabled: true,
     showTurnDuration: true,
     showCacheStats: 'compact',
@@ -748,6 +750,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'editorMode',
   'hasUsedBackslashReturn',
   'autoCompactEnabled',
+  'contextCollapseEnabled',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',
   'showCacheStats',

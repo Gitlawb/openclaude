@@ -780,6 +780,30 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('xai')
   })
 
+  test('does not mirror XAI_API_KEY for a lookalike host containing "x.ai"', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // `vertex.ai` contains the substring "x.ai"; a raw includes() check would
+    // wrongly treat this OpenAI-compatible profile as xAI and mirror the key
+    // into XAI_API_KEY. Host matching must be by hostname (api.x.ai), not
+    // substring.
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://vertex.ai/v1',
+        model: 'some-model',
+        apiKey: 'not-an-xai-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('not-an-xai-key')
+    expect(getFreshAPIProvider()).not.toBe('xai')
+  })
+
   test('openai-compatible profile applies maxContextLength env override', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

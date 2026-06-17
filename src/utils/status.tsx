@@ -21,7 +21,7 @@ import { getSettingsWithAllErrors } from './settings/allErrors.js';
 import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from './settings/constants.js';
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
-import { redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
+import { getKnownProviderSecretEnvKeys, redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
 import { redactPathForStatus, redactUrlForStatus } from './statusRedaction.js';
 export type Property = {
   label?: string;
@@ -346,14 +346,13 @@ export function buildAccountProperties(): Property[] {
 export function buildAPIProviderProperties(): Property[] {
   const apiProvider = getAPIProvider();
   const properties: Property[] = [];
-  const secretSource: SecretValueSource = {
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    CODEX_API_KEY: process.env.CODEX_API_KEY,
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-    BNKR_API_KEY: process.env.BNKR_API_KEY,
-    MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
-  };
+  const secretSource: SecretValueSource = {};
+  for (const key of getKnownProviderSecretEnvKeys()) {
+    const envValue = process.env[key];
+    if (envValue !== undefined) {
+      secretSource[key] = envValue;
+    }
+  }
   if (apiProvider !== 'firstParty') {
     const providerLabel = API_PROVIDER_LABELS[apiProvider];
     properties.push({

@@ -11,6 +11,7 @@ import * as path from 'node:path'
 type FakeChildProcess = EventEmitter & {
   stdout: EventEmitter
   stderr: EventEmitter
+  kill: (signal?: NodeJS.Signals | number) => boolean
 }
 
 type LoadModuleOptions = {
@@ -27,6 +28,14 @@ let actualCrossSpawnModule:
   | typeof import('cross-spawn')
   | undefined
 let actualRipgrepModule: typeof import('../utils/ripgrep.js') | undefined
+
+// The `cross-spawn` mock is installed via `mock.module`, which bun does NOT
+// undo on `mock.restore()` — it persists process-wide. To keep it from
+// hijacking real `git` spawns in later test files (which run sequentially),
+// the interception is gated on this module-level scenario, set only while one
+// of this suite's spawn-scenario tests is active and cleared in afterEach. Once
+// cleared, the persisted mock falls through to the real spawn.
+let activeSpawnScenario: LoadModuleOptions['spawnScenario'] | undefined
 let actualMarkdownConfigLoaderModule:
   | typeof import('../utils/markdownConfigLoader.js')
   | undefined
@@ -35,6 +44,9 @@ let defaultFileSuggestionsModule:
   | undefined
 
 afterEach(() => {
+  // Clear the spawn scenario so the persisted cross-spawn mock falls through to
+  // the real spawn for any later test file's git commands.
+  activeSpawnScenario = undefined
   mock.restore()
 })
 
@@ -55,6 +67,14 @@ function createFakeChildProcess(): FakeChildProcess {
   const child = new EventEmitter() as FakeChildProcess
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
+  // A real ChildProcess exposes kill(); callers (e.g. execFileNoThrow's
+  // timeout path) call it. Provide it so a foreign caller that ever reaches
+  // this fake child terminates cleanly instead of throwing
+  // "child.kill is not a function". Emit close so the caller stops waiting.
+  child.kill = (() => {
+    queueMicrotask(() => child.emit('close', null, 'SIGTERM'))
+    return true
+  }) as FakeChildProcess['kill']
   return child
 }
 
@@ -107,11 +127,11 @@ function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}):
       args: string[],
       spawnOptions: { signal?: AbortSignal },
     ) => {
-      if (!options.spawnScenario || !isGitCommand(command)) {
+      if (!activeSpawnScenario || !isGitCommand(command)) {
         return realSpawn(command, args, spawnOptions)
       }
       const child = createFakeChildProcess()
-      options.spawnScenario?.(child, spawnOptions.signal)
+      activeSpawnScenario(child, spawnOptions.signal)
       return child
     },
     spawn: (
@@ -119,11 +139,11 @@ function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}):
       args: string[],
       spawnOptions: { signal?: AbortSignal },
     ) => {
-      if (!options.spawnScenario || !isGitCommand(command)) {
+      if (!activeSpawnScenario || !isGitCommand(command)) {
         return realSpawn(command, args, spawnOptions)
       }
       const child = createFakeChildProcess()
-      options.spawnScenario?.(child, spawnOptions.signal)
+      activeSpawnScenario(child, spawnOptions.signal)
       return child
     },
   }))
@@ -151,6 +171,7 @@ function installFileSuggestionsDependencyMocks(options: LoadModuleOptions = {}):
 }
 
 async function loadFileSuggestionsModule(options: LoadModuleOptions = {}) {
+  activeSpawnScenario = options.spawnScenario
   actualCrossSpawnModule ??= await import('cross-spawn')
   actualRipgrepModule ??= await import('../utils/ripgrep.js')
   actualMarkdownConfigLoaderModule ??= await import(
