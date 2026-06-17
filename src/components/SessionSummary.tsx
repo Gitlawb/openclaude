@@ -3,14 +3,7 @@ import chalk from 'chalk';
 import * as React from 'react';
 import { Box, Text } from '../ink.js';
 import type { ReplaySummary } from '../types/logs.js';
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  const minutes = Math.floor(ms / 60000)
-  const seconds = Math.floor((ms % 60000) / 1000)
-  return `${minutes}m ${seconds}s`
-}
+import { formatDuration } from '../utils/format.js';
 
 function formatToolBreakdown(breakdown: Record<string, number>): string {
   return Object.entries(breakdown)

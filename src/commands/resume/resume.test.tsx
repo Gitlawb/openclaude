@@ -149,6 +149,20 @@ async function renderResumeConfirmation() {
   }
 }
 
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) {
+      return
+    }
+    await Bun.sleep(10)
+  }
+  throw new Error('Timed out waiting for condition')
+}
+
 describe('/resume and /continue unified command', () => {
   beforeEach(() => {
     saveGoalStateMock = mock(() => Promise.resolve())
@@ -433,9 +447,9 @@ describe('/resume and /continue unified command', () => {
   test('replay summary confirmation cancels on Escape', async () => {
     const rendered = await renderResumeConfirmation()
     try {
-      rendered.stdin.write('\x1B\x1B')
-      await Bun.sleep(50)
+      rendered.stdin.write('\u001B')
 
+      await waitFor(() => rendered.onCancel.mock.calls.length === 1)
       expect(rendered.onCancel).toHaveBeenCalled()
       expect(rendered.onResume).not.toHaveBeenCalled()
     } finally {

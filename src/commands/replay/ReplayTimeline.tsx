@@ -3,14 +3,7 @@ import * as React from 'react';
 import { Box, Text, useInput } from '../../ink.js';
 import { SessionSummary } from '../../components/SessionSummary.js';
 import type { ReplayIndex, ReplayStep, ReplayToolStep, ReplayUserStep, ReplayRetryStep, ReplayErrorStep } from '../../types/logs.js';
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  const minutes = Math.floor(ms / 60000)
-  const seconds = Math.floor((ms % 60000) / 1000)
-  return `${minutes}m ${seconds}s`
-}
+import { formatDuration } from '../../utils/format.js';
 
 function getStepIcon(step: ReplayStep): string {
   switch (step.type) {
@@ -90,7 +83,7 @@ function ReplayStepRow({ step, isSelected }: {
           {((step as ReplayToolStep).filesModified?.length ?? 0) > 0 && (
             <>
               <Text dimColor>Files modified:</Text>
-              {(step as ReplayToolStep).filesModified!.map(file => (
+              {(step as ReplayToolStep).filesModified?.map(file => (
                 <Text key={file} dimColor>  {file}</Text>
               ))}
             </>
@@ -104,10 +97,10 @@ function ReplayStepRow({ step, isSelected }: {
         <Box marginLeft={4} flexDirection="column">
           <Text dimColor>Reason: {(step as ReplayRetryStep).reason}</Text>
           {(step as ReplayRetryStep).retryDelayMs !== undefined && (
-            <Text dimColor>Delay: {formatDuration((step as ReplayRetryStep).retryDelayMs!)}</Text>
+            <Text dimColor>Delay: {formatDuration((step as ReplayRetryStep).retryDelayMs ?? 0)}</Text>
           )}
           {((step as ReplayRetryStep).commands?.length ?? 0) > 0 && (
-            <Text dimColor>Commands: {(step as ReplayRetryStep).commands!.join(', ')}</Text>
+            <Text dimColor>Commands: {(step as ReplayRetryStep).commands?.join(', ')}</Text>
           )}
         </Box>
       )}
