@@ -8,14 +8,13 @@ import type { Message } from 'src/types/message.js'
 import { type DebugLogLevel, logForDebugging } from 'src/utils/debug.js'
 import { djb2Hash } from 'src/utils/hash.js'
 import { logError } from 'src/utils/log.js'
-import {
-  getAPIProvider,
-  isGithubNativeAnthropicMode,
-} from 'src/utils/model/providers.js'
+import type { APIProvider } from 'src/utils/model/providers.js'
 import { getClaudeTempDir } from 'src/utils/permissions/filesystem.js'
-import { jsonStringify } from 'src/utils/slowOperations.js'
 import type { QuerySource } from '../../constants/querySource.js'
-import { resolveActiveRouteIdFromEnv } from '../../integrations/routeMetadata.js'
+import {
+  getTransportKindForRoute,
+  resolveActiveRouteIdFromEnv,
+} from '../../integrations/routeMetadata.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -196,7 +195,7 @@ function stripCacheControl(
 }
 
 function computeHash(data: unknown): number {
-  const str = jsonStringify(data)
+  const str = stringifyCacheBreakData(data)
   if (typeof Bun !== 'undefined') {
     const hash = Bun.hash(str)
     // Bun.hash can return bigint for large inputs; convert to number safely
@@ -204,6 +203,16 @@ function computeHash(data: unknown): number {
   }
   // Fallback for non-Bun runtimes (e.g. Node.js via npm global install)
   return djb2Hash(str)
+}
+
+function stringifyCacheBreakData(data: unknown): string {
+  return JSON.stringify(data) ?? ''
+}
+
+function isTruthyEnvValue(value: string | undefined): boolean {
+  if (value === undefined) return false
+  const normalized = value.trim().toLowerCase()
+  return normalized !== '' && normalized !== '0' && normalized !== 'false'
 }
 
 /** MCP tool names are user-controlled (server config) and may leak filepaths.
@@ -241,7 +250,8 @@ function buildDiffableContent(
     .map(t => {
       if (!('name' in t)) return 'unknown'
       const desc = 'description' in t ? t.description : ''
-      const schema = 'input_schema' in t ? jsonStringify(t.input_schema) : ''
+      const schema =
+        'input_schema' in t ? stringifyCacheBreakData(t.input_schema) : ''
       return `${t.name}\n  description: ${desc}\n  input_schema: ${schema}`
     })
     .sort()
@@ -340,10 +350,17 @@ function getPromptCacheBreakProviderMetadata(model: string): {
   cacheMetricsReliability: CacheMetricsReliability
   providerRoute: string
 } {
-  const apiProvider = getAPIProvider()
   const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
+  const apiProvider = resolvePromptCacheBreakAPIProvider(
+    process.env,
+    activeRouteId,
+    model,
+  )
   const cacheProvider = resolveCacheProvider(apiProvider, {
-    githubNativeAnthropic: isGithubNativeAnthropicMode(model),
+    githubNativeAnthropic: isGithubNativeAnthropicModeForCacheBreak(
+      process.env,
+      model,
+    ),
     openAiBaseUrl: process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
   })
   return {
@@ -354,6 +371,74 @@ function getPromptCacheBreakProviderMetadata(model: string): {
         ? apiProvider
         : activeRouteId ?? apiProvider,
   }
+}
+
+function resolvePromptCacheBreakAPIProvider(
+  env: NodeJS.ProcessEnv,
+  activeRouteId: string | null,
+  model: string,
+): APIProvider {
+  if (isTruthyEnvValue(env.CLAUDE_CODE_USE_FOUNDRY)) {
+    return 'foundry'
+  }
+
+  switch (activeRouteId) {
+    case 'gemini':
+    case 'mistral':
+    case 'github':
+    case 'bedrock':
+    case 'vertex':
+    case 'nvidia-nim':
+    case 'minimax':
+    case 'xiaomi-mimo':
+    case 'xai':
+      return activeRouteId
+    case 'openai':
+    case 'custom':
+      if (isTruthyEnvValue(env.NVIDIA_NIM)) {
+        return 'nvidia-nim'
+      }
+      return isCodexCacheBreakRoute(env, model) ? 'codex' : 'openai'
+    case 'anthropic':
+    case null:
+      if (isTruthyEnvValue(env.NVIDIA_NIM)) {
+        return 'nvidia-nim'
+      }
+      return 'firstParty'
+    default:
+      if (
+        ['local', 'openai-compatible'].includes(
+          getTransportKindForRoute(activeRouteId) ?? '',
+        )
+      ) {
+        return 'openai'
+      }
+      return 'firstParty'
+  }
+}
+
+function isGithubNativeAnthropicModeForCacheBreak(
+  env: NodeJS.ProcessEnv,
+  model: string,
+): boolean {
+  if (!isTruthyEnvValue(env.CLAUDE_CODE_USE_GITHUB)) return false
+  const resolvedModel = model.trim() || env.OPENAI_MODEL?.trim() || ''
+  return resolvedModel.toLowerCase().includes('claude-')
+}
+
+function isCodexCacheBreakRoute(
+  env: NodeJS.ProcessEnv,
+  model: string,
+): boolean {
+  const baseUrl = env.OPENAI_BASE_URL ?? env.OPENAI_API_BASE
+  if (baseUrl?.toLowerCase().includes('/backend-api/codex')) {
+    return true
+  }
+  if (baseUrl?.trim()) {
+    return false
+  }
+  const modelName = (env.OPENAI_MODEL?.trim() || model.trim()).toLowerCase()
+  return modelName.includes('codex')
 }
 
 /** Extended tracking snapshot — everything that could affect the server-side
