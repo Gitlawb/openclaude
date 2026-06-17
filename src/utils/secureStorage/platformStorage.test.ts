@@ -101,7 +101,6 @@ describe("Secure Storage Platform Implementations", () => {
 
   afterAll(() => {
     try {
-      mock.restore();
       mock.module("execa", () => realExeca);
     } finally {
       releaseSharedMutationLock();

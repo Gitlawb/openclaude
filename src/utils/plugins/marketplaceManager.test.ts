@@ -9,6 +9,7 @@ import {
   type Mock,
   test,
 } from 'bun:test'
+import * as realAxios from 'axios'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -296,7 +297,7 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
   })
 
   afterAll(() => {
-    mock.restore()
+    mock.module('axios', () => realAxios)
   })
 
   beforeEach(() => {

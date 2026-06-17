@@ -315,5 +315,11 @@ export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFil
 
 // Helper functions for external use
 export function getActiveNotices(context: StatusNoticeContext): StatusNoticeDefinition[] {
-  return statusNoticeDefinitions.filter(notice => notice.isActive(context));
+  return statusNoticeDefinitions.filter(notice => {
+    try {
+      return notice.isActive(context);
+    } catch {
+      return false;
+    }
+  });
 }

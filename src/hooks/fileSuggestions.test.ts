@@ -48,6 +48,7 @@ afterEach(() => {
   // the real spawn for any later test file's git commands.
   activeSpawnScenario = undefined
   mock.restore()
+  restoreFileSuggestionsDependencyMocks()
 })
 
 beforeAll(
@@ -76,6 +77,15 @@ function createFakeChildProcess(): FakeChildProcess {
     return true
   }) as FakeChildProcess['kill']
   return child
+}
+
+function restoreFileSuggestionsDependencyMocks(): void {
+  if (actualCrossSpawnModule) {
+    mock.module('cross-spawn', () => actualCrossSpawnModule!)
+  }
+  if (actualRipgrepModule) {
+    mock.module('../utils/ripgrep.js', () => actualRipgrepModule!)
+  }
 }
 
 function createIgnoreModuleMock() {
@@ -180,7 +190,7 @@ async function loadFileSuggestionsModule(options: LoadModuleOptions = {}) {
   installFileSuggestionsDependencyMocks(options)
   const nonce = `${Date.now()}-${Math.random()}`
   const module = await import(`./fileSuggestions.ts?ts=${nonce}`)
-  mock.restore()
+  restoreFileSuggestionsDependencyMocks()
   return module
 }
 
