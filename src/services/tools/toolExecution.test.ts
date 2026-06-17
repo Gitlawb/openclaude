@@ -3,6 +3,7 @@ import { z } from 'zod/v4'
 
 import { SkillTool } from '../../tools/SkillTool/SkillTool.js'
 import { AskUserQuestionTool } from '../../tools/AskUserQuestionTool/AskUserQuestionTool.js'
+import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
 import {
@@ -152,6 +153,47 @@ describe('runToolUse lifecycle tracking', () => {
       toolName: 'LifecycleTestTool',
     })
     expect(typeof snapshots[0]?.toolUses[0]?.startedAt).toBe('number')
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
+
+  test('tracks Bash timeout metadata while async input validation is pending', async () => {
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const snapshots: ReturnType<QueryLifecycleOperationTracker['snapshot']>[] =
+      []
+    const tool = createToolFixture(lifecycleToolInputSchema, {
+      name: BASH_TOOL_NAME,
+      async validateInput() {
+        snapshots.push(queryLifecycle.snapshot())
+        return {
+          result: false,
+          message: 'blocked by validation',
+          errorCode: 123,
+        }
+      },
+      async call() {
+        throw new Error('call should not run after validation failure')
+      },
+    })
+    const toolUseContext = makeToolUseContext([tool], queryLifecycle)
+    const canUseTool = (async () => ({
+      behavior: 'allow',
+    })) as CanUseToolFn
+
+    await collectToolUseUpdates(
+      tool,
+      { command: 'sleep 1', timeout: 4321 },
+      canUseTool,
+      toolUseContext,
+    )
+
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]?.toolUses).toHaveLength(1)
+    expect(snapshots[0]?.toolUses[0]).toMatchObject({
+      toolUseId: 'tool-use-1',
+      toolName: BASH_TOOL_NAME,
+      isBash: true,
+      timeoutMs: 4321,
+    })
     expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
   })
 
