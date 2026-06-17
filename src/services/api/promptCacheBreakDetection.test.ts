@@ -95,6 +95,14 @@ function useOpenAIProvider(): void {
   process.env.OPENAI_MODEL = 'gpt-5.5'
 }
 
+function useOpenAIProviderWithLegacyBaseFallback(): void {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = ''
+  process.env.OPENAI_API_BASE = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek-chat'
+}
+
 function useUnsupportedGithubProvider(): void {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -363,6 +371,22 @@ describe('prompt cache break taxonomy', () => {
     expect(debug?.message).not.toMatch(/app crash|crash|local mutation/i)
   })
 
+  test('empty OpenAI base URL falls back to legacy API base for cache provider metadata', async () => {
+    useOpenAIProviderWithLegacyBaseFallback()
+
+    const event = await triggerCacheDrop({
+      first: snapshot({ model: 'deepseek-chat' }),
+      second: snapshot({ model: 'deepseek-chat' }),
+    })
+
+    expect(event.metadata).toMatchObject({
+      classification: 'provider_cache_instability',
+      cacheMetricsReliability: 'advisory',
+      cacheProvider: 'deepseek',
+      severity: 'info',
+    })
+  })
+
   test('TTL-window cache drops classify as possible TTL expiry', async () => {
     const event = await triggerCacheDrop({
       secondMessages: assistantMessages(61 * 60 * 1000),
@@ -426,12 +450,18 @@ describe('prompt cache break taxonomy', () => {
     useFoundryProvider()
 
     const event = await triggerCacheDrop()
+    const debug = debugCalls.findLast(call =>
+      call.message.startsWith('[PROMPT CACHE BREAK]'),
+    )
 
     expect(event.metadata).toMatchObject({
+      classification: 'provider_cache_instability',
       cacheMetricsReliability: 'reliable',
       cacheProvider: 'anthropic',
       providerRoute: 'foundry',
+      severity: 'warning',
     })
+    expect(debug?.options).toEqual({ level: 'warn' })
   })
 
   test('cache deletion expected drops remain suppressed', async () => {

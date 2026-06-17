@@ -215,6 +215,10 @@ function isTruthyEnvValue(value: string | undefined): boolean {
   return normalized !== '' && normalized !== '0' && normalized !== 'false'
 }
 
+function getNonEmptyEnvValue(value: string | undefined): string | undefined {
+  return value?.trim() ? value : undefined
+}
+
 /** MCP tool names are user-controlled (server config) and may leak filepaths.
  *  Collapse them to 'mcp'; built-in names are a fixed vocabulary. */
 function sanitizeToolName(name: string): string {
@@ -361,7 +365,9 @@ function getPromptCacheBreakProviderMetadata(model: string): {
       process.env,
       model,
     ),
-    openAiBaseUrl: process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
+    openAiBaseUrl:
+      getNonEmptyEnvValue(process.env.OPENAI_BASE_URL) ??
+      getNonEmptyEnvValue(process.env.OPENAI_API_BASE),
   })
   return {
     cacheProvider,
@@ -430,7 +436,9 @@ function isCodexCacheBreakRoute(
   env: NodeJS.ProcessEnv,
   model: string,
 ): boolean {
-  const baseUrl = env.OPENAI_BASE_URL ?? env.OPENAI_API_BASE
+  const baseUrl =
+    getNonEmptyEnvValue(env.OPENAI_BASE_URL) ??
+    getNonEmptyEnvValue(env.OPENAI_API_BASE)
   if (baseUrl?.toLowerCase().includes('/backend-api/codex')) {
     return true
   }
