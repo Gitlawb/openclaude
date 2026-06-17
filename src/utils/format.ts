@@ -11,11 +11,13 @@ export function formatFileSize(sizeInBytes: number): string {
   if (kb < 1) {
     return `${sizeInBytes} bytes`
   }
-  if (kb < 1024) {
+  // Compare the rounded magnitude so values that round up to 1024 roll over
+  // to the next unit (e.g. 1048575 bytes → "1MB", not "1024KB").
+  if (Number(kb.toFixed(1)) < 1024) {
     return `${kb.toFixed(1).replace(/\.0$/, '')}KB`
   }
   const mb = kb / 1024
-  if (mb < 1024) {
+  if (Number(mb.toFixed(1)) < 1024) {
     return `${mb.toFixed(1).replace(/\.0$/, '')}MB`
   }
   const gb = mb / 1024
