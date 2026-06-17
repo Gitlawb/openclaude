@@ -67,3 +67,47 @@ describe('useMemoryUsage.ts — threshold constants (issue #402)', () => {
     expect(src).toContain('CRITICAL_MEMORY_THRESHOLD = 2.5 * 1024 * 1024 * 1024')
   })
 })
+
+describe('Node 24 premature exit regression (issue #1678)', () => {
+  it('un-awaited top-level promises lead to premature exit when no handles remain', async () => {
+    const { $ } = await import('bun')
+    const cacheDir = `${import.meta.dir}/../../.cache`
+    await $`mkdir -p ${cacheDir}`
+
+    const scriptPathVoid = `${cacheDir}/test-void.mjs`
+    await Bun.write(scriptPathVoid, `
+      async function main() {
+        // A promise that never resolves, but uses no event loop handles (e.g. pending dynamic import resolution state)
+        await new Promise(() => {});
+        console.log('UNREACHABLE');
+      }
+      void main();
+    `)
+    
+    const resVoid = await $`node ${scriptPathVoid}`.nothrow()
+    // Process exits immediately (with 0) because the promise has no handles, reproducing the bug
+    expect(resVoid.exitCode).toBe(0)
+    expect(resVoid.stdout.toString()).not.toContain('UNREACHABLE')
+
+    const scriptPathAwait = `${cacheDir}/test-await.mjs`
+    await Bun.write(scriptPathAwait, `
+      async function main() {
+        // We set a timer to prove the process stays alive because of the top-level await
+        setTimeout(() => { console.log('KEPT_ALIVE'); process.exit(0); }, 50);
+        await new Promise(() => {});
+      }
+      await main();
+    `)
+    
+    const resAwait = await $`node ${scriptPathAwait}`.nothrow()
+    // Process stays alive until our timeout exits it
+    expect(resAwait.exitCode).toBe(0)
+    expect(resAwait.stdout.toString()).toContain('KEPT_ALIVE')
+  })
+
+  it('cli.tsx uses top-level await for main() to prevent premature exit', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    expect(src).toMatch(/await main\(\)/)
+    expect(src).not.toMatch(/^void main\(\)/m)
+  })
+})
