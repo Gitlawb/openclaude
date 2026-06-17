@@ -306,16 +306,22 @@ export async function shouldAutoCompact(
   // fallback (it consults isAutoCompactEnabled directly) and leaves
   // sessionMemory + manual /compact working.
   //
-  // Consult isContextCollapseEnabled (not the raw gate) so the
-  // CLAUDE_CONTEXT_COLLAPSE env override is honored here too. require()
-  // inside the block breaks the init-time cycle (this file exports
+  // hasActiveReduction() folds in the enablement check (so the
+  // CLAUDE_CONTEXT_COLLAPSE env override is honored here too) but also
+  // requires collapse to actually hold a committed/staged reduction.
+  // require() inside the block breaks the init-time cycle (this file exports
   // getEffectiveContextWindowSize which collapse's index imports).
   if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const { isContextCollapseEnabled } =
+    const { hasActiveReduction, isMainThreadSource } =
       require('../contextCollapse/index.js') as typeof import('../contextCollapse/index.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
-    if (isContextCollapseEnabled()) {
+    // Suppress only when collapse actually holds the headroom (a committed or
+    // staged reduction) AND this is the main thread that owns it. The store is
+    // shared across in-process subagents (agent:*); a subagent must still
+    // autocompact its own oversized transcript instead of being suppressed by a
+    // reduction that only applies to the main transcript.
+    if (isMainThreadSource(querySource) && hasActiveReduction()) {
       return false
     }
   }

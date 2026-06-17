@@ -329,7 +329,32 @@ export function Config({
         enabled: toolHistoryCompressionEnabled
       });
     }
-  }, {
+  }, ...(feature('CONTEXT_COLLAPSE') ? [{
+    id: 'contextCollapseEnabled',
+    label: 'Context collapse (lossy)',
+    value: globalConfig.contextCollapseEnabled,
+    type: 'boolean' as const,
+    onChange(contextCollapseEnabled: boolean) {
+      saveGlobalConfig(current_cc => ({
+        ...current_cc,
+        contextCollapseEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        contextCollapseEnabled
+      });
+      // Refresh runtime state so the toggle applies without a restart:
+      // initContextCollapse re-reads env + this config key.
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state: ${error}`);
+      }
+      logEvent('tengu_context_collapse_setting_changed', {
+        enabled: contextCollapseEnabled
+      });
+    }
+  }] : []), {
     id: 'showCacheStats',
     label: 'Cache stats display',
     value: globalConfig.showCacheStats,
@@ -1223,6 +1248,9 @@ export function Config({
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
     }
+    if (feature('CONTEXT_COLLAPSE') && globalConfig.contextCollapseEnabled !== initialConfig.current.contextCollapseEnabled) {
+      formattedChanges.push(`${globalConfig.contextCollapseEnabled ? 'Enabled' : 'Disabled'} context collapse (lossy)`);
+    }
     if (globalConfig.respectGitignore !== initialConfig.current.respectGitignore) {
       formattedChanges.push(`${globalConfig.respectGitignore ? 'Enabled' : 'Disabled'} respect .gitignore in file picker`);
     }
@@ -1274,6 +1302,17 @@ export function Config({
     // the returned ref equals current (test mode checks ref; prod writes to
     // disk but content is identical).
     saveGlobalConfig(() => initialConfig.current);
+    // Context collapse: the toggle's onChange calls initContextCollapse() to
+    // refresh the module-level enabled/armed cache. The global config restore
+    // above rewrites the key on disk but doesn't touch that cache, so re-init
+    // here to keep runtime state in sync with the reverted config.
+    if (feature('CONTEXT_COLLAPSE')) {
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state on cancel: ${error}`);
+      }
+    }
     // Settings files: restore each key Config may have touched. undefined
     // deletes the key (updateSettingsForSource customizer at settings.ts:368).
     const il = initialLocalSettings;

@@ -64,7 +64,11 @@ export function modelSupports1M(model: string): boolean {
     return false
   }
   const canonical = getCanonicalName(model)
-  return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
+  return (
+    canonical.includes('claude-sonnet-4') ||
+    canonical.includes('opus-4-6') ||
+    canonical.includes('opus-4-7')
+  )
 }
 
 export function shouldUseIntegrationRuntimeLimits(

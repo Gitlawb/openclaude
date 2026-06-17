@@ -21,7 +21,7 @@ import { getSettingsWithAllErrors } from './settings/allErrors.js';
 import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from './settings/constants.js';
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
-import { redactSecretValueForDisplay, sanitizeApiKey, type SecretValueSource } from './providerSecrets.js';
+import { getKnownProviderSecretEnvKeys, redactSecretSubstringsForDisplay, redactSecretValueForDisplay, sanitizeApiKey, type SecretValueSource } from './providerSecrets.js';
 import { redactUrlForDisplay } from './urlRedaction.js';
 import {
   getRouteCredentialEnvVars,
@@ -121,7 +121,7 @@ function pushRedactedProperty(
   const secretRedacted = redactSecretValueForDisplay(value, secretSource) ?? value;
   properties.push({
     label,
-    value: redactConfiguredSecretSubstrings(secretRedacted, secretSource)
+    value: redactStatusTextForDisplay(secretRedacted, secretSource)
   });
 }
 
@@ -133,7 +133,7 @@ function redactConfiguredSecretSubstrings(
   const secrets = Array.from(
     new Set(
       Object.values(secretSource)
-        .map(secret => sanitizeApiKey(secret))
+        .map(secret => sanitizeApiKey(secret)?.trim())
         .filter((secret): secret is string => Boolean(secret)),
     ),
   ).sort((a, b) => b.length - a.length);
@@ -145,7 +145,21 @@ function redactConfiguredSecretSubstrings(
   return redacted;
 }
 
-function pushRedactedUrlProperty(
+function redactStatusTextForDisplay(
+  value: string,
+  secretSource: SecretValueSource,
+): string {
+  const configuredSecretRedacted = redactConfiguredSecretSubstrings(
+    value,
+    secretSource,
+  );
+  return (
+    redactSecretSubstringsForDisplay(configuredSecretRedacted, secretSource) ??
+    configuredSecretRedacted
+  );
+}
+
+function pushRedactedBaseUrlProperty(
   properties: Property[],
   label: string,
   value: string | undefined,
@@ -156,16 +170,9 @@ function pushRedactedUrlProperty(
   }
 
   const urlRedacted = redactUrlForDisplay(value);
-  const secretSubstringsRedacted = redactConfiguredSecretSubstrings(
-    urlRedacted,
-    secretSource,
-  );
-  const displayValue =
-    redactSecretValueForDisplay(secretSubstringsRedacted, secretSource) ??
-    secretSubstringsRedacted;
   properties.push({
     label,
-    value: displayValue
+    value: redactStatusTextForDisplay(urlRedacted, secretSource)
   });
 }
 
@@ -481,14 +488,13 @@ export function buildAccountProperties(): Property[] {
 export function buildAPIProviderProperties(): Property[] {
   const apiProvider = getAPIProvider();
   const properties: Property[] = [];
-  const secretSource: SecretValueSource = {
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    CODEX_API_KEY: process.env.CODEX_API_KEY,
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-    BNKR_API_KEY: process.env.BNKR_API_KEY,
-    MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
-  };
+  const secretSource: SecretValueSource = {};
+  for (const key of getKnownProviderSecretEnvKeys()) {
+    const envValue = process.env[key];
+    if (envValue !== undefined) {
+      secretSource[key] = envValue;
+    }
+  }
   const routeId =
     apiProvider === 'openai' ? resolveDisplayRouteId() : null;
   if (apiProvider !== 'firstParty') {
@@ -507,22 +513,12 @@ export function buildAPIProviderProperties(): Property[] {
   if (apiProvider === 'firstParty') {
     const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
     if (anthropicBaseUrl) {
-      pushRedactedUrlProperty(
-        properties,
-        'Anthropic base URL',
-        anthropicBaseUrl,
-        secretSource,
-      );
+      pushRedactedBaseUrlProperty(properties, 'Anthropic base URL', anthropicBaseUrl, secretSource);
     }
   } else if (apiProvider === 'bedrock') {
     const bedrockBaseUrl = process.env.BEDROCK_BASE_URL;
     if (bedrockBaseUrl) {
-      pushRedactedUrlProperty(
-        properties,
-        'Bedrock base URL',
-        bedrockBaseUrl,
-        secretSource,
-      );
+      pushRedactedBaseUrlProperty(properties, 'Bedrock base URL', bedrockBaseUrl, secretSource);
     }
     properties.push({
       label: 'AWS region',
@@ -536,12 +532,7 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider === 'vertex') {
     const vertexBaseUrl = process.env.VERTEX_BASE_URL;
     if (vertexBaseUrl) {
-      pushRedactedUrlProperty(
-        properties,
-        'Vertex base URL',
-        vertexBaseUrl,
-        secretSource,
-      );
+      pushRedactedBaseUrlProperty(properties, 'Vertex base URL', vertexBaseUrl, secretSource);
     }
     const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
     if (gcpProject) {
@@ -562,12 +553,7 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider === 'foundry') {
     const foundryBaseUrl = process.env.ANTHROPIC_FOUNDRY_BASE_URL;
     if (foundryBaseUrl) {
-      pushRedactedUrlProperty(
-        properties,
-        'Microsoft Foundry base URL',
-        foundryBaseUrl,
-        secretSource,
-      );
+      pushRedactedBaseUrlProperty(properties, 'Microsoft Foundry base URL', foundryBaseUrl, secretSource);
     }
     const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
     if (foundryResource) {
@@ -597,7 +583,7 @@ export function buildAPIProviderProperties(): Property[] {
         value: transportLabel,
       });
     }
-    pushRedactedUrlProperty(
+    pushRedactedBaseUrlProperty(
       properties,
       metadata.baseUrlLabel,
       getOpenAICompatibleBaseUrlForStatus(routeId),
@@ -627,12 +613,12 @@ export function buildAPIProviderProperties(): Property[] {
     }
   } else if (apiProvider === 'gemini') {
     const geminiBaseUrl = process.env.GEMINI_BASE_URL;
-    pushRedactedUrlProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
+    pushRedactedBaseUrlProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
     const geminiModel = process.env.GEMINI_MODEL;
     pushRedactedProperty(properties, 'Model', geminiModel, secretSource);
   } else if (apiProvider === 'mistral') {
     const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
-    pushRedactedUrlProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
+    pushRedactedBaseUrlProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
     const mistralModel = process.env.MISTRAL_MODEL;
     pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
   }

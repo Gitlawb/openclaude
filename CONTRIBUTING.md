@@ -2,7 +2,26 @@
 
 Thanks for contributing.
 
-OpenClaude is a fast-moving open-source coding-agent CLI with support for multiple providers, local backends, MCP, and a terminal-first workflow. The best contributions here are focused, well-tested, and easy to review.
+OpenClaude is a rapidly evolving open-source coding-agent CLI with support for multiple providers, local backends, MCP, and a terminal-first workflow. The project is actively developed and updated frequently. Our current focus is on **stability and performance** — we're prioritizing reliable, well-tested contributions over new feature additions. The best contributions here are focused, well-tested, and easy to review.
+
+## Table of Contents
+
+- [Before You Start](#before-you-start)
+- [Proposing New Features](#proposing-new-features)
+- [Pull Requests](#pull-requests)
+  - [Automated Review (CodeRabbit)](#automated-review-coderabbit)
+  - [PR Follow-Up Requirements](#pr-follow-up-requirements)
+  - [Duplicate PRs](#duplicate-prs)
+  - [What Gets Closed Without Review](#what-gets-closed-without-review)
+  - [Contributor Conduct](#contributor-conduct)
+  - [Project Consistency](#project-consistency)
+- [Development Workflow](#development-workflow)
+- [AI Agent Guidelines](#ai-agent-guidelines)
+- [Code Style](#code-style)
+- [Provider Changes](#provider-changes)
+- [Local Setup](#local-setup)
+- [Validation](#validation)
+- [Community](#community)
 
 ## Before You Start
 
@@ -12,6 +31,18 @@ OpenClaude is a fast-moving open-source coding-agent CLI with support for multip
 - Use discussions for setup help, ideas, and general community conversation.
 - For larger changes, open an issue first so the scope is clear before implementation.
 - For security reports, follow [SECURITY.md](SECURITY.md).
+
+## Proposing New Features
+
+OpenClaude is moving toward a more **maintainer-directed roadmap**. We are focusing development efforts on stability, performance, and core reliability. As a result, new feature additions are being evaluated more carefully to ensure they align with the project's direction.
+
+**Before investing time in a feature PR, please open an issue first** to propose and discuss your idea with the maintainers. This isn't about gatekeeping — we genuinely value your ideas and want to help shape them into contributions that fit the project's goals. The conversation will help you understand:
+
+- Whether the feature aligns with our current roadmap
+- If similar work is already planned or in progress
+- The best approach that maintains project consistency
+
+This step prevents wasted effort on PRs that might otherwise be closed without review simply because the feature doesn't match where we're taking the project. Your idea may be great — it just needs to fit the bigger picture.
 
 ## Pull Requests
 
@@ -28,6 +59,32 @@ The PR author is responsible for ensuring their PR is merge-ready. PRs with merg
 
 Issues are the recommended starting point for anything non-trivial — opening one first helps avoid wasted effort if the change is out of scope or already being worked on. Small fixes, doc corrections, and obvious improvements can stand on their own without a linked issue, as long as the PR description explains the intent.
 
+### Automated Review (CodeRabbit)
+
+We use [CodeRabbit](https://coderabbit.ai) to assist with PR reviews. CodeRabbit will automatically review your PR and leave comments on potential issues, bugs, or style concerns.
+
+**PR authors must address CodeRabbit findings** — do not ignore its comments and wait for a maintainer override. If you're waiting for a maintainer review and CodeRabbit has completed its review with findings, fix those findings first. Maintainer reviews will not proceed until automated review feedback has been addressed.
+
+### PR Follow-Up Requirements
+
+Submitting a PR is a commitment to see it through. Please be prepared to:
+
+- **Respond to review feedback within 1 week** of a maintainer or CodeRabbit review request
+- **If you need more time**, leave a comment explaining your situation and expected timeline
+- **PRs with no activity for 2 weeks after a review request** will be closed as abandoned. At that point, another contributor may pick up the work under a new PR
+
+This policy ensures the project stays maintainable and that contributor queue doesn't grow stale. We understand life happens — a quick note explaining a delay goes a long way.
+
+### Duplicate PRs
+
+We are proactive about closing duplicate PRs. Before submitting, **it is your responsibility to check** whether a similar PR already exists:
+
+- Search [open pull requests](https://github.com/Gitlawb/openclaude/pulls) for related work
+- Check [closed pull requests](https://github.com/Gitlawb/openclaude/pulls?q=is%3Apr+is%3Aclosed) to see if similar work was previously addressed or declined
+- If you find an existing PR, engage in that thread rather than opening a new one
+
+Duplicate PRs will likely be closed without review or follow-up. This isn't personal — it's about keeping the review queue focused and efficient.
+
 ### What Gets Closed Without Review
 
 PRs may be closed without review if they:
@@ -41,7 +98,18 @@ PRs may be closed without review if they:
 - are automated bounty-hunting or mass-submitted PRs that provide little meaningful value to the codebase
 - are advertisements, sales pitches, or promotional submissions for a product or service — open an issue first to discuss with maintainers if you believe your product or service is relevant to this project
 
-This is not a judgment on the contributor. It is how the project stays reviewable. If your PR is closed, the best next step is to open an issue, clarify the intent, and get alignment before re-submitting. Contributors who repeatedly submit automated or bounty-driven PRs with no real substance will be banned from future contributions.
+This is not a judgment on the contributor. It is how the project stays reviewable. If your PR is closed, the best next step is to open an issue, clarify the intent, and get alignment before re-submitting.
+
+### Contributor Conduct
+
+We want OpenClaude to be a welcoming community, but we must also protect the project's quality and contributor time. The following actions will result in a **ban from future contributions**:
+
+- Repeated fly-by PRs with no follow-up after review requests
+- Repeated submission of duplicate PRs
+- Ignoring CodeRabbit findings and waiting for maintainer override
+- Automated or mass-submitted PRs that provide little meaningful value
+
+We don't take this lightly. If you're unsure whether your contribution is a good fit, open an issue first — we're happy to help guide you.
 
 ### Project Consistency
 
@@ -68,6 +136,10 @@ Before submitting, run multiple rounds of review on generated code:
 - ask your AI assistant "are you sure there are no issues with this code?" — this alone can surface problems that would otherwise slip through
 
 Self-review up front saves everyone time and reduces back-and-forth during maintainer review.
+
+## AI Agent Guidelines
+
+If you are an AI agent (Copilot, Cursor, Claude, etc.) working on this codebase, refer to [AGENTS.md](AGENTS.md) for project-specific coding guidelines, conventions, and validation commands. Following these guidelines will help your contributions align with the project's patterns and reduce review friction.
 
 ## Code Style
 

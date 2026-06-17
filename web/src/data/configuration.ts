@@ -8,17 +8,17 @@ export interface SettingsFile {
 
 export const settingsFiles: SettingsFile[] = [
   {
-    path: '~/.claude/settings.json',
+    path: '~/.openclaude/settings.json',
     scope: 'user',
     notes: 'Global settings for every project on the machine.',
   },
   {
-    path: '.claude/settings.json',
+    path: '.openclaude/settings.json',
     scope: 'project',
     notes: 'Shared project settings, committed to the repo.',
   },
   {
-    path: '.claude/settings.local.json',
+    path: '.openclaude/settings.local.json',
     scope: 'local',
     notes: 'Per-machine overrides for one project; typically gitignored.',
   },
@@ -68,7 +68,7 @@ export const envVars: EnvVar[] = [
   { name: 'MIMO_API_KEY', description: 'Xiaomi MiMo API key.' },
   { name: 'OPENCODE_API_KEY', description: 'OpenCode Zen / Go gateway key.' },
   { name: 'GITHUB_TOKEN', description: 'GitHub token for GitHub Models and PR workflows.' },
-  { name: 'CLAUDE_CONFIG_DIR', description: 'Override the config directory (default ~/.claude).' },
+  { name: 'CLAUDE_CONFIG_DIR', description: 'Override the config directory (default ~/.openclaude).' },
   { name: 'HTTP_PROXY / HTTPS_PROXY', description: 'Route API traffic through a proxy.' },
   { name: 'NODE_EXTRA_CA_CERTS', description: 'Extra CA certificates for corporate TLS interception.' },
   { name: 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', description: 'Disable non-essential network traffic.' },
