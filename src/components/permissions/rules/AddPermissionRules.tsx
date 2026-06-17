@@ -10,7 +10,11 @@ import { permissionRuleValueToString } from '../../../utils/permissions/permissi
 import { detectUnreachableRules, type UnreachableRule } from '../../../utils/permissions/shadowedRuleDetection.js';
 import { SandboxManager } from '../../../utils/sandbox/sandbox-adapter.js';
 import { type EditableSettingSource, SOURCES } from '../../../utils/settings/constants.js';
-import { getRelativeSettingsFilePathForSource } from '../../../utils/settings/settings.js';
+import {
+  getRelativeSettingsFilePathForSource,
+  getSettingsFilePathForSource,
+} from '../../../utils/settings/settings.js';
+import { getDisplayPath } from '../../../utils/file.js';
 import { plural } from '../../../utils/stringUtils.js';
 import type { OptionWithDescription } from '../../CustomSelect/select.js';
 import { Dialog } from '../../design-system/Dialog.js';
@@ -32,7 +36,7 @@ export function optionForPermissionSaveDestination(saveDestination: EditableSett
     case 'userSettings':
       return {
         label: 'User settings',
-        description: `Saved in ~/.openclaude/settings.json`,
+        description: `Saved in ${getDisplayPath(getSettingsFilePathForSource('userSettings') ?? '~/.openclaude/settings.json')}`,
         value: saveDestination
       };
   }

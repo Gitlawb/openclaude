@@ -131,6 +131,18 @@ describe("Secure Storage Platform Implementations", () => {
       expect(otherName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 
+    test("service name changes with OPENCLAUDE_CONFIG_DIR", () => {
+      const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      process.env.OPENCLAUDE_CONFIG_DIR = "/tmp/preferred-config";
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const preferredName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      expect(preferredName).not.toBe(defaultName);
+      expect(preferredName).toContain("Claude Code");
+      expect(preferredName).toContain(CREDENTIALS_SERVICE_SUFFIX);
+    });
+
     test("Linux storage uses scoped service name", () => {
       process.env.CLAUDE_CONFIG_DIR = "/tmp/linux-scoped";
       const expectedName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
@@ -141,8 +153,32 @@ describe("Secure Storage Platform Implementations", () => {
       expect(args).toContain(expectedName);
     });
 
+    test("Linux storage uses OPENCLAUDE_CONFIG_DIR scoped service name", () => {
+      process.env.OPENCLAUDE_CONFIG_DIR = "/tmp/linux-preferred-scoped";
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const expectedName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      linuxSecretStorage.update(testData);
+
+      const args = getSecretToolArgs();
+      expect(args).toContain(expectedName);
+    });
+
     test("Windows storage uses scoped resource name", () => {
       process.env.CLAUDE_CONFIG_DIR = "/tmp/win-scoped";
+      const expectedName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      windowsCredentialStorage.update(testData);
+
+      const script = getPowerShellScript();
+      expect(script).toContain(expectedName);
+      expect(script).toContain("ProtectedData");
+      expect(getCommandInput()).toContain("secret-token");
+    });
+
+    test("Windows storage uses OPENCLAUDE_CONFIG_DIR scoped resource name", () => {
+      process.env.OPENCLAUDE_CONFIG_DIR = "/tmp/win-preferred-scoped";
+      delete process.env.CLAUDE_CONFIG_DIR;
       const expectedName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       windowsCredentialStorage.update(testData);

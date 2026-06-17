@@ -1,5 +1,6 @@
 import { c as _c } from "react-compiler-runtime";
 import capitalize from 'lodash-es/capitalize.js';
+import { join } from 'path';
 import * as React from 'react';
 import { useMemo } from 'react';
 import { type Command, type CommandBase, type CommandResultDisplay, getCommandName, type PromptCommand } from '../../commands.js';
@@ -48,6 +49,9 @@ function getSourceSubtitle(source: SkillSource, skills: SkillCommand[]): string 
 function getSkillListLabel(skill: SkillCommand): string {
   const leafName = skill.name.split(':').pop() ?? skill.name;
   return leafName === skill.name ? skill.name : `${skill.name} - ${leafName}`;
+}
+export function getEmptySkillsMenuMessage(): string {
+  return `Create skills in .claude/skills/<name>/SKILL.md or ${getDisplayPath(join(getSkillsPath('userSettings', 'skills'), '<name>', 'SKILL.md'))}`;
 }
 export function SkillsMenu(t0) {
   const $ = _c(35);
@@ -106,7 +110,7 @@ export function SkillsMenu(t0) {
   if (skills.length === 0) {
     let t3;
     if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <FullWidthRow><Text dimColor={true}>Create skills in .claude/skills/&lt;name&gt;/SKILL.md or ~/.openclaude/skills/&lt;name&gt;/SKILL.md</Text></FullWidthRow>;
+      t3 = <FullWidthRow><Text dimColor={true}>{getEmptySkillsMenuMessage()}</Text></FullWidthRow>;
       $[6] = t3;
     } else {
       t3 = $[6];

@@ -1,4 +1,5 @@
 import chalk from 'chalk'
+import { join } from 'path'
 import { logForDebugging } from 'src/utils/debug.js'
 import { fileHistoryEnabled } from 'src/utils/fileHistory.js'
 import {
@@ -11,6 +12,7 @@ import { getDesktopUpsellConfig } from '../../components/DesktopUpsell/DesktopUp
 import { color } from '../../components/design-system/color.js'
 import { shouldShowOverageCreditUpsell } from '../../components/LogoV2/OverageCreditUpsell.js'
 import { getShortcutDisplay } from '../../keybindings/shortcutFormat.js'
+import { getSkillsPath } from '../../skills/loadSkillsDir.js'
 import { isKairosCronEnabled } from '../../tools/ScheduleCronTool/prompt.js'
 import { is1PApiCustomer } from '../../utils/auth.js'
 import { countConcurrentSessions } from '../../utils/concurrentSessions.js'
@@ -21,6 +23,7 @@ import {
 } from '../../utils/effort.js'
 import { env } from '../../utils/env.js'
 import { cacheKeys } from '../../utils/fileStateCache.js'
+import { getDisplayPath } from '../../utils/file.js'
 import { getWorktreeCount } from '../../utils/git.js'
 import {
   detectRunningIDEsCached,
@@ -56,6 +59,10 @@ import {
 import { sponsoredTips } from './sponsoredTips.js'
 import { getSessionsSinceLastShown } from './tipHistory.js'
 import type { Tip, TipContext } from './types.js'
+
+export function getCustomCommandsTipContent(): string {
+  return `Create skills at .claude/skills/<name>/SKILL.md in your project or ${getDisplayPath(join(getSkillsPath('userSettings', 'skills'), '<name>', 'SKILL.md'))} for skills that work in any project`
+}
 
 let _isOfficialMarketplaceInstalledCache: boolean | undefined
 async function isOfficialMarketplaceInstalled(): Promise<boolean> {
@@ -390,8 +397,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'custom-commands',
-    content: async () =>
-      'Create skills at .claude/skills/<name>/SKILL.md in your project or ~/.openclaude/skills/<name>/SKILL.md for skills that work in any project',
+    content: async () => getCustomCommandsTipContent(),
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()
