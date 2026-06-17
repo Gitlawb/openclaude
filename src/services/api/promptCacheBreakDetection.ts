@@ -5,16 +5,26 @@ import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { AgentId } from 'src/types/ids.js'
 import type { Message } from 'src/types/message.js'
-import { logForDebugging } from 'src/utils/debug.js'
+import { type DebugLogLevel, logForDebugging } from 'src/utils/debug.js'
 import { djb2Hash } from 'src/utils/hash.js'
 import { logError } from 'src/utils/log.js'
+import {
+  getAPIProvider,
+  isGithubNativeAnthropicMode,
+} from 'src/utils/model/providers.js'
 import { getClaudeTempDir } from 'src/utils/permissions/filesystem.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import type { QuerySource } from '../../constants/querySource.js'
+import { resolveActiveRouteIdFromEnv } from '../../integrations/routeMetadata.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../analytics/index.js'
+import {
+  getCacheMetricsReliability,
+  resolveCacheProvider,
+  type CacheMetricsReliability,
+} from './cacheMetrics.js'
 
 function getCacheBreakDiffPath(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -96,6 +106,24 @@ type PendingChanges = {
   prevEffortValue: string
   newEffortValue: string
   buildPrevDiffableContent: () => string
+}
+
+export type PromptCacheBreakKind =
+  | 'expected_local_prompt_change'
+  | 'expected_tool_schema_change'
+  | 'expected_cache_control_change'
+  | 'expected_model_or_beta_change'
+  | 'provider_cache_instability'
+  | 'possible_ttl_expiry'
+  | 'unknown_local_mutation'
+  | 'metrics_unavailable'
+
+type PromptCacheBreakSeverity = 'debug' | 'info' | 'warning'
+
+type PromptCacheBreakClassification = {
+  kind: PromptCacheBreakKind
+  severity: PromptCacheBreakSeverity
+  debugLevel: DebugLogLevel
 }
 
 const previousStateBySource = new Map<string, PreviousState>()
@@ -219,6 +247,113 @@ function buildDiffableContent(
     .sort()
     .join('\n\n')
   return `Model: ${model}\n\n=== System Prompt ===\n\n${systemText}\n\n=== Tools (${tools.length}) ===\n\n${toolDetails}\n`
+}
+
+function classifyPromptCacheBreak({
+  changes,
+  cacheMetricsReliability,
+  lastAssistantMsgOver5minAgo,
+  timeSinceLastAssistantMsg,
+}: {
+  changes: PendingChanges | null
+  cacheMetricsReliability: CacheMetricsReliability
+  lastAssistantMsgOver5minAgo: boolean
+  timeSinceLastAssistantMsg: number | null
+}): PromptCacheBreakClassification {
+  if (changes) {
+    if (changes.systemPromptChanged) {
+      return {
+        kind: 'expected_local_prompt_change',
+        severity: 'info',
+        debugLevel: 'info',
+      }
+    }
+    if (changes.toolSchemasChanged) {
+      return {
+        kind: 'expected_tool_schema_change',
+        severity: 'info',
+        debugLevel: 'info',
+      }
+    }
+    if (
+      (changes.cacheControlChanged || changes.globalCacheStrategyChanged) &&
+      !changes.systemPromptChanged
+    ) {
+      return {
+        kind: 'expected_cache_control_change',
+        severity: 'info',
+        debugLevel: 'info',
+      }
+    }
+    if (
+      changes.modelChanged ||
+      changes.fastModeChanged ||
+      changes.betasChanged ||
+      changes.autoModeChanged ||
+      changes.overageChanged ||
+      changes.cachedMCChanged ||
+      changes.effortChanged ||
+      changes.extraBodyChanged
+    ) {
+      return {
+        kind: 'expected_model_or_beta_change',
+        severity: 'info',
+        debugLevel: 'info',
+      }
+    }
+  }
+
+  if (cacheMetricsReliability === 'unsupported') {
+    return {
+      kind: 'metrics_unavailable',
+      severity: 'info',
+      debugLevel: 'info',
+    }
+  }
+
+  if (lastAssistantMsgOver5minAgo) {
+    return {
+      kind: 'possible_ttl_expiry',
+      severity: 'info',
+      debugLevel: 'info',
+    }
+  }
+
+  if (timeSinceLastAssistantMsg !== null) {
+    const advisory = cacheMetricsReliability === 'advisory'
+    return {
+      kind: 'provider_cache_instability',
+      severity: advisory ? 'info' : 'warning',
+      debugLevel: advisory ? 'info' : 'warn',
+    }
+  }
+
+  return {
+    kind: 'unknown_local_mutation',
+    severity: 'warning',
+    debugLevel: 'warn',
+  }
+}
+
+function getPromptCacheBreakProviderMetadata(model: string): {
+  cacheProvider: string
+  cacheMetricsReliability: CacheMetricsReliability
+  providerRoute: string
+} {
+  const apiProvider = getAPIProvider()
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
+  const cacheProvider = resolveCacheProvider(apiProvider, {
+    githubNativeAnthropic: isGithubNativeAnthropicMode(model),
+    openAiBaseUrl: process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
+  })
+  return {
+    cacheProvider,
+    cacheMetricsReliability: getCacheMetricsReliability(cacheProvider),
+    providerRoute:
+      activeRouteId === 'anthropic' && apiProvider !== 'firstParty'
+        ? apiProvider
+        : activeRouteId ?? apiProvider,
+  }
 }
 
 /** Extended tracking snapshot — everything that could affect the server-side
@@ -491,6 +626,12 @@ export async function checkResponseForCacheBreak(
       return
     }
 
+    const {
+      cacheProvider,
+      cacheMetricsReliability,
+      providerRoute,
+    } = getPromptCacheBreakProviderMetadata(state.model)
+
     // Build explanation from pending changes (if any)
     const parts: string[] = []
     if (changes) {
@@ -570,6 +711,13 @@ export async function checkResponseForCacheBreak(
       timeSinceLastAssistantMsg !== null &&
       timeSinceLastAssistantMsg > CACHE_TTL_1HOUR_MS
 
+    const classification = classifyPromptCacheBreak({
+      changes,
+      cacheMetricsReliability,
+      lastAssistantMsgOver5minAgo,
+      timeSinceLastAssistantMsg,
+    })
+
     // Post PR #19823 BQ analysis (bq-queries/prompt-caching/cache_break_pr19823_analysis.sql):
     // when all client-side flags are false and the gap is under TTL, ~90% of breaks
     // are server-side routing/eviction or billed/inference disagreement. Label
@@ -577,17 +725,36 @@ export async function checkResponseForCacheBreak(
     let reason: string
     if (parts.length > 0) {
       reason = parts.join(', ')
+    } else if (classification.kind === 'metrics_unavailable') {
+      reason = `cache metrics unavailable or unsupported for provider (${cacheProvider})`
     } else if (lastAssistantMsgOver1hAgo) {
       reason = 'possible 1h TTL expiry (prompt unchanged)'
     } else if (lastAssistantMsgOver5minAgo) {
       reason = 'possible 5min TTL expiry (prompt unchanged)'
     } else if (timeSinceLastAssistantMsg !== null) {
-      reason = 'likely server-side (prompt unchanged, <5min gap)'
+      reason =
+        cacheMetricsReliability === 'advisory'
+          ? 'provider-side cache metric instability (prompt unchanged, <5min gap, advisory metrics)'
+          : 'provider-side cache instability (prompt unchanged, <5min gap)'
     } else {
-      reason = 'unknown cause'
+      reason = 'unknown local mutation or incomplete prompt state'
     }
 
     logEvent('tengu_prompt_cache_break', {
+      classification:
+        classification.kind as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      severity:
+        classification.severity as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      cacheMetricsReliability:
+        cacheMetricsReliability as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      cacheProvider:
+        cacheProvider as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      providerRoute:
+        providerRoute as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      querySource:
+        querySource as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      model:
+        state.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       systemPromptChanged: changes?.systemPromptChanged ?? false,
       toolSchemasChanged: changes?.toolSchemasChanged ?? false,
       modelChanged: changes?.modelChanged ?? false,
@@ -636,6 +803,7 @@ export async function checkResponseForCacheBreak(
       prevCacheReadTokens: prevCacheRead,
       cacheReadTokens,
       cacheCreationTokens,
+      tokenDrop,
       timeSinceLastAssistantMsg: timeSinceLastAssistantMsg ?? -1,
       lastAssistantMsgOver5minAgo,
       lastAssistantMsgOver1hAgo,
@@ -655,9 +823,9 @@ export async function checkResponseForCacheBreak(
     }
 
     const diffSuffix = diffPath ? `, diff: ${diffPath}` : ''
-    const summary = `[PROMPT CACHE BREAK] ${reason} [source=${querySource}, call #${state.callCount}, cache read: ${prevCacheRead} → ${cacheReadTokens}, creation: ${cacheCreationTokens}${diffSuffix}]`
+    const summary = `[PROMPT CACHE BREAK] ${reason} [classification=${classification.kind}, severity=${classification.severity}, reliability=${cacheMetricsReliability}, provider=${cacheProvider}, route=${providerRoute || 'unknown'}, source=${querySource}, call #${state.callCount}, cache read: ${prevCacheRead} → ${cacheReadTokens}, drop: ${tokenDrop}, creation: ${cacheCreationTokens}${diffSuffix}]`
 
-    logForDebugging(summary, { level: 'warn' })
+    logForDebugging(summary, { level: classification.debugLevel })
 
     state.pendingChanges = null
   } catch (e: unknown) {
