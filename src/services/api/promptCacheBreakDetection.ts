@@ -221,7 +221,7 @@ function isCacheBreakEnvTruthy(value: string | undefined): boolean {
 
 function getNonEmptyEnvValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
-  return trimmed || undefined
+  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
 }
 
 /** MCP tool names are user-controlled (server config) and may leak filepaths.
@@ -374,13 +374,16 @@ function getPromptCacheBreakProviderMetadata(model: string): {
       getNonEmptyEnvValue(process.env.OPENAI_BASE_URL) ??
       getNonEmptyEnvValue(process.env.OPENAI_API_BASE),
   })
+  let providerRoute = activeRouteId ?? apiProvider
+  if (apiProvider === 'codex') {
+    providerRoute = 'codex'
+  } else if (activeRouteId === 'anthropic' && apiProvider !== 'firstParty') {
+    providerRoute = apiProvider
+  }
   return {
     cacheProvider,
     cacheMetricsReliability: getCacheMetricsReliability(cacheProvider),
-    providerRoute:
-      activeRouteId === 'anthropic' && apiProvider !== 'firstParty'
-        ? apiProvider
-        : activeRouteId ?? apiProvider,
+    providerRoute,
   }
 }
 

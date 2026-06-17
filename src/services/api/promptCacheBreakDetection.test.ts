@@ -108,6 +108,13 @@ function useOpenAIProviderWithWhitespaceBaseFallback(): void {
   process.env.OPENAI_MODEL = 'deepseek-chat'
 }
 
+function useCodexAliasWithLiteralUndefinedBaseUrl(): void {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'undefined'
+  process.env.OPENAI_MODEL = 'codexplan'
+}
+
 function useUnsupportedGithubProvider(): void {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -408,6 +415,23 @@ describe('prompt cache break taxonomy', () => {
       classification: 'provider_cache_instability',
       cacheMetricsReliability: 'advisory',
       cacheProvider: 'deepseek',
+      severity: 'info',
+    })
+  })
+
+  test('literal undefined OpenAI base URL still reports Codex alias metadata', async () => {
+    useCodexAliasWithLiteralUndefinedBaseUrl()
+
+    const event = await triggerCacheDrop({
+      first: snapshot({ model: 'codexplan' }),
+      second: snapshot({ model: 'codexplan' }),
+    })
+
+    expect(event.metadata).toMatchObject({
+      classification: 'provider_cache_instability',
+      cacheMetricsReliability: 'advisory',
+      cacheProvider: 'codex',
+      providerRoute: 'codex',
       severity: 'info',
     })
   })
