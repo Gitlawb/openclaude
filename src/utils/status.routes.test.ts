@@ -65,25 +65,25 @@ function clearProviderEnv(): void {
   }
 }
 
-async function buildPropertiesWithProvider(provider: string): Promise<
-  Array<{ label?: string; value: unknown }>
-> {
+async function restoreProviderModule(): Promise<void> {
   mock.restore()
-  mock.module('./model/providers.js', () => ({
-    getAPIProvider: () => provider,
-    getAPIProviderForStatsig: () => provider,
-    isFirstPartyAnthropicBaseUrl: () => true,
-    isGithubNativeAnthropicMode: () => false,
-  }))
   const nonce = `${Date.now()}-${Math.random()}`
-  const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
-  return buildAPIProviderProperties()
+  const actualProviders = await import(`./model/providers.js?restore=${nonce}`)
+  mock.module('./model/providers.js', () => ({
+    ...actualProviders,
+  }))
+}
+
+async function buildPropertiesWithProvider(
+  _provider: string,
+): Promise<Array<{ label?: string; value: unknown }>> {
+  return buildPropertiesWithRealProvider()
 }
 
 async function buildPropertiesWithRealProvider(): Promise<
   Array<{ label?: string; value: unknown }>
 > {
-  mock.restore()
+  await restoreProviderModule()
   const nonce = `${Date.now()}-${Math.random()}`
   const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
   return buildAPIProviderProperties()
@@ -98,12 +98,13 @@ function findValue(
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/status.routes.test.ts')
+  await restoreProviderModule()
   clearProviderEnv()
 })
 
-afterEach(() => {
+afterEach(async () => {
   try {
-    mock.restore()
+    await restoreProviderModule()
     restoreEnv()
   } finally {
     releaseSharedMutationLock()
