@@ -854,6 +854,7 @@ export async function* executeNonStreamingRequest(
    * from. Emitted in tengu_nonstreaming_fallback_error for funnel correlation.
    */
   originatingRequestId?: string | null,
+  queryLifecycle?: QueryLifecycleOperationTracker,
 ): AsyncGenerator<SystemAPIErrorMessage, BetaMessage> {
   const fallbackTimeoutMs = getNonstreamingFallbackTimeoutMs()
   const generator = withRetry(
@@ -876,6 +877,12 @@ export async function* executeNonStreamingRequest(
         retryParams,
         MAX_NON_STREAMING_TOKENS,
       )
+      const activeApiCallKey =
+        queryLifecycle?.startApiCall({
+          model: context.model,
+          querySource: retryOptions.querySource,
+          startedAt: start,
+        }) ?? null
 
       try {
         // biome-ignore lint/plugin: non-streaming API call
@@ -910,6 +917,10 @@ export async function* executeNonStreamingRequest(
             'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         })
         throw err
+      } finally {
+        if (activeApiCallKey) {
+          queryLifecycle?.endApiCall(activeApiCallKey)
+        }
       }
     },
     {
@@ -1543,6 +1554,20 @@ async function* queryModel(
   // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in supported Node runtimes and is used by the SDK
   let streamResponse: Response | undefined = undefined
 
+  function endActiveApiCall(key = activeApiCallKey): void {
+    if (!key) return
+    options.queryLifecycle?.endApiCall(key)
+    if (activeApiCallKey === key) {
+      activeApiCallKey = null
+    }
+  }
+
+  function startActiveApiCall(call: Parameters<QueryLifecycleOperationTracker['startApiCall']>[0]): string | null {
+    endActiveApiCall()
+    activeApiCallKey = options.queryLifecycle?.startApiCall(call) ?? null
+    return activeApiCallKey
+  }
+
   // Release all stream resources to prevent native memory leaks.
   // The Response object holds native TLS/socket buffers that live outside the
   // V8 heap (observed on the Node.js/npm path; see GH #32920), so we must
@@ -1852,42 +1877,42 @@ async function* queryModel(
           getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
             ? randomUUID()
             : undefined
-        if (activeApiCallKey) {
-          options.queryLifecycle?.endApiCall(activeApiCallKey)
-          activeApiCallKey = null
-        }
-        activeApiCallKey =
-          options.queryLifecycle?.startApiCall({
-            clientRequestId,
-            model: options.model,
-            querySource: options.querySource,
-            startedAt: start,
-          }) ?? null
+        const attemptApiCallKey = startActiveApiCall({
+          clientRequestId,
+          model: options.model,
+          querySource: options.querySource,
+          startedAt: start,
+        })
 
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
         // since we handle tool input accumulation ourselves
         // biome-ignore lint/plugin: main conversation loop handles attribution separately
-        const result = await anthropic.beta.messages
-          .create(
-            { ...params, stream: true },
-            {
-              signal,
-              ...(clientRequestId && {
-                headers: { [CLIENT_REQUEST_ID_HEADER]: clientRequestId },
-              }),
-            },
-          )
-          .withResponse()
-        queryCheckpoint('query_response_headers_received')
-        streamRequestId = result.request_id
-        if (activeApiCallKey) {
-          options.queryLifecycle?.updateApiCall(activeApiCallKey, {
-            requestId: streamRequestId,
-          })
+        try {
+          const result = await anthropic.beta.messages
+            .create(
+              { ...params, stream: true },
+              {
+                signal,
+                ...(clientRequestId && {
+                  headers: { [CLIENT_REQUEST_ID_HEADER]: clientRequestId },
+                }),
+              },
+            )
+            .withResponse()
+          queryCheckpoint('query_response_headers_received')
+          streamRequestId = result.request_id
+          if (attemptApiCallKey) {
+            options.queryLifecycle?.updateApiCall(attemptApiCallKey, {
+              requestId: streamRequestId,
+            })
+          }
+          streamResponse = result.response
+          return result.data
+        } catch (err) {
+          endActiveApiCall(attemptApiCallKey)
+          throw err
         }
-        streamResponse = result.response
-        return result.data
       },
       {
         model: options.model,
@@ -2604,6 +2629,7 @@ async function* queryModel(
           ? 'watchdog'
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
+      endActiveApiCall()
       const result = yield* executeNonStreamingRequest(
         { model: options.model, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
         {
@@ -2622,6 +2648,7 @@ async function* queryModel(
         },
         params => captureAPIRequest(params, options.querySource),
         streamRequestId,
+        options.queryLifecycle,
       )
 
       const m: AssistantMessage = {
@@ -2703,14 +2730,21 @@ async function* queryModel(
 
       try {
         // Fall back to non-streaming mode
+        endActiveApiCall()
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource, effortValue: effort },
+          {
+            model: options.model,
+            source: options.querySource,
+            providerOverride: options.providerOverride,
+            effortValue: effort,
+          },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,
             thinkingConfig,
             ...(isFastModeEnabled() && { fastMode: isFastMode }),
             signal,
+            querySource: options.querySource,
           },
           paramsFromContext,
           (attempt, _startTime, tokens) => {
@@ -2719,6 +2753,7 @@ async function* queryModel(
           },
           params => captureAPIRequest(params, options.querySource),
           failedRequestId,
+          options.queryLifecycle,
         )
 
         const m: AssistantMessage = {
@@ -2860,10 +2895,7 @@ async function* queryModel(
       return
     }
   } finally {
-    if (activeApiCallKey) {
-      options.queryLifecycle?.endApiCall(activeApiCallKey)
-      activeApiCallKey = null
-    }
+    endActiveApiCall()
     stopSessionActivity('api_call')
     // Must be in the finally block: if the generator is terminated early
     // via .return() (e.g. consumer breaks out of for-await-of, or query.ts

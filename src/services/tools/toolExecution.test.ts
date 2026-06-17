@@ -252,6 +252,64 @@ describe('runToolUse lifecycle tracking', () => {
     expect(typeof snapshots[0]?.toolUses[0]?.startedAt).toBe('number')
     expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
   })
+
+  test('refreshes Bash timeout metadata after permission input rewrites', async () => {
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const permissionSnapshots: ReturnType<
+      QueryLifecycleOperationTracker['snapshot']
+    >[] = []
+    const callSnapshots: ReturnType<QueryLifecycleOperationTracker['snapshot']>[] =
+      []
+    const tool = createToolFixture(lifecycleToolInputSchema, {
+      name: BASH_TOOL_NAME,
+      async validateInput() {
+        return { result: true }
+      },
+      async call(input) {
+        callSnapshots.push(queryLifecycle.snapshot())
+        expect(input).toMatchObject({
+          command: 'sleep 2',
+          timeout: 2222,
+        })
+        return { data: 'ok' }
+      },
+    })
+    const toolUseContext = makeToolUseContext([tool], queryLifecycle)
+    const canUseTool = (async () => {
+      permissionSnapshots.push(queryLifecycle.snapshot())
+      return {
+        behavior: 'allow',
+        updatedInput: { command: 'sleep 2', timeout: 2222 },
+        decisionReason: {
+          type: 'other',
+          reason: 'allowed by test',
+        },
+      }
+    }) as CanUseToolFn
+
+    await collectToolUseUpdates(
+      tool,
+      { command: 'sleep 1', timeout: 1111 },
+      canUseTool,
+      toolUseContext,
+    )
+
+    expect(permissionSnapshots).toHaveLength(1)
+    expect(permissionSnapshots[0]?.toolUses[0]).toMatchObject({
+      toolUseId: 'tool-use-1',
+      toolName: BASH_TOOL_NAME,
+      isBash: true,
+      timeoutMs: 1111,
+    })
+    expect(callSnapshots).toHaveLength(1)
+    expect(callSnapshots[0]?.toolUses[0]).toMatchObject({
+      toolUseId: 'tool-use-1',
+      toolName: BASH_TOOL_NAME,
+      isBash: true,
+      timeoutMs: 2222,
+    })
+    expect(queryLifecycle.snapshot()).toEqual({ apiCalls: [], toolUses: [] })
+  })
 })
 
 describe('normalizeToolInputForValidation', () => {
