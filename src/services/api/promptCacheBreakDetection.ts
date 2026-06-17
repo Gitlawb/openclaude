@@ -209,10 +209,14 @@ function stringifyCacheBreakData(data: unknown): string {
   return JSON.stringify(data) ?? ''
 }
 
-function isTruthyEnvValue(value: string | undefined): boolean {
-  if (value === undefined) return false
-  const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false'
+function isCacheBreakEnvTruthy(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return (
+    normalized === '1' ||
+    normalized === 'true' ||
+    normalized === 'yes' ||
+    normalized === 'on'
+  )
 }
 
 function getNonEmptyEnvValue(value: string | undefined): string | undefined {
@@ -385,7 +389,7 @@ function resolvePromptCacheBreakAPIProvider(
   activeRouteId: string | null,
   model: string,
 ): APIProvider {
-  if (isTruthyEnvValue(env.CLAUDE_CODE_USE_FOUNDRY)) {
+  if (isCacheBreakEnvTruthy(env.CLAUDE_CODE_USE_FOUNDRY)) {
     return 'foundry'
   }
 
@@ -402,13 +406,13 @@ function resolvePromptCacheBreakAPIProvider(
       return activeRouteId
     case 'openai':
     case 'custom':
-      if (isTruthyEnvValue(env.NVIDIA_NIM)) {
+      if (isCacheBreakEnvTruthy(env.NVIDIA_NIM)) {
         return 'nvidia-nim'
       }
       return isCodexCacheBreakRoute(env, model) ? 'codex' : 'openai'
     case 'anthropic':
     case null:
-      if (isTruthyEnvValue(env.NVIDIA_NIM)) {
+      if (isCacheBreakEnvTruthy(env.NVIDIA_NIM)) {
         return 'nvidia-nim'
       }
       return 'firstParty'
@@ -428,7 +432,7 @@ function isGithubNativeAnthropicModeForCacheBreak(
   env: NodeJS.ProcessEnv,
   model: string,
 ): boolean {
-  if (!isTruthyEnvValue(env.CLAUDE_CODE_USE_GITHUB)) return false
+  if (!isCacheBreakEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)) return false
   const resolvedModel = model.trim() || env.OPENAI_MODEL?.trim() || ''
   return resolvedModel.toLowerCase().includes('claude-')
 }

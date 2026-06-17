@@ -95,6 +95,11 @@ function useOpenAIProvider(): void {
   process.env.OPENAI_MODEL = 'gpt-5.5'
 }
 
+function useOpenAIProviderWithDisabledFoundryFlag(flagValue: string): void {
+  useOpenAIProvider()
+  process.env.CLAUDE_CODE_USE_FOUNDRY = flagValue
+}
+
 function useOpenAIProviderWithWhitespaceBaseFallback(): void {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -370,6 +375,26 @@ describe('prompt cache break taxonomy', () => {
     expect(debug?.options).toEqual({ level: 'info' })
     expect(debug?.message).not.toMatch(/app crash|crash|local mutation/i)
   })
+
+  for (const falseyFoundryFlag of ['off', 'no'] as const) {
+    test(`stale Foundry=${falseyFoundryFlag} env flag does not override OpenAI cache metadata`, async () => {
+      useOpenAIProviderWithDisabledFoundryFlag(falseyFoundryFlag)
+
+      const event = await triggerCacheDrop()
+      const debug = debugCalls.findLast(call =>
+        call.message.startsWith('[PROMPT CACHE BREAK]'),
+      )
+
+      expect(event.metadata).toMatchObject({
+        classification: 'provider_cache_instability',
+        cacheMetricsReliability: 'advisory',
+        cacheProvider: 'openai',
+        providerRoute: 'openai',
+        severity: 'info',
+      })
+      expect(debug?.options).toEqual({ level: 'info' })
+    })
+  }
 
   test('blank OpenAI base URL falls back to legacy API base for cache provider metadata', async () => {
     useOpenAIProviderWithWhitespaceBaseFallback()
