@@ -1273,6 +1273,26 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(String(process.env.FIREWORKS_API_KEY)).toBe('fireworks-test-key')
   })
 
+  test('re-applies LLMTR active profile when LLMTR_API_KEY is missing (env drift)', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const llmtrProfile = buildLlmtrProfile({ id: 'saved_llmtr' })
+    applyProviderProfileToProcessEnv(llmtrProfile)
+
+    // Simulate relaunch where the shell exported OPENAI vars but not LLMTR_API_KEY.
+    // LLMTR is dedicatedCredentialsOnly, so the alignment check must notice the
+    // missing dedicated key and re-apply the profile to restore it.
+    delete process.env.LLMTR_API_KEY
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [llmtrProfile],
+      activeProviderProfileId: 'saved_llmtr',
+    } as any)
+
+    expect(applied?.id).toBe('saved_llmtr')
+    expect(String(process.env.LLMTR_API_KEY)).toBe('llmtr-test-key')
+  })
+
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

@@ -11,9 +11,11 @@ import {
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 
-test('isLlmtrBaseUrl matches llmtr.com by hostname, not substring', () => {
+test('isLlmtrBaseUrl matches the exact llmtr.com host, not substring or subdomain', () => {
   expect(isLlmtrBaseUrl('https://llmtr.com/v1')).toBe(true)
-  expect(isLlmtrBaseUrl('https://api.llmtr.com/v1')).toBe(true)
+  // Exact-host only, aligned with the descriptor's matchBaseUrlHosts: subdomains
+  // are not routed as LLMTR, so they must not be treated as LLMTR here either.
+  expect(isLlmtrBaseUrl('https://api.llmtr.com/v1')).toBe(false)
   // Lookalike hosts that a substring check would wrongly accept.
   expect(isLlmtrBaseUrl('https://not-llmtr.com/v1')).toBe(false)
   expect(isLlmtrBaseUrl('https://llmtr.com.evil.example/v1')).toBe(false)
