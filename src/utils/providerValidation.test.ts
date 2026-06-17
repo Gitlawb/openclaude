@@ -420,6 +420,17 @@ test('github enterprise validation accepts PAT when Enterprise URL is set withou
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('github enterprise validation accepts a direct Copilot key without token validation', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('github validation is skipped when openai mode is also active', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

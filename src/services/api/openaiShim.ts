@@ -508,9 +508,9 @@ function hydrateOpenAIShimCompatibilityEnv(
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     processEnv.OPENAI_API_KEY =
       processEnv.GITHUB_COPILOT_KEY ??
+      processEnv.OPENAI_API_KEY ??
       processEnv.GITHUB_TOKEN ??
       processEnv.GH_TOKEN ??
-      processEnv.OPENAI_API_KEY ??
       ''
     return
   }

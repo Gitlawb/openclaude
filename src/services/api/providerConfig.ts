@@ -33,6 +33,14 @@ export const DEFAULT_OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
 
+function asGithubEnterpriseEnvUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed.toLowerCase() === 'undefined') {
+    return undefined
+  }
+  return trimmed
+}
+
 function normalizeGitlawbOpengatewayBaseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl) return undefined
   try {
@@ -665,7 +673,7 @@ export function getGithubEnterpriseUrl(
   baseUrl?: string,
 ): string | undefined {
   // Explicit env var takes precedence
-  const envUrl = process.env.GITHUB_ENTERPRISE_URL?.trim()
+  const envUrl = asGithubEnterpriseEnvUrl(process.env.GITHUB_ENTERPRISE_URL)
   if (envUrl) return envUrl
 
   // If base URL indicates GHE, derive the enterprise URL from it
@@ -761,12 +769,15 @@ export function resolveProviderRequest(options?: {
     primaryEnvBaseUrl ??
     fallbackEnvBaseUrl
 
+  const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
+    processEnv.GITHUB_ENTERPRISE_URL,
+  )
   const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
   const envBaseUrl =
     isCodexModelForGithub &&
     envBaseUrlRaw &&
     getGithubEndpointType(envBaseUrlRaw, {
-      githubEnterpriseUrl: processEnv.GITHUB_ENTERPRISE_URL,
+      githubEnterpriseUrl: githubEnterpriseEnvUrl,
     }) === 'custom'
       ? undefined
       : envBaseUrlRaw
@@ -791,7 +802,7 @@ export function resolveProviderRequest(options?: {
       : rawBaseUrl
   const finalBaseUrl = normalizeGitlawbOpengatewayBaseUrl(finalBaseUrlRaw)
 
-  const gheUrl = processEnv.GITHUB_ENTERPRISE_URL?.trim()
+  const gheUrl = githubEnterpriseEnvUrl
   const githubEndpointType = isGithubMode
     ? (gheUrl && !rawBaseUrl
       ? 'ghe'

@@ -4,6 +4,7 @@ import {
   activateGithubOnboardingMode,
   applyGithubOnboardingProcessEnv,
   buildGithubOnboardingSettingsEnv,
+  getExistingGithubEnterpriseUrl,
   hasExistingGithubModelsLoginToken,
   normalizeGithubEnterpriseInputUrl,
   shouldForceGithubRelogin,
@@ -59,6 +60,26 @@ describe('onboarding auth precedence cleanup', () => {
         'https://github.mycompany.com/api/copilot/',
       ),
     ).toBe('https://github.mycompany.com')
+  })
+
+  test('rejects invalid Enterprise input URL', () => {
+    expect(() => normalizeGithubEnterpriseInputUrl('not-a-url')).toThrow()
+  })
+
+  test('reads existing Enterprise URL from env or user settings', () => {
+    expect(
+      getExistingGithubEnterpriseUrl(
+        { GITHUB_ENTERPRISE_URL: ' https://github.env.example.com/path ' },
+        { GITHUB_ENTERPRISE_URL: 'https://github.settings.example.com' },
+      ),
+    ).toBe('https://github.env.example.com')
+
+    expect(
+      getExistingGithubEnterpriseUrl(
+        { GITHUB_ENTERPRISE_URL: 'undefined' },
+        { GITHUB_ENTERPRISE_URL: 'https://github.settings.example.com/api' },
+      ),
+    ).toBe('https://github.settings.example.com')
   })
 
   test('clears preexisting OpenAI auth when switching to GitHub', () => {

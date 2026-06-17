@@ -397,6 +397,87 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.GITHUB_ENTERPRISE_URL).toBeUndefined()
   })
 
+  test('github-enterprise profile remains aligned only with Enterprise env', async () => {
+    const {
+      applyActiveProviderProfileFromConfig,
+      applyProviderProfileToProcessEnv,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'github_enterprise_prof',
+      provider: 'github-enterprise',
+      baseUrl: 'https://github.mycompany.com/api/copilot',
+      model: 'github:copilot:gpt-5.3-codex',
+      apiKey: 'enterprise-profile-key',
+    })
+
+    applyProviderProfileToProcessEnv(activeProfile)
+    const unchanged = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(unchanged?.id).toBe(activeProfile.id)
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com',
+    )
+
+    delete process.env.GITHUB_ENTERPRISE_URL
+    const updated = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(updated?.id).toBe(activeProfile.id)
+    expect(String(process.env.GITHUB_ENTERPRISE_URL)).toBe(
+      'https://github.mycompany.com',
+    )
+  })
+
+  test('github-enterprise profile persists and relaunches with Enterprise env', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const enterpriseProfile = buildProfile({
+        id: 'github_enterprise_persisted',
+        name: 'GitHub Enterprise',
+        provider: 'github-enterprise',
+        baseUrl: 'https://github.mycompany.com/api/copilot',
+        model: 'github:copilot:gpt-5.3-codex',
+        apiKey: 'enterprise-profile-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [enterpriseProfile],
+      }))
+
+      const result = setActiveProviderProfile('github_enterprise_persisted', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('github_enterprise_persisted')
+      expect(persisted.profile).toBe('github-enterprise')
+      expect(persisted.env).toMatchObject({
+        GITHUB_ENTERPRISE_URL: 'https://github.mycompany.com',
+        GITHUB_COPILOT_KEY: 'enterprise-profile-key',
+        OPENAI_BASE_URL: 'https://github.mycompany.com/api/copilot',
+        OPENAI_MODEL: 'github:copilot:gpt-5.3-codex',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('nvidia-nim profile keeps openai-compatible routing but stamps NVIDIA_NIM', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

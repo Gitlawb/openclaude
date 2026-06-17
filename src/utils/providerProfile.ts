@@ -113,6 +113,7 @@ export type CompatibilityProfileMode =
   | 'gemini'
   | 'mistral'
   | 'github'
+  | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
 
@@ -923,6 +924,7 @@ function getCompatibilityProfileFlag(
     case 'openai':
       return 'CLAUDE_CODE_USE_OPENAI'
     case 'github':
+    case 'github-enterprise':
       return 'CLAUDE_CODE_USE_GITHUB'
     case 'gemini':
       return 'CLAUDE_CODE_USE_GEMINI'

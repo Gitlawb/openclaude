@@ -80,9 +80,19 @@ type ProfileCompatibilityMode =
   | 'gemini'
   | 'mistral'
   | 'github'
+  | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
   | 'openai'
+
+function isGithubCompatibilityMode(
+  compatibilityMode: ProfileCompatibilityMode,
+): boolean {
+  return (
+    compatibilityMode === 'github' ||
+    compatibilityMode === 'github-enterprise'
+  )
+}
 
 function resolveProfileCompatibility(provider: string): {
   route: ResolvedProfileRoute
@@ -90,7 +100,10 @@ function resolveProfileCompatibility(provider: string): {
 } {
   const route = resolveProfileRoute(provider)
 
-  if (route.gatewayId === 'github' || route.gatewayId === 'github-enterprise') {
+  if (provider === 'github-enterprise' || route.gatewayId === 'github-enterprise') {
+    return { route, compatibilityMode: 'github-enterprise' }
+  }
+  if (provider === 'github' || route.gatewayId === 'github') {
     return { route, compatibilityMode: 'github' }
   }
   if (route.gatewayId === 'bedrock') {
@@ -451,7 +464,8 @@ function hasConflictingProviderFlagsForProfile(
     (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
     (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
     (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
-    (compatibilityMode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
+    (!isGithubCompatibilityMode(compatibilityMode) &&
+      processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
     (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
     (compatibilityMode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
@@ -525,7 +539,11 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (compatibilityMode === 'github') {
+  if (isGithubCompatibilityMode(compatibilityMode)) {
+    const expectedGheUrl =
+      profile.provider === 'github-enterprise'
+        ? deriveGithubEnterpriseUrl(profile.baseUrl)
+        : undefined
     return (
       processEnv.CLAUDE_CODE_USE_GITHUB !== undefined &&
       processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
@@ -535,7 +553,11 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model))
+      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.GITHUB_ENTERPRISE_URL, expectedGheUrl) &&
+      (profile.provider !== 'github-enterprise' ||
+        !includeApiKey ||
+        sameOptionalEnvValue(processEnv.GITHUB_COPILOT_KEY, profile.apiKey))
     )
   }
 
@@ -687,11 +709,14 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       GEMINI_MODEL: primaryModel,
       ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
     }
-  } else if (compatibilityMode === 'github') {
+  } else if (isGithubCompatibilityMode(compatibilityMode)) {
     profileEnv = buildGithubCompatibleProfileEnv({
       model: primaryModel,
       baseUrl: profile.baseUrl,
-      gatewayId: route.gatewayId,
+      gatewayId:
+        profile.provider === 'github-enterprise'
+          ? 'github-enterprise'
+          : route.gatewayId,
       apiKey: profile.apiKey,
     })
   } else if (compatibilityMode === 'bedrock') {
@@ -1133,9 +1158,13 @@ function buildStartupProfileFromActiveProfile(
         ? { profile: 'mistral', env: applySupportedProfileCustomHeaders(activeProfile, env) }
         : null
     }
-    case 'github': {
+    case 'github':
+    case 'github-enterprise': {
       return {
-        profile: 'github',
+        profile:
+          activeProfile.provider === 'github-enterprise'
+            ? 'github-enterprise'
+            : 'github',
         env: applySupportedProfileCustomHeaders(
           activeProfile,
           buildGithubCompatibleProfileEnv({

@@ -168,6 +168,36 @@ function mergeUserSettingsEnv(
   return { ok: true }
 }
 
+function normalizeOptionalGithubEnterpriseUrl(
+  value: unknown,
+): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.toLowerCase() === 'undefined') {
+    return undefined
+  }
+  try {
+    return normalizeGithubEnterpriseInputUrl(trimmed)
+  } catch {
+    return undefined
+  }
+}
+
+export function getExistingGithubEnterpriseUrl(
+  env: NodeJS.ProcessEnv = process.env,
+  settingsEnv?: Record<string, unknown>,
+): string | undefined {
+  return (
+    normalizeOptionalGithubEnterpriseUrl(env.GITHUB_ENTERPRISE_URL) ??
+    normalizeOptionalGithubEnterpriseUrl(
+      settingsEnv?.GITHUB_ENTERPRISE_URL ??
+        getSettingsForSource('userSettings')?.env?.GITHUB_ENTERPRISE_URL,
+    )
+  )
+}
+
 export function activateGithubOnboardingMode(
   model: string = DEFAULT_MODEL,
   options?: {
@@ -348,8 +378,8 @@ function OnboardGithub(props: {
       // Clear stale provider-specific env vars from the current session
       // so resolveProviderRequest() doesn't pick up a previous provider's
       // base URL or key after onboarding completes.
-      for (const key of PROVIDER_SPECIFIC_KEYS) {
-        delete process.env[key]
+      for (const envKey of PROVIDER_SPECIFIC_KEYS) {
+        delete process.env[envKey]
       }
       process.env.CLAUDE_CODE_USE_GITHUB = '1'
       process.env.OPENAI_MODEL = model.trim() || DEFAULT_MODEL
@@ -583,7 +613,9 @@ function OnboardGithub(props: {
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   const forceRelogin = shouldForceGithubRelogin(args)
   if (hasExistingGithubModelsLoginToken() && !forceRelogin) {
+    const existingGheUrl = getExistingGithubEnterpriseUrl()
     const activated = activateGithubOnboardingMode(DEFAULT_MODEL, {
+      gheUrl: existingGheUrl,
       onChangeAPIKey: context.onChangeAPIKey,
     })
     if (!activated.ok) {
@@ -596,7 +628,9 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     }
 
     onDone(
-      'GitHub Models already authorized. Activated GitHub Models mode using your existing token. Use /onboard-github --force to re-authenticate.',
+      existingGheUrl
+        ? `GitHub Copilot Enterprise already authorized for ${existingGheUrl}. Activated GitHub mode using your existing token. Use /onboard-github --force to re-authenticate.`
+        : 'GitHub Models already authorized. Activated GitHub Models mode using your existing token. Use /onboard-github --force to re-authenticate.',
       { display: 'user' },
     )
     return null
