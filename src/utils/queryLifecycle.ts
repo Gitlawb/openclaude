@@ -66,6 +66,26 @@ export type QueryGuardTimeoutInfo = {
   activeOperations: QueryActiveOperationSnapshot
 }
 
+function toSafeApiCallSnapshot(call: QueryActiveApiCall): QueryActiveApiCall {
+  return {
+    ...(call.clientRequestId !== undefined ? { clientRequestId: call.clientRequestId } : {}),
+    ...(call.requestId !== undefined ? { requestId: call.requestId } : {}),
+    ...(call.model !== undefined ? { model: call.model } : {}),
+    ...(call.querySource !== undefined ? { querySource: call.querySource } : {}),
+    startedAt: call.startedAt,
+  }
+}
+
+function toSafeToolUseSnapshot(toolUse: QueryActiveToolUse): QueryActiveToolUse {
+  return {
+    toolUseId: toolUse.toolUseId,
+    toolName: toolUse.toolName,
+    startedAt: toolUse.startedAt,
+    ...(toolUse.isBash !== undefined ? { isBash: toolUse.isBash } : {}),
+    ...(toolUse.timeoutMs !== undefined ? { timeoutMs: toolUse.timeoutMs } : {}),
+  }
+}
+
 export class QueryLifecycleOperationTracker {
   private apiCalls = new Map<string, QueryActiveApiCall>()
   private toolUses = new Map<string, QueryActiveToolUse>()
@@ -73,14 +93,14 @@ export class QueryLifecycleOperationTracker {
 
   startApiCall(call: QueryActiveApiCall): string {
     const key = call.clientRequestId ?? call.requestId ?? `api-call-${++this.apiCallSeq}`
-    this.apiCalls.set(key, { ...call })
+    this.apiCalls.set(key, toSafeApiCallSnapshot(call))
     return key
   }
 
   updateApiCall(key: string, update: Partial<QueryActiveApiCall>): void {
     const current = this.apiCalls.get(key)
     if (!current) return
-    this.apiCalls.set(key, { ...current, ...update })
+    this.apiCalls.set(key, toSafeApiCallSnapshot({ ...current, ...update }))
   }
 
   endApiCall(key: string): void {
@@ -88,7 +108,7 @@ export class QueryLifecycleOperationTracker {
   }
 
   startToolUse(toolUse: QueryActiveToolUse): void {
-    this.toolUses.set(toolUse.toolUseId, { ...toolUse })
+    this.toolUses.set(toolUse.toolUseId, toSafeToolUseSnapshot(toolUse))
   }
 
   endToolUse(toolUseId: string): void {
@@ -102,8 +122,8 @@ export class QueryLifecycleOperationTracker {
 
   snapshot(): QueryActiveOperationSnapshot {
     return {
-      apiCalls: [...this.apiCalls.values()].map(call => ({ ...call })),
-      toolUses: [...this.toolUses.values()].map(toolUse => ({ ...toolUse })),
+      apiCalls: [...this.apiCalls.values()].map(toSafeApiCallSnapshot),
+      toolUses: [...this.toolUses.values()].map(toSafeToolUseSnapshot),
     }
   }
 }

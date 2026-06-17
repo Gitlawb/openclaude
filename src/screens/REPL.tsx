@@ -1769,9 +1769,7 @@ export function REPL({
       activeAbortController.abort('query-timeout');
     }
     if (timeout.activeOperations.apiCalls.length > 0) {
-      logForDebugging(`api.call.orphaned_on_query_end queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`, {
-        level: 'warn'
-      });
+      logForDebugging(`api.call.active_on_abort queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`);
     }
     logQueryLifecycle('end', timeout.context, timeoutOperations);
     if (feature('TOKEN_BUDGET')) {
@@ -2325,9 +2323,7 @@ export function REPL({
     if (completedCancelContext) {
       const cancelOperationSummary = summarizeActiveOperations(cancelOperations);
       if (cancelOperations.apiCalls.length > 0) {
-        logForDebugging(`api.call.orphaned_on_query_end queryId=${completedCancelContext.queryId} generation=${completedCancelContext.queryGeneration} ${cancelOperationSummary}`, {
-          level: 'warn'
-        });
+        logForDebugging(`api.call.active_on_abort queryId=${completedCancelContext.queryId} generation=${completedCancelContext.queryGeneration} ${cancelOperationSummary}`);
       }
       logQueryLifecycle('end', completedCancelContext, cancelOperationSummary);
     }
@@ -2569,7 +2565,7 @@ export function REPL({
       reject
     }]);
   }), []);
-  const getToolUseContext = useCallback((messages: MessageType[], newMessages: MessageType[], abortController: AbortController, mainLoopModel: string, queryGeneration?: number): ProcessUserInputContext => {
+  const getToolUseContext = useCallback((messages: MessageType[], newMessages: MessageType[], abortController: AbortController, mainLoopModel: string, queryGeneration?: number, queryLifecycle?: QueryLifecycleOperationTracker): ProcessUserInputContext => {
     // Read mutable values fresh from the store rather than closure-capturing
     // useAppState() snapshots. Same values today (closure is refreshed by the
     // render between turns); decouples freshness from React's render cycle for
@@ -2596,7 +2592,7 @@ export function REPL({
     } satisfies ProcessUserInputContext['queryActivity'];
     return {
       abortController,
-      queryLifecycle: queryLifecycleTrackerRef.current,
+      ...(queryLifecycle ? { queryLifecycle } : {}),
       options: {
         commands,
         tools: computeTools(),
@@ -2860,7 +2856,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -2947,7 +2943,7 @@ export function REPL({
       setAbortController(null);
       return;
     }
-    const toolUseContext = getToolUseContext(messagesIncludingNewMessages, newMessages, abortController, mainLoopModelParam, queryGeneration);
+    const toolUseContext = getToolUseContext(messagesIncludingNewMessages, newMessages, abortController, mainLoopModelParam, queryGeneration, queryLifecycle);
     const querySessionId = getSessionId();
     const queryAutoCompactTracking = getAutoCompactTrackingForSession(querySessionId);
     // getToolUseContext reads tools/mcpClients fresh from store.getState()
@@ -3114,7 +3110,7 @@ export function REPL({
           return;
         }
       }
-      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort);
+      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
     } catch (error) {
       didThrow = true;
       throw error;
