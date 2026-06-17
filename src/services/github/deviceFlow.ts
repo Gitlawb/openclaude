@@ -30,16 +30,27 @@ export const COPILOT_HEADERS: Record<string, string> = {
  * Build auth endpoint URLs for GitHub Enterprise Server.
  * GHE instances host OAuth endpoints at {ghe_url}/login/...
  */
+export function normalizeGithubEnterpriseAuthBaseUrl(
+  gheUrl: string,
+): string {
+  const trimmed = gheUrl.trim()
+  try {
+    return new URL(trimmed).origin
+  } catch {
+    return trimmed.replace(/\/+$/, '')
+  }
+}
+
 export function getGithubEnterpriseDeviceCodeUrl(gheUrl: string): string {
-  return `${gheUrl.replace(/\/+$/, '')}/login/device/code`
+  return `${normalizeGithubEnterpriseAuthBaseUrl(gheUrl)}/login/device/code`
 }
 
 export function getGithubEnterpriseAccessTokenUrl(gheUrl: string): string {
-  return `${gheUrl.replace(/\/+$/, '')}/login/oauth/access_token`
+  return `${normalizeGithubEnterpriseAuthBaseUrl(gheUrl)}/login/oauth/access_token`
 }
 
 export function getGithubEnterpriseCopilotTokenUrl(gheUrl: string): string {
-  return `${gheUrl.replace(/\/+$/, '')}/api/copilot_internal/v2/token`
+  return `${normalizeGithubEnterpriseAuthBaseUrl(gheUrl)}/api/copilot_internal/v2/token`
 }
 
 /**
@@ -48,7 +59,7 @@ export function getGithubEnterpriseCopilotTokenUrl(gheUrl: string): string {
  */
 export function getEffectiveGithubAuthBaseUrl(): string | undefined {
   const gheUrl = process.env.GITHUB_ENTERPRISE_URL?.trim()
-  return gheUrl || undefined
+  return gheUrl ? normalizeGithubEnterpriseAuthBaseUrl(gheUrl) : undefined
 }
 
 export type CopilotTokenResponse = {

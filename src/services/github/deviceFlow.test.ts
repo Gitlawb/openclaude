@@ -28,6 +28,27 @@ afterEach(() => {
   }
 })
 
+describe('GitHub Enterprise auth endpoints', () => {
+  test('normalize path-bearing Enterprise URLs to the instance origin', async () => {
+    const {
+      getGithubEnterpriseAccessTokenUrl,
+      getGithubEnterpriseCopilotTokenUrl,
+      getGithubEnterpriseDeviceCodeUrl,
+    } = await importFreshModule()
+    const gheUrl = 'https://github.mycompany.com/api/copilot/'
+
+    expect(getGithubEnterpriseDeviceCodeUrl(gheUrl)).toBe(
+      'https://github.mycompany.com/login/device/code',
+    )
+    expect(getGithubEnterpriseAccessTokenUrl(gheUrl)).toBe(
+      'https://github.mycompany.com/login/oauth/access_token',
+    )
+    expect(getGithubEnterpriseCopilotTokenUrl(gheUrl)).toBe(
+      'https://github.mycompany.com/api/copilot_internal/v2/token',
+    )
+  })
+})
+
 describe('requestDeviceCode', () => {
   test('parses successful device code response', async () => {
     const { requestDeviceCode } = await importFreshModule()

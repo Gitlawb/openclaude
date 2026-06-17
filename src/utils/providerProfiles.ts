@@ -440,6 +440,8 @@ function hasCompleteProviderSelection(
   }
   if (processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) {
     return (
+      trimOrUndefined(processEnv.GITHUB_ENTERPRISE_URL) !== undefined ||
+      trimOrUndefined(processEnv.GITHUB_COPILOT_KEY) !== undefined ||
       trimOrUndefined(processEnv.GITHUB_TOKEN) !== undefined ||
       trimOrUndefined(processEnv.GH_TOKEN) !== undefined ||
       trimOrUndefined(processEnv.OPENAI_MODEL) !== undefined

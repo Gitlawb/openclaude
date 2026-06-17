@@ -1163,6 +1163,36 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
   })
 
+  test('respects env-only GitHub Enterprise startup selection', async () => {
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com/api/copilot'
+    process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+    delete process.env.OPENAI_MODEL
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        }),
+      ],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com/api/copilot',
+    )
+    expect(process.env.GITHUB_COPILOT_KEY).toBe('enterprise-direct-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+  })
+
   test('does not override explicit env-only MiniMax selection with saved profile', async () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()
