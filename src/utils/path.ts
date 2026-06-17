@@ -99,6 +99,38 @@ export function toRelativePath(absolutePath: string): string {
 }
 
 /**
+ * Relativizes the file-path portion of a ripgrep content-mode line.
+ *
+ * Lines have the form `path:content` or `path:line:content`. To find the
+ * boundary between the path and the rest we look for the FIRST colon — but on
+ * Windows an absolute path begins with a drive-letter colon (e.g. `C:\...`),
+ * so the first colon is part of the path, not the separator. We detect a
+ * leading `^[A-Za-z]:` drive letter and start searching for the boundary colon
+ * AFTER it, leaving POSIX paths (no drive letter) unchanged.
+ *
+ * @param line - A single ripgrep content line (`path:content` / `path:n:content`)
+ * @param relativize - Function that converts an absolute path to a relative one
+ *   (defaults to {@link toRelativePath}; injectable for deterministic tests)
+ * @returns The line with its leading path made relative, or unchanged when no
+ *   path/content boundary colon is present
+ */
+export function relativizeContentLine(
+  line: string,
+  relativize: (p: string) => string = toRelativePath,
+): string {
+  // Skip a leading Windows drive-letter colon (`C:`) so it is not mistaken for
+  // the path/content separator. searchStart stays 0 for POSIX paths.
+  const searchStart = /^[A-Za-z]:/.test(line) ? 2 : 0
+  const colonIndex = line.indexOf(':', searchStart)
+  if (colonIndex > 0) {
+    const filePath = line.substring(0, colonIndex)
+    const rest = line.substring(colonIndex)
+    return relativize(filePath) + rest
+  }
+  return line
+}
+
+/**
  * Gets the directory path for a given file or directory path.
  * If the path is a directory, returns the path itself.
  * If the path is a file or doesn't exist, returns the parent directory.
