@@ -363,6 +363,26 @@ test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env withou
   assert.equal(isDefaultStartupProviderEnv(env), false)
 })
 
+test('buildStartupEnvFromProfile respects an explicit CLAUDE_CODE_USE_OPENAI=0 opt-out (issue #1245)', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '0',
+    },
+  })
+
+  // The explicit opt-out must be preserved and the default Opengateway
+  // profile must NOT be injected over it.
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '0')
+  assert.equal(env.OPENAI_BASE_URL, undefined)
+  assert.equal(env.OPENAI_MODEL, undefined)
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+
+  // With OpenAI disabled and no provider configured, startup must not emit a
+  // spurious "OPENAI_API_KEY is required" warning.
+  assert.equal(await getProviderValidationError(env), null)
+})
+
 test('buildStartupEnvFromProfile preserves env-only Fireworks setup without a saved profile', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: null,

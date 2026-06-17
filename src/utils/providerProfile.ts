@@ -1695,6 +1695,18 @@ export async function buildStartupEnvFromProfile(options?: {
   }
 
   if (!persisted) {
+    // No saved profile. If the user explicitly disabled the OpenAI-compatible
+    // provider (CLAUDE_CODE_USE_OPENAI=0), honor that opt-out instead of
+    // injecting the default Opengateway profile — otherwise the fallback
+    // re-enables OpenAI and the startup validator reports a spurious missing
+    // OPENAI_API_KEY warning (#1245).
+    if (
+      processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+    ) {
+      return processEnv
+    }
+
     // No saved profile — default to Gitlawb Opengateway.
     const env = buildCompatibilityProcessEnv({
       processEnv,
