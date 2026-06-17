@@ -119,6 +119,43 @@ test('aggregates sustained unknown high-write frames instead of logging every fr
   expect(logSpy.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
 })
 
+test('suppresses high-write diagnostics and resets unknown aggregation state', () => {
+  const harness = createHarness(80, 20)
+
+  for (let frame = 0; frame < 2; frame++) {
+    if (frame > 0) {
+      resetOutput(harness, 80, 20)
+    }
+    writeFullFrame(harness.output, 80, 20)
+    harness.output.get()
+  }
+
+  for (let frame = 0; frame < 5; frame++) {
+    resetOutput(harness, 80, 20)
+    writeFullFrame(harness.output, 80, 20)
+    harness.output.get({ suppressHighWriteRatioDiagnostics: true })
+  }
+
+  expect(logSpy).not.toHaveBeenCalled()
+
+  for (let frame = 0; frame < 2; frame++) {
+    resetOutput(harness, 80, 20)
+    writeFullFrame(harness.output, 80, 20)
+    harness.output.get()
+  }
+
+  expect(logSpy).not.toHaveBeenCalled()
+
+  resetOutput(harness, 80, 20)
+  writeFullFrame(harness.output, 80, 20)
+  harness.output.get()
+
+  expect(logSpy).toHaveBeenCalledTimes(1)
+  expect(logSpy.mock.calls[0]?.[0]).toContain('reason=unknown')
+  expect(logSpy.mock.calls[0]?.[0]).toContain('frames=3')
+  expect(logSpy.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
+})
+
 test('dimension changes reset sustained unknown high-write aggregation', () => {
   const harness = createHarness(80, 20)
 
