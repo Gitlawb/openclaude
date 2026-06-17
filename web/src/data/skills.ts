@@ -40,6 +40,6 @@ export const skills: Skill[] = [
     name: 'keybindings-help',
     invocation: '/keybindings-help',
     description:
-      'Customize keyboard shortcuts: rebind keys, add chord bindings, or modify ~/.claude/keybindings.json.',
+      'Customize keyboard shortcuts: rebind keys, add chord bindings, or modify ~/.openclaude/keybindings.json.',
   },
 ]
