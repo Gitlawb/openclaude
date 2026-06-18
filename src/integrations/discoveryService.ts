@@ -29,6 +29,7 @@ import {
   probeAtomicChatReadiness,
   probeOllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
+import { firstUsableCredential } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
@@ -155,14 +156,17 @@ function getRouteDiscoveryApiKey(
     return undefined
   }
 
-  if (options?.apiKey?.trim()) {
-    return options.apiKey.trim()
+  const optionCredential = firstUsableCredential(options?.apiKey)
+  if (optionCredential) {
+    return optionCredential
   }
 
-  return resolveRouteCredentialValue({
-    routeId,
-    processEnv: process.env,
-  })
+  return firstUsableCredential(
+    resolveRouteCredentialValue({
+      routeId,
+      processEnv: process.env,
+    }),
+  )
 }
 
 function getRouteDiscoveryHeaders(
@@ -446,13 +450,15 @@ export async function refreshStartupDiscoveryForActiveRoute(
       options?.headers ??
       parseCustomHeadersEnv(processEnv.ANTHROPIC_CUSTOM_HEADERS),
     apiKey:
-      options?.apiKey ??
-      resolveRouteCredentialValue({
-        routeId,
-        baseUrl,
-        processEnv,
-        activeProfileProvider: options?.activeProfileProvider,
-      }),
+      firstUsableCredential(options?.apiKey) ??
+      firstUsableCredential(
+        resolveRouteCredentialValue({
+          routeId,
+          baseUrl,
+          processEnv,
+          activeProfileProvider: options?.activeProfileProvider,
+        }),
+      ),
   })
 }
 

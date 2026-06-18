@@ -1,5 +1,5 @@
 import { getSessionId } from '../../bootstrap/state.js'
-import { parseCredentialList } from '../../services/api/credentialPool.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
 import { resolveProviderRequest } from '../../services/api/providerConfig.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -40,11 +40,6 @@ function getModelFamily(model: string | undefined): string {
     .replace(/-preview$/, '')
 }
 
-function firstUsableCredential(value: string | undefined): string | undefined {
-  return parseCredentialList(value).find(
-    credential => credential !== 'SUA_CHAVE',
-  )
-}
 
 export function resolveCacheProbeApiKey(
   env: NodeJS.ProcessEnv = process.env,

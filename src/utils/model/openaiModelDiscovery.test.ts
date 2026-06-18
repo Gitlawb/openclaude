@@ -11,6 +11,8 @@ const originalEnv = {
     process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
 
@@ -36,6 +38,8 @@ afterEach(() => {
     )
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
   } finally {
     releaseSharedMutationLock()
@@ -59,4 +63,35 @@ test('skips legacy OpenAI-compatible model discovery when nonessential traffic i
 
   await expect(discoverOpenAICompatibleModelOptions()).resolves.toEqual([])
   expect(getSpy).not.toHaveBeenCalled()
+})
+
+test('legacy OpenAI-compatible model discovery uses the first pooled credential', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+
+  const getSpy = mock(async (_url: string, options?: { headers?: Record<string, string> }) => {
+    expect(options?.headers).toEqual({ Authorization: 'Bearer key-a' })
+    return {
+      data: {
+        data: [{ id: 'gpt-5.5' }],
+      },
+    }
+  })
+  axios.get = getSpy as typeof axios.get
+
+  const { discoverOpenAICompatibleModelOptions } = await import(
+    `./openaiModelDiscovery.js?pooled=${Date.now()}-${Math.random()}`
+  )
+
+  await expect(discoverOpenAICompatibleModelOptions()).resolves.toEqual([
+    {
+      value: 'gpt-5.5',
+      label: 'gpt-5.5',
+      description: 'Discovered from OpenAI-compatible endpoint',
+    },
+  ])
+  expect(getSpy).toHaveBeenCalled()
 })

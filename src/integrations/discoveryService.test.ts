@@ -15,6 +15,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -55,6 +56,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
@@ -87,6 +89,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_BASE_URL')
     restoreEnvValue('OPENAI_API_BASE')
     restoreEnvValue('OPENAI_API_KEY')
+    restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
@@ -439,6 +442,36 @@ describe('discoverModelsForRoute', () => {
     })
 
     expect(result?.routeId).toBe('lmstudio')
+    expect(result?.source).toBe('network')
+  })
+
+  test('refreshStartupDiscoveryForActiveRoute sends first pooled OpenAI credential', async () => {
+    const { refreshStartupDiscoveryForActiveRoute } =
+      await loadDiscoveryServiceModule()
+
+    const startupEnv: NodeJS.ProcessEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://custom.example/v1',
+      OPENAI_API_KEYS: 'key-a,key-b',
+    }
+
+    setMockFetch(mock((_input, init) => {
+      expect(init?.headers).toEqual({ Authorization: 'Bearer key-a' })
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-5.5' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await refreshStartupDiscoveryForActiveRoute({
+      processEnv: startupEnv,
+    })
+
+    expect(result?.routeId).toBe('custom')
     expect(result?.source).toBe('network')
   })
 

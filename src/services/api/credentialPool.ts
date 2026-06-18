@@ -102,3 +102,9 @@ export function parseCredentialList(value: string | undefined): string[] {
     .map(item => item.trim())
     .filter(Boolean)
 }
+
+export function firstUsableCredential(value: string | undefined): string | undefined {
+  return parseCredentialList(value).find(
+    credential => credential !== 'SUA_CHAVE',
+  )
+}
