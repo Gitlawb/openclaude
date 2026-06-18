@@ -210,6 +210,22 @@ test('configured route secrets inside base URL query values are redacted', async
   expect(JSON.stringify(properties)).not.toContain('sk-or-query-secret')
 })
 
+test('URL-encoded configured route secrets inside base URL query values are redacted', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE =
+    'https://openrouter.ai/api/v1?credential=abc%2Fdef%2Bghi%3D&timeout=30'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
+  process.env.OPENROUTER_API_KEY = 'abc/def+ghi='
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://openrouter.ai/api/v1?credential=redacted&timeout=30',
+  )
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('abc/def+ghi=')
+  expect(serialized).not.toContain('abc%2Fdef%2Bghi%3D')
+})
+
 test('blank OPENAI_BASE_URL falls back to OPENAI_API_BASE for route display', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = '   '

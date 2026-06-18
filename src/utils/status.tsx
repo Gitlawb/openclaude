@@ -139,7 +139,18 @@ function redactConfiguredSecretSubstrings(
   ).sort((a, b) => b.length - a.length);
 
   for (const secret of secrets) {
-    redacted = redacted.split(secret).join('redacted');
+    const encodedSecret = encodeURIComponent(secret);
+    const encodedSecretWithLowercaseEscapes = encodedSecret.replace(
+      /%[0-9A-F]{2}/g,
+      match => match.toLowerCase(),
+    );
+    for (const variant of new Set([
+      secret,
+      encodedSecret,
+      encodedSecretWithLowercaseEscapes,
+    ])) {
+      redacted = redacted.split(variant).join('redacted');
+    }
   }
 
   return redacted;
