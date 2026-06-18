@@ -765,12 +765,16 @@ export function parseUserSpecifiedModel(
     }
   }
 
-  // Handle Codex aliases - map to actual model names
+  // Handle Codex aliases - map to actual model names. Preserve the [1m] tag the
+  // same way the Claude aliases above do: it is an explicit client-side opt-in
+  // to the 1M context window (see has1mContext), so dropping it here would
+  // silently shrink a `codexplan[1m]`/`codexspark[1m]` session back to the
+  // model default.
   if (modelString === 'codexplan') {
-    return 'gpt-5.5'
+    return 'gpt-5.5' + (has1mTag ? '[1m]' : '')
   }
   if (modelString === 'codexspark') {
-    return 'gpt-5.3-codex-spark'
+    return 'gpt-5.3-codex-spark' + (has1mTag ? '[1m]' : '')
   }
 
   // Opus 4/4.1 are no longer available on the first-party API (same as
