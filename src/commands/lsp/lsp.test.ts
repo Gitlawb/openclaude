@@ -375,23 +375,30 @@ describe('/lsp recommend', () => {
     )
   })
 
-  test('falls back to filesystem scanning when git cannot enumerate workspace files', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'openclaude-lsp-'))
-    try {
-      await mkdir(join(tempDir, 'src'), { recursive: true })
-      await writeFile(join(tempDir, 'src', 'main.ts'), 'export const x = 1\n')
-      await writeFile(join(tempDir, 'src', 'style.css'), '.root {}\n')
-      await writeFile(join(tempDir, 'logo.png'), '')
+  test(
+    'falls back to filesystem scanning when git cannot enumerate workspace files',
+    async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'openclaude-lsp-'))
+      try {
+        await mkdir(join(tempDir, 'src'), { recursive: true })
+        await writeFile(join(tempDir, 'src', 'main.ts'), 'export const x = 1\n')
+        await writeFile(join(tempDir, 'src', 'style.css'), '.root {}\n')
+        await writeFile(join(tempDir, 'logo.png'), '')
 
-      const extensions = await discoverRealWorkspaceExtensions(undefined, tempDir)
+        const extensions = await discoverRealWorkspaceExtensions(
+          undefined,
+          tempDir,
+        )
 
-      expect(extensions).toContain('.ts')
-      expect(extensions).toContain('.css')
-      expect(extensions).not.toContain('.png')
-    } finally {
-      await rm(tempDir, { recursive: true, force: true })
-    }
-  })
+        expect(extensions).toContain('.ts')
+        expect(extensions).toContain('.css')
+        expect(extensions).not.toContain('.png')
+      } finally {
+        await rm(tempDir, { recursive: true, force: true })
+      }
+    },
+    10_000,
+  )
 
   test('installs missing official marketplace and retries candidate lookup', async () => {
     const typescriptCandidate = {

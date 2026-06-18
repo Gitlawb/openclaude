@@ -10,7 +10,7 @@ export const settingsFiles: SettingsFile[] = [
   {
     path: '~/.openclaude/settings.json',
     scope: 'user',
-    notes: 'Global settings for every project on the machine.',
+    notes: 'Default global settings path for every project on the machine; OPENCLAUDE_CONFIG_DIR moves this under the configured config home.',
   },
   {
     path: '.openclaude/settings.json',
@@ -23,9 +23,9 @@ export const settingsFiles: SettingsFile[] = [
     notes: 'Per-machine overrides for one project; typically gitignored.',
   },
   {
-    path: '~/.claude/keybindings.json',
+    path: '~/.openclaude/keybindings.json',
     scope: 'user',
-    notes: 'Keyboard shortcut overrides — see the keybindings page.',
+    notes: 'Default keyboard shortcut overrides path; OPENCLAUDE_CONFIG_DIR moves this under the configured config home.',
   },
   {
     path: 'CLAUDE.md / .claude/CLAUDE.md',
@@ -68,7 +68,8 @@ export const envVars: EnvVar[] = [
   { name: 'MIMO_API_KEY', description: 'Xiaomi MiMo API key.' },
   { name: 'OPENCODE_API_KEY', description: 'OpenCode Zen / Go gateway key.' },
   { name: 'GITHUB_TOKEN', description: 'GitHub token for GitHub Models and PR workflows.' },
-  { name: 'CLAUDE_CONFIG_DIR', description: 'Override the config directory (default ~/.openclaude).' },
+  { name: 'OPENCLAUDE_CONFIG_DIR', description: 'Preferred config directory override. Defaults to ~/.openclaude when unset.' },
+  { name: 'CLAUDE_CONFIG_DIR', description: 'Legacy config directory override. Used only when OPENCLAUDE_CONFIG_DIR is unset.' },
   { name: 'HTTP_PROXY / HTTPS_PROXY', description: 'Route API traffic through a proxy.' },
   { name: 'NODE_EXTRA_CA_CERTS', description: 'Extra CA certificates for corporate TLS interception.' },
   { name: 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', description: 'Disable non-essential network traffic.' },

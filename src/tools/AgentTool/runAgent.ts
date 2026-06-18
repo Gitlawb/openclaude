@@ -265,6 +265,7 @@ export async function* runAgent({
   transcriptSubdir,
   onQueryProgress,
   agentName,
+  routingSubagentType,
 }: {
   agentDefinition: AgentDefinition
   promptMessages: Message[]
@@ -326,6 +327,11 @@ export async function* runAgent({
   onQueryProgress?: () => void
   /** Agent name (team member name) for routing resolution */
   agentName?: string
+  /** Routing key for per-agent provider resolution. In-process teammates build a
+   *  synthetic agentDefinition whose agentType is the teammate's display name,
+   *  which drops the original subagent_type that agentRouting is keyed on. Pass
+   *  the original subagent_type here so the configured route still resolves. */
+  routingSubagentType?: string
 }): AsyncGenerator<Message, void> {
   // Track subagent usage for feature discovery
 
@@ -350,11 +356,13 @@ export async function* runAgent({
   const { mainLoopModel: effectiveModel, providerOverride } =
     resolveAgentRunModelRouting({
       resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
       toolSpecifiedModel: model,
       agentName,
-      subagentType: agentDefinition.agentType,
+      subagentType: routingSubagentType ?? agentDefinition.agentType,
       agentDefinitionModel: agentDefinition.model,
       settings,
+      permissionMode,
     })
 
   if (

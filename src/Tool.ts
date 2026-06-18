@@ -11,6 +11,10 @@ import type { z } from 'zod/v4'
 import type { Command } from './commands.js'
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import type { ThinkingConfig } from './utils/thinking.js'
+import type {
+  QueryGuardLease,
+  QueryGuardLeaseInput,
+} from './utils/QueryGuard.js'
 
 export type ToolInputJSONSchema = {
   [x: string]: unknown
@@ -90,6 +94,11 @@ import type { Theme, ThemeName } from './utils/theme.js'
 export type QueryChainTracking = {
   chainId: string
   depth: number
+}
+
+export type QueryActivity = {
+  registerActivity(reason: string): void
+  acquireLease(input: QueryGuardLeaseInput): QueryGuardLease
 }
 
 export type ValidationResult =
@@ -230,6 +239,8 @@ export type ToolUseContext = {
   setInProgressToolUseIDs: (f: (prev: Set<string>) => Set<string>) => void
   /** Only wired in interactive (REPL) contexts; SDK/QueryEngine don't set this. */
   setHasInterruptibleToolInProgress?: (v: boolean) => void
+  /** Only wired in guarded REPL turns. Lets streaming/tool work update QueryGuard. */
+  queryActivity?: QueryActivity
   setResponseLength: (f: (prev: number) => number) => void
   /** Ant-only: push a new API metrics entry for OTPS tracking.
    *  Called by subagent streaming when a new API request starts. */

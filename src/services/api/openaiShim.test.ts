@@ -18,6 +18,8 @@ const originalEnv = {
   OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
   OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  GITHUB_COPILOT_KEY: process.env.GITHUB_COPILOT_KEY,
+  GITHUB_ENTERPRISE_URL: process.env.GITHUB_ENTERPRISE_URL,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -154,6 +156,8 @@ beforeEach(async () => {
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_COPILOT_KEY
+  delete process.env.GITHUB_ENTERPRISE_URL
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
   delete process.env.CLAUDE_CODE_USE_OPENAI
@@ -192,6 +196,8 @@ afterEach(() => {
     restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
     restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
     restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+    restoreEnv('GITHUB_COPILOT_KEY', originalEnv.GITHUB_COPILOT_KEY)
+    restoreEnv('GITHUB_ENTERPRISE_URL', originalEnv.GITHUB_ENTERPRISE_URL)
     restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
     restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
@@ -963,6 +969,8 @@ test('strips Anthropic-specific headers on GitHub Codex transport requests', asy
 
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_API_KEY = 'github-test-key'
+  process.env.GITHUB_TOKEN = 'stored-secret'
+  delete process.env.GITHUB_COPILOT_KEY
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_MODEL
 
@@ -1003,6 +1011,35 @@ test('strips Anthropic-specific headers on GitHub Codex transport requests', asy
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer github-test-key')
   expect(capturedHeaders?.get('editor-plugin-version')).toBe('copilot-chat/0.26.7')
+})
+
+test('uses direct GitHub Copilot Enterprise key for shim authentication', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+
+  const { authorization, url } = await captureChatCompletionRequest(
+    'github:gpt-4o',
+  )
+
+  expect(authorization).toBe('Bearer enterprise-direct-key')
+  expect(url).toBe('https://github.mycompany.com/api/copilot/chat/completions')
+})
+
+test('direct GitHub Copilot key wins over stale OpenAI key', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  process.env.OPENAI_API_KEY = 'stale-openai-key'
+  delete process.env.OPENAI_BASE_URL
+
+  const { authorization } = await captureChatCompletionRequest(
+    'github:gpt-4o',
+  )
+
+  expect(authorization).toBe('Bearer enterprise-direct-key')
 })
 
 test('strips Anthropic-specific headers on GitHub Codex transport with providerOverride API key', async () => {
