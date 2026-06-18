@@ -391,6 +391,18 @@ export async function* withRetry<T>(
         }
       }
 
+      // [PATCH] Retry 429 rate limit errors for non-Claude providers with backoff
+      if (error instanceof APIError && error.status === 429 && !isClaudeAISubscriber()) {
+        const max429Retries = 5
+        if (attempt <= max429Retries) {
+          const retryAfterMs = getRetryAfterMs(error) ?? Math.min(2_000 * attempt, 30_000)
+          logForDiagnosticsNoPII('error', 'cli_429_retry', { attempt, retryAfterMs })
+          await sleep4(retryAfterMs, options.signal, { abortError })
+          attempt--
+          continue
+        }
+      }
+
       // Only retry if the error indicates we should
       const persistent =
         isPersistentRetryEnabled() && isTransientCapacityError(error)
