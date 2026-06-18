@@ -13,6 +13,7 @@ import {
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { getFsImplementation } from './fsOperations.js'
 import { writeToStderr } from './process.js'
+import { redactSensitiveInfo } from './redaction.js'
 import { jsonStringify } from './slowOperations.js'
 
 export type DebugLogLevel = 'verbose' | 'debug' | 'info' | 'warn' | 'error'
@@ -217,6 +218,9 @@ export function logForDebugging(
   if (hasFormattedOutput && message.includes('\n')) {
     message = jsonStringify(message)
   }
+  // Strip credentials from debug logs so a leaked token cannot end up in the
+  // debug file that ships in bug reports. Single call, no per-call allocation.
+  message = redactSensitiveInfo(message)
   const timestamp = new Date().toISOString()
   const output = `${timestamp} [${level.toUpperCase()}] ${message.trim()}\n`
   if (isDebugToStdErr()) {
