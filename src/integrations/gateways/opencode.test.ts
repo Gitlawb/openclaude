@@ -317,6 +317,22 @@ describe('OpenCode model catalog', () => {
       expect(model.modelDescriptorId).toMatch(/^opencode-go-/)
     }
   })
+
+  test('go open models use the default chat completions endpoint', () => {
+    const models = getCatalogEntriesForRoute('opencode-go')
+    const chatCompletionModelIds = [
+      'opencode-go-minimax-m3',
+      'opencode-go-minimax-m2.7',
+      'opencode-go-minimax-m2.5',
+      'opencode-go-qwen3.6-plus',
+      'opencode-go-qwen3.5-plus',
+    ]
+    for (const id of chatCompletionModelIds) {
+      const model = models.find(m => m.id === id)
+      expect(model).toBeDefined()
+      expect(model!.transportOverrides?.openaiShim?.endpointPath).toBeUndefined()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
