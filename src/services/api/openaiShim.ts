@@ -2731,6 +2731,15 @@ class OpenAIShimMessages {
         if (!params.stream) {
           try {
             const bodyText = await response.text()
+            // Preserve routing metadata that `new Response()` drops to "".
+            // create() reads `response.url` to route between /responses,
+            // /messages, and Gemini conversion paths; losing it makes
+            // descriptor routes (OpenCode /messages, Gemini /models/gemini-*)
+            // fall through to the generic OpenAI converter and return the
+            // wrong message shape. `url` is a read-only getter on the
+            // prototype, so shadow it with an own property.
+            const originalUrl = response.url
+            const originalType = response.type
             // Recreate the response immediately after reading the body, before
             // JSON.parse — if parsing fails, downstream code can still read the
             // body from the fresh Response instead of hitting "Body already used".
@@ -2739,6 +2748,26 @@ class OpenAIShimMessages {
               statusText: response.statusText,
               headers: response.headers,
             })
+            if (originalUrl) {
+              try {
+                Object.defineProperty(response, 'url', {
+                  value: originalUrl,
+                  configurable: true,
+                })
+              } catch {
+                /* some runtimes lock the property; routing falls back to transport */
+              }
+            }
+            if (originalType && originalType !== 'basic') {
+              try {
+                Object.defineProperty(response, 'type', {
+                  value: originalType,
+                  configurable: true,
+                })
+              } catch {
+                /* non-fatal: type is not used for response routing */
+              }
+            }
             const data = JSON.parse(bodyText)
             tokensIn = data.usage?.prompt_tokens ?? 0
             tokensOut = data.usage?.completion_tokens ?? 0

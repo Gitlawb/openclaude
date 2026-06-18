@@ -3990,11 +3990,38 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
 test('non-streaming: preserves response body when usage parsing fails', async () => {
   const json = JSON as unknown as { parse: typeof JSON.parse }
   const originalJSONParse = json.parse
-  let parseCalls = 0
+  const responseBody = JSON.stringify({
+    id: 'chatcmpl-1',
+    model: 'glm-5',
+    choices: [
+      {
+        message: {
+          role: 'assistant',
+          content: 'ok',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+    usage: {
+      prompt_tokens: 10,
+      completion_tokens: 20,
+      total_tokens: 30,
+    },
+  })
+  let usageParseFailed = false
 
+  // Throw only for the usage-extraction parse of the response body.
+  // A global "throw once" mock is unreliable here: Bun's native
+  // Response.json() does not go through JS-level JSON.parse, so the
+  // second parse the original test relied on never happens (parseCalls
+  // stays at 1 and `toBeGreaterThan(1)` fails). Scoping the failure to
+  // the response body targets the _doRequest parse without breaking
+  // unrelated JSON.parse calls in the request pipeline, and works in
+  // both Bun (native Response.json) and Node (undici, which does call
+  // JSON.parse — guarded by `usageParseFailed` so it won't throw again).
   json.parse = ((text: string, reviver?: Parameters<typeof JSON.parse>[1]) => {
-    parseCalls += 1
-    if (parseCalls === 1) {
+    if (!usageParseFailed && text === responseBody) {
+      usageParseFailed = true
       throw new Error('simulated usage parse failure')
     }
     return originalJSONParse(text, reviver)
@@ -4002,31 +4029,11 @@ test('non-streaming: preserves response body when usage parsing fails', async ()
 
   try {
     globalThis.fetch = (async () => {
-      return new Response(
-        JSON.stringify({
-          id: 'chatcmpl-1',
-          model: 'glm-5',
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: 'ok',
-              },
-              finish_reason: 'stop',
-            },
-          ],
-          usage: {
-            prompt_tokens: 10,
-            completion_tokens: 20,
-            total_tokens: 30,
-          },
-        }),
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
+      return new Response(responseBody, {
+        headers: {
+          'Content-Type': 'application/json',
         },
-      )
+      })
     }) as FetchType
 
     const client = createOpenAIShimClient({}) as OpenAIShimClient
@@ -4039,11 +4046,61 @@ test('non-streaming: preserves response body when usage parsing fails', async ()
       stream: false,
     })) as { content: Array<Record<string, unknown>> }
 
+    // Usage extraction threw, but the recreated Response still holds the
+    // body so downstream response.json() can read it.
+    expect(usageParseFailed).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'ok' }])
-    expect(parseCalls).toBeGreaterThan(1)
   } finally {
     json.parse = originalJSONParse
   }
+})
+
+test('non-streaming: preserves response.url routing metadata after body read', async () => {
+  // _doRequest reads the body for usage extraction and recreates the
+  // Response with new Response(bodyText, ...). That drops response.url to
+  // "", which breaks create()'s /responses, /messages, and Gemini routing.
+  // This test pins an Anthropic-shaped body behind a /messages URL: if url
+  // is preserved, create() passes the body through unchanged; if url is
+  // lost, it falls through to _convertNonStreamingResponse and the
+  // Anthropic-only fields (stop_reason, input_tokens) surface as wrong
+  // output or missing content.
+  const anthropicBody = JSON.stringify({
+    id: 'msg_1',
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'text', text: 'passthrough ok' }],
+    model: 'claude-3',
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 10, output_tokens: 20 },
+  })
+
+  globalThis.fetch = (async () => {
+    const r = new Response(anthropicBody, {
+      headers: { 'Content-Type': 'application/json' },
+    })
+    // fetch() sets .url from the request; new Response() cannot. Simulate
+    // the fetch-attached URL so create()'s routing can see /messages.
+    Object.defineProperty(r, 'url', {
+      value: 'https://api.anthropic-shaped.example.com/v1/messages',
+      configurable: true,
+    })
+    return r
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  // /messages passthrough returns the Anthropic body verbatim. If url were
+  // lost, _convertNonStreamingResponse would try to read OpenAI choices[]
+  // and content would not match.
+  expect(result.content).toEqual([{ type: 'text', text: 'passthrough ok' }])
 })
 
 test('non-streaming: strips <think> tag block from assistant content', async () => {
