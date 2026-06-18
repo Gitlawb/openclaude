@@ -20,6 +20,7 @@ import { stripDisplayTags, stripDisplayTagsAllowEmpty } from './displayTags.js'
 import { isEnvTruthy } from './envUtils.js'
 import { toError } from './errors.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
+import { redactSensitiveInfo } from './redaction.js'
 import { jsonParse } from './slowOperations.js'
 
 /**
@@ -178,9 +179,10 @@ export function logError(error: unknown): void {
     }
 
     const errorStr = err.stack || err.message
+    const sanitizedErrorStr = redactSensitiveInfo(errorStr)
 
     const errorInfo = {
-      error: errorStr,
+      error: sanitizedErrorStr,
       timestamp: new Date().toISOString(),
     }
 
