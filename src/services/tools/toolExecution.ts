@@ -157,6 +157,32 @@ export function getReplayResultStatusForError(
   return isAbortError(error) ? 'cancelled' : 'error'
 }
 
+export function normalizeReplayToolInput<T>(
+  processedInput: T,
+  originalInput: T,
+  backfilledClone: T | null,
+): T {
+  if (
+    backfilledClone &&
+    processedInput !== originalInput &&
+    typeof processedInput === 'object' &&
+    processedInput !== null &&
+    'file_path' in processedInput &&
+    typeof originalInput === 'object' &&
+    originalInput !== null &&
+    'file_path' in originalInput &&
+    (processedInput as Record<string, unknown>).file_path ===
+      (backfilledClone as Record<string, unknown>).file_path
+  ) {
+    return {
+      ...processedInput,
+      file_path: (originalInput as Record<string, unknown>).file_path,
+    } as T
+  }
+
+  return processedInput !== backfilledClone ? processedInput : originalInput
+}
+
 function getReplayBashModifiedFile(
   input: Record<string, unknown>,
 ): unknown {
@@ -1097,7 +1123,11 @@ async function checkPermissionsAndCallTool(
       replayBuilder.trackToolStart(
         toolUseID,
         tool.name,
-        processedInput as Record<string, unknown>,
+        normalizeReplayToolInput(
+          processedInput,
+          callInput,
+          backfilledClone,
+        ) as Record<string, unknown>,
       )
       replayBuilder.trackToolEnd(
         toolUseID,
@@ -1220,23 +1250,7 @@ async function checkPermissionsAndCallTool(
   // the backfill-expanded value, restore the model's original so the tool
   // result string embeds the path the model emitted — keeps transcript/VCR
   // hashes stable. Other hook modifications flow through unchanged.
-  if (
-    backfilledClone &&
-    processedInput !== callInput &&
-    typeof processedInput === 'object' &&
-    processedInput !== null &&
-    'file_path' in processedInput &&
-    'file_path' in (callInput as Record<string, unknown>) &&
-    (processedInput as Record<string, unknown>).file_path ===
-      (backfilledClone as Record<string, unknown>).file_path
-  ) {
-    callInput = {
-      ...processedInput,
-      file_path: (callInput as Record<string, unknown>).file_path,
-    } as typeof processedInput
-  } else if (processedInput !== backfilledClone) {
-    callInput = processedInput
-  }
+  callInput = normalizeReplayToolInput(processedInput, callInput, backfilledClone)
 
   let queryActivityLease: { release(): void } | undefined
 

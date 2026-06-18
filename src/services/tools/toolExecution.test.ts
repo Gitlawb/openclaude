@@ -14,7 +14,7 @@ import {
   getReplayModifiedFiles,
   getSchemaValidationErrorOverride,
   getSchemaValidationToolUseResult,
-  type MessageUpdateLazy,
+  normalizeReplayToolInput,
   normalizeToolInputForValidation,
   runToolUse,
 } from './toolExecution.js'
@@ -216,6 +216,48 @@ describe('replay tool lifecycle records', () => {
     }
     expect(step.input).toEqual(finalInput)
     expect(step.inputSummary).toBe('Edit src/final.ts')
+  })
+
+  test('normalizes denied file-tool replay inputs to match allowed retry inputs', () => {
+    const builder = new ReplayIndexBuilder()
+    const modelInput = {
+      file_path: 'src/final.ts',
+      old_string: 'before',
+      new_string: 'after',
+    }
+    const backfilledClone = {
+      ...modelInput,
+      file_path: 'C:\\temp\\openclaude\\src\\final.ts',
+    }
+    const deniedReplayInput = normalizeReplayToolInput(
+      backfilledClone,
+      modelInput,
+      backfilledClone,
+    )
+
+    builder.trackToolStart('tool-1', FILE_EDIT_TOOL_NAME, deniedReplayInput)
+    builder.trackToolEnd(
+      'tool-1',
+      FILE_EDIT_TOOL_NAME,
+      'permission_denied',
+      'denied',
+    )
+    builder.trackToolStart('tool-2', FILE_EDIT_TOOL_NAME, modelInput)
+    builder.trackToolEnd('tool-2', FILE_EDIT_TOOL_NAME, 'success')
+
+    const index = builder.build('session-1')
+    const first = index.steps[0]
+    const second = index.steps[1]
+
+    expect(first?.type).toBe('tool')
+    expect(second?.type).toBe('tool')
+    if (first?.type !== 'tool' || second?.type !== 'tool') {
+      throw new Error('expected tool replay steps')
+    }
+
+    expect(first.input.file_path).toBe('src/final.ts')
+    expect(second.repeatedAttemptNumber).toBe(2)
+    expect(second.isRepeatedAttempt).toBe(true)
   })
 })
 
