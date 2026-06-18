@@ -732,7 +732,7 @@ export function normalizeToolInputForValidation(
   }
 }
 
-async function checkPermissionsAndCallTool(
+export async function checkPermissionsAndCallTool(
   tool: Tool,
   toolUseID: string,
   input: unknown,

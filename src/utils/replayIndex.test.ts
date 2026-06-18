@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from 'fs/promises'
+import { chmod, mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { afterEach, describe, expect, test } from 'bun:test'
 
@@ -60,6 +60,31 @@ describe('replay index storage', () => {
       join(testRoot, 'project', `${sessionId}.jsonl`),
       makeIndex(sessionId),
     )
+
+    const stats = await stat(replayPath)
+    if (process.platform !== 'win32') {
+      expect(stats.mode & 0o777).toBe(0o600)
+    } else {
+      expect(stats.isFile()).toBe(true)
+    }
+  })
+
+  test('rewrites replay sidecars with owner-only permissions on platforms that expose mode bits', async () => {
+    const sessionId = 'session-rewrite-perms'
+    const projectDir = join(testRoot, 'project')
+    const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
+    const replayPath = join(projectDir, `${sessionId}.replay.json`)
+
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(replayPath, JSON.stringify(makeIndex(sessionId)), {
+      encoding: 'utf-8',
+      mode: 0o666,
+    })
+    if (process.platform !== 'win32') {
+      await chmod(replayPath, 0o666)
+    }
+
+    await writeReplayIndex(sessionId, transcriptPath, makeIndex(sessionId))
 
     const stats = await stat(replayPath)
     if (process.platform !== 'win32') {

@@ -1,6 +1,12 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod/v4'
 
+import { getEmptyToolPermissionContext, type Tool, type ToolUseContext } from '../../Tool.js'
+import {
+  getReplayIndexBuilder,
+  resetAllReplayIndexBuilders,
+} from '../../bootstrap/state.js'
+import { getDefaultAppState } from '../../state/AppStateStore.js'
 import { SkillTool } from '../../tools/SkillTool/SkillTool.js'
 import { AskUserQuestionTool } from '../../tools/AskUserQuestionTool/AskUserQuestionTool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
@@ -14,76 +20,16 @@ import {
   getReplayModifiedFiles,
   getSchemaValidationErrorOverride,
   getSchemaValidationToolUseResult,
+  checkPermissionsAndCallTool,
   normalizeReplayToolInput,
   normalizeToolInputForValidation,
   runToolUse,
 } from './toolExecution.js'
 
-const lifecycleToolInputSchema = z.object({
-  command: z.string(),
-  timeout: z.number().optional(),
+afterEach(() => {
+  delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  resetAllReplayIndexBuilders()
 })
-
-const assistantMessage = {
-  uuid: 'assistant-message-1',
-  requestId: 'request-1',
-  message: {
-    id: 'assistant-api-message-1',
-  },
-} as unknown as AssistantMessage
-
-function makeToolUseContext(
-  tools: readonly Tool[],
-  queryLifecycle: QueryLifecycleOperationTracker,
-): ToolUseContext {
-  return {
-    abortController: new AbortController(),
-    messages: [],
-    queryLifecycle,
-    options: {
-      tools,
-      commands: [],
-      debug: false,
-      verbose: false,
-      mainLoopModel: 'test-model',
-      mcpClients: [],
-      mcpResources: {},
-      isNonInteractiveSession: false,
-    },
-    getAppState: () => ({
-      toolPermissionContext: getEmptyToolPermissionContext(),
-      sessionHooks: new Map(),
-    }),
-    setAppState: () => {},
-    setInProgressToolUseIDs: () => {},
-    setResponseLength: () => {},
-    updateFileHistoryState: () => {},
-    updateAttributionState: () => {},
-  } as unknown as ToolUseContext
-}
-
-async function collectToolUseUpdates(
-  tool: Tool,
-  input: Record<string, unknown>,
-  canUseTool: CanUseToolFn,
-  toolUseContext: ToolUseContext,
-) {
-  const updates: MessageUpdateLazy[] = []
-  for await (const update of runToolUse(
-    {
-      type: 'tool_use',
-      id: 'tool-use-1',
-      name: tool.name,
-      input,
-    } as Parameters<typeof runToolUse>[0],
-    assistantMessage,
-    canUseTool,
-    toolUseContext,
-  )) {
-    updates.push(update)
-  }
-  return updates
-}
 
 describe('getSchemaValidationErrorOverride', () => {
   test('returns actionable missing-skill error for SkillTool', () => {
@@ -258,6 +204,98 @@ describe('replay tool lifecycle records', () => {
     expect(first.input.file_path).toBe('src/final.ts')
     expect(second.repeatedAttemptNumber).toBe(2)
     expect(second.isRepeatedAttempt).toBe(true)
+  })
+
+  test('records one error terminal status when post-call result processing fails', async () => {
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    resetAllReplayIndexBuilders()
+    const toolUseId = 'tool-1'
+    const tool = {
+      name: 'TestTool',
+      inputSchema: z.object({ value: z.string() }),
+      maxResultSizeChars: 1000,
+      call: mock(() =>
+        Promise.resolve({
+          data: 'tool succeeded',
+        }),
+      ),
+      mapToolResultToToolResultBlockParam: mock(() => {
+        throw new Error('mapping failed')
+      }),
+      checkPermissions: mock(() =>
+        Promise.resolve({
+          behavior: 'allow',
+          updatedInput: { value: 'final' },
+        }),
+      ),
+      isEnabled: () => true,
+      isReadOnly: () => false,
+      isConcurrencySafe: () => true,
+      description: () => Promise.resolve('test tool'),
+      prompt: () => Promise.resolve('test tool'),
+    } as unknown as Tool
+    const appState = getDefaultAppState()
+    const context = {
+      options: {
+        commands: [],
+        debug: false,
+        mainLoopModel: 'test-model',
+        tools: [tool],
+        verbose: false,
+        thinkingConfig: {},
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: true,
+        agentDefinitions: { agents: [], errors: [] },
+      },
+      abortController: new AbortController(),
+      readFileState: {},
+      getAppState: () => ({
+        ...appState,
+        toolPermissionContext: getEmptyToolPermissionContext(),
+      }),
+      setAppState: () => {},
+      setInProgressToolUseIDs: () => {},
+      setResponseLength: () => {},
+      updateFileHistoryState: () => {},
+      updateAttributionState: () => {},
+      messages: [],
+    } as unknown as ToolUseContext
+
+    const result = await checkPermissionsAndCallTool(
+      tool,
+      toolUseId,
+      { value: 'initial' },
+      context,
+      () =>
+        Promise.resolve({
+          behavior: 'allow',
+          updatedInput: { value: 'final' },
+        }),
+      {
+        uuid: 'assistant-1',
+        type: 'assistant',
+        message: { id: 'msg-1' },
+      } as never,
+      'msg-1',
+      undefined,
+      undefined as never,
+      undefined,
+      () => {},
+    )
+
+    expect(result).toHaveLength(1)
+    const index = getReplayIndexBuilder().build('session-1')
+    expect(index.steps).toHaveLength(1)
+    const step = index.steps[0]
+    expect(step?.type).toBe('tool')
+    if (step?.type !== 'tool') {
+      throw new Error('expected tool replay step')
+    }
+    expect(step.toolUseId).toBe(toolUseId)
+    expect(step.resultStatus).toBe('error')
+    expect(step.resultPreview).toBe('mapping failed')
+    expect(step.input).toEqual({ value: 'final' })
   })
 })
 

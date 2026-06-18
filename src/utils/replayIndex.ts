@@ -1,4 +1,4 @@
-import { readFile, writeFile, stat } from 'fs/promises'
+import { chmod, readFile, writeFile, stat } from 'fs/promises'
 import { join, dirname } from 'path'
 import type { ReplayIndex, ReplayStep, ReplaySummary } from 'src/types/logs.js'
 import { logForDebugging } from './debug.js'
@@ -174,6 +174,7 @@ export async function writeReplayIndex(
       encoding: 'utf-8',
       mode: 0o600,
     })
+    await chmod(replayPath, 0o600)
     logForDebugging(`Wrote replay index for session ${sessionId} to ${replayPath}`)
   } catch (error) {
     logError(error)
