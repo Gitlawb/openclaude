@@ -15,6 +15,7 @@ import {
   buildConversationChain,
   loadTranscriptFile,
   recordGoalState,
+  recordTranscript,
   flushSessionStorage,
   resetProjectForTesting,
   resetSessionFilePointer,
@@ -26,6 +27,7 @@ import { createGoalState } from '../services/goal/state.js'
 import {
   getSessionId,
   isSessionPersistenceDisabled,
+  resetAllReplayIndexBuilders,
   setSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
@@ -216,9 +218,41 @@ beforeEach(async () => {
 
 afterEach(async () => {
   try {
+    resetAllReplayIndexBuilders()
     await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
   } finally {
     releaseSharedMutationLock()
+  }
+})
+
+test('recordTranscript respects prompt-history opt-out for replay state', async () => {
+  const originalSkipPromptHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = 'true'
+  resetProjectForTesting()
+  resetAllReplayIndexBuilders()
+
+  try {
+    await recordTranscript([
+      {
+        uuid: id(900),
+        type: 'user',
+        message: {
+          role: 'user',
+          content: 'do not retain this in replay state',
+        },
+        timestamp: ts,
+        isMeta: false,
+      } as never,
+    ])
+
+    expect(resetAllReplayIndexBuilders()).toEqual([])
+  } finally {
+    if (originalSkipPromptHistory === undefined) {
+      delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    } else {
+      process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipPromptHistory
+    }
+    resetProjectForTesting()
   }
 })
 

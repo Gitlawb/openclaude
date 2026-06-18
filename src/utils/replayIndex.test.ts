@@ -68,4 +68,23 @@ describe('replay index storage', () => {
       expect(stats.isFile()).toBe(true)
     }
   })
+
+  test('ignores malformed replay sidecars without a valid summary', async () => {
+    const sessionId = 'session-malformed'
+    const projectDir = join(testRoot, 'project')
+    const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
+
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${sessionId}.replay.json`),
+      JSON.stringify({
+        sessionId,
+        version: 1,
+        steps: [],
+      }),
+      'utf-8',
+    )
+
+    expect(await loadReplayIndex(sessionId, transcriptPath)).toBe(null)
+  })
 })

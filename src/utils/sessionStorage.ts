@@ -28,7 +28,6 @@ import {
   getReplayIndexBuilder,
   getSessionId,
   getSessionProjectDir,
-  isSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
 import { COMMAND_NAME_TAG, TICK_TAG } from '../constants/xml.js'
@@ -90,7 +89,7 @@ import {
   readTranscriptForLoad,
   SKIP_PRECOMPACT_THRESHOLD,
 } from './sessionStoragePortable.js'
-import { getSettings_DEPRECATED } from './settings/settings.js'
+import { shouldSkipSessionPersistence } from './sessionPersistencePolicy.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
@@ -468,42 +467,27 @@ function getProject(): Project {
           // Best-effort — don't let metadata re-append crash the cleanup
         }
 
-        if (!shouldSkipSessionPersistence()) {
-          // Write replay index if available
-          try {
-            const { resetAllReplayIndexBuilders } = await import('src/bootstrap/state.js')
+        try {
+          const { resetAllReplayIndexBuilders } = await import('src/bootstrap/state.js')
+          const replayBuilders = resetAllReplayIndexBuilders()
+          if (!shouldSkipSessionPersistence()) {
             const { writeReplayIndex } = await import('./replayIndex.js')
-            for (const { sessionId, builder, projectDir } of resetAllReplayIndexBuilders()) {
+            for (const { sessionId, builder, projectDir } of replayBuilders) {
               const transcriptPath = projectDir
                 ? join(projectDir, `${sessionId}.jsonl`)
                 : getTranscriptPathForSession(sessionId)
               const index = builder.build(sessionId)
               await writeReplayIndex(sessionId, transcriptPath, index)
             }
-          } catch {
-            // Best-effort — don't let replay index writing crash the cleanup
           }
+        } catch {
+          // Best-effort — don't let replay index cleanup crash shutdown
         }
       })
       cleanupRegistered = true
     }
   }
   return project
-}
-
-function shouldSkipSessionPersistence(): boolean {
-  const allowTestPersistence = isEnvTruthy(
-    process.env.TEST_ENABLE_SESSION_PERSISTENCE,
-  )
-  if (allowTestPersistence) {
-    return false
-  }
-  return (
-    getNodeEnv() === 'test' ||
-    getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
-    isSessionPersistenceDisabled() ||
-    isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
-  )
 }
 
 /**
@@ -1107,7 +1091,8 @@ class Project {
           slug,
         }
         await this.appendEntry(transcriptMessage)
-        if (!isSidechain && message.type === 'user') {
+        const shouldTrackReplay = !this.shouldSkipPersistence()
+        if (shouldTrackReplay && !isSidechain && message.type === 'user') {
           const content = getFirstMeaningfulUserMessageTextContent([message])
           if (content) {
             try {
@@ -1120,7 +1105,7 @@ class Project {
             }
           }
         }
-        if (!isSidechain && message.type === 'system') {
+        if (shouldTrackReplay && !isSidechain && message.type === 'system') {
           try {
             if (message.subtype === 'api_error') {
               getReplayIndexBuilder().trackRetry(

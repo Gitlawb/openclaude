@@ -89,6 +89,7 @@ import {
   startSessionActivity,
   stopSessionActivity,
 } from '../../utils/sessionActivity.js'
+import { shouldSkipSessionPersistence } from '../../utils/sessionPersistencePolicy.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { Stream } from '../../utils/stream.js'
 import {
@@ -1117,26 +1118,27 @@ async function checkPermissionsAndCallTool(
     logForDebugging(`${tool.name} tool permission denied`)
     const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
 
-    // Track permission denied for replay index
-    try {
-      const replayBuilder = getReplayIndexBuilder()
-      replayBuilder.trackToolStart(
-        toolUseID,
-        tool.name,
-        normalizeReplayToolInput(
-          processedInput,
-          callInput,
-          backfilledClone,
-        ) as Record<string, unknown>,
-      )
-      replayBuilder.trackToolEnd(
-        toolUseID,
-        tool.name,
-        'permission_denied',
-        permissionDecision.message,
-      )
-    } catch {
-      // Ignore errors in replay tracking
+    if (!shouldSkipSessionPersistence()) {
+      try {
+        const replayBuilder = getReplayIndexBuilder()
+        replayBuilder.trackToolStart(
+          toolUseID,
+          tool.name,
+          normalizeReplayToolInput(
+            processedInput,
+            callInput,
+            backfilledClone,
+          ) as Record<string, unknown>,
+        )
+        replayBuilder.trackToolEnd(
+          toolUseID,
+          tool.name,
+          'permission_denied',
+          permissionDecision.message,
+        )
+      } catch {
+        // Ignore errors in replay tracking
+      }
     }
 
     logEvent('tengu_tool_use_can_use_tool_rejected', {
@@ -1254,14 +1256,16 @@ async function checkPermissionsAndCallTool(
 
   let queryActivityLease: { release(): void } | undefined
 
-  try {
-    getReplayIndexBuilder().trackToolStart(
-      toolUseID,
-      tool.name,
-      callInput as Record<string, unknown>,
-    )
-  } catch {
-    // Ignore errors in replay tracking
+  if (!shouldSkipSessionPersistence()) {
+    try {
+      getReplayIndexBuilder().trackToolStart(
+        toolUseID,
+        tool.name,
+        callInput as Record<string, unknown>,
+      )
+    } catch {
+      // Ignore errors in replay tracking
+    }
   }
 
   try {
@@ -1297,21 +1301,8 @@ async function checkPermissionsAndCallTool(
     )
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
-
-    // Track successful tool execution for replay index
-    try {
-      const replayBuilder = getReplayIndexBuilder()
-      const resultPreview = typeof result.data === 'string' ? result.data.slice(0, 200) : undefined
-      replayBuilder.trackToolEnd(
-        toolUseID,
-        tool.name,
-        'success',
-        resultPreview,
-        getReplayModifiedFiles(tool.name, callInput),
-      )
-    } catch {
-      // Ignore errors in replay tracking
-    }
+    const replayResultPreview =
+      typeof result.data === 'string' ? result.data.slice(0, 200) : undefined
 
     // Capture structured output from tool result if present
     if (typeof result === 'object' && 'structured_output' in result) {
@@ -1559,23 +1550,38 @@ async function checkPermissionsAndCallTool(
     for (const hookResult of hookResults) {
       resultingMessages.push(hookResult)
     }
+    if (!shouldSkipSessionPersistence()) {
+      try {
+        const replayBuilder = getReplayIndexBuilder()
+        replayBuilder.trackToolEnd(
+          toolUseID,
+          tool.name,
+          'success',
+          replayResultPreview,
+          getReplayModifiedFiles(tool.name, callInput),
+        )
+      } catch {
+        // Ignore errors in replay tracking
+      }
+    }
     return resultingMessages
   } catch (error) {
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
 
-    // Track failed tool execution for replay index
-    try {
-      const replayBuilder = getReplayIndexBuilder()
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      replayBuilder.trackToolEnd(
-        toolUseID,
-        tool.name,
-        getReplayResultStatusForError(error),
-        errorMsg.slice(0, 200),
-      )
-    } catch {
-      // Ignore errors in replay tracking
+    if (!shouldSkipSessionPersistence()) {
+      try {
+        const replayBuilder = getReplayIndexBuilder()
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        replayBuilder.trackToolEnd(
+          toolUseID,
+          tool.name,
+          getReplayResultStatusForError(error),
+          errorMsg.slice(0, 200),
+        )
+      } catch {
+        // Ignore errors in replay tracking
+      }
     }
 
     // Handle MCP auth errors by updating the client status to 'needs-auth'

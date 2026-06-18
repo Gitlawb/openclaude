@@ -77,7 +77,13 @@ function ReplaySessionPicker({
       return;
     }
 
-    const fullLog = isLiteLog(log) ? await loadFullLog(log) : log;
+    let fullLog: LogOption
+    try {
+      fullLog = isLiteLog(log) ? await loadFullLog(log) : log;
+    } catch {
+      onDone('Failed to load log file');
+      return;
+    }
     setSelected(true);
     const transcriptPath = fullLog.fullPath || getTranscriptPathForSession(sessionId);
     const index = await loadReplayIndex(sessionId, transcriptPath);

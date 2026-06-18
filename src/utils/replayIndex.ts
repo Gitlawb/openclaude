@@ -1,6 +1,6 @@
 import { readFile, writeFile, stat } from 'fs/promises'
 import { join, dirname } from 'path'
-import type { ReplayIndex } from 'src/types/logs.js'
+import type { ReplayIndex, ReplaySummary } from 'src/types/logs.js'
 import { logForDebugging } from './debug.js'
 import { logError } from './log.js'
 
@@ -24,6 +24,42 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isReplaySummary(value: unknown): value is ReplaySummary {
+  if (!isRecord(value)) {
+    return false
+  }
+  return (
+    typeof value.totalSteps === 'number' &&
+    isRecord(value.toolBreakdown) &&
+    Object.values(value.toolBreakdown).every(count => typeof count === 'number') &&
+    Array.isArray(value.filesModified) &&
+    value.filesModified.every(file => typeof file === 'string') &&
+    typeof value.durationMs === 'number' &&
+    typeof value.startTimestamp === 'string' &&
+    typeof value.endTimestamp === 'string' &&
+    typeof value.userRequests === 'number' &&
+    (value.retryAttempts === undefined ||
+      typeof value.retryAttempts === 'number') &&
+    (value.repeatedAttempts === undefined ||
+      typeof value.repeatedAttempts === 'number')
+  )
+}
+
+function isReplayIndex(value: unknown, sessionId: string): value is ReplayIndex {
+  return (
+    isRecord(value) &&
+    value.version === 1 &&
+    value.sessionId === sessionId &&
+    typeof value.createdAt === 'string' &&
+    isReplaySummary(value.summary) &&
+    Array.isArray(value.steps)
+  )
+}
+
 /**
  * Load the replay index for a session.
  * First tries to load the cached .replay.json, falls back to null if not found.
@@ -37,10 +73,9 @@ export async function loadReplayIndex(
   try {
     if (await fileExists(replayPath)) {
       const content = await readFile(replayPath, 'utf-8')
-      const index = JSON.parse(content) as ReplayIndex
+      const index = JSON.parse(content) as unknown
       
-      // Validate basic structure
-      if (index.version === 1 && index.sessionId === sessionId && Array.isArray(index.steps)) {
+      if (isReplayIndex(index, sessionId)) {
         return index
       }
       
