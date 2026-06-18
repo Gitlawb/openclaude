@@ -157,7 +157,7 @@ export function buildChannelMessageCommand(
  * Signature kept for backward-compat with ChannelsNotice.tsx.
  */
 export function getEffectiveChannelAllowlist(
-  _sub?: string,
+  _sub?: string | null,
   orgList?: ChannelAllowlistEntry[] | undefined,
 ): {
   entries: ChannelAllowlistEntry[]
