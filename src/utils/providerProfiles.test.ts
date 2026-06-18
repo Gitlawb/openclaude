@@ -1567,6 +1567,15 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.apiKey).toBe('openai-single-key')
   })
 
+  test('custom preset reads pooled OpenAI credentials', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEYS = 'key-a,key-b'
+    delete process.env.OPENAI_API_KEY
+
+    const defaults = getProviderPresetDefaults('custom')
+
+    expect(defaults.apiKey).toBe('key-a,key-b')
+  })
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL

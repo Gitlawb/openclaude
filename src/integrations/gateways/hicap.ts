@@ -45,9 +45,9 @@ export default defineGateway({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['api.hicap.ai'],
     },
-    credentialEnvVars: ['HICAP_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['HICAP_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     missingCredentialMessage:
-      'Set HICAP_API_KEY or OPENAI_API_KEY for the Hicap provider.',
+      'Set HICAP_API_KEY or OPENAI_API_KEYS / OPENAI_API_KEY for the Hicap provider.',
   },
   catalog: {
     source: 'hybrid',

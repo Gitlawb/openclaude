@@ -1360,6 +1360,32 @@ test('legacy openai saved profiles preserve OPENAI_API_KEYS during startup rebui
   }
 })
 
+test('legacy openai saved profiles ignore delimiter-only shell OPENAI_API_KEYS during startup rebuild', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+
+  try {
+    saveProfileFile(
+      profile('openai', {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEYS: 'saved-a,saved-b',
+      }),
+      { cwd: tempDir },
+    )
+
+    const persisted = loadProfileFile({ cwd: tempDir })
+    assert.notEqual(persisted, null)
+
+    const env = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: { OPENAI_API_KEYS: ', ,' },
+    })
+
+    assert.equal(env.OPENAI_API_KEYS, 'saved-a,saved-b')
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
 test('legacy anthropic saved profiles still deserialize and rebuild startup env', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
 

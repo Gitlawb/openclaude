@@ -434,6 +434,27 @@ test('opengateway validation accepts OPENAI_API_KEY as fallback', async () => {
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test.each([
+  ['opengateway', 'https://opengateway.gitlawb.com/v1', 'mimo-v2.5-pro'],
+  ['hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7'],
+  ['venice', 'https://api.venice.ai/api/v1', 'venice-uncensored'],
+  ['xiaomi mimo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro'],
+  ['opencode', 'https://opencode.ai/zen/v1', 'gpt-5.4'],
+  ['opencode go', 'https://opencode.ai/zen/go/v1', 'glm-5.1'],
+])('%s validation accepts OPENAI_API_KEYS fallback', async (_name, baseUrl, model) => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = baseUrl
+  process.env.OPENAI_MODEL = model
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENGATEWAY_API_KEY
+  delete process.env.HICAP_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.OPENCODE_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
 test('opengateway validation still requires a key on the model-specific path', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'

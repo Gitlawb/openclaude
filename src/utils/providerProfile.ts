@@ -1711,8 +1711,12 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.OPENAI_AUTH_HEADER_VALUE
   }
-  const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
-  const openAIKeys = processEnv.OPENAI_API_KEYS || persistedEnv.OPENAI_API_KEYS
+  const openAIKey =
+    sanitizeOpenAICredentialPool(processEnv.OPENAI_API_KEY) ||
+    sanitizeOpenAICredentialPool(persistedEnv.OPENAI_API_KEY)
+  const openAIKeys =
+    sanitizeOpenAICredentialPool(processEnv.OPENAI_API_KEYS) ||
+    sanitizeOpenAICredentialPool(persistedEnv.OPENAI_API_KEYS)
   if (openAIKeys) {
     env.OPENAI_API_KEYS = openAIKeys
   }

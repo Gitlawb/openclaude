@@ -478,7 +478,7 @@ function buildSavedProfileSummary(
           env,
         ),
         credentialLabel:
-          maskSecretForDisplay(env.OPENAI_API_KEY) !== undefined
+          maskSecretForDisplay(env.OPENAI_API_KEYS ?? env.OPENAI_API_KEY) !== undefined
             ? 'configured'
             : undefined,
       }

@@ -472,6 +472,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "label": "Custom",
     "name": "Custom OpenAI-compatible",
     "apiKeyEnvVars": [
+      "OPENAI_API_KEYS",
       "OPENAI_API_KEY"
     ],
     "baseUrlEnvVars": [

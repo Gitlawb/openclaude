@@ -66,9 +66,9 @@ export default defineVendor({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['api.xiaomimimo.com', 'api.mimo-v2.com'],
     },
-    credentialEnvVars: ['MIMO_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['MIMO_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     missingCredentialMessage:
-      'Xiaomi MiMo auth is required. Set MIMO_API_KEY or OPENAI_API_KEY.',
+      'Xiaomi MiMo auth is required. Set MIMO_API_KEY or OPENAI_API_KEYS / OPENAI_API_KEY.',
   },
   catalog,
   usage: { supported: false },

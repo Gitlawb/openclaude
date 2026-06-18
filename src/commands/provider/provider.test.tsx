@@ -330,6 +330,21 @@ test('buildProfileSaveMessage maps provider fields without echoing secrets', () 
   expect(message).not.toContain('sk-secret-12345678')
 })
 
+test('buildProfileSaveMessage reports pooled OpenAI credentials as configured', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: 'sk-secret-a,sk-secret-b',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).toContain('Credentials: configured')
+  expect(message).not.toContain('sk-secret-a')
+})
 test('buildProfileSaveMessage labels local openai-compatible profiles consistently', () => {
   const message = buildProfileSaveMessage(
     'openai',

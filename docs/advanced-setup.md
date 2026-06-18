@@ -433,7 +433,7 @@ bun run dev:profile
 # codex profile (uses CODEX_API_KEY or ~/.codex/auth.json)
 bun run dev:codex
 
-# OpenAI profile (uses the saved OpenAI profile, or OPENAI_API_KEY from your shell)
+# OpenAI profile (uses the saved OpenAI profile, or OPENAI_API_KEYS / OPENAI_API_KEY from your shell)
 bun run dev:openai
 
 # Gemini profile (uses the saved Gemini profile, or GEMINI_API_KEY / GOOGLE_API_KEY from your shell)

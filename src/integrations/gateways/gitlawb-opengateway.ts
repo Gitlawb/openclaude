@@ -11,17 +11,17 @@ export default defineGateway({
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
-    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
   },
   validation: {
     kind: 'credential-env',
     // OPENGATEWAY_API_KEY first so users who set both don't get their generic
-    // OpenAI key sent to opengateway by accident. OPENAI_API_KEY kept as a
-    // fallback because that's where existing openclaude configs already hold it.
-    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEY'],
+    // OpenAI key sent to opengateway by accident. OPENAI_API_KEYS / OPENAI_API_KEY kept as
+    // fallbacks because existing openclaude configs may already hold generic credentials there.
+    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     missingCredentialMessage:
       'OPENGATEWAY_API_KEY is required to use Gitlawb Opengateway.\n' +
-      'Mint a free API key at https://gitlawb.com/opengateway/keys and set it as OPENGATEWAY_API_KEY (or OPENAI_API_KEY when OPENAI_BASE_URL points at opengateway).',
+      'Mint a free API key at https://gitlawb.com/opengateway/keys and set it as OPENGATEWAY_API_KEY (or OPENAI_API_KEYS / OPENAI_API_KEY when OPENAI_BASE_URL points at opengateway).',
     routing: {
       matchBaseUrlHosts: ['opengateway.gitlawb.com', 'opengateway.fly.dev'],
     },

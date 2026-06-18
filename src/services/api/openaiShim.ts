@@ -3432,7 +3432,7 @@ class OpenAIShimMessages {
       const credentialFailureKind =
         failure.category === 'auth_invalid' && !failure.retryable
           ? 'auth'
-          : failure.retryable || response.status === 402 || response.status === 429
+          : response.status === 402 || response.status === 429
             ? 'cooldown'
             : null
       if (credentialPool && credentialPool.size > 1 && credentialFailureKind) {
