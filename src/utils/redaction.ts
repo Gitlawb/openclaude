@@ -37,8 +37,10 @@ const OPENAI_KEY_PATTERN =
 // AWS access keys
 const AWS_ACCESS_KEY_PATTERN = /(AKIA[A-Z0-9]{16})/g
 
-// Google Cloud / Gemini API keys (AIza...)
-const GCP_KEY_PATTERN = /(?<![A-Za-z0-9])(AIza[A-Za-z0-9_-]{35})(?![A-Za-z0-9])/g
+// Google Cloud / Gemini API keys (AIza...) — 35-char suffix matches real GCP
+// keys which are typically 39 chars total. The diagnostics module uses {10,}
+// because it sees values out of context; here we only flag clearly-shaped keys.
+const GCP_KEY_PATTERN = /(?<![A-Za-z0-9])(AIza[A-Za-z0-9_-]{10,})(?![A-Za-z0-9])/g
 
 // Vertex AI service account emails
 const GCP_SERVICE_ACCOUNT_PATTERN =
