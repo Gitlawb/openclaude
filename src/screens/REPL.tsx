@@ -1767,7 +1767,6 @@ export function REPL({
     if (timeout.activeOperations.apiCalls.length > 0) {
       logForDebugging(`api.call.active_on_abort queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`);
     }
-    logQueryLifecycle('end', timeout.context, timeoutOperations);
     if (feature('TOKEN_BUDGET')) {
       snapshotOutputTokensForTurn(null);
     }
@@ -1776,6 +1775,7 @@ export function REPL({
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
       logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
+      logQueryLifecycle('end', timeout.context, summarizeActiveOperations(queryLifecycleTrackerRef.current.snapshot()));
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);
