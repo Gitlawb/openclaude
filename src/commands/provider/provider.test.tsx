@@ -344,6 +344,21 @@ test('buildProfileSaveMessage reports pooled OpenAI credentials as configured', 
   expect(message).toContain('Saved OpenAI profile.')
   expect(message).toContain('Credentials: configured')
   expect(message).not.toContain('sk-secret-a')
+  expect(message).not.toContain('sk-secret-b')
+})
+test('buildProfileSaveMessage ignores delimiter-only pooled OpenAI credentials', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: ', ,',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).not.toContain('Credentials: configured')
 })
 test('buildProfileSaveMessage labels local openai-compatible profiles consistently', () => {
   const message = buildProfileSaveMessage(
