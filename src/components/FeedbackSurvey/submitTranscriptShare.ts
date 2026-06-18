@@ -13,7 +13,7 @@ import {
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../../utils/sessionStorage.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import { redactSensitiveInfo } from '../Feedback.js'
+import { redactSensitiveInfo } from '../../utils/redaction.js'
 
 type TranscriptShareResult = {
   success: boolean
