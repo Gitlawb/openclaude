@@ -26,13 +26,16 @@
 
 import { getKnownProviderSecretEnvKeys } from './providerSecrets.js'
 
-// Anthropic API keys (sk-ant-...)
+// Anthropic API keys (sk-ant...)
+// Quotes (`"'`) are excluded from the lookbehind/lookahead so JSON-shaped
+// values like `"sk-ant-..."` are still caught — quotes act as delimiters,
+// not blockers.
 const ANTHROPIC_KEY_PATTERN =
-  /(?<![A-Za-z0-9"'])(sk-ant-?[A-Za-z0-9_-]{10,})(?![A-Za-z0-9"'])/g
+  /(?<![A-Za-z0-9])(sk-ant-?[A-Za-z0-9_-]{10,})(?![A-Za-z0-9])/g
 
 // OpenAI / Codex / OpenRouter API keys (sk-..., sk-proj-..., sk-or-v1-...)
 const OPENAI_KEY_PATTERN =
-  /(?<![A-Za-z0-9"'])(sk-(?:proj-|or-v1-)?[A-Za-z0-9_-]{5,})(?![A-Za-z0-9"'])/g
+  /(?<![A-Za-z0-9])(sk-(?:proj-|or-v1-)?[A-Za-z0-9_-]{5,})(?![A-Za-z0-9])/g
 
 // AWS access keys
 const AWS_ACCESS_KEY_PATTERN = /(AKIA[A-Z0-9]{16})/g
@@ -72,11 +75,11 @@ const GENERIC_CREDENTIAL_ENV_PATTERN =
   /(?<![A-Za-z0-9_])((?:[A-Za-z0-9_]*_)?(?:API[_-]?KEY|SECRET|TOKEN|PASSWORD)\s*[=:]\s*)["']?[^"',\s)}\]]+["']?/gi
 
 // Header-style key-value: x-api-key, authorization, bearer, api_key, token,
-// access_token, refresh_token, secret, password, cookie, set-cookie, id_token.
-// This is the catch-all for "the secret sits next to a known field name in
-// arbitrary text" — header dumps, log lines, error payloads.
+// access_token, refresh_token, secret, password, cookie, set-cookie, id_token,
+// private_key. This is the catch-all for "the secret sits next to a known
+// field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\s)}\]]+)/gi
+  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\s)}\]]+)/gi
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -90,6 +93,7 @@ const SENSITIVE_FIELD_SUBSTRINGS = [
   'cookie',
   'credential',
   'bearer',
+  'privatekey',
 ] as const
 
 /**
