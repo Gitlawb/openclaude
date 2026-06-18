@@ -124,8 +124,9 @@ Background sessions are local child processes. OpenClaude does not start a daemo
 or network service, and permission/provider/model/settings flags are passed to
 the child process the same way they are for a foreground `--print` run. Session
 metadata and logs are stored under the resolved OpenClaude config directory,
-usually `~/.openclaude/bg-sessions/`; `CLAUDE_CONFIG_DIR` can point OpenClaude
-somewhere else. Session names can be reused after older sessions reach a
+usually `~/.openclaude/bg-sessions/`; `OPENCLAUDE_CONFIG_DIR` can point
+OpenClaude somewhere else, with `CLAUDE_CONFIG_DIR` still supported as the
+legacy fallback. Session names can be reused after older sessions reach a
 terminal state; use the session ID to inspect older logs with the same name.
 
 `openclaude attach <id-or-name>` currently reports the matching session and

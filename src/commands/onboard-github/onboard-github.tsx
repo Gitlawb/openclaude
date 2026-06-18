@@ -17,7 +17,12 @@ import {
   readGithubModelsToken,
   saveGithubModelsToken,
 } from '../../utils/githubModelsCredentials.js'
-import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
+import { getDisplayPath } from '../../utils/file.js'
+import {
+  getSettingsFilePathForSource,
+  getSettingsForSource,
+  updateSettingsForSource,
+} from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 const FORCE_RELOGIN_ARGS = new Set([
@@ -50,6 +55,11 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'GEMINI_ACCESS_TOKEN',
   'GEMINI_AUTH_MODE',
 ])
+
+function getUserSettingsDisplayPath(): string {
+  const userSettingsPath = getSettingsFilePathForSource('userSettings')
+  return userSettingsPath ? getDisplayPath(userSettingsPath) : 'user settings'
+}
 
 export function shouldForceGithubRelogin(args?: string): boolean {
   const normalized = (args ?? '').trim().toLowerCase()
@@ -370,7 +380,7 @@ function OnboardGithub(props: {
       if (!activated.ok) {
         setErrorMsg(
           `Token saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
-            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.openclaude/settings.json manually.`,
+            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=${DEFAULT_MODEL} to ${getUserSettingsDisplayPath()} manually.`,
         )
         setStep('error')
         return
@@ -621,7 +631,7 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     if (!activated.ok) {
       onDone(
         `GitHub token detected, but settings activation failed: ${activated.detail ?? 'unknown error'}. ` +
-          'Set CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=github:copilot in user settings manually.',
+          `Set CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=github:copilot in ${getUserSettingsDisplayPath()} manually.`,
         { display: 'system' },
       )
       return null

@@ -38,9 +38,10 @@ const toc = [
   <h2 id="your-own">writing your own</h2>
   <p>
     Project skills live in <code>.claude/skills/&lt;name&gt;/SKILL.md</code>; user-level
-    skills in <code>~/.claude/skills/</code>. Each SKILL.md has frontmatter
-    (<code>name</code>, <code>description</code>) followed by the instructions the agent
-    loads when the skill is invoked. Plugins can ship skills too — manage them with
-    <code>/plugin</code>.
+    skills default to <code>~/.openclaude/skills/</code> and follow
+    <code>OPENCLAUDE_CONFIG_DIR</code> when it is set. Each SKILL.md has frontmatter
+    (<code>name</code>, <code>description</code>) followed by the instructions the
+    agent loads when the skill is invoked. Plugins can ship skills too — manage
+    them with <code>/plugin</code>.
   </p>
 </DocsLayout>
