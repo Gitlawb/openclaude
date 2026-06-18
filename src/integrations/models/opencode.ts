@@ -939,7 +939,7 @@ export default [
     maxOutputTokens: 32_768,
   }),
 
-  // --- Anthropic messages endpoint ---
+  // --- Anthropic Messages API (x-api-key auth) ---
   defineModel({
     id: 'opencode-go-minimax-m2.7',
     label: 'MiniMax M2.7',

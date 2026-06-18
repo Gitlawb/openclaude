@@ -43,6 +43,7 @@ const originalEnv = {
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
+  OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
 }
@@ -181,6 +182,7 @@ beforeEach(async () => {
   delete process.env.MIMO_API_KEY
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
+  delete process.env.OPENCODE_API_KEY
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 })
@@ -221,6 +223,7 @@ afterEach(() => {
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
+    restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
     globalThis.fetch = originalFetch
@@ -2444,6 +2447,90 @@ test('xiaomi mimo route uses api-key auth header and max_completion_tokens', asy
   expect(capturedHeaders).not.toHaveProperty('Authorization')
   expect(capturedBody).toMatchObject({ max_completion_tokens: 32 })
   expect(capturedBody).not.toHaveProperty('max_tokens')
+})
+
+test.each([
+  'minimax-m3',
+  'minimax-m2.7',
+  'minimax-m2.5',
+  'qwen3.6-plus',
+  'qwen3.5-plus',
+])('opencode go %s uses the Anthropic Messages request contract', async model => {
+  let capturedUrl = ''
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENCODE_API_KEY = 'fake-opencode-key'
+
+  const result = applyProviderFlag('opencode-go', [
+    '--provider',
+    'opencode-go',
+    '--model',
+    model,
+  ])
+  expect(result.error).toBeUndefined()
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'msg_opencode_go',
+        type: 'message',
+        role: 'assistant',
+        model,
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model,
+    system: 'test system',
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://opencode.ai/zen/go/v1/messages')
+  expect(capturedHeaders?.get('x-api-key')).toBe('fake-opencode-key')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+  expect(capturedBody).toEqual({
+    model,
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+    system: 'test system',
+  })
+  expect(capturedBody).not.toHaveProperty('max_completion_tokens')
+  expect(capturedBody).not.toHaveProperty('store')
 })
 
 test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY as bearer auth despite stale generic base URL', async () => {

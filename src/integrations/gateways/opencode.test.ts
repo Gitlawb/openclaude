@@ -318,19 +318,25 @@ describe('OpenCode model catalog', () => {
     }
   })
 
-  test('go open models use the default chat completions endpoint', () => {
+  test('go Anthropic-format models use the messages endpoint with x-api-key auth', () => {
     const models = getCatalogEntriesForRoute('opencode-go')
-    const chatCompletionModelIds = [
+    const messagesModelIds = [
       'opencode-go-minimax-m3',
       'opencode-go-minimax-m2.7',
       'opencode-go-minimax-m2.5',
       'opencode-go-qwen3.6-plus',
       'opencode-go-qwen3.5-plus',
     ]
-    for (const id of chatCompletionModelIds) {
+    for (const id of messagesModelIds) {
       const model = models.find(m => m.id === id)
       expect(model).toBeDefined()
-      expect(model!.transportOverrides?.openaiShim?.endpointPath).toBeUndefined()
+      expect(model!.transportOverrides?.openaiShim).toMatchObject({
+        endpointPath: '/messages',
+        defaultAuthHeader: {
+          name: 'x-api-key',
+          scheme: 'raw',
+        },
+      })
     }
   })
 })
