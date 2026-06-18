@@ -101,31 +101,46 @@ export function toRelativePath(absolutePath: string): string {
 /**
  * Relativizes the file-path portion of a ripgrep content-mode line.
  *
- * Lines have the form `path:content` or `path:line:content`. To find the
- * boundary between the path and the rest we look for the FIRST colon — but on
- * Windows an absolute path begins with a drive-letter colon (e.g. `C:\...`),
- * so the first colon is part of the path, not the separator. We detect a
- * leading `^[A-Za-z]:` drive letter and start searching for the boundary colon
- * AFTER it, leaving POSIX paths (no drive letter) unchanged.
+ * ripgrep separates the path from the rest with `:` on a MATCH row and with `-`
+ * on a CONTEXT row (`-A`/`-B`/`-C`/`context`). With line numbers (rg `-n`, the
+ * default in GrepTool) the boundary is `<sep><line><sep>` — `:<n>:` for matches
+ * and `-<n>-` for context rows. Finding that boundary is complicated on Windows
+ * because an absolute path both begins with a drive-letter colon (`C:\...`) and
+ * may contain `-` inside file/dir names, so neither the first `:` nor the first
+ * `-` is reliable on its own.
  *
- * @param line - A single ripgrep content line (`path:content` / `path:n:content`)
+ * We therefore look (after any drive prefix) for the first `:<digits>:`, which a
+ * Windows path can never contain since it has no non-drive colon — so this is
+ * unambiguous for match rows even when the filename holds date-like `-2024-`
+ * runs. Only if that is absent do we fall back to the first `-<digits>-` for
+ * context rows, then to the first colon for line-number-less match rows
+ * (`path:content`). POSIX paths (no drive letter) are handled the same way.
+ *
+ * @param line - A single ripgrep content line (match or context row)
  * @param relativize - Function that converts an absolute path to a relative one
  *   (defaults to {@link toRelativePath}; injectable for deterministic tests)
  * @returns The line with its leading path made relative, or unchanged when no
- *   path/content boundary colon is present
+ *   path/content boundary can be located
  */
 export function relativizeContentLine(
   line: string,
   relativize: (p: string) => string = toRelativePath,
 ): string {
   // Skip a leading Windows drive-letter colon (`C:`) so it is not mistaken for
-  // the path/content separator. searchStart stays 0 for POSIX paths.
-  const searchStart = /^[A-Za-z]:/.test(line) ? 2 : 0
-  const colonIndex = line.indexOf(':', searchStart)
-  if (colonIndex > 0) {
-    const filePath = line.substring(0, colonIndex)
-    const rest = line.substring(colonIndex)
-    return relativize(filePath) + rest
+  // the path/content separator. driveOffset stays 0 for POSIX paths.
+  const driveOffset = /^[A-Za-z]:/.test(line) ? 2 : 0
+  const afterDrive = line.slice(driveOffset)
+
+  // Prefer the `:<digits>:` match boundary (unambiguous: paths have no non-drive
+  // colon), then the `-<digits>-` context boundary.
+  const numbered = afterDrive.match(/:\d+:/) ?? afterDrive.match(/-\d+-/)
+  const boundary =
+    numbered?.index !== undefined
+      ? driveOffset + numbered.index
+      : // Line-number-less match row (`path:content`): fall back to first colon.
+        line.indexOf(':', driveOffset)
+  if (boundary > 0) {
+    return relativize(line.slice(0, boundary)) + line.slice(boundary)
   }
   return line
 }
