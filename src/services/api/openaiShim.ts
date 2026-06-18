@@ -213,6 +213,11 @@ function normalizeZaiReasoningEffort(
   return effort === 'xhigh' ? 'max' : 'high'
 }
 
+function supportsZaiReasoningEffort(model: string | undefined): boolean {
+  const normalized = model?.trim().split('?', 1)[0]?.trim().toLowerCase()
+  return normalized === 'glm-5.2'
+}
+
 function normalizeThinkingType(
   value: string | undefined,
 ): 'enabled' | 'disabled' | undefined {
@@ -2518,6 +2523,9 @@ class OpenAIShimMessages {
       const zaiThinkingType =
         normalizeThinkingType(requestedThinkingType) ??
         normalizeThinkingType(request.thinking?.type)
+      const zaiSupportsReasoningEffort = supportsZaiReasoningEffort(
+        request.resolvedModel,
+      )
 
       if (zaiThinkingType === 'disabled') {
         body.thinking = { type: 'disabled' }
@@ -2527,9 +2535,13 @@ class OpenAIShimMessages {
       }
 
       if (zaiThinkingType !== 'disabled' && request.reasoning?.effort) {
-        body.reasoning_effort = normalizeZaiReasoningEffort(
-          request.reasoning.effort,
-        )
+        if (zaiSupportsReasoningEffort) {
+          body.reasoning_effort = normalizeZaiReasoningEffort(
+            request.reasoning.effort,
+          )
+        } else {
+          delete body.reasoning_effort
+        }
       }
     }
 

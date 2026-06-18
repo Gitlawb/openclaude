@@ -6365,6 +6365,40 @@ test('Z.AI GLM-5.2: default request relies on provider thinking defaults', async
   expect(requestBody?.reasoning_effort).toBeUndefined()
 })
 
+test('Z.AI GLM-5.2: user-selected xhigh effort maps to provider max effort', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.2',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.2',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.2')
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+})
+
 test.each([
   ['glm-5.2?reasoning=low', 'high'],
   ['glm-5.2?reasoning=medium', 'high'],
@@ -6400,6 +6434,41 @@ test.each([
   expect(requestBody?.model).toBe('glm-5.2')
   expect(requestBody?.thinking).toEqual({ type: 'enabled' })
   expect(requestBody?.reasoning_effort).toBe(effort)
+})
+
+test.each([
+  'GLM-5.1?reasoning=high',
+  'GLM-4.5-Air?reasoning=high',
+] as const)('Z.AI GLM: %s does not receive GLM-5.2-only reasoning_effort', async model => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model,
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe(model.split('?', 1)[0])
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBeUndefined()
 })
 
 test('Z.AI GLM-5.2: model-query thinking disable omits reasoning effort', async () => {
