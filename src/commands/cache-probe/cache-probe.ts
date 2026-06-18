@@ -51,6 +51,29 @@ export function resolveCacheProbeApiKey(
   )
 }
 
+function resolveGithubCacheProbeApiKey(env: NodeJS.ProcessEnv): string {
+  return (
+    env.GITHUB_COPILOT_KEY?.trim() ||
+    env.GITHUB_TOKEN?.trim() ||
+    env.GH_TOKEN?.trim() ||
+    ''
+  )
+}
+
+export function resolveCacheProbeRequestApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+  options?: { isGithub?: boolean },
+): string {
+  if (options?.isGithub) {
+    const githubKey = resolveGithubCacheProbeApiKey(env)
+    if (githubKey) {
+      return githubKey
+    }
+  }
+
+  return resolveCacheProbeApiKey(env)
+}
+
 function getField(obj: unknown, path: string): unknown {
   return path
     .split('.')
@@ -198,16 +221,11 @@ export const call: LocalCommandCall = async (args) => {
   const request = resolveProviderRequest({ model: modelStr })
   const isGithub = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
-  // Resolve API key the same way the OpenAI shim does
-  let apiKey = resolveCacheProbeApiKey(process.env)
-  if (!apiKey && isGithub) {
+  // Resolve API key the same way the active provider path does.
+  if (isGithub) {
     hydrateGithubModelsTokenFromSecureStorage()
-    apiKey =
-      resolveCacheProbeApiKey(process.env) ||
-      process.env.GITHUB_TOKEN ||
-      process.env.GH_TOKEN ||
-      ''
   }
+  const apiKey = resolveCacheProbeRequestApiKey(process.env, { isGithub })
 
   if (!apiKey) {
     return {

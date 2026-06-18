@@ -1,6 +1,14 @@
 import { expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
-import { call, resolveCacheProbeApiKey } from './cache-probe.js'
+import {
+  call,
+  resolveCacheProbeApiKey,
+  resolveCacheProbeRequestApiKey,
+} from './cache-probe.js'
 
 test('resolveCacheProbeApiKey prefers the first usable OPENAI_API_KEYS entry', () => {
   expect(
@@ -19,7 +27,21 @@ test('resolveCacheProbeApiKey falls back to comma-separated OPENAI_API_KEY', () 
   ).toBe('key-a')
 })
 
+test('resolveCacheProbeRequestApiKey prefers GitHub credentials in GitHub mode', () => {
+  expect(
+    resolveCacheProbeRequestApiKey(
+      {
+        CLAUDE_CODE_USE_GITHUB: '1',
+        OPENAI_API_KEYS: 'openai-key-a,openai-key-b',
+        GITHUB_TOKEN: 'github-token',
+      } as NodeJS.ProcessEnv,
+      { isGithub: true },
+    ),
+  ).toBe('github-token')
+})
+
 test('cache-probe no-key guidance mentions pooled OpenAI credentials', async () => {
+  await acquireSharedMutationLock('commands/cache-probe/cache-probe.test.ts')
   const originalEnv = { ...process.env }
   try {
     for (const key of Object.keys(process.env)) {
@@ -39,5 +61,6 @@ test('cache-probe no-key guidance mentions pooled OpenAI credentials', async () 
       delete process.env[key]
     }
     Object.assign(process.env, originalEnv)
+    releaseSharedMutationLock()
   }
 })
