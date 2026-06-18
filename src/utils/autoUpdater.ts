@@ -16,6 +16,10 @@ import { env } from './env.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
 import { ClaudeError, getErrnoCode, isENOENT } from './errors.js'
 import { execFileNoThrowWithCwd } from './execFileNoThrow.js'
+import {
+  detectGlobalPackageManager,
+  getGlobalInstallArgs,
+} from './globalPackageManager.js'
 import { getFsImplementation } from './fsOperations.js'
 import { gracefulShutdownSync } from './gracefulShutdown.js'
 import { logError } from './log.js'
@@ -367,9 +371,35 @@ export async function getLatestVersion(
     if (result.stdout) {
       logForDebugging(`npm stdout: ${result.stdout.trim()}`)
     }
-    return null
+    // npm may be unavailable (bun/pnpm/yarn-only installs) or transiently
+    // failing — fall back to a direct registry request so update checks still
+    // work without npm on the PATH.
+    return getLatestVersionFromRegistryHttp(npmTag)
   }
   return result.stdout.trim()
+}
+
+/**
+ * Look up a dist-tag's version directly from the public npm registry over HTTP.
+ * Used as a fallback when `npm view` is unavailable or fails.
+ */
+async function getLatestVersionFromRegistryHttp(
+  tag: string,
+): Promise<string | null> {
+  try {
+    const response = await axios.get(
+      `https://registry.npmjs.org/${MACRO.PACKAGE_URL}`,
+      { timeout: 10_000 },
+    )
+    const distTags = (
+      response.data as { 'dist-tags'?: Record<string, string> }
+    )?.['dist-tags']
+    const version = distTags?.[tag]
+    return typeof version === 'string' ? version : null
+  } catch (error) {
+    logForDebugging(`Registry HTTP lookup for ${MACRO.PACKAGE_URL} failed: ${error}`)
+    return null
+  }
 }
 
 export type NpmDistTags = {
@@ -504,8 +534,16 @@ export async function installGlobalPackage(
 
   try {
     await removeClaudeAliasesFromShellConfigs()
+
+    // Resolve the package manager that owns this install (npm/yarn/pnpm/bun),
+    // falling back to npm/bun by runtime when detection is inconclusive. This is
+    // the single source of truth for how we drive a global install.
+    const packageManager =
+      (await detectGlobalPackageManager()) ??
+      (env.isRunningWithBun() ? 'bun' : 'npm')
+
     // Check if we're using npm from Windows path in WSL
-    if (!env.isRunningWithBun() && env.isNpmFromWindowsPath()) {
+    if (packageManager === 'npm' && env.isNpmFromWindowsPath()) {
       logError(new Error('Windows NPM detected in WSL environment'))
       logEvent('tengu_auto_updater_windows_npm_in_wsl', {
         currentVersion:
@@ -526,9 +564,14 @@ To fix this issue:
       return 'install_failed'
     }
 
-    const { hasPermissions } = await checkGlobalInstallPermissions()
-    if (!hasPermissions) {
-      return 'no_permissions'
+    // The permission probe inspects the npm/bun global prefix; only meaningful
+    // for those managers. pnpm/yarn manage their own global store, so we let the
+    // install command itself surface any permission error there.
+    if (packageManager === 'npm' || packageManager === 'bun') {
+      const { hasPermissions } = await checkGlobalInstallPermissions()
+      if (!hasPermissions) {
+        return 'no_permissions'
+      }
     }
 
     // Use specific version if provided, otherwise use latest
@@ -538,10 +581,9 @@ To fix this issue:
 
     // Run from home directory to avoid reading project-level .npmrc/.bunfig.toml
     // which could be maliciously crafted to redirect to an attacker's registry
-    const packageManager = env.isRunningWithBun() ? 'bun' : 'npm'
     const installResult = await execFileNoThrowWithCwd(
       packageManager,
-      ['install', '-g', packageSpec],
+      getGlobalInstallArgs(packageManager, packageSpec),
       { cwd: homedir() },
     )
     if (installResult.code !== 0) {

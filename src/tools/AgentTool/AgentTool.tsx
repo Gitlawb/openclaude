@@ -11,7 +11,7 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
-import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider } from '../../services/api/agentRouting.js';
+import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider, resolveOutOfProcessTeammateModelOnly } from '../../services/api/agentRouting.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
@@ -335,6 +335,28 @@ export const AgentTool = buildTool({
       if (routedTeammateProvider && !isModelAllowed(routedTeammateProvider.model)) {
         throw new Error(`Model '${routedTeammateProvider.model}' is not available. Your organization restricts model selection.`);
       }
+      // A model-only agentRouting route (no cross-provider creds) is dropped by the
+      // provider resolver above, so resolve it separately and apply it on the next
+      // spawn. The child inherits the parent provider env, so passing the model is
+      // enough. Only consulted when there is no cross-provider override.
+      const routedTeammateModelOnly = routedTeammateProvider
+        ? undefined
+        : resolveOutOfProcessTeammateModelOnly({
+            cliModel: model,
+            agentName: name,
+            agentType: subagent_type,
+            agentDefinitionModel: agentDef?.model,
+            parentModel: toolUseContext.options.mainLoopModel,
+            permissionMode,
+            settings: getInitialSettings()
+          });
+      if (
+        routedTeammateModelOnly &&
+        routedTeammateModelOnly !== toolUseContext.options.mainLoopModel &&
+        !isModelAllowed(routedTeammateModelOnly)
+      ) {
+        throw new Error(`Model '${routedTeammateModelOnly}' is not available. Your organization restricts model selection.`);
+      }
       const result = await spawnTeammate({
         name,
         prompt,
@@ -342,7 +364,7 @@ export const AgentTool = buildTool({
         team_name: teamName,
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
-        model: routedTeammateProvider?.model ?? resolvedTeammateModel,
+        model: routedTeammateProvider?.model ?? routedTeammateModelOnly ?? resolvedTeammateModel,
         modelWasToolSpecified: model !== undefined,
         agent_type: subagent_type,
         invokingRequestId: assistantMessage?.requestId
@@ -502,11 +524,13 @@ export const AgentTool = buildTool({
     const resolvedAgentModel = getAgentModel(selectedAgent.model, toolUseContext.options.mainLoopModel, isForkPath ? undefined : model, permissionMode);
     const { mainLoopModel: effectiveAgentModel } = resolveAgentRunModelRouting({
       resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
       toolSpecifiedModel: isForkPath ? undefined : model,
       agentName: name,
       subagentType: selectedAgent.agentType,
       agentDefinitionModel: selectedAgent.model,
       settings: getInitialSettings(),
+      permissionMode,
     });
     logEvent('tengu_agent_tool_selected', {
       agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

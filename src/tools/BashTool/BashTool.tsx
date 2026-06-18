@@ -42,7 +42,7 @@ import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js'
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
 import { interpretCommandResult } from './commandSemantics.js';
-import { getDefaultTimeoutMs, getMaxTimeoutMs, getSimplePrompt } from './prompt.js';
+import { getEffectiveTimeoutMs, getMaxTimeoutMs, getSimplePrompt } from './prompt.js';
 import { checkReadOnlyConstraints } from './readOnlyValidation.js';
 import { parseSedEditCommand } from './sedEditParser.js';
 import { shouldUseSandbox } from './shouldUseSandbox.js';
@@ -894,7 +894,7 @@ async function* runShellCommand({
     timeout,
     run_in_background
   } = input;
-  const timeoutMs = timeout || getDefaultTimeoutMs();
+  const timeoutMs = getEffectiveTimeoutMs(timeout);
   let fullOutput = '';
   let lastProgressOutput = '';
   let lastTotalLines = 0;

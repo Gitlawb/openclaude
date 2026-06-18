@@ -149,6 +149,7 @@ import heapDump from './commands/heapdump/index.js'
 import mockLimits from './commands/mock-limits/index.js'
 import bridgeKick from './commands/bridge-kick.js'
 import version from './commands/version.js'
+import update from './commands/update/index.js'
 import wiki from './commands/wiki/index.js'
 import summary from './commands/summary/index.js'
 import {
@@ -341,6 +342,7 @@ const COMMANDS = memoize((): Command[] => [
   rewind,
   securityReview,
   terminalSetup,
+  update,
   upgrade,
   extraUsage,
   extraUsageNonInteractive,

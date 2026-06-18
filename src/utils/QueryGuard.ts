@@ -18,8 +18,8 @@
  * re-entry from the queue processor during the async gap.
  *
  * Timeout:
- *   If a query runs longer than QUERY_TIMEOUT_MS, the guard automatically
- *   force-ends to prevent infinite spinner loops (see issue #1207).
+ *   The guard uses an idle timeout for stuck work, bounded leases for active
+ *   local/API work, and a hard maximum query lifetime that always wins.
  *
  * Usage with React:
  *   const queryGuard = useRef(new QueryGuard()).current
@@ -30,8 +30,75 @@
  */
 import { createSignal } from './signal.js'
 
-const QUERY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
-type QueryTimeoutHandler = (generation: number) => void
+export const DEFAULT_QUERY_IDLE_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+export const DEFAULT_QUERY_HARD_MAX_MS = 30 * 60 * 1000 // 30 minutes
+export const DEFAULT_TOOL_LEASE_GRACE_MS = 5_000
+
+/**
+ * Why QueryGuard force-ended the current query.
+ * - `idle`: no progress and no valid lease existed for the idle timeout.
+ * - `hard_max`: the query reached its absolute maximum lifetime.
+ * - `lease_expired`: bounded active work exceeded its own lease deadline.
+ */
+export type QueryGuardTimeoutReason = 'idle' | 'hard_max' | 'lease_expired'
+
+/**
+ * Input for a bounded unit of active work.
+ *
+ * `owner` identifies the subsystem taking the lease, `id` identifies the
+ * specific operation, `timeoutMs` is measured from lease acquisition, and
+ * `hardCapMs` is an optional lease-local upper bound that is still capped by
+ * the current query's remaining hard-maximum budget.
+ */
+export type QueryGuardLeaseInput = {
+  /** Subsystem taking the lease, used for diagnostics and unique lease ids. */
+  owner: 'api' | 'tool' | 'bash' | 'subagent' | string
+  /** Stable operation id, for example a tool-use id. */
+  id: string
+  /** Lease timeout measured from acquisition time. */
+  timeoutMs?: number
+  /** Optional lease-local hard cap, also bounded by the query hard max. */
+  hardCapMs?: number
+  /** Human-readable description for diagnostics. */
+  description?: string
+}
+
+/**
+ * Handle returned for an active lease. Call `release()` exactly once when the
+ * bounded work finishes; stale or repeated releases are ignored.
+ */
+export type QueryGuardLease = {
+  readonly id: string
+  /** Release this lease if it still belongs to the current generation. */
+  release(): void
+}
+
+type QueryTimeoutHandler = (
+  generation: number,
+  reason: QueryGuardTimeoutReason,
+) => void
+
+type QueryGuardOptions = {
+  idleTimeoutMs?: number
+  hardMaxQueryMs?: number
+  toolLeaseGraceMs?: number
+}
+
+type LeaseRecord = {
+  leaseId: string
+  owner: string
+  id: string
+  generation: number
+  startedAt: number
+  deadlineAt: number
+  description?: string
+}
+
+function positiveOrDefault(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : fallback
+}
 
 export class QueryGuard {
   private _status: 'idle' | 'dispatching' | 'running' = 'idle'
@@ -39,6 +106,28 @@ export class QueryGuard {
   private _changed = createSignal()
   private _timeoutId: ReturnType<typeof setTimeout> | null = null
   private _timeoutHandler: QueryTimeoutHandler | null = null
+  private _queryStartedAt = 0
+  private _lastActivityAt = 0
+  private _leaseCounter = 0
+  private _activeLeases = new Map<string, LeaseRecord>()
+  private readonly _idleTimeoutMs: number
+  private readonly _hardMaxQueryMs: number
+  private readonly _toolLeaseGraceMs: number
+
+  constructor(options: QueryGuardOptions = {}) {
+    this._idleTimeoutMs = positiveOrDefault(
+      options.idleTimeoutMs,
+      DEFAULT_QUERY_IDLE_TIMEOUT_MS,
+    )
+    this._hardMaxQueryMs = positiveOrDefault(
+      options.hardMaxQueryMs,
+      DEFAULT_QUERY_HARD_MAX_MS,
+    )
+    this._toolLeaseGraceMs = Math.max(
+      0,
+      positiveOrDefault(options.toolLeaseGraceMs, DEFAULT_TOOL_LEASE_GRACE_MS),
+    )
+  }
 
   /**
    * Reserve the guard for queue processing. Transitions idle → dispatching.
@@ -71,6 +160,9 @@ export class QueryGuard {
     if (this._status === 'running') return null
     this._status = 'running'
     ++this._generation
+    this._activeLeases.clear()
+    this._queryStartedAt = Date.now()
+    this._lastActivityAt = this._queryStartedAt
     this._startTimeout()
     this._notify()
     return this._generation
@@ -85,6 +177,7 @@ export class QueryGuard {
     if (this._generation !== generation) return false
     if (this._status !== 'running') return false
     this._clearTimeout()
+    this._activeLeases.clear()
     this._status = 'idle'
     this._notify()
     return true
@@ -99,9 +192,93 @@ export class QueryGuard {
   forceEnd(): void {
     if (this._status === 'idle') return
     this._clearTimeout()
+    this._activeLeases.clear()
     this._status = 'idle'
     ++this._generation
     this._notify()
+  }
+
+  /**
+   * Record forward progress for the current query. Stale generation-scoped
+   * events are ignored so a cancelled query cannot extend a newer turn. Call
+   * this when API chunks, tool progress, or other observable work arrives.
+   */
+  registerActivity(reason: string, generation?: number): void {
+    void reason
+    if (this._status !== 'running') return
+    if (generation !== undefined && generation !== this._generation) return
+    this._lastActivityAt = Date.now()
+    this._scheduleTimeout()
+  }
+
+  /**
+   * Allow bounded active work to outlive the idle timeout without converting
+   * QueryGuard into an inactivity-only watchdog. Pass the generation when the
+   * lease is acquired from async callbacks so stale work cannot protect a newer
+   * query. Without an explicit generation, the current generation is used.
+   */
+  acquireLease(
+    input: QueryGuardLeaseInput,
+    generation = this._generation,
+  ): QueryGuardLease {
+    if (this._status !== 'running' || generation !== this._generation) {
+      return {
+        id: '',
+        release() {},
+      }
+    }
+
+    const now = Date.now()
+    const leaseTimeoutMs =
+      typeof input.timeoutMs === 'number' &&
+      Number.isFinite(input.timeoutMs) &&
+      input.timeoutMs > 0
+        ? input.timeoutMs
+        : undefined
+    const leaseHardCapMs =
+      typeof input.hardCapMs === 'number' &&
+      Number.isFinite(input.hardCapMs) &&
+      input.hardCapMs > 0
+        ? input.hardCapMs
+        : this._hardMaxQueryMs
+    const queryHardDeadlineAt = this._queryStartedAt + this._hardMaxQueryMs
+    const queryRemainingMs = Math.max(0, queryHardDeadlineAt - now)
+    const effectiveHardCapMs = Math.min(leaseHardCapMs, queryRemainingMs)
+    const leaseDeadlineAt =
+      leaseTimeoutMs === undefined
+        ? now + effectiveHardCapMs
+        : Math.min(
+            now + leaseTimeoutMs + this._toolLeaseGraceMs,
+            now + effectiveHardCapMs,
+          )
+    const leaseId = `${generation}:${input.owner}:${input.id}:${++this._leaseCounter}`
+    this._activeLeases.set(leaseId, {
+      leaseId,
+      owner: input.owner,
+      id: input.id,
+      generation,
+      startedAt: now,
+      deadlineAt: leaseDeadlineAt,
+      description: input.description,
+    })
+    this._lastActivityAt = now
+    this._scheduleTimeout()
+
+    return {
+      id: leaseId,
+      release: () => this.releaseLease(leaseId, generation),
+    }
+  }
+
+  /**
+   * Release a lease by id. Stale generation releases and repeated releases are
+   * ignored, so old async cleanup cannot affect a newer query.
+   */
+  releaseLease(leaseId: string, generation = this._generation): void {
+    const lease = this._activeLeases.get(leaseId)
+    if (!lease || lease.generation !== generation) return
+    this._activeLeases.delete(leaseId)
+    this._scheduleTimeout()
   }
 
   /**
@@ -146,23 +323,93 @@ export class QueryGuard {
   }
 
   /**
-   * Start a watchdog timer. If the query doesn't complete within
-   * QUERY_TIMEOUT_MS, automatically force-end to prevent infinite loops.
+   * Start a watchdog timer. Stuck work aborts after the idle timeout, active
+   * bounded work can continue while its lease is valid, and the hard maximum
+   * aborts the query regardless of activity.
    */
   private _startTimeout(): void {
+    this._scheduleTimeout()
+  }
+
+  private _scheduleTimeout(): void {
     this._clearTimeout()
-    this._timeoutId = setTimeout(() => {
-      if (this._status === 'running') {
-        console.error(`[QueryGuard] Query timeout after ${QUERY_TIMEOUT_MS}ms — force-ending to prevent infinite spinner`)
-        try {
-          this._timeoutHandler?.(this._generation)
-        } catch (error) {
-          console.error('[QueryGuard] Timeout handler failed', error)
-        } finally {
-          this.forceEnd()
-        }
+    if (this._status !== 'running') return
+
+    const now = Date.now()
+    const reason = this._getTimeoutReason(now)
+    if (reason) {
+      this._timeoutId = setTimeout(() => this._handleTimeout(), 0)
+      return
+    }
+
+    const nextDeadlineAt = this._getNextDeadlineAt(now)
+    if (nextDeadlineAt === null) return
+    this._timeoutId = setTimeout(
+      () => this._handleTimeout(),
+      Math.max(0, nextDeadlineAt - now),
+    )
+  }
+
+  private _handleTimeout(): void {
+    this._timeoutId = null
+    if (this._status !== 'running') return
+
+    const reason = this._getTimeoutReason(Date.now())
+    if (!reason) {
+      this._scheduleTimeout()
+      return
+    }
+
+    console.error(
+      `[QueryGuard] Query ${reason} timeout — force-ending to prevent infinite spinner`,
+    )
+    try {
+      this._timeoutHandler?.(this._generation, reason)
+    } catch (error) {
+      console.error('[QueryGuard] Timeout handler failed', error)
+    } finally {
+      this.forceEnd()
+    }
+  }
+
+  private _getTimeoutReason(now: number): QueryGuardTimeoutReason | null {
+    if (now >= this._queryStartedAt + this._hardMaxQueryMs) {
+      return 'hard_max'
+    }
+
+    let hasValidLease = false
+    for (const lease of this._activeLeases.values()) {
+      if (lease.deadlineAt <= now) {
+        return 'lease_expired'
       }
-    }, QUERY_TIMEOUT_MS)
+      hasValidLease = true
+    }
+
+    if (
+      !hasValidLease &&
+      now >= this._lastActivityAt + this._idleTimeoutMs
+    ) {
+      return 'idle'
+    }
+
+    return null
+  }
+
+  private _getNextDeadlineAt(now: number): number | null {
+    if (this._status !== 'running') return null
+
+    const deadlines = [this._queryStartedAt + this._hardMaxQueryMs]
+    const leaseDeadlines = [...this._activeLeases.values()]
+      .map(lease => lease.deadlineAt)
+      .filter(deadline => deadline > now)
+
+    if (leaseDeadlines.length > 0) {
+      deadlines.push(Math.min(...leaseDeadlines))
+    } else {
+      deadlines.push(this._lastActivityAt + this._idleTimeoutMs)
+    }
+
+    return Math.min(...deadlines)
   }
 
   private _clearTimeout(): void {

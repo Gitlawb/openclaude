@@ -118,6 +118,20 @@ Fix:
 2. Run `/provider` inside OpenClaude to update your credentials
 3. Re-run `openclaude`
 
+### Missing Provider Key after copying .env.example
+
+Cause:
+
+- OpenClaude does not automatically load `.env` files. If you copied `.env.example` to `.env`, OpenClaude won't see the variables unless you tell it to.
+
+Fix:
+
+- Load the file explicitly:
+  `openclaude --provider-env-file .env`
+- Or, use the `/provider` command inside OpenClaude instead (recommended).
+- Do not commit your `.env` file to git.
+- The explicit loader accepts provider/setup variables. Export runtime/debug variables from your shell or launcher instead.
+
 ### Ollama not working
 
 Cause:
