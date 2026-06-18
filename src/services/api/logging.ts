@@ -21,6 +21,7 @@ import type { EffortLevel } from 'src/utils/effort.js'
 import { logError } from 'src/utils/log.js'
 import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
+import { redactSensitiveInfo } from 'src/utils/redaction.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import type { NonNullableUsage } from '../../entrypoints/sdk/sdkUtilityTypes.js'
 import { consumeInvokingRequestId } from '../../utils/agentContext.js'
@@ -268,7 +269,7 @@ export function logAPIError({
     baseUrl: process.env.ANTHROPIC_BASE_URL,
   })
 
-  const errStr = getErrorMessage(error)
+  const errStr = redactSensitiveInfo(getErrorMessage(error))
   const status = error instanceof APIError ? String(error.status) : undefined
   const errorType = classifyAPIError(error)
 
