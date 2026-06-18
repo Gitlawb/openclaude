@@ -66,6 +66,22 @@ export type QueryGuardTimeoutInfo = {
   activeOperations: QueryActiveOperationSnapshot
 }
 
+export function formatQueryLifecycleAbortSignalReason(reason: string): string {
+  return `abortSignalReason=${reason}`
+}
+
+export function formatQueryLifecycleLogMessage(
+  event: string,
+  context: QueryLifecycleContext,
+  extras = '',
+): string {
+  const parent = context.parentQueryId ? ` parentQueryId=${context.parentQueryId}` : ''
+  const subagent = context.subagentId ? ` subagentId=${context.subagentId}` : ''
+  const terminal = context.terminalReason ? ` terminalReason=${context.terminalReason}` : ''
+  const abort = context.abortReason ? ` abortReason=${context.abortReason}` : ''
+  return `query.${event} queryId=${context.queryId} generation=${context.queryGeneration} source=${context.querySource}${parent}${subagent}${terminal}${abort}${extras ? ` ${extras}` : ''}`
+}
+
 // Rebuild snapshots from an allowlist so debug logging cannot leak runtime extras.
 function toSafeApiCallSnapshot(call: QueryActiveApiCall): QueryActiveApiCall {
   return {

@@ -36,7 +36,7 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
-import { QueryLifecycleOperationTracker, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
+import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -578,11 +578,7 @@ function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): stri
   return `activeApiCalls=${snapshot.apiCalls.length} activeToolUses=${snapshot.toolUses.length}` + (apiIds ? ` apiIds=${apiIds}` : '') + (toolIds ? ` toolIds=${toolIds}` : '');
 }
 function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras = ''): void {
-  const parent = context.parentQueryId ? ` parentQueryId=${context.parentQueryId}` : '';
-  const subagent = context.subagentId ? ` subagentId=${context.subagentId}` : '';
-  const terminal = context.terminalReason ? ` terminalReason=${context.terminalReason}` : '';
-  const abort = context.abortReason ? ` abortReason=${context.abortReason}` : '';
-  logForDebugging(`query.${event} queryId=${context.queryId} generation=${context.queryGeneration} source=${context.querySource}${parent}${subagent}${terminal}${abort}${extras ? ` ${extras}` : ''}`);
+  logForDebugging(formatQueryLifecycleLogMessage(event, context, extras));
 }
 export type Props = {
   commands: Command[];
@@ -1765,7 +1761,7 @@ export function REPL({
     logQueryLifecycle('timeout', timeout.context, timeoutOperations);
     const activeAbortController = abortControllerRef.current;
     if (activeAbortController && !activeAbortController.signal.aborted) {
-      logQueryLifecycle('abort_requested', timeout.context, 'abortReason=query-timeout');
+      logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
       activeAbortController.abort('query-timeout');
     }
     if (timeout.activeOperations.apiCalls.length > 0) {
@@ -1779,7 +1775,7 @@ export function REPL({
     // QueryGuard calls this before forceEnd(); defer UI cleanup until after
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
-      logQueryLifecycle('abort_acknowledged', timeout.context, 'abortReason=query-timeout');
+      logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);
@@ -2279,7 +2275,7 @@ export function REPL({
       abortReason: 'user-cancel'
     } : null;
     if (cancelContext) {
-      logQueryLifecycle('abort_requested', cancelContext, 'abortReason=user-cancel');
+      logQueryLifecycle('abort_requested', cancelContext, formatQueryLifecycleAbortSignalReason('user-cancel'));
     }
     queryGuard.forceEnd('user-abort', 'user-cancel');
     skipIdleCheckRef.current = false;
@@ -2318,7 +2314,7 @@ export function REPL({
       abortController?.abort('user-cancel');
     }
     if (cancelContext) {
-      logQueryLifecycle('abort_acknowledged', cancelContext, 'abortReason=user-cancel');
+      logQueryLifecycle('abort_acknowledged', cancelContext, formatQueryLifecycleAbortSignalReason('user-cancel'));
     }
     if (completedCancelContext) {
       const cancelOperationSummary = summarizeActiveOperations(cancelOperations);
