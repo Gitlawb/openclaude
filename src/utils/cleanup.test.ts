@@ -5,11 +5,13 @@ import { join } from 'path'
 
 import { cleanupOldSessionFiles } from './cleanup.js'
 import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
+import { resetSettingsCache } from './settings/settingsCache.js'
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
   setClaudeConfigHomeDirForTesting(undefined)
+  resetSettingsCache()
   await Promise.all(
     tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
   )
@@ -26,6 +28,12 @@ describe('cleanupOldSessionFiles', () => {
 
     const projectDir = join(configDir, 'projects', 'project')
     await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 30 }),
+      'utf-8',
+    )
+    resetSettingsCache()
 
     const replayPath = join(projectDir, 'session.replay.json')
     const keepPath = join(projectDir, 'session.notes.json')

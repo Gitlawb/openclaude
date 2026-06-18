@@ -32,6 +32,8 @@ import {
   switchSession,
 } from '../bootstrap/state.js'
 import type { GoalState } from '../services/goal/types.js'
+import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
+import { resetSettingsCache } from './settings/settingsCache.js'
 
 const tempDirs: string[] = []
 const sessionId = '00000000-0000-4000-8000-000000000999'
@@ -226,34 +228,43 @@ afterEach(async () => {
 })
 
 test('recordTranscript respects prompt-history opt-out for replay state', async () => {
-  const originalSkipPromptHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-  process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = 'true'
-  resetProjectForTesting()
-  resetAllReplayIndexBuilders()
-
-  try {
-    await recordTranscript([
-      {
-        uuid: id(900),
-        type: 'user',
-        message: {
-          role: 'user',
-          content: 'do not retain this in replay state',
-        },
-        timestamp: ts,
-        isMeta: false,
-      } as never,
-    ])
-
-    expect(resetAllReplayIndexBuilders()).toEqual([])
-  } finally {
-    if (originalSkipPromptHistory === undefined) {
-      delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-    } else {
-      process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipPromptHistory
-    }
+  await withSessionPersistence(async () => {
+    const configDir = await mkdtemp(
+      join(tmpdir(), 'openclaude-session-storage-config-'),
+    )
+    tempDirs.push(configDir)
+    setClaudeConfigHomeDirForTesting(configDir)
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 30 }),
+      'utf-8',
+    )
+    resetSettingsCache()
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'false'
+    process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = 'true'
     resetProjectForTesting()
-  }
+    resetAllReplayIndexBuilders()
+
+    try {
+      await recordTranscript([
+        {
+          uuid: id(900),
+          type: 'user',
+          message: {
+            role: 'user',
+            content: 'do not retain this in replay state',
+          },
+          timestamp: ts,
+          isMeta: false,
+        } as never,
+      ])
+
+      expect(resetAllReplayIndexBuilders()).toEqual([])
+    } finally {
+      setClaudeConfigHomeDirForTesting(undefined)
+      resetSettingsCache()
+    }
+  })
 })
 
 test('loadTranscriptFile replays a persisted snip boundary, pruning and relinking', async () => {

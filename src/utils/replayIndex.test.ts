@@ -87,4 +87,33 @@ describe('replay index storage', () => {
 
     expect(await loadReplayIndex(sessionId, transcriptPath)).toBe(null)
   })
+
+  test('ignores replay sidecars with array-shaped summary records', async () => {
+    const sessionId = 'session-array-summary'
+    const projectDir = join(testRoot, 'project')
+    const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
+
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${sessionId}.replay.json`),
+      JSON.stringify({
+        sessionId,
+        version: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        summary: {
+          totalSteps: 0,
+          toolBreakdown: [],
+          filesModified: [],
+          durationMs: 0,
+          startTimestamp: '2026-01-01T00:00:00.000Z',
+          endTimestamp: '2026-01-01T00:00:00.000Z',
+          userRequests: 0,
+        },
+        steps: [],
+      }),
+      'utf-8',
+    )
+
+    expect(await loadReplayIndex(sessionId, transcriptPath)).toBe(null)
+  })
 })
