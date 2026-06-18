@@ -208,6 +208,17 @@ export function redactSensitiveInfo(text: string): string {
 export function jsonRedactor(key: string, value: unknown): unknown {
   const normalizedKey = key.toLowerCase().replace(/[-_]/g, '')
 
+  // Allow token usage fields through — they contain "token" but are not secrets
+  const EXCLUDED_KEYS = [
+    'inputtokens',
+    'outputtokens',
+    'cachereadinputtokens',
+    'cachecreationinputtokens',
+  ]
+  if (EXCLUDED_KEYS.includes(normalizedKey)) {
+    return value
+  }
+
   if (
     SENSITIVE_FIELD_SUBSTRINGS.some(s => normalizedKey.includes(s))
   ) {
