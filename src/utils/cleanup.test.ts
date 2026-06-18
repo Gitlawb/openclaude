@@ -3,15 +3,12 @@ import { mkdir, rm, stat, utimes, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-import { cleanupOldSessionFiles } from './cleanup.js'
-import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
-import { resetSettingsCache } from './settings/settingsCache.js'
+import { cleanupOldSessionFilesInProjectsDir } from './cleanup.js'
+import { NodeFsOperations } from './fsOperations.js'
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
-  setClaudeConfigHomeDirForTesting(undefined)
-  resetSettingsCache()
   await Promise.all(
     tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
   )
@@ -19,21 +16,15 @@ afterEach(async () => {
 
 describe('cleanupOldSessionFiles', () => {
   test('removes old replay sidecars while preserving non-session files', async () => {
-    const configDir = join(
+    const projectsDir = join(
       tmpdir(),
       `openclaude-cleanup-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      'projects',
     )
-    tempDirs.push(configDir)
-    setClaudeConfigHomeDirForTesting(configDir)
+    tempDirs.push(projectsDir)
 
-    const projectDir = join(configDir, 'projects', 'project')
+    const projectDir = join(projectsDir, 'project')
     await mkdir(projectDir, { recursive: true })
-    await writeFile(
-      join(configDir, 'settings.json'),
-      JSON.stringify({ cleanupPeriodDays: 30 }),
-      'utf-8',
-    )
-    resetSettingsCache()
 
     const replayPath = join(projectDir, 'session.replay.json')
     const keepPath = join(projectDir, 'session.notes.json')
@@ -44,7 +35,11 @@ describe('cleanupOldSessionFiles', () => {
     await utimes(replayPath, oldDate, oldDate)
     await utimes(keepPath, oldDate, oldDate)
 
-    const result = await cleanupOldSessionFiles()
+    const result = await cleanupOldSessionFilesInProjectsDir(
+      projectsDir,
+      new Date(),
+      NodeFsOperations,
+    )
 
     expect(result.messages).toBe(1)
     await expect(stat(replayPath)).rejects.toThrow()
