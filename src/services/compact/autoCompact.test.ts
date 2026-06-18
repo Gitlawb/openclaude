@@ -1347,29 +1347,34 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
     const { recordBreakerTripped, getBreakerTripState, clearBreakerTrippedState } =
       await import('./compactWarningState.js')
     const sessionId = getSessionId()
-    // Seed: main session's breaker is tripped. Without the
-    // `isMainThreadCompact` guard, a subagent success below would
-    // silently clear this and the REPL/SDK would lose the
-    // "auto-compact paused" signal.
-    recordBreakerTripped(sessionId, { failureCount: 3, trippedAtMs: Date.now() - 30_000 })
-    expect(getBreakerTripState(sessionId).tripped).toBe(true)
+    let breakerStateCleaned = false
+    try {
+      // Seed: main session's breaker is tripped. Without the
+      // `isMainThreadCompact` guard, a subagent success below would
+      // silently clear this and the REPL/SDK would lose the
+      // "auto-compact paused" signal.
+      recordBreakerTripped(sessionId, { failureCount: 3, trippedAtMs: Date.now() - 30_000 })
+      expect(getBreakerTripState(sessionId).tripped).toBe(true)
 
-    const messages = overThresholdMessages()
-    const result = await autoCompactIfNeeded(
-      messages,
-      toolUseContext(),
-      cacheSafeParams(messages),
-      'agent:worker',
-      { compacted: false, turnCounter: 0, turnId: 'turn' },
-    )
-    expect(result.wasCompacted).toBe(true)
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'agent:worker',
+        { compacted: false, turnCounter: 0, turnId: 'turn' },
+      )
+      expect(result.wasCompacted).toBe(true)
 
-    // Main session's breaker must remain tripped. A subagent success
-    // is not a main-thread recovery event.
-    expect(getBreakerTripState(sessionId).tripped).toBe(true)
-    expect(getBreakerTripState(sessionId).lastFailureCount).toBe(3)
-
-    clearBreakerTrippedState(sessionId)
+      // Main session's breaker must remain tripped. A subagent success
+      // is not a main-thread recovery event.
+      expect(getBreakerTripState(sessionId).tripped).toBe(true)
+      expect(getBreakerTripState(sessionId).lastFailureCount).toBe(3)
+    } finally {
+      clearBreakerTrippedState(sessionId)
+      breakerStateCleaned = true
+    }
+    expect(breakerStateCleaned).toBe(true)
   })
 
   test('a subagent failure does not record a trip on the main-session breaker', async () => {
@@ -1387,37 +1392,44 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
       './compactWarningState.js'
     )
     const sessionId = getSessionId()
-    // Baseline: main session's breaker is NOT tripped.
-    clearBreakerTrippedState(sessionId)
-    expect(getBreakerTripState(sessionId).tripped).toBe(false)
+    let breakerStateCleaned = false
+    try {
+      // Baseline: main session's breaker is NOT tripped.
+      clearBreakerTrippedState(sessionId)
+      expect(getBreakerTripState(sessionId).tripped).toBe(false)
 
-    // Drive consecutive subagent failures to cross the breaker
-    // threshold. Each call returns the updated tracking, which the
-    // query loop would feed into the next call.
-    const messages = overThresholdMessages()
-    let tracking: {
-      compacted: boolean
-      turnCounter: number
-      turnId: string
-      consecutiveFailures?: number
-    } = { compacted: false, turnCounter: 0, turnId: 'turn' }
-    let lastResult: Awaited<ReturnType<typeof autoCompactIfNeeded>> | undefined
-    for (let i = 0; i < MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES; i++) {
-      lastResult = await autoCompactIfNeeded(
-        messages,
-        toolUseContext(),
-        cacheSafeParams(messages),
-        'agent:worker',
-        tracking,
-      )
-      tracking = { ...tracking, consecutiveFailures: lastResult.consecutiveFailures }
+      // Drive consecutive subagent failures to cross the breaker
+      // threshold. Each call returns the updated tracking, which the
+      // query loop would feed into the next call.
+      const messages = overThresholdMessages()
+      let tracking: {
+        compacted: boolean
+        turnCounter: number
+        turnId: string
+        consecutiveFailures?: number
+      } = { compacted: false, turnCounter: 0, turnId: 'turn' }
+      let lastResult: Awaited<ReturnType<typeof autoCompactIfNeeded>> | undefined
+      for (let i = 0; i < MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES; i++) {
+        lastResult = await autoCompactIfNeeded(
+          messages,
+          toolUseContext(),
+          cacheSafeParams(messages),
+          'agent:worker',
+          tracking,
+        )
+        tracking = { ...tracking, consecutiveFailures: lastResult.consecutiveFailures }
+      }
+      // The last call should have crossed the threshold and tripped.
+      expect(lastResult?.circuitBreakerTripped).toBe(true)
+
+      // Main session's breaker must remain un-tripped. A subagent
+      // failure is not a main-thread outage.
+      expect(getBreakerTripState(sessionId).tripped).toBe(false)
+    } finally {
+      clearBreakerTrippedState(sessionId)
+      breakerStateCleaned = true
     }
-    // The last call should have crossed the threshold and tripped.
-    expect(lastResult?.circuitBreakerTripped).toBe(true)
-
-    // Main session's breaker must remain un-tripped. A subagent
-    // failure is not a main-thread outage.
-    expect(getBreakerTripState(sessionId).tripped).toBe(false)
+    expect(breakerStateCleaned).toBe(true)
   })
 
   test('a main-thread success still clears a tripped breaker (regression guard)', async () => {
@@ -1434,23 +1446,28 @@ describe('subagent (agent:*) compactions do not corrupt the main breaker-trip st
     const { recordBreakerTripped, getBreakerTripState, clearBreakerTrippedState } =
       await import('./compactWarningState.js')
     const sessionId = getSessionId()
-    recordBreakerTripped(sessionId, { failureCount: 3, trippedAtMs: Date.now() - 30_000 })
-    expect(getBreakerTripState(sessionId).tripped).toBe(true)
+    let breakerStateCleaned = false
+    try {
+      recordBreakerTripped(sessionId, { failureCount: 3, trippedAtMs: Date.now() - 30_000 })
+      expect(getBreakerTripState(sessionId).tripped).toBe(true)
 
-    const messages = overThresholdMessages()
-    const result = await autoCompactIfNeeded(
-      messages,
-      toolUseContext(),
-      cacheSafeParams(messages),
-      'repl_main_thread',
-      { compacted: false, turnCounter: 0, turnId: 'turn' },
-    )
-    expect(result.wasCompacted).toBe(true)
+      const messages = overThresholdMessages()
+      const result = await autoCompactIfNeeded(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        'repl_main_thread',
+        { compacted: false, turnCounter: 0, turnId: 'turn' },
+      )
+      expect(result.wasCompacted).toBe(true)
 
-    // Main-thread success must clear the breaker — that's the
-    // recovery signal the REPL/SDK reads.
-    expect(getBreakerTripState(sessionId).tripped).toBe(false)
-
-    clearBreakerTrippedState(sessionId)
+      // Main-thread success must clear the breaker — that's the
+      // recovery signal the REPL/SDK reads.
+      expect(getBreakerTripState(sessionId).tripped).toBe(false)
+    } finally {
+      clearBreakerTrippedState(sessionId)
+      breakerStateCleaned = true
+    }
+    expect(breakerStateCleaned).toBe(true)
   })
 })

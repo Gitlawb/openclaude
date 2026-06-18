@@ -168,42 +168,47 @@ test('session isolation: subscribe only fires for the subscribed session', () =>
   const callsA: string[] = []
   const callsB: string[] = []
 
-  const unsubA = (() => {
-    // Import subscribe dynamically to avoid hoisting issues
-    const { subscribeBreakerTripState } = require('./compactWarningState.js') as typeof import('./compactWarningState.js')
-    return subscribeBreakerTripState(SESSION_A, () => { callsA.push('a') })
-  })()
-  const unsubB = (() => {
-    const { subscribeBreakerTripState } = require('./compactWarningState.js') as typeof import('./compactWarningState.js')
-    return subscribeBreakerTripState(SESSION_B, () => { callsB.push('b') })
-  })()
+  let unsubA: (() => void) | undefined
+  let unsubB: (() => void) | undefined
 
-  // Trip only session A
-  recordBreakerTripped(SESSION_A, {
-    failureCount: 2,
-    trippedAtMs: Date.now(),
-  })
+  try {
+    unsubA = (() => {
+      // Import subscribe dynamically to avoid hoisting issues
+      const { subscribeBreakerTripState } = require('./compactWarningState.js') as typeof import('./compactWarningState.js')
+      return subscribeBreakerTripState(SESSION_A, () => { callsA.push('a') })
+    })()
+    unsubB = (() => {
+      const { subscribeBreakerTripState } = require('./compactWarningState.js') as typeof import('./compactWarningState.js')
+      return subscribeBreakerTripState(SESSION_B, () => { callsB.push('b') })
+    })()
 
-  expect(callsA).toEqual(['a'])
-  expect(callsB).toEqual([])
+    // Trip only session A
+    recordBreakerTripped(SESSION_A, {
+      failureCount: 2,
+      trippedAtMs: Date.now(),
+    })
 
-  // Trip only session B
-  recordBreakerTripped(SESSION_B, {
-    failureCount: 4,
-    trippedAtMs: Date.now(),
-  })
+    expect(callsA).toEqual(['a'])
+    expect(callsB).toEqual([])
 
-  expect(callsA).toEqual(['a'])
-  expect(callsB).toEqual(['b'])
+    // Trip only session B
+    recordBreakerTripped(SESSION_B, {
+      failureCount: 4,
+      trippedAtMs: Date.now(),
+    })
 
-  // Clear session A — only A's subscriber fires
-  clearBreakerTrippedState(SESSION_A)
+    expect(callsA).toEqual(['a'])
+    expect(callsB).toEqual(['b'])
 
-  expect(callsA).toEqual(['a', 'a'])
-  expect(callsB).toEqual(['b'])
+    // Clear session A — only A's subscriber fires
+    clearBreakerTrippedState(SESSION_A)
 
-  unsubA()
-  unsubB()
+    expect(callsA).toEqual(['a', 'a'])
+    expect(callsB).toEqual(['b'])
+  } finally {
+    unsubA?.()
+    unsubB?.()
+  }
 })
 
 test('clearBreakerTrippedState is a no-op for an unknown session', () => {
