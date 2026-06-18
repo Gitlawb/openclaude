@@ -283,6 +283,18 @@ function expandBraces(pattern: string): string[] {
     return [pattern]
   }
 
+  if (close === open + 1) {
+    // Empty brace group `{}` is not an alternation. The previous regex required
+    // at least one inner character, so `{}` stayed literal; expanding it to an
+    // empty alternative would collapse `paths: "{}"` to `[""]`, and both
+    // parseSkillPaths and the CLAUDE.md path parser filter that empty string and
+    // treat the file as having NO path restriction (applying everywhere).
+    // Keep the `{}` literal, but still expand any later groups in the suffix.
+    return expandBraces(pattern.slice(close + 1)).map(
+      rest => pattern.slice(0, close + 1) + rest,
+    )
+  }
+
   const prefix = pattern.slice(0, open)
   const inner = pattern.slice(open + 1, close)
   const suffix = pattern.slice(close + 1)

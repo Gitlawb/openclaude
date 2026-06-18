@@ -40,3 +40,16 @@ test('returns unbalanced braces unchanged rather than throwing', () => {
   // No matching close brace: treat as literal text, do not corrupt or throw.
   expect(splitPathInFrontmatter('src/{a,b')).toEqual(['src/{a,b'])
 })
+
+test('keeps an empty brace group literal instead of yielding an empty path', () => {
+  // `{}` is not an alternation. Expanding it to '' would make parseSkillPaths
+  // and the CLAUDE.md path parser drop the empty string and treat the file as
+  // having NO path restriction (activating everywhere). Keep it literal so the
+  // pattern matches a literal `{}` (i.e. effectively nothing) instead.
+  expect(splitPathInFrontmatter('{}')).toEqual(['{}'])
+  expect(splitPathInFrontmatter('src/{}/file.ts')).toEqual(['src/{}/file.ts'])
+})
+
+test('keeps a literal empty group while still expanding later groups', () => {
+  expect(splitPathInFrontmatter('{}/{a,b}')).toEqual(['{}/a', '{}/b'])
+})
