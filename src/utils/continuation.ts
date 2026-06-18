@@ -13,6 +13,15 @@ export const CONTINUATION_SIGNALS = [
   /\blet me (go ahead and |now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|proceed|start|begin|apply|update|create|identify|inspect|analyze|review|search|summarize)\b/i,
   /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build|get started|begin|start|inspect|analyze|review|search)\b/i,
   /\b(moving on to|next step is to|starting to|proceeding to|applying (the|these) changes|inspecting|analyzing|reviewing|searching)\b/i,
+  // English: Action verbs common to non-Claude models, gated behind explicit
+  // first-person intent framing so they only fire as a continuation signal
+  // (e.g. "I will now deploy the service", "Let me install the deps").
+  /\b(i (will|'ll|shall|need to|have to|must|should|am going to|am about to)( now)?|let me( now)?|now i('ll| will)?)\s+(process|download|upload|compile|train|evaluate|extract|merge|deploy|install|configure|optimize|refactor|generate|fetch|validate|parse|scan|test)\b/i,
+  // English: Present-progressive action statements signal in-progress work.
+  // These intentionally do NOT override terminal punctuation downstream, so a
+  // punctuated completion ("Finished installing.") is still caught by the
+  // completion-marker guard; only an unpunctuated/truncated action nudges.
+  /\b(processing|downloading|uploading|compiling|training|evaluating|extracting|merging|deploying|installing|configuring|optimizing|refactoring|generating|fetching|validating|parsing|scanning)\b/i,
   // French: Support for common continuation phrasing (relaxed boundaries for accents and apostrophes)
   /(^|\s)(je passe (à|au)|ensuite|l'étape suivante est de|je continue avec|au suivant|passons à|je reviens vers vous|je suis en train d'|je vais maintenant)(\s|$|[a-zà-ÿ])/i,
   /(^|\s)(je (vais|dois|dois maintenant|vais maintenant) (faire|créer|écrire|modifier|ajouter|tester|vérifier|lancer|exécuter|procéder|démarrer|commencer|identifier|analyser|inspecter|revoir|chercher))(\s|$|[a-zà-ÿ])/i,
@@ -111,7 +120,12 @@ export function analyzeContinuationIntent(
   }
 
   // 3. Completion Marker Guard (Final check for sound, completed messages)
-  if (COMPLETION_MARKERS.test(lowerText)) {
+  // Only treat a completion marker as terminal when it appears in the LAST
+  // sentence. A marker buried mid-text ("The download is complete. Now
+  // installing the deps") must not suppress a later continuation intent —
+  // this is the common failure mode for non-Claude models (#1707).
+  const lastSentence = lowerText.split(/(?<=[.!?])\s+/).pop() ?? lowerText
+  if (COMPLETION_MARKERS.test(lastSentence)) {
     return { shouldNudge: false }
   }
 

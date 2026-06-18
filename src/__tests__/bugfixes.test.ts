@@ -135,6 +135,27 @@ describe('Agent loop continuation nudge', () => {
     expect(analyzeContinuationIntent("Here is the code:\n```typescript\nfunction test() {").shouldNudge).toBe(true)
   })
 
+  test('non-Claude continuation verbs and mid-text completion markers (issue #1707)', async () => {
+    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+
+    // Mid-text completion marker must NOT suppress a later continuation intent.
+    // The completion-marker guard now only inspects the final sentence.
+    expect(analyzeContinuationIntent("The download is complete. Now I will install the dependencies").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Step one finished. I will now deploy the service").shouldNudge).toBe(true)
+
+    // Action verbs common to non-Claude models, gated behind intent framing.
+    expect(analyzeContinuationIntent("Let me compile the project").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("I will now train the model").shouldNudge).toBe(true)
+
+    // Unpunctuated present-progressive action reads as in-progress work.
+    expect(analyzeContinuationIntent("Now downloading the dataset").shouldNudge).toBe(true)
+
+    // A genuinely completed message whose LAST sentence is a completion marker
+    // must still be suppressed, even if an action gerund appears earlier.
+    expect(analyzeContinuationIntent("Finished installing the packages. All set.").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("Downloaded the files and the migration is complete.").shouldNudge).toBe(false)
+  })
+
   test('nudge creates a meta user message to continue', async () => {
     const content = await file('query.ts').text()
 
