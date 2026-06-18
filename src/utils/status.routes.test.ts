@@ -243,6 +243,26 @@ test('form-encoded configured route secrets inside base URL query values are red
   expect(serialized).not.toContain('abc%27def')
 })
 
+test('double-encoded configured route secrets inside base URL query values are redacted', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE =
+    'https://openrouter.ai/api/v1?debug=abc%252FdefSecret987&header=Bearer%2520abc&form=Bearer%2Babc&plus=longplussecret%252Bvalue&timeout=30'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.5'
+  process.env.OPENROUTER_API_KEY = 'abc/defSecret987'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'Bearer abc'
+  process.env.OPENAI_API_KEY = 'longplussecret+value'
+
+  const properties = await buildPropertiesWithRealProvider()
+  expect(findValue(properties, 'OpenAI base URL')).toBe(
+    'https://openrouter.ai/api/v1?debug=redacted&header=redacted&form=redacted&plus=redacted&timeout=30',
+  )
+  const serialized = JSON.stringify(properties)
+  expect(serialized).not.toContain('abc%252FdefSecret987')
+  expect(serialized).not.toContain('Bearer%2520abc')
+  expect(serialized).not.toContain('Bearer%2Babc')
+  expect(serialized).not.toContain('longplussecret%252Bvalue')
+})
+
 test('blank OPENAI_BASE_URL falls back to OPENAI_API_BASE for route display', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = '   '

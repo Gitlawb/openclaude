@@ -85,6 +85,7 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
 };
 
 const MIN_CONFIGURED_SECRET_SUBSTRING_LENGTH = 9;
+const MAX_CONFIGURED_SECRET_QUERY_DECODE_DEPTH = 3;
 
 function formatOpenAICompatibleModelDisplay(
   model: string,
@@ -177,6 +178,42 @@ function redactConfiguredSecretSubstrings(
   return redacted;
 }
 
+function queryValueMatchesConfiguredSecret(
+  value: string,
+  secrets: ReadonlySet<string>,
+): boolean {
+  let decoded = value;
+  for (let depth = 0; depth < MAX_CONFIGURED_SECRET_QUERY_DECODE_DEPTH; depth++) {
+    if (secrets.has(decoded)) {
+      return true;
+    }
+
+    const formDecoded = decoded.includes('+')
+      ? decoded.replace(/\+/g, ' ')
+      : decoded;
+    if (formDecoded !== decoded && secrets.has(formDecoded)) {
+      return true;
+    }
+
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return false;
+    }
+
+    if (next === decoded) {
+      return false;
+    }
+    if (secrets.has(next)) {
+      return true;
+    }
+    decoded = next;
+  }
+
+  return false;
+}
+
 function redactConfiguredSecretUrlQueryValues(
   value: string,
   secretSource: SecretValueSource,
@@ -192,7 +229,7 @@ function redactConfiguredSecretUrlQueryValues(
     let changed = false;
 
     for (const [key, queryValue] of parsed.searchParams.entries()) {
-      if (secrets.has(queryValue)) {
+      if (queryValueMatchesConfiguredSecret(queryValue, secrets)) {
         redactedParams.append(key, 'redacted');
         changed = true;
       } else {
