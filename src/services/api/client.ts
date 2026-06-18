@@ -330,13 +330,21 @@ export async function getAnthropicClient({
 
   const resolvedFetch = buildFetch(fetchOverride, source)
 
+  // Parse and validate API_TIMEOUT_MS once so every provider route (native
+  // Anthropic, Bedrock, Vertex, providerOverride, and the OpenAI-compatible
+  // env routes) shares the same fallback when the env var is missing or
+  // invalid. Previously the shim branches used a raw parseInt(...) that
+  // produced NaN on invalid input, diverging from the validated value used
+  // by the first-party paths.
+  const timeoutMs = (() => {
+    const parsed = parseInt(process.env.API_TIMEOUT_MS || '', 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000
+  })()
+
   const ARGS = {
     defaultHeaders,
     maxRetries,
-    timeout: (() => {
-      const parsed = parseInt(process.env.API_TIMEOUT_MS || '', 10)
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000
-    })(),
+    timeout: timeoutMs,
     dangerouslyAllowBrowser: true,
     fetchOptions: getProxyFetchOptions({
       forAnthropicAPI: true,
@@ -359,7 +367,7 @@ export async function getAnthropicClient({
     return createOpenAIShimClient({
       defaultHeaders: safeHeaders,
       maxRetries,
-      timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+      timeout: timeoutMs,
       providerOverride,
       reasoningEffort: shimReasoningEffort,
     }) as unknown as Anthropic
@@ -395,7 +403,7 @@ export async function getAnthropicClient({
     return createOpenAIShimClient({
       defaultHeaders,
       maxRetries,
-      timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+      timeout: timeoutMs,
       reasoningEffort: shimReasoningEffort,
     }) as unknown as Anthropic
   }
