@@ -8,6 +8,7 @@ import {
   clearBreakerTrippedState,
   getBreakerTripState,
   recordBreakerTripped,
+  subscribeBreakerTripState,
 } from './compactWarningState.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 
@@ -172,15 +173,8 @@ test('session isolation: subscribe only fires for the subscribed session', () =>
   let unsubB: (() => void) | undefined
 
   try {
-    unsubA = (() => {
-      // Import subscribe dynamically to avoid hoisting issues
-      const { subscribeBreakerTripState } = require('./compactWarningState.js') as typeof import('./compactWarningState.js')
-      return subscribeBreakerTripState(SESSION_A, () => { callsA.push('a') })
-    })()
-    unsubB = (() => {
-      const { subscribeBreakerTripState } = require('./compactWarningState.js') as typeof import('./compactWarningState.js')
-      return subscribeBreakerTripState(SESSION_B, () => { callsB.push('b') })
-    })()
+    unsubA = subscribeBreakerTripState(SESSION_A, () => { callsA.push('a') })
+    unsubB = subscribeBreakerTripState(SESSION_B, () => { callsB.push('b') })
 
     // Trip only session A
     recordBreakerTripped(SESSION_A, {

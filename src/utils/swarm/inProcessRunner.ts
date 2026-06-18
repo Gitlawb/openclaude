@@ -1241,17 +1241,14 @@ export async function runInProcessTeammate(
             }
 
             // Check for compact_boundary message and prune allMessages if present
-            if (message.type === 'system' && message.subtype === 'compact_boundary' && message.compactMetadata?.preservedSegment) {
+            if (message.type === 'system' && message.subtype === 'compact_boundary') {
               // Prune allMessages to match the compacted state from runAgent
               // This ensures the in-process teammate's allMessages buffer aligns with the
               // QueryEngine's compacted state after hard-cap compaction
-              const { headUuid, tailUuid } = message.compactMetadata.preservedSegment
-              const start = allMessages.findIndex(m => m.uuid === headUuid)
-              const end = allMessages.findIndex(m => m.uuid === tailUuid)
-              if (start >= 0 && end >= start) {
-                const preservedMessages = allMessages.slice(start, end + 1)
-                allMessages.splice(0, allMessages.length, ...preservedMessages)
-              }
+              // Reset to empty after every compact boundary, mirroring the post-compact message stream
+              // (whether there's a preservedSegment or not, the compact boundary indicates
+              // the allMessages buffer should reflect the compacted state)
+              allMessages.splice(0, allMessages.length)
             }
 
             iterationMessages.push(message)
