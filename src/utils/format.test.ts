@@ -4,7 +4,7 @@ import { formatFileSize } from './format.js'
 test('formats sub-KB sizes as raw bytes', () => {
   expect(formatFileSize(0)).toBe('0 bytes')
   expect(formatFileSize(512)).toBe('512 bytes')
-  expect(formatFileSize(1023)).toBe('1KB')
+  expect(formatFileSize(1023)).toBe('1023 bytes')
 })
 
 test('formats KB sizes with a stripped trailing .0', () => {
