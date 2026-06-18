@@ -31,6 +31,12 @@ import { withTokenCountVCR } from './vcr.js'
 // API constraint: max_tokens must be greater than thinking.budget_tokens
 const TOKEN_COUNT_THINKING_BUDGET = 1024
 const TOKEN_COUNT_MAX_TOKENS = 2048
+// Keep this local to avoid importing analyzeContext.ts, which already depends on tokenEstimation.
+const ROUGH_TOOL_TOKEN_COUNT_OVERHEAD = 500
+
+type CountTokensMessagesClient = {
+  countTokens?: Anthropic['beta']['messages']['countTokens']
+}
 
 /**
  * Check if messages contain thinking blocks
@@ -163,42 +169,106 @@ export async function countMessagesTokensWithAPI(
         model,
         source: 'count_tokens',
       })
+      const messagesClient = (
+        anthropic as {
+          beta?: {
+            messages?: CountTokensMessagesClient
+          }
+        }
+      ).beta?.messages
 
       const filteredBetas =
         getAPIProvider() === 'vertex'
           ? betas.filter(b => VERTEX_COUNT_TOKENS_ALLOWED_BETAS.has(b))
           : betas
 
-      const response = await anthropic.beta.messages.countTokens({
-        model: normalizeModelStringForAPI(model),
-        messages:
-          // When we pass tools and no messages, we need to pass a dummy message
-          // to get an accurate tool token count.
-          messages.length > 0 ? messages : [{ role: 'user', content: 'foo' }],
+      return countMessagesTokensWithClient({
+        messagesClient,
+        model,
+        messages,
         tools,
-        ...(filteredBetas.length > 0 && { betas: filteredBetas }),
-        // Enable thinking if messages contain thinking blocks
-        ...(containsThinking && {
-          thinking: {
-            type: 'enabled',
-            budget_tokens: TOKEN_COUNT_THINKING_BUDGET,
-          },
-        }),
+        filteredBetas,
+        containsThinking,
       })
-
-      if (typeof response.input_tokens !== 'number') {
-        // Vertex client throws
-        // Bedrock client succeeds with { Output: { __type: 'com.amazon.coral.service#UnknownOperationException' }, Version: '1.0' }
-        return null
-      }
-
-      return response.input_tokens
     } catch (error) {
       logError(error)
       return null
     }
   })
 }
+
+async function countMessagesTokensWithClient({
+  messagesClient,
+  model,
+  messages,
+  tools,
+  filteredBetas,
+  containsThinking,
+}: {
+  messagesClient: CountTokensMessagesClient | undefined
+  model: string
+  messages: Anthropic.Beta.Messages.BetaMessageParam[]
+  tools: Anthropic.Beta.Messages.BetaToolUnion[]
+  filteredBetas: string[]
+  containsThinking: boolean
+}): Promise<number | null> {
+  if (typeof messagesClient?.countTokens !== 'function') {
+    return roughTokenCountEstimationForCountTokensFallback(messages, tools)
+  }
+
+  const response = await messagesClient.countTokens({
+    model: normalizeModelStringForAPI(model),
+    messages:
+      // When we pass tools and no messages, we need to pass a dummy message
+      // to get an accurate tool token count.
+      messages.length > 0 ? messages : [{ role: 'user', content: 'foo' }],
+    tools,
+    ...(filteredBetas.length > 0 && { betas: filteredBetas }),
+    // Enable thinking if messages contain thinking blocks
+    ...(containsThinking && {
+      thinking: {
+        type: 'enabled',
+        budget_tokens: TOKEN_COUNT_THINKING_BUDGET,
+      },
+    }),
+  })
+
+  if (typeof response.input_tokens !== 'number') {
+    // Vertex client throws
+    // Bedrock client succeeds with { Output: { __type: 'com.amazon.coral.service#UnknownOperationException' }, Version: '1.0' }
+    return null
+  }
+
+  return response.input_tokens
+}
+
+function roughTokenCountEstimationForCountTokensFallback(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  tools: Anthropic.Beta.Messages.BetaToolUnion[],
+): number {
+  let totalTokens = 0
+
+  for (const message of messages) {
+    totalTokens += roughTokenCountEstimationForContent(
+      message.content as
+        | string
+        | Array<Anthropic.ContentBlock>
+        | Array<Anthropic.ContentBlockParam>
+        | undefined,
+    )
+  }
+
+  if (tools.length > 0) {
+    totalTokens +=
+      ROUGH_TOOL_TOKEN_COUNT_OVERHEAD +
+      roughTokenCountEstimation(jsonStringify(tools))
+  }
+
+  return totalTokens
+}
+
+// Test-only surface for fallback dispatch without process-wide module mocks.
+export const __test = { countMessagesTokensWithClient }
 
 export function roughTokenCountEstimation(
   content: string,
@@ -515,7 +585,9 @@ function roughTokenCountEstimationForContent(
   content:
     | string
     | Array<Anthropic.ContentBlock>
-    | Array<Anthropic.ContentBlockParam>
+    // ToolReferenceBlockParam appears nested in tool_result content but is
+    // not part of the top-level ContentBlockParam union.
+    | Array<Anthropic.ContentBlockParam | Anthropic.ToolReferenceBlockParam>
     | undefined,
 ): number {
   if (!content) {
@@ -532,7 +604,12 @@ function roughTokenCountEstimationForContent(
 }
 
 function roughTokenCountEstimationForBlock(
-  block: string | Anthropic.ContentBlock | Anthropic.ContentBlockParam,
+  block:
+    | string
+    | Anthropic.ContentBlock
+    | Anthropic.ContentBlockParam
+    // Nested tool_result content block; falls through to the stringify path.
+    | Anthropic.ToolReferenceBlockParam,
 ): number {
   if (typeof block === 'string') {
     return roughTokenCountEstimation(block)

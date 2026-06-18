@@ -115,6 +115,7 @@ export type HandlePromptSubmitParams = BaseExecutionParams & {
    * trigger local slash commands or skills.
    */
   skipSlashCommands?: boolean
+  slashCommandOverride?: Command
 }
 
 export async function handlePromptSubmit(
@@ -141,6 +142,7 @@ export async function handlePromptSubmit(
     queuedCommands,
     uuid,
     skipSlashCommands,
+    slashCommandOverride,
   } = params
 
   const { setCursorOffset, clearBuffer, resetHistory } = helpers
@@ -340,6 +342,7 @@ export async function handlePromptSubmit(
       mode,
       pastedContents: hasImages ? pastedContents : undefined,
       skipSlashCommands,
+      slashCommandOverride,
       uuid,
     })
 
@@ -363,6 +366,7 @@ export async function handlePromptSubmit(
     mode,
     pastedContents: hasImages ? pastedContents : undefined,
     skipSlashCommands,
+    slashCommandOverride,
     uuid,
   }
 
@@ -491,6 +495,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           uuid: cmd.uuid,
           ideSelection: isFirst ? ideSelection : undefined,
           skipSlashCommands: cmd.skipSlashCommands,
+          slashCommandOverride: cmd.slashCommandOverride,
           bridgeOrigin: cmd.bridgeOrigin,
           isMeta: cmd.isMeta,
           skipAttachments: !isFirst,

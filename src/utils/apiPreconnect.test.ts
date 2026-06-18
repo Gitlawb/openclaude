@@ -3,12 +3,25 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { asMockFetch } from '../test/typedMocks.js'
+import * as actualProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
 
+function getMockApiProvider() {
+  if (process.env.CLAUDE_CODE_USE_OPENAI === '1') return 'openai'
+  if (process.env.CLAUDE_CODE_USE_GEMINI === '1') return 'gemini'
+  if (process.env.CLAUDE_CODE_USE_GITHUB === '1') return 'github'
+  return 'firstParty'
+}
+
 async function importFreshModule() {
   mock.restore()
+  mock.module('./model/providers.js', () => ({
+    ...actualProviders,
+    getAPIProvider: getMockApiProvider,
+  }))
   return import(`./apiPreconnect.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -22,6 +35,7 @@ afterEach(() => {
     process.env = { ...originalEnv }
     globalThis.fetch = originalFetch
     mock.restore()
+    mock.module('./model/providers.js', () => actualProviders)
   } finally {
     releaseSharedMutationLock()
   }
@@ -34,7 +48,7 @@ describe('preconnectAnthropicApi', () => {
   // getAPIProvider() to 'firstParty' here and break these assertions.
   test('does not fetch when OpenAI mode is enabled', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('openai')
@@ -44,7 +58,7 @@ describe('preconnectAnthropicApi', () => {
 
   test('does not fetch when Gemini mode is enabled', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('gemini')
@@ -54,7 +68,7 @@ describe('preconnectAnthropicApi', () => {
 
   test('does not fetch when GitHub mode is enabled', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('github')
@@ -89,12 +103,24 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_CLIENT_CERT
     delete process.env.CLAUDE_CODE_CLIENT_KEY
 
+    mock.module('./model/providers.js', () => ({
+      ...actualProviders,
+      getAPIProvider: () => 'firstParty',
+    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
-    globalThis.fetch = fetchMock as typeof globalThis.fetch
+    globalThis.fetch = asMockFetch(fetchMock)
 
     const { preconnectAnthropicApi } = await importFreshModule()
     preconnectAnthropicApi('firstParty')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps non-mocked provider exports available to neighboring imports', async () => {
+    await importFreshModule()
+
+    const providers = await import('./model/providers.js')
+
+    expect(typeof providers.isFirstPartyAnthropicBaseUrl).toBe('function')
   })
 })

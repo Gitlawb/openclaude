@@ -41,7 +41,7 @@ import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { loadPluginOptions, type PluginOptionSchema, savePluginOptions } from '../../utils/plugins/pluginOptionsStorage.js';
 import { isPluginBlockedByPolicy } from '../../utils/plugins/pluginPolicy.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
-import { getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { getRelativeSettingsFilePathForSource, getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
 import { jsonParse } from '../../utils/slowOperations.js';
 import { plural } from '../../utils/stringUtils.js';
 import { formatErrorMessage, getErrorGuidance } from './PluginErrors.js';
@@ -60,6 +60,9 @@ type Props = {
   targetMarketplace?: string;
   action?: 'enable' | 'disable' | 'uninstall';
 };
+
+const projectSettingsDisplayPath = getRelativeSettingsFilePathForSource('projectSettings');
+const localSettingsDisplayPath = getRelativeSettingsFilePathForSource('localSettings');
 type FlaggedPluginInfo = {
   id: string;
   name: string;
@@ -236,7 +239,7 @@ function PluginComponentsDisplay({
         const pluginEntry = marketplaceData.plugins.find(p => p.name === plugin.name);
         if (pluginEntry) {
           // Combine commands from both sources
-          const commandPathList = [];
+          const commandPathList: string[] = [];
           if (plugin.commandsPath) {
             commandPathList.push(plugin.commandsPath);
           }
@@ -255,7 +258,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine agents from both sources
-          const agentPathList = [];
+          const agentPathList: string[] = [];
           if (plugin.agentsPath) {
             agentPathList.push(plugin.agentsPath);
           }
@@ -274,7 +277,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine skills from both sources
-          const skillPathList = [];
+          const skillPathList: string[] = [];
           if (plugin.skillsPath) {
             skillPathList.push(plugin.skillsPath);
           }
@@ -294,7 +297,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine hooks from both sources
-          const hooksList = [];
+          const hooksList: unknown[] = [];
           if (plugin.hooksConfig) {
             hooksList.push(Object.keys(plugin.hooksConfig));
           }
@@ -303,7 +306,7 @@ function PluginComponentsDisplay({
           }
 
           // Combine MCP servers from both sources
-          const mcpServersList = [];
+          const mcpServersList: unknown[] = [];
           if (plugin.mcpServers) {
             mcpServersList.push(Object.keys(plugin.mcpServers));
           }
@@ -1043,7 +1046,7 @@ export function ManagePlugins({
           {
             if (isBuiltin) break; // guarded above; narrows pluginScope
             if (!isInstallableScope(pluginScope)) break;
-            // If the plugin is enabled in .claude/settings.json (shared with the
+            // If the plugin is enabled in project settings (shared with the
             // team), divert to a confirmation dialog that offers to disable in
             // settings.local.json instead. Check the settings file directly —
             // `pluginScope` (from installed_plugins.json) can be 'user' even when
@@ -1468,12 +1471,14 @@ export function ManagePlugins({
             for (const source of editableSources) {
               const settings = getSettingsForSource(source);
               if (settings?.enabledPlugins?.[pluginId_7] !== undefined) {
-                updateSettingsForSource(source, {
-                  enabledPlugins: {
-                    ...settings.enabledPlugins,
-                    [pluginId_7]: undefined
-                  }
-                });
+                const enabledPlugins: Record<string, boolean | string[] | undefined> = {
+                  ...settings.enabledPlugins,
+                  [pluginId_7]: undefined
+                };
+                const settingsUpdate: Record<string, unknown> = {
+                  enabledPlugins
+                };
+                updateSettingsForSource(source, settingsUpdate);
                 success = true;
               }
             }
@@ -1509,13 +1514,14 @@ export function ManagePlugins({
       // Write `false` directly — disablePluginOp's cross-scope guard would
       // reject this (plugin isn't in localSettings yet; the override IS the
       // point).
+      const enabledPlugins: Record<string, boolean | string[]> = {
+        ...(getSettingsForSource('localSettings')?.enabledPlugins ?? {}),
+        [pluginId_8]: false
+      };
       const {
         error: error_2
       } = updateSettingsForSource('localSettings', {
-        enabledPlugins: {
-          ...getSettingsForSource('localSettings')?.enabledPlugins,
-          [pluginId_8]: false
-        }
+        enabledPlugins
       });
       if (error_2) {
         setIsProcessing(false);
@@ -1523,7 +1529,7 @@ export function ManagePlugins({
         return;
       }
       clearAllCaches();
-      setResult(`✓ Disabled ${selectedPlugin.plugin.name} in .claude/settings.local.json. Run /reload-plugins to apply.`);
+      setResult(`✓ Disabled ${selectedPlugin.plugin.name} in ${localSettingsDisplayPath}. Run /reload-plugins to apply.`);
       if (onManageComplete) void onManageComplete();
       setParentViewState({
         type: 'menu'
@@ -1757,16 +1763,16 @@ export function ManagePlugins({
       </Box>;
   }
 
-  // Confirm-project-uninstall: warn about shared .claude/settings.json,
+  // Confirm-project-uninstall: warn about shared project settings,
   // offer to disable in settings.local.json instead.
   if (viewState === 'confirm-project-uninstall' && selectedPlugin) {
     return <Box flexDirection="column">
         <Text bold color="warning">
-          {selectedPlugin.plugin.name} is enabled in .claude/settings.json
+          {selectedPlugin.plugin.name} is enabled in {projectSettingsDisplayPath}
           (shared with your team)
         </Text>
         <Box marginTop={1} flexDirection="column">
-          <Text>Disable it just for you in .claude/settings.local.json?</Text>
+          <Text>Disable it just for you in {localSettingsDisplayPath}?</Text>
           <Text dimColor>
             This has the same effect as uninstalling, without affecting other
             contributors.

@@ -41,6 +41,20 @@ function getValidationRoutingHosts(
   return routing?.matchBaseUrlHosts ?? []
 }
 
+export function matchHostnameAgainstRouteHosts(
+  hostname: string,
+  routeHosts: string[],
+): boolean {
+  return routeHosts.some(host => {
+    const lowerHost = host.toLowerCase()
+    if (lowerHost.startsWith('*.')) {
+      const suffix = lowerHost.slice(1)
+      return hostname.endsWith(suffix)
+    }
+    return hostname === lowerHost
+  })
+}
+
 function normalizeComparableBaseUrl(
   baseUrl?: string,
 ): string | null {
@@ -288,6 +302,73 @@ export function isVeniceBaseUrl(value: string | undefined): boolean {
     return false
   }
 }
+
+export function isNearaiBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const hostname = new URL(trimmed).hostname.toLowerCase()
+    return hostname === 'cloud-api.near.ai' || hostname === 'completions.near.ai' || hostname.endsWith('.completions.near.ai')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Checks whether the given URL value targets the Fireworks AI inference API
+ * by matching the hostname against `api.fireworks.ai`.
+ */
+export function isFireworksBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'api.fireworks.ai'
+  } catch {
+    return false
+  }
+}
+
+export function getNearaiBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isNearaiBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isNearaiBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
+
+/**
+ * Returns the user-configured Fireworks AI base URL from `OPENAI_BASE_URL`
+ * or `OPENAI_API_BASE` when the hostname resolves to api.fireworks.ai.
+ */
+export function getFireworksBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isFireworksBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isFireworksBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
 export function getMiniMaxBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -425,9 +506,44 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
   )
 }
 
+export function hasNearaiEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearaiBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+/**
+ * Detects whether the process environment is configured to route traffic
+ * exclusively through Fireworks AI based on the presence of FIREWORKS_API_KEY
+ * and the absence of conflicting env vars for other providers.
+ */
+export function hasFireworksEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isFireworksBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | null {
+): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | 'nearai' | 'fireworks' | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
     hasMiniMaxEnvOnlyProviderIntent(processEnv)
@@ -451,6 +567,14 @@ export function resolveEnvOnlyProviderRouteId(
     return 'xiaomi-mimo'
   }
 
+  if (hasNearaiEnvOnlyProviderIntent(processEnv)) {
+    return 'nearai'
+  }
+
+  if (hasFireworksEnvOnlyProviderIntent(processEnv)) {
+    return 'fireworks'
+  }
+
   return null
 }
 
@@ -470,6 +594,7 @@ export function getRouteCredentialEnvVars(
   if (
     (descriptor.transportConfig.kind === 'openai-compatible' ||
       descriptor.transportConfig.kind === 'local') &&
+    !descriptor.setup.dedicatedCredentialsOnly &&
     !envVars.includes('OPENAI_API_KEY')
   ) {
     envVars.push('OPENAI_API_KEY')
@@ -619,7 +744,7 @@ export function resolveRouteIdFromBaseUrl(
 
   if (normalizedHost) {
     for (const route of routes) {
-      if (getValidationRoutingHosts(route).includes(normalizedHost)) {
+      if (matchHostnameAgainstRouteHosts(normalizedHost, getValidationRoutingHosts(route))) {
         return route.id
       }
     }

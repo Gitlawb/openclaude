@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useEventCallback } from 'usehooks-ts'
 import type { InputEvent, Key } from '../events/input-event.js'
 import useStdin from './use-stdin.js'
@@ -42,6 +42,10 @@ type Options = {
 const useInput = (inputHandler: Handler, options: Options = {}) => {
   const { setRawMode, internal_exitOnCtrlC, internal_eventEmitter } = useStdin()
 
+  // Timer handle for the deferred raw-mode reset. Persists across renders
+  // so the setup phase of a remount can cancel a pending reset from cleanup.
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // useLayoutEffect (not useEffect) so that raw mode is enabled synchronously
   // during React's commit phase, before render() returns. With useEffect, raw
   // mode setup is deferred to the next event loop tick via React's scheduler,
@@ -52,10 +56,32 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
       return
     }
 
-    setRawMode(true)
+    // If a prior cleanup scheduled a deferred reset (MCP re-render churn),
+    // cancel it and skip setRawMode(true). The counter was never decremented
+    // — the reset was deferred via setTimeout and aborted before it fired —
+    // so calling setRawMode(true) again would over-increment the counter
+    // and leak raw mode on final unmount.
+    if (resetTimerRef.current !== null) {
+      clearTimeout(resetTimerRef.current)
+      resetTimerRef.current = null
+    } else {
+      setRawMode(true)
+    }
 
     return () => {
-      setRawMode(false)
+      // Defer the raw-mode reset by one macrotask instead of calling it
+      // synchronously. During MCP async re-render churn the component
+      // unmounts and remounts within a single React commit — the remount's
+      // setup clears this timer before it fires, so raw mode is never
+      // actually disabled and the stdin listener stays registered.
+      //
+      // For a genuine unmount (navigation, isActive→false, process exit)
+      // no remount cancels the timer, so it fires on the next tick and
+      // properly restores cooked mode.
+      resetTimerRef.current = setTimeout(() => {
+        setRawMode(false)
+        resetTimerRef.current = null
+      }, 0)
     }
   }, [options.isActive, setRawMode])
 
@@ -100,3 +126,4 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
 }
 
 export default useInput
+

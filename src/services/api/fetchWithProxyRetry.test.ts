@@ -10,12 +10,34 @@ import {
 type FetchType = typeof globalThis.fetch
 
 const originalFetch = globalThis.fetch
+const PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+] as const
+
 const originalEnv = {
   HTTP_PROXY: process.env.HTTP_PROXY,
   HTTPS_PROXY: process.env.HTTPS_PROXY,
+  ALL_PROXY: process.env.ALL_PROXY,
+  http_proxy: process.env.http_proxy,
+  https_proxy: process.env.https_proxy,
+  all_proxy: process.env.all_proxy,
 }
 
-function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined): void {
+function restoreEnv(
+  key:
+    | 'HTTP_PROXY'
+    | 'HTTPS_PROXY'
+    | 'ALL_PROXY'
+    | 'http_proxy'
+    | 'https_proxy'
+    | 'all_proxy',
+  value: string | undefined,
+): void {
   if (value === undefined) {
     delete process.env[key]
   } else {
@@ -23,18 +45,29 @@ function restoreEnv(key: 'HTTP_PROXY' | 'HTTPS_PROXY', value: string | undefined
   }
 }
 
+function clearProxyEnv(): void {
+  for (const key of PROXY_ENV_KEYS) {
+    delete process.env[key]
+  }
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('fetchWithProxyRetry.test.ts')
+  clearProxyEnv()
   process.env.HTTP_PROXY = 'http://127.0.0.1:15236'
-  delete process.env.HTTPS_PROXY
   _resetKeepAliveForTesting()
 })
 
 afterEach(() => {
   try {
     globalThis.fetch = originalFetch
+    clearProxyEnv()
     restoreEnv('HTTP_PROXY', originalEnv.HTTP_PROXY)
     restoreEnv('HTTPS_PROXY', originalEnv.HTTPS_PROXY)
+    restoreEnv('ALL_PROXY', originalEnv.ALL_PROXY)
+    restoreEnv('http_proxy', originalEnv.http_proxy)
+    restoreEnv('https_proxy', originalEnv.https_proxy)
+    restoreEnv('all_proxy', originalEnv.all_proxy)
     _resetKeepAliveForTesting()
   } finally {
     releaseSharedMutationLock()
@@ -62,7 +95,7 @@ test('fetchWithProxyRetry retries once with keepalive disabled after socket clos
       )
     }
     return new Response('ok')
-  }) as FetchType
+  }) as unknown as FetchType
 
   const response = await fetchWithProxyRetry('https://example.com/search', {
     method: 'POST',
@@ -80,10 +113,12 @@ test('fetchWithProxyRetry retries once with keepalive disabled after socket clos
 test('fetchWithProxyRetry does not retry non-network errors', async () => {
   let attempts = 0
 
-  globalThis.fetch = (async () => {
+  // Match fetch's call signature (param + Promise<Response>): an argless,
+  // always-throwing async fn infers a type that no longer overlaps fetch.
+  globalThis.fetch = (async (_input): Promise<Response> => {
     attempts += 1
     throw new Error('400 bad request')
-  }) as FetchType
+  }) as unknown as FetchType
 
   await expect(fetchWithProxyRetry('https://example.com')).rejects.toThrow(
     '400 bad request',
@@ -100,7 +135,7 @@ test('fetchWithProxyRetry retries and disables keepalive after receiving a 504 r
       return new Response('Gateway Timeout', { status: 504 })
     }
     return new Response('ok')
-  }) as FetchType
+  }) as unknown as FetchType
 
   const response = await fetchWithProxyRetry('https://example.com/search')
   expect(response.status).toBe(200)

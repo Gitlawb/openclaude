@@ -9,6 +9,7 @@ import { Box, Text } from '../ink.js';
 import { logEvent } from '../services/analytics/index.js';
 import type { HistoryEntry } from '../utils/config.js';
 import { formatRelativeTimeAgo, truncateToWidth } from '../utils/format.js';
+import { highlightFuzzyMatch } from '../utils/highlightMatch.js';
 import { FuzzyPicker } from './design-system/FuzzyPicker.js';
 type Props = {
   initialQuery?: string;
@@ -87,11 +88,11 @@ export function HistorySearchDialog({
       query_length: query.length
     });
     void item_1.entry.resolve().then(onSelect);
-  }} onCancel={onCancel} emptyMessage={q_0 => items === null ? 'Loading…' : q_0 ? 'No matching prompts' : 'No history yet'} selectAction="use" direction="up" previewPosition={previewOnRight ? 'right' : 'bottom'} renderItem={(item_2, isFocused) => <Text>
+  }} onCancel={onCancel} emptyMessage={q_0 => items === null ? 'Loading…' : q_0 ? 'No matching prompts' : 'No history yet'} selectAction="use" direction="up" previewPosition={previewOnRight ? 'right' : 'bottom'} renderItem={(item_2, isFocused, pickerQuery) => <Text>
           <Text dimColor>{item_2.age}</Text>
           <Text color={isFocused ? 'suggestion' : undefined}>
             {' '}
-            {truncateToWidth(item_2.firstLine, rowWidth)}
+            {highlightFuzzyMatch(truncateToWidth(item_2.firstLine, rowWidth), pickerQuery)}
           </Text>
         </Text>} renderPreview={item_3 => {
     const wrapped = wrapAnsi(item_3.display, previewWidth, {

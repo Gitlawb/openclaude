@@ -5,6 +5,7 @@ import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
+import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import { isEnvTruthy } from './envUtils.js'
 import type { EffortLevel } from 'src/entrypoints/sdk/runtimeTypes.js'
@@ -15,6 +16,7 @@ export const EFFORT_LEVELS = [
   'low',
   'medium',
   'high',
+  'xhigh',
   'max',
 ] as const satisfies readonly EffortLevel[]
 
@@ -41,8 +43,20 @@ export function modelSupportsEffort(model: string): boolean {
   if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
     return true
   }
-  // Supported by a subset of Claude 4 models
-  if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
+  // Claude 4 models that support effort. Mirrors the Anthropic /messages
+  // shim's isAdaptive || isOpus45 set (openaiShim.ts:2292-2297) — only
+  // these models serialize low/medium as anthropicBody.effort. Older
+  // variants (opus-4-1, sonnet-4-5, haiku) only emit thinking for
+  // high/max, so advertising effort for them would silently drop
+  // low/medium on the wire. The substring match also covers prefix
+  // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`).
+  if (m.includes('opus-4-5') || m.includes('opus-4-6') ||
+      m.includes('opus-4-7') || m.includes('opus-4-8') ||
+      m.includes('sonnet-4-6')) {
+    return true
+  }
+  // OpenCode Gemini models that support thinking via /models/gemini-* endpoint
+  if (m.includes('gemini-3')) {
     return true
   }
   // Exclude any other known legacy models (haiku, older opus/sonnet variants)
@@ -67,10 +81,30 @@ export function modelSupportsMaxEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (model.toLowerCase().includes('opus-4-6')) {
+  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
     return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
+    return true
+  }
+  return false
+}
+
+// @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'xhigh' effort.
+// xhigh is reserved for OpenAI/Codex models and OpenCode Claude opus 4-7 / 4-8.
+// All other effort-supporting models reject xhigh at the API.
+export function modelSupportsXHighEffort(model: string): boolean {
+  if (!modelSupportsEffort(model)) {
+    return false
+  }
+  const supported3P = get3PModelCapabilityOverride(model, 'xhigh_effort')
+  if (supported3P !== undefined) {
+    return supported3P
+  }
+  if (modelUsesOpenAIEffort(model)) {
+    return true
+  }
+  if (model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
     return true
   }
   return false
@@ -86,17 +120,39 @@ export function isOpenAIEffortLevel(value: string): value is OpenAIEffortLevel {
 
 export function modelUsesOpenAIEffort(model: string): boolean {
   const provider = getAPIProvider()
-  return provider === 'openai' || provider === 'codex'
+  if (provider !== 'openai' && provider !== 'codex') {
+    return false
+  }
+  // Native Claude/Gemini models on OpenCode use Anthropic/Google format
+  // even though the OpenCode shim is provider=openai. They should not be
+  // classified as OpenAI-style for effort routing.
+  const m = model.toLowerCase()
+  if (m.includes('claude-') || m.includes('gemini-')) {
+    return false
+  }
+  return true
 }
 
-export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIEffortLevel[] {
+export function getAvailableEffortLevels(model: string): EffortLevel[] {
   if (!modelSupportsEffort(model)) {
     return []
   }
-  if (modelUsesOpenAIEffort(model)) {
-    return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
+  // OpenCode Claude and Gemini models use /messages or /models/gemini-*
+  // (Anthropic/Google format) even though getAPIProvider() returns 'openai'.
+  // Show standard levels (max) not OpenAI levels (xhigh).
+  const m = model.toLowerCase()
+  const isOpenCodeNativeFormat = (
+    m.includes('claude-opus-4') || m.includes('claude-sonnet-4') ||
+    m.includes('opus-4') || m.includes('sonnet-4') ||
+    m.includes('gemini-3')
+  ) && getAPIProvider() === 'openai'
+  if (modelUsesOpenAIEffort(model) && !isOpenCodeNativeFormat) {
+    return [...OPENAI_EFFORT_LEVELS] as EffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
+  if (modelSupportsXHighEffort(model)) {
+    levels.push('xhigh')
+  }
   if (modelSupportsMaxEffort(model)) {
     levels.push('max')
   }
@@ -110,8 +166,7 @@ export function getEffortLevelLabel(level: EffortLevel | OpenAIEffortLevel): str
 }
 
 export function openAIEffortToStandard(level: OpenAIEffortLevel): EffortLevel {
-  if (level === 'xhigh') return 'max'
-  return level
+  return level as EffortLevel
 }
 
 export function standardEffortToOpenAI(level: EffortLevel): OpenAIEffortLevel {
@@ -144,22 +199,22 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
 /**
  * Numeric values are model-default only and not persisted.
  * 'max' can now be persisted by all users.
- * OpenAI-shaped 'xhigh' is normalized to its EffortLevel equivalent ('max')
- * so any code path that leaks the OpenAI label still persists correctly.
+ * 'xhigh' is a first-class EffortLevel (supported by OpenCode Claude 4.7+)
+ * and is persisted as 'xhigh' — no normalization needed.
  * Write sites call this before saving to settings so the Zod schema
  * (which only accepts string levels) never rejects a write.
  */
 export function toPersistableEffort(
   value: EffortValue | undefined,
 ): EffortLevel | undefined {
-  if (value === 'low' || value === 'medium' || value === 'high') {
+  if (
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'max' ||
+    value === 'xhigh'
+  ) {
     return value
-  }
-  if (value === 'max') {
-    return value
-  }
-  if (value === 'xhigh') {
-    return 'max'
   }
   return undefined
 }
@@ -229,6 +284,12 @@ export function resolveAppliedEffort(
   ) {
     return 'high'
   }
+  // xhigh is reserved for OpenAI/Codex models and OpenCode opus-4-7/4-8.
+  // For all other models, downgrade to 'high' so a stale persisted setting
+  // doesn't surface as an API error.
+  if (resolved === 'xhigh' && !modelSupportsXHighEffort(model)) {
+    return 'high'
+  }
   return resolved
 }
 
@@ -296,9 +357,9 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'high':
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
-      return 'Maximum capability with deepest reasoning (Opus 4.6 only)'
+      return 'Maximum capability with deepest reasoning (Opus 4.6+)'
     case 'xhigh':
-      return 'Extra high reasoning effort for complex tasks (OpenAI/Codex)'
+      return 'Extra high reasoning effort for complex tasks'
   }
 }
 

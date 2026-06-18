@@ -112,6 +112,12 @@ export interface SetupMetadata {
   requiresAuth: boolean
   authMode: AuthMode
   credentialEnvVars?: string[]
+  /**
+   * Restrict credential resolution to credentialEnvVars. Without this,
+   * openai-compatible routes also accept OPENAI_API_KEY, which can send a
+   * generic key belonging to another provider to this route's endpoint.
+   */
+  dedicatedCredentialsOnly?: boolean
   setupPrompt?: string
 }
 

@@ -8,6 +8,7 @@ import {
   extractOpenAICategoryMarker,
   formatOpenAICategoryMarker,
   isLocalhostLikeHost,
+  isRetryableOpenAICompatibilityFailureCategory,
 } from './openaiErrorClassification.js'
 
 test('classifies localhost ECONNREFUSED as connection_refused', () => {
@@ -58,6 +59,51 @@ test('classifies generic 404 responses as endpoint_not_found', () => {
 
   expect(failure.category).toBe('endpoint_not_found')
   expect(failure.hint).toContain('/v1')
+})
+
+test('classifies 404 with images as vision_not_supported', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 404,
+    body: 'Not Found',
+    hasImages: true,
+  })
+
+  expect(failure.category).toBe('vision_not_supported')
+  expect(failure.retryable).toBe(false)
+  expect(failure.hint).toContain('image')
+})
+
+test('classifies 400 with "text is not set" + images as vision_not_supported (issue #1421)', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '{"error":{"code":"400","message":"Param Incorrect","param":"`text` is not set","type":""}}',
+    hasImages: true,
+  })
+
+  expect(failure.category).toBe('vision_not_supported')
+  expect(failure.retryable).toBe(false)
+  expect(failure.hint).toContain('image')
+})
+
+test('classifies 400 with "text is required" + images as vision_not_supported (issue #1421)', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '{"error":{"message":"text parameter is required"}}',
+    hasImages: true,
+  })
+
+  expect(failure.category).toBe('vision_not_supported')
+})
+
+test('does not classify 400 with "text is not set" when request has no images', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '{"error":{"message":"text is not set"}}',
+    hasImages: false,
+  })
+
+  // Without images, "text is not set" is unrelated to vision capability.
+  expect(failure.category).not.toBe('vision_not_supported')
 })
 
 test('classifies context-overflow responses', () => {
@@ -165,6 +211,15 @@ test('marker without host stays backward-compatible', () => {
   expect(marker).toBe('[openai_category=endpoint_not_found]')
   expect(extractOpenAICategoryMarker(marker)).toBe('endpoint_not_found')
   expect(extractOpenAICategoryHost(marker)).toBeUndefined()
+})
+
+test('reports retryability for extracted category markers', () => {
+  expect(isRetryableOpenAICompatibilityFailureCategory('auth_invalid')).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('model_not_found')).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('context_overflow')).toBe(false)
+  expect(isRetryableOpenAICompatibilityFailureCategory('rate_limited')).toBe(true)
+  expect(isRetryableOpenAICompatibilityFailureCategory('provider_unavailable')).toBe(true)
+  expect(isRetryableOpenAICompatibilityFailureCategory('network_error')).toBe(true)
 })
 
 test('isLocalhostLikeHost matches loopback variants', () => {

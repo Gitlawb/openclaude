@@ -1,12 +1,16 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import { asMockFetch } from '../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../integrations/index.ts'
+import { applyProviderFlag } from '../../utils/providerFlag.ts'
+import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
 
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
@@ -14,6 +18,8 @@ const originalEnv = {
   OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
   OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  GITHUB_COPILOT_KEY: process.env.GITHUB_COPILOT_KEY,
+  GITHUB_ENTERPRISE_URL: process.env.GITHUB_ENTERPRISE_URL,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -35,6 +41,10 @@ const originalEnv = {
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
+  OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
+  OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
 }
 
 const originalFetch = globalThis.fetch
@@ -86,9 +96,59 @@ function makeStreamChunks(chunks: unknown[]): string[] {
   ]
 }
 
+function makeChatCompletionResponse(model: string): Response {
+  return new Response(
+    JSON.stringify({
+      id: 'chatcmpl-test',
+      model,
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: 'ok',
+          },
+          finish_reason: 'stop',
+        },
+      ],
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+}
+
+async function captureChatCompletionRequest(
+  model = 'mimo-v2.5-pro',
+): Promise<{ authorization: string | null; url: string | null }> {
+  let authorization: string | null = null
+  let url: string | null = null
+
+  globalThis.fetch = (async (input, init) => {
+    url = String(input)
+    const headers = init?.headers as Record<string, string> | undefined
+    authorization = headers?.Authorization ?? headers?.authorization ?? null
+
+    return makeChatCompletionResponse(model)
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  return { authorization, url }
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiShim.test.ts')
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
+  delete process.env.OPENAI_API_BASE
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_API_FORMAT
@@ -96,6 +156,8 @@ beforeEach(async () => {
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_COPILOT_KEY
+  delete process.env.GITHUB_ENTERPRISE_URL
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
   delete process.env.CLAUDE_CODE_USE_OPENAI
@@ -117,11 +179,16 @@ beforeEach(async () => {
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
   delete process.env.MIMO_API_KEY
+  delete process.env.OPENGATEWAY_API_KEY
+  delete process.env.OPENGATEWAY_BASE_URL
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 })
 
 afterEach(() => {
   try {
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
@@ -129,6 +196,8 @@ afterEach(() => {
     restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
     restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
     restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+    restoreEnv('GITHUB_COPILOT_KEY', originalEnv.GITHUB_COPILOT_KEY)
+    restoreEnv('GITHUB_ENTERPRISE_URL', originalEnv.GITHUB_ENTERPRISE_URL)
     restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
     restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
@@ -150,6 +219,10 @@ afterEach(() => {
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
+    restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
+    restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
+    restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)
+    restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
     globalThis.fetch = originalFetch
     _clearRegistryForTesting()
     ensureIntegrationsLoaded()
@@ -274,6 +347,109 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
       type: 'message',
       role: 'user',
       content: [{ type: 'input_text', text: 'hello' }],
+    },
+  ])
+})
+
+test('uses OpenAI-compatible responses endpoint with text chunk types when OPENAI_API_FORMAT=responses_compat', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('http://example.test/v1/responses')
+  expect(capturedBody?.model).toBe('gpt-5.4')
+  expect(capturedBody?.instructions).toBe('test system')
+  expect(capturedBody?.max_output_tokens).toBe(64)
+  expect(capturedBody?.store).toBe(false)
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+    },
+  ])
+})
+
+test('uses correct empty input fallback schema for standard responses and responses_compat', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({
+      id: 'resp-1',
+      model: 'test',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }]
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  process.env.OPENAI_API_FORMAT = 'responses'
+  await client.beta.messages.create({
+    model: 'test',
+    max_tokens: 10,
+    messages: [{ role: 'user', content: [] }],
+  })
+
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: '' }],
+    },
+  ])
+
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+  await client.beta.messages.create({
+    model: 'test',
+    max_tokens: 10,
+    messages: [{ role: 'user', content: [] }],
+  })
+
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: '' }],
     },
   ])
 })
@@ -705,11 +881,96 @@ test('applies descriptor static headers before client and request headers', asyn
   expect(capturedHeaders?.get('x-override-header')).toBe('from-request')
 })
 
+test('opengateway sends Accept-Encoding: identity header on chat requests', async () => {
+  let capturedHeaders: Headers | undefined
+
+  registerGateway({
+    id: 'gitlawb-opengateway-test',
+    label: 'Gitlawb Opengateway',
+    category: 'aggregating',
+    defaultBaseUrl: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo',
+    defaultModel: 'mimo-v2.5-pro',
+    setup: {
+      requiresAuth: false,
+      authMode: 'none',
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        headers: {
+          'Accept-Encoding': 'identity',
+        },
+        defaultAuthHeader: {
+          name: 'api-key',
+          scheme: 'raw',
+        },
+        preserveReasoningContent: true,
+        requireReasoningContentOnAssistantMessages: true,
+        reasoningContentFallback: '',
+        maxTokensField: 'max_completion_tokens',
+        supportsApiFormatSelection: false,
+        supportsAuthHeaders: false,
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'mimo-v2.5-pro',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {},
+  )
+
+  expect(capturedHeaders?.get('Accept-Encoding')).toBe('identity')
+})
+
 test('strips Anthropic-specific headers on GitHub Codex transport requests', async () => {
   let capturedHeaders: Headers | undefined
 
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_API_KEY = 'github-test-key'
+  process.env.GITHUB_TOKEN = 'stored-secret'
+  delete process.env.GITHUB_COPILOT_KEY
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_MODEL
 
@@ -750,6 +1011,35 @@ test('strips Anthropic-specific headers on GitHub Codex transport requests', asy
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer github-test-key')
   expect(capturedHeaders?.get('editor-plugin-version')).toBe('copilot-chat/0.26.7')
+})
+
+test('uses direct GitHub Copilot Enterprise key for shim authentication', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+
+  const { authorization, url } = await captureChatCompletionRequest(
+    'github:gpt-4o',
+  )
+
+  expect(authorization).toBe('Bearer enterprise-direct-key')
+  expect(url).toBe('https://github.mycompany.com/api/copilot/chat/completions')
+})
+
+test('direct GitHub Copilot key wins over stale OpenAI key', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+  process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com'
+  process.env.OPENAI_API_KEY = 'stale-openai-key'
+  delete process.env.OPENAI_BASE_URL
+
+  const { authorization } = await captureChatCompletionRequest(
+    'github:gpt-4o',
+  )
+
+  expect(authorization).toBe('Bearer enterprise-direct-key')
 })
 
 test('strips Anthropic-specific headers on GitHub Codex transport with providerOverride API key', async () => {
@@ -1120,7 +1410,7 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -1147,7 +1437,7 @@ test('replays Gemini tool signatures for OpenGateway Gemini models', async () =>
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [
       { role: 'user', content: 'Use Write' },
       {
@@ -1697,8 +1987,92 @@ test('preserves image tool results as placeholders in follow-up requests', async
     text?: string
     image_url?: { url: string }
   }>
-  const imagePart = parts.find(part => part.type === 'image_url')
-  expect(imagePart?.image_url?.url).toBe('data:image/png;base64,ZmFrZQ==')
+  // Issue #1421: image-only tool results now get a placeholder text part
+  // prepended so OpenAI-compatible providers that require a `text` field on
+  // `role: "tool"` messages (e.g. Xiaomi Mimo) don't 400 with "text is not set".
+  expect(parts).toEqual([
+    { type: 'text', text: 'Image attached.' },
+    {
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+    },
+  ])
+})
+
+test('adds text part for image-only user messages', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'mimo-v2.5-pro',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mimo-v2.5-pro',
+    system: 'test system',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/png',
+              data: 'ZmFrZQ==',
+            },
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const userMessage = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => message.role === 'user',
+  ) as {
+    content?: Array<{
+      type: string
+      text?: string
+      image_url?: { url: string }
+    }>
+  } | undefined
+
+  expect(userMessage?.content).toEqual([
+    { type: 'text', text: 'Image attached.' },
+    {
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+    },
+  ])
 })
 
 test('preserves mixed text and image tool results as multipart content', async () => {
@@ -1862,8 +2236,10 @@ test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () 
   expect(requestUrl).toBe(
     'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
   )
-  expect(capturedAuthorization).toBe('Bearer gemini-access-token')
-  expect(capturedProject).toBe('gemini-project')
+  // Explicit type argument: TS narrows the closure-assigned variables to
+  // their `null` initializer at this point (microsoft/TypeScript#9998).
+  expect<string | null>(capturedAuthorization).toBe('Bearer gemini-access-token')
+  expect<string | null>(capturedProject).toBe('gemini-project')
 })
 
 test('uses NVIDIA_API_KEY for NVIDIA NIM requests without OPENAI_API_KEY', async () => {
@@ -1917,7 +2293,7 @@ test('uses NVIDIA_API_KEY for NVIDIA NIM requests without OPENAI_API_KEY', async
     stream: false,
   })
 
-  expect(capturedAuthorization).toBe('Bearer nvidia-live-key')
+  expect<string | null>(capturedAuthorization).toBe('Bearer nvidia-live-key')
 })
 
 test('does not use stale NVIDIA_API_KEY for non-NVIDIA OpenAI-compatible routes', async () => {
@@ -2070,6 +2446,145 @@ test('xiaomi mimo route uses api-key auth header and max_completion_tokens', asy
   expect(capturedBody).not.toHaveProperty('max_tokens')
 })
 
+test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY as bearer auth despite stale generic base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://opengateway.gitlawb.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('gitlawb opengateway provider flag accepts OPENAI_API_KEY compatibility fallback', async () => {
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENGATEWAY_API_KEY
+  process.env.OPENAI_API_KEY = 'fake-openai-fallback'
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.authorization).toBe('Bearer fake-openai-fallback')
+})
+
+test('gitlawb opengateway provider flag sends OPENAI_API_KEY fallback despite stale generic base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'fake-openai-fallback'
+  delete process.env.OPENGATEWAY_API_KEY
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://opengateway.gitlawb.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-openai-fallback')
+})
+
+test('gitlawb opengateway provider flag trims OPENGATEWAY_API_KEY before bearer auth', async () => {
+  process.env.OPENGATEWAY_API_KEY = ' fake-ogw-key '
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('gitlawb opengateway provider flag ignores blank OPENGATEWAY_API_KEY and uses OPENAI_API_KEY fallback', async () => {
+  process.env.OPENGATEWAY_API_KEY = '   '
+  process.env.OPENAI_API_KEY = 'fake-openai-fallback'
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.authorization).toBe('Bearer fake-openai-fallback')
+})
+
+test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY to OPENGATEWAY_BASE_URL override', async () => {
+  process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
+  process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('http://localhost:8181/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY to custom OPENAI_BASE_URL fallback', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:8181/v1'
+  process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+  delete process.env.OPENGATEWAY_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('http://localhost:8181/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('gitlawb opengateway provider flag prefers OPENGATEWAY_API_KEY over generic OPENAI_API_KEY for custom base URL', async () => {
+  process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
+  process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
+  process.env.OPENAI_API_KEY = 'fake-generic-openai-key'
+
+  const result = applyProviderFlag('gitlawb-opengateway', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('http://localhost:8181/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('gitlawb opengateway stored provider profile key becomes bearer auth', async () => {
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENGATEWAY_API_KEY
+
+  applyProviderProfileToProcessEnv({
+    id: 'stored-opengateway',
+    provider: 'gitlawb-opengateway',
+    name: 'Gitlawb Opengateway',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'fake-profile-key',
+  })
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.authorization).toBe('Bearer fake-profile-key')
+})
+
+test('openai route still sends OPENAI_API_KEY as bearer auth', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_KEY = 'fake-openai-key'
+  delete process.env.OPENGATEWAY_API_KEY
+
+  const captured = await captureChatCompletionRequest('gpt-5.5')
+
+  expect(captured.authorization).toBe('Bearer fake-openai-key')
+})
+
 test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async () => {
   let capturedAuthorization: string | null = null
 
@@ -2212,7 +2727,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2242,7 +2757,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2260,7 +2775,7 @@ test('preserves Gemini thought signature from streaming delta extra_content', as
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+      model: 'google/gemini-3.1-flash-lite',
       messages: [{ role: 'user', content: 'Use Write' }],
       max_tokens: 64,
       stream: true,
@@ -2298,7 +2813,7 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -2339,7 +2854,7 @@ test('preserves Gemini thought signature from non-streaming message extra_conten
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [{ role: 'user', content: 'Use Write' }],
     max_tokens: 64,
     stream: false,
@@ -2366,7 +2881,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2381,7 +2896,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2396,7 +2911,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
       {
         id: 'chatcmpl-raw-tool',
         object: 'chat.completion.chunk',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             index: 0,
@@ -2414,7 +2929,7 @@ test('converts Gemini raw tool-call text into streaming tool_use blocks', async 
 
   const result = await client.beta.messages
     .create({
-      model: 'google/gemini-3.1-flash-lite-preview',
+      model: 'google/gemini-3.1-flash-lite',
       messages: [{ role: 'user', content: 'Write CSS' }],
       max_tokens: 64,
       stream: true,
@@ -2472,7 +2987,7 @@ test('converts Gemini raw tool-call text into non-streaming tool_use blocks', as
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-raw-tool',
-        model: 'google/gemini-3.1-flash-lite-preview',
+        model: 'google/gemini-3.1-flash-lite',
         choices: [
           {
             message: {
@@ -2500,7 +3015,7 @@ test('converts Gemini raw tool-call text into non-streaming tool_use blocks', as
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
   const message = await client.beta.messages.create({
-    model: 'google/gemini-3.1-flash-lite-preview',
+    model: 'google/gemini-3.1-flash-lite',
     messages: [{ role: 'user', content: 'Verify' }],
     max_tokens: 64,
     stream: false,
@@ -4104,7 +4619,7 @@ test('non-streaming: preserves response.url routing metadata after body read', a
 })
 
 test('non-streaming: strips <think> tag block from assistant content', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
@@ -4127,7 +4642,7 @@ test('non-streaming: strips <think> tag block from assistant content', async () 
       }),
       { headers: { 'Content-Type': 'application/json' } },
     )
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const result = (await client.beta.messages.create({
@@ -4236,7 +4751,7 @@ test('streaming: thinking block closed before tool call', async () => {
 })
 
 test('streaming: strips <think> tag block from assistant content deltas', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     const chunks = makeStreamChunks([
       {
         id: 'chatcmpl-1',
@@ -4269,7 +4784,7 @@ test('streaming: strips <think> tag block from assistant content deltas', async 
     ])
 
     return makeSseResponse(chunks)
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const result = await client.beta.messages
@@ -4294,7 +4809,7 @@ test('streaming: strips <think> tag block from assistant content deltas', async 
 })
 
 test('streaming: strips <think> tag split across multiple content chunks', async () => {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     const chunks = makeStreamChunks([
       {
         id: 'chatcmpl-1',
@@ -4354,7 +4869,7 @@ test('streaming: strips <think> tag split across multiple content chunks', async
     ])
 
     return makeSseResponse(chunks)
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4382,7 +4897,7 @@ test('streaming: strips <think> tag split across multiple content chunks', async
 test('streaming: preserves prose without tags (no phrase-based false positive)', async () => {
   // Regression: older phrase-based sanitizer would strip "I should..." prose.
   // The tag-based approach leaves legitimate assistant output alone.
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     const chunks = makeStreamChunks([
       {
         id: 'chatcmpl-1',
@@ -4415,7 +4930,7 @@ test('streaming: preserves prose without tags (no phrase-based false positive)',
     ])
 
     return makeSseResponse(chunks)
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const result = await client.beta.messages
@@ -4446,11 +4961,11 @@ test('strips credentials and query params from URL in fetch network error messag
     'https://user:password@internal.example.test/v1?token=abc123'
   process.env.OPENAI_API_KEY = 'test-key'
 
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw new TypeError(
       'fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions',
     )
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4481,9 +4996,9 @@ test('classifies localhost transport failures with actionable category marker', 
     code: 'ECONNREFUSED',
   })
 
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw transportError
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4516,9 +5031,9 @@ test('transport failures are not labeled with HTTP status 503', async () => {
     code: 'ENETDOWN',
   })
 
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw transportError
-  }) as unknown as FetchType
+  }))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4548,9 +5063,9 @@ test('propagates AbortError without wrapping it as transport failure', async () 
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
   const abortError = new DOMException('The operation was aborted.', 'AbortError')
-  globalThis.fetch = (async () => {
+  globalThis.fetch = asMockFetch(mock(async () => {
     throw abortError
-  }) as unknown as FetchType
+  }))
 
   const controller = new AbortController()
   controller.abort()
@@ -4573,13 +5088,13 @@ test('propagates AbortError without wrapping it as transport failure', async () 
 test('classifies chat-completions endpoint 404 failures with endpoint_not_found marker', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434'
 
-  globalThis.fetch = (async () =>
+  globalThis.fetch = asMockFetch(mock(async () =>
     new Response('Not Found', {
       status: 404,
       headers: {
         'Content-Type': 'text/plain',
       },
-    })) as FetchType
+    })))
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
@@ -4884,7 +5399,7 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   // 2. User content ("What happened?") -> role 'user'
   // This triggers the tool -> assistant injection.
   const assistantMessages = messages.filter(m => m.role === 'assistant')
-  expect(assistantMessages.some(m => m.content === '[Tool execution interrupted by user]')).toBe(true)
+  expect(assistantMessages.some(m => m.content === '[Tool results received]')).toBe(true)
 })
 
 test('drops empty assistant message when only thinking block was present and stripped', async () => {
@@ -4917,6 +5432,43 @@ test('drops empty assistant message when only thinking block was present and str
 
   const messages = requestBody?.messages as Array<Record<string, unknown>>
   // The assistant msg is dropped because thinking is stripped.
+  // The two user messages are coalesced.
+  expect(messages.length).toBe(1)
+  expect(messages[0].role).toBe('user')
+  expect(String(messages[0].content)).toContain('Initial')
+  expect(String(messages[0].content)).toContain('Interrupting query')
+})
+
+test('drops empty assistant message when only redacted_thinking block was present and stripped', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { role: 'user', content: 'Initial' },
+      { role: 'assistant', content: [{ type: 'redacted_thinking', data: '[thinking hidden]' }] },
+      { role: 'user', content: 'Interrupting query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // The assistant msg is dropped because redacted_thinking is stripped.
   // The two user messages are coalesced.
   expect(messages.length).toBe(1)
   expect(messages[0].role).toBe('user')
@@ -4967,7 +5519,9 @@ test('injects semantic assistant message when tool result is followed by user me
   
   const semanticMsg = messages[2]
   expect(semanticMsg.role).toBe('assistant')
-  expect(semanticMsg.content).toBe('[Tool execution interrupted by user]')
+  expect(semanticMsg.content).toBe('[Tool results received]')
+  expect(semanticMsg.content).not.toContain('interrupted')
+  expect(semanticMsg.content).not.toContain('user')
 })
 
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
@@ -6098,4 +6652,169 @@ test('emits reasoning_effort from codex alias default when no override is passed
   })
 
   expect(requestBody?.reasoning_effort).toBe('high')
+})
+
+test('DeepSeek: redacted_thinking block preserves continuity with reasoning_content: ""', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'analyze this' },
+      {
+        role: 'assistant',
+        content: [
+          // real redacted_thinking shape: content lives in `.data`, not `.thinking`
+          { type: 'redacted_thinking', data: '', signature: 'sig123' },
+          { type: 'text', text: 'Analysis complete.' },
+          {
+            type: 'tool_use',
+            id: 'call_redacted_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_redacted_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  // redacted_thinking is recognized as a thinking block; its .data is "" and the
+  // message carries a tool_call, so it falls back to reasoning_content: ""
+  expect(assistantWithToolCall?.reasoning_content).toBe('')
+})
+
+test('DeepSeek: redacted_thinking block with non-empty data propagates data into reasoning_content', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-2',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'analyze this' },
+      {
+        role: 'assistant',
+        content: [
+          // real redacted_thinking with content in .data
+          {
+            type: 'redacted_thinking',
+            data: 'encrypted_chain_of_thought_payload_v1',
+            signature: 'sig456',
+          },
+          { type: 'text', text: 'Analysis complete.' },
+          {
+            type: 'tool_use',
+            id: 'call_redacted_2',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_redacted_2', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  // The real .data payload must be preserved in reasoning_content — this is the
+  // case the original test missed (it used a synthetic .thinking field).
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'encrypted_chain_of_thought_payload_v1',
+  )
+})
+
+test('renders tool_reference blocks as text on the chat/completions path', async () => {
+  const { __test } = await import('./openaiShim.ts')
+
+  const messages = __test.convertMessages(
+    [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_ts1', name: 'ToolSearch', input: { query: 'memory' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_ts1',
+            content: [
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_search' },
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_store' },
+            ],
+          },
+        ],
+      },
+    ],
+    undefined,
+  )
+
+  const toolMsg = messages.find(m => m.role === 'tool')
+  expect(toolMsg).toBeDefined()
+  // The rendering contract is plain text: text-only parts collapse to a string.
+  expect(typeof toolMsg!.content).toBe('string')
+  const content = toolMsg!.content as string
+  expect(content).toContain('mcp__example__memory_search')
+  expect(content).toContain('mcp__example__memory_store')
 })

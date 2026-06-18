@@ -1,0 +1,21 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- black square ground, matching gitlawb's white-on-black mark -->
+  <rect width="1024" height="1024" fill="#000000"/>
+
+  <!-- terminal window: sharp corners, thick uniform stroke -->
+  <rect x="292" y="180" width="440" height="400" fill="none" stroke="#ffffff" stroke-width="36"/>
+
+  <!-- eyes: hollow circuit nodes -->
+  <circle cx="432" cy="330" r="32" fill="none" stroke="#ffffff" stroke-width="28"/>
+  <circle cx="592" cy="330" r="32" fill="none" stroke="#ffffff" stroke-width="28"/>
+
+  <!-- mouth: >_ prompt -->
+  <polyline points="424,420 482,460 424,500" fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="square"/>
+  <line x1="520" y1="500" x2="600" y2="500" stroke="#ffffff" stroke-width="30" stroke-linecap="square"/>
+
+  <!-- git-fork trace descending from the terminal: openclaude on the gitlawb network -->
+  <polyline points="512,598 512,688 416,784" fill="none" stroke="#ff7a1a" stroke-width="36" stroke-linejoin="miter"/>
+  <line x1="512" y1="688" x2="608" y2="784" stroke="#ff7a1a" stroke-width="36" stroke-linecap="butt"/>
+  <circle cx="384" cy="816" r="46" fill="none" stroke="#ff7a1a" stroke-width="36"/>
+  <circle cx="640" cy="816" r="46" fill="none" stroke="#ff7a1a" stroke-width="36"/>
+</svg>

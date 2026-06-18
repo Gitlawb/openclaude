@@ -33,6 +33,8 @@ const RESTORED_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
@@ -61,7 +63,9 @@ const RESTORED_KEYS = [
   'XAI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'HICAP_API_KEY',
+  'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
 ] as const
 
 type MockConfigState = {
@@ -219,6 +223,28 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
+function buildFireworksProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'fireworks',
+    name: 'Fireworks AI',
+    baseUrl: 'https://api.fireworks.ai/inference/v1',
+    model: 'accounts/fireworks/models/deepseek-v3',
+    apiKey: 'fireworks-test-key',
+    ...overrides,
+  })
+}
+
+function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'atlas-cloud',
+    name: 'Atlas Cloud',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    model: 'deepseek-ai/deepseek-v4-pro',
+    apiKey: 'atlas-test-key',
+    ...overrides,
+  })
+}
+
 describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -315,6 +341,141 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
     expect(process.env.OPENAI_MODEL).toBe('github:copilot')
     expect(getFreshAPIProvider()).toBe('github')
+  })
+
+  test('github-enterprise profile uses GitHub compatibility env', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'github-enterprise',
+        baseUrl: 'https://github.mycompany.com/api/copilot',
+        model: 'github:copilot:gpt-5.3-codex',
+        apiKey: 'enterprise-profile-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+    const { resolveProviderRequest } = await import(
+      `../services/api/providerConfig.ts?ts=${Date.now()}-${Math.random()}`
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://github.mycompany.com/api/copilot',
+    )
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com',
+    )
+    expect(process.env.GITHUB_COPILOT_KEY).toBe('enterprise-profile-key')
+    expect(process.env.OPENAI_MODEL).toBe('github:copilot:gpt-5.3-codex')
+    expect(getFreshAPIProvider()).toBe('github')
+    expect(resolveProviderRequest()).toMatchObject({
+      baseUrl: 'https://github.mycompany.com/api/copilot',
+      resolvedModel: 'gpt-5.3-codex',
+      transport: 'codex_responses',
+    })
+  })
+
+  test('github-enterprise profile does not derive Enterprise URL from public Copilot default', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'github-enterprise',
+        baseUrl: 'https://api.githubcopilot.com',
+        model: 'github:copilot:gpt-5.3-codex',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.githubcopilot.com')
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBeUndefined()
+  })
+
+  test('github-enterprise profile remains aligned only with Enterprise env', async () => {
+    const {
+      applyActiveProviderProfileFromConfig,
+      applyProviderProfileToProcessEnv,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'github_enterprise_prof',
+      provider: 'github-enterprise',
+      baseUrl: 'https://github.mycompany.com/api/copilot',
+      model: 'github:copilot:gpt-5.3-codex',
+      apiKey: 'enterprise-profile-key',
+    })
+
+    applyProviderProfileToProcessEnv(activeProfile)
+    const unchanged = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(unchanged?.id).toBe(activeProfile.id)
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com',
+    )
+
+    delete process.env.GITHUB_ENTERPRISE_URL
+    const updated = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(updated?.id).toBe(activeProfile.id)
+    expect(String(process.env.GITHUB_ENTERPRISE_URL)).toBe(
+      'https://github.mycompany.com',
+    )
+  })
+
+  test('github-enterprise profile persists and relaunches with Enterprise env', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const enterpriseProfile = buildProfile({
+        id: 'github_enterprise_persisted',
+        name: 'GitHub Enterprise',
+        provider: 'github-enterprise',
+        baseUrl: 'https://github.mycompany.com/api/copilot',
+        model: 'github:copilot:gpt-5.3-codex',
+        apiKey: 'enterprise-profile-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [enterpriseProfile],
+      }))
+
+      const result = setActiveProviderProfile('github_enterprise_persisted', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('github_enterprise_persisted')
+      expect(persisted.profile).toBe('github-enterprise')
+      expect(persisted.env).toMatchObject({
+        GITHUB_ENTERPRISE_URL: 'https://github.mycompany.com',
+        GITHUB_COPILOT_KEY: 'enterprise-profile-key',
+        OPENAI_BASE_URL: 'https://github.mycompany.com/api/copilot',
+        OPENAI_MODEL: 'github:copilot:gpt-5.3-codex',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
   })
 
   test('nvidia-nim profile keeps openai-compatible routing but stamps NVIDIA_NIM', async () => {
@@ -432,6 +593,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('openai responses_compat profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        apiFormat: 'responses_compat',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses_compat')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('custom OpenAI-compatible responses profile sets OPENAI_API_FORMAT', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -540,6 +719,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
   })
 
+  test('atlas cloud profile applies OpenAI-compatible env with ATLAS_CLOUD_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildAtlasCloudProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-ai/deepseek-v4-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('atlas-test-key')
+    expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
   test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -553,6 +750,28 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
     expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('fireworks profile applies OpenAI-compatible env with FIREWORKS_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildFireworksProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.fireworks.ai/inference/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe(
+      'accounts/fireworks/models/deepseek-v3',
+    )
+    expect(process.env.OPENAI_API_KEY).toBe('fireworks-test-key')
+    expect(process.env.FIREWORKS_API_KEY).toBe('fireworks-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
   })
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
@@ -697,6 +916,106 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
     expect(getFreshAPIProvider()).toBe('xai')
   })
+
+  test('does not mirror XAI_API_KEY for a lookalike host containing "x.ai"', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // `vertex.ai` contains the substring "x.ai"; a raw includes() check would
+    // wrongly treat this OpenAI-compatible profile as xAI and mirror the key
+    // into XAI_API_KEY. Host matching must be by hostname (api.x.ai), not
+    // substring.
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://vertex.ai/v1',
+        model: 'some-model',
+        apiKey: 'not-an-xai-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('not-an-xai-key')
+    expect(getFreshAPIProvider()).not.toBe('xai')
+  })
+
+  test('openai-compatible profile applies maxContextLength env override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://localhost:4000/v1',
+        model: 'gpt-4o',
+        maxContextLength: 200_000,
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:4000/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
+      JSON.stringify({ 'gpt-4o': 200_000 }),
+    )
+  })
+
+  test('openai-compatible profile switch clears previous same-model context override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const { resolveModelRuntimeLimits } = await import(
+      '../integrations/runtimeMetadata.js'
+    )
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://localhost:4000/v1',
+        model: 'gpt-4o',
+        maxContextLength: 1_000_000,
+      }),
+    )
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-4o',
+        processEnv: process.env,
+      }).contextWindow,
+    ).toBe(1_000_000)
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-4o',
+        processEnv: process.env,
+      }).contextWindow,
+    ).not.toBe(1_000_000)
+  })
+
+  test('non-openai-compatible profile ignores maxContextLength override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-6',
+        maxContextLength: 200_000,
+      }),
+    )
+
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
+  })
 })
 
 describe('getProviderProfiles', () => {
@@ -720,6 +1039,34 @@ describe('getProviderProfiles', () => {
 
     expect(profiles).toHaveLength(1)
     expect(profiles[0]?.provider).toBe('moonshot')
+  })
+
+  test('sanitizes maxContextLength to positive finite integers', async () => {
+    const { getProviderProfiles } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [
+        buildProfile({ id: 'valid', maxContextLength: 128_000 }),
+        buildProfile({ id: 'negative', maxContextLength: -1 }),
+        buildProfile({ id: 'float', maxContextLength: 128_000.5 }),
+        buildProfile({ id: 'zero', maxContextLength: 0 }),
+        buildProfile({ id: 'infinity', maxContextLength: Infinity }),
+        buildProfile({ id: 'string', maxContextLength: '128000' as unknown as number }),
+        buildProfile({ id: 'missing' }),
+      ],
+    }))
+
+    const profiles = getProviderProfiles()
+
+    const byId = (id: string) => profiles.find(p => p.id === id)
+    expect(byId('valid')?.maxContextLength).toBe(128_000)
+    expect(byId('negative')?.maxContextLength).toBeUndefined()
+    expect(byId('float')?.maxContextLength).toBeUndefined()
+    expect(byId('zero')?.maxContextLength).toBeUndefined()
+    expect(byId('infinity')?.maxContextLength).toBeUndefined()
+    expect(byId('string')?.maxContextLength).toBeUndefined()
+    expect(byId('missing')?.maxContextLength).toBeUndefined()
   })
 })
 
@@ -840,6 +1187,36 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
   })
 
+  test('respects env-only GitHub Enterprise startup selection', async () => {
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.GITHUB_ENTERPRISE_URL = 'https://github.mycompany.com/api/copilot'
+    process.env.GITHUB_COPILOT_KEY = 'enterprise-direct-key'
+    delete process.env.OPENAI_MODEL
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        }),
+      ],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com/api/copilot',
+    )
+    expect(process.env.GITHUB_COPILOT_KEY).toBe('enterprise-direct-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+  })
+
   test('does not override explicit env-only MiniMax selection with saved profile', async () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()
@@ -923,6 +1300,34 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('http://192.168.33.108:11434/v1')
   })
 
+  test('re-applies active profile when context-window override drifts', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({
+      id: 'saved_openai',
+      baseUrl: 'http://localhost:4000/v1',
+      model: 'gpt-4o',
+      maxContextLength: 1_000_000,
+    })
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    // Simulate an upgraded or partially restored process where the profile
+    // marker and core OpenAI env survived, but this PR's new override did not.
+    delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied?.id).toBe('saved_openai')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:4000/v1')
+    expect(String(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS)).toBe(
+      JSON.stringify({ 'gpt-4o': 1_000_000 }),
+    )
+  })
+
   test('does not re-apply active profile when flags conflict with current provider', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -969,6 +1374,24 @@ describe('applyActiveProviderProfileFromConfig', () => {
 
     expect(applied?.id).toBe('saved_xai')
     expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
+  })
+
+  test('re-applies Fireworks AI active profile when FIREWORKS_API_KEY is missing (env drift)', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const fwProfile = buildFireworksProfile({ id: 'saved_fw' })
+    applyProviderProfileToProcessEnv(fwProfile)
+
+    // Simulate relaunch where the shell exported OPENAI vars but not FIREWORKS_API_KEY
+    delete process.env.FIREWORKS_API_KEY
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [fwProfile],
+      activeProviderProfileId: 'saved_fw',
+    } as any)
+
+    expect(applied?.id).toBe('saved_fw')
+    expect(String(process.env.FIREWORKS_API_KEY)).toBe('fireworks-test-key')
   })
 
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
@@ -1025,9 +1448,13 @@ describe('applyActiveProviderProfileFromConfig', () => {
 })
 
 describe('persistActiveProviderProfileModel', () => {
-  test('updates active profile model and current env for profile-managed sessions', async () => {
+  // The runtime active-model selection is owned by mainLoopModelOverride
+  // (set by onChangeAppState before this helper is called). This helper
+  // intentionally no longer mutates the profile's model list — see the
+  // docstring in providerProfiles.ts. Coverage below locks the no-op
+  // contract for both single- and multi-model profiles.
+  test('returns the active profile unchanged for a single-model profile', async () => {
     const {
-      applyProviderProfileToProcessEnv,
       getProviderProfiles,
       persistActiveProviderProfileModel,
     } = await importFreshProviderProfileModules()
@@ -1042,13 +1469,49 @@ describe('persistActiveProviderProfileModel', () => {
       providerProfiles: [activeProfile],
       activeProviderProfileId: activeProfile.id,
     }))
-    applyProviderProfileToProcessEnv(activeProfile)
 
     const updated = persistActiveProviderProfileModel('minimax-m2.5:cloud')
 
     expect(updated?.id).toBe(activeProfile.id)
-    expect(updated?.model).toBe('minimax-m2.5:cloud')
-    expect(process.env.OPENAI_MODEL).toBe('minimax-m2.5:cloud')
+    expect(updated?.model).toBe('kimi-k2.5:cloud')
+    const saved = getProviderProfiles().find(
+      (profile: ProviderProfile) => profile.id === activeProfile.id,
+    )
+    expect(saved?.model).toBe('kimi-k2.5:cloud')
+  })
+
+  test('does not mutate multi-model mistral profile when chosen model is out of list', async () => {
+    // Regression for #1360: the picker must never silently rewrite a
+    // provider's configured model list. The active model is a session-level
+    // choice handled by mainLoopModelOverride; the profile's model list
+    // only changes via an explicit provider edit. An earlier
+    // implementation prepended the chosen model to the list, which
+    // contradicted the documented contract and grew the list unboundedly
+    // on rotation.
+    const {
+      applyProviderProfileToProcessEnv,
+      getProviderProfiles,
+      persistActiveProviderProfileModel,
+    } = await importFreshProviderProfileModules()
+    const activeProfile = buildMistralProfile({
+      id: 'saved_mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'devstral-latest; mistral-small-latest',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    }))
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    const updated = persistActiveProviderProfileModel('mistral-large-latest')
+
+    expect(updated?.id).toBe(activeProfile.id)
+    // The configured list is preserved verbatim regardless of the chosen
+    // model being in or out of the list.
+    expect(updated?.model).toBe('devstral-latest; mistral-small-latest')
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
       activeProfile.id,
     )
@@ -1056,17 +1519,20 @@ describe('persistActiveProviderProfileModel', () => {
     const saved = getProviderProfiles().find(
       (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
-    expect(saved?.model).toBe('minimax-m2.5:cloud')
+    expect(saved?.model).toBe('devstral-latest; mistral-small-latest')
   })
 
-  test('does not mutate process env when session is not profile-managed', async () => {
+  test('preserves comma-separated multi-model list when chosen model is already a member', async () => {
+    // Switching between models already in the list is a session-level
+    // choice. The list itself must be preserved exactly as configured.
     const {
       getProviderProfiles,
       persistActiveProviderProfileModel,
     } = await importFreshProviderProfileModules()
-    const activeProfile = buildProfile({
-      id: 'saved_openai',
-      model: 'kimi-k2.5:cloud',
+    const activeProfile = buildMistralProfile({
+      id: 'saved_mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'devstral-latest, mistral-small-latest, mistral-large-latest',
     })
 
     saveMockGlobalConfig(current => ({
@@ -1075,18 +1541,17 @@ describe('persistActiveProviderProfileModel', () => {
       activeProviderProfileId: activeProfile.id,
     }))
 
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_MODEL = 'cli-model'
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
-    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    const updated = persistActiveProviderProfileModel('mistral-small-latest')
 
-    persistActiveProviderProfileModel('minimax-m2.5:cloud')
-
-    expect(process.env.OPENAI_MODEL).toBe('cli-model')
+    expect(updated?.model).toBe(
+      'devstral-latest, mistral-small-latest, mistral-large-latest',
+    )
     const saved = getProviderProfiles().find(
       (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
-    expect(saved?.model).toBe('minimax-m2.5:cloud')
+    expect(saved?.model).toBe(
+      'devstral-latest, mistral-small-latest, mistral-large-latest',
+    )
   })
 })
 
@@ -1225,6 +1690,23 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.name).toBe('Z.AI - GLM Coding Plan')
     expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
     expect(defaults.model).toBe('GLM-5.1')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('fireworks preset defaults to the official Fireworks AI endpoint', async () => {
+    const { getProviderPresetDefaults } =
+      await importFreshProviderProfileModules()
+    process.env.FIREWORKS_API_KEY = 'fireworks-live-key'
+
+    const defaults = getProviderPresetDefaults('fireworks')
+
+    expect(defaults.provider).toBe('fireworks')
+    expect(defaults.name).toBe('Fireworks AI')
+    expect(defaults.baseUrl).toBe('https://api.fireworks.ai/inference/v1')
+    expect(defaults.model).toBe(
+      'accounts/fireworks/models/llama-v3p1-70b-instruct',
+    )
+    expect(defaults.apiKey).toBe('fireworks-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
 })
@@ -1460,6 +1942,47 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('persists the Atlas key for generic openai profiles targeting Atlas Cloud', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const genericAtlasProfile = buildProfile({
+        id: 'generic_atlas_prof',
+        name: 'Atlas via custom OpenAI',
+        baseUrl: 'https://api.atlascloud.ai/v1',
+        model: 'deepseek-ai/deepseek-v4-pro',
+        apiKey: 'atlas-generic-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [genericAtlasProfile],
+      }))
+
+      const result = setActiveProviderProfile('generic_atlas_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('generic_atlas_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+      expect(persisted.env.OPENAI_API_KEY).toBe('atlas-generic-key')
+      expect(persisted.env.ATLAS_CLOUD_API_KEY).toBe('atlas-generic-key')
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('persists Venice profiles using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
@@ -1494,6 +2017,57 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'venice-uncensored',
         OPENAI_API_KEY: 'venice-test-key',
         VENICE_API_KEY: 'venice-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists Fireworks AI profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'openclaude-provider-'),
+    )
+    const configDir = mkdtempSync(
+      join(tmpdir(), 'openclaude-provider-config-'),
+    )
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const fireworksProfile = buildFireworksProfile({
+        id: 'fireworks_prof',
+        model: 'accounts/fireworks/models/deepseek-v3, accounts/fireworks/models/llama-v3p1-70b-instruct',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [fireworksProfile],
+      }))
+
+      const result = setActiveProviderProfile('fireworks_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(
+          join(configDir, '.openclaude-profile.json'),
+          'utf8',
+        ),
+      )
+
+      expect(result?.id).toBe('fireworks_prof')
+      expect(
+        existsSync(join(tempDir, '.openclaude-profile.json')),
+      ).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.fireworks.ai/inference/v1',
+        OPENAI_MODEL: 'accounts/fireworks/models/deepseek-v3',
+        OPENAI_API_KEY: 'fireworks-test-key',
+        FIREWORKS_API_KEY: 'fireworks-test-key',
       })
     } finally {
       process.chdir(originalCwd)
@@ -1865,6 +2439,94 @@ describe('deleteProviderProfile', () => {
 })
 
 describe('getProfileModelOptions', () => {
+  test('getConfiguredProfileModelOptions ignores discovered cache entries', async () => {
+    const { getConfiguredProfileModelOptions } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      model: 'glm-4.7, glm-4.7-flash',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    expect(getConfiguredProfileModelOptions(profile)).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+    ])
+  })
+
+  test('route-scoped OpenAI cache ignores active profile cache entries', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:7777/v1'
+    process.env.OPENAI_MODEL = 'route-model'
+
+    const { getAdditionalModelOptionsCacheScope } = await import(
+      '../services/api/providerConfig.js'
+    )
+    const { getActiveOpenAIRouteModelOptionsCache } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'multi_provider',
+      name: 'Multi Provider',
+      baseUrl: 'http://localhost:7777/v1',
+      model: 'profile-model',
+    })
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [profile],
+      activeProviderProfileId: 'multi_provider',
+      additionalModelOptionsCache: [
+        {
+          value: 'route-model',
+          label: 'Route Model',
+          description: 'Detected from route',
+        },
+      ],
+      additionalModelOptionsCacheScope:
+        getAdditionalModelOptionsCacheScope() ?? undefined,
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'profile-model',
+            label: 'profile-model',
+            description: 'Provider: Multi Provider',
+          },
+        ],
+      },
+    }
+
+    expect(getActiveOpenAIRouteModelOptionsCache()).toEqual([
+      {
+        value: 'route-model',
+        label: 'Route Model',
+        description: 'Detected from route',
+      },
+    ])
+  })
+
   test('generates options for multi-model profile', async () => {
     const { getProfileModelOptions } =
       await importFreshProviderProfileModules()

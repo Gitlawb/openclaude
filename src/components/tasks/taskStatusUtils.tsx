@@ -81,14 +81,24 @@ export function describeTeammateActivity(t: DeepImmutable<InProcessTeammateTaskS
   return (t.progress?.recentActivities && summarizeRecentActivities(t.progress.recentActivities)) ?? t.progress?.lastActivity?.activityDescription ?? 'working';
 }
 
+export function countVisibleBackgroundTasks(tasks: {
+  [taskId: string]: TaskState;
+}): number {
+  let backgroundTaskCount = 0;
+  for (const task of Object.values(tasks)) {
+    if (isBackgroundTask(task)) {
+      backgroundTaskCount += 1;
+    }
+  }
+  return backgroundTaskCount;
+}
+
 /**
  * Returns true when BackgroundTaskStatus would render nothing because the
  * spinner tree is active and every visible background task is an in-process
  * teammate (teammates are shown in the spinner tree instead).
  *
- * Uses the same task filtering as BackgroundTaskStatus: `isBackgroundTask()`
- * plus exclusion of panel-managed agent tasks for ants (those are shown
- * by CoordinatorTaskPanel).
+ * Uses the same task filtering as BackgroundTaskStatus.
  */
 export function shouldHideTasksFooter(tasks: {
   [taskId: string]: TaskState;
@@ -96,7 +106,7 @@ export function shouldHideTasksFooter(tasks: {
   if (!showSpinnerTree) return false;
   let hasVisibleTask = false;
   for (const t of Object.values(tasks) as TaskState[]) {
-    if (!isBackgroundTask(t) || "external" === 'ant' && isPanelAgentTask(t)) {
+    if (!isBackgroundTask(t)) {
       continue;
     }
     hasVisibleTask = true;

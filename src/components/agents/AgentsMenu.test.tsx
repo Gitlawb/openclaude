@@ -79,11 +79,34 @@ function createAgent(
   agentType: string,
   source: AgentDefinition['source'] = 'userSettings',
 ): AgentDefinition {
+  const whenToUse = `Use ${agentType}`
+  const getSystemPrompt = () => `You are ${agentType}`
+
+  if (source === 'built-in') {
+    return {
+      agentType,
+      whenToUse,
+      source,
+      baseDir: 'built-in',
+      getSystemPrompt,
+    }
+  }
+
+  if (source === 'plugin') {
+    return {
+      agentType,
+      whenToUse,
+      source,
+      plugin: 'test-plugin',
+      getSystemPrompt,
+    }
+  }
+
   return {
     agentType,
-    whenToUse: `Use ${agentType}`,
+    whenToUse,
     source,
-    getSystemPrompt: () => `You are ${agentType}`,
+    getSystemPrompt,
   }
 }
 
@@ -157,7 +180,7 @@ test('sets a different active session agent from the agent menu', async () => {
     patchConsole: false,
   })
   let callbackAgent: AgentDefinition | undefined
-  let latestAgent = initialState.agent
+  let latestAgent: string | undefined = initialState.agent
 
   root.render(
     <AppStateProvider
@@ -220,7 +243,7 @@ test('sets the effective agent definition for a shadowed selected row', async ()
     patchConsole: false,
   })
   let callbackAgent: AgentDefinition | undefined
-  let latestAgent = initialState.agent
+  let latestAgent: string | undefined = initialState.agent
 
   root.render(
     <AppStateProvider

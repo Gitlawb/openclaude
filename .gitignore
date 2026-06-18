@@ -14,7 +14,13 @@ GEMINI.md
 CLAUDE.md
 package-lock.json
 /.claude
+# Local git worktrees created by agent/developer tooling.
+/.worktrees/
 coverage/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 agent.log
 plan/
+.tmp
 temp_reference/

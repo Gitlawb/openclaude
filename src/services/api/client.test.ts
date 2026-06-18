@@ -35,6 +35,10 @@ const originalEnv = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
+  OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
+  OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
+  OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
@@ -76,6 +80,10 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
   delete process.env.XAI_API_KEY
+  delete process.env.FIREWORKS_API_KEY
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -108,6 +116,10 @@ beforeEach(async () => {
   delete process.env.OPENAI_MODEL
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
+  delete process.env.FIREWORKS_API_KEY
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.NVIDIA_NIM
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -144,6 +156,10 @@ afterEach(() => {
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
     restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
+    restoreEnv('FIREWORKS_API_KEY', originalEnv.FIREWORKS_API_KEY)
+    restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+    restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
+    restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
     restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
@@ -869,6 +885,296 @@ test('env-only xAI fallback yields to explicit Bedrock selection', async () => {
   expect(process.env.OPENAI_API_KEY).toBeUndefined()
 })
 
+test('routes env-only Fireworks AI requests through the OpenAI-compatible shim', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-fw',
+        model: 'accounts/fireworks/models/deepseek-v3',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'fireworks ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'accounts/fireworks/models/deepseek-v3',
+  })) as unknown as ShimClient
+
+  const response = await client.beta.messages.create({
+    model: 'accounts/fireworks/models/deepseek-v3',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://api.fireworks.ai/inference/v1/chat/completions',
+  )
+  expect(capturedHeaders?.get('authorization')).toBe(
+    'Bearer fireworks-test-key',
+  )
+  expect(capturedBody?.model).toBe('accounts/fireworks/models/deepseek-v3')
+  expect(response).toMatchObject({
+    role: 'assistant',
+    model: 'accounts/fireworks/models/deepseek-v3',
+  })
+})
+
+test('env-only Fireworks fallback replaces stale OpenAI model env', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+
+  await getAnthropicClient({ maxRetries: 0, model: 'accounts/fireworks/models/deepseek-v3' })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_MODEL).toBe(
+    'accounts/fireworks/models/llama-v3p1-70b-instruct',
+  )
+  expect(process.env.OPENAI_API_KEY).toBe('fireworks-test-key')
+})
+
+test('env-only Fireworks fallback preserves Fireworks OPENAI_API_BASE host overrides', async () => {
+  let capturedUrl: string | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.OPENAI_BASE_URL
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+  process.env.OPENAI_API_BASE = 'https://api.fireworks.ai/inference/v1'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-fw-api-base',
+        model: 'accounts/fireworks/models/deepseek-v3',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'fireworks api base ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'accounts/fireworks/models/deepseek-v3',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'accounts/fireworks/models/deepseek-v3',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe(
+    'https://api.fireworks.ai/inference/v1/chat/completions',
+  )
+  expect(String(process.env.OPENAI_BASE_URL)).toBe('https://api.fireworks.ai/inference/v1')
+})
+
+test('env-only Fireworks fallback drops unsupported OpenAI shim options', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+  process.env.OPENAI_API_FORMAT = 'responses'
+  process.env.OPENAI_AUTH_HEADER = 'api-key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-header-value'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-fw-clean',
+        model: 'accounts/fireworks/models/deepseek-v3',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'fireworks clean ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'accounts/fireworks/models/deepseek-v3',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'accounts/fireworks/models/deepseek-v3',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe(
+    'Bearer fireworks-test-key',
+  )
+  expect(capturedHeaders?.get('api-key')).toBeNull()
+  expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+  expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+  expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+  expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+})
+
+test('env-only Fireworks fallback ignores non-Fireworks base overrides', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.ANTHROPIC_API_KEY = 'anthropic-test-key'
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'accounts/fireworks/models/deepseek-v3'
+
+  await getAnthropicClient({ maxRetries: 0, model: 'accounts/fireworks/models/deepseek-v3' })
+
+  // ANTHROPIC_API_KEY takes precedence — Fireworks env-only provider does not activate
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+  expect(process.env.OPENAI_MODEL).toBe(
+    'accounts/fireworks/models/deepseek-v3',
+  )
+})
+
+test('env-only Fireworks does not activate when MiniMax key is present', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  process.env.MINIMAX_API_KEY = 'minimax-test-key'
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+
+  globalThis.fetch = (async () => {
+    throw new Error('Fireworks/OpenAI shim fetch should not run')
+  }) as unknown as FetchType
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+  })
+
+  // MiniMax takes priority over Fireworks
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  expect(process.env.OPENAI_MODEL).toBeUndefined()
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
+test('env-only Fireworks fallback yields to explicit Bedrock selection', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+  process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH = '1'
+  process.env.FIREWORKS_API_KEY = 'fireworks-test-key'
+
+  globalThis.fetch = (async () => {
+    throw new Error('Fireworks/OpenAI shim fetch should not run')
+  }) as unknown as FetchType
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+  })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  expect(process.env.OPENAI_MODEL).toBeUndefined()
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
 test('strips Anthropic-specific custom headers before sending OpenAI-compatible shim requests', async () => {
   let capturedHeaders: Headers | undefined
 
@@ -1004,4 +1310,63 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
   expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-test-key')
+})
+
+test('rejects CRLF-injected custom headers before sending OpenAI-compatible shim requests', async () => {
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEY = 'openai-test-key'
+  process.env.OPENAI_BASE_URL = 'http://example.test/v1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  process.env.ANTHROPIC_CUSTOM_HEADERS =
+    'x-safe-header: keep-me\r\nx-injected: bad'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openai-crlf',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'gpt-4o',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('x-safe-header')).toBeNull()
+  expect(capturedHeaders?.get('x-injected')).toBeNull()
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
 })

@@ -1,0 +1,64 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro'
+import { keybindings } from '../../data/keybindings'
+
+const toc = [
+  { id: 'defaults', label: 'default shortcuts' },
+  { id: 'customizing', label: 'customizing' },
+]
+---
+
+<DocsLayout
+  title="openclaude keybindings — defaults & customization"
+  description="Default keyboard shortcuts in the openclaude TUI and how to customize them with the keybindings file (default: ~/.openclaude/keybindings.json; override via OPENCLAUDE_CONFIG_DIR) and the /keybindings command."
+  heading="keybindings"
+  lede="The defaults match familiar readline/terminal muscle memory — and everything is rebindable."
+  toc={toc}
+>
+  <h2 id="defaults">default shortcuts</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">keys</th>
+          <th scope="col">action</th>
+          <th scope="col">context</th>
+        </tr>
+      </thead>
+      <tbody>
+        {keybindings.map(k => (
+          <tr>
+            <td><kbd>{k.keys}</kbd></td>
+            <td>{k.action}</td>
+            <td>{k.context}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Some bindings depend on terminal capabilities (e.g. <kbd>Shift+Enter</kbd> needs the
+    binding installed by <code>/terminal-setup</code>; some <kbd>Cmd</kbd> combos require a
+    kitty-protocol terminal).
+  </p>
+
+  <h2 id="customizing">customizing</h2>
+  <p>
+    Run <code>/keybindings</code> to open (or create) your keybindings file
+    (default: <code>~/.openclaude/keybindings.json</code>; override via
+    <code>OPENCLAUDE_CONFIG_DIR</code>).
+    User bindings are loaded on top of the defaults, so you only need to declare what you
+    change. Chord bindings like <code>ctrl+x ctrl+e</code> are supported.
+  </p>
+  <pre><code>{`{
+  "bindings": {
+    "ctrl+u": "chat:undo",
+    "ctrl+x ctrl+k": "chat:killAgents"
+  }
+}`}</code></pre>
+  <p>
+    Inside a session you can also ask the agent itself: the bundled
+    <a href="/docs/skills/">keybindings-help skill</a> knows the schema and can edit the
+    file for you.
+  </p>
+</DocsLayout>

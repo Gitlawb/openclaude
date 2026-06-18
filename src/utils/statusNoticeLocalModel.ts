@@ -137,7 +137,7 @@ export function isActiveProviderLocalModel(
 }
 
 export async function checkLocalModelContextLoad(
-  tools: Tool[],
+  tools: readonly Tool[],
   agentDefinitions: AgentDefinitionsResult | null | undefined,
   memoryFiles: MemoryFileInfo[],
   getToolPermissionContext: () => Promise<ToolPermissionContext>,

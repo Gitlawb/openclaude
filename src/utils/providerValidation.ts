@@ -15,6 +15,7 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
+  matchHostnameAgainstRouteHosts,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
@@ -60,9 +61,10 @@ const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghs_', 'ghr_', 'github_pat_']
 
 function checkGithubTokenStatus(
   token: string,
-  endpointType: 'copilot' | 'models' | 'custom' = 'copilot',
+  endpointType: 'copilot' | 'models' | 'ghe' | 'custom' = 'copilot',
 ): GithubTokenStatus {
   // PATs work with GitHub Models but not with Copilot API
+  // For GHE, PATs work if they have the right scopes
   if (GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))) {
     if (endpointType === 'copilot') {
       return 'expired'
@@ -176,6 +178,13 @@ function getValidationRouting(target: ValidationTarget) {
   return target.descriptor.validation?.routing
 }
 
+function isGithubEnterpriseValidationEnv(env: NodeJS.ProcessEnv): boolean {
+  if (env.GITHUB_ENTERPRISE_URL?.trim()) {
+    return true
+  }
+  return getGithubEndpointType(env.OPENAI_BASE_URL) === 'ghe'
+}
+
 function getValidationTargetBaseUrl(
   target: ValidationTarget,
 ): string | undefined {
@@ -196,6 +205,18 @@ function getRuntimeValidationTarget(
 
     if (useOpenAI && routing.skipWhenUseOpenAI) {
       return false
+    }
+
+    if (target.kind === 'gateway') {
+      if (target.descriptor.id === 'github-enterprise') {
+        return isGithubEnterpriseValidationEnv(env)
+      }
+      if (
+        target.descriptor.id === 'github' &&
+        isGithubEnterpriseValidationEnv(env)
+      ) {
+        return false
+      }
     }
 
     return true
@@ -234,9 +255,8 @@ function getRuntimeValidationTarget(
     }
 
     return (
-      routing.matchBaseUrlHosts?.some(
-        host => requestHost === host.toLowerCase(),
-      ) ?? false
+      routing.matchBaseUrlHosts &&
+      matchHostnameAgainstRouteHosts(requestHost, routing.matchBaseUrlHosts)
     )
   })
 
@@ -308,12 +328,25 @@ async function getDescriptorValidationError(
     }
 
     case 'github-token': {
+      // GITHUB_COPILOT_KEY is a direct API key for GitHub Copilot Enterprise
+      // It doesn't need token status validation as it's used directly
+      if (env.GITHUB_COPILOT_KEY?.trim()) {
+        return null
+      }
+
       const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
       if (!token) {
         return validation.missingCredentialMessage
       }
 
-      const endpointType = getGithubEndpointType(env.OPENAI_BASE_URL)
+      const githubEnterpriseUrl = env.GITHUB_ENTERPRISE_URL?.trim()
+      const endpointType = githubEnterpriseUrl
+        ? (env.OPENAI_BASE_URL?.trim()
+          ? getGithubEndpointType(env.OPENAI_BASE_URL, {
+            githubEnterpriseUrl,
+          })
+          : 'ghe')
+        : getGithubEndpointType(env.OPENAI_BASE_URL)
       const status = checkGithubTokenStatus(token, endpointType)
       if (status === 'expired') {
         return validation.expiredCredentialMessage
@@ -420,14 +453,7 @@ export async function getProviderValidationError(
     hasStoredXaiOAuthCredentials?: () => Promise<boolean>
   },
 ): Promise<string | null> {
-  const secretSource: SecretValueSource = {
-    OPENAI_API_KEY: env.OPENAI_API_KEY,
-    CODEX_API_KEY: env.CODEX_API_KEY,
-    GEMINI_API_KEY: env.GEMINI_API_KEY,
-    GOOGLE_API_KEY: env.GOOGLE_API_KEY,
-    MISTRAL_API_KEY: env.MISTRAL_API_KEY,
-    BNKR_API_KEY: env.BNKR_API_KEY,
-  }
+  const secretSource = env as SecretValueSource
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const validationTarget = getRuntimeValidationTarget(env)
 

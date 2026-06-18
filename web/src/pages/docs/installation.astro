@@ -1,0 +1,61 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro'
+import { SITE } from '../../data/site'
+
+const toc = [
+  { id: 'requirements', label: 'requirements' },
+  { id: 'install', label: 'install with npm' },
+  { id: 'arch-linux', label: 'arch linux (aur)' },
+  { id: 'verify', label: 'verify the install' },
+  { id: 'update', label: 'update' },
+  { id: 'troubleshooting', label: 'troubleshooting' },
+]
+---
+
+<DocsLayout
+  title="Install openclaude — npm, macOS, Linux & Windows"
+  description="How to install the openclaude CLI with npm on macOS, Linux, and Windows. Requirements, global install, verifying the install, and updating to the latest version."
+  heading="install openclaude"
+  lede="One npm command on macOS, Linux, or Windows. An AUR package exists for Arch."
+  toc={toc}
+>
+  <h2 id="requirements">requirements</h2>
+  <ul>
+    <li><strong>Node.js 20 or newer</strong> — grab it from <a href="https://nodejs.org/" rel="noopener">nodejs.org</a> and confirm with <code>node --version</code>.</li>
+    <li>A terminal: Terminal/iTerm on macOS, any shell on Linux, PowerShell or Windows Terminal on Windows.</li>
+    <li><code>ripgrep</code> is bundled; if startup reports <code>ripgrep not found</code>, install it system-wide and confirm <code>rg --version</code> works.</li>
+  </ul>
+
+  <h2 id="install">install with npm</h2>
+  <pre><code>{SITE.installCommand}</code></pre>
+  <p>
+    This installs the <code>openclaude</code> binary globally. On macOS/Linux you may need
+    a Node installation that doesn't require <code>sudo</code> for global installs (nvm,
+    fnm, or Homebrew node all work).
+  </p>
+
+  <h2 id="arch-linux">arch linux (aur)</h2>
+  <p>
+    A community-maintained <a href="https://aur.archlinux.org/packages/openclaude" rel="noopener">AUR package</a> is available:
+  </p>
+  <pre><code>paru -S openclaude</code></pre>
+
+  <h2 id="verify">verify the install</h2>
+  <pre><code>openclaude --version</code></pre>
+  <p>
+    To check which version is the latest published release:
+  </p>
+  <pre><code>npm view @gitlawb/openclaude dist-tags</code></pre>
+
+  <h2 id="update">update</h2>
+  <p>Re-run the install command — <code>@latest</code> always resolves to the newest release:</p>
+  <pre><code>{SITE.installCommand}</code></pre>
+
+  <h2 id="troubleshooting">troubleshooting</h2>
+  <ul>
+    <li><strong>Old version after update</strong> — your shell may cache the binary path; run <code>hash -r</code> (bash/zsh) or open a new terminal.</li>
+    <li><strong>Multiple Node versions</strong> — global installs are per Node version with nvm/fnm; make sure you installed under the version your shell uses.</li>
+    <li><strong>Anything else</strong> — run <code>/doctor</code> inside openclaude to diagnose the installation, or check the <a href={`${SITE.github}/issues`} rel="noopener">issue tracker</a>.</li>
+  </ul>
+  <p>Next: <a href="/docs/quickstart/">run your first session →</a></p>
+</DocsLayout>

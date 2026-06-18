@@ -16,6 +16,7 @@ import type { ProviderPreset } from '../utils/providerProfiles.js'
 
 const EXPECTED_PRESETS = [
   'anthropic',
+  'atlas-cloud',
   'openai',
   'ollama',
   'kimi-code',
@@ -41,6 +42,8 @@ const EXPECTED_PRESETS = [
   'bankr',
   'atomic-chat',
   'gitlawb-opengateway',
+  'nearai',
+  'fireworks',
   'opencode',
   'opencode-go',
 ] as const satisfies readonly ProviderPreset[]

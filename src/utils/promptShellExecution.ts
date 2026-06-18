@@ -69,14 +69,30 @@ const INLINE_PATTERN = /(?<=^|\s)!`([^`]+)`/gm
  *   This is *never* read from settings.defaultShell — it comes from .md
  *   frontmatter (author's choice) or is undefined for built-in commands.
  *   See docs/design/ps-shell-selection.md §5.3.
+ * @param options.lineLimits - Map of command-prefix → max output lines.
+ *   When a snippet's executed command (trimmed) starts with one of the
+ *   prefixes, the output is sliced to that many lines before being
+ *   substituted. Use to bound diffs or other potentially-large outputs
+ *   without widening the Bash allowlist (avoids `| head -N` in commands,
+ *   which the permission parser treats as a compound and may reject).
  */
 export async function executeShellCommandsInPrompt(
   text: string,
   context: ToolUseContext,
   slashCommandName: string,
   shell?: FrontmatterShell,
+  options?: { lineLimits?: Record<string, number>; granularFallback?: boolean },
 ): Promise<string> {
   let result = text
+  const lineLimits = options?.lineLimits ?? {}
+  // Default path: any non-permission, non-interrupted shell failure is wrapped
+  // in a MalformedCommandError with the failing pattern + formatted stderr so
+  // /commit, /security-review, loaded skills, and plugin commands show a
+  // useful message instead of the raw "ShellError: Shell command failed".
+  // Opt-in `granularFallback: true` rethrows the raw error and lets the caller
+  // blank just the failed snippet in place (used by the bughunter siblings
+  // where one bad git command should not discard the rest of the context).
+  const granularFallback = options?.granularFallback === true
 
   // Resolve the tool once. `shell === undefined` and `shell === 'bash'` both
   // hit BashTool. PowerShell only when the runtime gate allows — a skill
@@ -117,9 +133,21 @@ export async function executeShellCommandsInPrompt(
           }
 
           const { data } = await shellTool.call({ command }, context)
+          // Apply per-prefix line limit to the raw stdout BEFORE persistence
+          // so the trimmed output flows through processToolResultBlock and
+          // its empty-content guard fires correctly when truncation empties
+          // the block entirely. Also avoids the 30k-char Bash result cap
+          // short-circuit for huge diffs.
+          const trimmedStdout =
+            typeof data.stdout === 'string' ? data.stdout : ''
+          const boundedStdout = applyLineLimit(
+            command,
+            trimmedStdout,
+            lineLimits,
+          )
           const normalizedData = {
             ...data,
-            stdout: typeof data.stdout === 'string' ? data.stdout : '',
+            stdout: boundedStdout,
             stderr: typeof data.stderr === 'string' ? data.stderr : '',
           }
           // Reuse the same persistence flow as regular Bash tool calls
@@ -145,7 +173,15 @@ export async function executeShellCommandsInPrompt(
           if (e instanceof MalformedCommandError) {
             throw e
           }
-          formatBashError(e, match[0])
+          if (granularFallback) {
+            // Blank the failed snippet in place so the other successful
+            // snippets (e.g. git status, git diff) are preserved. Callers
+            // can render their own fallback text outside the code blocks
+            // if they need to explain the gap.
+            result = result.replace(match[0], () => '')
+            return
+          }
+          throw formatBashError(e, match[0])
         }
       }
     }),
@@ -178,20 +214,62 @@ function formatBashOutput(
   return parts.join(inline ? ' ' : '\n')
 }
 
-function formatBashError(e: unknown, pattern: string, inline = false): never {
-  if (e instanceof ShellError) {
-    if (e.interrupted) {
-      throw new MalformedCommandError(
-        `Shell command interrupted for pattern "${pattern}": [Command interrupted]`,
-      )
-    }
-    const output = formatBashOutput(e.stdout, e.stderr, inline)
-    throw new MalformedCommandError(
-      `Shell command failed for pattern "${pattern}": ${output}`,
-    )
+function formatBashError(
+  e: unknown,
+  pattern: string,
+  _inline = false,
+): MalformedCommandError {
+  // Restore the original rich diagnostic: include the failing pattern and the
+  // formatted stdout/stderr so processSlashCommand can render something a user
+  // can act on. Permission denials and aborts are surfaced as
+  // MalformedCommandError by the caller; this path is for everything else.
+  if (e instanceof MalformedCommandError) {
+    return e
   }
+  const stderr =
+    e instanceof Error && 'stderr' in e && typeof (e as { stderr?: unknown }).stderr === 'string'
+      ? (e as { stderr: string }).stderr
+      : ''
+  const stdout =
+    e instanceof Error && 'stdout' in e && typeof (e as { stdout?: unknown }).stdout === 'string'
+      ? (e as { stdout: string }).stdout
+      : ''
+  const formatted = formatBashOutput(stdout, stderr, false)
+  const message = `Shell command failed for pattern "${pattern}": ${errorMessage(e)}${formatted ? `\n${formatted}` : ''}`
+  return new MalformedCommandError(message)
+}
 
-  const message = errorMessage(e)
-  const formatted = inline ? `[Error: ${message}]` : `[Error]\n${message}`
-  throw new MalformedCommandError(formatted)
+/**
+ * If `command` (trimmed) starts with a key from `limits`, slice `output` to
+ * at most that many lines. Longest prefix wins so callers can register
+ * `git diff HEAD -- .` and `git diff` and get the more specific cap.
+ * Returns `output` unchanged when no key matches or the output is already
+ * under the cap. A trailing-newline-preserving split keeps the file as
+ * the diff tool would have rendered it.
+ */
+function applyLineLimit(
+  command: string,
+  output: string,
+  limits: Record<string, number>,
+): string {
+  const trimmed = command.trim()
+  let bestPrefix = ''
+  let bestLimit = Infinity
+  for (const [prefix, limit] of Object.entries(limits)) {
+    if (trimmed === prefix || trimmed.startsWith(prefix + ' ')) {
+      if (prefix.length > bestPrefix.length) {
+        bestPrefix = prefix
+        bestLimit = limit
+      }
+    }
+  }
+  if (bestPrefix === '') {
+    return output
+  }
+  const lines = output.split('\n')
+  if (lines.length <= bestLimit) {
+    return output
+  }
+  const truncated = lines.slice(0, bestLimit).join('\n')
+  return output.endsWith('\n') ? truncated + '\n' : truncated
 }

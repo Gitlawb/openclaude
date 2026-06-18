@@ -7,6 +7,7 @@ export type OpenAICompatibilityFailureCategory =
   | 'rate_limited'
   | 'model_not_found'
   | 'endpoint_not_found'
+  | 'vision_not_supported'
   | 'context_overflow'
   | 'tool_call_incompatible'
   | 'malformed_provider_response'
@@ -38,11 +39,22 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'rate_limited',
     'model_not_found',
     'endpoint_not_found',
+    'vision_not_supported',
     'context_overflow',
     'tool_call_incompatible',
     'malformed_provider_response',
     'provider_unavailable',
     'unknown',
+  ])
+
+const RETRYABLE_OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFailureCategory> =
+  new Set<OpenAICompatibilityFailureCategory>([
+    'connection_refused',
+    'localhost_resolution_failed',
+    'request_timeout',
+    'network_error',
+    'rate_limited',
+    'provider_unavailable',
   ])
 
 function isOpenAICompatibilityFailureCategory(
@@ -51,6 +63,12 @@ function isOpenAICompatibilityFailureCategory(
   return OPENAI_COMPATIBILITY_FAILURE_CATEGORIES.has(
     value as OpenAICompatibilityFailureCategory,
   )
+}
+
+export function isRetryableOpenAICompatibilityFailureCategory(
+  category: OpenAICompatibilityFailureCategory,
+): boolean {
+  return RETRYABLE_OPENAI_COMPATIBILITY_FAILURE_CATEGORIES.has(category)
 }
 
 function getErrorCode(error: unknown): string | undefined {
@@ -137,6 +155,34 @@ function isMalformedProviderResponse(body: string): boolean {
     lower.includes('unexpected token') ||
     lower.includes('cannot parse') ||
     lower.includes('not valid json')
+  )
+}
+
+/**
+ * Detect provider messages that complain about a missing/required `text`
+ * field on an otherwise image-bearing payload. Xiaomi Mimo surfaces this as
+ * `{"error":{"code":"400","message":"Param Incorrect","param":"`text` is not set"}}`
+ * (with backticks around `text`) when a `role: "tool"` message carries
+ * images but no text part. Other OpenAI-compatible providers may phrase
+ * it differently — match liberally.
+ *
+ * Only meaningful when `hasImages` is true (we never want this branch to fire
+ * for text-only requests, which legitimately lack a text field on vision-only
+ * payloads).
+ */
+function isMissingTextPartMessage(body: string): boolean {
+  // Strip backticks so `\`text\` is not set` matches the same patterns as
+  // `text is not set` — the Xiaomi Mimo 400 body wraps `text` in backticks
+  // inside the `param` field, which trips naive substring matching.
+  const lower = body.toLowerCase().replace(/`/g, '')
+  return (
+    lower.includes('text is not set') ||
+    lower.includes('text is required') ||
+    lower.includes('text parameter is required') ||
+    lower.includes('text parameter is missing') ||
+    lower.includes('missing text') ||
+    lower.includes('"param":"text"') ||
+    lower.includes('"param": "text"')
   )
 }
 
@@ -264,6 +310,7 @@ export function classifyOpenAIHttpFailure(options: {
   status: number
   body: string
   url?: string
+  hasImages?: boolean
 }): OpenAICompatibilityFailure {
   const body = options.body ?? ''
   const hostname = options.url ? getHostname(options.url) : null
@@ -310,6 +357,38 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'The selected model is not installed or not available on this endpoint.',
+    }
+  }
+
+  if (options.status === 404 && options.hasImages) {
+    return {
+      source: 'http',
+      category: 'vision_not_supported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      requestUrl: options.url,
+      hint: 'The provider returned 404 for a request containing images. The model may not support vision/image inputs.',
+    }
+  }
+
+  // Xiaomi Mimo and similar OpenAI-compatible providers reject image-bearing
+  // `role: "tool"` messages with a 400 carrying `text is not set` instead of
+  // a 404. Classify the same way as the 404 + hasImages branch so the user
+  // gets actionable guidance rather than the raw API error (issue #1421).
+  if (
+    options.status === 400 &&
+    options.hasImages &&
+    isMissingTextPartMessage(body)
+  ) {
+    return {
+      source: 'http',
+      category: 'vision_not_supported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      requestUrl: options.url,
+      hint: 'The provider rejected a request containing an image (likely a tool result) because it did not include a text part. The model may not support image/vision inputs.',
     }
   }
 

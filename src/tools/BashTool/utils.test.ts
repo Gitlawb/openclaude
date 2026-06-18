@@ -1,3 +1,4 @@
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { describe, expect, test } from 'bun:test'
 import {
   stripEmptyLines,
@@ -5,6 +6,7 @@ import {
   parseDataUri,
   formatOutput,
   createContentSummary,
+  selectFailureOutput,
 } from './utils.js'
 
 // =============================================================================
@@ -177,9 +179,11 @@ describe('createContentSummary', () => {
   })
 
   test('summarizes image blocks', () => {
+    // MCP-shaped image blocks (data/mimeType) rather than the SDK's
+    // source-wrapped shape; createContentSummary only reads `type`/`text`.
     const content = [
       { type: 'image' as const, data: 'base64data', mimeType: 'image/png' },
-    ]
+    ] as unknown as ContentBlockParam[]
     const result = createContentSummary(content)
     expect(result).toContain('1 image')
   })
@@ -189,7 +193,7 @@ describe('createContentSummary', () => {
       { type: 'text' as const, text: 'Description' },
       { type: 'image' as const, data: 'base64data', mimeType: 'image/png' },
       { type: 'text' as const, text: 'More text' },
-    ]
+    ] as unknown as ContentBlockParam[]
     const result = createContentSummary(content)
     expect(result).toContain('1 image')
     expect(result).toContain('2 text blocks')
@@ -208,5 +212,49 @@ describe('createContentSummary', () => {
   test('empty content array', () => {
     const result = createContentSummary([])
     expect(result).toContain('MCP Result')
+  })
+})
+
+// =============================================================================
+// selectFailureOutput — picks the best source for a non-zero-exit failure body
+// =============================================================================
+
+describe('selectFailureOutput (#1231)', () => {
+  test('prefers the accumulator when it has content', () => {
+    expect(selectFailureOutput('build failed\nerror: missing tsc', 'unused', 'also unused'))
+      .toBe('build failed\nerror: missing tsc')
+  })
+
+  test('falls back to result.stdout when accumulator is empty', () => {
+    expect(selectFailureOutput('', 'stdout body', 'unused')).toBe('stdout body')
+  })
+
+  test('falls back to result.stdout when accumulator is whitespace-only', () => {
+    expect(selectFailureOutput('   \n\n  ', 'real stdout', 'unused')).toBe('real stdout')
+  })
+
+  test('recovers from progress.fullOutput when accumulator and result.stdout are both empty', () => {
+    expect(selectFailureOutput('', '', 'streamed line 1\nstreamed line 2'))
+      .toBe('streamed line 1\nstreamed line 2')
+  })
+
+  test('recovers from progress.fullOutput when result.stdout is undefined (shell runner left slot empty)', () => {
+    // Reproduces #1231: accumulator was only `\nExit code N` (stripped to ''),
+    // result.stdout was empty because the shell runner streamed everything
+    // through progress callbacks, but lastProgressFullOutput captured every
+    // line on the way through.
+    expect(selectFailureOutput('', undefined, 'tsc error TS2305\nbuild halted'))
+      .toBe('tsc error TS2305\nbuild halted')
+  })
+
+  test('returns empty string when all three sources are empty', () => {
+    expect(selectFailureOutput('', undefined, '')).toBe('')
+    expect(selectFailureOutput('', '', '')).toBe('')
+  })
+
+  test('whitespace-only progressFullOutput does not win over empty result.stdout', () => {
+    // Pure whitespace from a progress flush should not be treated as a
+    // recoverable failure body — would otherwise leak just "\n" or "   ".
+    expect(selectFailureOutput('', '', '   \n  \n')).toBe('')
   })
 })

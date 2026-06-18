@@ -35,6 +35,7 @@ import { loadPluginLspServers } from './lspPluginIntegration.js'
 import { loadPluginMcpServers } from './mcpPluginIntegration.js'
 import { clearPluginCacheExclusions } from './orphanedPluginFilter.js'
 import { loadAllPlugins } from './pluginLoader.js'
+import type { HookMatcher, HooksSettings } from '../settings/types.js'
 
 type SetAppState = (updater: (prev: AppState) => AppState) => void
 
@@ -166,7 +167,9 @@ export async function refreshActivePlugins(
     if (!p.hooksConfig) return sum
     return (
       sum +
-      Object.values(p.hooksConfig).reduce(
+      (Object.values(p.hooksConfig as HooksSettings) as Array<
+        HookMatcher[] | undefined
+      >).reduce(
         (s, matchers) =>
           s + (matchers?.reduce((h, m) => h + m.hooks.length, 0) ?? 0),
         0,

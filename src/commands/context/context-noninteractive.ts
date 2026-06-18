@@ -51,8 +51,15 @@ export async function collectContextData(
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { projectView } =
       require('../../services/contextCollapse/operations.js') as typeof import('../../services/contextCollapse/operations.js')
+    const { isContextCollapseEnabled } =
+      require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
-    apiView = projectView(apiView)
+    // Gate on runtime enablement, matching the query path. Once collapse is
+    // disabled the API receives the full transcript, so projecting a lingering
+    // commit log here would under-report real token usage.
+    if (isContextCollapseEnabled()) {
+      apiView = projectView(apiView)
+    }
   }
 
   const { messages: compactedMessages } = await microcompactMessages(apiView)
@@ -119,7 +126,7 @@ function formatContextAsMarkdownTable(data: ContextData): string {
       const s = getStats()
       const { health: h } = s
 
-      const parts = []
+      const parts: string[] = []
       if (s.collapsedSpans > 0) {
         parts.push(
           `${s.collapsedSpans} ${plural(s.collapsedSpans, 'span')} summarized (${s.collapsedMessages} messages)`,

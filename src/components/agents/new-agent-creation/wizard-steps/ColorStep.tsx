@@ -17,7 +17,7 @@ export function ColorStep() {
     goBack,
     updateWizardData,
     wizardData
-  } = useWizard();
+  } = useWizard<AgentWizardData>();
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t0 = {
@@ -31,12 +31,16 @@ export function ColorStep() {
   let t1;
   if ($[1] !== goNext || $[2] !== updateWizardData || $[3] !== wizardData.agentType || $[4] !== wizardData.location || $[5] !== wizardData.selectedModel || $[6] !== wizardData.selectedTools || $[7] !== wizardData.systemPrompt || $[8] !== wizardData.whenToUse) {
     t1 = color => {
+      const { agentType, location, systemPrompt, whenToUse } = wizardData;
+      if (!agentType || !whenToUse || !systemPrompt || !location) {
+        return;
+      }
       updateWizardData({
         selectedColor: color,
         finalAgent: {
-          agentType: wizardData.agentType,
-          whenToUse: wizardData.whenToUse,
-          getSystemPrompt: () => wizardData.systemPrompt,
+          agentType,
+          whenToUse,
+          getSystemPrompt: () => systemPrompt,
           tools: wizardData.selectedTools,
           ...(wizardData.selectedModel ? {
             model: wizardData.selectedModel
@@ -44,7 +48,7 @@ export function ColorStep() {
           ...(color ? {
             color: color as AgentColorName
           } : {}),
-          source: wizardData.location
+          source: location
         }
       });
       goNext();

@@ -33,6 +33,7 @@ import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
+import type { ProviderProfile } from '../../utils/config.js'
 import type { AppState } from '../../state/AppState.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
 import type { LocalJSXCommandCall } from '../../types/command.js'
@@ -49,7 +50,10 @@ import {
   checkOpus1mAccess,
   checkSonnet1mAccess,
 } from '../../utils/model/check1mAccess.js'
-import type { ModelOption } from '../../utils/model/modelOptions.js'
+import {
+  getDefaultOptionForUser,
+  type ModelOption,
+} from '../../utils/model/modelOptions.js'
 import { buildRouteCatalogModelOptions, mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
@@ -63,11 +67,17 @@ import { getLocalOpenAICompatibleProviderLabel } from '../../utils/providerDisco
 import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
 import { parseCustomHeadersEnv } from '../../utils/providerCustomHeaders.js'
 import {
-  getActiveOpenAIModelOptionsCache,
+  getActiveOpenAIRouteModelOptionsCache,
   getActiveProviderProfile,
-  getProfileModelOptions,
+  getConfiguredProfileModelOptions,
+  setActiveOpenAIRouteModelOptionsCache,
   setActiveOpenAIModelOptionsCache,
 } from '../../utils/providerProfiles.js'
+import { parseModelList } from '../../utils/providerModels.js'
+import { getInitialSettings } from '../../utils/settings/settings.js'
+
+export type ProviderProfileModelPickerMode = 'auto' | 'profile' | 'provider'
+export type ResolvedProviderProfileModelSurface = 'profile' | 'provider'
 
 type ModelDiscoveryContext =
   | {
@@ -75,6 +85,7 @@ type ModelDiscoveryContext =
       autoRefresh: boolean
       canRefresh: boolean
       discoveryState?: ModelPickerDiscoveryState
+      profileModelSurface: ResolvedProviderProfileModelSurface
       optionsOverride: ModelOption[]
       routeId: string
       routeDefaultModel?: string
@@ -85,6 +96,9 @@ type ModelDiscoveryContext =
       autoRefresh: boolean
       canRefresh: boolean
       discoveryState?: ModelPickerDiscoveryState
+      optionsOverride: ModelOption[]
+      profileModelSurface: ResolvedProviderProfileModelSurface
+      routeId: string
       routeLabel: string
     }
 
@@ -112,65 +126,38 @@ function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolea
   })
 }
 
-export function mergeActiveProfileModelOptions(
-  routeId: string,
+function filterModelOptionsByAllowlist(options: ModelOption[]): ModelOption[] {
+  return options.filter(option => {
+    if (option.value === null) {
+      return true
+    }
+    return typeof option.value === 'string'
+      ? isModelAllowed(option.value)
+      : true
+  })
+}
+
+function modelOptionKey(option: ModelOption): string | null {
+  const value = typeof option.value === 'string' ? option.value.trim() : ''
+  return value ? value.toLowerCase() : null
+}
+
+function mergeProfileListFirst(
   routeOptions: ModelOption[],
+  profileOptions: ModelOption[],
 ): ModelOption[] {
-  const activeProfile = getActiveProviderProfile()
-  if (!activeProfile) {
-    return routeOptions
-  }
-
-  const profileEnvApplied =
-    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
-    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID === activeProfile.id
-  const activeProfileRouteId =
-    resolveRouteIdFromBaseUrl(activeProfile.baseUrl) ??
-    resolveProfileRoute(activeProfile.provider).routeId
-
-  if (!profileEnvApplied || activeProfileRouteId !== routeId) {
-    return routeOptions
-  }
-
-  const profileOptions = getProfileModelOptions(activeProfile)
-  if (profileOptions.length === 0) {
-    return routeOptions
-  }
-
-  // Native vendor routes ship a complete curated catalog, so show every
-  // catalogued model (e.g. all MiniMax models including M3) rather than
-  // collapsing to the single model pinned in the profile. Any profile-only
-  // models not present in the catalog are appended so custom entries survive.
-  if (isNativeVendorCatalogRoute(routeId)) {
-    const catalogKeys = new Set(
-      routeOptions.flatMap(option =>
-        typeof option.value === 'string'
-          ? [option.value.trim().toLowerCase()]
-          : [],
-      ),
-    )
-    const extraProfileModels = profileOptions.filter(option => {
-      const value =
-        typeof option.value === 'string' ? option.value.trim().toLowerCase() : ''
-      return value !== '' && !catalogKeys.has(value)
-    })
-    return [...routeOptions, ...extraProfileModels]
-  }
-
   const routeOptionsByValue = new Map(
     routeOptions.flatMap(option => {
-      const value =
-        typeof option.value === 'string' ? option.value.trim().toLowerCase() : ''
-      return value ? [[value, option] as const] : []
+      const key = modelOptionKey(option)
+      return key ? [[key, option] as const] : []
     }),
   )
   const merged: ModelOption[] = []
   const seen = new Set<string>()
 
   for (const option of profileOptions) {
-    const value = typeof option.value === 'string' ? option.value.trim() : ''
-    const key = value.toLowerCase()
-    if (!value || seen.has(key)) {
+    const key = modelOptionKey(option)
+    if (!key || seen.has(key)) {
       continue
     }
 
@@ -181,11 +168,152 @@ export function mergeActiveProfileModelOptions(
   return merged
 }
 
+function mergeProviderCatalogFirst(
+  routeOptions: ModelOption[],
+  profileOptions: ModelOption[],
+): ModelOption[] {
+  const merged: ModelOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of routeOptions) {
+    const key = modelOptionKey(option)
+    if (key) {
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+    }
+    merged.push(option)
+  }
+
+  for (const option of profileOptions) {
+    const key = modelOptionKey(option)
+    if (!key || seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    merged.push(option)
+  }
+
+  return merged
+}
+
+function getProviderProfileModelPickerMode(): ProviderProfileModelPickerMode {
+  const mode = getInitialSettings().providerProfileModelPickerMode
+  return mode === 'profile' || mode === 'provider' || mode === 'auto'
+    ? mode
+    : 'auto'
+}
+
+export function resolveProviderProfileModelSurface(options: {
+  activeProfile?: ProviderProfile | null
+  routeId?: string
+  settingsMode?: ProviderProfileModelPickerMode
+}): ResolvedProviderProfileModelSurface {
+  if (options.settingsMode === 'profile') {
+    return 'profile'
+  }
+  if (options.settingsMode === 'provider') {
+    return 'provider'
+  }
+
+  if (options.routeId && isNativeVendorCatalogRoute(options.routeId)) {
+    return 'provider'
+  }
+
+  const explicitProfileModelCount = options.activeProfile
+    ? parseModelList(options.activeProfile.model).length
+    : 0
+
+  return explicitProfileModelCount > 1 ? 'profile' : 'provider'
+}
+
+function getActiveProfileRouteId(activeProfile: ProviderProfile): string {
+  return (
+    resolveRouteIdFromBaseUrl(activeProfile.baseUrl) ??
+    resolveProfileRoute(activeProfile.provider).routeId
+  )
+}
+
+function isActiveProfileAppliedToRoute(
+  activeProfile: ProviderProfile,
+  routeId: string,
+): boolean {
+  return (
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID ===
+      activeProfile.id &&
+    getActiveProfileRouteId(activeProfile) === routeId
+  )
+}
+
+export function mergeActiveProfileModelOptions(
+  routeId: string,
+  routeOptions: ModelOption[],
+  options?: {
+    profileModelSurface?: ResolvedProviderProfileModelSurface
+  },
+): ModelOption[] {
+  const activeProfile = getActiveProviderProfile()
+  if (!activeProfile) {
+    return filterModelOptionsByAllowlist(routeOptions)
+  }
+
+  if (!isActiveProfileAppliedToRoute(activeProfile, routeId)) {
+    return filterModelOptionsByAllowlist(routeOptions)
+  }
+
+  const profileOptions = getConfiguredProfileModelOptions(activeProfile)
+  if (profileOptions.length === 0) {
+    return filterModelOptionsByAllowlist(routeOptions)
+  }
+
+  const surface =
+    options?.profileModelSurface ??
+    resolveProviderProfileModelSurface({
+      activeProfile,
+      routeId,
+      settingsMode: getProviderProfileModelPickerMode(),
+    })
+  const merged =
+    surface === 'provider'
+      ? mergeProviderCatalogFirst(routeOptions, profileOptions)
+      : mergeProfileListFirst(routeOptions, profileOptions)
+
+  return filterModelOptionsByAllowlist(merged)
+}
+
 function getActiveRouteId(): string | null {
   const activeProfile = getActiveProviderProfile()
   return resolveActiveRouteIdFromEnv(process.env, {
     activeProfileProvider: activeProfile?.provider,
   })
+}
+
+function getLegacyOpenAIOptionsOverride(options: {
+  profileModelSurface: ResolvedProviderProfileModelSurface
+  routeId: string
+}): ModelOption[] {
+  const scopedOptions = getActiveOpenAIRouteModelOptionsCache()
+  const activeProfile = getActiveProviderProfile()
+  if (
+    !activeProfile ||
+    !isActiveProfileAppliedToRoute(activeProfile, options.routeId)
+  ) {
+    return filterModelOptionsByAllowlist([
+      getDefaultOptionForUser(),
+      ...scopedOptions,
+    ])
+  }
+
+  return mergeActiveProfileModelOptions(
+    options.routeId,
+    scopedOptions,
+    {
+      profileModelSurface: options.profileModelSurface,
+    },
+  )
 }
 
 function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
@@ -247,6 +375,12 @@ async function loadDescriptorDiscoveryContext(
   const routeLabel = descriptor.label
   const routeDefaultModel =
     'defaultModel' in descriptor ? descriptor.defaultModel : undefined
+  const activeProfile = getActiveProviderProfile()
+  const profileModelSurface = resolveProviderProfileModelSurface({
+    activeProfile,
+    routeId,
+    settingsMode: getProviderProfileModelPickerMode(),
+  })
   const staticEntries = catalog.models ?? []
   const trafficRestricted = isEssentialTrafficOnly()
   const canRefresh = Boolean(
@@ -268,7 +402,10 @@ async function loadDescriptorDiscoveryContext(
       kind: 'descriptor',
       autoRefresh: false,
       canRefresh,
-      optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
+      profileModelSurface,
+      optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions, {
+        profileModelSurface,
+      }),
       routeId,
       routeDefaultModel,
       routeLabel,
@@ -316,7 +453,10 @@ async function loadDescriptorDiscoveryContext(
     autoRefresh,
     canRefresh,
     discoveryState,
-    optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions),
+    profileModelSurface,
+    optionsOverride: mergeActiveProfileModelOptions(routeId, routeOptions, {
+      profileModelSurface,
+    }),
     routeId,
     routeDefaultModel,
     routeLabel,
@@ -334,10 +474,23 @@ async function loadModelDiscoveryContext(): Promise<ModelDiscoveryContext | null
 
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
     const { baseUrl } = getOpenAIDiscoveryRequestOptions()
+    const activeProfile = getActiveProviderProfile()
+    const legacyRouteId = routeId ?? 'custom'
+    const profileModelSurface = resolveProviderProfileModelSurface({
+      activeProfile,
+      routeId: legacyRouteId,
+      settingsMode: getProviderProfileModelPickerMode(),
+    })
     return {
       kind: 'legacy-openai',
       autoRefresh: !isEssentialTrafficOnly(),
       canRefresh: !isEssentialTrafficOnly(),
+      optionsOverride: getLegacyOpenAIOptionsOverride({
+        profileModelSurface,
+        routeId: legacyRouteId,
+      }),
+      profileModelSurface,
+      routeId: legacyRouteId,
       routeLabel: getLocalOpenAICompatibleProviderLabel(baseUrl),
     }
   }
@@ -437,7 +590,7 @@ function ModelPickerWrapper({
   const isFastMode = useAppState((s: AppState) => s.fastMode)
   const setAppState = useSetAppState()
   const [optionsOverride, setOptionsOverride] = React.useState<ModelOption[] | undefined>(
-    discoveryContext?.kind === 'descriptor'
+    discoveryContext && 'optionsOverride' in discoveryContext
       ? discoveryContext.optionsOverride
       : undefined,
   )
@@ -456,6 +609,14 @@ function ModelPickerWrapper({
   }
 
   const handleSelect = (model: string | null, effort: EffortLevel | undefined) => {
+    if (model && !isModelAllowed(model)) {
+      onDone(
+        `Model '${model}' is not available. Your organization restricts model selection.`,
+        { display: 'system' },
+      )
+      return
+    }
+
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -545,6 +706,9 @@ function ModelPickerWrapper({
           result?.models ?? [],
           discoveryContext.routeDefaultModel,
         ),
+        {
+          profileModelSurface: discoveryContext.profileModelSurface,
+        },
       )
       const changed = !haveSameModelOptions(optionsOverride ?? [], nextOptions)
 
@@ -562,14 +726,51 @@ function ModelPickerWrapper({
 
     try {
       const discoveredOptions = await discoverOpenAICompatibleModelOptions()
-      const currentOptions = getActiveOpenAIModelOptionsCache()
-      const changed =
-        discoveredOptions.length > 0 &&
-        !haveSameModelOptions(currentOptions, discoveredOptions)
-
-      if (discoveredOptions.length > 0 && changed) {
-        setActiveOpenAIModelOptionsCache(discoveredOptions)
+      if (discoveredOptions.length === 0) {
+        setDiscoveryState(
+          legacyDiscoveryStateForOptions({
+            changed: false,
+            failed: true,
+            manual,
+            routeLabel: discoveryContext.routeLabel,
+          }),
+        )
+        return
       }
+
+      const currentRawOptions = getActiveOpenAIRouteModelOptionsCache()
+      const activeProfile = getActiveProviderProfile()
+      const profileApplied = Boolean(
+        activeProfile &&
+          isActiveProfileAppliedToRoute(
+            activeProfile,
+            discoveryContext.routeId,
+          ),
+      )
+      const nextOptions = profileApplied
+        ? mergeActiveProfileModelOptions(
+            discoveryContext.routeId,
+            discoveredOptions,
+            {
+              profileModelSurface: discoveryContext.profileModelSurface,
+            },
+          )
+        : filterModelOptionsByAllowlist([
+            getDefaultOptionForUser(),
+            ...discoveredOptions,
+          ])
+      const changed =
+        !haveSameModelOptions(optionsOverride ?? currentRawOptions, nextOptions)
+      const rawChanged =
+        !haveSameModelOptions(currentRawOptions, discoveredOptions)
+
+      if (rawChanged) {
+        setActiveOpenAIRouteModelOptionsCache(discoveredOptions)
+        if (profileApplied) {
+          setActiveOpenAIModelOptionsCache(discoveredOptions)
+        }
+      }
+      setOptionsOverride(nextOptions)
 
       setDiscoveryState(
         legacyDiscoveryStateForOptions({
@@ -821,6 +1022,9 @@ async function refreshModelsAndSummarize(): Promise<string> {
         result?.models ?? [],
         discoveryContext.routeDefaultModel,
       ),
+      {
+        profileModelSurface: discoveryContext.profileModelSurface,
+      },
     )
     const changed = !haveSameModelOptions(
       discoveryContext.optionsOverride,
@@ -837,13 +1041,46 @@ async function refreshModelsAndSummarize(): Promise<string> {
 
   try {
     const discoveredOptions = await discoverOpenAICompatibleModelOptions()
-    const currentOptions = getActiveOpenAIModelOptionsCache()
-    const changed =
-      discoveredOptions.length > 0 &&
-      !haveSameModelOptions(currentOptions, discoveredOptions)
+    if (discoveredOptions.length === 0) {
+      return legacyDiscoveryStateForOptions({
+        changed: false,
+        failed: true,
+        manual: true,
+        routeLabel: discoveryContext.routeLabel,
+      }).message
+    }
 
-    if (discoveredOptions.length > 0 && changed) {
-      setActiveOpenAIModelOptionsCache(discoveredOptions)
+    const currentRawOptions = getActiveOpenAIRouteModelOptionsCache()
+    const activeProfile = getActiveProviderProfile()
+    const profileApplied = Boolean(
+      activeProfile &&
+        isActiveProfileAppliedToRoute(activeProfile, discoveryContext.routeId),
+    )
+    const nextOptions = profileApplied
+      ? mergeActiveProfileModelOptions(
+          discoveryContext.routeId,
+          discoveredOptions,
+          {
+            profileModelSurface: discoveryContext.profileModelSurface,
+          },
+        )
+      : filterModelOptionsByAllowlist([
+          getDefaultOptionForUser(),
+          ...discoveredOptions,
+        ])
+    const changed =
+      !haveSameModelOptions(
+        discoveryContext.optionsOverride ?? currentRawOptions,
+        nextOptions,
+      )
+    const rawChanged =
+      !haveSameModelOptions(currentRawOptions, discoveredOptions)
+
+    if (rawChanged) {
+      setActiveOpenAIRouteModelOptionsCache(discoveredOptions)
+      if (profileApplied) {
+        setActiveOpenAIModelOptionsCache(discoveredOptions)
+      }
     }
 
     return legacyDiscoveryStateForOptions({

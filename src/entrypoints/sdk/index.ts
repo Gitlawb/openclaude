@@ -12,6 +12,11 @@ import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/
 import { QueryEngine } from '../../QueryEngine.js'
 import { getTools } from '../../tools.js'
 import { init } from '../init.js'
+import {
+  checkCriticalImportsForStubs,
+  safelyAccess,
+  type CriticalImport,
+} from './stubLeakDetection.js'
 
 // ============================================================================
 // Stub leak detection
@@ -22,29 +27,48 @@ import { init } from '../init.js'
  * runtime. The esbuild sdk-missing-stub plugin marks every stub with
  * `__stub: true`. We check core SDK modules that should NEVER be stubs.
  * If any resolved to a stub, it means a TUI dependency leaked through.
+ *
+ * Each access is wrapped in a TDZ-safe getter so a circular import that
+ * leaves one binding uninitialized at the moment we run cannot crash the
+ * whole detector (#1287 — `npm run dev:grpc` tripped the check at
+ * `QueryEngine` via a TDZ ReferenceError from the script's import order).
+ * TDZ is a separate bug class than stub-leak: an uninitialized binding
+ * can't carry `__stub: true`, so the access failure is treated as "nothing
+ * to check here". Real stub leaks still throw the explicit SDK init error.
+ *
+ * The detection primitives live in ./stubLeakDetection so the real path can
+ * be unit-tested directly (see tests/sdk/stub-leak-detect.test.ts).
  */
 function detectStubLeaks(): void {
-  const criticalImports: Array<{ name: string; mod: Record<string, unknown> }> = [
+  const criticalImports: CriticalImport[] = [
     // QueryEngine is the core SDK engine — must never be a stub
-    { name: 'QueryEngine', mod: QueryEngine as unknown as Record<string, unknown> },
+    {
+      name: 'QueryEngine',
+      get: () =>
+        safelyAccess(() => QueryEngine as unknown as Record<string, unknown>),
+    },
     // These are imported by this file and must be real modules, not stubs
-    { name: 'getTools', mod: getTools as unknown as Record<string, unknown> },
-    { name: 'init', mod: init as unknown as Record<string, unknown> },
+    {
+      name: 'getTools',
+      get: () =>
+        safelyAccess(() => getTools as unknown as Record<string, unknown>),
+    },
+    {
+      name: 'init',
+      get: () => safelyAccess(() => init as unknown as Record<string, unknown>),
+    },
   ]
 
-  for (const { name, mod } of criticalImports) {
-    if ('__stub' in mod && mod.__stub === true) {
-      throw new Error(
-        `SDK init error: "${name}" resolved to a build stub at runtime. ` +
-        `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
-        `Report this at https://github.com/Gitlawb/openclaude/issues`,
-      )
-    }
-  }
+  checkCriticalImportsForStubs(criticalImports)
 }
 
-// Run leak detection once at module load time.
-detectStubLeaks()
+// Run leak detection on the next microtask so every same-tick module init
+// (including circular-dep neighbors like scripts/start-grpc.ts → SDK index
+// → QueryEngine → ... → SDK index) completes before we read the bindings.
+// Module-load-time invocation would race the binding initialization order
+// and surface as a TDZ ReferenceError (#1287). The safelyAccess wrapper
+// inside detectStubLeaks belt-and-braces this for any remaining cycles.
+queueMicrotask(detectStubLeaks)
 
 // ============================================================================
 // Re-exports from shared types
@@ -66,6 +90,14 @@ export type {
   SDKAgentLoadFailureMessage,
   QueryPermissionMode,
 } from './shared.js'
+export type {
+  AccountInfo,
+  AgentInfo,
+  FastModeState,
+  ModelInfo,
+  SlashCommand,
+} from './coreTypes.js'
+export type { SDKControlInitializeResponse } from './controlTypes.js'
 
 // ============================================================================
 // Re-exports from permissions

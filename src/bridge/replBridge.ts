@@ -626,6 +626,20 @@ export async function initBridgeCore(
     }
   }
 
+  async function closeTransportBestEffort(
+    transportToClose: ReplBridgeTransport,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await transportToClose.close()
+    } catch (err) {
+      logForDebugging(
+        `[bridge:repl] Transport close threw ${reason}: ${errorMessage(err)}`,
+        { level: 'error' },
+      )
+    }
+  }
+
   async function doReconnect(): Promise<boolean> {
     environmentRecreations++
     // Invalidate any in-flight v2 handshake — the environment is being
@@ -652,7 +666,7 @@ export async function initBridgeCore(
       if (seq > lastTransportSequenceNum) {
         lastTransportSequenceNum = seq
       }
-      transport.close()
+      await closeTransportBestEffort(transport, 'during reconnect')
       transport = null
     }
     // Transport is gone — wake the poll loop out of its at-capacity
@@ -1055,7 +1069,7 @@ export async function initBridgeCore(
     // forwarding prompts → ~25-min dead window observed in daemon logs.
     // Kill the transport + work state so isAtCapacity()=false; the loop
     // fast-polls and picks up the server's re-dispatched work in seconds.
-    onHeartbeatFatal: (err: BridgeFatalError) => {
+    onHeartbeatFatal: async (err: BridgeFatalError) => {
       logForDebugging(
         `[bridge:repl] heartbeatWork fatal (status=${err.status}) — tearing down work item for fast re-dispatch`,
       )
@@ -1064,7 +1078,7 @@ export async function initBridgeCore(
         if (seq > lastTransportSequenceNum) {
           lastTransportSequenceNum = seq
         }
-        transport.close()
+        await closeTransportBestEffort(transport, 'after heartbeat fatal')
         transport = null
       }
       flushGate.drop()
@@ -1094,7 +1108,7 @@ export async function initBridgeCore(
       }
       return { environmentId, environmentSecret }
     },
-    onWorkReceived: (
+    onWorkReceived: async (
       workSessionId: string,
       ingressToken: string,
       workId: string,
@@ -1199,7 +1213,10 @@ export async function initBridgeCore(
         if (oldSeq > lastTransportSequenceNum) {
           lastTransportSequenceNum = oldSeq
         }
-        oldTransport.close()
+        await closeTransportBestEffort(
+          oldTransport,
+          'while replacing work transport',
+        )
       }
       // Reset flush state — the old flush (if any) is no longer relevant.
       // Preserve pending messages so they're drained after the new
@@ -1410,13 +1427,16 @@ export async function initBridgeCore(
           sessionId: workSessionId,
           initialSequenceNum: lastTransportSequenceNum,
         }).then(
-          t => {
+          async t => {
             // Teardown started while registerWorker was in flight. Teardown
             // saw transport === null and skipped close(); installing now
             // would leak CCRClient heartbeat timers and reset
             // teardownStarted via wireTransport's side effects.
             if (pollController.signal.aborted) {
-              t.close()
+              await closeTransportBestEffort(
+                t,
+                'while discarding aborted CCR v2 transport',
+              )
               return
             }
             // onWorkReceived may have fired again while registerWorker()
@@ -1429,7 +1449,10 @@ export async function initBridgeCore(
               logForDebugging(
                 `[bridge:repl] CCR v2: discarding stale handshake gen=${thisGen} current=${v2Generation}`,
               )
-              t.close()
+              await closeTransportBestEffort(
+                t,
+                'while discarding stale CCR v2 transport',
+              )
               return
             }
             wireTransport(t)
@@ -1668,8 +1691,10 @@ export async function initBridgeCore(
     // log their own success/failure internally.
     await Promise.all([stopWorkP, archiveSession(currentSessionId)])
 
-    teardownTransport?.close()
-    logForDebugging('[bridge:repl] Teardown: transport closed')
+    if (teardownTransport) {
+      await closeTransportBestEffort(teardownTransport, 'during teardown')
+      logForDebugging('[bridge:repl] Teardown: transport closed')
+    }
 
     await api.deregisterEnvironment(environmentId).catch((err: unknown) => {
       logForDebugging(
@@ -1892,7 +1917,7 @@ async function startWorkPollLoop({
     ingressToken: string,
     workId: string,
     useCodeSessions: boolean,
-  ) => void
+  ) => Promise<void>
   /** Called when the environment has been deleted. Returns new credentials or null. */
   onEnvironmentLost?: () => Promise<{
     environmentId: string
@@ -1935,7 +1960,7 @@ async function startWorkPollLoop({
    * ~10-minute dead window before recovery). When omitted, falls back to
    * the backoff sleep to avoid a tight poll+heartbeat loop.
    */
-  onHeartbeatFatal?: (err: BridgeFatalError) => void
+  onHeartbeatFatal?: (err: BridgeFatalError) => Promise<void>
 }): Promise<void> {
   const MAX_ENVIRONMENT_RECREATIONS = 3
 
@@ -2063,7 +2088,7 @@ async function startWorkPollLoop({
                   // for the server's re-dispatched work item. Without
                   // the hook, backoff to avoid tight poll+heartbeat loop.
                   if (onHeartbeatFatal) {
-                    onHeartbeatFatal(err)
+                    await onHeartbeatFatal(err)
                     logForDebugging(
                       `[bridge:repl:heartbeat] Fatal (status=${err.status}), work state cleared — fast-polling for re-dispatch`,
                     )
@@ -2197,7 +2222,7 @@ async function startWorkPollLoop({
           continue
         }
 
-        onWorkReceived(
+        await onWorkReceived(
           workSessionId,
           secret.session_ingress_token,
           work.id,

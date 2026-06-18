@@ -41,8 +41,9 @@ import {
   getDeferredToolsDeltaAttachment,
   getMcpInstructionsDeltaAttachment,
 } from '../../utils/attachments.js'
-import { getMemoryPath } from '../../utils/config.js'
+import { getGlobalConfig, getMemoryPath } from '../../utils/config.js'
 import { COMPACT_MAX_OUTPUT_TOKENS } from '../../utils/context.js'
+import { createChildAbortController } from '../../utils/abortController.js'
 import {
   analyzeContext,
   tokenStatsToStatsigMetrics,
@@ -68,6 +69,7 @@ import {
   getMessagesAfterCompactBoundary,
   isCompactBoundaryMessage,
   normalizeMessagesForAPI,
+  selectToolPairSafeMessageRange,
 } from '../../utils/messages.js'
 import { expandPath } from '../../utils/path.js'
 import { getPlan, getPlanFilePath } from '../../utils/plans.js'
@@ -96,6 +98,9 @@ import {
   isToolSearchEnabled,
 } from '../../utils/toolSearch.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
+import { isAnthropicProvider } from '../../utils/betas.js'
+import { parseUserSpecifiedModel } from '../../utils/model/model.js'
+import { isGithubNativeAnthropicMode } from '../../utils/model/providers.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -132,6 +137,7 @@ export const POST_COMPACT_MAX_TOKENS_PER_FILE = 5_000
 export const POST_COMPACT_MAX_TOKENS_PER_SKILL = 5_000
 export const POST_COMPACT_SKILLS_TOKEN_BUDGET = 25_000
 const MAX_COMPACT_STREAMING_RETRIES = 2
+const COMPACT_TIMEOUT_MS = 120_000
 
 /**
  * Strip image blocks from user messages before sending for compaction.
@@ -384,6 +390,20 @@ export function mergeHookInstructions(
 }
 
 /**
+ * Whether the active provider can share the main conversation's prompt cache
+ * during compaction. True for Anthropic-capable providers (firstParty/Bedrock/
+ * Vertex/Foundry) AND GitHub Native Anthropic mode (CLAUDE_CODE_USE_GITHUB=1
+ * with a Claude model): the latter routes through the native Anthropic client
+ * where cache_control / prompt caching works. Mirrors the beta-header gate in
+ * betas.ts so compaction cache-sharing and request shaping stay aligned —
+ * otherwise GitHub Native Anthropic sessions would always take the cold-cache
+ * compaction path the forked-agent flow was designed to avoid.
+ */
+function isCompactionCacheSharingCompatible(model: string | undefined): boolean {
+  return isAnthropicProvider() || isGithubNativeAnthropicMode(model)
+}
+
+/**
  * Creates a compact version of a conversation by summarizing older messages
  * and preserving recent conversation history.
  */
@@ -430,14 +450,31 @@ export async function compactConversation(
     context.setResponseLength?.(() => 0)
     context.onCompactProgress?.({ type: 'compact_start' })
 
-    // 3P default: true — forked-agent path reuses main conversation's prompt cache.
-    // Experiment (Jan 2026) confirmed: false path is 98% cache miss, costs ~0.76% of
-    // fleet cache_creation (~38B tok/day), concentrated in ephemeral envs (CCR/GHA/SDK)
-    // with cold GB cache and 3P providers where GB is disabled. GB gate kept as kill-switch.
-    const promptCacheSharingEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
-      'tengu_compact_cache_prefix',
-      true,
-    )
+    // Cache-sharing is enabled only for Anthropic-capable providers (incl.
+    // GitHub Native Anthropic mode) when the tengu_compact_cache_prefix flag is
+    // on. Other (3P) providers remain incompatible: they don't share the main
+    // conversation's prompt cache, and the forked-agent path would send
+    // Anthropic-only params (betas, context_management) that they reject.
+    // Experiment (Jan 2026): the false path is 98% cache miss, costing ~0.76%
+    // of fleet cache_creation (~38B tok/day), concentrated in ephemeral envs
+    // (CCR/GHA/SDK) with cold GB cache and 3P providers where GB is disabled.
+    // The GB flag is kept as a kill-switch.
+    // streamCompactSummary() (below) follows the same gate; see also the
+    // provider-gate tests in src/services/compact/compact.test.ts.
+    const rawCompactModel = getGlobalConfig().compactModel
+    const compactModel =
+      rawCompactModel !== undefined
+        ? parseUserSpecifiedModel(rawCompactModel)
+        : undefined
+    const modelChangesForCompaction =
+      compactModel !== undefined && compactModel !== context.options.mainLoopModel
+    const promptCacheSharingEnabled =
+      !modelChangesForCompaction &&
+      isCompactionCacheSharingCompatible(context.options.mainLoopModel) &&
+      getFeatureValue_CACHED_MAY_BE_STALE(
+        'tengu_compact_cache_prefix',
+        true,
+      )
 
     const compactPrompt = getCompactPrompt(customInstructions)
     const summaryRequest = createUserMessage({
@@ -780,10 +817,19 @@ export async function partialCompactConversation(
   direction: PartialCompactDirection = 'from',
 ): Promise<CompactionResult> {
   try {
-    const messagesToSummarize =
-      direction === 'up_to'
-        ? allMessages.slice(0, pivotIndex)
-        : allMessages.slice(pivotIndex)
+    const requestedStart = direction === 'up_to' ? 0 : pivotIndex
+    const requestedEnd =
+      direction === 'up_to' ? pivotIndex : allMessages.length
+    const summarizeRange = selectToolPairSafeMessageRange(
+      allMessages,
+      requestedStart,
+      requestedEnd,
+      {
+        projectionName: 'partial_compact',
+        querySource: 'compact',
+      },
+    )
+    const messagesToSummarize = summarizeRange.messages
     // 'up_to' must strip old compact boundaries/summaries: for 'up_to',
     // summary_B sits BEFORE kept, so a stale boundary_A in kept wins
     // findLastCompactBoundaryIndex's backward scan and drops summary_B.
@@ -792,14 +838,16 @@ export async function partialCompactConversation(
     const messagesToKeep =
       direction === 'up_to'
         ? allMessages
-            .slice(pivotIndex)
+            .slice(summarizeRange.end)
             .filter(
               m =>
                 m.type !== 'progress' &&
                 !isCompactBoundaryMessage(m) &&
                 !(m.type === 'user' && m.isCompactSummary),
             )
-        : allMessages.slice(0, pivotIndex).filter(m => m.type !== 'progress')
+        : allMessages
+            .slice(0, summarizeRange.start)
+            .filter(m => m.type !== 'progress')
 
     if (messagesToSummarize.length === 0) {
       throw new Error(
@@ -1010,8 +1058,9 @@ export async function partialCompactConversation(
     // a logicalParentUuid pointing at one. Both directions skip them.
     const lastPreCompactUuid =
       direction === 'up_to'
-        ? allMessages.slice(0, pivotIndex).findLast(m => m.type !== 'progress')
-            ?.uuid
+        ? allMessages
+            .slice(0, summarizeRange.end)
+            .findLast(m => m.type !== 'progress')?.uuid
         : messagesToKeep.at(-1)?.uuid
     const boundaryMarker = createCompactBoundaryMessage(
       'manual',
@@ -1153,11 +1202,29 @@ async function streamCompactSummary({
   // When prompt cache sharing is enabled, use forked agent to reuse the
   // main conversation's cached prefix (system prompt, tools, context messages).
   // Falls back to regular streaming path on failure.
-  // 3P default: true — see comment at the other tengu_compact_cache_prefix read above.
-  const promptCacheSharingEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
-    'tengu_compact_cache_prefix',
-    true,
+  // Same provider-gated cache-sharing behavior as compactConversation() above
+  // (see that block for the full rationale and experiment data): only
+  // Anthropic-capable providers (incl. GitHub Native Anthropic mode) share the
+  // prompt cache; other 3P providers are incompatible and would send
+  // Anthropic-only params that they reject. The shared predicate makes this
+  // safe to call from 3P provider paths.
+  const rawCompactModel = getGlobalConfig().compactModel
+  const compactModel =
+    rawCompactModel !== undefined
+      ? parseUserSpecifiedModel(rawCompactModel)
+      : undefined
+  const modelChangesForCompaction =
+    compactModel !== undefined && compactModel !== context.options.mainLoopModel
+  const cacheSharingAvailable = isCompactionCacheSharingCompatible(
+    context.options.mainLoopModel,
   )
+  const promptCacheSharingEnabled =
+    !modelChangesForCompaction &&
+    cacheSharingAvailable &&
+    getFeatureValue_CACHED_MAY_BE_STALE(
+      'tengu_compact_cache_prefix',
+      true,
+    )
   // Send keep-alive signals during compaction to prevent remote session
   // WebSocket idle timeouts from dropping bridge connections. Compaction
   // API calls can take 5-10+ seconds, during which no other messages
@@ -1187,19 +1254,58 @@ async function streamCompactSummary({
         // creating a thinking config mismatch that invalidates the cache.
         // The streaming fallback path (below) can safely set maxOutputTokensOverride
         // since it doesn't share cache with the main thread.
-        const result = await runForkedAgent({
-          promptMessages: [summaryRequest],
-          cacheSafeParams,
-          canUseTool: createCompactCanUseTool(),
-          querySource: 'compact',
-          forkLabel: 'compact',
-          maxTurns: 1,
-          skipCacheWrite: true,
-          // Pass the compact context's abortController so user Esc aborts the
-          // fork — same signal the streaming fallback uses at
-          // `signal: context.abortController.signal` below.
-          overrides: { abortController: context.abortController },
-        })
+        // Track real character-level progress from text deltas via onStreamEvent.
+        // Output is ~25% of input tokens, converted to chars (×4), so
+        // (preCompactTokenCount * 0.25) * 4 = preCompactTokenCount chars.
+        // Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
+        const estimatedOutputChars = Math.min(
+          Math.max(preCompactTokenCount, COMPACT_MAX_OUTPUT_TOKENS),
+          COMPACT_MAX_OUTPUT_TOKENS * 4,
+        )
+        let totalCharsStreamed = 0
+        let lastEmittedRatio = 0
+
+        // Use a child AbortController that properly propagates parent aborts
+        // (user ESC) and cleans up listeners automatically via createChildAbortController.
+        const forkAbortController = context.abortController
+          ? createChildAbortController(context.abortController)
+          : new AbortController()
+
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+        let result: Awaited<ReturnType<typeof runForkedAgent>>
+        try {
+          result = await Promise.race([
+            runForkedAgent({
+              promptMessages: [summaryRequest],
+              cacheSafeParams,
+              canUseTool: createCompactCanUseTool(),
+              querySource: 'compact',
+              forkLabel: 'compact',
+              maxTurns: 1,
+              skipCacheWrite: true,
+              overrides: { abortController: forkAbortController },
+              onStreamEvent: event => {
+                if (event.event?.delta?.type === 'text_delta') {
+                  const charactersStreamed = event.event.delta.text?.length ?? 0
+                  totalCharsStreamed += charactersStreamed
+                  const ratio = Math.min(0.95, totalCharsStreamed / Math.max(1, estimatedOutputChars))
+                  if (ratio - lastEmittedRatio >= 0.02) {
+                    lastEmittedRatio = ratio
+                    context.onCompactProgress?.({ type: 'compact_progress', ratio })
+                  }
+                }
+              },
+            }),
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                forkAbortController.abort()
+                reject(new Error('Compaction timed out'))
+              }, COMPACT_TIMEOUT_MS)
+            }),
+          ])
+        } finally {
+          clearTimeout(timeoutId)
+        }
         const assistantMsg = getLastAssistantMessage(result.messages)
         const assistantText = assistantMsg
           ? getAssistantMessageText(assistantMsg)
@@ -1210,6 +1316,8 @@ async function streamCompactSummary({
         // "Request was aborted." as the summary — the text doesn't start with
         // "API Error" so the caller's startsWithApiErrorPrefix guard misses it.
         if (assistantMsg && assistantText && !assistantMsg.isApiErrorMessage) {
+          // Forked agent completed — snap progress to 100%
+          context.onCompactProgress?.({ type: 'compact_progress', ratio: 1 })
           // Skip success logging for PTL error text — it's returned so the
           // caller's retry loop catches it, but it's not a successful summary.
           if (!assistantText.startsWith(PROMPT_TOO_LONG_ERROR_MESSAGE)) {
@@ -1256,16 +1364,28 @@ async function streamCompactSummary({
     )
     const maxAttempts = retryEnabled ? MAX_COMPACT_STREAMING_RETRIES : 1
 
+    // Estimate output target: summary is ~25% of input tokens, converted to
+    // chars (×4), so (preCompactTokenCount * 0.25) * 4 = preCompactTokenCount chars.
+    // Capped by COMPACT_MAX_OUTPUT_TOKENS*4 for very large sessions.
+    // Floor at COMPACT_MAX_OUTPUT_TOKENS to handle cases where
+    // tokenCountWithEstimation returns a fallback estimate (e.g. after /resume).
+    const estimatedOutputChars = Math.min(
+      Math.max(preCompactTokenCount, COMPACT_MAX_OUTPUT_TOKENS),
+      COMPACT_MAX_OUTPUT_TOKENS * 4,
+    )
+    let totalCharsStreamed = 0
+    let lastEmittedRatio = 0
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // Reset state for retry
       let hasStartedStreaming = false
       let response: AssistantMessage | undefined
       context.setResponseLength?.(() => 0)
 
-      // Check if tool search is enabled using the main loop's tools list.
-      // context.options.tools includes MCP tools merged via useMergedTools.
+      // Check if tool search is enabled for the model actually used for
+      // compaction (compactModel when set, otherwise mainLoopModel).
       const useToolSearch = await isToolSearchEnabled(
-        context.options.mainLoopModel,
+        compactModel ?? context.options.mainLoopModel,
         context.options.tools,
         async () => appState.toolPermissionContext,
         context.options.agentDefinitions.activeAgents,
@@ -1312,13 +1432,13 @@ async function streamCompactSummary({
             const appState = context.getAppState()
             return appState.toolPermissionContext
           },
-          model: context.options.mainLoopModel,
+          model: compactModel ?? context.options.mainLoopModel,
           toolChoice: undefined,
           isNonInteractiveSession: context.options.isNonInteractiveSession,
           hasAppendSystemPrompt: !!context.options.appendSystemPrompt,
           maxOutputTokensOverride: Math.min(
             COMPACT_MAX_OUTPUT_TOKENS,
-            getMaxOutputTokensForModel(context.options.mainLoopModel),
+            getMaxOutputTokensForModel(compactModel ?? context.options.mainLoopModel),
           ),
           querySource: 'compact',
           agents: context.options.agentDefinitions.activeAgents,
@@ -1348,7 +1468,15 @@ async function streamCompactSummary({
           event.event.delta.type === 'text_delta'
         ) {
           const charactersStreamed = event.event.delta.text.length
+          totalCharsStreamed += charactersStreamed
           context.setResponseLength?.(length => length + charactersStreamed)
+
+          // Emit progress tick — cap at 95% until we get the final message
+          const ratio = Math.min(0.95, totalCharsStreamed / Math.max(1, estimatedOutputChars))
+          if (ratio - lastEmittedRatio >= 0.02) {
+            lastEmittedRatio = ratio
+            context.onCompactProgress?.({ type: 'compact_progress', ratio })
+          }
         }
 
         if (event.type === 'assistant') {
@@ -1359,6 +1487,8 @@ async function streamCompactSummary({
       }
 
       if (response) {
+        // Streaming complete — snap progress to 100%
+        context.onCompactProgress?.({ type: 'compact_progress', ratio: 1 })
         return response
       }
 

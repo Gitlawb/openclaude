@@ -30,7 +30,6 @@ import {
   isSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
-import { builtInCommandNames } from '../commands.js'
 import { COMMAND_NAME_TAG, TICK_TAG } from '../constants/xml.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import * as sessionIngress from '../services/api/sessionIngress.js'
@@ -48,6 +47,7 @@ import {
   type ContextCollapseSnapshotEntry,
   type Entry,
   type FileHistorySnapshotMessage,
+  type GoalStateEntry,
   type LogOption,
   type PersistedWorktreeSession,
   type SerializedMessage,
@@ -97,6 +97,17 @@ import { validateUuid } from './uuid.js'
 // Cache MACRO.VERSION at module level to work around bun --define bug in async contexts
 // See: https://github.com/oven-sh/bun/issues/26168
 const VERSION = typeof MACRO !== 'undefined' ? MACRO.VERSION : 'unknown'
+
+let builtInCommandNamesCache: Set<string> | undefined
+
+function getBuiltInCommandNames(): Set<string> {
+  if (builtInCommandNamesCache) return builtInCommandNamesCache
+  const commands =
+    require('../commands.js') as typeof import('../commands.js')
+  const names = commands.builtInCommandNames()
+  builtInCommandNamesCache = names
+  return names
+}
 
 type Transcript = (
   | UserMessage
@@ -541,6 +552,7 @@ class Project {
   currentSessionPrNumber: number | undefined
   currentSessionPrUrl: string | undefined
   currentSessionPrRepository: string | undefined
+  currentSessionGoal: GoalStateEntry['goal'] | undefined
 
   sessionFile: string | null = null
   // Entries buffered while sessionFile is null. Flushed by materializeSessionFile
@@ -832,6 +844,17 @@ class Project {
         timestamp: new Date().toISOString(),
       })
     }
+    if (
+      this.currentSessionGoal &&
+      (this.currentSessionGoal.status === 'active' ||
+        this.currentSessionGoal.status === 'paused')
+    ) {
+      appendEntryToFile(this.sessionFile, {
+        type: 'goal-state',
+        sessionId,
+        goal: this.currentSessionGoal,
+      })
+    }
   }
 
   async flush(): Promise<void> {
@@ -957,8 +980,11 @@ class Project {
     const allowTestPersistence = isEnvTruthy(
       process.env.TEST_ENABLE_SESSION_PERSISTENCE,
     )
+    if (allowTestPersistence) {
+      return false
+    }
     return (
-      (getNodeEnv() === 'test' && !allowTestPersistence) ||
+      getNodeEnv() === 'test' ||
       getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
       isSessionPersistenceDisabled() ||
       isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
@@ -1121,6 +1147,20 @@ class Project {
     })
   }
 
+  async insertGoalState(goal: GoalStateEntry['goal'], sessionId: UUID) {
+    return this.trackWrite(async () => {
+      const entry: GoalStateEntry = {
+        type: 'goal-state',
+        sessionId,
+        goal,
+      }
+      if (sessionId === getSessionId()) {
+        this.currentSessionGoal = goal ?? undefined
+      }
+      await this.appendEntry(entry, sessionId)
+    })
+  }
+
   async appendEntry(entry: Entry, sessionId: UUID = getSessionId() as UUID) {
     if (this.shouldSkipPersistence()) {
       return
@@ -1201,6 +1241,8 @@ class Project {
         ? getAgentTranscriptPath(entry.agentId)
         : sessionFile
       void this.enqueueWrite(targetFile, entry)
+    } else if (entry.type === 'goal-state') {
+      await this.appendToFile(sessionFile, jsonStringify(entry) + '\n')
     } else if (entry.type === 'marble-origami-commit') {
       // Always append. Commit order matters for restore (later commits may
       // reference earlier commits' summary messages), so these must be
@@ -1494,6 +1536,13 @@ export async function recordContentReplacement(
   await getProject().insertContentReplacement(replacements, agentId)
 }
 
+export async function recordGoalState(
+  goal: GoalStateEntry['goal'],
+  sessionId: UUID = getSessionId() as UUID,
+) {
+  await getProject().insertGoalState(goal, sessionId)
+}
+
 /**
  * Reset the session file pointer after switchSession/regenerateSessionId.
  * The new file is created lazily on the first user/assistant message.
@@ -1541,6 +1590,7 @@ export async function recordContextCollapseCommit(commit: {
   summary: string
   firstArchivedUuid: string
   lastArchivedUuid: string
+  archivedCount: number
 }): Promise<void> {
   const sessionId = getSessionId() as UUID
   if (!sessionId) return
@@ -1774,7 +1824,7 @@ export function getFirstMeaningfulUserMessageTextContent<T extends Message>(
 
         // If it's a built-in command, then it's unlikely to provide
         // meaningful context (e.g. `/model sonnet`)
-        if (builtInCommandNames().has(commandName)) {
+        if (getBuiltInCommandNames().has(commandName)) {
           continue
         } else {
           // Otherwise, for custom commands, then keep it only if it has
@@ -1935,7 +1985,8 @@ function applyPreservedSegmentRelinks(
         tailIndex: entryIndex.get(lastSeg.tailUuid),
         headIndex: entryIndex.get(lastSeg.headUuid),
         anchorIndex: entryIndex.get(lastSeg.anchorUuid),
-        lastSeenType,
+        lastSeenType:
+          lastSeenType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         breakParentInTranscript: Boolean(
           breakParentUuid && messages.has(breakParentUuid),
         ),
@@ -2554,6 +2605,7 @@ export async function loadTranscriptFromFile(
       leafUuids,
       contentReplacements,
       worktreeStates,
+      goalStates,
     } = await loadTranscriptFile(filePath)
 
     if (messages.size === 0) {
@@ -2599,6 +2651,7 @@ export async function loadTranscriptFromFile(
       worktreeSession: worktreeStates.has(sessionId)
         ? worktreeStates.get(sessionId)
         : undefined,
+      goal: goalStates.get(sessionId),
     }
   }
 
@@ -3013,6 +3066,7 @@ export function restoreSessionMetadata(meta: {
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goal?: GoalStateEntry['goal']
 }): void {
   const project = getProject()
   // ??= so --name (cacheSessionTitle) wins over the resumed
@@ -3029,6 +3083,10 @@ export function restoreSessionMetadata(meta: {
     project.currentSessionPrNumber = meta.prNumber
   if (meta.prUrl) project.currentSessionPrUrl = meta.prUrl
   if (meta.prRepository) project.currentSessionPrRepository = meta.prRepository
+  // Unlike display-only metadata, absence of a goal-state entry means this
+  // resumed session has no goal. Clear any cached goal so adopt/re-append
+  // cannot persist a previous session's active goal into this transcript.
+  project.currentSessionGoal = meta.goal ?? undefined
 }
 
 /**
@@ -3049,6 +3107,7 @@ export function clearSessionMetadata(): void {
   project.currentSessionPrNumber = undefined
   project.currentSessionPrUrl = undefined
   project.currentSessionPrRepository = undefined
+  project.currentSessionGoal = undefined
 }
 
 /**
@@ -3222,6 +3281,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       fileHistorySnapshots,
       attributionSnapshots,
       contentReplacements,
+      goalStates,
       contextCollapseCommits,
       contextCollapseSnapshot,
       leafUuids,
@@ -3285,6 +3345,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       contentReplacements: sessionId
         ? (contentReplacements.get(sessionId) ?? [])
         : log.contentReplacements,
+      goal: sessionId ? goalStates.get(sessionId) : log.goal,
       // Filter to the resumed session's entries. loadTranscriptFile reads
       // the file sequentially so the array is already in commit order;
       // filter preserves that.
@@ -3367,6 +3428,7 @@ const METADATA_TYPE_MARKERS = [
   '"type":"mode"',
   '"type":"worktree-state"',
   '"type":"pr-link"',
+  '"type":"goal-state"',
 ]
 const METADATA_MARKER_BUFS = METADATA_TYPE_MARKERS.map(m => Buffer.from(m))
 // Longest marker is 22 bytes; +1 for leading `{` = 23.
@@ -3736,6 +3798,7 @@ export async function loadTranscriptFile(
   attributionSnapshots: Map<UUID, AttributionSnapshotMessage>
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   agentContentReplacements: Map<AgentId, ContentReplacementRecord[]>
+  goalStates: Map<UUID, GoalStateEntry['goal']>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
   leafUuids: Set<UUID>
@@ -3759,6 +3822,7 @@ export async function loadTranscriptFile(
     AgentId,
     ContentReplacementRecord[]
   >()
+  const goalStates = new Map<UUID, GoalStateEntry['goal']>()
   // Array, not Map — commit order matters (nested collapses).
   const contextCollapseCommits: ContextCollapseCommitEntry[] = []
   // Last-wins — later entries supersede.
@@ -3858,6 +3922,8 @@ export async function loadTranscriptFile(
           prNumbers.set(entry.sessionId, entry.prNumber)
           prUrls.set(entry.sessionId, entry.prUrl)
           prRepositories.set(entry.sessionId, entry.prRepository)
+        } else if (entry.type === 'goal-state' && entry.sessionId) {
+          goalStates.set(entry.sessionId, entry.goal)
         }
       })
     }
@@ -3922,6 +3988,8 @@ export async function loadTranscriptFile(
         prNumbers.set(entry.sessionId, entry.prNumber)
         prUrls.set(entry.sessionId, entry.prUrl)
         prRepositories.set(entry.sessionId, entry.prRepository)
+      } else if (entry.type === 'goal-state' && entry.sessionId) {
+        goalStates.set(entry.sessionId, entry.goal)
       } else if (entry.type === 'file-history-snapshot') {
         fileHistorySnapshots.set(entry.messageId, entry)
       } else if (entry.type === 'attribution-snapshot') {
@@ -4058,6 +4126,7 @@ export async function loadTranscriptFile(
     attributionSnapshots,
     contentReplacements,
     agentContentReplacements,
+    goalStates,
     contextCollapseCommits,
     contextCollapseSnapshot,
     leafUuids,
@@ -4077,6 +4146,7 @@ async function loadSessionFile(sessionId: UUID): Promise<{
   fileHistorySnapshots: Map<UUID, FileHistorySnapshotMessage>
   attributionSnapshots: Map<UUID, AttributionSnapshotMessage>
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
+  goalStates: Map<UUID, GoalStateEntry['goal']>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
 }> {
@@ -4132,6 +4202,7 @@ export async function getLastSessionLog(
     fileHistorySnapshots,
     attributionSnapshots,
     contentReplacements,
+    goalStates,
     contextCollapseCommits,
     contextCollapseSnapshot,
   } = await loadSessionFile(sessionId)
@@ -4173,6 +4244,7 @@ export async function getLastSessionLog(
       contentReplacements.get(sessionId) ?? [],
     ),
     worktreeSession: worktreeStates.get(sessionId),
+    goal: goalStates.get(sessionId),
     contextCollapseCommits: contextCollapseCommits.filter(
       e => e.sessionId === sessionId,
     ),
@@ -4734,7 +4806,7 @@ export async function findUnresolvedToolUse(
     const transcriptPath = getTranscriptPath()
     const { messages } = await loadTranscriptFile(transcriptPath)
 
-    let toolUseMessage = null
+    let toolUseMessage: TranscriptMessage | null = null
 
     // Find the tool use but make sure there's not also a result
     for (const message of messages.values()) {
@@ -4866,6 +4938,7 @@ export async function loadAllLogsFromSessionFile(
     fileHistorySnapshots,
     attributionSnapshots,
     contentReplacements,
+    goalStates,
     leafUuids,
   } = await loadTranscriptFile(sessionFile, { keepAllLeaves: true })
 
@@ -4939,6 +5012,7 @@ export async function loadAllLogsFromSessionFile(
         chain,
       ),
       contentReplacements: contentReplacements.get(sessionId) ?? [],
+      goal: goalStates.get(sessionId),
     })
   }
 
@@ -5122,7 +5196,7 @@ function extractFirstPromptFromChunk(chunk: string): string {
         if (commandNameTag) {
           const name = commandNameTag.replace(/^\//, '')
           const commandArgs = extractTag(result, 'command-args')?.trim() || ''
-          if (builtInCommandNames().has(name) || !commandArgs) {
+          if (getBuiltInCommandNames().has(name) || !commandArgs) {
             if (!firstCommandFallback) {
               firstCommandFallback = commandNameTag
             }
