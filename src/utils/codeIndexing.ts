@@ -43,28 +43,34 @@ export type CodeIndexingTool =
 /**
  * Mapping of CLI command prefixes to code indexing tools.
  * The key is the command name (first word of the command).
+ *
+ * A Map (rather than a plain object) is used so that a command whose first word
+ * collides with an inherited Object.prototype member — e.g. `constructor` or
+ * `__proto__` — looks up to `undefined` instead of the prototype value. A plain
+ * object would return the `Object` constructor for `constructor`, falsely
+ * reporting a code-indexing tool.
  */
-const CLI_COMMAND_MAPPING: Record<string, CodeIndexingTool> = {
+const CLI_COMMAND_MAPPING: ReadonlyMap<string, CodeIndexingTool> = new Map([
   // Sourcegraph ecosystem
-  src: 'sourcegraph',
-  cody: 'cody',
+  ['src', 'sourcegraph'],
+  ['cody', 'cody'],
   // AI coding assistants
-  aider: 'aider',
-  tabby: 'tabby',
-  tabnine: 'tabnine',
-  augment: 'augment',
-  pieces: 'pieces',
-  qodo: 'qodo',
-  aide: 'aide',
+  ['aider', 'aider'],
+  ['tabby', 'tabby'],
+  ['tabnine', 'tabnine'],
+  ['augment', 'augment'],
+  ['pieces', 'pieces'],
+  ['qodo', 'qodo'],
+  ['aide', 'aide'],
   // Code search tools
-  hound: 'hound',
-  seagoat: 'seagoat',
-  bloop: 'bloop',
-  gitloop: 'gitloop',
+  ['hound', 'hound'],
+  ['seagoat', 'seagoat'],
+  ['bloop', 'bloop'],
+  ['gitloop', 'gitloop'],
   // Cloud provider AI assistants
-  q: 'amazon-q',
-  gemini: 'gemini',
-}
+  ['q', 'amazon-q'],
+  ['gemini', 'gemini'],
+])
 
 /**
  * Mapping of MCP server name patterns to code indexing tools.
@@ -137,12 +143,13 @@ export function detectCodeIndexingFromCommand(
   // Check for npx/bunx prefixed commands
   if (firstWord === 'npx' || firstWord === 'bunx') {
     const secondWord = trimmed.split(/\s+/)[1]?.toLowerCase()
-    if (secondWord && secondWord in CLI_COMMAND_MAPPING) {
-      return CLI_COMMAND_MAPPING[secondWord]
+    const secondTool = secondWord && CLI_COMMAND_MAPPING.get(secondWord)
+    if (secondTool) {
+      return secondTool
     }
   }
 
-  return CLI_COMMAND_MAPPING[firstWord]
+  return CLI_COMMAND_MAPPING.get(firstWord)
 }
 
 /**
