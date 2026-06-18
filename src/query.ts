@@ -980,14 +980,24 @@ async function* queryLoop(
         isAboveAutoCompactThreshold ||
         ((circuitBreakerActive === true || circuitBreakerTripped === true) &&
           tokenUsage >= getAutoCompactThreshold(model))
-      if (isAboveBreakerThreshold) {
+      const isInForcedCooldown =
+        tracking?.forceReason &&
+        tracking?.lastForcedFailureAtMs &&
+        tracking?.nextRetryAtMs &&
+        Date.now() < tracking.nextRetryAtMs
+      const isInMessageCountCooldown = tracking?.forceReason === 'hard-message-count'
+      if (isAboveBreakerThreshold || isInForcedCooldown) {
         const nowMs = Date.now()
         const retryDelayMs =
           tracking.nextRetryAtMs !== undefined
             ? tracking.nextRetryAtMs - nowMs
             : undefined
         const content =
-          retryDelayMs !== undefined && retryDelayMs > 0
+          isInMessageCountCooldown && retryDelayMs !== undefined && retryDelayMs > 0
+            ? 'The conversation is over the message count hard cap, but automatic compaction is cooling down after repeated failures. ' +
+              'OpenClaude stopped before sending another request. ' +
+              `Retry after ${formatAutoCompactRetryDelay(retryDelayMs)}, run /compact, or start a new session with /new.`
+            : retryDelayMs !== undefined && retryDelayMs > 0
             ? 'The conversation is over the auto-compact threshold, but automatic compaction is cooling down after repeated failures. ' +
               'OpenClaude stopped before sending another oversized request. ' +
               `Retry after ${formatAutoCompactRetryDelay(retryDelayMs)}, run /compact, or start a new session with /new.`
