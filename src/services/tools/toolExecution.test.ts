@@ -23,7 +23,6 @@ import {
   checkPermissionsAndCallTool,
   normalizeReplayToolInput,
   normalizeToolInputForValidation,
-  runToolUse,
 } from './toolExecution.js'
 
 afterEach(() => {

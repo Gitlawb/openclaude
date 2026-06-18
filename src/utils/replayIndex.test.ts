@@ -3,7 +3,7 @@ import { join } from 'path'
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import type { ReplayIndex } from 'src/types/logs.js'
-import { loadReplayIndex, writeReplayIndex } from './replayIndex.js'
+import { fileExists, loadReplayIndex, writeReplayIndex } from './replayIndex.js'
 
 const testRoot = join(process.cwd(), '.tmp-replay-index-tests')
 
@@ -33,6 +33,14 @@ afterEach(async () => {
 })
 
 describe('replay index storage', () => {
+  test('fileExists returns false only for missing files', async () => {
+    await expect(fileExists(join(testRoot, 'missing.replay.json'))).resolves.toBe(
+      false,
+    )
+
+    await expect(fileExists('\0')).rejects.toThrow()
+  })
+
   test('writes replay sidecar by session id without replacing arbitrary transcript suffixes', async () => {
     const sessionId = 'session-abc'
     const projectDir = join(testRoot, 'project')

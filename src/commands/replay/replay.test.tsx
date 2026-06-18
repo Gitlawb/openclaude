@@ -251,7 +251,8 @@ describe('/replay command', () => {
 
       expect(loadFullLogMock).toHaveBeenCalledWith(replayableLog)
       expect(loadReplayIndexMock).toHaveBeenCalledWith(liteSessionId, 'full.jsonl')
-      await waitFor(() => onDone.mock.calls.length === 0)
+      await Bun.sleep(0)
+      expect(onDone).not.toHaveBeenCalled()
     } finally {
       root.unmount()
       stdin.end()
@@ -338,6 +339,39 @@ describe('/replay command', () => {
       selectRoot.unmount()
       selectStreams.stdin.end()
       selectStreams.stdout.end()
+      await Bun.sleep(0)
+    }
+  })
+
+  test('picker reports failure when lite log expansion fails', async () => {
+    const liteLog = makeLog(liteSessionId, { isLite: true } as never)
+    loadSameRepoMessageLogsMock.mockImplementation(() =>
+      Promise.resolve([liteLog]),
+    )
+    loadFullLogMock.mockImplementation(() => Promise.reject(new Error('boom')))
+    const { call } = await importFreshReplayModule()
+    const onDone = mock(() => {})
+    const { stdin, stdout } = createTestStreams()
+    const root = await createRoot({
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+
+    try {
+      root.render(
+        <AppStateProvider>
+          {(await call(onDone, {} as never, '')) as React.ReactElement}
+        </AppStateProvider>,
+      )
+      await waitFor(() => lastLogSelectorProps !== null)
+      await lastLogSelectorProps!.onSelect(liteLog)
+      await waitFor(() => onDone.mock.calls.length === 1)
+      expect(onDone).toHaveBeenLastCalledWith('Failed to load log file')
+    } finally {
+      root.unmount()
+      stdin.end()
+      stdout.end()
       await Bun.sleep(0)
     }
   })

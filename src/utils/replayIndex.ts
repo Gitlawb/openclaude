@@ -15,12 +15,20 @@ function getReplayIndexPath(sessionId: string, transcriptPath: string): string {
 /**
  * Check if a file exists.
  */
-async function fileExists(path: string): Promise<boolean> {
+export async function fileExists(path: string): Promise<boolean> {
   try {
     await stat(path)
     return true
-  } catch {
-    return false
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    ) {
+      return false
+    }
+    throw error
   }
 }
 
