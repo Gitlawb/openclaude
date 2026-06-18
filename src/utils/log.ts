@@ -189,13 +189,21 @@ export function logError(error: unknown): void {
     // Always add to in-memory log (no dependencies needed)
     addToInMemoryErrorLog(errorInfo)
 
+    // Build a sanitized Error for downstream sinks so the original message
+    // and stack (which can contain credentials) don't reach logError() or
+    // the error queue.
+    const sanitizedErr = new Error(sanitizedErrorStr)
+    if (err.stack) {
+      sanitizedErr.stack = redactSensitiveInfo(err.stack)
+    }
+
     // If sink not attached, queue the event
     if (errorLogSink === null) {
-      errorQueue.push({ type: 'error', error: err })
+      errorQueue.push({ type: 'error', error: sanitizedErr })
       return
     }
 
-    errorLogSink.logError(err)
+    errorLogSink.logError(sanitizedErr)
   } catch {
     // pass
   }
