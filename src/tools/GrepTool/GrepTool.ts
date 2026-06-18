@@ -457,12 +457,11 @@ export const GrepTool = buildTool({
         offset,
       )
 
-      // Lines have format: /absolute/path:line_content or /absolute/path:num:content.
-      // relativizeContentLine handles the path/content boundary, including the
-      // Windows drive-letter colon (`C:\...`) which must not be split on.
-      const finalLines = limitedResults.map(line =>
-        relativizeContentLine(line, toRelativePath),
-      )
+      // Lines are match rows (`path:content` / `path:num:content`) or context
+      // rows (`path-content` / `path-num-content` for -A/-B/-C). relativizeContentLine
+      // strips the known cwd prefix, so the delimiter and Windows drive colons /
+      // dashes in path names never need to be parsed.
+      const finalLines = limitedResults.map(line => relativizeContentLine(line))
       const output = {
         mode: 'content' as const,
         numFiles: 0, // Not applicable for content mode

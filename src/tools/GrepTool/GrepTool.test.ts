@@ -1,99 +1,87 @@
 import { expect, test } from 'bun:test'
-import path from 'node:path'
 
 import { relativizeContentLine } from '../../utils/path.js'
 
-// Deterministic relativizers that don't depend on the host OS or real cwd,
-// so the same assertions hold on Windows, macOS, and Linux. They mirror
-// toRelativePath's "keep absolute when outside cwd" behaviour.
-function makeRelativize(
-  impl: typeof path.win32 | typeof path.posix,
-  cwd: string,
-): (p: string) => string {
-  return (absolutePath: string) => {
-    const rel = impl.relative(cwd, absolutePath)
-    return rel.startsWith('..') ? absolutePath : rel
-  }
-}
+// relativizeContentLine strips the known absolute search root from a ripgrep
+// content row, so the relative path plus the original ripgrep delimiter and
+// content survive verbatim. Passing the root explicitly keeps these assertions
+// deterministic across Windows, macOS, and Linux.
 
-test('relativizes a Windows drive-letter path without splitting on the drive colon', () => {
-  const relativize = makeRelativize(path.win32, 'C:\\Users\\proj')
-  // The leading `C:` must not be mistaken for the path/content separator.
+test('relativizes a Windows match row without splitting on the drive colon', () => {
   expect(
     relativizeContentLine(
       'C:\\Users\\proj\\src\\file.ts:42:const x = 1',
-      relativize,
+      'C:\\Users\\proj',
     ),
   ).toBe('src\\file.ts:42:const x = 1')
 })
 
-test('relativizes a POSIX path using the first colon as the boundary', () => {
-  const relativize = makeRelativize(path.posix, '/home/u/p')
+test('relativizes a POSIX match row', () => {
   expect(
-    relativizeContentLine('/home/u/p/src/file.ts:42:const x = 1', relativize),
+    relativizeContentLine('/home/u/p/src/file.ts:42:const x = 1', '/home/u/p'),
   ).toBe('src/file.ts:42:const x = 1')
 })
 
-test('handles the path:content form (no line number)', () => {
-  const winRelativize = makeRelativize(path.win32, 'C:\\Users\\proj')
+test('relativizes the path:content form (no line number)', () => {
   expect(
-    relativizeContentLine('C:\\Users\\proj\\src\\a.ts:const y = 2', winRelativize),
+    relativizeContentLine('C:\\Users\\proj\\src\\a.ts:const y = 2', 'C:\\Users\\proj'),
   ).toBe('src\\a.ts:const y = 2')
-
-  const posixRelativize = makeRelativize(path.posix, '/home/u/p')
-  expect(
-    relativizeContentLine('/home/u/p/src/a.ts:const y = 2', posixRelativize),
-  ).toBe('src/a.ts:const y = 2')
 })
 
-test('relativizes a Windows context row (dash-separated `-A`/`-B`/`-C`)', () => {
-  // Context rows use `-` separators, so there is no boundary colon after the
-  // drive. The `C:` drive colon must still be skipped and the `-<n>-` boundary
-  // used instead of leaving the absolute path in place.
-  const relativize = makeRelativize(path.win32, 'C:\\Users\\proj')
+test('relativizes a Windows context row (dash-separated -A/-B/-C)', () => {
   expect(
     relativizeContentLine(
       'C:\\Users\\proj\\src\\file.ts-41-const before',
-      relativize,
+      'C:\\Users\\proj',
     ),
   ).toBe('src\\file.ts-41-const before')
 })
 
-test('relativizes a POSIX context row (dash-separated)', () => {
-  const relativize = makeRelativize(path.posix, '/home/u/p')
-  expect(
-    relativizeContentLine('/home/u/p/src/file.ts-41-const before', relativize),
-  ).toBe('src/file.ts-41-const before')
-})
-
-test('uses the `:<n>:` match boundary even when the filename has a `-<n>-` run', () => {
-  // A date-like `-2024-` inside the filename must not be mistaken for the
-  // context boundary on a match row; the unambiguous `:<n>:` wins.
-  const relativize = makeRelativize(path.win32, 'C:\\Users\\proj')
+test('relativizes a context row with line numbers disabled (path-content)', () => {
+  // With show_line_numbers: false, rg omits the `-<n>-` and emits `path-content`.
+  // Prefix stripping still works where delimiter parsing could not.
   expect(
     relativizeContentLine(
-      'C:\\Users\\proj\\report-2024-01-15.ts:7:hit',
-      relativize,
+      'C:\\Users\\proj\\src\\file.ts-const before',
+      'C:\\Users\\proj',
     ),
-  ).toBe('report-2024-01-15.ts:7:hit')
+  ).toBe('src\\file.ts-const before')
 })
 
-test('returns a line with no colon unchanged', () => {
-  const relativize = makeRelativize(path.posix, '/home/u/p')
-  expect(relativizeContentLine('just-some-text-no-colon', relativize)).toBe(
-    'just-some-text-no-colon',
+test('relativizes when the cwd itself contains a date-like -<digits>- segment', () => {
+  // Regression: a delimiter heuristic would split this row at `-2024-`. Prefix
+  // stripping against the known root handles it correctly.
+  expect(
+    relativizeContentLine(
+      'C:\\Users\\proj-2024-01-15\\src\\file.ts-41-context',
+      'C:\\Users\\proj-2024-01-15',
+    ),
+  ).toBe('src\\file.ts-41-context')
+})
+
+test('keeps a path outside the root absolute', () => {
+  expect(relativizeContentLine('D:\\other\\file.ts:1:x', 'C:\\Users\\proj')).toBe(
+    'D:\\other\\file.ts:1:x',
   )
 })
 
-test('returns a bare Windows drive path (only the drive colon) unchanged', () => {
-  // `C:` has its sole colon at index 1, which is inside the skipped drive
-  // prefix, so there is no boundary colon and the line passes through.
-  const relativize = makeRelativize(path.win32, 'C:\\Users\\proj')
-  expect(relativizeContentLine('C:', relativize)).toBe('C:')
+test('does not treat a sibling dir with a shared prefix as under the root', () => {
+  // `C:\proj2` is not under `C:\proj`; the required trailing separator guards it.
+  expect(relativizeContentLine('C:\\proj2\\file.ts:1:x', 'C:\\proj')).toBe(
+    'C:\\proj2\\file.ts:1:x',
+  )
 })
 
-test('defaults to toRelativePath when no relativizer is supplied', () => {
-  // Without a path/content boundary colon the line is returned untouched,
-  // exercising the default-argument path without depending on real cwd.
-  expect(relativizeContentLine('no-colon-here')).toBe('no-colon-here')
+test('handles a drive-root cwd that already ends with a separator', () => {
+  expect(relativizeContentLine('C:\\file.ts:1:x', 'C:\\')).toBe('file.ts:1:x')
+})
+
+test('returns an unrelated line unchanged', () => {
+  expect(relativizeContentLine('just-some-text', '/home/u/p')).toBe('just-some-text')
+})
+
+test('defaults root to the cwd when not supplied', () => {
+  // A line that is not under the real cwd is returned untouched, exercising the
+  // default-argument path without depending on the cwd's exact value.
+  expect(relativizeContentLine('Z:\\nowhere\\x.ts:1:y')).toBe('Z:\\nowhere\\x.ts:1:y')
 })

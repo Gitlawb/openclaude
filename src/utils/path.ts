@@ -101,46 +101,39 @@ export function toRelativePath(absolutePath: string): string {
 /**
  * Relativizes the file-path portion of a ripgrep content-mode line.
  *
- * ripgrep separates the path from the rest with `:` on a MATCH row and with `-`
- * on a CONTEXT row (`-A`/`-B`/`-C`/`context`). With line numbers (rg `-n`, the
- * default in GrepTool) the boundary is `<sep><line><sep>` — `:<n>:` for matches
- * and `-<n>-` for context rows. Finding that boundary is complicated on Windows
- * because an absolute path both begins with a drive-letter colon (`C:\...`) and
- * may contain `-` inside file/dir names, so neither the first `:` nor the first
- * `-` is reliable on its own.
+ * A content row is `<absolute path><delimiter><rest>`, where the delimiter is
+ * `:` / `:<n>:` for match rows and `-` / `-<n>-` for context rows (`-A`/`-B`/
+ * `-C`). Locating that delimiter by inspection is unreliable on Windows: drive
+ * colons, dashes inside directory/file names (e.g. a `proj-2024-01-15` cwd), and
+ * line-number-less context rows (`path-content`, emitted when line numbers are
+ * disabled) all defeat a delimiter heuristic.
  *
- * We therefore look (after any drive prefix) for the first `:<digits>:`, which a
- * Windows path can never contain since it has no non-drive colon — so this is
- * unambiguous for match rows even when the filename holds date-like `-2024-`
- * runs. Only if that is absent do we fall back to the first `-<digits>-` for
- * context rows, then to the first colon for line-number-less match rows
- * (`path:content`). POSIX paths (no drive letter) are handled the same way.
+ * Instead we strip the known absolute search root. Every path ripgrep emits for
+ * a search under the root begins with `<root><sep>`, so removing exactly that
+ * prefix yields the relative path plus the original delimiter and content
+ * verbatim — independent of the delimiter and of whether line numbers are on.
+ * Paths not under the root keep their absolute form, matching {@link
+ * toRelativePath}.
  *
  * @param line - A single ripgrep content line (match or context row)
- * @param relativize - Function that converts an absolute path to a relative one
- *   (defaults to {@link toRelativePath}; injectable for deterministic tests)
- * @returns The line with its leading path made relative, or unchanged when no
- *   path/content boundary can be located
+ * @param root - The absolute search root to relativize against (defaults to the
+ *   current working directory; injectable for deterministic tests)
+ * @returns The line with its leading path made relative, or unchanged when the
+ *   path is not under `root`
  */
 export function relativizeContentLine(
   line: string,
-  relativize: (p: string) => string = toRelativePath,
+  root: string = getCwd(),
 ): string {
-  // Skip a leading Windows drive-letter colon (`C:`) so it is not mistaken for
-  // the path/content separator. driveOffset stays 0 for POSIX paths.
-  const driveOffset = /^[A-Za-z]:/.test(line) ? 2 : 0
-  const afterDrive = line.slice(driveOffset)
-
-  // Prefer the `:<digits>:` match boundary (unambiguous: paths have no non-drive
-  // colon), then the `-<digits>-` context boundary.
-  const numbered = afterDrive.match(/:\d+:/) ?? afterDrive.match(/-\d+-/)
-  const boundary =
-    numbered?.index !== undefined
-      ? driveOffset + numbered.index
-      : // Line-number-less match row (`path:content`): fall back to first colon.
-        line.indexOf(':', driveOffset)
-  if (boundary > 0) {
-    return relativize(line.slice(0, boundary)) + line.slice(boundary)
+  // Try both separators so the same logic works for Windows (`\`) and POSIX
+  // (`/`) roots regardless of the host OS the tests run on. The trailing
+  // separator is required so a sibling like `C:\proj2` is not treated as being
+  // under `C:\proj`.
+  for (const sep of ['/', '\\']) {
+    const prefix = root.endsWith(sep) ? root : root + sep
+    if (line.startsWith(prefix)) {
+      return line.slice(prefix.length)
+    }
   }
   return line
 }
