@@ -106,7 +106,7 @@ export async function writeReplayIndex(
       await stat(dir)
     } catch {
       const { mkdir } = await import('fs/promises')
-      await mkdir(dir, { recursive: true })
+      await mkdir(dir, { recursive: true, mode: 0o700 })
     }
     
     await writeFile(replayPath, JSON.stringify(index, null, 2), {

@@ -69,6 +69,24 @@ describe('replay index storage', () => {
     }
   })
 
+  test('creates missing replay sidecar directories with owner-only permissions', async () => {
+    const sessionId = 'session-dir-perms'
+    const projectDir = join(testRoot, 'new-project')
+
+    await writeReplayIndex(
+      sessionId,
+      join(projectDir, `${sessionId}.jsonl`),
+      makeIndex(sessionId),
+    )
+
+    const stats = await stat(projectDir)
+    if (process.platform !== 'win32') {
+      expect(stats.mode & 0o777).toBe(0o700)
+    } else {
+      expect(stats.isDirectory()).toBe(true)
+    }
+  })
+
   test('ignores malformed replay sidecars without a valid summary', async () => {
     const sessionId = 'session-malformed'
     const projectDir = join(testRoot, 'project')

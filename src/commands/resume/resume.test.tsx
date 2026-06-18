@@ -21,6 +21,9 @@ import type {
 type OnDoneArgs = Parameters<LocalJSXCommandOnDone>
 
 let saveGoalStateMock: ReturnType<typeof mock>
+let loadSameRepoMessageLogsMock: ReturnType<typeof mock>
+let searchSessionsByCustomTitleMock: ReturnType<typeof mock>
+let loadReplayIndexMock: ReturnType<typeof mock>
 
 async function importFreshResumeModule(): Promise<
   typeof import('./resume.js')
@@ -166,6 +169,9 @@ async function waitFor(
 describe('/resume and /continue unified command', () => {
   beforeEach(() => {
     saveGoalStateMock = mock(() => Promise.resolve())
+    loadSameRepoMessageLogsMock = mock(() => Promise.resolve([]))
+    searchSessionsByCustomTitleMock = mock(() => Promise.resolve([]))
+    loadReplayIndexMock = mock(() => Promise.resolve(null))
     mock.module('../../services/goal/persistence.js', () => ({
       saveGoalState: saveGoalStateMock,
     }))
@@ -175,12 +181,16 @@ describe('/resume and /continue unified command', () => {
     mock.module('../../utils/sessionStorage.js', () => ({
       getLastSessionLog: () => Promise.resolve(null),
       getSessionIdFromLog: (log: { sessionId?: string }) => log.sessionId,
-      isCustomTitleEnabled: () => false,
+      getTranscriptPathForSession: (sessionId: string) => `${sessionId}.jsonl`,
+      isCustomTitleEnabled: () => true,
       isLiteLog: () => false,
       loadAllProjectsMessageLogs: () => Promise.resolve([]),
       loadFullLog: (log: unknown) => Promise.resolve(log),
-      loadSameRepoMessageLogs: () => Promise.resolve([]),
-      searchSessionsByCustomTitle: () => Promise.resolve([]),
+      loadSameRepoMessageLogs: loadSameRepoMessageLogsMock,
+      searchSessionsByCustomTitle: searchSessionsByCustomTitleMock,
+    }))
+    mock.module('../../utils/replayIndex.js', () => ({
+      loadReplayIndex: loadReplayIndexMock,
     }))
   })
 
@@ -418,6 +428,90 @@ describe('/resume and /continue unified command', () => {
 
     expect(element).toBeTruthy()
     expect(onDone).not.toHaveBeenCalled()
+  })
+
+  test('direct /resume session id shows replay summary before resuming', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000123' as UUID
+    const log = {
+      ...replaySession.log,
+      sessionId,
+      fullPath: '/tmp/session.jsonl',
+    } as LogOption
+    loadSameRepoMessageLogsMock.mockImplementation(() => Promise.resolve([log]))
+    loadReplayIndexMock.mockImplementation(() =>
+      Promise.resolve({
+        sessionId,
+        version: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        summary: replaySummary,
+        steps: [],
+      }),
+    )
+    const resumeMock = mock(() => Promise.resolve())
+    const { context } = makeContext()
+    ;(context as unknown as { resume: typeof resumeMock }).resume = resumeMock
+    const { stdin, stdout, getOutput } = createTestStreams()
+    const root = await createRoot({
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+    const { call } = await importFreshResumeModule()
+    const onDone = mock(() => {})
+
+    try {
+      const element = await call(
+        onDone as unknown as LocalJSXCommandOnDone,
+        context,
+        sessionId,
+      )
+      expect(element).toBeTruthy()
+      root.render(element as React.ReactElement)
+      await waitFor(() => getOutput().includes('Session Summary'))
+      expect(resumeMock).not.toHaveBeenCalled()
+
+      stdin.write('\r')
+      await waitFor(() => resumeMock.mock.calls.length === 1)
+      expect(resumeMock).toHaveBeenCalledWith(
+        sessionId,
+        log,
+        'slash_command_session_id',
+      )
+    } finally {
+      root.unmount()
+      stdin.end()
+      stdout.end()
+      await Bun.sleep(0)
+    }
+  })
+
+  test('direct /resume exact title resumes immediately without replay data', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000124' as UUID
+    const log = {
+      ...replaySession.log,
+      sessionId,
+      customTitle: 'exact title',
+    } as LogOption
+    loadSameRepoMessageLogsMock.mockImplementation(() => Promise.resolve([log]))
+    searchSessionsByCustomTitleMock.mockImplementation(() =>
+      Promise.resolve([log]),
+    )
+    loadReplayIndexMock.mockImplementation(() => Promise.resolve(null))
+    const resumeMock = mock(() => Promise.resolve())
+    const { context } = makeContext()
+    ;(context as unknown as { resume: typeof resumeMock }).resume = resumeMock
+    const { call } = await importFreshResumeModule()
+    const onDone = mock(() => {})
+
+    const element = await call(
+      onDone as unknown as LocalJSXCommandOnDone,
+      context,
+      'exact title',
+    )
+
+    expect(element).toBeNull()
+    await waitFor(() => resumeMock.mock.calls.length === 1)
+    expect(resumeMock).toHaveBeenCalledWith(sessionId, log, 'slash_command_title')
   })
 
   test('replay summary confirmation renders without resuming immediately', async () => {

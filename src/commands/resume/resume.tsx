@@ -279,6 +279,41 @@ export function filterResumableSessions(logs: LogOption[], currentSessionId: str
   return logs.filter(l => !l.isSidechain && getSessionIdFromLog(l) !== currentSessionId);
 }
 
+async function resumeWithOptionalSummary(
+  sessionId: UUID,
+  log: LogOption,
+  entrypoint: ResumeEntrypoint,
+  onResume: (
+    sessionId: UUID,
+    log: LogOption,
+    entrypoint: ResumeEntrypoint,
+  ) => Promise<void>,
+  onDone: Parameters<LocalJSXCommandCall>[0],
+): Promise<React.ReactNode> {
+  const transcriptPath = log.fullPath || getTranscriptPathForSession(sessionId);
+  const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
+  if (!replayIndex) {
+    void onResume(sessionId, log, entrypoint);
+    return null;
+  }
+
+  return (
+    <ResumeConfirmation
+      selectedSession={{ sessionId, log }}
+      sessionSummary={replayIndex.summary}
+      resuming={false}
+      onResume={session => {
+        void onResume(session.sessionId, session.log, entrypoint);
+      }}
+      onCancel={() => {
+        onDone('Resume cancelled', {
+          display: 'system',
+        });
+      }}
+    />
+  );
+}
+
 function isResumableGoal(goal: GoalState | null): goal is GoalState {
   return goal != null && (goal.status === 'active' || goal.status === 'paused');
 }
@@ -423,8 +458,13 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     if (matchingLogs.length > 0) {
       const log = matchingLogs[0]!;
       const fullLog = isLiteLog(log) ? await loadFullLog(log) : log;
-      void onResume(maybeSessionId, fullLog, 'slash_command_session_id');
-      return null;
+      return resumeWithOptionalSummary(
+        maybeSessionId,
+        fullLog,
+        'slash_command_session_id',
+        onResume,
+        onDone,
+      );
     }
 
     // Enriched logs didn't find it — try direct file lookup. This handles
@@ -432,8 +472,13 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     // firstPrompt extraction fail, causing the session to be dropped).
     const directLog = await getLastSessionLog(maybeSessionId);
     if (directLog) {
-      void onResume(maybeSessionId, directLog, 'slash_command_session_id');
-      return null;
+      return resumeWithOptionalSummary(
+        maybeSessionId,
+        directLog,
+        'slash_command_session_id',
+        onResume,
+        onDone,
+      );
     }
   }
 
@@ -447,8 +492,13 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
       const sessionId = getSessionIdFromLog(log);
       if (sessionId) {
         const fullLog = isLiteLog(log) ? await loadFullLog(log) : log;
-        void onResume(sessionId, fullLog, 'slash_command_title');
-        return null;
+        return resumeWithOptionalSummary(
+          sessionId,
+          fullLog,
+          'slash_command_title',
+          onResume,
+          onDone,
+        );
       }
     }
 
