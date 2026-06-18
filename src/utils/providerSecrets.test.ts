@@ -135,6 +135,7 @@ describe('getKnownProviderSecretEnvKeys', () => {
       'NEARAI_API_KEY',
       'DEEPSEEK_API_KEY',
       'DASHSCOPE_API_KEY',
+      'LLMTR_API_KEY',
     ]
     const missing = representative.filter((key) => !known.has(key))
     expect(missing, `representative provider keys missing from redaction set: ${missing.join(', ')}`).toEqual([])
