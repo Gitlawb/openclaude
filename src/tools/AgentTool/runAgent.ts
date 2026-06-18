@@ -743,6 +743,9 @@ export async function* runAgent({
     readFileState: agentReadFileState,
     abortController: agentAbortController,
     getAppState: agentGetAppState,
+    ...(!isAsync && toolUseContext.queryLifecycle
+      ? { queryLifecycle: toolUseContext.queryLifecycle }
+      : {}),
     // Sync agents share these callbacks with parent
     shareSetAppState: !isAsync,
     shareSetResponseLength: true, // Both sync and async contribute to response metrics
