@@ -1775,7 +1775,6 @@ export function REPL({
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
       logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
-      logQueryLifecycle('end', timeout.context, summarizeActiveOperations(queryLifecycleTrackerRef.current.snapshot()));
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);
@@ -3121,16 +3120,20 @@ export function REPL({
           abortReason
         })
       };
+      const activeOperationSummary = summarizeActiveOperations(activeOperations);
+      const logCompletedLifecycle = (context: QueryLifecycleContext) => {
+        logQueryLifecycle('end', context, activeOperationSummary);
+        if (activeOperations.apiCalls.length > 0) {
+          logForDebugging(`api.call.orphaned_on_query_end queryId=${queryContext.queryId} generation=${thisGeneration} ${activeOperationSummary}`, {
+            level: 'warn'
+          });
+        }
+      };
       // queryGuard.end() atomically checks generation and transitions
       // running→idle. Returns false if a newer query owns the guard
       // (cancel+resubmit race where the stale finally fires as a microtask).
       if (queryGuard.end(thisGeneration, terminalReason, abortReason)) {
-        logQueryLifecycle('end', completedContext, summarizeActiveOperations(activeOperations));
-        if (activeOperations.apiCalls.length > 0) {
-          logForDebugging(`api.call.orphaned_on_query_end queryId=${queryContext.queryId} generation=${thisGeneration} ${summarizeActiveOperations(activeOperations)}`, {
-            level: 'warn'
-          });
-        }
+        logCompletedLifecycle(completedContext);
         lifecycleTracker.clear();
         setLastQueryCompletionTime(Date.now());
         skipIdleCheckRef.current = false;
@@ -3217,8 +3220,15 @@ export function REPL({
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
         // propagating to the double-press exit flow.
         setAbortController(null);
-      } else if (!queryGuard.isActive) {
-        lifecycleTracker.clear();
+      } else {
+        const guardCompletedContext = queryGuard.lastContext;
+        if ((guardCompletedContext?.terminalReason === 'query-timeout' || guardCompletedContext?.terminalReason === 'hard-max-query-timeout') && guardCompletedContext.queryGeneration === thisGeneration) {
+          logCompletedLifecycle(guardCompletedContext);
+          setLastQueryCompletionTime(Date.now());
+          lifecycleTracker.clear();
+        } else if (!queryGuard.isActive) {
+          lifecycleTracker.clear();
+        }
       }
 
       // Auto-restore: if the user interrupted before any meaningful response

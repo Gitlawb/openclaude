@@ -12,24 +12,38 @@ function getAbortTimedOutQueryBody(): string {
   return source.slice(start, end)
 }
 
+function getQueryFinallyBody(): string {
+  const queryStart = source.indexOf('await onQueryImpl(')
+  expect(queryStart).toBeGreaterThan(-1)
+  const finallyStart = source.indexOf('} finally {', queryStart)
+  expect(finallyStart).toBeGreaterThan(queryStart)
+  const finallyEnd = source.indexOf('// Auto-restore:', finallyStart)
+  expect(finallyEnd).toBeGreaterThan(finallyStart)
+  return source.slice(finallyStart, finallyEnd)
+}
+
 describe('REPL query lifecycle timeout logging', () => {
-  test('logs timeout end only after abort acknowledgement', () => {
+  test('does not emit terminal timeout end from timeout handler', () => {
     const body = getAbortTimedOutQueryBody()
     const queueMicrotaskIndex = body.indexOf('queueMicrotask(() => {')
     expect(queueMicrotaskIndex).toBeGreaterThan(-1)
-    const beforeAcknowledgement = body.slice(0, queueMicrotaskIndex)
-    expect(beforeAcknowledgement).not.toContain("logQueryLifecycle('end'")
 
     const abortAcknowledgedIndex = body.indexOf(
       "logQueryLifecycle('abort_acknowledged'",
       queueMicrotaskIndex,
     )
-    const endIndex = body.indexOf(
-      "logQueryLifecycle('end'",
-      queueMicrotaskIndex,
-    )
 
     expect(abortAcknowledgedIndex).toBeGreaterThan(queueMicrotaskIndex)
-    expect(endIndex).toBeGreaterThan(abortAcknowledgedIndex)
+    expect(body).not.toContain("logQueryLifecycle('end'")
+  })
+
+  test('emits timeout end from the query finally cleanup path', () => {
+    const body = getQueryFinallyBody()
+
+    expect(body).toContain('const guardCompletedContext = queryGuard.lastContext')
+    expect(body).toContain("guardCompletedContext?.terminalReason === 'query-timeout'")
+    expect(body).toContain("guardCompletedContext?.terminalReason === 'hard-max-query-timeout'")
+    expect(body).toContain('guardCompletedContext.queryGeneration === thisGeneration')
+    expect(body).toContain('logCompletedLifecycle(guardCompletedContext)')
   })
 })
