@@ -153,6 +153,22 @@ test('buildAPIProviderProperties redacts token-bearing OpenAI-compatible base UR
   expect(serialized).not.toContain('fragment-leak')
 })
 
+test('buildAPIProviderProperties does not substring-redact short configured secrets', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1?credential=1'
+  process.env.OPENAI_MODEL = 'gpt-4.1'
+  process.env.OPENAI_API_KEY = '1'
+
+  const properties = await readAPIProviderProperties('openai')
+
+  expect(properties.find(property => property.label === 'OpenAI base URL')?.value).toBe(
+    'https://api.openai.com/v1?credential=redacted',
+  )
+  expect(properties.find(property => property.label === 'Model')?.value).toBe(
+    'gpt-4.1',
+  )
+})
+
 test('buildAPIProviderProperties redacts token-bearing Gemini base URLs', async () => {
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
   process.env.GEMINI_BASE_URL =

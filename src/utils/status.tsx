@@ -84,6 +84,8 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
   },
 };
 
+const MIN_CONFIGURED_SECRET_SUBSTRING_LENGTH = 9;
+
 function formatOpenAICompatibleModelDisplay(
   model: string,
   resolveModelMetadata = false,
@@ -125,18 +127,37 @@ function pushRedactedProperty(
   });
 }
 
-function redactConfiguredSecretSubstrings(
-  value: string,
-  secretSource: SecretValueSource,
-): string {
-  let redacted = value;
-  const secrets = Array.from(
+function getConfiguredSecretValues(secretSource: SecretValueSource): string[] {
+  return Array.from(
     new Set(
       Object.values(secretSource)
         .map(secret => sanitizeApiKey(secret)?.trim())
         .filter((secret): secret is string => Boolean(secret)),
     ),
-  ).sort((a, b) => b.length - a.length);
+  );
+}
+
+function getConfiguredSecretSubstringSource(
+  secretSource: SecretValueSource,
+): SecretValueSource {
+  const substringSource: SecretValueSource = {};
+  for (const [key, value] of Object.entries(secretSource)) {
+    const secret = sanitizeApiKey(value)?.trim();
+    if (secret && secret.length >= MIN_CONFIGURED_SECRET_SUBSTRING_LENGTH) {
+      substringSource[key] = value;
+    }
+  }
+  return substringSource;
+}
+
+function redactConfiguredSecretSubstrings(
+  value: string,
+  secretSource: SecretValueSource,
+): string {
+  let redacted = value;
+  const secrets = getConfiguredSecretValues(secretSource)
+    .filter(secret => secret.length >= MIN_CONFIGURED_SECRET_SUBSTRING_LENGTH)
+    .sort((a, b) => b.length - a.length);
 
   for (const secret of secrets) {
     const encodedSecret = encodeURIComponent(secret);
@@ -156,6 +177,40 @@ function redactConfiguredSecretSubstrings(
   return redacted;
 }
 
+function redactConfiguredSecretUrlQueryValues(
+  value: string,
+  secretSource: SecretValueSource,
+): string {
+  const secrets = new Set(getConfiguredSecretValues(secretSource));
+  if (secrets.size === 0) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const redactedParams = new URLSearchParams();
+    let changed = false;
+
+    for (const [key, queryValue] of parsed.searchParams.entries()) {
+      if (secrets.has(queryValue)) {
+        redactedParams.append(key, 'redacted');
+        changed = true;
+      } else {
+        redactedParams.append(key, queryValue);
+      }
+    }
+
+    if (!changed) {
+      return value;
+    }
+
+    parsed.search = redactedParams.toString();
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
 function redactStatusTextForDisplay(
   value: string,
   secretSource: SecretValueSource,
@@ -165,7 +220,10 @@ function redactStatusTextForDisplay(
     secretSource,
   );
   return (
-    redactSecretSubstringsForDisplay(configuredSecretRedacted, secretSource) ??
+    redactSecretSubstringsForDisplay(
+      configuredSecretRedacted,
+      getConfiguredSecretSubstringSource(secretSource),
+    ) ??
     configuredSecretRedacted
   );
 }
@@ -180,7 +238,11 @@ function pushRedactedUrlProperty(
     return;
   }
 
-  const urlRedacted = redactUrlForStatus(value);
+  const queryValueRedacted = redactConfiguredSecretUrlQueryValues(
+    value,
+    secretSource,
+  );
+  const urlRedacted = redactUrlForStatus(queryValueRedacted);
   properties.push({
     label,
     value: redactStatusTextForDisplay(urlRedacted, secretSource)
