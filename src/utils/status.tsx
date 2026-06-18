@@ -22,7 +22,7 @@ import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
 import { getKnownProviderSecretEnvKeys, redactSecretValueForDisplay, type SecretValueSource } from './providerSecrets.js';
-import { redactUrlForDisplay } from './urlRedaction.js';
+import { redactPathForStatus, redactUrlForStatus } from './statusRedaction.js';
 export type Property = {
   label?: string;
   value: React.ReactNode | Array<string>;
@@ -115,8 +115,7 @@ function pushRedactedProperty(
     value: redactSecretValueForDisplay(value, secretSource) ?? value
   });
 }
-
-function pushRedactedBaseUrlProperty(
+function pushRedactedUrlProperty(
   properties: Property[],
   label: string,
   value: string | undefined,
@@ -126,12 +125,11 @@ function pushRedactedBaseUrlProperty(
     return;
   }
 
-  pushRedactedProperty(
-    properties,
+  const redactedUrl = redactUrlForStatus(value);
+  properties.push({
     label,
-    redactUrlForDisplay(value),
-    secretSource,
-  );
+    value: redactSecretValueForDisplay(redactedUrl, secretSource) ?? redactedUrl
+  });
 }
 export function buildSandboxProperties(): Property[] {
   if (process.env.USER_TYPE !== 'ant') {
@@ -363,15 +361,19 @@ export function buildAPIProviderProperties(): Property[] {
     });
   }
   if (apiProvider === 'firstParty') {
-    const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
-    if (anthropicBaseUrl) {
-      pushRedactedBaseUrlProperty(properties, 'Anthropic base URL', anthropicBaseUrl, secretSource);
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Anthropic base URL',
+      process.env.ANTHROPIC_BASE_URL,
+      secretSource,
+    );
   } else if (apiProvider === 'bedrock') {
-    const bedrockBaseUrl = process.env.BEDROCK_BASE_URL;
-    if (bedrockBaseUrl) {
-      pushRedactedBaseUrlProperty(properties, 'Bedrock base URL', bedrockBaseUrl, secretSource);
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Bedrock base URL',
+      process.env.BEDROCK_BASE_URL,
+      secretSource,
+    );
     properties.push({
       label: 'AWS region',
       value: getAWSRegion()
@@ -382,10 +384,12 @@ export function buildAPIProviderProperties(): Property[] {
       });
     }
   } else if (apiProvider === 'vertex') {
-    const vertexBaseUrl = process.env.VERTEX_BASE_URL;
-    if (vertexBaseUrl) {
-      pushRedactedBaseUrlProperty(properties, 'Vertex base URL', vertexBaseUrl, secretSource);
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Vertex base URL',
+      process.env.VERTEX_BASE_URL,
+      secretSource,
+    );
     const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
     if (gcpProject) {
       properties.push({
@@ -403,10 +407,12 @@ export function buildAPIProviderProperties(): Property[] {
       });
     }
   } else if (apiProvider === 'foundry') {
-    const foundryBaseUrl = process.env.ANTHROPIC_FOUNDRY_BASE_URL;
-    if (foundryBaseUrl) {
-      pushRedactedBaseUrlProperty(properties, 'Microsoft Foundry base URL', foundryBaseUrl, secretSource);
-    }
+    pushRedactedUrlProperty(
+      properties,
+      'Microsoft Foundry base URL',
+      process.env.ANTHROPIC_FOUNDRY_BASE_URL,
+      secretSource,
+    );
     const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
     if (foundryResource) {
       properties.push({
@@ -422,7 +428,7 @@ export function buildAPIProviderProperties(): Property[] {
   } else if (apiProvider in OPENAI_COMPATIBLE_STATUS_METADATA) {
     const metadata =
       OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider]!;
-    pushRedactedBaseUrlProperty(
+    pushRedactedUrlProperty(
       properties,
       metadata.baseUrlLabel,
       process.env.OPENAI_BASE_URL,
@@ -443,40 +449,35 @@ export function buildAPIProviderProperties(): Property[] {
     }
   } else if (apiProvider === 'gemini') {
     const geminiBaseUrl = process.env.GEMINI_BASE_URL;
-    pushRedactedBaseUrlProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
+    pushRedactedUrlProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
     const geminiModel = process.env.GEMINI_MODEL;
     pushRedactedProperty(properties, 'Model', geminiModel, secretSource);
   } else if (apiProvider === 'mistral') {
     const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
-    pushRedactedBaseUrlProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
+    pushRedactedUrlProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
     const mistralModel = process.env.MISTRAL_MODEL;
     pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
   }
   const proxyUrl = getProxyUrl();
-  if (proxyUrl) {
-    properties.push({
-      label: 'Proxy',
-      value: proxyUrl
-    });
-  }
+  pushRedactedUrlProperty(properties, 'Proxy', proxyUrl, secretSource);
   const mtlsConfig = getMTLSConfig();
   if (process.env.NODE_EXTRA_CA_CERTS) {
     properties.push({
       label: 'Additional CA cert(s)',
-      value: process.env.NODE_EXTRA_CA_CERTS
+      value: redactPathForStatus(process.env.NODE_EXTRA_CA_CERTS)
     });
   }
   if (mtlsConfig) {
     if (mtlsConfig.cert && process.env.CLAUDE_CODE_CLIENT_CERT) {
       properties.push({
         label: 'mTLS client cert',
-        value: process.env.CLAUDE_CODE_CLIENT_CERT
+        value: redactPathForStatus(process.env.CLAUDE_CODE_CLIENT_CERT)
       });
     }
     if (mtlsConfig.key && process.env.CLAUDE_CODE_CLIENT_KEY) {
       properties.push({
         label: 'mTLS client key',
-        value: process.env.CLAUDE_CODE_CLIENT_KEY
+        value: 'configured'
       });
     }
   }

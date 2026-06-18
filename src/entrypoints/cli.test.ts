@@ -13,6 +13,19 @@ import {
   it,
   mock,
 } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  applyLoadedEnvFileValues,
+  loadEnvFile,
+} from '../utils/envFile.js'
+import {
+  applyProviderFlagFromArgs,
+  clearRememberedProviderFlagForTests,
+  reapplyRememberedProviderFlag,
+} from '../utils/providerFlag.js'
+import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
 
 type CliMain = typeof import('./cli.js')['main']
 
@@ -24,6 +37,12 @@ const mockLogsHandler = mock(async (_args: string[]) => {})
 const mockAttachHandler = mock(async (_args: string[]) => {})
 const mockKillHandler = mock(async (_args: string[]) => {})
 const mockHandleBgFlag = mock(async (_args: string[]) => {})
+const mockLoadEnvFile = mock((_filePath: string) => ({}))
+const mockParseProviderEnvFileArgs = mock((_args: string[]) => ({ paths: [] }))
+const mockReapplyRememberedEnvFileValues = mock(() => {})
+const mockRememberLoadedEnvFileValues = mock(
+  (_values: Record<string, string>) => {},
+)
 const mockEnableConfigs = mock(() => {})
 const mockApplySafeConfigEnvironmentVariables = mock(() => {})
 const mockApplyStartupEnvFromProfile = mock(
@@ -55,6 +74,10 @@ const runtimeMocks = [
   mockAttachHandler,
   mockKillHandler,
   mockHandleBgFlag,
+  mockLoadEnvFile,
+  mockParseProviderEnvFileArgs,
+  mockReapplyRememberedEnvFileValues,
+  mockRememberLoadedEnvFileValues,
   mockEnableConfigs,
   mockApplySafeConfigEnvironmentVariables,
   mockApplyStartupEnvFromProfile,
@@ -123,6 +146,46 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
 })
 
 describe('cli.tsx — --provider startup ordering', () => {
+  const providerEnvKeys = [
+    'CLAUDE_CODE_USE_OPENAI',
+    'CLAUDE_CODE_USE_GEMINI',
+    'OPENAI_API_KEY',
+    'OPENAI_BASE_URL',
+    'OPENAI_MODEL',
+    'GEMINI_MODEL',
+  ]
+  const originalEnv = new Map<string, string | undefined>()
+  let tempDir: string
+
+  beforeEach(() => {
+    clearRememberedProviderFlagForTests()
+    tempDir = mkdtempSync(join(tmpdir(), 'openclaude-cli-env-file-test-'))
+    for (const key of providerEnvKeys) {
+      originalEnv.set(key, process.env[key])
+      delete process.env[key]
+    }
+  })
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+    for (const key of providerEnvKeys) {
+      const originalValue = originalEnv.get(key)
+      if (originalValue === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalValue
+      }
+    }
+    originalEnv.clear()
+    clearRememberedProviderFlagForTests()
+  })
+
+  function writeProviderEnvFile(content: string): string {
+    const filePath = join(tempDir, '.env')
+    writeFileSync(filePath, content, 'utf-8')
+    return filePath
+  }
+
   it('remembers --provider so settings.env reloads cannot clobber it', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
 
@@ -156,6 +219,73 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(safeReapplyIndex).toBeGreaterThan(safeApplyIndex)
     expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
+  })
+
+  it('remembers provider env-file values so later managed settings env merges can restore them', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const envFileImportIndex = src.indexOf('rememberLoadedEnvFileValues')
+    const rememberLoadedFileIndex = src.indexOf(
+      'rememberLoadedEnvFileValues(loadEnvFile(filePath))',
+    )
+
+    expect(envFileImportIndex).toBeGreaterThanOrEqual(0)
+    expect(rememberLoadedFileIndex).toBeGreaterThan(envFileImportIndex)
+  })
+
+  it('preserves explicit --provider-env-file values through settings and startup profile env merges', () => {
+    const filePath = writeProviderEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_API_KEY=file-key',
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=file-model',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    Object.assign(process.env, {
+      OPENAI_API_KEY: 'settings-key',
+      OPENAI_BASE_URL: 'https://settings.example/v1',
+      OPENAI_MODEL: 'settings-model',
+    })
+    applyLoadedEnvFileValues(loaded)
+
+    applyProfileEnvToProcessEnv(process.env, {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'profile-key',
+      OPENAI_BASE_URL: 'https://profile.example/v1',
+      OPENAI_MODEL: 'profile-model',
+    })
+    applyLoadedEnvFileValues(loaded)
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_API_KEY).toBe('file-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
+    expect(process.env.OPENAI_MODEL).toBe('file-model')
+  })
+
+  it('keeps explicit --provider values ahead of provider env-file reapply checkpoints', () => {
+    const filePath = writeProviderEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_API_KEY=file-key',
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=file-model',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    const result = applyProviderFlagFromArgs(
+      ['--provider', 'gemini', '--model', 'gemini-2.0-flash'],
+      { rememberForSettingsEnv: true },
+    )
+    expect(result?.error).toBeUndefined()
+
+    applyLoadedEnvFileValues(loaded)
+    reapplyRememberedProviderFlag()
+    applyLoadedEnvFileValues(loaded)
+    reapplyRememberedProviderFlag()
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+    expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
   })
 
   it('dispatches background session management before config and provider validation', async () => {
@@ -203,6 +333,12 @@ describe('cli.tsx — background routing behavior', () => {
         attachHandler: mockAttachHandler,
         killHandler: mockKillHandler,
         handleBgFlag: mockHandleBgFlag,
+      }),
+      envFile: async () => ({
+        loadEnvFile: mockLoadEnvFile,
+        parseProviderEnvFileArgs: mockParseProviderEnvFileArgs,
+        reapplyRememberedEnvFileValues: mockReapplyRememberedEnvFileValues,
+        rememberLoadedEnvFileValues: mockRememberLoadedEnvFileValues,
       }),
       config: async () => ({
         enableConfigs: mockEnableConfigs,
@@ -283,6 +419,7 @@ describe('cli.tsx — background routing behavior', () => {
       await runCliEntrypoint([command, ...tail], bgOptions)
 
       expect(handler.mock.calls).toEqual([[tail]])
+      expect(mockParseProviderEnvFileArgs).not.toHaveBeenCalled()
       expect(mockHandleBgFlag).not.toHaveBeenCalled()
       expect(mockEnableConfigs).not.toHaveBeenCalled()
       expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
@@ -304,6 +441,7 @@ describe('cli.tsx — background routing behavior', () => {
       await runCliEntrypoint([command, '--bg', 'session-1'], bgOptions)
 
       expect(handler.mock.calls).toEqual([[['--bg', 'session-1']]])
+      expect(mockParseProviderEnvFileArgs).not.toHaveBeenCalled()
       expect(mockHandleBgFlag).not.toHaveBeenCalled()
       expect(mockEnableConfigs).not.toHaveBeenCalled()
       expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
@@ -317,6 +455,8 @@ describe('cli.tsx — background routing behavior', () => {
     await runCliEntrypoint(args, bgOptions)
 
     expect(mockEnableConfigs).toHaveBeenCalledTimes(1)
+    expect(mockParseProviderEnvFileArgs.mock.calls).toEqual([[args]])
+    expect(mockReapplyRememberedEnvFileValues).toHaveBeenCalledTimes(2)
     expect(mockApplySafeConfigEnvironmentVariables).toHaveBeenCalledTimes(1)
     expect(mockApplyStartupEnvFromProfile).toHaveBeenCalledTimes(1)
     expect(mockEagerLoadSettingsFromArgs.mock.calls).toEqual([[args]])

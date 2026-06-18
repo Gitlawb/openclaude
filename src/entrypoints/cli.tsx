@@ -76,6 +76,7 @@ type CliEntrypointImporters = {
   startupProfiler: () => Promise<typeof import('../utils/startupProfiler.js')>
   bg: () => Promise<typeof import('../cli/bg.js')>
   providerFlag: () => Promise<typeof import('../utils/providerFlag.js')>
+  envFile: () => Promise<typeof import('../utils/envFile.js')>
   config: () => Promise<typeof import('../utils/config.js')>
   managedEnv: () => Promise<typeof import('../utils/managedEnv.js')>
   providerProfile: () => Promise<typeof import('../utils/providerProfile.js')>
@@ -102,6 +103,7 @@ const defaultCliEntrypointImporters: CliEntrypointImporters = {
   startupProfiler: () => import('../utils/startupProfiler.js'),
   bg: () => import('../cli/bg.js'),
   providerFlag: () => import('../utils/providerFlag.js'),
+  envFile: () => import('../utils/envFile.js'),
   config: () => import('../utils/config.js'),
   managedEnv: () => import('../utils/managedEnv.js'),
   providerProfile: () => import('../utils/providerProfile.js'),
@@ -138,6 +140,12 @@ export async function main(
 ): Promise<void> {
   const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
+  let reapplyProviderEnvFileValues = () => {}
+  let reapplyProviderFlagValues = () => {}
+  const reapplyExplicitProviderInputs = () => {
+    reapplyProviderEnvFileValues()
+    reapplyProviderFlagValues()
+  }
 
   // Fast-path for --version/-v: zero module loading needed
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
@@ -173,10 +181,40 @@ export async function main(
     return;
   }
 
+  // --provider-env-file: Load explicit environment files before any provider resolution.
+  {
+    const {
+      loadEnvFile,
+      parseProviderEnvFileArgs,
+      reapplyRememberedEnvFileValues,
+      rememberLoadedEnvFileValues,
+    } = await importers.envFile()
+    reapplyProviderEnvFileValues = reapplyRememberedEnvFileValues
+    const providerEnvFiles = parseProviderEnvFileArgs(args)
+    if (providerEnvFiles.error) {
+      // biome-ignore lint/suspicious/noConsole:: intentional error output
+      console.error(providerEnvFiles.error)
+      process.exit(1)
+    }
+    for (const filePath of providerEnvFiles.paths) {
+      try {
+        rememberLoadedEnvFileValues(loadEnvFile(filePath))
+      } catch (err: unknown) {
+        // biome-ignore lint/suspicious/noConsole:: intentional error output
+        console.error(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    }
+  }
+
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
-    const { applyProviderFlagFromArgs } = await importers.providerFlag();
+    const {
+      applyProviderFlagFromArgs,
+      reapplyRememberedProviderFlag,
+    } = await importers.providerFlag()
+    reapplyProviderFlagValues = reapplyRememberedProviderFlag
     const result = applyProviderFlagFromArgs(args, {
       rememberForSettingsEnv: true,
     });
@@ -199,6 +237,7 @@ export async function main(
       await importers.managedEnv()
     applySafeConfigEnvironmentVariables()
   }
+  reapplyExplicitProviderInputs()
 
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
   await applyStartupEnvFromProfile({
@@ -207,6 +246,7 @@ export async function main(
       console.error(message)
     },
   })
+  reapplyExplicitProviderInputs()
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider

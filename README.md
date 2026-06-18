@@ -105,6 +105,8 @@ Inside OpenClaude:
 - run `/provider` for guided provider setup and saved profiles
 - run `/onboard-github` for GitHub Models onboarding
 
+> **Note:** OpenClaude does not automatically load project `.env` files. We recommend using the `/provider` command for setup, which securely stores credentials. If you prefer environment variables, export them explicitly or run `openclaude --provider-env-file .env` for provider/setup variables. Export runtime/debug knobs from your shell or launcher.
+
 ### Background sessions
 
 Run long non-interactive prompts detached from the current terminal:
@@ -122,8 +124,9 @@ Background sessions are local child processes. OpenClaude does not start a daemo
 or network service, and permission/provider/model/settings flags are passed to
 the child process the same way they are for a foreground `--print` run. Session
 metadata and logs are stored under the resolved OpenClaude config directory,
-usually `~/.openclaude/bg-sessions/`; `CLAUDE_CONFIG_DIR` can point OpenClaude
-somewhere else. Session names can be reused after older sessions reach a
+usually `~/.openclaude/bg-sessions/`; `OPENCLAUDE_CONFIG_DIR` can point
+OpenClaude somewhere else, with `CLAUDE_CONFIG_DIR` still supported as the
+legacy fallback. Session names can be reused after older sessions reach a
 terminal state; use the session ID to inspect older logs with the same name.
 
 `openclaude attach <id-or-name>` currently reports the matching session and

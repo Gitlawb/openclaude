@@ -28,7 +28,10 @@ import {
   handleMessageFromStream,
   type StreamingToolUse,
 } from '../utils/messages.js'
-import { generateSessionTitle } from '../utils/sessionTitle.js'
+import {
+  generateSessionTitle,
+  titleOrNullForPromptFallback,
+} from '../utils/sessionTitle.js'
 import type { RemoteMessageContent } from '../utils/teleport/api.js'
 import { updateSessionTitle } from '../utils/teleport/api.js'
 
@@ -477,15 +480,16 @@ export function useRemoteSession({
             ? content
             : extractTextContent(content, ' ')
         if (description) {
-          // generateSessionTitle never rejects (wraps body in try/catch,
-          // returns null on failure), so no .catch needed on this chain.
+          // generateSessionTitle never rejects (wraps body in try/catch),
+          // so no .catch needed on this chain.
           void generateSessionTitle(
             description,
             new AbortController().signal,
           ).then(title => {
+            const generatedTitle = titleOrNullForPromptFallback(title)
             void updateSessionTitle(
               sessionId,
-              title ?? truncateToWidth(description, 75),
+              generatedTitle ?? truncateToWidth(description, 75),
             )
           })
         }

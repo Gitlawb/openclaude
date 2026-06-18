@@ -69,6 +69,7 @@ import {
   getMessagesAfterCompactBoundary,
   isCompactBoundaryMessage,
   normalizeMessagesForAPI,
+  selectToolPairSafeMessageRange,
 } from '../../utils/messages.js'
 import { expandPath } from '../../utils/path.js'
 import { getPlan, getPlanFilePath } from '../../utils/plans.js'
@@ -816,10 +817,19 @@ export async function partialCompactConversation(
   direction: PartialCompactDirection = 'from',
 ): Promise<CompactionResult> {
   try {
-    const messagesToSummarize =
-      direction === 'up_to'
-        ? allMessages.slice(0, pivotIndex)
-        : allMessages.slice(pivotIndex)
+    const requestedStart = direction === 'up_to' ? 0 : pivotIndex
+    const requestedEnd =
+      direction === 'up_to' ? pivotIndex : allMessages.length
+    const summarizeRange = selectToolPairSafeMessageRange(
+      allMessages,
+      requestedStart,
+      requestedEnd,
+      {
+        projectionName: 'partial_compact',
+        querySource: 'compact',
+      },
+    )
+    const messagesToSummarize = summarizeRange.messages
     // 'up_to' must strip old compact boundaries/summaries: for 'up_to',
     // summary_B sits BEFORE kept, so a stale boundary_A in kept wins
     // findLastCompactBoundaryIndex's backward scan and drops summary_B.
@@ -828,14 +838,16 @@ export async function partialCompactConversation(
     const messagesToKeep =
       direction === 'up_to'
         ? allMessages
-            .slice(pivotIndex)
+            .slice(summarizeRange.end)
             .filter(
               m =>
                 m.type !== 'progress' &&
                 !isCompactBoundaryMessage(m) &&
                 !(m.type === 'user' && m.isCompactSummary),
             )
-        : allMessages.slice(0, pivotIndex).filter(m => m.type !== 'progress')
+        : allMessages
+            .slice(0, summarizeRange.start)
+            .filter(m => m.type !== 'progress')
 
     if (messagesToSummarize.length === 0) {
       throw new Error(
@@ -1046,8 +1058,9 @@ export async function partialCompactConversation(
     // a logicalParentUuid pointing at one. Both directions skip them.
     const lastPreCompactUuid =
       direction === 'up_to'
-        ? allMessages.slice(0, pivotIndex).findLast(m => m.type !== 'progress')
-            ?.uuid
+        ? allMessages
+            .slice(0, summarizeRange.end)
+            .findLast(m => m.type !== 'progress')?.uuid
         : messagesToKeep.at(-1)?.uuid
     const boundaryMarker = createCompactBoundaryMessage(
       'manual',
