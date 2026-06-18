@@ -1,6 +1,6 @@
 import { readFile, writeFile, stat } from 'fs/promises'
 import { join, dirname } from 'path'
-import type { ReplayIndex, ReplaySummary } from 'src/types/logs.js'
+import type { ReplayIndex, ReplayStep, ReplaySummary } from 'src/types/logs.js'
 import { logForDebugging } from './debug.js'
 import { logError } from './log.js'
 
@@ -49,6 +49,66 @@ function isReplaySummary(value: unknown): value is ReplaySummary {
   )
 }
 
+function isOptionalStringArray(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) && value.every(item => typeof item === 'string'))
+  )
+}
+
+function isReplayStep(value: unknown): value is ReplayStep {
+  if (!isRecord(value) || typeof value.stepNumber !== 'number') {
+    return false
+  }
+
+  switch (value.type) {
+    case 'tool':
+      return (
+        typeof value.toolName === 'string' &&
+        typeof value.toolUseId === 'string' &&
+        isRecord(value.input) &&
+        typeof value.inputSummary === 'string' &&
+        (value.resultStatus === 'success' ||
+          value.resultStatus === 'error' ||
+          value.resultStatus === 'cancelled' ||
+          value.resultStatus === 'permission_denied') &&
+        (value.resultPreview === undefined ||
+          typeof value.resultPreview === 'string') &&
+        typeof value.durationMs === 'number' &&
+        typeof value.timestamp === 'string' &&
+        isOptionalStringArray(value.filesModified) &&
+        (value.repeatedAttemptNumber === undefined ||
+          typeof value.repeatedAttemptNumber === 'number') &&
+        (value.isRepeatedAttempt === undefined ||
+          typeof value.isRepeatedAttempt === 'boolean')
+      )
+    case 'user':
+      return (
+        typeof value.content === 'string' &&
+        typeof value.timestamp === 'string'
+      )
+    case 'retry':
+      return (
+        (value.retryType === 'api' || value.retryType === 'permission') &&
+        (value.attempt === undefined || typeof value.attempt === 'number') &&
+        (value.maxRetries === undefined ||
+          typeof value.maxRetries === 'number') &&
+        (value.retryDelayMs === undefined ||
+          typeof value.retryDelayMs === 'number') &&
+        typeof value.reason === 'string' &&
+        isOptionalStringArray(value.commands) &&
+        typeof value.timestamp === 'string'
+      )
+    case 'error':
+      return (
+        typeof value.error === 'string' &&
+        typeof value.timestamp === 'string'
+      )
+    default:
+      return false
+  }
+}
+
 function isReplayIndex(value: unknown, sessionId: string): value is ReplayIndex {
   return (
     isRecord(value) &&
@@ -56,7 +116,8 @@ function isReplayIndex(value: unknown, sessionId: string): value is ReplayIndex 
     value.sessionId === sessionId &&
     typeof value.createdAt === 'string' &&
     isReplaySummary(value.summary) &&
-    Array.isArray(value.steps)
+    Array.isArray(value.steps) &&
+    value.steps.every(isReplayStep)
   )
 }
 

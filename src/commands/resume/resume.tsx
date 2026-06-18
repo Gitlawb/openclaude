@@ -279,6 +279,45 @@ export function filterResumableSessions(logs: LogOption[], currentSessionId: str
   return logs.filter(l => !l.isSidechain && getSessionIdFromLog(l) !== currentSessionId);
 }
 
+function DirectResumeConfirmation({
+  selectedSession,
+  sessionSummary,
+  entrypoint,
+  onResume,
+  onDone,
+}: {
+  selectedSession: ResumeConfirmationSession;
+  sessionSummary: import('../../types/logs.js').ReplaySummary;
+  entrypoint: ResumeEntrypoint;
+  onResume: (
+    sessionId: UUID,
+    log: LogOption,
+    entrypoint: ResumeEntrypoint,
+  ) => Promise<void>;
+  onDone: Parameters<LocalJSXCommandCall>[0];
+}): React.ReactNode {
+  const [resuming, setResuming] = React.useState(false);
+
+  return (
+    <ResumeConfirmation
+      selectedSession={selectedSession}
+      sessionSummary={sessionSummary}
+      resuming={resuming}
+      onResume={session => {
+        if (resuming) return;
+        setResuming(true);
+        void onResume(session.sessionId, session.log, entrypoint);
+      }}
+      onCancel={() => {
+        if (resuming) return;
+        onDone('Resume cancelled', {
+          display: 'system',
+        });
+      }}
+    />
+  );
+}
+
 async function resumeWithOptionalSummary(
   sessionId: UUID,
   log: LogOption,
@@ -298,18 +337,12 @@ async function resumeWithOptionalSummary(
   }
 
   return (
-    <ResumeConfirmation
+    <DirectResumeConfirmation
       selectedSession={{ sessionId, log }}
       sessionSummary={replayIndex.summary}
-      resuming={false}
-      onResume={session => {
-        void onResume(session.sessionId, session.log, entrypoint);
-      }}
-      onCancel={() => {
-        onDone('Resume cancelled', {
-          display: 'system',
-        });
-      }}
+      entrypoint={entrypoint}
+      onResume={onResume}
+      onDone={onDone}
     />
   );
 }

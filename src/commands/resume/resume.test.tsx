@@ -472,11 +472,14 @@ describe('/resume and /continue unified command', () => {
 
       stdin.write('\r')
       await waitFor(() => resumeMock.mock.calls.length === 1)
+      stdin.write('\r')
+      await Bun.sleep(10)
       expect(resumeMock).toHaveBeenCalledWith(
         sessionId,
         log,
         'slash_command_session_id',
       )
+      expect(resumeMock).toHaveBeenCalledTimes(1)
     } finally {
       root.unmount()
       stdin.end()

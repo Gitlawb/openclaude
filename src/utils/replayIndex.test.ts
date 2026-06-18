@@ -134,4 +134,28 @@ describe('replay index storage', () => {
 
     expect(await loadReplayIndex(sessionId, transcriptPath)).toBe(null)
   })
+
+  test('ignores replay sidecars with malformed steps', async () => {
+    const sessionId = 'session-malformed-step'
+    const projectDir = join(testRoot, 'project')
+    const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
+    const index = makeIndex(sessionId)
+
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${sessionId}.replay.json`),
+      JSON.stringify({
+        ...index,
+        steps: [
+          {
+            type: 'tool',
+            stepNumber: 1,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+
+    expect(await loadReplayIndex(sessionId, transcriptPath)).toBe(null)
+  })
 })
