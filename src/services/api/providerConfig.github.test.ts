@@ -118,6 +118,20 @@ test('resolveProviderRequest expands Enterprise origin base URL to Copilot API p
   expect(r.transport).toBe('codex_responses')
 })
 
+test('resolveProviderRequest expands GHE base URL without Enterprise env', () => {
+  const r = resolveProviderRequest({
+    model: 'github:copilot:gpt-5.3-codex',
+    processEnv: {
+      CLAUDE_CODE_USE_GITHUB: '1',
+      OPENAI_BASE_URL: 'https://octo.ghe.com',
+    },
+  })
+
+  expect(r.baseUrl).toBe('https://octo.ghe.com/api/copilot')
+  expect(r.resolvedModel).toBe('gpt-5.3-codex')
+  expect(r.transport).toBe('codex_responses')
+})
+
 test('resolveProviderRequest leaves model unchanged without GitHub flag', () => {
   delete process.env.CLAUDE_CODE_USE_GITHUB
   const r = resolveProviderRequest({ model: 'github:gpt-4o' })

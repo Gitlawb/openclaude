@@ -835,9 +835,11 @@ export function resolveProviderRequest(options?: {
     ? normalizeGithubModelsApiModel(requestedModel)
     : requestedModel
 
-  // For GHE instances, build the Copilot API base URL from GITHUB_ENTERPRISE_URL
-  const gheCopilotBaseUrl = gheUrl
-    ? buildGithubEnterpriseCopilotBaseUrl(gheUrl)
+  // For GHE instances, build the Copilot API base URL from either
+  // GITHUB_ENTERPRISE_URL or an already-classified GHE OPENAI_BASE_URL.
+  const gheBaseUrl = isGithubGhe ? (gheUrl ?? rawBaseUrl) : undefined
+  const gheCopilotBaseUrl = gheBaseUrl
+    ? buildGithubEnterpriseCopilotBaseUrl(gheBaseUrl)
     : undefined
 
   const requestedApiFormat =
