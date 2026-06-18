@@ -69,9 +69,25 @@ function envHasNonEmpty(env: EnvLike, key: string): boolean {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function envHasUsableOpenAICredential(env: EnvLike, key: string): boolean {
+  const value = env[key]
+  if (typeof value !== 'string') return false
+  return value.split(',').some(part => part.trim().length > 0)
+}
+
 function firstSet(env: EnvLike, keys: readonly string[]): string | undefined {
   for (const key of keys) {
     if (envHasNonEmpty(env, key)) return key
+  }
+  return undefined
+}
+
+function firstOpenAICredentialSet(
+  env: EnvLike,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    if (envHasUsableOpenAICredential(env, key)) return key
   }
   return undefined
 }
@@ -146,7 +162,10 @@ export function detectProviderFromEnv(
     }
   }
 
-  const openaiKey = firstSet(env, ['OPENAI_API_KEYS', 'OPENAI_API_KEY'])
+  const openaiKey = firstOpenAICredentialSet(env, [
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   if (openaiKey) {
     return {
       kind: 'openai',

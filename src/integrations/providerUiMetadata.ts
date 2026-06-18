@@ -27,12 +27,24 @@ function readFirstEnvValue(
 ): string {
   for (const envVar of envVars ?? []) {
     const value = processEnv[envVar]?.trim()
-    if (value) {
-      return value
+    if (hasUsableEnvValue(envVar, value)) {
+      return value ?? ''
     }
   }
 
   return ''
+}
+
+function hasUsableEnvValue(envVar: string, value: string | undefined): boolean {
+  if (!value) {
+    return false
+  }
+
+  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+    return value.split(',').some(part => part.trim() !== '')
+  }
+
+  return true
 }
 
 export type ProviderPresetUiMetadata = {

@@ -15,7 +15,7 @@ import {
   buildOpenAIProfileEnv,
   createProfileFile,
   saveProfileFile,
-  sanitizeApiKey,
+  sanitizeOpenAICredentialPool,
   type ProfileFile,
   type ProviderProfile,
 } from '../src/utils/providerProfile.ts'
@@ -140,12 +140,11 @@ async function maybeApplyProfile(
     env = buildOpenAIProfileEnv({
       goal,
       model: model || getGoalDefaultOpenAIModel(goal),
-      apiKey: process.env.OPENAI_API_KEY,
       processEnv: process.env,
     })
 
     if (!env) {
-      console.error('Cannot apply an OpenAI profile without OPENAI_API_KEY.')
+      console.error('Cannot apply an OpenAI profile without OPENAI_API_KEYS or OPENAI_API_KEY.')
       return false
     }
   }
@@ -186,7 +185,10 @@ async function main(): Promise<void> {
       }))
 
   const recommendedOllama = selectRecommendedOllamaModel(rankedModels)
-  const openAIConfigured = Boolean(sanitizeApiKey(process.env.OPENAI_API_KEY))
+  const openAIConfigured = Boolean(
+    sanitizeOpenAICredentialPool(process.env.OPENAI_API_KEYS) ||
+      sanitizeOpenAICredentialPool(process.env.OPENAI_API_KEY),
+  )
 
   let recommendedProfile: ProviderProfile
   let recommendedModel: string
@@ -252,10 +254,10 @@ async function main(): Promise<void> {
 
   if (!recommendedOllama && !openAIConfigured) {
     console.log(
-      '\nNo local Ollama model was detected and OPENAI_API_KEY is unset.',
+      '\nNo local Ollama model was detected and OPENAI_API_KEYS / OPENAI_API_KEY are unset.',
     )
     console.log(
-      'Next steps: `ollama pull qwen2.5-coder:7b` or set OPENAI_API_KEY.',
+      'Next steps: `ollama pull qwen2.5-coder:7b` or set OPENAI_API_KEYS or OPENAI_API_KEY.',
     )
   }
 }

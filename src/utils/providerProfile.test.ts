@@ -5,7 +5,10 @@ import { join } from 'node:path'
 import test, { afterEach, beforeEach } from 'node:test'
 
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
-import { resolveActiveRouteIdFromEnv } from '../integrations/routeMetadata.js'
+import {
+  resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
+} from '../integrations/routeMetadata.js'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import { getProviderValidationError } from './providerValidation.js'
 import {
@@ -13,6 +16,7 @@ import {
   applyStartupEnvFromProfile,
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
+  buildCompatibilityProcessEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildLaunchEnv,
@@ -130,6 +134,33 @@ test('openai launch ignores mismatched persisted ollama env', async () => {
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
+})
+
+test('openai profile switch clears stale plural credential pool before applying saved key', () => {
+  const env = buildCompatibilityProcessEnv({
+    compatibilityMode: 'openai',
+    profileEnv: {
+      OPENAI_API_KEY: 'profile-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-5.4',
+    },
+    processEnv: {
+      OPENAI_API_KEYS: 'stale-a,stale-b',
+      OPENAI_API_KEY: 'shell-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_KEYS, undefined)
+  assert.equal(env.OPENAI_API_KEY, 'profile-key')
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'openai',
+      processEnv: env,
+    }),
+    'profile-key',
+  )
 })
 
 test('anthropic launch preserves unmanaged process env values', async () => {
@@ -1297,6 +1328,38 @@ test('legacy openai saved profiles still deserialize and rebuild startup env', a
   }
 })
 
+test('legacy openai saved profiles preserve OPENAI_API_KEYS during startup rebuild', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+
+  try {
+    saveProfileFile(
+      profile('openai', {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEYS: 'key-a,key-b',
+      }),
+      { cwd: tempDir },
+    )
+
+    const persisted = loadProfileFile({ cwd: tempDir })
+    assert.notEqual(persisted, null)
+    assert.equal(persisted?.profile, 'openai')
+
+    const env = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: {},
+    })
+
+    assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+    assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+    assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+    assert.equal(env.OPENAI_API_KEYS, 'key-a,key-b')
+    assert.equal(env.OPENAI_API_KEY, undefined)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
 test('legacy anthropic saved profiles still deserialize and rebuild startup env', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
 
@@ -1723,6 +1786,56 @@ test('openai profiles ignore poisoned shell model and base url values', () => {
     OPENAI_MODEL: 'gpt-5.5',
     OPENAI_API_KEY: 'sk-live',
   })
+})
+
+test('openai profiles accept OPENAI_API_KEYS without OPENAI_API_KEY', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    model: 'gpt-5.4',
+    processEnv: {
+      OPENAI_API_KEYS: 'key-a, key-b',
+    },
+  })
+
+  assert.equal(env?.OPENAI_MODEL, 'gpt-5.4')
+  assert.equal(env?.OPENAI_API_KEYS, 'key-a,key-b')
+  assert.equal(env?.OPENAI_API_KEY, undefined)
+})
+
+test('openai profiles reject placeholder values inside pooled credentials', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    model: 'gpt-5.4',
+    apiKey: 'key-a,SUA_CHAVE',
+    processEnv: {},
+  })
+
+  assert.equal(env, null)
+})
+
+test('openai profiles reject invalid OPENAI_API_KEYS instead of falling back', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    model: 'gpt-5.4',
+    processEnv: {
+      OPENAI_API_KEYS: 'key-a,SUA_CHAVE',
+      OPENAI_API_KEY: 'key-single',
+    },
+  })
+
+  assert.equal(env, null)
+})
+
+test('openai profiles store comma-separated explicit keys as a pool', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    model: 'gpt-5.4',
+    apiKey: 'key-a, key-b',
+    processEnv: {},
+  })
+
+  assert.equal(env?.OPENAI_API_KEYS, 'key-a,key-b')
+  assert.equal(env?.OPENAI_API_KEY, undefined)
 })
 
 test('openai profiles normalize multi-model profile values to the primary model', () => {

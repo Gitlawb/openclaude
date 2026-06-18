@@ -7,6 +7,7 @@ import {
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
   resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 
@@ -32,24 +33,33 @@ test('getRouteProviderTypeLabel falls back safely for unknown routes', () => {
 })
 
 test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback for openai-compatible routes', () => {
+  expect(getRouteCredentialEnvVars('custom')).toEqual([
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('openrouter')).toEqual([
     'OPENROUTER_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('deepseek')).toEqual([
     'DEEPSEEK_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('hicap')).toEqual([
     'HICAP_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('venice')).toEqual([
     'VENICE_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('xiaomi-mimo')).toEqual([
     'MIMO_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
 })
@@ -82,6 +92,33 @@ test('getRouteCredentialValue reads the first configured route credential', () =
       OPENAI_API_KEY: 'sk-openai-fallback',
     }),
   ).toBe('sk-openai-fallback')
+})
+
+test('route credential discovery reads OPENAI_API_KEYS before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'sk-openai-a,sk-openai-b',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-a,sk-openai-b')
+  expect(
+    resolveRouteCredentialValue({
+      baseUrl: 'https://api.openai.com/v1',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_KEYS: 'sk-openai-a,sk-openai-b',
+      },
+    }),
+  ).toBe('sk-openai-a,sk-openai-b')
+})
+
+test('route credential discovery ignores delimiter-only OPENAI_API_KEYS before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: ', ,',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
 })
 
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
@@ -224,6 +261,15 @@ test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials
     resolveActiveRouteIdFromEnv({
       MINIMAX_API_KEY: 'minimax-key',
       OPENAI_API_KEY: 'openai-key',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer MiniMax with pooled OpenAI credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      MINIMAX_API_KEY: 'minimax-key',
+      OPENAI_API_KEYS: 'openai-key-a,openai-key-b',
     }),
   ).toBe('anthropic')
 })

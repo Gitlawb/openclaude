@@ -112,7 +112,7 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
 
     case 'auth_invalid':
       return createAssistantAPIErrorMessage({
-        content: `${API_ERROR_MESSAGE_PREFIX}: Authentication failed for your OpenAI-compatible provider. Verify OPENAI_API_KEY and endpoint-specific auth requirements.`,
+        content: `${API_ERROR_MESSAGE_PREFIX}: Authentication failed for your OpenAI-compatible provider. Verify OPENAI_API_KEYS or OPENAI_API_KEY and endpoint-specific auth requirements.`,
         error: 'authentication_failed',
       })
 

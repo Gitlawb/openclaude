@@ -32,6 +32,7 @@ const RESTORED_KEYS = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
@@ -1556,6 +1557,16 @@ describe('persistActiveProviderProfileModel', () => {
 })
 
 describe('getProviderPresetDefaults', () => {
+  test('openai preset skips delimiter-only pooled keys before singular fallback', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEYS = ', ,'
+    process.env.OPENAI_API_KEY = 'openai-single-key'
+
+    const defaults = getProviderPresetDefaults('openai')
+
+    expect(defaults.apiKey).toBe('openai-single-key')
+  })
+
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL

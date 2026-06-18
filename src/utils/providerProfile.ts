@@ -10,6 +10,7 @@ import {
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
 import { parseChatgptAccountId } from '../services/api/codexOAuthShared.js'
+import { parseCredentialList } from '../services/api/credentialPool.js'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
@@ -71,6 +72,7 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
@@ -149,6 +151,7 @@ export type ProfileEnv = {
   OPENAI_AUTH_HEADER?: string
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
+  OPENAI_API_KEYS?: string
   OPENAI_API_KEY?: string
   GITHUB_COPILOT_KEY?: string
   GITHUB_ENTERPRISE_URL?: string
@@ -656,6 +659,39 @@ export function buildGeminiProfileEnv(options: {
   return env
 }
 
+export function sanitizeOpenAICredentialPool(
+  value: string | null | undefined,
+): string | undefined {
+  const resolved = resolveOpenAICredentialPool(value)
+  return resolved.kind === 'usable' ? resolved.value : undefined
+}
+
+export function hasInvalidOpenAICredentialPool(
+  value: string | null | undefined,
+): boolean {
+  return resolveOpenAICredentialPool(value).kind === 'invalid'
+}
+
+function resolveOpenAICredentialPool(
+  value: string | null | undefined,
+):
+  | { kind: 'empty' }
+  | { kind: 'invalid' }
+  | { kind: 'usable'; value: string; count: number } {
+  const credentials = parseCredentialList(value ?? undefined)
+  if (credentials.length === 0) {
+    return { kind: 'empty' }
+  }
+  if (credentials.some(credential => credential === 'SUA_CHAVE')) {
+    return { kind: 'invalid' }
+  }
+  return {
+    kind: 'usable',
+    value: credentials.join(','),
+    count: credentials.length,
+  }
+}
+
 export function buildOpenAIProfileEnv(options: {
   goal: RecommendationGoal
   model?: string | null
@@ -669,7 +705,36 @@ export function buildOpenAIProfileEnv(options: {
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
-  const key = sanitizeApiKey(options.apiKey ?? processEnv.OPENAI_API_KEY)
+  const explicitCredential = resolveOpenAICredentialPool(options.apiKey)
+  const envOpenAIKeysCredential = resolveOpenAICredentialPool(
+    processEnv.OPENAI_API_KEYS,
+  )
+  const envOpenAIKeyCredential = resolveOpenAICredentialPool(
+    processEnv.OPENAI_API_KEY,
+  )
+  if (
+    explicitCredential.kind === 'invalid' ||
+    envOpenAIKeysCredential.kind === 'invalid' ||
+    envOpenAIKeyCredential.kind === 'invalid'
+  ) {
+    return null
+  }
+  const key =
+    explicitCredential.kind === 'usable'
+      ? explicitCredential.value
+      : envOpenAIKeysCredential.kind === 'usable'
+        ? envOpenAIKeysCredential.value
+        : envOpenAIKeyCredential.kind === 'usable'
+          ? envOpenAIKeyCredential.value
+          : undefined
+  const keyEnvVar =
+    explicitCredential.kind === 'usable' && explicitCredential.count > 1
+      ? 'OPENAI_API_KEYS'
+      : explicitCredential.kind === 'usable'
+        ? 'OPENAI_API_KEY'
+        : envOpenAIKeysCredential.kind === 'usable'
+          ? 'OPENAI_API_KEYS'
+          : 'OPENAI_API_KEY'
   const authHeaderValue = sanitizeApiKey(
     options.authHeaderValue ?? processEnv.OPENAI_AUTH_HEADER_VALUE,
   )
@@ -679,6 +744,7 @@ export function buildOpenAIProfileEnv(options: {
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
   const secretSource: SecretValueSource = {
+    OPENAI_API_KEYS: key,
     OPENAI_API_KEY: key,
     OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
   }
@@ -716,7 +782,7 @@ export function buildOpenAIProfileEnv(options: {
     ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
     ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
     ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
-    ...(key ? { OPENAI_API_KEY: key } : {}),
+    ...(key ? { [keyEnvVar]: key } : {}),
     ...(options.maxContextLength
       ? {
           CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
@@ -1646,6 +1712,10 @@ export async function buildLaunchEnv(options: {
     delete env.OPENAI_AUTH_HEADER_VALUE
   }
   const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+  const openAIKeys = processEnv.OPENAI_API_KEYS || persistedEnv.OPENAI_API_KEYS
+  if (openAIKeys) {
+    env.OPENAI_API_KEYS = openAIKeys
+  }
   if (openAIKey) {
     env.OPENAI_API_KEY = openAIKey
   }

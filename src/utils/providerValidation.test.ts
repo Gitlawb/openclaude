@@ -12,6 +12,7 @@ import {
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
@@ -130,7 +131,7 @@ test('openai missing key error includes recovery guidance and config locations',
   const message = await getProviderValidationError(process.env)
   expect(message).not.toBeNull()
   expect(message!).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
   expect(message!).toContain(
     'set CLAUDE_CODE_USE_OPENAI=0 in your shell environment',
@@ -303,8 +304,51 @@ test('openai validation does not accept unrelated minimax credentials', async ()
   const error = await getProviderValidationError(process.env)
   expect(error).not.toBeNull()
   expect(error!).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
+})
+
+test('openai validation accepts OPENAI_API_KEYS without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,sk-openai-b'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('openai validation rejects placeholder values in OPENAI_API_KEYS', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,SUA_CHAVE'
+  delete process.env.OPENAI_API_KEY
+
+  const error = await getProviderValidationError(process.env)
+  expect(error).toBe(
+    'Invalid OPENAI_API_KEYS: placeholder value SUA_CHAVE detected. Set real key(s) or unset for local providers.',
+  )
+})
+
+test('openai validation rejects delimiter-only OPENAI_API_KEYS', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = ', ,'
+  delete process.env.OPENAI_API_KEY
+
+  const error = await getProviderValidationError(process.env)
+  expect(error).not.toBeNull()
+  expect(error!).toContain(
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
+})
+
+test('openai validation accepts OPENAI_API_KEY when OPENAI_API_KEYS is delimiter-only', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = ', ,'
+  process.env.OPENAI_API_KEY = 'sk-openai-single'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
 test('openrouter validation accepts OPENROUTER_API_KEY without OPENAI_API_KEY', async () => {
@@ -464,7 +508,7 @@ test('github validation is skipped when openai mode is also active', async () =>
   const error = await getProviderValidationError(process.env)
   expect(error).not.toBeNull()
   expect(error!).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
 })
 
@@ -499,7 +543,7 @@ test('non-Ollama remote provider still requires OPENAI_API_KEY', async () => {
 
   const message = await getProviderValidationError(process.env)
   expect(message).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
 })
 

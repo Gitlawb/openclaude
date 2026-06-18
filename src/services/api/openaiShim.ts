@@ -11,6 +11,7 @@
  * Environment variables:
  *   CLAUDE_CODE_USE_OPENAI=1          — enable this provider
  *   OPENAI_API_KEY=sk-...             — API key (optional for local models)
+ *   OPENAI_API_KEYS=sk-a,sk-b         — optional comma-separated key pool for rotation
  *   OPENAI_AUTH_HEADER=api-key        — optional custom auth header name
  *   OPENAI_AUTH_HEADER_VALUE=...      — optional custom auth header value
  *   OPENAI_AUTH_SCHEME=bearer|raw     — auth scheme for Authorization/custom header handling
@@ -95,10 +96,16 @@ import {
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
+import {
+  CredentialPool,
+  type CredentialLease,
+  parseCredentialList,
+} from './credentialPool.js'
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
+const CREDENTIAL_POOL_COOLDOWN_MS = 30_000
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
@@ -2188,11 +2195,29 @@ class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
+  private credentialPool?: CredentialPool
+  private credentialPoolRaw?: string
 
   constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
     this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
+  }
+
+  private getCredentialPool(raw: string): CredentialPool | null {
+    const credentials = parseCredentialList(raw)
+    if (credentials.length === 0) {
+      this.credentialPool = undefined
+      this.credentialPoolRaw = undefined
+      return null
+    }
+
+    if (!this.credentialPool || this.credentialPoolRaw !== raw) {
+      this.credentialPool = new CredentialPool(credentials)
+      this.credentialPoolRaw = raw
+    }
+
+    return this.credentialPool
   }
 
   create(
@@ -2824,7 +2849,7 @@ class OpenAIShimMessages {
       return geminiBody
     }
 
-    const headers: Record<string, string> = {
+    const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...filterAnthropicHeaders(shimConfig.headers),
       ...this.defaultHeaders,
@@ -2842,19 +2867,67 @@ class OpenAIShimMessages {
     // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
     const isXaiRoute =
       runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+    const openAIApiKeysPoolRaw =
+      parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
+        ? process.env.OPENAI_API_KEYS
+        : undefined
+    const openAIApiKeyRaw = process.env.OPENAI_API_KEY?.trim()
+    const openAIApiKeyValues = parseCredentialList(openAIApiKeyRaw)
+    const openAIApiKey = openAIApiKeyValues[0]
+    const openAIApiKeyRawUsable =
+      openAIApiKeyValues.length > 0 ? openAIApiKeyRaw : undefined
     const xaiOAuthToken =
       isXaiRoute &&
       !this.providerOverride?.apiKey &&
       !routeCredential &&
-      !process.env.OPENAI_API_KEY
+      !openAIApiKeysPoolRaw &&
+      !openAIApiKey
         ? await resolveXaiAccessToken()
         : undefined
-    const apiKey =
+    const openAIApiKeyIsCopiedProviderKey =
+      Boolean(
+        openAIApiKeyRawUsable &&
+        [
+          process.env.OPENGATEWAY_API_KEY,
+          process.env.NVIDIA_API_KEY,
+          process.env.BNKR_API_KEY,
+          process.env.XAI_API_KEY,
+          process.env.MIMO_API_KEY,
+          process.env.VENICE_API_KEY,
+          process.env.MINIMAX_API_KEY,
+          process.env.ATLAS_CLOUD_API_KEY,
+          process.env.NEARAI_API_KEY,
+          process.env.FIREWORKS_API_KEY,
+        ].some(value => value?.trim() === openAIApiKeyRawUsable),
+      )
+    const routeCredentialIsCopiedProviderKey =
+      Boolean(
+        routeCredential &&
+        openAIApiKeyRawUsable &&
+        routeCredential === openAIApiKeyRawUsable &&
+        openAIApiKeyIsCopiedProviderKey,
+      )
+    const routeCredentialIsProviderSpecific =
+      Boolean(
+        routeCredential &&
+        (!openAIApiKeyRawUsable ||
+          routeCredential !== openAIApiKeyRawUsable ||
+          routeCredentialIsCopiedProviderKey),
+      )
+    const routeCredentialIsGenericOpenAIFallback =
+      Boolean(
+        !routeCredentialIsProviderSpecific &&
+        routeCredential &&
+        openAIApiKeyRawUsable &&
+        routeCredential === openAIApiKeyRawUsable,
+      )
+    const apiKeyRaw =
       this.providerOverride?.apiKey ??
+      (openAIApiKeyIsCopiedProviderKey ? openAIApiKeyRawUsable : undefined) ??
+      (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
+      openAIApiKeysPoolRaw ??
       routeCredential ??
-      process.env.OPENAI_API_KEY ??
-      xaiOAuthToken ??
-      ''
+      (openAIApiKeyRawUsable || xaiOAuthToken || '')
     // A catalog-level auth header is part of the selected model's transport
     // contract. Ignore global custom auth left behind by another route so it
     // cannot replace that model-specific header or credential.
@@ -2874,9 +2947,9 @@ class OpenAIShimMessages {
       customAuthHeader &&
       /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
     )
-    const authValue = hasCustomAuthHeader
-      ? configuredAuthHeaderValue || apiKey
-      : apiKey
+    const explicitCustomAuthHeaderValue = hasCustomAuthHeader
+      ? configuredAuthHeaderValue
+      : ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = isEnvTruthy(process.env.OPENAI_AZURE_STYLE)
@@ -2901,56 +2974,74 @@ class OpenAIShimMessages {
         request.baseUrl.toLowerCase().includes('bankr')
     } catch { /* malformed URL — not Bankr */ }
 
-    if (authValue) {
-      if (hasCustomAuthHeader && customAuthHeader) {
-        const defaultCustomAuthScheme =
-          customAuthHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-        const customAuthScheme =
-          process.env.OPENAI_AUTH_SCHEME === 'raw' ||
-          process.env.OPENAI_AUTH_SCHEME === 'bearer'
-            ? process.env.OPENAI_AUTH_SCHEME
-            : defaultCustomAuthScheme
-        headers[customAuthHeader] =
-          customAuthScheme === 'bearer'
-            ? `Bearer ${authValue}`
-            : authValue
-      } else if (isAzure) {
-        // Azure uses api-key header instead of Bearer token
-        headers['api-key'] = authValue
-      } else if (isBankr) {
-        // Bankr uses X-API-Key header instead of Bearer token
-        headers['X-API-Key'] = authValue
-      } else if (shimConfig.defaultAuthHeader?.name) {
-        headers[shimConfig.defaultAuthHeader.name] =
-          shimConfig.defaultAuthHeader.scheme === 'bearer'
-            ? `Bearer ${authValue}`
-            : authValue
-      } else {
-        headers.Authorization = `Bearer ${authValue}`
-      }
-    } else if (isGemini) {
-      const geminiCredential = await resolveGeminiCredential(process.env)
-      if (geminiCredential.kind !== 'none') {
-        headers.Authorization = `Bearer ${geminiCredential.credential}`
-        if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
-          headers['x-goog-user-project'] = geminiCredential.projectId
+    const credentialPool = explicitCustomAuthHeaderValue
+      ? null
+      : this.getCredentialPool(apiKeyRaw)
+    const singleAuthValue =
+      explicitCustomAuthHeaderValue || parseCredentialList(apiKeyRaw)[0] || apiKeyRaw
+
+    const buildHeadersForAttempt = async (
+      credentialLease: CredentialLease | null,
+    ): Promise<Record<string, string>> => {
+      const headers: Record<string, string> = { ...baseHeaders }
+      const authValue =
+        explicitCustomAuthHeaderValue ||
+        credentialLease?.value ||
+        (credentialPool ? '' : singleAuthValue)
+
+      if (authValue) {
+        if (hasCustomAuthHeader && customAuthHeader) {
+          const defaultCustomAuthScheme =
+            customAuthHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+          const customAuthScheme =
+            process.env.OPENAI_AUTH_SCHEME === 'raw' ||
+            process.env.OPENAI_AUTH_SCHEME === 'bearer'
+              ? process.env.OPENAI_AUTH_SCHEME
+              : defaultCustomAuthScheme
+          headers[customAuthHeader] =
+            customAuthScheme === 'bearer'
+              ? `Bearer ${authValue}`
+              : authValue
+        } else if (isAzure) {
+          // Azure uses api-key header instead of Bearer token
+          headers['api-key'] = authValue
+        } else if (isBankr) {
+          // Bankr uses X-API-Key header instead of Bearer token
+          headers['X-API-Key'] = authValue
+        } else if (shimConfig.defaultAuthHeader?.name) {
+          headers[shimConfig.defaultAuthHeader.name] =
+            shimConfig.defaultAuthHeader.scheme === 'bearer'
+              ? `Bearer ${authValue}`
+              : authValue
+        } else {
+          headers.Authorization = `Bearer ${authValue}`
+        }
+      } else if (isGemini) {
+        const geminiCredential = await resolveGeminiCredential(process.env)
+        if (geminiCredential.kind !== 'none') {
+          headers.Authorization = `Bearer ${geminiCredential.credential}`
+          if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
+            headers['x-goog-user-project'] = geminiCredential.projectId
+          }
         }
       }
-    }
 
-    if (isGithubCopilot) {
-      Object.assign(headers, COPILOT_HEADERS)
-    } else if (isGithubModels) {
-      headers['Accept'] = 'application/vnd.github+json'
-      headers['X-GitHub-Api-Version'] = '2022-11-28'
-    }
+      if (isGithubCopilot) {
+        Object.assign(headers, COPILOT_HEADERS)
+      } else if (isGithubModels) {
+        headers['Accept'] = 'application/vnd.github+json'
+        headers['X-GitHub-Api-Version'] = '2022-11-28'
+      }
 
-    // xAI / Grok prompt caching. Pinning the session id via x-grok-conv-id
-    // routes follow-up requests to the same backend so xAI can reuse the
-    // cached system prompt and conversation history. Mirrors the Hermes
-    // implementation (RELEASE_v0.8.0 PR #5604).
-    if (isXaiRoute) {
-      headers['x-grok-conv-id'] ??= getSessionId()
+      // xAI / Grok prompt caching. Pinning the session id via x-grok-conv-id
+      // routes follow-up requests to the same backend so xAI can reuse the
+      // cached system prompt and conversation history. Mirrors the Hermes
+      // implementation (RELEASE_v0.8.0 PR #5604).
+      if (isXaiRoute) {
+        headers['x-grok-conv-id'] ??= getSessionId()
+      }
+
+      return headers
     }
 
     const buildChatCompletionsUrl = (baseUrl: string): string => {
@@ -3063,7 +3154,7 @@ class OpenAIShimMessages {
       serializedBody = serializeBody()
     }
 
-    const buildFetchInit = () => ({
+    const buildFetchInit = (headers: Record<string, string>) => ({
       method: 'POST' as const,
       headers,
       body: serializedBody,
@@ -3073,7 +3164,10 @@ class OpenAIShimMessages {
     const maxSelfHealAttempts = isLocal
       ? localRetryBaseUrls.length + 1
       : 0
-    const maxAttempts = (isGithub ? GITHUB_429_MAX_RETRIES : 1) + maxSelfHealAttempts
+    const credentialPoolAttempts = credentialPool?.size ?? 1
+    const maxAttempts =
+      Math.max(isGithub ? GITHUB_429_MAX_RETRIES : 1, credentialPoolAttempts) +
+      maxSelfHealAttempts
 
     const throwClassifiedTransportError = (
       error: unknown,
@@ -3157,10 +3251,26 @@ class OpenAIShimMessages {
       : 'openai'
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const credentialLease = credentialPool?.next() ?? null
+      if (credentialPool && !credentialLease) {
+        throw APIError.generate(
+          401,
+          undefined,
+          buildOpenAICompatibilityErrorMessage(
+            'OpenAI API error 401: credential pool exhausted after authentication failures',
+            {
+              category: 'auth_invalid',
+              requestUrl,
+            },
+          ),
+          new Headers(),
+        )
+      }
+      const headers = await buildHeadersForAttempt(credentialLease)
       try {
         response = await fetchWithProxyRetry(
           requestUrl,
-          buildFetchInit(),
+          buildFetchInit(headers),
         )
       } catch (error) {
         const isAbortError =
@@ -3197,6 +3307,7 @@ class OpenAIShimMessages {
       if (!response) continue
 
       if (response.ok) {
+        credentialPool?.reportSuccess(credentialLease)
         let tokensIn = 0
         let tokensOut = 0
         // Skip clone() for streaming responses - it blocks until full body is received,
@@ -3317,6 +3428,29 @@ class OpenAIShimMessages {
         body: errorBody,
         hasImages: bodyContainsImages(),
       })
+
+      const credentialFailureKind =
+        response.status === 401
+          ? 'auth'
+          : response.status === 402 ||
+              response.status === 403 ||
+              response.status === 429
+            ? 'cooldown'
+            : null
+      if (credentialPool && credentialPool.size > 1 && credentialFailureKind) {
+        credentialPool.reportFailure(
+          credentialLease,
+          credentialFailureKind,
+          CREDENTIAL_POOL_COOLDOWN_MS,
+        )
+        if (attempt < maxAttempts - 1) {
+          logForDebugging(
+            `[OpenAIShim] credential pool retry status=${response.status} method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
+            { level: 'warn' },
+          )
+          continue
+        }
+      }
 
       if (
         isLocal &&

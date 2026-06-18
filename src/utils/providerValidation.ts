@@ -106,7 +106,7 @@ function getOpenAIMissingKeyMessage(): string {
   const profilePath = resolve(process.cwd(), PROFILE_FILE_NAME)
 
   return [
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
     `To recover, run /provider and switch provider, or set CLAUDE_CODE_USE_OPENAI=0 in your shell environment.`,
     `Saved startup settings can come from ${globalConfigPath} or ${profilePath}.`,
   ].join('\n')
@@ -117,6 +117,29 @@ function hasNonEmptyEnvValue(
   envVar: string,
 ): boolean {
   return typeof env[envVar] === 'string' && env[envVar]!.trim() !== ''
+}
+
+function hasUsableCredentialEnvValue(
+  env: NodeJS.ProcessEnv,
+  envVar: string,
+): boolean {
+  const value = env[envVar]
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+    return value.split(',').some(part => part.trim() !== '')
+  }
+
+  return value.trim() !== ''
+}
+
+function hasOpenAICredential(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(
+    getRouteCredentialValue('openai', env) ||
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEY'),
+  )
 }
 
 function normalizeBaseUrl(baseUrl: string | undefined): string | undefined {
@@ -275,7 +298,9 @@ function getCredentialEnvValidationError(
   request?: ReturnType<typeof resolveProviderRequest>,
 ): string | null {
   for (const invalidValue of validation.invalidCredentialValues ?? []) {
-    if (env[invalidValue.envVar]?.trim() === invalidValue.value) {
+    const envValue = env[invalidValue.envVar]
+    const envValues = (envValue ?? '').split(',').map(value => value.trim())
+    if (envValues.includes(invalidValue.value)) {
       return invalidValue.message
     }
   }
@@ -290,7 +315,9 @@ function getCredentialEnvValidationError(
   }
 
   if (
-    validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+    validation.credentialEnvVars.some(envVar =>
+      hasUsableCredentialEnvValue(env, envVar),
+    )
   ) {
     return null
   }
@@ -523,7 +550,7 @@ export async function getProviderValidationError(
         if (
           validationTarget.kind === 'vendor' &&
           validationTarget.descriptor.id === 'openai' &&
-          !env.OPENAI_API_KEY &&
+          !hasOpenAICredential(env) &&
           !isLocalProviderUrl(request.baseUrl) &&
           !isLikelyOllamaEndpoint(request.baseUrl)
         ) {
@@ -542,7 +569,7 @@ export async function getProviderValidationError(
   }
 
   if (
-    !env.OPENAI_API_KEY &&
+    !hasOpenAICredential(env) &&
     !isLocalProviderUrl(request.baseUrl) &&
     !isLikelyOllamaEndpoint(request.baseUrl)
   ) {

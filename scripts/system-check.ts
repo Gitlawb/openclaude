@@ -331,6 +331,10 @@ function getOpenAICompatibleCredentialContext(baseUrl: string): {
   }
 }
 
+function hasPlaceholderCredential(value: string | undefined): boolean {
+  return (value ?? '').split(',').some(part => part.trim() === 'SUA_CHAVE')
+}
+
 function currentBaseUrl(): string {
   if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
     return process.env.GEMINI_BASE_URL ?? GEMINI_DEFAULT_BASE_URL
@@ -495,7 +499,7 @@ export function checkOpenAIEnv(): CheckResult[] {
   const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const hasGithubRouteCredential =
     credentialContext.routeId === 'github' && Boolean(githubToken?.trim())
-  if (key === 'SUA_CHAVE' || providerCredential === 'SUA_CHAVE') {
+  if (hasPlaceholderCredential(key) || hasPlaceholderCredential(providerCredential)) {
     results.push(fail(credentialLabel, 'Placeholder value detected: SUA_CHAVE.'))
   } else if (
     !providerCredential &&

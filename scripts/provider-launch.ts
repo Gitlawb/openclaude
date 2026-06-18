@@ -9,7 +9,9 @@ import {
 } from '../src/utils/providerRecommendation.ts'
 import {
   buildLaunchEnv,
+  hasInvalidOpenAICredentialPool,
   loadProfileFile,
+  sanitizeOpenAICredentialPool,
   selectAutoProfile,
   type ProfileFile,
   type ProviderProfile,
@@ -227,8 +229,18 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  if (profile === 'openai' && (!env.OPENAI_API_KEY || env.OPENAI_API_KEY === 'SUA_CHAVE')) {
-    console.error('OPENAI_API_KEY is required for openai profile and cannot be SUA_CHAVE. Run: bun run profile:init -- --provider openai --api-key <key>')
+  if (
+    profile === 'openai' &&
+    (hasInvalidOpenAICredentialPool(env.OPENAI_API_KEYS) ||
+      hasInvalidOpenAICredentialPool(env.OPENAI_API_KEY) ||
+      !(
+        sanitizeOpenAICredentialPool(env.OPENAI_API_KEYS) ||
+        sanitizeOpenAICredentialPool(env.OPENAI_API_KEY)
+      ))
+  ) {
+    console.error(
+      'OPENAI_API_KEYS or OPENAI_API_KEY is required for openai profile and cannot include SUA_CHAVE. Run: bun run profile:init -- --provider openai --api-key <key>',
+    )
     process.exit(1)
   }
 

@@ -196,13 +196,35 @@ function readFirstNonEmptyEnvValue(
   envVars: readonly string[],
 ): string | undefined {
   for (const envVar of envVars) {
-    const value = processEnv[envVar]?.trim()
-    if (value) {
-      return value
+    const value = processEnv[envVar]
+    if (hasUsableEnvCredentialValue(envVar, value)) {
+      return value!.trim()
     }
   }
 
   return undefined
+}
+
+function hasUsableEnvCredentialValue(
+  envVar: string,
+  value: string | undefined,
+): boolean {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+    return value.split(',').some(part => part.trim() !== '')
+  }
+
+  return value.trim() !== ''
+}
+
+function hasAnyUsableOpenAICredential(processEnv: NodeJS.ProcessEnv): boolean {
+  return (
+    hasUsableEnvCredentialValue('OPENAI_API_KEYS', processEnv.OPENAI_API_KEYS) ||
+    hasUsableEnvCredentialValue('OPENAI_API_KEY', processEnv.OPENAI_API_KEY)
+  )
 }
 
 function hasNonEmptyEnvValue(value: string | undefined): boolean {
@@ -473,7 +495,7 @@ export function hasMiniMaxEnvOnlyProviderIntent(
     hasMiniMaxCredential &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isMiniMaxBaseUrl) &&
     (hasExplicitMiniMaxIntent ||
-      (!hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+      (!hasAnyUsableOpenAICredential(processEnv) &&
         !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
         hasNoExplicitNonOpenAICompatibleProvider(processEnv)))
   )
@@ -484,7 +506,7 @@ export function hasVeniceEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasAnyUsableOpenAICredential(processEnv) &&
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isVeniceBaseUrl) &&
@@ -497,7 +519,7 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasAnyUsableOpenAICredential(processEnv) &&
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
@@ -582,7 +604,7 @@ export function getRouteCredentialEnvVars(
   routeId: string,
 ): string[] {
   if (routeId === 'custom') {
-    return ['OPENAI_API_KEY']
+    return ['OPENAI_API_KEYS', 'OPENAI_API_KEY']
   }
 
   const descriptor = getRouteDescriptor(routeId)
@@ -595,9 +617,14 @@ export function getRouteCredentialEnvVars(
     (descriptor.transportConfig.kind === 'openai-compatible' ||
       descriptor.transportConfig.kind === 'local') &&
     !descriptor.setup.dedicatedCredentialsOnly &&
-    !envVars.includes('OPENAI_API_KEY')
+    !envVars.includes('OPENAI_API_KEYS')
   ) {
-    envVars.push('OPENAI_API_KEY')
+    const openAIFallbackIndex = envVars.indexOf('OPENAI_API_KEY')
+    if (openAIFallbackIndex === -1) {
+      envVars.push('OPENAI_API_KEYS', 'OPENAI_API_KEY')
+    } else {
+      envVars.splice(openAIFallbackIndex, 0, 'OPENAI_API_KEYS')
+    }
   }
 
   return uniqueEnvVars(envVars)

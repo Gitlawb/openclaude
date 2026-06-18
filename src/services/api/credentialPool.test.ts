@@ -1,0 +1,55 @@
+import { expect, test } from 'bun:test'
+import { CredentialPool, parseCredentialList } from './credentialPool.js'
+
+test('parseCredentialList trims comma-separated keys', () => {
+  expect(parseCredentialList(' key-a, key-b ,,key-c ')).toEqual([
+    'key-a',
+    'key-b',
+    'key-c',
+  ])
+})
+
+test('CredentialPool rotates through healthy credentials', () => {
+  const pool = new CredentialPool(['key-a', 'key-b'])
+
+  expect(pool.next()?.value).toBe('key-a')
+  expect(pool.next()?.value).toBe('key-b')
+  expect(pool.next()?.value).toBe('key-a')
+})
+
+test('CredentialPool permanently skips auth-failed credentials', () => {
+  const pool = new CredentialPool(['key-a', 'key-b'])
+  const first = pool.next()
+
+  pool.reportFailure(first, 'auth', 30_000)
+
+  expect(pool.next()?.value).toBe('key-b')
+  expect(pool.next()?.value).toBe('key-b')
+})
+
+test('CredentialPool cools down recoverable failures', () => {
+  let now = 1_000
+  const pool = new CredentialPool(['key-a', 'key-b'], () => now)
+  const first = pool.next()
+
+  pool.reportFailure(first, 'cooldown', 30_000)
+
+  expect(pool.next()?.value).toBe('key-b')
+
+  now += 30_001
+  expect(pool.next()?.value).toBe('key-a')
+})
+
+test('CredentialPool falls back to least-recently failed credential when all are cooling down', () => {
+  let now = 1_000
+  const pool = new CredentialPool(['key-a', 'key-b'], () => now)
+  const first = pool.next()
+
+  pool.reportFailure(first, 'cooldown', 30_000)
+
+  now += 1_000
+  const second = pool.next()
+  pool.reportFailure(second, 'cooldown', 30_000)
+
+  expect(pool.next()).toEqual({ value: 'key-a', index: 0 })
+})

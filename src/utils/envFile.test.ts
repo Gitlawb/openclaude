@@ -17,6 +17,7 @@ const TEST_ENV_KEYS = [
   'AZURE_OPENAI_API_VERSION',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
@@ -220,6 +221,29 @@ describe('loadEnvFile', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
     expect(process.env.OPENAI_MODEL).toBe('from-file')
+  })
+
+  it('loads and reapplies OpenAI credential pools from provider env files', () => {
+    const filePath = writeTempEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_BASE_URL=https://api.openai.com/v1',
+      'OPENAI_MODEL=gpt-4o',
+      'OPENAI_API_KEYS=key-a,key-b',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    rememberLoadedEnvFileValues(loaded)
+    process.env.OPENAI_API_KEYS = 'settings-key'
+
+    reapplyRememberedEnvFileValues()
+
+    expect(process.env.OPENAI_API_KEYS).toBe('key-a,key-b')
+    expect(loaded).toEqual({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEYS: 'key-a,key-b',
+    })
   })
 
   it('loads documented Azure OpenAI API version values', () => {

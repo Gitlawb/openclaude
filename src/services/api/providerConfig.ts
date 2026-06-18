@@ -929,6 +929,7 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
   }
 
   const partition = hashCacheScopePartition({
+    apiKeys: normalizeCacheScopeHeaderValue(process.env.OPENAI_API_KEYS),
     apiKey: normalizeCacheScopeHeaderValue(process.env.OPENAI_API_KEY),
     authHeader: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER).toLowerCase(),
     authScheme: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_SCHEME).toLowerCase(),
