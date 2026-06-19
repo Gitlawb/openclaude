@@ -817,6 +817,18 @@ export function resolveActiveRouteIdFromEnv(
     return 'vertex'
   }
 
+  // Saved-profile-only Gemini Vertex must win over ambient credential-only
+  // inference (e.g. a stray XAI_API_KEY), matching getAnthropicClient: it routes
+  // a saved gemini-vertex profile unless a conflicting provider flag is set.
+  // Only CLAUDE_CODE_USE_OPENAI remains unchecked at this point, so guarding on
+  // it mirrors shouldRouteToGeminiVertexFromProfile's conflicting-flag rule.
+  if (
+    options?.activeProfileProvider === 'gemini-vertex' &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+  ) {
+    return 'gemini-vertex'
+  }
+
   const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
   if (envOnlyRouteId) return envOnlyRouteId
 
@@ -853,14 +865,6 @@ export function resolveActiveRouteIdFromEnv(
     }
 
     return 'custom'
-  }
-
-  // Saved-profile-only Gemini Vertex: with no provider env flag set, the API
-  // client still routes to the native Vertex client from the active profile
-  // (shouldRouteToGeminiVertexFromProfile). Keep route resolution in sync, or
-  // /model would skip the Vertex catalog/discovery for the same session.
-  if (options?.activeProfileProvider === 'gemini-vertex') {
-    return 'gemini-vertex'
   }
 
   return 'anthropic'
