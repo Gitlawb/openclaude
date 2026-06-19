@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, mock, test } from 'bun:test'
 
 import {
   _resetGitWorktreeMutationLocksForTesting,
@@ -113,4 +113,156 @@ test('buildWorktreeCreationFailureMessage provides a Windows long-path recovery 
   } else {
     expect(msg).not.toContain('core.longpaths true')
   }
+})
+
+async function importWorktreeFresh() {
+  return await import(`./worktree.js?ts=${Date.now()}-${Math.random()}`)
+}
+
+test('getOrCreateWorktree enables core.longpaths before worktree add on Windows', async () => {
+  const execCalls: Array<{ args: string[] }> = []
+
+  const execMock = mock(async (file: string, args: string[], options?: any) => {
+    execCalls.push({ args })
+    if (args[0] === 'rev-parse') {
+      return { code: 0, stdout: 'mock-sha-123\n', stderr: '' }
+    }
+    return { code: 0, stdout: '', stderr: '' }
+  })
+
+  mock.module('./execFileNoThrow.js', () => ({
+    execFileNoThrow: execMock,
+    execFileNoThrowWithCwd: execMock,
+  }))
+
+  mock.module('./platform.js', () => ({
+    getPlatform: () => 'windows',
+  }))
+
+  mock.module('fs/promises', () => ({
+    mkdir: async () => {},
+    utimes: async () => {},
+    copyFile: async () => {},
+    readdir: async () => [],
+    readFile: async () => '',
+    stat: async () => ({ isDirectory: () => true }),
+    symlink: async () => {},
+  }))
+
+  mock.module('./git/gitFilesystem.js', () => ({
+    getCommonDir: () => '/fake-repo/.git',
+    readWorktreeHeadSha: async () => null,
+    resolveGitDir: async () => '/fake-repo/.git',
+    resolveRef: async () => null,
+  }))
+
+  mock.module('./settings/settings.js', () => ({
+    getInitialSettings: () => ({
+      worktree: {
+        sparsePaths: [],
+      },
+    }),
+  }))
+
+  mock.module('./hooks.js', () => ({
+    hasWorktreeCreateHook: () => false,
+    executeWorktreeCreateHook: async () => ({ worktreePath: '' }),
+    executeWorktreeRemoveHook: async () => {},
+  }))
+
+  mock.module('./cwd.js', () => ({
+    getCwd: () => '/fake-repo',
+  }))
+
+  mock.module('./git.js', () => ({
+    findCanonicalGitRoot: () => '/fake-repo',
+    findGitRoot: () => '/fake-repo',
+    getDefaultBranch: async () => 'main',
+    gitExe: () => 'git',
+  }))
+
+  const { createAgentWorktree } = await importWorktreeFresh()
+  await createAgentWorktree('test-slug')
+
+  // Verify core.longpaths config set ran
+  expect(execCalls[0]?.args).toEqual(['config', '--local', 'core.longpaths', 'true'])
+
+  // Verify worktree add happened after that config call
+  const addIndex = execCalls.findIndex(c => c.args[0] === 'worktree' && c.args[1] === 'add')
+  expect(addIndex).toBeGreaterThan(0)
+})
+
+test('getOrCreateWorktree performs cleanup if worktree add fails', async () => {
+  const execCalls: Array<{ args: string[] }> = []
+
+  const execMock = mock(async (file: string, args: string[], options?: any) => {
+    execCalls.push({ args })
+    if (args[0] === 'rev-parse') {
+      return { code: 0, stdout: 'mock-sha-123\n', stderr: '' }
+    }
+    if (args[0] === 'worktree' && args[1] === 'add') {
+      return { code: 1, stdout: '', stderr: 'fatal: some add error' }
+    }
+    return { code: 0, stdout: '', stderr: '' }
+  })
+
+  mock.module('./execFileNoThrow.js', () => ({
+    execFileNoThrow: execMock,
+    execFileNoThrowWithCwd: execMock,
+  }))
+
+  mock.module('./platform.js', () => ({
+    getPlatform: () => 'windows',
+  }))
+
+  mock.module('fs/promises', () => ({
+    mkdir: async () => {},
+    utimes: async () => {},
+    copyFile: async () => {},
+    readdir: async () => [],
+    readFile: async () => '',
+    stat: async () => ({ isDirectory: () => true }),
+    symlink: async () => {},
+  }))
+
+  mock.module('./git/gitFilesystem.js', () => ({
+    getCommonDir: () => '/fake-repo/.git',
+    readWorktreeHeadSha: async () => null,
+    resolveGitDir: async () => '/fake-repo/.git',
+    resolveRef: async () => null,
+  }))
+
+  mock.module('./settings/settings.js', () => ({
+    getInitialSettings: () => ({
+      worktree: {
+        sparsePaths: [],
+      },
+    }),
+  }))
+
+  mock.module('./hooks.js', () => ({
+    hasWorktreeCreateHook: () => false,
+    executeWorktreeCreateHook: async () => ({ worktreePath: '' }),
+    executeWorktreeRemoveHook: async () => {},
+  }))
+
+  mock.module('./cwd.js', () => ({
+    getCwd: () => '/fake-repo',
+  }))
+
+  mock.module('./git.js', () => ({
+    findCanonicalGitRoot: () => '/fake-repo',
+    findGitRoot: () => '/fake-repo',
+    getDefaultBranch: async () => 'main',
+    gitExe: () => 'git',
+  }))
+
+  const { createAgentWorktree } = await importWorktreeFresh()
+
+  await expect(createAgentWorktree('test-slug')).rejects.toThrow(/some add error/)
+
+  // Verify that the worktree remove command was run to clean up
+  const removeCall = execCalls.find(c => c.args[0] === 'worktree' && c.args[1] === 'remove')
+  expect(removeCall).toBeDefined()
+  expect(removeCall?.args).toContain('--force')
 })

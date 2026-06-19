@@ -92,7 +92,7 @@ export function registerPdfSkill(): void {
       'Use when the user wants to create, generate, build, or produce a PDF document.',
     argumentHint: '<description of PDF to generate>',
     userInvocable: true,
-    allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'MultiEdit'],
+    allowedTools: ['Bash', 'Read', 'Write'],
     files: {
       'pdfgen.ts': PDFGEN_SOURCE,
     },
@@ -102,7 +102,7 @@ export function registerPdfSkill(): void {
       if (args) {
         prompt += '\n\n## User Request\n\n' + args
         prompt +=
-          '\n\n## Task\n\nWrite a TypeScript script that imports from the pdfgen.ts file using the absolute base directory path shown above (replace `<skill-base-dir>` with the actual extracted path). Save the script in the same extracted skill directory, run it with bun from that directory, and report the output path.'
+          '\n\n## Task\n\nWrite a TypeScript script that imports from the pdfgen.ts file using the absolute base directory path shown above (replace `<skill-base-dir>` with the actual extracted path). Save the script in a temporary location or the workspace (not in the skill directory itself), run it with bun, and report the output path.'
       }
 
       return [{ type: 'text', text: prompt }]

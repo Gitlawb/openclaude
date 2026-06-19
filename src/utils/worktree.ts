@@ -426,7 +426,7 @@ async function getOrCreateWorktree(
     // Saves a `git branch -D` subprocess (~15ms spawn overhead) on every create.
     addArgs.push('-B', worktreeBranch, worktreePath, baseBranch)
 
-    const { code: createCode, stderr: createStderr } =
+    const { code: createCode, stderr: createStderr, error: createError } =
       await execFileNoThrowWithCwd(gitExe(), addArgs, { cwd: repoRoot })
     if (createCode !== 0) {
       // `git worktree add` creates and registers the worktree before checking
@@ -445,7 +445,11 @@ async function getOrCreateWorktree(
           { level: 'warn' },
         )
       }
-      throw new Error(buildWorktreeCreationFailureMessage(createStderr))
+      throw new Error(
+        buildWorktreeCreationFailureMessage(
+          createStderr || createError || `exit code ${createCode}`,
+        ),
+      )
     }
 
     if (sparsePaths?.length) {
