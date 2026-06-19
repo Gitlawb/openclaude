@@ -408,9 +408,10 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
   }
 }
 
-// Fast-path opt-outs that are safe (and beneficial) when the provider is a
-// local OpenAI-compatible endpoint. These features are designed for cloud
-// behaviours that do not exist on local backends:
+// Fast-path opt-outs that are safe (and beneficial) for self-hosted
+// OpenAI-compatible endpoints (llama-server, Ollama, vLLM, etc.). These
+// features are designed for cloud behaviours that do not exist on self-hosted
+// backends:
 //   - byte-stable serialization (`stableStringify`) targets implicit prefix
 //     caching on OpenAI/Kimi/DeepSeek/Codex; local backends do not hash
 //     request prefixes, so the deep key-sort is pure CPU overhead.
@@ -426,11 +427,10 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
 // API the layers are invisible, but against multi-second local round-trips
 // they multiply per-call.
 //
-// Set `OPENCLAUDE_LOCAL_FAST_PATH=1` to force it on, `=0` to force off, or
-// leave it unset to let `isLocalProviderUrl` decide. The opt-out is intended
-// to be conservative: if the env var is set explicitly, callers can audit
-// regressions; if not, behaviour only changes for hosts already classified
-// as local by the existing detector (loopback, RFC1918, .local, ULA/LL).
+// Enabled when the provider profile turns on text-tool-call compat
+// (`parseTextToolCalls` / `OPENAI_PARSE_TEXT_TOOL_CALLS=1`). No host, port,
+// or RFC1918 detection is involved. Set `OPENCLAUDE_LOCAL_FAST_PATH=1` to
+// force on or `=0` to force off regardless of the profile option.
 const LOCAL_FAST_PATH_ENV = 'OPENCLAUDE_LOCAL_FAST_PATH'
 
 export type LocalFastPathConfig = {
@@ -468,8 +468,13 @@ export function getLocalFastPathConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): LocalFastPathConfig {
   const override = parseLocalFastPathOverride(env[LOCAL_FAST_PATH_ENV])
-  const enabled = override ?? isLocalProviderUrl(baseUrl)
-  return enabled ? LOCAL_FAST_PATH_ON : LOCAL_FAST_PATH_OFF
+  if (override !== undefined) {
+    return override ? LOCAL_FAST_PATH_ON : LOCAL_FAST_PATH_OFF
+  }
+
+  return shouldParseTextToolCalls(baseUrl, env)
+    ? LOCAL_FAST_PATH_ON
+    : LOCAL_FAST_PATH_OFF
 }
 
 function trimTrailingSlash(value: string): string {
@@ -507,6 +512,66 @@ export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+export const OPENAI_PARSE_TEXT_TOOL_CALLS_ENV = 'OPENAI_PARSE_TEXT_TOOL_CALLS'
+
+export const TOOL_RESULT_SEMANTIC_PLACEHOLDER = '[Tool results received]'
+
+export const LOCAL_TOOL_CONTINUATION_PROMPT =
+  'Continue with the task. Review the tool results above and use tools to proceed to the next step.'
+
+/**
+ * Whether to use text-tool-call compat mode for an OpenAI-compatible provider.
+ *
+ * This is the sole gate for: parsing JSON tool calls from assistant text,
+ * post-tool continuation prompts, post-tool stall recovery, and toolless
+ * self-heal retries. It does not depend on host, port, or LAN/loopback
+ * detection — only the profile option or `OPENAI_PARSE_TEXT_TOOL_CALLS=1`.
+ */
+export function shouldParseTextToolCalls(
+  _baseUrl?: string,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isEnvTruthy(processEnv[OPENAI_PARSE_TEXT_TOOL_CALLS_ENV])
+}
+
+/** Alias used at call sites that gate self-hosted text-tool-call behaviour. */
+export const shouldUseTextToolCallCompatMode = shouldParseTextToolCalls
+
+/**
+ * Mistral/Devstral Jinja templates require tool → assistant → user ordering.
+ * Other OpenAI-compatible backends (llama-server, Ollama, vLLM) must not get
+ * the synthetic assistant boundary — it confuses local models and surfaces as
+ * literal "[Tool results received]" output.
+ */
+export function shouldInjectToolResultSemanticBoundary(options?: {
+  baseUrl?: string
+  model?: string
+  processEnv?: NodeJS.ProcessEnv
+}): boolean {
+  const processEnv = options?.processEnv ?? process.env
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return true
+  }
+
+  const baseUrl = (
+    options?.baseUrl ??
+    processEnv.MISTRAL_BASE_URL ??
+    processEnv.OPENAI_BASE_URL ??
+    ''
+  ).toLowerCase()
+  if (baseUrl.includes('mistral.ai')) {
+    return true
+  }
+
+  const model = (
+    options?.model ??
+    processEnv.MISTRAL_MODEL ??
+    processEnv.OPENAI_MODEL ??
+    ''
+  ).toLowerCase()
+  return /\b(devstral|mistral|ministral)\b/.test(model)
 }
 
 export function getLocalProviderRetryBaseUrls(baseUrl: string): string[] {
@@ -553,19 +618,20 @@ export function getLocalProviderRetryBaseUrls(baseUrl: string): string[] {
   }
 }
 
+/** @deprecated Name is historical; behaviour is gated only by text-tool-call compat mode. */
 export function shouldAttemptLocalToollessRetry(options: {
   baseUrl: string
   hasTools: boolean
+  processEnv?: NodeJS.ProcessEnv
 }): boolean {
   if (!options.hasTools) {
     return false
   }
 
-  if (!isLocalProviderUrl(options.baseUrl)) {
-    return false
-  }
-
-  return isLikelyOllamaEndpoint(options.baseUrl)
+  return shouldParseTextToolCalls(
+    options.baseUrl,
+    options.processEnv ?? process.env,
+  )
 }
 
 export function isCodexBaseUrl(baseUrl: string | undefined): boolean {

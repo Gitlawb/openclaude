@@ -75,6 +75,7 @@ const PROFILE_ENV_KEYS = [
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
+  'OPENAI_PARSE_TEXT_TOOL_CALLS',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
@@ -182,6 +183,7 @@ export type ProfileEnv = {
   FIREWORKS_API_KEY?: string
   OPENCODE_API_KEY?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
+  OPENAI_PARSE_TEXT_TOOL_CALLS?: string
 }
 
 export type ProfileFile = {
@@ -348,12 +350,24 @@ export function buildOllamaProfileEnv(
   options: {
     baseUrl?: string | null
     getOllamaChatBaseUrl: (baseUrl?: string) => string
+    parseTextToolCalls?: boolean | null
   },
 ): ProfileEnv {
   return {
     OPENAI_BASE_URL: options.getOllamaChatBaseUrl(options.baseUrl ?? undefined),
     OPENAI_MODEL: model,
+    ...(options.parseTextToolCalls ? { OPENAI_PARSE_TEXT_TOOL_CALLS: '1' } : {}),
   }
+}
+
+export function appendParseTextToolCallsEnv(
+  env: ProfileEnv,
+  parseTextToolCalls?: boolean,
+): ProfileEnv {
+  if (parseTextToolCalls) {
+    env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
+  }
+  return env
 }
 
 export function buildAtomicChatProfileEnv(
@@ -666,6 +680,7 @@ export function buildOpenAIProfileEnv(options: {
   authScheme?: 'bearer' | 'raw' | null
   authHeaderValue?: string | null
   maxContextLength?: number | null
+  parseTextToolCalls?: boolean | null
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
@@ -724,6 +739,7 @@ export function buildOpenAIProfileEnv(options: {
           }),
         }
       : {}),
+    ...(options.parseTextToolCalls ? { OPENAI_PARSE_TEXT_TOOL_CALLS: '1' } : {}),
   }
 }
 

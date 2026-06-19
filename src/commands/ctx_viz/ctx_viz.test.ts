@@ -20,6 +20,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import {
   afterEach,
@@ -208,20 +209,23 @@ describe('/ctx command surface (PR #1610)', () => {
       modelUsageMap: {},
     })
 
+    // Chalk may inject ANSI sequences when FORCE_COLOR is set (common in CI).
+    const plainOut = stripAnsi(out)
+
     // Header line — confirms the model name is rendered.
-    expect(out).toContain('Context Window:')
+    expect(plainOut).toContain('Context Window:')
     // Window Capacity block (4 bullets).
-    expect(out).toContain('Window Capacity')
-    expect(out).toContain('Context window:')
-    expect(out).toContain('Effective context:')
-    expect(out).toContain('Max output:')
+    expect(plainOut).toContain('Window Capacity')
+    expect(plainOut).toContain('Context window:')
+    expect(plainOut).toContain('Effective context:')
+    expect(plainOut).toContain('Max output:')
     // Auto-compact line is rendered because the fixture sets
     // isAutoCompactEnabled: true.
-    expect(out).toContain('Auto-compact at:')
+    expect(plainOut).toContain('Auto-compact at:')
     // Current Context block + total.
-    expect(out).toContain('Current Context (what the model sees)')
-    expect(out).toContain('Total:')
-    expect(out).toMatch(/used\)/)
+    expect(plainOut).toContain('Current Context (what the model sees)')
+    expect(plainOut).toContain('Total:')
+    expect(plainOut).toMatch(/used\)/)
     // Each non-zero category in the fixture appears in the output.
     for (const cat of [
       'System prompt',
@@ -229,7 +233,7 @@ describe('/ctx command surface (PR #1610)', () => {
       'Memory files',
       'Messages',
     ]) {
-      expect(out).toContain(cat)
+      expect(plainOut).toContain(cat)
     }
     // Bar characters — width 30, ratio = tokens / contextWindow (200k).
     // With the fixture:
@@ -237,17 +241,17 @@ describe('/ctx command surface (PR #1610)', () => {
     //   System prompt  7.8k  / 200k →  1 filled
     //   Memory files   956   / 200k →  0 filled
     //   Messages       84    / 200k →  0 filled
-    expect(out).toContain('█'.repeat(2) + '░'.repeat(28))
-    expect(out).toContain('█'.repeat(1) + '░'.repeat(29))
-    expect(out).toMatch(/░{30}/)
+    expect(plainOut).toContain('█'.repeat(2) + '░'.repeat(28))
+    expect(plainOut).toContain('█'.repeat(1) + '░'.repeat(29))
+    expect(plainOut).toMatch(/░{30}/)
     // Footer cross-references the sibling commands.
-    expect(out).toContain('/context')
-    expect(out).toContain('/cost')
-    expect(out).toContain('/stats')
+    expect(plainOut).toContain('/context')
+    expect(plainOut).toContain('/cost')
+    expect(plainOut).toContain('/stats')
     // Capacity rows (Free space, Autocompact buffer, Compact buffer) should be filtered out.
-    expect(out).not.toContain('Free space')
+    expect(plainOut).not.toContain('Free space')
     // Deferred tool categories (MCP tools (deferred), System tools (deferred))
     // should be filtered out since they aren't in the model-visible context.
-    expect(out).not.toContain('System tools (deferred)')
+    expect(plainOut).not.toContain('System tools (deferred)')
   })
 })

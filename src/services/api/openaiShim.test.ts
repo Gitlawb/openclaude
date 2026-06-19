@@ -45,6 +45,7 @@ const originalEnv = {
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+  OPENAI_PARSE_TEXT_TOOL_CALLS: process.env.OPENAI_PARSE_TEXT_TOOL_CALLS,
 }
 
 const originalFetch = globalThis.fetch
@@ -183,6 +184,7 @@ beforeEach(async () => {
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
 })
 
 afterEach(() => {
@@ -223,6 +225,7 @@ afterEach(() => {
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
+    restoreEnv('OPENAI_PARSE_TEXT_TOOL_CALLS', originalEnv.OPENAI_PARSE_TEXT_TOOL_CALLS)
     globalThis.fetch = originalFetch
     _clearRegistryForTesting()
     ensureIntegrationsLoaded()
@@ -5113,6 +5116,7 @@ test('self-heals local endpoint_not_found by retrying with /v1 base URL', async 
 
 test('self-heals tool-call incompatibility by retrying local Ollama requests without tools', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
 
   const requestBodies: Array<Record<string, unknown>> = []
   globalThis.fetch = (async (_input, init) => {
@@ -5409,6 +5413,186 @@ test('injects semantic assistant message when tool result is followed by user me
   expect(semanticMsg.content).not.toContain('user')
 })
 
+test('does not inject semantic assistant message for LAN llama-server backends', async () => {
+  process.env.OPENAI_BASE_URL = 'http://192.168.0.42:8081/v1'
+  process.env.OPENAI_API_KEY = 'local'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-local',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'qwen3.6:35b',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen3.6:35b',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file contents' }],
+      },
+      { role: 'user', content: 'Continue with the task.' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.map(m => m.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(
+    messages.some(m => m.role === 'assistant' && m.content === '[Tool results received]'),
+  ).toBe(false)
+})
+
+test('appends local tool continuation prompt after tool results when text parsing is enabled', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8081/v1'
+  process.env.OPENAI_API_KEY = 'local'
+  process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-local',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'qwen3.6:35b',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen3.6:35b',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file contents' }],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.at(-1)).toMatchObject({
+    role: 'user',
+    content: expect.stringContaining('Continue with the task'),
+  })
+})
+
+test('appends local tool continuation prompt after tool results followed by user message', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8081/v1'
+  process.env.OPENAI_API_KEY = 'local'
+  process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-local',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'qwen3.6:35b',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen3.6:35b',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file contents' }],
+      },
+      { role: 'user', content: 'The user asked you to continue.' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.at(-1)).toMatchObject({
+    role: 'user',
+    content: expect.stringMatching(
+      /The user asked you to continue\..*Continue with the task/s,
+    ),
+  })
+})
+
+test('drops stale semantic placeholder assistant messages for local backends', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8081/v1'
+  process.env.OPENAI_API_KEY = 'local'
+
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-local',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'qwen3.6:35b',
+      choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen3.6:35b',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file contents' }],
+      },
+      { role: 'assistant', content: '● [Tool results received]' },
+      { role: 'user', content: 'Continue with the task.' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.map(m => m.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(
+    messages.some(m => m.role === 'assistant' && String(m.content).includes('[Tool results received]')),
+  ).toBe(false)
+})
+
 test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
   process.env.OPENAI_API_KEY = 'sk-moonshot-test'
@@ -5478,6 +5662,7 @@ test('Cerebras: strips unsupported store on chat_completions (#1023)', async () 
 test('Local provider (vLLM/Ollama/etc.): strips unsupported store on chat_completions (#672)', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:8000/v1'
   process.env.OPENAI_API_KEY = 'sk-local'
+  process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
 
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {

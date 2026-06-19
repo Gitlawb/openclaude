@@ -3,10 +3,13 @@ import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test
 
 import {
   getAdditionalModelOptionsCacheScope,
+  getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   isLocalProviderUrl,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  shouldInjectToolResultSemanticBoundary,
+  shouldParseTextToolCalls,
 } from './providerConfig.js'
 
 const originalEnv = {
@@ -19,6 +22,7 @@ const originalEnv = {
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+  OPENAI_PARSE_TEXT_TOOL_CALLS: process.env.OPENAI_PARSE_TEXT_TOOL_CALLS,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -44,6 +48,7 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+    restoreEnv('OPENAI_PARSE_TEXT_TOOL_CALLS', originalEnv.OPENAI_PARSE_TEXT_TOOL_CALLS)
   } finally {
     releaseSharedMutationLock()
   }
@@ -217,11 +222,19 @@ test('does not derive local retry base URLs for remote providers', () => {
   expect(getLocalProviderRetryBaseUrls('https://api.openai.com/v1')).toEqual([])
 })
 
-test('enables local toolless retry for likely Ollama endpoints with tools', () => {
+test('enables toolless retry when text tool parsing is enabled on any host', () => {
   expect(
     shouldAttemptLocalToollessRetry({
-      baseUrl: 'http://localhost:11434/v1',
+      baseUrl: 'http://192.168.0.42:8081/v1',
       hasTools: true,
+      processEnv: { OPENAI_PARSE_TEXT_TOOL_CALLS: '1' },
+    }),
+  ).toBe(true)
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://gpu-box.internal:8081/v1',
+      hasTools: true,
+      processEnv: { OPENAI_PARSE_TEXT_TOOL_CALLS: '1' },
     }),
   ).toBe(true)
 })
@@ -235,11 +248,71 @@ test('disables local toolless retry when no tools are present', () => {
   ).toBe(false)
 })
 
-test('disables local toolless retry for non-Ollama local endpoints', () => {
+test('disables toolless retry when text tool parsing is disabled', () => {
   expect(
     shouldAttemptLocalToollessRetry({
-      baseUrl: 'http://localhost:1234/v1',
+      baseUrl: 'http://192.168.0.42:8081/v1',
       hasTools: true,
     }),
   ).toBe(false)
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'https://api.openai.com/v1',
+      hasTools: true,
+    }),
+  ).toBe(false)
+})
+
+test('enables fast path for any host when self-hosted compat is enabled', () => {
+  const env = { OPENAI_PARSE_TEXT_TOOL_CALLS: '1' }
+  expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1', env).enabled).toBe(true)
+  expect(getLocalFastPathConfig('http://192.168.0.42:8081/v1', env).enabled).toBe(true)
+  expect(getLocalFastPathConfig('http://gpu-box.internal:8081/v1', env).enabled).toBe(true)
+  expect(getLocalFastPathConfig('https://llm.example.com/v1', env).enabled).toBe(true)
+  expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1').enabled).toBe(false)
+})
+
+test('enables text tool-call parsing only when env flag is set', () => {
+  expect(shouldParseTextToolCalls('http://127.0.0.1:8080/v1', {})).toBe(false)
+  expect(
+    shouldParseTextToolCalls('http://127.0.0.1:8080/v1', {
+      OPENAI_PARSE_TEXT_TOOL_CALLS: '1',
+    }),
+  ).toBe(true)
+  expect(
+    shouldParseTextToolCalls('https://api.openai.com/v1', {
+      OPENAI_PARSE_TEXT_TOOL_CALLS: 'true',
+    }),
+  ).toBe(true)
+})
+
+test('injects tool-result semantic boundary only for Mistral/Devstral backends', () => {
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'qwen3.6:35b',
+    }),
+  ).toBe(false)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'mistral-large-latest',
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'devstral-small',
+    }),
+  ).toBe(true)
+
+  expect(
+    shouldInjectToolResultSemanticBoundary({
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      model: 'qwen3.6:35b',
+      processEnv: { CLAUDE_CODE_USE_MISTRAL: '1' },
+    }),
+  ).toBe(true)
 })

@@ -142,6 +142,75 @@ describe('Agent loop continuation nudge', () => {
       'Continue with the task. If you were interrupted, resume your thought. Otherwise, use the appropriate tools to proceed to the next step.',
     )
   })
+
+  test('post-tool stall detection catches empty and placeholder replies', async () => {
+    const {
+      conversationHasPendingToolFollowUp,
+      isStalledPostToolResponse,
+      isToolResultSemanticPlaceholderText,
+      shouldNudgePostToolTurn,
+      stripSemanticPlaceholderAssistants,
+    } = await import('../utils/continuation.js')
+
+    expect(isStalledPostToolResponse('')).toBe(true)
+    expect(isToolResultSemanticPlaceholderText('[Tool results received]')).toBe(true)
+    expect(isToolResultSemanticPlaceholderText('● [Tool results received]')).toBe(true)
+    expect(isStalledPostToolResponse('[Tool results received]')).toBe(true)
+    expect(isStalledPostToolResponse('● [Tool results received]')).toBe(true)
+    expect(isStalledPostToolResponse('Task finished')).toBe(false)
+
+    expect(
+      shouldNudgePostToolTurn({
+        lastText: '',
+        hadEmptyAssistantResponse: true,
+      }),
+    ).toBe(true)
+    expect(
+      shouldNudgePostToolTurn({
+        lastText: '[Tool results received]',
+        hadEmptyAssistantResponse: false,
+      }),
+    ).toBe(true)
+    expect(
+      shouldNudgePostToolTurn({
+        lastText: 'All tests pass and the fix is complete.',
+        hadEmptyAssistantResponse: false,
+      }),
+    ).toBe(false)
+
+    const toolRound = [
+      {
+        type: 'assistant',
+        isApiErrorMessage: false,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'ok' }],
+        },
+      },
+    ] as unknown as import('../types/message.js').Message[]
+
+    expect(conversationHasPendingToolFollowUp(toolRound)).toBe(true)
+    expect(
+      stripSemanticPlaceholderAssistants([
+        ...toolRound,
+        {
+          type: 'assistant',
+          isApiErrorMessage: false,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: '[Tool results received]' }],
+          },
+        } as unknown as import('../types/message.js').Message,
+      ]).length,
+    ).toBe(2)
+  })
 })
 
 // ---------------------------------------------------------------------------

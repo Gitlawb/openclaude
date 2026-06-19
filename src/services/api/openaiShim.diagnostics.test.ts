@@ -16,6 +16,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_PARSE_TEXT_TOOL_CALLS: process.env.OPENAI_PARSE_TEXT_TOOL_CALLS,
 }
 let actualDebugModule: DebugModule | undefined
 
@@ -37,6 +38,7 @@ afterEach(() => {
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('OPENAI_PARSE_TEXT_TOOL_CALLS', originalEnv.OPENAI_PARSE_TEXT_TOOL_CALLS)
     mock.restore()
     restoreDebugModule()
   } finally {
@@ -212,8 +214,9 @@ test('logs self-heal toolless retry for local tool-call incompatibility', async 
   const nonce = `${Date.now()}-${Math.random()}`
   const { createOpenAIShimClient } = await import(`./openaiShim.ts?ts=${nonce}`)
 
-  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_BASE_URL = 'http://192.168.0.42:8081/v1'
   process.env.OPENAI_API_KEY = 'ollama'
+  process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
 
   let callCount = 0
   globalThis.fetch = mockFetch(async () => {

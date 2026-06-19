@@ -57,7 +57,17 @@ import {
   createToolUseSummaryMessage,
   createMicrocompactBoundaryMessage,
 } from './utils/messages.js'
-import { analyzeContinuationIntent } from './utils/continuation.js'
+import {
+  analyzeContinuationIntent,
+  conversationHasPendingToolFollowUp,
+  isStalledPostToolResponse,
+  shouldNudgePostToolTurn,
+  stripSemanticPlaceholderAssistants,
+} from './utils/continuation.js'
+import {
+  LOCAL_TOOL_CONTINUATION_PROMPT,
+  shouldParseTextToolCalls,
+} from './services/api/providerConfig.js'
 import { generateToolUseSummary } from './services/toolUseSummary/toolUseSummaryGenerator.js'
 import { prependUserContext, appendSystemContext } from './utils/api.js'
 import {
@@ -1061,28 +1071,48 @@ async function* queryLoop(
             ) {
               withheld = true
             }
-            if (!withheld) {
-              yield yieldMessage
-            }
+            let withheldStallResponse = false
             if (message.type === 'assistant') {
-              assistantMessages.push(message)
-
               const msgToolUseBlocks = message.message.content.filter(
                 content => content.type === 'tool_use',
               ) as ToolUseBlock[]
-              if (msgToolUseBlocks.length > 0) {
-                toolUseBlocks.push(...msgToolUseBlocks)
-                needsFollowUp = true
+              const assistantText = message.message.content
+                .filter(
+                  (block): block is Extract<typeof block, { type: 'text' }> =>
+                    block.type === 'text',
+                )
+                .map(block => block.text)
+                .join(' ')
+
+              withheldStallResponse =
+                shouldParseTextToolCalls() &&
+                conversationHasPendingToolFollowUp(messagesForQuery) &&
+                msgToolUseBlocks.length === 0 &&
+                isStalledPostToolResponse(assistantText)
+
+              if (!withheld && !withheldStallResponse) {
+                yield yieldMessage
               }
 
-              if (
-                streamingToolExecutor &&
-                !toolUseContext.abortController.signal.aborted
-              ) {
-                for (const toolBlock of msgToolUseBlocks) {
-                  streamingToolExecutor.addTool(toolBlock, message)
+              if (!withheldStallResponse) {
+                assistantMessages.push(message)
+
+                if (msgToolUseBlocks.length > 0) {
+                  toolUseBlocks.push(...msgToolUseBlocks)
+                  needsFollowUp = true
+                }
+
+                if (
+                  streamingToolExecutor &&
+                  !toolUseContext.abortController.signal.aborted
+                ) {
+                  for (const toolBlock of msgToolUseBlocks) {
+                    streamingToolExecutor.addTool(toolBlock, message)
+                  }
                 }
               }
+            } else if (!withheld) {
+              yield yieldMessage
             }
 
             if (
@@ -1743,6 +1773,74 @@ async function* queryLoop(
             queryChainId: queryChainIdForAnalytics,
             queryDepth: queryTracking.depth,
           })
+        }
+      }
+
+      // Post-tool stall recovery for local text-tool-call backends. After tool
+      // results these models often return empty text, echo "[Tool results
+      // received]", or stop without calling tools.
+      if (
+        shouldParseTextToolCalls() &&
+        conversationHasPendingToolFollowUp(messagesForQuery) &&
+        turnCount < (maxTurns ?? Infinity) &&
+        state.continuationNudgeCount < MAX_CONTINUATION_NUDGES
+      ) {
+        const lastAssistant = assistantMessages.at(-1)
+        const hasToolUse =
+          lastAssistant?.type === 'assistant' &&
+          lastAssistant.message.content.some(block => block.type === 'tool_use')
+        const lastText =
+          lastAssistant?.type === 'assistant'
+            ? lastAssistant.message.content
+                .filter(
+                  (block): block is Extract<typeof block, { type: 'text' }> =>
+                    block.type === 'text',
+                )
+                .map(block => block.text)
+                .join(' ')
+            : ''
+
+        if (
+          !hasToolUse &&
+          shouldNudgePostToolTurn({
+            lastText,
+            hadEmptyAssistantResponse: assistantMessages.length === 0,
+          })
+        ) {
+          const cleanedHistory = stripSemanticPlaceholderAssistants(
+            messagesForQuery,
+          )
+          const persistedAssistants =
+            lastAssistant &&
+            isStalledPostToolResponse(lastText) &&
+            assistantMessages.length > 0
+              ? assistantMessages.slice(0, -1)
+              : assistantMessages
+
+          logForDebugging(
+            `Post-tool continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}) after tool results without tool calls`,
+          )
+          const nudge = createUserMessage({
+            content: LOCAL_TOOL_CONTINUATION_PROMPT,
+            isMeta: true,
+          })
+          const next: State = {
+            messages: [...cleanedHistory, ...persistedAssistants, nudge],
+            toolUseContext,
+            autoCompactTracking: tracking,
+            maxOutputTokensRecoveryCount: 0,
+            hasAttemptedReactiveCompact: false,
+            hasAttemptedProviderFallback: false,
+            maxOutputTokensOverride: undefined,
+            providerMaxOutputTokensCap,
+            pendingToolUseSummary: undefined,
+            stopHookActive: undefined,
+            turnCount,
+            continuationNudgeCount: state.continuationNudgeCount + 1,
+            transition: { reason: 'continuation_nudge' },
+          }
+          state = next
+          continue
         }
       }
 

@@ -54,6 +54,7 @@ import {
   getActiveProviderProfile,
   getProviderPresetDefaults,
   getProviderProfiles,
+  providerProfileSupportsTextToolCallParsing,
   setActiveProviderProfile,
   type ProviderPreset,
   type ProviderProfileInput,
@@ -127,6 +128,7 @@ type DraftField =
   | 'authHeader'
   | 'authHeaderValue'
   | 'customHeaders'
+  | 'parseTextToolCalls'
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -174,6 +176,14 @@ const FORM_STEPS: Array<{
     label: 'Default model',
     placeholder: 'e.g. llama3.1:8b or glm-4.7; glm-4.7-flash',
     helpText: 'Model name(s) to use. Separate multiple with ";" or ","; first is default.',
+  },
+  {
+    key: 'parseTextToolCalls',
+    label: 'Self-hosted compat',
+    placeholder: 'enabled',
+    helpText:
+      'Enable for self-hosted OpenAI-compatible servers (Ollama, llama-server, vLLM). Any host/port. Parses JSON tool calls from text, auto-continues after tools, and skips cloud-only request overhead (fast path).',
+    optional: true,
   },
   {
     key: 'apiFormat',
@@ -231,6 +241,7 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     model: profile.model,
     apiKey: profile.apiKey ?? '',
     apiFormat: profile.apiFormat ?? 'chat_completions',
+    parseTextToolCalls: profile.parseTextToolCalls ? 'enabled' : 'disabled',
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
     customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
@@ -266,6 +277,7 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     model: defaults.model,
     apiKey: defaults.apiKey ?? '',
     apiFormat: 'chat_completions',
+    parseTextToolCalls: defaults.parseTextToolCalls ? 'enabled' : 'disabled',
     authHeader: '',
     authHeaderValue: '',
     customHeaders: '',
@@ -296,11 +308,16 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
     routeSupportsApiFormatSelection(routeId)
       ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
+  const textToolCallInfo =
+    providerProfileSupportsTextToolCallParsing(profile.provider) &&
+    profile.parseTextToolCalls
+      ? ' · text tool calls'
+      : ''
   const authInfo =
     routeSupportsAuthHeaders(routeId) && profile.authHeader
       ? ` · ${profile.authHeader} auth`
       : ''
-  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
+  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${textToolCallInfo}${authInfo} · ${keyInfo}${activeSuffix}`
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -788,6 +805,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
       const showsCustomHeaders = routeShowsCustomHeaders(routeId)
       return FORM_STEPS.filter(step => {
+        if (step.key === 'parseTextToolCalls') {
+          return providerProfileSupportsTextToolCallParsing(draftProvider)
+        }
         if (step.key === 'apiFormat') {
           return routeSupportsApiFormatSelection(routeId)
         }
@@ -1410,16 +1430,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   function startCreateFromPreset(preset: ProviderPreset): void {
     const defaults = getProviderPresetDefaults(preset)
     const provider = defaults.provider ?? 'openai'
-    const nextDraft = {
-      name: defaults.name,
-      baseUrl: defaults.baseUrl,
-      model: defaults.model,
-      apiKey: defaults.apiKey ?? '',
-      apiFormat: 'chat_completions',
-      authHeader: '',
-      authHeaderValue: '',
-      customHeaders: '',
-    }
+    const nextDraft = presetToDraft(preset)
+    nextDraft.apiKey = defaults.apiKey ?? ''
     setEditingProfileId(null)
     setDraftProvider(provider)
     setDraft(nextDraft)
@@ -1513,6 +1525,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         showsCustomHeaders &&
         Object.keys(parsedCustomHeaders.headers).length > 0
           ? parsedCustomHeaders.headers
+          : undefined,
+      parseTextToolCalls:
+        providerProfileSupportsTextToolCallParsing(provider) &&
+        nextDraft.parseTextToolCalls === 'enabled'
+          ? true
           : undefined,
     }
 
@@ -1946,7 +1963,28 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>
           Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
         </Text>
-        {currentStepKey === 'apiFormat' ? (
+        {currentStepKey === 'parseTextToolCalls' ? (
+          <Select
+            options={[
+              {
+                value: 'disabled',
+                label: 'Disabled',
+                description: 'Cloud-style provider: structured API tool_calls only',
+              },
+              {
+                value: 'enabled',
+                label: 'Enabled',
+                description:
+                  'Self-hosted: text tool parsing, post-tool auto-continue, fast path (no IP checks)',
+              },
+            ]}
+            defaultValue={currentValue === 'enabled' ? 'enabled' : 'disabled'}
+            defaultFocusValue={currentValue === 'enabled' ? 'enabled' : 'disabled'}
+            onChange={(value: string) => handleFormSubmit(value)}
+            onCancel={handleBackFromForm}
+            visibleOptionCount={2}
+          />
+        ) : currentStepKey === 'apiFormat' ? (
           <Select
             options={[
               {

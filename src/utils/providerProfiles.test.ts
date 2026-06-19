@@ -66,6 +66,7 @@ const RESTORED_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'HICAP_API_KEY',
   'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
+  'OPENAI_PARSE_TEXT_TOOL_CALLS',
 ] as const
 
 type MockConfigState = {
@@ -1000,6 +1001,32 @@ describe('applyProviderProfileToProcessEnv', () => {
     ).not.toBe(1_000_000)
   })
 
+  test('openai-compatible profile applies parseTextToolCalls env override', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://127.0.0.1:8080/v1',
+        model: 'qwen3.6:35b',
+        parseTextToolCalls: true,
+      }),
+    )
+
+    expect(process.env.OPENAI_PARSE_TEXT_TOOL_CALLS).toBe('1')
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'http://127.0.0.1:8080/v1',
+        model: 'qwen3.6:35b',
+      }),
+    )
+
+    expect(process.env.OPENAI_PARSE_TEXT_TOOL_CALLS).toBeUndefined()
+  })
+
   test('non-openai-compatible profile ignores maxContextLength override', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -1564,6 +1591,7 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.baseUrl).toBe('http://localhost:11434/v1')
     expect(defaults.model).toBe('llama3.1:8b')
+    expect(defaults.parseTextToolCalls).toBe(true)
   })
 
   test('atomic-chat preset defaults to a local Atomic Chat endpoint', async () => {

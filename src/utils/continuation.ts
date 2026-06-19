@@ -1,4 +1,4 @@
-import { tokenCountWithEstimation } from './tokens.js'
+import type { Message } from '../types/message.js'
 
 /**
  * Heuristics to detect if the agent intends to continue its task
@@ -28,6 +28,109 @@ export const COMPLETION_MARKERS = /\b(done|finished|completed|complete|summary|t
 export type ContinuationResult = {
   shouldNudge: boolean
   reason?: 'possible_truncation' | 'continuation_signal'
+}
+
+const TOOL_RESULT_SEMANTIC_PLACEHOLDER = /^\[tool results received\]$/i
+
+/**
+ * Detects empty or placeholder-only assistant replies after tool results.
+ * Local OpenAI-compatible backends often echo the Mistral semantic boundary
+ * or stop without emitting tool calls.
+ */
+export function isToolResultSemanticPlaceholderText(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  const normalized = trimmed.replace(/^[●•\s]+/, '').trim()
+  return TOOL_RESULT_SEMANTIC_PLACEHOLDER.test(normalized)
+}
+
+export function isStalledPostToolResponse(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return true
+  }
+
+  return isToolResultSemanticPlaceholderText(trimmed)
+}
+
+function assistantMessageText(message: Message): string | null {
+  if (message.type !== 'assistant' || message.isApiErrorMessage) {
+    return null
+  }
+
+  return message.message.content
+    .filter(
+      (block): block is Extract<typeof block, { type: 'text' }> =>
+        block.type === 'text',
+    )
+    .map(block => block.text)
+    .join(' ')
+}
+
+/**
+ * True when the transcript has delivered tool results that still need a
+ * follow-up assistant turn (e.g. after /continue or a stalled local model).
+ */
+export function conversationHasPendingToolFollowUp(messages: Message[]): boolean {
+  let lastToolUseMessageIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.type !== 'assistant' || msg.isApiErrorMessage) {
+      continue
+    }
+
+    const hasToolUse = msg.message.content.some(block => block.type === 'tool_use')
+    if (hasToolUse) {
+      lastToolUseMessageIndex = i
+      break
+    }
+  }
+
+  if (lastToolUseMessageIndex === -1) {
+    return false
+  }
+
+  for (let i = lastToolUseMessageIndex + 1; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.type !== 'user') {
+      continue
+    }
+
+    const content = msg.message.content
+    if (
+      Array.isArray(content) &&
+      content.some(block => block.type === 'tool_result')
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function stripSemanticPlaceholderAssistants(messages: Message[]): Message[] {
+  return messages.filter(message => {
+    const text = assistantMessageText(message)
+    return text === null || !isToolResultSemanticPlaceholderText(text)
+  })
+}
+
+export function shouldNudgePostToolTurn(options: {
+  lastText: string
+  hadEmptyAssistantResponse: boolean
+}): boolean {
+  if (options.hadEmptyAssistantResponse) {
+    return true
+  }
+
+  if (isStalledPostToolResponse(options.lastText)) {
+    return true
+  }
+
+  return analyzeContinuationIntent(options.lastText).shouldNudge
 }
 
 export const UNFINISHED_SENTIMENT_SIGNALS = [

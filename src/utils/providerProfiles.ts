@@ -21,6 +21,7 @@ import {
   buildMiniMaxProfileEnv,
   buildMistralProfileEnv,
   buildNvidiaNimProfileEnv,
+  appendParseTextToolCallsEnv,
   buildOpenAIProfileEnv,
   buildVeniceProfileEnv,
   buildXaiOAuthProfileEnv,
@@ -65,6 +66,7 @@ export type ProviderProfileInput = {
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
   maxContextLength?: ProviderProfile['maxContextLength']
+  parseTextToolCalls?: ProviderProfile['parseTextToolCalls']
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -255,6 +257,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   if (maxContextLength !== undefined) {
     sanitized.maxContextLength = maxContextLength
   }
+  if (profile.parseTextToolCalls === true) {
+    sanitized.parseTextToolCalls = true
+  }
   return sanitized
 }
 
@@ -295,7 +300,14 @@ function toProfile(
     authHeaderValue: input.authHeaderValue,
     customHeaders: input.customHeaders,
     maxContextLength: input.maxContextLength,
+    parseTextToolCalls: input.parseTextToolCalls,
   })
+}
+
+export function providerProfileSupportsTextToolCallParsing(
+  provider: ProviderProfile['provider'],
+): boolean {
+  return resolveProfileCompatibility(provider).compatibilityMode === 'openai'
 }
 
 function getSupportedProfileCustomHeadersEnv(
@@ -370,6 +382,7 @@ export function getProviderPresetDefaults(
     model: routeDefaults.model,
     apiKey: metadata.apiKey,
     requiresApiKey: metadata.requiresApiKey,
+    ...(preset === 'ollama' ? { parseTextToolCalls: true } : {}),
   }
 }
 
@@ -615,6 +628,10 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
       expectedContextWindows,
     ) &&
+    sameOptionalEnvValue(
+      processEnv.OPENAI_PARSE_TEXT_TOOL_CALLS,
+      profile.parseTextToolCalls ? '1' : undefined,
+    ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
@@ -803,6 +820,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
         [primaryModel]: profile.maxContextLength,
       })
     }
+    appendParseTextToolCallsEnv(openAIProfileEnv, profile.parseTextToolCalls)
 
     profileEnv = openAIProfileEnv
   }
@@ -1036,6 +1054,7 @@ function buildOpenAICompatibleStartupEnv(
       authScheme: activeProfile.authScheme,
       authHeaderValue: activeProfile.authHeaderValue,
       maxContextLength: activeProfile.maxContextLength,
+      parseTextToolCalls: activeProfile.parseTextToolCalls,
       processEnv: {},
     })
     if (strictEnv) {
@@ -1070,6 +1089,7 @@ function buildOpenAICompatibleStartupEnv(
         }
       : {}),
   }
+  appendParseTextToolCallsEnv(env, activeProfile.parseTextToolCalls)
 
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey

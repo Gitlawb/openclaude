@@ -213,12 +213,14 @@ describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', 
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
   })
   afterEach(() => {
     globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
   })
 
   test('<think> content is NOT emitted as assistant text when text-tool fallback fires', async () => {
@@ -267,12 +269,14 @@ describe('Ollama streaming — plain text response with no tool calls', () => {
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
   })
   afterEach(() => {
     globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
   })
 
   test('plain text in two chunks (content then stop) is emitted as text_delta', async () => {
@@ -374,12 +378,14 @@ describe('Ollama streaming — visible text before real structured tool_calls (P
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
   })
   afterEach(() => {
     globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
   })
 
   test('visible assistant text is preserved when real delta.tool_calls follow it', async () => {
@@ -431,12 +437,14 @@ describe('Ollama streaming — visible prose before text-based tool-call fallbac
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
   })
   afterEach(() => {
     globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
   })
 
   test('visible prose before text-based JSON tool call is preserved in emitted text_delta', async () => {
@@ -479,6 +487,68 @@ describe('Ollama streaming — visible prose before text-based tool-call fallbac
   })
 })
 
+describe('local llama-server streaming — text-based tool-call fallback', () => {
+  let originalFetch: FetchType
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
+    process.env.OPENAI_MODEL = 'qwen3.6:35b'
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
+  })
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
+  })
+
+  test('extracts JSON tool calls from llama-server style local endpoint', async () => {
+    globalThis.fetch = (async () =>
+      makeSseResponse(
+        makeChunks([
+          ollamaChunk('Checking the file.\n'),
+          ollamaChunk('{"name":"Read","arguments":{"file_path":"/tmp/foo.ts"}}'),
+          ollamaChunk('', 'stop'),
+        ]),
+      )) as unknown as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'qwen3.6:35b',
+        messages: [{ role: 'user', content: 'read the file' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+
+    const events: Record<string, unknown>[] = []
+    for await (const event of result.data) events.push(event)
+
+    const allText = events
+      .filter(
+        e =>
+          e.type === 'content_block_delta' &&
+          (e.delta as Record<string, string>)?.type === 'text_delta',
+      )
+      .map(e => (e.delta as Record<string, string>).text)
+      .join('')
+    expect(allText).toContain('Checking the file.')
+
+    const toolStarts = events.filter(
+      e =>
+        e.type === 'content_block_start' &&
+        (e.content_block as Record<string, string>)?.type === 'tool_use',
+    )
+    expect(toolStarts).toHaveLength(1)
+    expect((toolStarts[0].content_block as Record<string, string>).name).toBe('Read')
+  })
+})
+
 describe('parseTextToolCalls — pretty-printed bare JSON detection', () => {
   test('detects bare JSON with whitespace/newline between { and "name"', () => {
     const text = '{\n  "name": "Bash",\n  "arguments": {"command": "ls"}\n}'
@@ -503,12 +573,14 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_PARSE_TEXT_TOOL_CALLS = '1'
   })
   afterEach(() => {
     globalThis.fetch = originalFetch
     delete process.env.OLLAMA_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
   })
 
   test('buffered text is flushed when finish_reason is "length"', async () => {

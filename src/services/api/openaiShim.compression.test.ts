@@ -15,6 +15,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_PARSE_TEXT_TOOL_CALLS: process.env.OPENAI_PARSE_TEXT_TOOL_CALLS,
 }
 
 const originalConfig = {
@@ -133,6 +134,7 @@ beforeEach(async () => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_PARSE_TEXT_TOOL_CALLS
 })
 
 afterEach(() => {

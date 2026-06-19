@@ -70,7 +70,10 @@ import {
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
   isLikelyOllamaEndpoint,
-  isLocalProviderUrl,
+  LOCAL_TOOL_CONTINUATION_PROMPT,
+  shouldInjectToolResultSemanticBoundary,
+  shouldParseTextToolCalls,
+  TOOL_RESULT_SEMANTIC_PLACEHOLDER,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
@@ -81,6 +84,7 @@ import {
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
 } from './openaiErrorClassification.js'
+import { isToolResultSemanticPlaceholderText } from '../../utils/continuation.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
 import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
@@ -545,6 +549,66 @@ function hydrateOpenAIShimCompatibilityEnv(
   }
 }
 
+function assistantHistoryContentToText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return ''
+  }
+
+  return content
+    .filter((block: { type?: string; text?: string }) => block.type === 'text')
+    .map((block: { text?: string }) => block.text ?? '')
+    .join(' ')
+}
+
+function appendLocalToolContinuationPrompt(
+  openaiMessages: OpenAIMessage[],
+): OpenAIMessage[] {
+  const last = openaiMessages.at(-1)
+  const prev = openaiMessages.at(-2)
+  if (!last) {
+    return openaiMessages
+  }
+
+  if (last.role === 'tool') {
+    return [
+      ...openaiMessages,
+      { role: 'user', content: LOCAL_TOOL_CONTINUATION_PROMPT },
+    ]
+  }
+
+  if (last.role === 'user' && prev?.role === 'tool') {
+    const promptSuffix = `\n\n${LOCAL_TOOL_CONTINUATION_PROMPT}`
+    if (typeof last.content === 'string') {
+      if (last.content.includes(LOCAL_TOOL_CONTINUATION_PROMPT)) {
+        return openaiMessages
+      }
+      return [
+        ...openaiMessages.slice(0, -1),
+        { ...last, content: last.content + promptSuffix },
+      ]
+    }
+
+    const mergedText = joinTextContentParts(
+      typeof last.content === 'string' || !last.content
+        ? []
+        : last.content,
+    )
+    if (mergedText.includes(LOCAL_TOOL_CONTINUATION_PROMPT)) {
+      return openaiMessages
+    }
+    return [
+      ...openaiMessages.slice(0, -1),
+      { ...last, content: mergedText + promptSuffix },
+    ]
+  }
+
+  return openaiMessages
+}
+
 function convertMessages(
   messages: Array<{
     role: string
@@ -556,6 +620,7 @@ function convertMessages(
     preserveReasoningContent?: boolean
     reasoningContentFallback?: '' | 'omit'
     preserveGeminiThoughtSignature?: boolean
+    injectToolResultSemanticBoundary?: boolean
   },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
@@ -639,6 +704,15 @@ function convertMessages(
         })
       }
     } else if (role === 'assistant') {
+      if (
+        !options?.injectToolResultSemanticBoundary &&
+        isToolResultSemanticPlaceholderText(
+          assistantHistoryContentToText(content),
+        )
+      ) {
+        continue
+      }
+
       // Check for tool_use blocks
       if (Array.isArray(content)) {
         const toolUses = content.filter(
@@ -802,10 +876,15 @@ function convertMessages(
     // assistant boundary to satisfy the strict role sequence without implying
     // that the user interrupted or cancelled anything:
     // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
-    if (prev && prev.role === 'tool' && msg.role === 'user') {
+    if (
+      options?.injectToolResultSemanticBoundary &&
+      prev &&
+      prev.role === 'tool' &&
+      msg.role === 'user'
+    ) {
       coalesced.push({
         role: 'assistant',
-        content: '[Tool results received]',
+        content: TOOL_RESULT_SEMANTIC_PLACEHOLDER,
       })
     }
 
@@ -1242,6 +1321,50 @@ export function parseTextToolCalls(text: string): {
   return { calls: results, toolCallRanges: acceptedRanges }
 }
 
+function appendAssistantTextContentBlocks(
+  content: Array<Record<string, unknown>>,
+  strippedContent: string,
+  enableTextToolCallFallback: boolean,
+): void {
+  const rawToolCalls = parseRawToolCallsRequestedText(strippedContent)
+  if (rawToolCalls) {
+    for (const toolCall of rawToolCalls) {
+      content.push({
+        type: 'tool_use',
+        id: toolCall.id,
+        name: toolCall.name,
+        input: JSON.parse(toolCall.argumentsJson),
+      })
+    }
+    return
+  }
+
+  if (enableTextToolCallFallback) {
+    const { calls: textToolCalls, toolCallRanges } =
+      parseTextToolCalls(strippedContent)
+    if (textToolCalls.length > 0) {
+      const visibleText = stripRanges(strippedContent, toolCallRanges).trim()
+      if (visibleText) {
+        content.push({ type: 'text', text: visibleText })
+      }
+      for (const tc of textToolCalls) {
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: tc.arguments,
+        })
+      }
+      return
+    }
+  }
+
+  content.push({
+    type: 'text',
+    text: strippedContent,
+  })
+}
+
 /**
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
@@ -1492,7 +1615,7 @@ async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
-  isOllama = false,
+  enableTextToolCallFallback = false,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -1513,12 +1636,12 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
-  // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
+  // Accumulated text for local text-based tool call fallback parsing (#1053)
   let accumulatedText = ''
   // Use the resolved value threaded from the call site (resolveProviderRequest)
   // rather than re-reading env vars inside the generator.
-  const isOllamaStream = isOllama
-  // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
+  const isLocalTextToolCallStream = enableTextToolCallFallback
+  // Buffer local text deltas so raw tool-call JSON is never emitted as text_delta
   // before extraction at finish_reason=stop (P2 fix for #1053).
   let ollamaTextBuffer = ''
   const streamState = createStreamState()
@@ -1759,7 +1882,7 @@ async function* openaiStreamToAnthropic(
           }
 
           accumulatedText += delta.content
-          if (isOllamaStream) {
+          if (isLocalTextToolCallStream) {
             const visible = thinkFilter.feed(delta.content)
             if (visible) {
               ollamaTextBuffer += visible
@@ -1809,7 +1932,7 @@ async function* openaiStreamToAnthropic(
               // Must run before hasEmittedContentStart check because for Ollama
               // streams the text block may not have been opened yet (we buffer
               // instead of emitting during the streaming phase).
-              if (isOllamaStream && ollamaTextBuffer) {
+              if (isLocalTextToolCallStream && ollamaTextBuffer) {
                 if (!hasEmittedContentStart) {
                   yield {
                     type: 'content_block_start',
@@ -1920,7 +2043,7 @@ async function* openaiStreamToAnthropic(
           const isTerminalOllamaFinish =
             OLLAMA_TERMINAL_REASONS.has(choice.finish_reason ?? '') &&
             activeToolCalls.size === 0 &&
-            isOllamaStream
+            isLocalTextToolCallStream
           const originalFinishReason = choice.finish_reason
           let ollamaClosedContentBlock = false
           if (isTerminalOllamaFinish) {
@@ -2223,7 +2346,12 @@ class OpenAIShimMessages {
               ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
               : isGeminiStream
                 ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
-                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, isLikelyOllamaEndpoint(request.baseUrl)),
+                : openaiStreamToAnthropic(
+                    response,
+                    request.resolvedModel,
+                    options?.signal,
+                    shouldParseTextToolCalls(request.baseUrl),
+                  ),
         )
       }
 
@@ -2256,7 +2384,9 @@ class OpenAIShimMessages {
               request.resolvedModel,
             )
           }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+          return self._convertNonStreamingResponse(parsed, request.resolvedModel, {
+            enableTextToolCallFallback: shouldParseTextToolCalls(request.baseUrl),
+          })
         }
       }
 
@@ -2281,7 +2411,9 @@ class OpenAIShimMessages {
       const contentType = response.headers.get('content-type') ?? ''
       if (contentType.includes('application/json')) {
         const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
+        return self._convertNonStreamingResponse(data, request.resolvedModel, {
+          enableTextToolCallFallback: shouldParseTextToolCalls(request.baseUrl),
+        })
       }
 
       const textBody = await response.text().catch(() => '')
@@ -2412,7 +2544,7 @@ class OpenAIShimMessages {
       processEnv: process.env,
       baseUrl: request.baseUrl,
       model: request.resolvedModel,
-      treatAsLocal: isLocalProviderUrl(request.baseUrl),
+      treatAsLocal: shouldParseTextToolCalls(request.baseUrl),
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
@@ -2427,14 +2559,21 @@ class OpenAIShimMessages {
         : shimConfig.endpointPath?.startsWith('/models/gemini-')
           ? 'gemini'
           : request.transport
-    const openaiMessages = convertMessages(compressedMessages, params.system, {
+    let openaiMessages = convertMessages(compressedMessages, params.system, {
       preserveReasoningContent: shimConfig.preserveReasoningContent,
       reasoningContentFallback: shimConfig.reasoningContentFallback,
       preserveGeminiThoughtSignature: shouldPreserveGeminiThoughtSignature(
         request.resolvedModel,
         request.baseUrl,
       ),
+      injectToolResultSemanticBoundary: shouldInjectToolResultSemanticBoundary({
+        baseUrl: request.baseUrl,
+        model: request.resolvedModel,
+      }),
     })
+    if (shouldParseTextToolCalls(request.baseUrl)) {
+      openaiMessages = appendLocalToolContinuationPrompt(openaiMessages)
+    }
 
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
@@ -2465,12 +2604,13 @@ class OpenAIShimMessages {
       body.max_completion_tokens = maxCompletionTokensValue
     }
 
-    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
+    const selfHostedCompat = shouldParseTextToolCalls(request.baseUrl)
+
+    if (params.stream && !selfHostedCompat) {
       body.stream_options = { include_usage: true }
     }
 
     const isGithub = isGithubModelsMode()
-    const isLocal = isLocalProviderUrl(request.baseUrl)
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
@@ -2480,7 +2620,7 @@ class OpenAIShimMessages {
       isGeminiMode() ||
       hasGeminiApiHost(request.baseUrl) ||
       hasCerebrasApiHost(request.baseUrl) ||
-      isLocal
+      selfHostedCompat
 
     if (
       shimConfig.maxTokensField === 'max_tokens' &&
@@ -2967,9 +3107,8 @@ class OpenAIShimMessages {
       return `${baseUrl}/chat/completions`
     }
 
-    const localRetryBaseUrls = isLocal
-      ? getLocalProviderRetryBaseUrls(request.baseUrl)
-      : []
+    const localRetryBaseUrls = getLocalProviderRetryBaseUrls(request.baseUrl)
+    const hasLocalRetryCandidates = localRetryBaseUrls.length > 0
 
     const buildRequestUrl = (baseUrl: string): string => {
       if (shimConfig.endpointPath) {
@@ -3060,10 +3199,17 @@ class OpenAIShimMessages {
       signal: options?.signal,
     })
 
-    const maxSelfHealAttempts = isLocal
+    const maxSelfHealAttempts = hasLocalRetryCandidates
       ? localRetryBaseUrls.length + 1
       : 0
-    const maxAttempts = (isGithub ? GITHUB_429_MAX_RETRIES : 1) + maxSelfHealAttempts
+    const mayRetryWithoutTools = shouldAttemptLocalToollessRetry({
+      baseUrl: request.baseUrl,
+      hasTools: Array.isArray(params.tools) && params.tools.length > 0,
+    })
+    const maxAttempts =
+      (isGithub ? GITHUB_429_MAX_RETRIES : 1) +
+      maxSelfHealAttempts +
+      (mayRetryWithoutTools ? 1 : 0)
 
     const throwClassifiedTransportError = (
       error: unknown,
@@ -3142,7 +3288,7 @@ class OpenAIShimMessages {
     const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
       : request.baseUrl.includes('minimax') ? 'minimax'
       : request.baseUrl.includes('xiaomimimo') || request.baseUrl.includes('mimo-v2') ? 'xiaomi-mimo'
-      : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
+      : isLikelyOllamaEndpoint(request.baseUrl) ? 'ollama'
       : request.baseUrl.includes('anthropic') ? 'anthropic'
       : 'openai'
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
@@ -3172,7 +3318,7 @@ class OpenAIShimMessages {
         })
 
         if (
-          isLocal &&
+          hasLocalRetryCandidates &&
           failure.category === 'localhost_resolution_failed' &&
           promoteNextLocalBaseUrl('localhost_resolution_failed')
         ) {
@@ -3272,7 +3418,7 @@ class OpenAIShimMessages {
       })
 
       if (
-        isLocal &&
+        hasLocalRetryCandidates &&
         failure.category === 'endpoint_not_found' &&
         promoteNextLocalBaseUrl('endpoint_not_found')
       ) {
@@ -3357,9 +3503,13 @@ class OpenAIShimMessages {
       }
     },
     model: string,
+    options?: { enableTextToolCallFallback?: boolean },
   ) {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
+    const enableTextToolCallFallback =
+      options?.enableTextToolCallFallback === true &&
+      !choice?.message?.tool_calls
 
     // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
     // reasoning_content while content stays null. Preserve it as a thinking
@@ -3373,25 +3523,11 @@ class OpenAIShimMessages {
         ? choice?.message?.content
         : null
     if (typeof rawContent === 'string' && rawContent) {
-      const strippedContent = stripThinkTags(rawContent)
-      const rawToolCalls = choice?.message?.tool_calls
-        ? null
-        : parseRawToolCallsRequestedText(strippedContent)
-      if (rawToolCalls) {
-        for (const toolCall of rawToolCalls) {
-          content.push({
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: JSON.parse(toolCall.argumentsJson),
-          })
-        }
-      } else {
-        content.push({
-          type: 'text',
-          text: strippedContent,
-        })
-      }
+      appendAssistantTextContentBlocks(
+        content,
+        stripThinkTags(rawContent),
+        enableTextToolCallFallback,
+      )
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
       const parts: string[] = []
       for (const part of rawContent) {
@@ -3406,25 +3542,11 @@ class OpenAIShimMessages {
       }
       const joined = parts.join('\n')
       if (joined) {
-        const strippedContent = stripThinkTags(joined)
-        const rawToolCalls = choice?.message?.tool_calls
-          ? null
-          : parseRawToolCallsRequestedText(strippedContent)
-        if (rawToolCalls) {
-          for (const toolCall of rawToolCalls) {
-            content.push({
-              type: 'tool_use',
-              id: toolCall.id,
-              name: toolCall.name,
-              input: JSON.parse(toolCall.argumentsJson),
-            })
-          }
-        } else {
-          content.push({
-            type: 'text',
-            text: strippedContent,
-          })
-        }
+        appendAssistantTextContentBlocks(
+          content,
+          stripThinkTags(joined),
+          enableTextToolCallFallback,
+        )
       }
     }
 

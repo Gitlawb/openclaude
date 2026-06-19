@@ -101,6 +101,15 @@ async function waitForCondition(
   throw new Error('Timed out waiting for ProviderManager test condition')
 }
 
+async function submitSelfHostedCompatStep(
+  mounted: { stdin: NodeJS.WriteStream; getOutput: () => string },
+): Promise<void> {
+  await waitForFrameOutput(mounted.getOutput, frame =>
+    frame.includes('Self-hosted compat'),
+  )
+  mounted.stdin.write('\r')
+}
+
 // Provider list is sorted from generated preset metadata by description, with
 // Gitlawb Opengateway pinned first, Codex OAuth injected after DeepSeek, and
 // Custom always pinned last. Keep the target-by-label indirection here so
@@ -640,6 +649,7 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
       frame.includes('Default model'),
     )
     mounted.stdin.write('\r')
+    await submitSelfHostedCompatStep(mounted)
 
     const output = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('API mode') && frame.includes('Chat Completions'),
@@ -1080,13 +1090,13 @@ test('ProviderManager clears hidden Hicap auth fields when editing', async () =>
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Edit provider profile') &&
-      frame.includes('Step 1 of 6'),
+      frame.includes('Step 1 of 7'),
     )
 
-    for (let step = 2; step <= 6; step++) {
+    for (let step = 2; step <= 7; step++) {
       mounted.stdin.write('\r')
       await waitForFrameOutput(mounted.getOutput, frame =>
-        frame.includes(`Step ${step} of 6`),
+        frame.includes(`Step ${step} of 7`),
       )
     }
     mounted.stdin.write('\r')
@@ -1156,25 +1166,26 @@ test('ProviderManager skips advanced fields for legacy Kimi Code profiles', asyn
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Edit provider profile') &&
       frame.includes('Provider name') &&
-      frame.includes('Step 1 of 4'),
+      frame.includes('Step 1 of 5'),
     )
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Base URL') &&
-      frame.includes('Step 2 of 4'),
+      frame.includes('Step 2 of 5'),
     )
 
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Default model') &&
-      frame.includes('Step 3 of 4'),
+      frame.includes('Step 3 of 5'),
     )
 
     mounted.stdin.write('\r')
+    await submitSelfHostedCompatStep(mounted)
     const output = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('API key') &&
-      frame.includes('Step 4 of 4'),
+      frame.includes('Step 5 of 5'),
     )
 
     expect(output).not.toContain('API mode')
@@ -2007,49 +2018,55 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
     mounted.getOutput,
     frame =>
       frame.includes('Edit provider profile') &&
-      frame.includes('Step 1 of 8'),
+      frame.includes('Step 1 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 2 of 8'),
+    frame => frame.includes('Step 2 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 3 of 8'),
+    frame => frame.includes('Step 3 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 4 of 8'),
+    frame => frame.includes('Step 4 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 5 of 8'),
+    frame => frame.includes('Step 5 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 6 of 8'),
+    frame => frame.includes('Step 6 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 7 of 8'),
+    frame => frame.includes('Step 7 of 9'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 8 of 8'),
+    frame => frame.includes('Step 8 of 9'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 9 of 9'),
   )
 
   mounted.stdin.write('\r')

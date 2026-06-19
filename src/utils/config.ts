@@ -229,6 +229,14 @@ export type ProviderProfile = {
    * Applied to OpenAI-compatible providers when resolving runtime limits.
    */
   maxContextLength?: number
+  /**
+   * Self-hosted OpenAI-compatible compat mode. When true:
+   * - parse tool calls embedded as JSON text in model output
+   * - auto-continue after tool results
+   * - skip cloud-oriented request overhead (fast path)
+   * Works on any base URL (LAN, hostname, public IP) — not tied to 192.168/172.16.
+   */
+  parseTextToolCalls?: boolean
 }
 
 export type GlobalConfig = {

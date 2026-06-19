@@ -4,11 +4,14 @@ import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test
 import { getLocalFastPathConfig } from './providerConfig.js'
 
 const ENV_VAR = 'OPENCLAUDE_LOCAL_FAST_PATH'
+const PARSE_ENV = 'OPENAI_PARSE_TEXT_TOOL_CALLS'
 const originalEnv = process.env[ENV_VAR]
+const originalParseEnv = process.env[PARSE_ENV]
 
 beforeEach(async () => {
   await acquireSharedMutationLock('providerConfig.localFastPath.test.ts')
   delete process.env[ENV_VAR]
+  delete process.env[PARSE_ENV]
 })
 
 afterEach(() => {
@@ -18,31 +21,43 @@ afterEach(() => {
     } else {
       process.env[ENV_VAR] = originalEnv
     }
+    if (originalParseEnv === undefined) {
+      delete process.env[PARSE_ENV]
+    } else {
+      process.env[PARSE_ENV] = originalParseEnv
+    }
   } finally {
     releaseSharedMutationLock()
   }
 })
 
-describe('getLocalFastPathConfig — auto-detect from baseUrl', () => {
-  test('engages on loopback', () => {
-    const cfg = getLocalFastPathConfig('http://localhost:11434/v1')
+const selfHostedEnv = { [PARSE_ENV]: '1' } as NodeJS.ProcessEnv
+
+describe('getLocalFastPathConfig — profile option (no host/IP detection)', () => {
+  test('does not engage from loopback or RFC1918 addresses alone', () => {
+    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(false)
+    expect(getLocalFastPathConfig('http://192.168.1.10:8000/v1').enabled).toBe(false)
+    expect(getLocalFastPathConfig('http://10.0.0.5:8000/v1').enabled).toBe(false)
+    expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1').enabled).toBe(false)
+    expect(getLocalFastPathConfig('http://gpu-rig.local:11434/v1').enabled).toBe(false)
+  })
+
+  test('engages on any base URL when self-hosted compat is enabled', () => {
+    const cfg = getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv)
     expect(cfg.enabled).toBe(true)
     expect(cfg.skipStableStringify).toBe(true)
     expect(cfg.skipStrictTools).toBe(true)
     expect(cfg.skipToolHistoryCompression).toBe(true)
+
+    expect(
+      getLocalFastPathConfig('http://gpu-box.internal:8081/v1', selfHostedEnv).enabled,
+    ).toBe(true)
+    expect(
+      getLocalFastPathConfig('https://llm.example.com/v1', selfHostedEnv).enabled,
+    ).toBe(true)
   })
 
-  test('engages on private IPv4', () => {
-    expect(getLocalFastPathConfig('http://192.168.1.10:8000/v1').enabled).toBe(true)
-    expect(getLocalFastPathConfig('http://10.0.0.5:8000/v1').enabled).toBe(true)
-    expect(getLocalFastPathConfig('http://172.16.5.1:8000/v1').enabled).toBe(true)
-  })
-
-  test('engages on .local hostnames', () => {
-    expect(getLocalFastPathConfig('http://gpu-rig.local:11434/v1').enabled).toBe(true)
-  })
-
-  test('does not engage on public hosts', () => {
+  test('does not engage on public hosts without the profile option', () => {
     const cfg = getLocalFastPathConfig('https://api.openai.com/v1')
     expect(cfg.enabled).toBe(false)
     expect(cfg.skipStableStringify).toBe(false)
@@ -63,9 +78,10 @@ describe('getLocalFastPathConfig — explicit env override', () => {
     expect(cfg.skipStableStringify).toBe(true)
   })
 
-  test('OPENCLAUDE_LOCAL_FAST_PATH=0 forces off against localhost', () => {
+  test('OPENCLAUDE_LOCAL_FAST_PATH=0 forces off even when self-hosted compat is enabled', () => {
     process.env[ENV_VAR] = '0'
-    const cfg = getLocalFastPathConfig('http://localhost:11434/v1')
+    process.env[PARSE_ENV] = '1'
+    const cfg = getLocalFastPathConfig('http://172.16.5.1:8081/v1')
     expect(cfg.enabled).toBe(false)
     expect(cfg.skipStrictTools).toBe(false)
   })
@@ -78,24 +94,31 @@ describe('getLocalFastPathConfig — explicit env override', () => {
   })
 
   test('accepts falsy aliases (false / off / no)', () => {
+    process.env[PARSE_ENV] = '1'
     for (const v of ['false', 'off', 'no', 'FALSE', 'Off']) {
       process.env[ENV_VAR] = v
-      expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(false)
+      expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1').enabled).toBe(false)
     }
   })
 
-  test('"auto" / empty string fall through to baseUrl detection', () => {
+  test('"auto" / empty string fall through to profile option', () => {
     process.env[ENV_VAR] = 'auto'
-    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(true)
+    expect(
+      getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv).enabled,
+    ).toBe(true)
     expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(false)
 
     process.env[ENV_VAR] = ''
-    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(true)
+    expect(
+      getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv).enabled,
+    ).toBe(true)
   })
 
-  test('garbage values fall through to auto-detect', () => {
+  test('garbage values fall through to profile option', () => {
     process.env[ENV_VAR] = 'maybe'
-    expect(getLocalFastPathConfig('http://localhost:11434/v1').enabled).toBe(true)
+    expect(
+      getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv).enabled,
+    ).toBe(true)
     expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(false)
   })
 
