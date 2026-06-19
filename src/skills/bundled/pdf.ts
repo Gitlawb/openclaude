@@ -279,6 +279,10 @@ class PDFWriter {
     // Font objects are at pdf nums 3..10 (index 0..7 → obj num 3..10)
     const FONT_OBJ_START = 3
 
+    if (!opts.pages || opts.pages.length === 0) {
+      throw new Error('At least one page is required.')
+    }
+
     // Build per-page objects (with automatic overflow pagination)
     for (const page of opts.pages) {
       const size = PAGE_SIZES[page.pageSize || opts.defaultPageSize || 'A4']
@@ -549,6 +553,17 @@ function buildPageStreams(
         const size = 9
         const lh = size * LINE_HEIGHT
         const cols = el.headers.length
+        if (cols === 0) {
+          throw new Error('Table must have at least one header column.')
+        }
+        if (el.colWidths && el.colWidths.length !== cols) {
+          throw new Error(\`Table colWidths length (\${el.colWidths.length}) does not match headers length (\${cols}).\`)
+        }
+        for (let r = 0; r < el.rows.length; r++) {
+          if (el.rows[r].length !== cols) {
+            throw new Error(\`Table row \${r} cell count (\${el.rows[r].length}) does not match headers count (\${cols}).\`)
+          }
+        }
         const colW = el.colWidths || el.headers.map(() => contentW / cols)
         const headerWrapped: string[][] = []
         let maxHeaderLines = 1
@@ -558,6 +573,9 @@ function buildPageStreams(
           if (hl.length > maxHeaderLines) maxHeaderLines = hl.length
         }
         const headerH = maxHeaderLines * lh + 6
+        if (headerH > (pageH - margins.top - maxY)) {
+          throw new Error('Table headers are too tall to fit on a single page.')
+        }
 
         // Header row
         y -= headerH
@@ -628,6 +646,14 @@ function buildPageStreams(
   // Flush remaining content as the last page
   if (lines.length > 0) {
     flushPage()
+  }
+
+  if (results.length === 0) {
+    const streamContent = ''
+    const streamBuf = pdfBytes(streamContent)
+    results.push({
+      stream: \`<< /Length \${streamBuf.length} >>\\nstream\\n\${streamContent}\\nendstream\`
+    })
   }
 
   return results

@@ -197,6 +197,61 @@ test('code block background height follows wrapped lines', async () => {
   expect(Number(rectMatch?.[1])).toBeGreaterThan(24.15)
 })
 
+test('empty pages or empty content arrays are supported and produce a valid blank page', async () => {
+  const { createPDF } = await importPdfgen()
+  const pdf = await createPDF({
+    pages: [{ content: [] }]
+  })
+  const text = pdf.toString('latin1')
+  expect(text).toContain('/Count 1')
+  expect(text).toContain('/MediaBox')
+
+  await expect(createPDF({ pages: [] })).rejects.toThrow('At least one page is required.')
+})
+
+test('mismatched table shapes are rejected', async () => {
+  const { createPDF } = await importPdfgen()
+
+  // Empty headers
+  await expect(createPDF({
+    pages: [{
+      content: [{ type: 'table', headers: [], rows: [['1', '2']] }]
+    }]
+  })).rejects.toThrow('Table must have at least one header column.')
+
+  // Extra row cells
+  await expect(createPDF({
+    pages: [{
+      content: [{ type: 'table', headers: ['A'], rows: [['1', '2']] }]
+    }]
+  })).rejects.toThrow('Table row 0 cell count (2) does not match headers count (1).')
+
+  // Mismatching colWidths length
+  await expect(createPDF({
+    pages: [{
+      content: [{ type: 'table', headers: ['A', 'B'], rows: [['1', '2']], colWidths: [10] }]
+    }]
+  })).rejects.toThrow('Table colWidths length (1) does not match headers length (2).')
+})
+
+test('table headers too tall for page are rejected', async () => {
+  const { createPDF } = await importPdfgen()
+
+  // Custom margin that leaves very little room, with many wrapped header lines
+  await expect(createPDF({
+    pages: [{
+      margins: { top: 700, bottom: 100, left: 50, right: 50 },
+      pageSize: 'A4', // height is 842, printable is 842 - 700 - 100 - 30 = 12pt
+      content: [{
+        type: 'table',
+        headers: ['extremely long header text that wraps into multiple lines'],
+        rows: [['value']],
+        colWidths: [40]
+      }]
+    }]
+  })).rejects.toThrow('Table headers are too tall to fit on a single page.')
+})
+
 test('importing pdfgen as a library does not run the CLI writer', async () => {
   const testId = randomUUID()
   const specPath = join(tmpdir(), `openclaude-pdf-spec-${testId}.json`)
