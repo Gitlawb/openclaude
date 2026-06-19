@@ -170,6 +170,11 @@ const FONTS = {
 const FONT_SIZES: Record<number, number> = { 1: 20, 2: 15, 3: 12 }
 const LINE_HEIGHT = 1.35
 const CODE_FONT_SIZE = 9
+const PDF_BYTE_ENCODING = 'latin1'
+
+function pdfBytes(text: string): Buffer {
+  return Buffer.from(text, PDF_BYTE_ENCODING)
+}
 
 // ─── WinAnsi helpers ───
 
@@ -277,14 +282,15 @@ class PDFWriter {
     // Build per-page objects (with automatic overflow pagination)
     for (const page of opts.pages) {
       const size = PAGE_SIZES[page.pageSize || opts.defaultPageSize || 'A4']
-      const [pw, ph] = page.orientation === 'landscape' ? [size[1], size[0]] : size
+      const orientation = page.orientation || opts.defaultOrientation || 'portrait'
+      const [pw, ph] = orientation === 'landscape' ? [size[1], size[0]] : size
       const m = page.margins || opts.defaultMargins || DEFAULT_MARGINS
       const contentW = pw - m.left - m.right
 
       // buildPageStreams returns an array of content streams — one per
       // physical PDF page.  Content that overflows a single page is
       // automatically continued onto additional pages.
-      const pageStreams = buildPageStreams(page.content, pw, ph, m, contentW)
+      const pageStreams = buildPageStreams(page.content, ph, m, contentW)
 
       for (const { stream } of pageStreams) {
         // Content-stream object
@@ -310,38 +316,38 @@ class PDFWriter {
     const objPositions: number[] = []
 
     // Header
-    parts.push(Buffer.from('%PDF-1.4\\n%\\xe2\\xe3\\xcf\\xd3\\n'))
+    parts.push(pdfBytes('%PDF-1.4\\n%\\xe2\\xe3\\xcf\\xd3\\n'))
 
     // Object 1: Catalog
     objPositions.push(getBufLen(parts))
-    parts.push(Buffer.from(\`1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\nendobj\\n\`))
+    parts.push(pdfBytes(\`1 0 obj\\n<< /Type /Catalog /Pages 2 0 R >>\\nendobj\\n\`))
 
     // Object 2: Pages
     objPositions.push(getBufLen(parts))
     const kids = pageObjPdfNums.map(n => \`\${n} 0 R\`).join(' ')
-    parts.push(Buffer.from(\`2 0 obj\\n<< /Type /Pages /Kids [\${kids}] /Count \${pageObjPdfNums.length} >>\\nendobj\\n\`))
+    parts.push(pdfBytes(\`2 0 obj\\n<< /Type /Pages /Kids [\${kids}] /Count \${pageObjPdfNums.length} >>\\nendobj\\n\`))
 
     // Objects 3+: body objects (font, streams, pages, info)
     for (let i = 0; i < bodyObjects.length; i++) {
       const objNum = i + 3
       objPositions.push(getBufLen(parts))
-      parts.push(Buffer.from(\`\${objNum} 0 obj\\n\`))
-      parts.push(Buffer.from(bodyObjects[i]))
-      parts.push(Buffer.from('\\nendobj\\n'))
+      parts.push(pdfBytes(\`\${objNum} 0 obj\\n\`))
+      parts.push(pdfBytes(bodyObjects[i]))
+      parts.push(pdfBytes('\\nendobj\\n'))
     }
 
     const totalObjs = 2 + bodyObjects.length
 
     // Cross-reference table
     const xrefOffset = getBufLen(parts)
-    parts.push(Buffer.from(\`xref\\n0 \${totalObjs + 1}\\n\`))
-    parts.push(Buffer.from('0000000000 65535 f \\n'))
+    parts.push(pdfBytes(\`xref\\n0 \${totalObjs + 1}\\n\`))
+    parts.push(pdfBytes('0000000000 65535 f \\n'))
     for (const pos of objPositions) {
-      parts.push(Buffer.from(\`\${String(pos).padStart(10, '0')} 00000 n \\n\`))
+      parts.push(pdfBytes(\`\${String(pos).padStart(10, '0')} 00000 n \\n\`))
     }
 
     // Trailer
-    parts.push(Buffer.from(
+    parts.push(pdfBytes(
       \`trailer\\n<< /Size \${totalObjs + 1} /Root 1 0 R /Info \${infoPdfNum} 0 R >>\\nstartxref\\n\${xrefOffset}\\n%%EOF\\n\`
     ))
 
@@ -359,8 +365,8 @@ function getBufLen(parts: Buffer[]): number {
 // Font dict is now built inline in PDFWriter.build (one object per variant)
 function buildInfoDict(title?: string, author?: string): string {
   let s = '<< '
-  if (title) s += \`/Title (\${escapePdf(title)}) \`
-  if (author) s += \`/Author (\${escapePdf(author)}) \`
+  if (title) s += \`/Title (\${escapePdf(toWinAnsi(title))}) \`
+  if (author) s += \`/Author (\${escapePdf(toWinAnsi(author))}) \`
   s += '/Producer (pdfgen.ts) >>'
   return s
 }
@@ -376,7 +382,6 @@ interface PageStreamResult {
  */
 function buildPageStreams(
   elements: PDFElement[],
-  pageW: number,
   pageH: number,
   margins: { top: number; right: number; bottom: number; left: number },
   contentW: number
@@ -388,7 +393,7 @@ function buildPageStreams(
 
   const flushPage = () => {
     const streamContent = lines.join('\\n')
-    const streamBuf = Buffer.from(streamContent, 'binary')
+    const streamBuf = pdfBytes(streamContent)
     results.push({
       stream: \`<< /Length \${streamBuf.length} >>\\nstream\\n\${streamContent}\\nendstream\`
     })
@@ -442,6 +447,7 @@ function buildPageStreams(
       case 'bullet': {
         const size = 10
         const lh = size * LINE_HEIGHT
+        const bulletPrefix = toWinAnsi('•  ')
         y -= 2
         for (const item of el.items) {
           const wrapped = wrapText(toWinAnsi(item), contentW - 20, size)
@@ -450,8 +456,8 @@ function buildPageStreams(
               flushPage()
               y -= lh
             }
-            const prefix = i === 0 ? '\\\\2022  ' : '     '
-            lines.push(\`BT /F1 \${size} Tf \${margins.left} \${y.toFixed(1)} Td (\${prefix}\${escapePdf(wrapped[i])}) Tj ET\`)
+            const prefix = i === 0 ? bulletPrefix : '   '
+            lines.push(\`BT /F1 \${size} Tf \${margins.left} \${y.toFixed(1)} Td (\${escapePdf(prefix + wrapped[i])}) Tj ET\`)
             y -= lh
           }
         }
@@ -481,33 +487,44 @@ function buildPageStreams(
       case 'code': {
         const size = CODE_FONT_SIZE
         const lh = size * LINE_HEIGHT
+        const codeAvailW = contentW - 12
         const codeLines = toWinAnsi(el.text).split('\\n')
-        const boxH = codeLines.length * lh + 12
-        y -= 6
-        // If the whole code block doesn't fit, start a new page
-        if (y - boxH < maxY) {
-          flushPage()
-          y -= 6
-        }
-        lines.push(\`0.92 0.92 0.92 rg \${margins.left} \${y - boxH + 6} \${contentW} \${boxH} re f\`)
-        y -= 6
-        lines.push('0 0 0 rg')
+        const wrappedCodeLines: string[] = []
         for (const rawLine of codeLines) {
-          // Wrap long code lines to available width
-          const codeAvailW = pageW - margins.left - margins.right - 12
-          const wrappedCode = wrapText(rawLine, codeAvailW, size, 'Courier')
-          for (const codeLine of wrappedCode) {
-            if (y < maxY) {
+          wrappedCodeLines.push(...wrapText(rawLine, codeAvailW, size, 'Courier'))
+        }
+
+        y -= 6
+        let lineIndex = 0
+        while (lineIndex < wrappedCodeLines.length) {
+          if (y - (lh + 12) < maxY) {
+            if (lines.length > 0) {
               flushPage()
-              y -= lh
             }
-            const escaped = codeLine.replace(/\\\\/g, '\\\\\\\\').replace(/\\(/g, '\\\\(').replace(/\\)/g, '\\\\)')
-            lines.push(\`BT /F5 \${size} Tf \${margins.left + 6} \${y.toFixed(1)} Td (\${escaped}) Tj ET\`)
+            y -= 6
+          }
+
+          const maxLinesThisPage = Math.max(1, Math.floor((y - maxY - 12) / lh))
+          const linesToRender = Math.min(maxLinesThisPage, wrappedCodeLines.length - lineIndex)
+          const boxH = linesToRender * lh + 12
+          lines.push(\`0.92 0.92 0.92 rg \${margins.left} \${y - boxH + 6} \${contentW} \${boxH} re f\`)
+          y -= 6
+          lines.push('0 0 0 rg')
+
+          for (let i = 0; i < linesToRender; i++) {
+            const codeLine = wrappedCodeLines[lineIndex + i]
+            lines.push(\`BT /F5 \${size} Tf \${margins.left + 6} \${y.toFixed(1)} Td (\${escapePdf(codeLine)}) Tj ET\`)
             y -= lh
           }
+
+          lineIndex += linesToRender
+          y -= 6
+          lines.push('0 0 0 rg')
+          if (lineIndex < wrappedCodeLines.length) {
+            flushPage()
+            y -= 6
+          }
         }
-        y -= 6
-        lines.push('0 0 0 rg')
         break
       }
       case 'hr': {
@@ -533,7 +550,14 @@ function buildPageStreams(
         const lh = size * LINE_HEIGHT
         const cols = el.headers.length
         const colW = el.colWidths || el.headers.map(() => contentW / cols)
-        const headerH = lh + 6
+        const headerWrapped: string[][] = []
+        let maxHeaderLines = 1
+        for (let c = 0; c < cols; c++) {
+          const hl = wrapText(toWinAnsi(el.headers[c] || ''), colW[c] - 8, size, 'Helvetica-Bold')
+          headerWrapped.push(hl)
+          if (hl.length > maxHeaderLines) maxHeaderLines = hl.length
+        }
+        const headerH = maxHeaderLines * lh + 6
 
         // Header row
         y -= headerH
@@ -544,8 +568,11 @@ function buildPageStreams(
         lines.push(\`0.15 0.15 0.15 rg \${margins.left} \${y} \${contentW} \${headerH} re f\`)
         lines.push('1 1 1 rg')
         let x = margins.left
+        const headerStartY = y + headerH - 4
         for (let c = 0; c < cols; c++) {
-          lines.push(\`BT /F2 \${size} Tf \${x + 4} \${y + 4} Td (\${escapePdf(toWinAnsi(el.headers[c]))}) Tj ET\`)
+          for (let li = 0; li < headerWrapped[c].length; li++) {
+            lines.push(\`BT /F2 \${size} Tf \${x + 4} \${(headerStartY - li * lh).toFixed(1)} Td (\${escapePdf(headerWrapped[c][li])}) Tj ET\`)
+          }
           x += colW[c]
         }
         lines.push('0 0 0 rg')
@@ -616,18 +643,22 @@ export async function createPDF(opts: PDFCreateOptions): Promise<Buffer> {
 
 // ─── CLI ───
 
-const args = process.argv.slice(2)
-if (args.length > 0) {
-  // Simple CLI: bun pdfgen.ts <output.pdf>
-  // Reads a JSON spec from stdin or a file
-  const nonFlags = args.filter(a => !a.startsWith('--'))
-  let specFile: string | undefined
-  if (args.includes('--spec')) {
-    specFile = args[args.indexOf('--spec') + 1]
-  }
-  // outFile is the last non-flag arg that is not the spec file
-  const outFile = nonFlags.filter(a => a !== specFile).pop()
-  if (outFile) {
+if (import.meta.main) {
+  const args = process.argv.slice(2)
+  if (args.length > 0) {
+    // Simple CLI: bun pdfgen.ts <output.pdf>
+    // Reads a JSON spec from stdin or a file
+    const nonFlags = args.filter(a => !a.startsWith('--'))
+    let specFile: string | undefined
+    if (args.includes('--spec')) {
+      specFile = args[args.indexOf('--spec') + 1]
+    }
+    // outFile is the last non-flag arg that is not the spec file
+    const outFile = nonFlags.filter(a => a !== specFile).pop()
+    if (!outFile) {
+      process.stderr.write('Usage: bun pdfgen.ts [--spec <file>] <output.pdf>\\n')
+      process.exit(1)
+    }
     let spec: PDFCreateOptions
     if (specFile) {
       spec = JSON.parse(readFileSync(specFile, 'utf-8'))
