@@ -745,5 +745,5 @@ export async function main(
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
 if (process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN !== '1') {
-  void main();
+  await main();
 }

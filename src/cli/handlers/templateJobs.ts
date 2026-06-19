@@ -5,7 +5,7 @@
  * mirrors that behavior for the typechecker. `templatesMain` resolves
  * immediately; the call site then runs `process.exit(0)`, so the commands
  * exit quietly. The call site in entrypoints/cli.tsx does not catch errors
- * (`void main()`), so a no-op is preferred over throwing. No import-time
+ * (`await main()`), so a no-op is preferred over throwing. No import-time
  * side effects.
  */
 
