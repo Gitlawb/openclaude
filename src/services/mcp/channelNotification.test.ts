@@ -149,6 +149,27 @@ describe('gateChannelServer', () => {
     expect(result.action).toBe('register')
   })
 
+  // Regression: when the allowed-channels list contains two same-name
+  // plugin entries with different marketplaces, `findChannelEntry`
+  // must use the runtime `pluginSource` to pick the right one before
+  // the marketplace + allowlist gates evaluate. Otherwise the gate
+  // would lock onto `evilcorp` (or whichever sorts first) and either
+  // skip the user's real slack installation or wrongly authorize a
+  // typo-squatted one.
+  test('multi-candidate disambiguation: same name, different marketplaces', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+      { kind: 'plugin', name: 'slack', marketplace: 'evilcorp' },
+    ])
+    _allowlist = [{ marketplace: 'anthropic', plugin: 'slack' }]
+    const result = gateChannelServer(
+      'plugin:slack',
+      cap(),
+      'plugin:slack@anthropic',
+    )
+    expect(result.action).toBe('register')
+  })
+
   // 5. Plugin allowlist gate — entry kind=plugin and not on ledger.
   test('skips plugin not on the approved channels allowlist', () => {
     setAllowedChannels([
