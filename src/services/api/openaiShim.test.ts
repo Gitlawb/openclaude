@@ -2455,22 +2455,19 @@ test.each([
   'minimax-m2.5',
   'qwen3.6-plus',
   'qwen3.5-plus',
-])('opencode go %s uses the Anthropic Messages request contract', async model => {
+])('opencode go %s direct env routing ignores stale custom auth and uses the Anthropic Messages request contract', async model => {
   let capturedUrl = ''
   let capturedHeaders: Headers | undefined
   let capturedBody: Record<string, unknown> | undefined
 
-  delete process.env.OPENAI_BASE_URL
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
   delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_MODEL = model
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENCODE_API_KEY = 'fake-opencode-key'
-
-  const result = applyProviderFlag('opencode-go', [
-    '--provider',
-    'opencode-go',
-    '--model',
-    model,
-  ])
-  expect(result.error).toBeUndefined()
+  process.env.OPENAI_AUTH_HEADER = 'Authorization'
+  process.env.OPENAI_AUTH_SCHEME = 'bearer'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-header-value'
 
   globalThis.fetch = (async (input, init) => {
     capturedUrl = String(input)
