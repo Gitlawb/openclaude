@@ -102,24 +102,28 @@ describe('getLocalFastPathConfig — explicit env override', () => {
   })
 
   test('"auto" / empty string fall through to profile option', () => {
+    process.env[PARSE_ENV] = '1'
     process.env[ENV_VAR] = 'auto'
+    expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1').enabled).toBe(true)
     expect(
-      getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv).enabled,
-    ).toBe(true)
-    expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(false)
+      getLocalFastPathConfig('https://api.openai.com/v1', {
+        [ENV_VAR]: 'auto',
+      } as NodeJS.ProcessEnv).enabled,
+    ).toBe(false)
 
     process.env[ENV_VAR] = ''
-    expect(
-      getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv).enabled,
-    ).toBe(true)
+    expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1').enabled).toBe(true)
   })
 
   test('garbage values fall through to profile option', () => {
+    process.env[PARSE_ENV] = '1'
     process.env[ENV_VAR] = 'maybe'
+    expect(getLocalFastPathConfig('http://172.16.5.1:8081/v1').enabled).toBe(true)
     expect(
-      getLocalFastPathConfig('http://172.16.5.1:8081/v1', selfHostedEnv).enabled,
-    ).toBe(true)
-    expect(getLocalFastPathConfig('https://api.openai.com/v1').enabled).toBe(false)
+      getLocalFastPathConfig('https://api.openai.com/v1', {
+        [ENV_VAR]: 'maybe',
+      } as NodeJS.ProcessEnv).enabled,
+    ).toBe(false)
   })
 
   test('explicit env arg takes precedence over process.env', () => {
