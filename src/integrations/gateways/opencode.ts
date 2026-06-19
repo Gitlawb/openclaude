@@ -7,7 +7,7 @@ export default defineGateway({
   defaultBaseUrl: 'https://opencode.ai/zen/v1',
   defaultModel: 'gpt-5.4',
   setup: {
-    requiresAuth: true,
+    requiresAuth: false,
     authMode: 'api-key',
     credentialEnvVars: ['OPENCODE_API_KEY'],
   },
@@ -20,18 +20,9 @@ export default defineGateway({
   preset: {
     id: 'opencode',
     vendorId: 'openai',
-    description: 'OpenCode Zen — pay-as-you-go AI gateway (43 models)',
+    description: 'OpenCode Zen — pay-as-you-go AI gateway (43 models; free models work without a key)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
-  },
-  validation: {
-    kind: 'credential-env',
-    routing: {
-      matchDefaultBaseUrl: true,
-    },
-    credentialEnvVars: ['OPENCODE_API_KEY', 'OPENAI_API_KEY'],
-    missingCredentialMessage:
-      'OPENCODE_API_KEY is required. Get your API key from https://opencode.ai',
   },
   catalog: {
     source: 'static',

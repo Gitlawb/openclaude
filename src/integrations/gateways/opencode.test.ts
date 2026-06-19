@@ -59,9 +59,9 @@ describe('OpenCode Zen gateway descriptor', () => {
     expect(gateway!.defaultModel).toBe('gpt-5.4')
   })
 
-  test('requires auth', () => {
+  test('does not require auth (free models like big-pickle work without a key)', () => {
     const gateway = getGateway('opencode')
-    expect(gateway!.setup.requiresAuth).toBe(true)
+    expect(gateway!.setup.requiresAuth).toBe(false)
   })
 
   test('uses api-key auth mode', () => {
@@ -87,10 +87,9 @@ describe('OpenCode Zen gateway descriptor', () => {
     expect(gateway!.preset!.apiKeyEnvVars).toContain('OPENCODE_API_KEY')
   })
 
-  test('has validation metadata', () => {
+  test('has no validation metadata (keyless access for free models)', () => {
     const gateway = getGateway('opencode')
-    expect(gateway!.validation).toBeDefined()
-    expect(gateway!.validation!.kind).toBe('credential-env')
+    expect(gateway!.validation).toBeUndefined()
   })
 
   test('has catalog with static source', () => {
@@ -444,13 +443,9 @@ describe('OpenCode edge cases', () => {
     }
   })
 
-  test('zen gateway validation message mentions OPENCODE_API_KEY', () => {
+  test('zen gateway allows keyless access for free models', () => {
     const gateway = getGateway('opencode')
-    expect(gateway!.validation!.missingCredentialMessage).toContain('OPENCODE_API_KEY')
-  })
-
-  test('zen gateway validation message mentions opencode.ai', () => {
-    const gateway = getGateway('opencode')
-    expect(gateway!.validation!.missingCredentialMessage).toContain('opencode.ai')
+    expect(gateway!.setup.requiresAuth).toBe(false)
+    expect(gateway!.validation).toBeUndefined()
   })
 })
