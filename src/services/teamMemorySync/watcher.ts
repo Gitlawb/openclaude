@@ -144,7 +144,9 @@ function schedulePush(): void {
         schedulePush()
       } else {
         rescheduleCount = 0
-        currentPushPromise = executePush()
+        currentPushPromise = (currentPushPromise ?? Promise.resolve()).then(
+          () => executePush(),
+        )
       }
       return
     }
