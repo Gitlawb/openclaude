@@ -2854,6 +2854,9 @@ function convertToLogOption(
   agentSetting?: string,
   contentReplacements?: ContentReplacementRecord[],
 ): LogOption {
+  if (transcript.length === 0) {
+    throw new Error('convertToLogOption: cannot convert empty transcript')
+  }
   const lastMessage = transcript.at(-1)!
   const firstMessage = transcript[0]!
 
