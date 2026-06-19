@@ -85,7 +85,7 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
 };
 
 const MIN_CONFIGURED_SECRET_SUBSTRING_LENGTH = 9;
-const MAX_CONFIGURED_SECRET_QUERY_DECODE_DEPTH = 3;
+const MAX_CONFIGURED_SECRET_ENCODING_DEPTH = 3;
 
 function formatOpenAICompatibleModelDisplay(
   model: string,
@@ -151,6 +151,35 @@ function getConfiguredSecretSubstringSource(
   return substringSource;
 }
 
+function addEncodedSecretVariants(
+  variants: Set<string>,
+  value: string,
+): void {
+  let encoded = value;
+  for (let depth = 0; depth < MAX_CONFIGURED_SECRET_ENCODING_DEPTH; depth++) {
+    encoded = encodeURIComponent(encoded);
+    variants.add(encoded);
+    variants.add(
+      encoded.replace(/%[0-9A-F]{2}/g, match => match.toLowerCase()),
+    );
+  }
+}
+
+function getConfiguredSecretSubstringVariants(secret: string): string[] {
+  const variants = new Set<string>([secret]);
+  addEncodedSecretVariants(variants, secret);
+
+  const formEncoded = secret.includes(' ')
+    ? secret.replace(/ /g, '+')
+    : secret;
+  if (formEncoded !== secret) {
+    variants.add(formEncoded);
+    addEncodedSecretVariants(variants, formEncoded);
+  }
+
+  return [...variants].sort((a, b) => b.length - a.length);
+}
+
 function redactConfiguredSecretSubstrings(
   value: string,
   secretSource: SecretValueSource,
@@ -161,16 +190,7 @@ function redactConfiguredSecretSubstrings(
     .sort((a, b) => b.length - a.length);
 
   for (const secret of secrets) {
-    const encodedSecret = encodeURIComponent(secret);
-    const encodedSecretWithLowercaseEscapes = encodedSecret.replace(
-      /%[0-9A-F]{2}/g,
-      match => match.toLowerCase(),
-    );
-    for (const variant of new Set([
-      secret,
-      encodedSecret,
-      encodedSecretWithLowercaseEscapes,
-    ])) {
+    for (const variant of getConfiguredSecretSubstringVariants(secret)) {
       redacted = redacted.split(variant).join('redacted');
     }
   }
@@ -183,7 +203,7 @@ function queryValueMatchesConfiguredSecret(
   secrets: ReadonlySet<string>,
 ): boolean {
   let decoded = value;
-  for (let depth = 0; depth < MAX_CONFIGURED_SECRET_QUERY_DECODE_DEPTH; depth++) {
+  for (let depth = 0; depth < MAX_CONFIGURED_SECRET_ENCODING_DEPTH; depth++) {
     if (secrets.has(decoded)) {
       return true;
     }
