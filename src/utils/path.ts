@@ -125,13 +125,22 @@ export function relativizeContentLine(
   line: string,
   root: string = getCwd(),
 ): string {
+  // Windows roots (drive-letter or backslash) compare case-insensitively and
+  // treat `/` and `\` as equivalent — mirroring toRelativePath's path.win32
+  // behavior — so `getCwd()` and ripgrep spelling the same root with different
+  // casing/slashes still relativizes. POSIX roots compare exactly. We normalize
+  // only for the comparison and slice the ORIGINAL line by the prefix length
+  // (case/slash normalization preserves length), so content is returned verbatim.
+  const isWindowsRoot = /^[A-Za-z]:[\\/]/.test(root) || root.includes('\\')
+  const norm = (s: string): string =>
+    isWindowsRoot ? s.toLowerCase().replace(/\//g, '\\') : s
   // Try both separators so the same logic works for Windows (`\`) and POSIX
   // (`/`) roots regardless of the host OS the tests run on. The trailing
   // separator is required so a sibling like `C:\proj2` is not treated as being
   // under `C:\proj`.
   for (const sep of ['/', '\\']) {
     const prefix = root.endsWith(sep) ? root : root + sep
-    if (line.startsWith(prefix)) {
+    if (norm(line).startsWith(norm(prefix))) {
       return line.slice(prefix.length)
     }
   }

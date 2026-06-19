@@ -76,6 +76,20 @@ test('handles a drive-root cwd that already ends with a separator', () => {
   expect(relativizeContentLine('C:\\file.ts:1:x', 'C:\\')).toBe('file.ts:1:x')
 })
 
+test('relativizes a Windows root spelled with different casing', () => {
+  // getCwd() and ripgrep can spell the same root with different casing; Windows
+  // paths are case-insensitive, so this must still strip rather than leak.
+  expect(
+    relativizeContentLine('C:\\Users\\proj\\src\\file.ts:1:x', 'C:\\USERS\\PROJ'),
+  ).toBe('src\\file.ts:1:x')
+})
+
+test('relativizes a forward-slash root against a backslash line', () => {
+  expect(
+    relativizeContentLine('C:\\Users\\proj\\src\\file.ts:1:x', 'C:/Users/proj'),
+  ).toBe('src\\file.ts:1:x')
+})
+
 test('returns an unrelated line unchanged', () => {
   expect(relativizeContentLine('just-some-text', '/home/u/p')).toBe('just-some-text')
 })
