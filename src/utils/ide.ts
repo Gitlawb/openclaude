@@ -1201,6 +1201,7 @@ const EDITOR_DISPLAY_NAMES: Record<string, string> = {
   cursor: 'Cursor',
   windsurf: 'Windsurf',
   antigravity: 'Antigravity',
+  agy: 'Antigravity',
   vi: 'Vim',
   vim: 'Vim',
   nano: 'nano',

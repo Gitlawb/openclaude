@@ -1583,6 +1583,11 @@ async function checkAndRefreshOAuthTokenIfNeededImpl(
 }
 
 export function isClaudeAISubscriber(): boolean {
+  const settings = getSettings_DEPRECATED()
+  if (settings?.subscriptionType && settings.subscriptionType !== 'free') {
+    return true
+  }
+
   if (!isAnthropicAuthEnabled()) {
     return false
   }
@@ -1684,6 +1689,11 @@ export function getSubscriptionType(): SubscriptionType | null {
   // Check for mock subscription type first (ANT-only testing)
   if (shouldUseMockSubscription()) {
     return getMockSubscriptionType()
+  }
+
+  const settings = getSettings_DEPRECATED()
+  if (settings?.subscriptionType) {
+    return settings.subscriptionType
   }
 
   if (!isAnthropicAuthEnabled()) {

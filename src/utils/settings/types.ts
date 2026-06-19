@@ -266,6 +266,10 @@ export const SettingsSchema = lazySchema(() =>
         .literal(CLAUDE_CODE_SETTINGS_SCHEMA_URL)
         .optional()
         .describe('JSON Schema reference for Claude Code settings'),
+      subscriptionType: z
+        .enum(['free', 'pro', 'max', 'team', 'enterprise'])
+        .optional()
+        .describe('Override the active subscription type (e.g. "pro")'),
       apiKeyHelper: z
         .string()
         .optional()

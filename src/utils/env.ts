@@ -174,8 +174,12 @@ function detectTerminal(): string | null {
   if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('windsurf')) {
     return 'windsurf'
   }
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('antigravity')) {
-    return 'antigravity'
+  if (
+    process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('antigravity') ||
+    process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('agy') ||
+    process.env.TERM_PROGRAM === 'agy'
+  ) {
+    return 'agy'
   }
   const bundleId = process.env.__CFBundleIdentifier?.toLowerCase()
   if (bundleId?.includes('vscodium')) return 'codium'

@@ -116,3 +116,47 @@ test('resolveGlobalClaudeFile: ignores legacy file even when new file is missing
     }),
   ).toBe(join(tempDir, '.openclaude.json'))
 })
+
+test('env.terminal: returns agy if process.env.TERM_PROGRAM is agy', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    process.env.TERM_PROGRAM = 'agy'
+    delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
+
+test('env.terminal: returns agy if VSCODE_GIT_ASKPASS_MAIN contains agy or antigravity', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    delete process.env.TERM_PROGRAM
+    process.env.VSCODE_GIT_ASKPASS_MAIN = 'path/to/agy'
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
