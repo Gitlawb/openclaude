@@ -1004,16 +1004,19 @@ export function addProviderProfile(
     const currentProfiles = getProviderProfiles(current)
     const nextProfiles = [...currentProfiles, profile]
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
-    // Keep the Anthropic sentinel as a valid active state: adding a profile with
-    // makeActive:false must not silently switch a user who is on built-in
-    // Anthropic over to the new third-party profile (#1426).
+    // Resolve the *effective* active state the same way getActiveProviderProfile
+    // does: an unset id with saved profiles implicitly means the first profile,
+    // not "no active profile". Adding a profile with makeActive:false must not
+    // silently switch a user — whether they are on built-in Anthropic (sentinel),
+    // an explicit profile, or the implicit first profile — over to the new one
+    // (#1426).
+    const hasEffectiveActive =
+      currentActive === ANTHROPIC_DEFAULT_PROFILE_ID ||
+      (currentActive
+        ? nextProfiles.some(p => p.id === currentActive)
+        : currentProfiles.length > 0)
     const nextActiveId =
-      makeActive ||
-      !currentActive ||
-      (currentActive !== ANTHROPIC_DEFAULT_PROFILE_ID &&
-        !nextProfiles.some(p => p.id === currentActive))
-        ? profile.id
-        : currentActive
+      makeActive || !hasEffectiveActive ? profile.id : currentActive
 
     return {
       ...current,

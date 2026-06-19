@@ -58,6 +58,7 @@ import {
   type ProviderProfile,
 } from '../../utils/providerProfile.js'
 import { clearActiveProviderProfile } from '../../utils/providerProfiles.js'
+import { clearStartupProviderOverrides } from '../../utils/providerStartupOverrides.js'
 import {
   getGeminiProjectIdHint,
   mayHaveGeminiAdcCredentials,
@@ -1340,12 +1341,18 @@ export function ProviderWizard({
               setStep({ name: 'codex-oauth' })
             } else if (value === 'anthropic') {
               clearActiveProviderProfile()
-              onDone('Switched back to Anthropic (built-in) for this session.', {
-                display: 'system',
-                metaMessages: [
-                  '<system-reminder>Provider switched mid-session to Anthropic (built-in Claude). Use Anthropic for subsequent requests unless the user switches again.</system-reminder>',
-                ],
-              })
+              const settingsOverrideError = clearStartupProviderOverrides()
+              onDone(
+                settingsOverrideError
+                  ? `Switched back to Anthropic (built-in) for this session. Warning: could not clear startup provider override (${settingsOverrideError}).`
+                  : 'Switched back to Anthropic (built-in) for this session.',
+                {
+                  display: 'system',
+                  metaMessages: [
+                    '<system-reminder>Provider switched mid-session to Anthropic (built-in Claude). Use Anthropic for subsequent requests unless the user switches again.</system-reminder>',
+                  ],
+                },
+              )
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
