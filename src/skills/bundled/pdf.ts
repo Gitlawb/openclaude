@@ -26,7 +26,7 @@ interface PDFPage {
   margins?: { top: number; right: number; bottom: number; left: number }  // in points (72 = 1 inch)
 }
 
-interface PDFElement =
+type PDFElement =
   | { type: 'heading'; text: string; level: 1 | 2 | 3 }
   | { type: 'paragraph'; text: string; align?: 'left' | 'center' | 'right' }
   | { type: 'bullet'; items: string[] }
@@ -40,7 +40,7 @@ interface PDFCreateOptions {
   title?: string
   author?: string
   pages: PDFPage[]
-  defaultPageSize?: 'A4' | 'Letter'
+  defaultPageSize?: 'A4' | 'Letter' | 'A3'
   defaultOrientation?: 'portrait' | 'landscape'
   defaultMargins?: { top: number; right: number; bottom: number; left: number }
 }

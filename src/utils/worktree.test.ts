@@ -3,6 +3,7 @@ import { afterEach, expect, test } from 'bun:test'
 import {
   _resetGitWorktreeMutationLocksForTesting,
   buildRevParseFailureMessage,
+  buildWorktreeCreationFailureMessage,
   withGitWorktreeMutationLock,
 } from './worktree.js'
 
@@ -98,4 +99,18 @@ test('buildRevParseFailureMessage skips HEAD-specific hint for branch refs', () 
 test('buildRevParseFailureMessage trims trailing whitespace from stderr', () => {
   const msg = buildRevParseFailureMessage('HEAD', '  some error\n\n', 128)
   expect(msg).toContain(': some error (HEAD')
+})
+
+test('buildWorktreeCreationFailureMessage provides a Windows long-path recovery hint', () => {
+  const msg = buildWorktreeCreationFailureMessage(
+    'error: unable to create file src/components/example.tsx: Filename too long\n',
+  )
+  expect(msg).toContain('Failed to create worktree')
+  expect(msg).toContain('Filename too long')
+
+  if (process.platform === 'win32') {
+    expect(msg).toContain('core.longpaths true')
+  } else {
+    expect(msg).not.toContain('core.longpaths true')
+  }
 })
