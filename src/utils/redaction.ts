@@ -41,15 +41,15 @@ import { homedir } from 'node:os'
 import { getKnownProviderSecretEnvKeys } from './providerSecrets.js'
 
 // Anthropic API keys (sk-ant...)
-// Quotes (`"'`) are excluded from the lookbehind/lookahead so JSON-shaped
-// values like `"sk-ant-..."` are still caught — quotes act as delimiters,
-// not blockers.
+// Boundary class is `[A-Za-z0-9_-]` (not `[A-Za-z0-9]`) so a raw key
+// embedded in a JSON string value `"sk-ant-..."` is still caught — the
+// leading `"` is the start of the string, not a key character.
 const ANTHROPIC_KEY_PATTERN =
-  /(?<![A-Za-z0-9])(sk-ant-?[A-Za-z0-9_-]{10,})(?![A-Za-z0-9])/g
+  /(?<![A-Za-z0-9_-])(sk-ant-?[A-Za-z0-9_-]{10,})(?![A-Za-z0-9_-])/g
 
 // OpenAI / Codex / OpenRouter API keys (sk-..., sk-proj-..., sk-or-v1-...)
 const OPENAI_KEY_PATTERN =
-  /(?<![A-Za-z0-9])(sk-(?:proj-|or-v1-)?[A-Za-z0-9_-]{5,})(?![A-Za-z0-9])/g
+  /(?<![A-Za-z0-9_-])(sk-(?:proj-|or-v1-)?[A-Za-z0-9_-]{5,})(?![A-Za-z0-9_-])/g
 
 // AWS access keys
 const AWS_ACCESS_KEY_PATTERN = /(AKIA[A-Z0-9]{16})/g
@@ -57,7 +57,7 @@ const AWS_ACCESS_KEY_PATTERN = /(AKIA[A-Z0-9]{16})/g
 // Google Cloud / Gemini API keys (AIza...) — 35-char suffix matches real GCP
 // keys which are typically 39 chars total. The diagnostics module uses {10,}
 // because it sees values out of context; here we only flag clearly-shaped keys.
-const GCP_KEY_PATTERN = /(?<![A-Za-z0-9])(AIza[A-Za-z0-9_-]{10,})(?![A-Za-z0-9])/g
+const GCP_KEY_PATTERN = /(?<![A-Za-z0-9_-])(AIza[A-Za-z0-9_-]{10,})(?![A-Za-z0-9_-])/g
 
 // Vertex AI service account emails
 const GCP_SERVICE_ACCOUNT_PATTERN =
@@ -65,7 +65,7 @@ const GCP_SERVICE_ACCOUNT_PATTERN =
 
 // GitHub personal access tokens (ghp_, gho_, ghs_, ghu_, ghr_, github_pat_)
 const GITHUB_TOKEN_PATTERN =
-  /(?<![A-Za-z0-9])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{10,}(?![A-Za-z0-9])/g
+  /(?<![A-Za-z0-9_-])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{10,}(?![A-Za-z0-9_-])/g
 
 // "AWS key: \"AKIA...\"" — provider-specific debug-message wrapping
 const AWS_KEY_LABELED_PATTERN = /AWS key:\s*"(AWS[A-Z0-9]{20,})"/g
@@ -97,7 +97,10 @@ const GENERIC_HEADER_FIELD_PATTERN =
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
-// are checked against this list.
+// are checked against this list. `privatekey` is here so a JSON object
+// like `{ "private_key": "..." }` (or `{ "privateKey": "..." }`) gets its
+// value collapsed to `'[REDACTED]'` regardless of value shape — the
+// header-field regex below handles the same key in inline key=value text.
 const SENSITIVE_FIELD_SUBSTRINGS = [
   'token',
   'apikey',
