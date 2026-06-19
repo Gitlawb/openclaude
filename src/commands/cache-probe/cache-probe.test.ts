@@ -19,6 +19,14 @@ test('resolveCacheProbeApiKey prefers the first usable OPENAI_API_KEYS entry', (
   ).toBe('key-a')
 })
 
+test('resolveCacheProbeApiKey rejects placeholder values inside credential pools', () => {
+  expect(
+    resolveCacheProbeApiKey({
+      OPENAI_API_KEYS: 'key-a,SUA_CHAVE',
+      OPENAI_API_KEY: 'key-single',
+    } as NodeJS.ProcessEnv),
+  ).toBe('')
+})
 test('resolveCacheProbeApiKey falls back to comma-separated OPENAI_API_KEY', () => {
   expect(
     resolveCacheProbeApiKey({

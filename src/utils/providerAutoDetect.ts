@@ -72,7 +72,14 @@ function envHasNonEmpty(env: EnvLike, key: string): boolean {
 function envHasUsableOpenAICredential(env: EnvLike, key: string): boolean {
   const value = env[key]
   if (typeof value !== 'string') return false
-  return value.split(',').some(part => part.trim().length > 0)
+  const credentials = value
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+  return (
+    credentials.length > 0 &&
+    credentials.every(credential => credential !== 'SUA_CHAVE')
+  )
 }
 
 function firstSet(env: EnvLike, keys: readonly string[]): string | undefined {

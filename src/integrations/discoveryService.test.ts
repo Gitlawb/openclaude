@@ -445,6 +445,47 @@ describe('discoverModelsForRoute', () => {
     expect(result?.source).toBe('network')
   })
 
+  test('openai-compatible discovery does not use invalid pooled credentials', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    registerGateway({
+      id: 'discovery-invalid-pool-test',
+      label: 'Invalid Pool Test',
+      defaultBaseUrl: 'https://invalid-pool.example/v1',
+      defaultModel: 'gpt-5.5',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
+      },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'dynamic',
+        discovery: { kind: 'openai-compatible' },
+      },
+    })
+
+    setMockFetch(mock((_input, init) => {
+      expect(init?.headers ?? {}).toEqual({})
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-5.5' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('discovery-invalid-pool-test', {
+      apiKey: 'key-a,SUA_CHAVE',
+      forceRefresh: true,
+    })
+
+    expect(result?.routeId).toBe('discovery-invalid-pool-test')
+    expect(result?.source).toBe('network')
+  })
+
   test('refreshStartupDiscoveryForActiveRoute sends first pooled OpenAI credential', async () => {
     const { refreshStartupDiscoveryForActiveRoute } =
       await loadDiscoveryServiceModule()

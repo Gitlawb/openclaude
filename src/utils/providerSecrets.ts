@@ -10,6 +10,7 @@ import {
 // credential paths that either predate descriptors or are accepted by
 // provider-specific auth helpers outside setup.credentialEnvVars.
 const FALLBACK_SECRET_ENV_KEYS: readonly string[] = [
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_AUTH_HEADER_VALUE',
   'CODEX_API_KEY',
@@ -188,6 +189,10 @@ function collectSecretValues(
       const value = sanitizeApiKey(source[key])?.trim()
       if (value) {
         values.add(value)
+        for (const part of value.split(',')) {
+          const trimmedPart = sanitizeApiKey(part)?.trim()
+          if (trimmedPart) values.add(trimmedPart)
+        }
       }
     }
   }

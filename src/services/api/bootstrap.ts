@@ -6,6 +6,7 @@ import {
 } from '../../integrations/discoveryService.js'
 import { getGateway, getVendor } from '../../integrations/index.js'
 import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
+import { firstUsableCredential, hasInvalidCredentialPlaceholder } from './credentialPool.js'
 import {
   getAnthropicApiKey,
   getClaudeAIOAuthTokens,
@@ -159,11 +160,14 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     (routeId
       ? getGateway(routeId)?.label ?? getVendor(routeId)?.label
       : undefined) ?? getLocalOpenAICompatibleProviderLabel(baseUrl)
-  const apiKey = resolveRouteCredentialValue({
+  const routeCredential = resolveRouteCredentialValue({
     routeId: routeId ?? 'custom',
     baseUrl,
     processEnv: process.env,
   })
+  const apiKey = hasInvalidCredentialPlaceholder(routeCredential)
+    ? undefined
+    : firstUsableCredential(routeCredential)
 
   const discovered = routeId
     ? await discoverModelsForRoute(routeId, {

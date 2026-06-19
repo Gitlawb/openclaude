@@ -103,8 +103,14 @@ export function parseCredentialList(value: string | undefined): string[] {
     .filter(Boolean)
 }
 
+export function hasInvalidCredentialPlaceholder(value: string | undefined): boolean {
+  return parseCredentialList(value).some(credential => credential === 'SUA_CHAVE')
+}
+
 export function firstUsableCredential(value: string | undefined): string | undefined {
-  return parseCredentialList(value).find(
-    credential => credential !== 'SUA_CHAVE',
-  )
+  if (hasInvalidCredentialPlaceholder(value)) {
+    return undefined
+  }
+
+  return parseCredentialList(value)[0]
 }

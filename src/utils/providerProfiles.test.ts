@@ -1567,6 +1567,15 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.apiKey).toBe('openai-single-key')
   })
 
+  test('openai preset skips placeholder pooled keys before singular fallback', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEYS = 'key-a,SUA_CHAVE'
+    process.env.OPENAI_API_KEY = 'openai-single-key'
+
+    const defaults = getProviderPresetDefaults('openai')
+
+    expect(defaults.apiKey).toBe('openai-single-key')
+  })
   test('custom preset reads pooled OpenAI credentials', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     process.env.OPENAI_API_KEYS = 'key-a,key-b'

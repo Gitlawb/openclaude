@@ -25,6 +25,7 @@ import {
   type RouteDescriptor,
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
+import { firstUsableCredential } from '../services/api/credentialPool.js'
 
 function normalizeModelApiName(
   value: string | undefined,
@@ -395,11 +396,13 @@ function findCachedCatalogEntryForApiName(
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
-    apiKey: resolveRouteCredentialValue({
-      routeId,
-      baseUrl,
-      processEnv: runtimeEnv,
-    }),
+    apiKey: firstUsableCredential(
+      resolveRouteCredentialValue({
+        routeId,
+        baseUrl,
+        processEnv: runtimeEnv,
+      }),
+    ),
     headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))

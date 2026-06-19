@@ -218,6 +218,19 @@ describe('redactSecretValueForDisplay', () => {
     expect(redactSecretValueForDisplay(token, { GEMINI_ACCESS_TOKEN: token })).toBe('gem...ken')
   })
 
+  test('redacts individual members of pooled OpenAI credentials', () => {
+    const pool = 'lowercasecredentialaaaaaaaaaaaa,lowercasecredentialbbbbbbbbbbbb'
+    expect(
+      redactSecretValueForDisplay('lowercasecredentialaaaaaaaaaaaa', {
+        OPENAI_API_KEYS: pool,
+      }),
+    ).toBe('low...aaa')
+    expect(
+      sanitizeProviderConfigValue('lowercasecredentialbbbbbbbbbbbb', {
+        OPENAI_API_KEYS: pool,
+      }),
+    ).toBeUndefined()
+  })
   test('redacts configured provider secrets after trimming source env values', () => {
     const providerSecret = 'ogw-provider-secret'
     expect(

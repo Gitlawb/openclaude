@@ -185,10 +185,13 @@ async function main(): Promise<void> {
       }))
 
   const recommendedOllama = selectRecommendedOllamaModel(rankedModels)
-  const openAIConfigured = Boolean(
-    sanitizeOpenAICredentialPool(process.env.OPENAI_API_KEYS) ||
-      sanitizeOpenAICredentialPool(process.env.OPENAI_API_KEY),
-  )
+  const openAIConfigured =
+    !hasInvalidOpenAICredentialPool(process.env.OPENAI_API_KEYS) &&
+    !hasInvalidOpenAICredentialPool(process.env.OPENAI_API_KEY) &&
+    Boolean(
+      sanitizeOpenAICredentialPool(process.env.OPENAI_API_KEYS) ||
+        sanitizeOpenAICredentialPool(process.env.OPENAI_API_KEY),
+    )
 
   let recommendedProfile: ProviderProfile
   let recommendedModel: string

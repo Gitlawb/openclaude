@@ -65,6 +65,35 @@ test('skips legacy OpenAI-compatible model discovery when nonessential traffic i
   expect(getSpy).not.toHaveBeenCalled()
 })
 
+test('legacy OpenAI-compatible model discovery rejects placeholder values inside pools', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
+  process.env.OPENAI_API_KEYS = 'key-a,SUA_CHAVE'
+  process.env.OPENAI_API_KEY = 'key-single'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+
+  const getSpy = mock(async (_url: string, options?: { headers?: Record<string, string> }) => {
+    expect(options?.headers).toEqual({})
+    return {
+      data: {
+        data: [{ id: 'gpt-5.5' }],
+      },
+    }
+  })
+  axios.get = getSpy as typeof axios.get
+
+  const { discoverOpenAICompatibleModelOptions } = await import(
+    `./openaiModelDiscovery.js?invalid-pooled=${Date.now()}-${Math.random()}`
+  )
+
+  await expect(discoverOpenAICompatibleModelOptions()).resolves.toEqual([
+    {
+      description: 'Discovered from OpenAI-compatible endpoint',
+      label: 'gpt-5.5',
+      value: 'gpt-5.5',
+    },
+  ])
+})
 test('legacy OpenAI-compatible model discovery uses the first pooled credential', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://custom.example/v1'

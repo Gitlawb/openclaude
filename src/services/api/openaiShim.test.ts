@@ -2702,6 +2702,33 @@ test('openai route still sends OPENAI_API_KEY as bearer auth', async () => {
   expect(captured.authorization).toBe('Bearer fake-openai-key')
 })
 
+test('OPENAI_API_KEYS rejects placeholder values before sending requests', async () => {
+  const authorizations: Array<string | null> = []
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_KEYS = 'key-a,SUA_CHAVE'
+  process.env.OPENAI_API_KEY = 'single-key-should-not-hide-invalid-pool'
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    return makeChatCompletionResponse('gpt-5.5')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+  ).rejects.toThrow(/SUA_CHAVE|Authentication failed/)
+
+  expect(authorizations).toEqual([])
+})
 test('OPENAI_API_KEYS rotates to the next key on rate-limit failure', async () => {
   const authorizations: Array<string | null> = []
 

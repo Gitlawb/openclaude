@@ -99,6 +99,7 @@ import { stableStringifyJson } from '../../utils/stableStringify.js'
 import {
   CredentialPool,
   type CredentialLease,
+  hasInvalidCredentialPlaceholder,
   parseCredentialList,
 } from './credentialPool.js'
 
@@ -2950,6 +2951,20 @@ class OpenAIShimMessages {
     const explicitCustomAuthHeaderValue = hasCustomAuthHeader
       ? configuredAuthHeaderValue
       : ''
+    if (!explicitCustomAuthHeaderValue && hasInvalidCredentialPlaceholder(apiKeyRaw)) {
+      throw APIError.generate(
+        401,
+        undefined,
+        buildOpenAICompatibilityErrorMessage(
+          'OpenAI API error 401: invalid credential pool placeholder SUA_CHAVE detected',
+          {
+            category: 'auth_invalid',
+            requestUrl: request.baseUrl,
+          },
+        ),
+        new Headers(),
+      )
+    }
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = isEnvTruthy(process.env.OPENAI_AZURE_STYLE)

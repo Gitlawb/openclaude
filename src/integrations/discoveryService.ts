@@ -29,7 +29,7 @@ import {
   probeAtomicChatReadiness,
   probeOllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
-import { firstUsableCredential } from '../services/api/credentialPool.js'
+import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
@@ -153,6 +153,10 @@ function getRouteDiscoveryApiKey(
   options?: { apiKey?: string },
 ): string | undefined {
   if (getRouteCatalog(routeId)?.discovery?.requiresAuth === false) {
+    return undefined
+  }
+
+  if (hasInvalidCredentialPlaceholder(options?.apiKey)) {
     return undefined
   }
 
@@ -449,16 +453,17 @@ export async function refreshStartupDiscoveryForActiveRoute(
     headers:
       options?.headers ??
       parseCustomHeadersEnv(processEnv.ANTHROPIC_CUSTOM_HEADERS),
-    apiKey:
-      firstUsableCredential(options?.apiKey) ??
-      firstUsableCredential(
-        resolveRouteCredentialValue({
-          routeId,
-          baseUrl,
-          processEnv,
-          activeProfileProvider: options?.activeProfileProvider,
-        }),
-      ),
+    apiKey: hasInvalidCredentialPlaceholder(options?.apiKey)
+      ? undefined
+      : firstUsableCredential(options?.apiKey) ??
+        firstUsableCredential(
+          resolveRouteCredentialValue({
+            routeId,
+            baseUrl,
+            processEnv,
+            activeProfileProvider: options?.activeProfileProvider,
+          }),
+        ),
   })
 }
 

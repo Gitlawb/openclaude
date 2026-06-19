@@ -346,6 +346,22 @@ test('buildProfileSaveMessage reports pooled OpenAI credentials as configured', 
   expect(message).not.toContain('sk-secret-a')
   expect(message).not.toContain('sk-secret-b')
 })
+test('buildProfileSaveMessage redacts individual pooled OpenAI credentials in display fields', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: 'lowercasecredentialaaaaaaaaaaaa,lowercasecredentialbbbbbbbbbbbb',
+      OPENAI_MODEL: 'lowercasecredentialaaaaaaaaaaaa',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).not.toContain('lowercasecredentialaaaaaaaaaaaa')
+  expect(message).not.toContain('lowercasecredentialbbbbbbbbbbbb')
+  expect(message).toContain('Model: low...aaa')
+})
 test('buildProfileSaveMessage ignores delimiter-only pooled OpenAI credentials', () => {
   const message = buildProfileSaveMessage(
     'openai',

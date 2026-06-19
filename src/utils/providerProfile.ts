@@ -691,6 +691,57 @@ function resolveOpenAICredentialPool(
     count: credentials.length,
   }
 }
+type OpenAICredentialEnvSelection =
+  | {
+      kind: 'usable'
+      envVar: 'OPENAI_API_KEYS' | 'OPENAI_API_KEY'
+      value: string
+    }
+  | {
+      kind: 'invalid'
+      envVar: 'OPENAI_API_KEYS' | 'OPENAI_API_KEY'
+      value: string
+    }
+
+function resolveOpenAICredentialEnvSelection(
+  env: SecretValueSource,
+): OpenAICredentialEnvSelection | undefined {
+  const pooled = resolveOpenAICredentialPool(env.OPENAI_API_KEYS)
+  if (pooled.kind === 'invalid') {
+    return {
+      kind: 'invalid',
+      envVar: 'OPENAI_API_KEYS',
+      value: env.OPENAI_API_KEYS ?? '',
+    }
+  }
+  if (pooled.kind === 'usable') {
+    return { kind: 'usable', envVar: 'OPENAI_API_KEYS', value: pooled.value }
+  }
+
+  const single = resolveOpenAICredentialPool(env.OPENAI_API_KEY)
+  if (single.kind === 'invalid') {
+    return {
+      kind: 'invalid',
+      envVar: 'OPENAI_API_KEY',
+      value: env.OPENAI_API_KEY ?? '',
+    }
+  }
+  if (single.kind === 'usable') {
+    return { kind: 'usable', envVar: 'OPENAI_API_KEY', value: single.value }
+  }
+
+  return undefined
+}
+
+function resolveOpenAICredentialEnvOverride(
+  primary: SecretValueSource,
+  fallback: SecretValueSource,
+): OpenAICredentialEnvSelection | undefined {
+  return (
+    resolveOpenAICredentialEnvSelection(primary) ||
+    resolveOpenAICredentialEnvSelection(fallback)
+  )
+}
 
 export function buildOpenAIProfileEnv(options: {
   goal: RecommendationGoal
@@ -706,6 +757,10 @@ export function buildOpenAIProfileEnv(options: {
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
   const explicitCredential = resolveOpenAICredentialPool(options.apiKey)
+  if (explicitCredential.kind === 'invalid') {
+    return null
+  }
+
   const envOpenAIKeysCredential = resolveOpenAICredentialPool(
     processEnv.OPENAI_API_KEYS,
   )
@@ -713,28 +768,24 @@ export function buildOpenAIProfileEnv(options: {
     processEnv.OPENAI_API_KEY,
   )
   if (
-    explicitCredential.kind === 'invalid' ||
-    envOpenAIKeysCredential.kind === 'invalid' ||
-    envOpenAIKeyCredential.kind === 'invalid'
+    explicitCredential.kind !== 'usable' &&
+    (envOpenAIKeysCredential.kind === 'invalid' ||
+      envOpenAIKeyCredential.kind === 'invalid')
   ) {
     return null
   }
+
+  const envCredential = resolveOpenAICredentialEnvSelection(processEnv)
   const key =
     explicitCredential.kind === 'usable'
       ? explicitCredential.value
-      : envOpenAIKeysCredential.kind === 'usable'
-        ? envOpenAIKeysCredential.value
-        : envOpenAIKeyCredential.kind === 'usable'
-          ? envOpenAIKeyCredential.value
-          : undefined
+      : envCredential?.value
   const keyEnvVar =
     explicitCredential.kind === 'usable' && explicitCredential.count > 1
       ? 'OPENAI_API_KEYS'
       : explicitCredential.kind === 'usable'
         ? 'OPENAI_API_KEY'
-        : envOpenAIKeysCredential.kind === 'usable'
-          ? 'OPENAI_API_KEYS'
-          : 'OPENAI_API_KEY'
+        : envCredential?.envVar ?? 'OPENAI_API_KEY'
   const authHeaderValue = sanitizeApiKey(
     options.authHeaderValue ?? processEnv.OPENAI_AUTH_HEADER_VALUE,
   )
@@ -1541,17 +1592,18 @@ export async function buildLaunchEnv(options: {
       env.XAI_CREDENTIAL_SOURCE = 'oauth'
     }
 
-    // For OAuth profiles, also clear any ambient OPENAI_API_KEY from
+    // For OAuth profiles, also clear any ambient OpenAI credentials from
     // the returned compatibility env. openaiShim's resolver checks
-    // process.env.OPENAI_API_KEY before falling back to the stored
-    // OAuth token; leaving the shell key there would short-circuit
-    // OAuth and send the wrong bearer to api.x.ai/v1.
+    // process.env.OPENAI_API_KEYS / OPENAI_API_KEY before falling back
+    // to the stored OAuth token; leaving shell credentials there would
+    // short-circuit OAuth and send the wrong bearer to api.x.ai/v1.
     const result = buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
       profileEnv: env,
     })
     if (isOAuthProfile && !env.XAI_API_KEY) {
+      delete result.OPENAI_API_KEYS
       delete result.OPENAI_API_KEY
     }
     return result
@@ -1561,21 +1613,30 @@ export async function buildLaunchEnv(options: {
     const opencodeKey =
       sanitizeApiKey(processEnv.OPENCODE_API_KEY) ||
       sanitizeApiKey(persistedEnv.OPENCODE_API_KEY)
+    const openAICredential = resolveOpenAICredentialEnvOverride(
+      processEnv,
+      persistedEnv,
+    )
     const opencodeBaseUrl =
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.OPENAI_BASE_URL) ||
       DEFAULT_OPENCODE_BASE_URL
     const opencodeModel =
       shellOpenAIModel || persistedOpenAIModel || 'gpt-5.4'
+    const profileEnv: ProfileEnv = {
+      OPENAI_BASE_URL: opencodeBaseUrl,
+      OPENAI_MODEL: opencodeModel,
+    }
+    if (opencodeKey) {
+      profileEnv.OPENAI_API_KEY = opencodeKey
+    } else if (openAICredential) {
+      profileEnv[openAICredential.envVar] = openAICredential.value
+    }
 
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
-      profileEnv: {
-        OPENAI_BASE_URL: opencodeBaseUrl,
-        OPENAI_MODEL: opencodeModel,
-        ...(opencodeKey ? { OPENAI_API_KEY: opencodeKey } : {}),
-      },
+      profileEnv,
     })
   }
 
@@ -1711,17 +1772,12 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.OPENAI_AUTH_HEADER_VALUE
   }
-  const openAIKey =
-    sanitizeOpenAICredentialPool(processEnv.OPENAI_API_KEY) ||
-    sanitizeOpenAICredentialPool(persistedEnv.OPENAI_API_KEY)
-  const openAIKeys =
-    sanitizeOpenAICredentialPool(processEnv.OPENAI_API_KEYS) ||
-    sanitizeOpenAICredentialPool(persistedEnv.OPENAI_API_KEYS)
-  if (openAIKeys) {
-    env.OPENAI_API_KEYS = openAIKeys
-  }
-  if (openAIKey) {
-    env.OPENAI_API_KEY = openAIKey
+  const openAICredential = resolveOpenAICredentialEnvOverride(
+    processEnv,
+    persistedEnv,
+  )
+  if (openAICredential) {
+    env[openAICredential.envVar] = openAICredential.value
   }
   // Dedicated vendor credentials ride alongside the generic OpenAI env in
   // persisted profiles (e.g. ATLAS_CLOUD_API_KEY). Carry them over — a live
