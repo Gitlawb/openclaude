@@ -37,12 +37,14 @@ export async function showDangerousModePromptIfNeeded(
   if (!dangerousPromptState.shouldShow || !dangerousPromptState.mode) {
     return false
   }
+  // Capture so the non-null narrowing survives into the render callback
+  const dangerousMode = dangerousPromptState.mode
 
   await showSetupDialog(root, done => (
     <DialogComponent
-      mode={dangerousPromptState.mode}
+      mode={dangerousMode}
       onAccept={() => {
-        persistAcceptance(dangerousPromptState.mode!)
+        persistAcceptance(dangerousMode)
         done()
       }}
     />

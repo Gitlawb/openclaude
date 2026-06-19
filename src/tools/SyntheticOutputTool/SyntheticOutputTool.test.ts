@@ -18,6 +18,18 @@ const ARRAY_OF_OBJECTS_SCHEMA = {
 
 const STRING_ROOT_SCHEMA = { type: 'string' } as const
 
+// The tool's call() implementation only reads its input argument; the
+// context/canUseTool/parentMessage parameters required by the Tool interface
+// are unused, so the tests pass `undefined as never` placeholders.
+const UNUSED = undefined as never
+
+// `structured_output` is an extra runtime property on the tool result (read
+// via `'structured_output' in result` in toolExecution.ts) that ToolResult<T>
+// does not declare, so the tests read it through the same loose shape.
+function structuredOutputOf(result: unknown): unknown {
+  return (result as { structured_output?: unknown }).structured_output
+}
+
 const OBJECT_SCHEMA = {
   type: 'object',
   properties: { count: { type: 'integer' } },
@@ -44,9 +56,11 @@ describe('createSyntheticOutputTool (#1256 root schema wrapping)', () => {
     const payload = [{ name: 'one' }, { name: 'two' }]
     const callResult = await result.tool.call(
       { result: payload },
-      undefined as never,
+      UNUSED,
+      UNUSED,
+      UNUSED,
     )
-    expect(callResult.structured_output).toEqual(payload)
+    expect(structuredOutputOf(callResult)).toEqual(payload)
   })
 
   test('top-level string root: same wrap-and-unwrap behaviour', async () => {
@@ -57,9 +71,11 @@ describe('createSyntheticOutputTool (#1256 root schema wrapping)', () => {
 
     const callResult = await result.tool.call(
       { result: 'hello' },
-      undefined as never,
+      UNUSED,
+      UNUSED,
+      UNUSED,
     )
-    expect(callResult.structured_output).toBe('hello')
+    expect(structuredOutputOf(callResult)).toBe('hello')
   })
 
   test('object root: passes through untouched', async () => {
@@ -69,16 +85,18 @@ describe('createSyntheticOutputTool (#1256 root schema wrapping)', () => {
 
     const callResult = await result.tool.call(
       { count: 5 },
-      undefined as never,
+      UNUSED,
+      UNUSED,
+      UNUSED,
     )
-    expect(callResult.structured_output).toEqual({ count: 5 })
+    expect(structuredOutputOf(callResult)).toEqual({ count: 5 })
   })
 
   test('wrapped tool rejects payloads that violate the inner schema', async () => {
     const result = createSyntheticOutputTool({ ...ARRAY_OF_OBJECTS_SCHEMA })
     if (!('tool' in result)) throw new Error(`expected tool: ${result.error}`)
     await expect(
-      result.tool.call({ result: [{ wrong: 'shape' }] }, undefined as never),
+      result.tool.call({ result: [{ wrong: 'shape' }] }, UNUSED, UNUSED, UNUSED),
     ).rejects.toThrow(/schema/)
   })
 })

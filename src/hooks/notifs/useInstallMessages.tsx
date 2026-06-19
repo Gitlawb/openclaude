@@ -8,7 +8,7 @@ async function _temp2() {
   return messages.map(_temp);
 }
 function _temp(message, index) {
-  let priority = "low";
+  let priority: 'low' | 'medium' | 'high' = "low";
   if (message.type === "error" || message.userActionRequired) {
     priority = "high";
   } else {
@@ -20,6 +20,6 @@ function _temp(message, index) {
     key: `install-message-${index}-${message.type}`,
     text: message.message,
     priority,
-    color: message.type === "error" ? "error" : "warning"
+    color: message.type === "error" ? "error" as const : "warning" as const
   };
 }

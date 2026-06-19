@@ -14,7 +14,7 @@ export function useOfficialMarketplaceNotification() {
 }
 async function _temp() {
   const result = await checkAndInstallOfficialMarketplace();
-  const notifs = [];
+  const notifs: Notification[] = [];
   if (result.configSaveFailed) {
     logForDebugging("Showing marketplace config save failure notification");
     notifs.push({

@@ -18,7 +18,7 @@ const inputToResponse: Record<ResponseInput, FeedbackSurveyResponse> = {
   '3': 'good'
 } as const;
 export const isValidResponseInput = (input: string): input is ResponseInput => (RESPONSE_INPUTS as readonly string[]).includes(input);
-const DEFAULT_MESSAGE = 'How is Claude doing this session? (optional)';
+const DEFAULT_MESSAGE = 'How is OpenClaude doing this session? (optional)';
 export function FeedbackSurveyView(t0) {
   const $ = _c(15);
   const {

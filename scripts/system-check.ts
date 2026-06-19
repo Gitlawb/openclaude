@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
   resolveCodexApiCredentials,
@@ -8,17 +8,43 @@ import {
   isLocalProviderUrl as isProviderLocalUrl,
 } from '../src/services/api/providerConfig.js'
 import {
+  getRouteCredentialEnvVars,
+  getRouteCredentialValue,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
+} from '../src/integrations/routeMetadata.js'
+import {
   getLocalOpenAICompatibleProviderLabel,
   probeOllamaGenerationReadiness,
 } from '../src/utils/providerDiscovery.js'
 import { DEFAULT_GEMINI_MODEL } from '../src/utils/providerProfile.js'
+import {
+  redactSecretValueForDisplay,
+  redactSecretSubstringsForDisplay,
+  type SecretValueSource,
+} from '../src/utils/providerSecrets.js'
 import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
+import {
+  MIN_NODE_ENGINE_RANGE,
+  checkSupportedNodeVersion,
+} from '../src/utils/nodeRuntime.js'
+import { SandboxManager } from '../src/utils/sandbox/sandbox-adapter.js'
 
 type CheckResult = {
   ok: boolean
   label: string
   detail?: string
 }
+
+type NodeExecutableVersionProbe =
+  | {
+    ok: true
+    version: string
+  }
+  | {
+    ok: false
+    detail: string
+  }
 
 type CliOptions = {
   json: boolean
@@ -74,7 +100,10 @@ export function formatReachabilityFailureDetail(
     resolvedModel: string
   },
 ): string {
-  const compactBody = responseBody.trim().replace(/\s+/g, ' ').slice(0, 240)
+  const compactBody = safeDiagnosticText(
+    responseBody.trim().replace(/\s+/g, ' ').slice(0, 240),
+    '',
+  )
   const base = `Unexpected status ${status} from ${redactUrlForDisplay(endpoint)}.`
   const bodySuffix = compactBody ? ` Body: ${compactBody}` : ''
 
@@ -86,21 +115,63 @@ export function formatReachabilityFailureDetail(
     return `${base}${bodySuffix}`
   }
 
-  return `${base}${bodySuffix} Hint: model alias "${request.requestedModel}" resolved to "${request.resolvedModel}", which this ChatGPT account does not currently allow. Try "codexplan" or another entitled Codex model.`
+  const requestedModel = safeDisplayValue(request.requestedModel, 'the requested model')
+  const resolvedModel = safeDisplayValue(request.resolvedModel, 'the resolved model')
+  return `${base}${bodySuffix} Hint: model alias "${requestedModel}" resolved to "${resolvedModel}", which this ChatGPT account does not currently allow. Try "codexplan" or another entitled Codex model.`
 }
 
-function checkNodeVersion(): CheckResult {
-  const raw = process.versions.node
-  const major = Number(raw.split('.')[0] ?? '0')
-  if (Number.isNaN(major)) {
-    return fail('Node.js version', `Could not parse version: ${raw}`)
+export function readNodeExecutableVersion(
+  spawn = spawnSync,
+): NodeExecutableVersionProbe {
+  const result = spawn('node', ['--version'], {
+    encoding: 'utf8',
+  })
+
+  if (result.error) {
+    return {
+      ok: false,
+      detail: `Unable to run \`node --version\`: ${result.error.message}. OpenClaude requires Node.js ${MIN_NODE_ENGINE_RANGE} on PATH.`,
+    }
   }
 
-  if (major < 20) {
-    return fail('Node.js version', `Detected ${raw}. Require >= 20.`)
+  if (result.status !== 0) {
+    const output = (result.stderr || result.stdout || '').trim()
+    const suffix = output ? `: ${output}` : `: exit code ${result.status ?? 'unknown'}`
+    return {
+      ok: false,
+      detail: `Unable to run \`node --version\`${suffix}. OpenClaude requires Node.js ${MIN_NODE_ENGINE_RANGE} on PATH.`,
+    }
   }
 
-  return pass('Node.js version', raw)
+  const version = (result.stdout || result.stderr || '').trim()
+  if (!version) {
+    return {
+      ok: false,
+      detail: `Unable to read Node.js version from \`node --version\`. OpenClaude requires Node.js ${MIN_NODE_ENGINE_RANGE} on PATH.`,
+    }
+  }
+
+  return {
+    ok: true,
+    version,
+  }
+}
+
+export function checkNodeVersion(
+  raw: string | NodeExecutableVersionProbe = readNodeExecutableVersion(),
+): CheckResult {
+  if (typeof raw !== 'string' && !raw.ok) {
+    return fail('Node.js version', raw.detail)
+  }
+
+  const versionCheck = checkSupportedNodeVersion(
+    typeof raw === 'string' ? raw : raw.version,
+  )
+  if (!versionCheck.ok) {
+    return fail('Node.js version', versionCheck.message)
+  }
+
+  return pass('Node.js version', versionCheck.version)
 }
 
 function checkBunRuntime(): CheckResult {
@@ -119,6 +190,92 @@ function checkBuildArtifacts(): CheckResult {
   return pass('Build artifacts', distCli)
 }
 
+export function isCliSandboxRuntimeStubbed(bundleText: string): boolean {
+  return bundleText.includes('native-stub:@anthropic-ai/sandbox-runtime')
+}
+
+type SandboxRuntimeCheckInput =
+  | {
+      inspectionError: unknown
+    }
+  | {
+      cliRuntimeStubbed: boolean
+      sandboxEnabled: boolean
+      failIfUnavailable: boolean
+      sandboxingEnabled: boolean
+      unavailableReason?: string
+    }
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function buildSandboxRuntimeCheck(
+  input: SandboxRuntimeCheckInput,
+): CheckResult {
+  if ('inspectionError' in input) {
+    return fail(
+      'Sandbox runtime',
+      `Unable to inspect CLI sandbox runtime: ${formatUnknownError(input.inspectionError)}`,
+    )
+  }
+
+  const effectiveBehavior = input.sandboxingEnabled
+    ? 'enforcing'
+    : input.sandboxEnabled
+      ? input.failIfUnavailable
+        ? 'fail-closed'
+        : 'warning-only'
+      : 'disabled'
+
+  const detailParts = [
+    `CLI bundle: ${input.cliRuntimeStubbed ? 'stubbed' : 'real runtime'}`,
+    `sandbox.enabled: ${input.sandboxEnabled}`,
+    `failIfUnavailable: ${input.failIfUnavailable}`,
+    `effective behavior: ${effectiveBehavior}`,
+  ]
+  const reason =
+    input.unavailableReason ??
+    (input.cliRuntimeStubbed && input.sandboxEnabled
+      ? 'CLI bundle contains a no-op sandbox runtime stub'
+      : undefined)
+  if (reason) {
+    detailParts.push(`reason: ${reason}`)
+  }
+
+  const ok = !(
+    input.sandboxEnabled &&
+    input.failIfUnavailable &&
+    Boolean(reason)
+  )
+  return ok
+    ? pass('Sandbox runtime', detailParts.join('; '))
+    : fail('Sandbox runtime', detailParts.join('; '))
+}
+
+function checkSandboxRuntime(): CheckResult {
+  const distCli = resolve(process.cwd(), 'dist', 'cli.mjs')
+  if (!existsSync(distCli)) {
+    return fail(
+      'Sandbox runtime',
+      `CLI bundle missing at ${distCli}. Run: bun run build`,
+    )
+  }
+
+  try {
+    const bundle = readFileSync(distCli, 'utf8')
+    return buildSandboxRuntimeCheck({
+      cliRuntimeStubbed: isCliSandboxRuntimeStubbed(bundle),
+      sandboxEnabled: SandboxManager.isSandboxEnabledInSettings(),
+      failIfUnavailable: SandboxManager.isSandboxRequired(),
+      sandboxingEnabled: SandboxManager.isSandboxingEnabled(),
+      unavailableReason: SandboxManager.getSandboxUnavailableReason(),
+    })
+  } catch (error) {
+    return buildSandboxRuntimeCheck({ inspectionError: error })
+  }
+}
+
 function isLocalBaseUrl(baseUrl: string): boolean {
   return isProviderLocalUrl(baseUrl)
 }
@@ -126,6 +283,53 @@ function isLocalBaseUrl(baseUrl: string): boolean {
 const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
 const MISTRAL_DEFAULT_BASE_URL = 'https://api.mistral.ai/v1'
 const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
+
+function currentSecretSource(): SecretValueSource {
+  return process.env as SecretValueSource
+}
+
+function safeDisplayValue(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  return redactSecretValueForDisplay(value, currentSecretSource()) ?? fallback
+}
+
+function safeDiagnosticText(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  return redactSecretSubstringsForDisplay(value, currentSecretSource()) ?? fallback
+}
+
+function safeBaseUrlDisplay(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  if (!value) return fallback
+  return safeDisplayValue(redactUrlForDisplay(value), fallback)
+}
+
+function getOpenAICompatibleRouteId(baseUrl: string): string {
+  return (
+    resolveRouteIdFromBaseUrl(baseUrl) ??
+    resolveActiveRouteIdFromEnv(process.env) ??
+    'custom'
+  )
+}
+
+function getOpenAICompatibleCredentialContext(baseUrl: string): {
+  routeId: string
+  envVars: string[]
+  value: string | undefined
+} {
+  const routeId = getOpenAICompatibleRouteId(baseUrl)
+  return {
+    routeId,
+    envVars: getRouteCredentialEnvVars(routeId),
+    value: getRouteCredentialValue(routeId, process.env),
+  }
+}
 
 function currentBaseUrl(): string {
   if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
@@ -151,10 +355,10 @@ function checkGeminiEnv(): CheckResult[] {
   if (!model) {
     results.push(pass('GEMINI_MODEL', `Not set. Default ${DEFAULT_GEMINI_MODEL} will be used.`))
   } else {
-    results.push(pass('GEMINI_MODEL', model))
+    results.push(pass('GEMINI_MODEL', safeDisplayValue(model, '')))
   }
 
-  results.push(pass('GEMINI_BASE_URL', baseUrl))
+  results.push(pass('GEMINI_BASE_URL', safeBaseUrlDisplay(baseUrl, '')))
 
   if (!key) {
     results.push(fail('GEMINI_API_KEY', 'Missing. Set GEMINI_API_KEY or GOOGLE_API_KEY.'))
@@ -176,10 +380,10 @@ function checkMistralEnv(): CheckResult[] {
   if (!model) {
     results.push(pass('MISTRAL_MODEL', 'Not set. Default will be used at runtime.'))
   } else {
-    results.push(pass('MISTRAL_MODEL', model))
+    results.push(pass('MISTRAL_MODEL', safeDisplayValue(model, '')))
   }
 
-  results.push(pass('MISTRAL_BASE_URL', baseUrl))
+  results.push(pass('MISTRAL_BASE_URL', safeBaseUrlDisplay(baseUrl, '')))
 
   if (!key) {
     results.push(fail('MISTRAL_API_KEY', 'Missing. Set MISTRAL_API_KEY.'))
@@ -210,14 +414,14 @@ function checkGithubEnv(): CheckResult[] {
       ),
     )
   } else {
-    results.push(pass('OPENAI_MODEL', process.env.OPENAI_MODEL))
+    results.push(pass('OPENAI_MODEL', safeDisplayValue(process.env.OPENAI_MODEL, '')))
   }
 
-  results.push(pass('OPENAI_BASE_URL', baseUrl))
+  results.push(pass('OPENAI_BASE_URL', safeBaseUrlDisplay(baseUrl, '')))
   return results
 }
 
-function checkOpenAIEnv(): CheckResult[] {
+export function checkOpenAIEnv(): CheckResult[] {
   const results: CheckResult[] = []
   const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -258,10 +462,10 @@ function checkOpenAIEnv(): CheckResult[] {
   if (!process.env.OPENAI_MODEL) {
     results.push(pass('OPENAI_MODEL', 'Not set. Runtime fallback model will be used.'))
   } else {
-    results.push(pass('OPENAI_MODEL', process.env.OPENAI_MODEL))
+    results.push(pass('OPENAI_MODEL', safeDisplayValue(process.env.OPENAI_MODEL, '')))
   }
 
-  results.push(pass('OPENAI_BASE_URL', redactUrlForDisplay(request.baseUrl)))
+  results.push(pass('OPENAI_BASE_URL', safeBaseUrlDisplay(request.baseUrl, '')))
 
   if (request.transport === 'codex_responses') {
     const credentials = resolveCodexApiCredentials(process.env)
@@ -282,23 +486,31 @@ function checkOpenAIEnv(): CheckResult[] {
   }
 
   const key = process.env.OPENAI_API_KEY
+  const credentialContext = getOpenAICompatibleCredentialContext(request.baseUrl)
+  const providerCredential = credentialContext.value
+  const credentialLabel =
+    credentialContext.envVars.length > 0
+      ? credentialContext.envVars.join(' or ')
+      : 'OPENAI_API_KEY'
   const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
-  if (key === 'SUA_CHAVE') {
-    results.push(fail('OPENAI_API_KEY', 'Placeholder value detected: SUA_CHAVE.'))
+  const hasGithubRouteCredential =
+    credentialContext.routeId === 'github' && Boolean(githubToken?.trim())
+  if (key === 'SUA_CHAVE' || providerCredential === 'SUA_CHAVE') {
+    results.push(fail(credentialLabel, 'Placeholder value detected: SUA_CHAVE.'))
   } else if (
-    !key &&
+    !providerCredential &&
     !isLocalBaseUrl(request.baseUrl) &&
-    !(useGithub && githubToken?.trim())
+    !hasGithubRouteCredential
   ) {
-    results.push(fail('OPENAI_API_KEY', 'Missing key for non-local provider URL.'))
-  } else if (!key && useGithub && githubToken?.trim()) {
+    results.push(fail(credentialLabel, `Missing key for non-local provider URL. Set ${credentialLabel}.`))
+  } else if (!providerCredential && hasGithubRouteCredential) {
     results.push(
       pass('OPENAI_API_KEY', 'Not set; GITHUB_TOKEN/GH_TOKEN will be used for GitHub Models.'),
     )
-  } else if (!key) {
-    results.push(pass('OPENAI_API_KEY', 'Not set (allowed for local providers like Atomic Chat/Ollama/LM Studio).'))
+  } else if (!providerCredential) {
+    results.push(pass(credentialLabel, 'Not set (allowed for local providers like Atomic Chat/Ollama/LM Studio).'))
   } else {
-    results.push(pass('OPENAI_API_KEY', 'Configured.'))
+    results.push(pass(credentialLabel, 'Configured.'))
   }
 
   return results
@@ -370,8 +582,11 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
       headers.Authorization = `Bearer ${process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY}`
     } else if (useMistral && process.env.MISTRAL_API_KEY) {
       headers.Authorization = `Bearer ${process.env.MISTRAL_API_KEY}`
-    } else if (process.env.OPENAI_API_KEY) {
-      headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY}`
+    } else {
+      const credential = getOpenAICompatibleCredentialContext(request.baseUrl).value
+      if (credential) {
+        headers.Authorization = `Bearer ${credential}`
+      }
     }
 
     const response = await fetch(endpoint, {
@@ -470,7 +685,7 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
   if (readiness.state === 'ready') {
     return pass(
       'Provider generation readiness',
-      `Generated a test response with ${readiness.probeModel ?? request.requestedModel}.`,
+      `Generated a test response with ${safeDisplayValue(readiness.probeModel ?? request.requestedModel, 'the requested model')}.`,
     )
   }
 
@@ -488,10 +703,11 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
     )
   }
 
-  const detailSuffix = readiness.detail ? ` Detail: ${readiness.detail}.` : ''
+  const detail = safeDiagnosticText(readiness.detail, '')
+  const detailSuffix = detail ? ` Detail: ${detail}.` : ''
   return fail(
     'Provider generation readiness',
-    `Ollama is reachable, but generation failed for ${readiness.probeModel ?? request.requestedModel}.${detailSuffix}`,
+    `Ollama is reachable, but generation failed for ${safeDisplayValue(readiness.probeModel ?? request.requestedModel, 'the requested model')}.${detailSuffix}`,
   )
 }
 
@@ -552,20 +768,20 @@ function checkOllamaProcessorMode(): CheckResult {
   return pass('Ollama processor mode', `Detected non-CPU mode: ${modelLine}`)
 }
 
-function serializeSafeEnvSummary(): Record<string, string | boolean> {
+export function serializeSafeEnvSummary(): Record<string, string | boolean> {
   if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
     return {
       CLAUDE_CODE_USE_GEMINI: true,
-      GEMINI_MODEL: process.env.GEMINI_MODEL ?? `(unset, default: ${DEFAULT_GEMINI_MODEL})`,
-      GEMINI_BASE_URL: process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai',
+      GEMINI_MODEL: safeDisplayValue(process.env.GEMINI_MODEL, `(unset, default: ${DEFAULT_GEMINI_MODEL})`),
+      GEMINI_BASE_URL: safeBaseUrlDisplay(process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai', ''),
       GEMINI_API_KEY_SET: Boolean(process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY),
     }
   }
   if (isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
     return {
       CLAUDE_CODE_USE_MISTRAL: true,
-      MISTRAL_MODEL: process.env.MISTRAL_MODEL ?? '(unset, default: devstral-latest)',
-      MISTRAL_BASE_URL: process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1',
+      MISTRAL_MODEL: safeDisplayValue(process.env.MISTRAL_MODEL, '(unset, default: devstral-latest)'),
+      MISTRAL_BASE_URL: safeBaseUrlDisplay(process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1', ''),
       MISTRAL_API_KEY_SET: Boolean(process.env.MISTRAL_API_KEY),
     }
   }
@@ -576,10 +792,12 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
     return {
       CLAUDE_CODE_USE_GITHUB: true,
       OPENAI_MODEL:
-        process.env.OPENAI_MODEL ??
-        '(unset, default: github:copilot → openai/gpt-4.1)',
+        safeDisplayValue(
+          process.env.OPENAI_MODEL,
+          '(unset, default: github:copilot → openai/gpt-4.1)',
+        ),
       OPENAI_BASE_URL:
-        process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE,
+        safeBaseUrlDisplay(process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE, ''),
       GITHUB_TOKEN_SET: Boolean(
         process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN,
       ),
@@ -589,11 +807,13 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
     model: process.env.OPENAI_MODEL,
     baseUrl: process.env.OPENAI_BASE_URL,
   })
+  const credentialContext = getOpenAICompatibleCredentialContext(request.baseUrl)
   return {
     CLAUDE_CODE_USE_OPENAI: isTruthy(process.env.CLAUDE_CODE_USE_OPENAI),
-    OPENAI_MODEL: process.env.OPENAI_MODEL ?? '(unset)',
-    OPENAI_BASE_URL: request.baseUrl,
+    OPENAI_MODEL: safeDisplayValue(process.env.OPENAI_MODEL, '(unset)'),
+    OPENAI_BASE_URL: safeBaseUrlDisplay(request.baseUrl, ''),
     OPENAI_API_KEY_SET: Boolean(process.env.OPENAI_API_KEY),
+    PROVIDER_API_KEY_SET: Boolean(credentialContext.value),
     CODEX_API_KEY_SET: Boolean(resolveCodexApiCredentials(process.env).apiKey),
   }
 }
@@ -663,6 +883,7 @@ async function main(): Promise<void> {
   results.push(checkNodeVersion())
   results.push(checkBunRuntime())
   results.push(checkBuildArtifacts())
+  results.push(checkSandboxRuntime())
   results.push(...checkOpenAIEnv())
   results.push(await checkBaseUrlReachability())
   results.push(await checkProviderGenerationReadiness())

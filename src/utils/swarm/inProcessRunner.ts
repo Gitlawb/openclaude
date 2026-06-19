@@ -491,6 +491,10 @@ export type InProcessRunnerConfig = {
   model?: string
   /** True when model came from an explicit Agent tool model argument. */
   modelWasToolSpecified?: boolean
+  /** Original subagent_type for provider-routing resolution. The synthetic agent
+   *  definition overwrites agentType with the teammate name, so the route key
+   *  must be carried separately for runAgent to resolve the configured route. */
+  subagentType?: string
   /** Optional system prompt override for this teammate */
   systemPrompt?: string
   /** How to apply the system prompt: 'replace' or 'append' to default */
@@ -900,6 +904,7 @@ export async function runInProcessTeammate(
     abortController,
     model,
     modelWasToolSpecified,
+    subagentType,
     systemPrompt,
     systemPromptMode,
     allowedTools,
@@ -1218,6 +1223,7 @@ export async function runInProcessTeammate(
               ? (model as ModelAlias | undefined)
               : undefined,
             agentName: identity.agentName,
+            routingSubagentType: subagentType,
             preserveToolUseResults: true,
             availableTools: toolUseContext.options.tools,
             allowedTools,

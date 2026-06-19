@@ -565,11 +565,11 @@ export function ScrollKeybindingHandler({
   //   ctrl+f → chat:killAgents moved to ctrl+x ctrl+k; no conflict
   //   g/G → printable chars: no prompt to eat them, no vim/sticky gate needed
   //
-  // TODO(search): `/`, n/N — build on Richard Kim's d94b07add4 (branch
-  // claude/jump-recent-message-CEPcq). getItemY Yoga-walk + computeOrigin +
-  // anchorY already solve scroll-to-index. jumpToPrevTurn is the n/N
-  // template. Single-shot via OVERSCAN_ROWS=80; two-phase was tried and
-  // abandoned (❯ oscillation). See team memory scroll-copy-mode-design.md.
+  // Transcript search (`/`, n/N) shipped in REPL.tsx (TranscriptSearchBar +
+  // held-key-batched n/N) for the virtual-scroll path. Remaining gap: no
+  // search when !virtualScrollActive (legacy non-fullscreen transcript) —
+  // intentionally unimplemented; match positions would need re-deriving
+  // without VirtualMessageList's jump handle.
   useInput((input, key, event) => {
     const s_10 = scrollRef.current;
     if (!s_10) return;

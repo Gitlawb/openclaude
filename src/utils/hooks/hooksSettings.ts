@@ -1,13 +1,15 @@
-import { resolve } from 'path'
+import { join, resolve } from 'path'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
 import { getSessionId } from '../../bootstrap/state.js'
 import type { AppState } from '../../state/AppState.js'
+import { getClaudeConfigHomeDir } from '../envUtils.js'
 import type { EditableSettingSource } from '../settings/constants.js'
 import { SOURCES } from '../settings/constants.js'
 import {
   getSettingsFilePathForSource,
   getSettingsForSource,
 } from '../settings/settings.js'
+import { getDisplayPath } from '../file.js'
 import type { HookCommand, HookMatcher } from '../settings/types.js'
 import { DEFAULT_HOOK_SHELL } from '../shell/shellProvider.js'
 import { getSessionHooks } from './sessionHooks.js'
@@ -108,7 +110,7 @@ export function getAllHooks(appState: AppState): IndividualHookConfig[] {
 
     // Track which settings files we've already processed to avoid duplicates
     // (e.g., when running from home directory, userSettings and projectSettings
-    // both resolve to ~/.claude/settings.json)
+    // both resolve to the same settings.json)
     const seenFiles = new Set<string>()
 
     for (const source of sources) {
@@ -168,18 +170,26 @@ export function getHooksForEvent(
 }
 
 export function hookSourceDescriptionDisplayString(source: HookSource): string {
+  const settingsPath = (settingsSource: EditableSettingSource) => {
+    const filePath = getSettingsFilePathForSource(settingsSource)
+    return filePath ? getDisplayPath(filePath) : 'settings.json'
+  }
+  const pluginHooksPath = getDisplayPath(
+    join(getClaudeConfigHomeDir(), 'plugins', '*', 'hooks', 'hooks.json'),
+  )
+
   switch (source) {
     case 'userSettings':
-      return 'User settings (~/.claude/settings.json)'
+      return `User settings (${settingsPath('userSettings')})`
     case 'projectSettings':
-      return 'Project settings (.claude/settings.json)'
+      return `Project settings (${settingsPath('projectSettings')})`
     case 'localSettings':
-      return 'Local settings (.claude/settings.local.json)'
+      return `Local settings (${settingsPath('localSettings')})`
     case 'pluginHook':
       // TODO: Get the actual plugin hook file paths instead of using glob pattern
       // We should capture the specific plugin paths during hook registration and display them here
-      // e.g., "Plugin hooks (~/.claude/plugins/repos/source/example-plugin/example-plugin/hooks/hooks.json)"
-      return 'Plugin hooks (~/.claude/plugins/*/hooks/hooks.json)'
+      // e.g., "Plugin hooks (<config-home>/plugins/repos/source/example-plugin/example-plugin/hooks/hooks.json)"
+      return `Plugin hooks (${pluginHooksPath})`
     case 'sessionHook':
       return 'Session hooks (in-memory, temporary)'
     case 'builtinHook':

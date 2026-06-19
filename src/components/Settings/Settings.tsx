@@ -12,6 +12,13 @@ import { Status, buildDiagnostics } from './Status.js';
 import { Config } from './Config.js';
 import { Usage } from './Usage.js';
 import type { LocalJSXCommandContext, CommandResultDisplay } from '../../commands.js';
+// Stub: internal-only Gates tab not included in this open snapshot (render is gated off below).
+function Gates(_props: {
+  onOwnsEscChange: (owns: boolean) => void;
+  contentHeight: number;
+}): React.ReactElement | null {
+  return null;
+}
 type Props = {
   onClose: (result?: string, options?: {
     display?: CommandResultDisplay;

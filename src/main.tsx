@@ -954,7 +954,10 @@ async function run(): Promise<CommanderCommand> {
   // `mcp` and `add` as paths, then choked on --transport as an unknown
   // top-level option. Single-value + collect accumulator means each
   // --plugin-dir takes exactly one arg; repeat the flag for multiple dirs.
-  .option('--plugin-dir <path>', 'Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B)', (val: string, prev: string[]) => [...prev, val], [] as string[]).option('--disable-slash-commands', 'Disable all skills', () => true).option('--chrome', 'Enable Claude in Chrome integration').option('--no-chrome', 'Disable Claude in Chrome integration').option('--file <specs...>', 'File resources to download at startup. Format: file_id:relative_path (e.g., --file file_abc:doc.txt file_def:img.png)').action(async (prompt, options) => {
+  .option('--plugin-dir <path>', 'Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B)', (val: string, prev: string[]) => [...prev, val], [] as string[]).option('--disable-slash-commands', 'Disable all skills', () => true).option('--chrome', 'Enable Claude in Chrome integration').option('--no-chrome', 'Disable Claude in Chrome integration').option('--file <specs...>', 'File resources to download at startup. Format: file_id:relative_path (e.g., --file file_abc:doc.txt file_def:img.png)')
+  // cli.tsx consumes --provider-env-file before provider resolution; this registration
+  // keeps Commander help and unknown-option handling aligned with that bootstrap path.
+  .option('--provider-env-file <path>', 'Load provider environment variables from a file before validation (repeatable; existing values win)', (val: string, prev: string[]) => [...prev, val], [] as string[]).action(async (prompt, options) => {
     profileCheckpoint('action_handler_start');
 
     // --bare = one-switch minimal mode. Sets SIMPLE so all the existing
@@ -1454,7 +1457,7 @@ async function run(): Promise<CommanderCommand> {
         const {
           allowed,
           blocked
-        } = filterMcpServersByPolicy(scopedConfigs);
+        } = filterMcpServersByPolicy(scopedConfigs as Record<string, ScopedMcpServerConfig>);
         if (blocked.length > 0) {
           process.stderr.write(`Warning: MCP ${plural(blocked.length, 'server')} blocked by enterprise policy: ${blocked.join(', ')}\n`);
         }
@@ -2347,7 +2350,7 @@ async function run(): Promise<CommanderCommand> {
     // (handled via setupTrigger), and resume/continue (conversationRecovery.ts
     // fires 'resume' instead — without this guard, hooks fire TWICE on /resume
     // and the second systemMessage clobbers the first. gh-30825)
-    const hooksPromise = initOnly || init || maintenance || isNonInteractiveSession || options.continue || options.resume ? null : processSessionStartHooks('startup', {
+    const hooksPromise = initOnly || init || maintenance || isNonInteractiveSession || options.continue || options.resume || options.fromPr ? null : processSessionStartHooks('startup', {
       agentType: mainThreadAgentDefinition?.agentType,
       model: resolvedInitialModel
     });
@@ -2516,7 +2519,7 @@ async function run(): Promise<CommanderCommand> {
       // undefined and the ?? fallback runs). Also skip when setupTrigger is
       // set — those paths run setup hooks first (print.ts:544), and session
       // start hooks must wait until setup completes.
-      const sessionStartHooksPromise = options.continue || options.resume || teleport || setupTrigger ? undefined : processSessionStartHooks('startup');
+      const sessionStartHooksPromise = options.continue || options.resume || options.fromPr || teleport || setupTrigger ? undefined : processSessionStartHooks('startup');
       // Suppress transient unhandledRejection if this rejects before
       // loadInitialMessages awaits it. Downstream await still observes the
       // rejection — this just prevents the spurious global handler fire.
@@ -2743,6 +2746,7 @@ async function run(): Promise<CommanderCommand> {
       void runHeadless(inputPrompt, () => headlessStore.getState(), headlessStore.setState, commandsHeadless, tools, sdkMcpConfigs, agentDefinitions.activeAgents, {
         continue: options.continue,
         resume: options.resume,
+        fromPr: options.fromPr,
         verbose: verbose,
         outputFormat: outputFormat,
         jsonSchema,
@@ -2841,6 +2845,9 @@ async function run(): Promise<CommanderCommand> {
       settings: getInitialSettings(),
       tasks: {},
       agentNameRegistry: new Map(),
+      // Session-scoped auto-continuation goal — starts unset, matching
+      // AppStateStore's default state factory.
+      goal: null,
       verbose: verbose ?? getGlobalConfig().verbose ?? false,
       mainLoopModel: initialMainLoopModel,
       mainLoopModelForSession: null,
@@ -3169,7 +3176,7 @@ async function run(): Promise<CommanderCommand> {
 
       // Discovery flow — list bridge environments, filter sessions
       if (!targetSessionId) {
-        let sessions;
+        let sessions: Awaited<ReturnType<typeof discoverAssistantSessions>>;
         try {
           sessions = await discoverAssistantSessions();
         } catch (e) {
@@ -3741,7 +3748,7 @@ async function run(): Promise<CommanderCommand> {
     } = await import('./cli/handlers/mcp.js');
     await mcpAddJsonHandler(name, json, options);
   });
-  mcp.command('add-from-claude-desktop').description('Import MCP servers from Claude Desktop (Mac and WSL only)').option('-s, --scope <scope>', 'Configuration scope (local, user, or project)', 'local').action(async (options: {
+  mcp.command('add-from-claude-desktop').description('Import MCP servers from Claude Desktop (macOS, Windows, and WSL)').option('-s, --scope <scope>', 'Configuration scope (local, user, or project)', 'local').action(async (options: {
     scope?: string;
   }) => {
     const {
@@ -4160,7 +4167,42 @@ async function run(): Promise<CommanderCommand> {
   }
 
   // Doctor command - check installation health
-  program.command('doctor').description('Check the health of your OpenClaude auto-updater. Note: The workspace trust dialog is skipped and stdio servers from .mcp.json are spawned for health checks. Only use this command in directories you trust.').action(async () => {
+  const doctorCommand = program
+    .command('doctor')
+    .description('Check the health of your OpenClaude auto-updater. Note: The workspace trust dialog is skipped and stdio servers from .mcp.json are spawned for health checks. Only use this command in directories you trust.');
+  doctorCommand
+    .command('report')
+    .description('Print a redacted diagnostic report for GitHub issues')
+    .addOption(new Option('--json', 'Print JSON output').conflicts('markdown'))
+    .addOption(new Option('--markdown', 'Print Markdown output').conflicts('json'))
+    .option('--out <file>', 'Write the report to a file')
+    .addOption(new Option('--redacted', 'Keep redaction enabled (default)').default(true).hideHelp())
+    .option('--include-debug', 'Include redacted recent error summaries')
+    .action(async (options: {
+      json?: boolean;
+      markdown?: boolean;
+      out?: string;
+      redacted?: boolean;
+      includeDebug?: boolean;
+    }) => {
+      const {
+        doctorReportHandler,
+        printDoctorReportError,
+      } = await import('./cli/handlers/doctorReport.js');
+      try {
+        await doctorReportHandler({
+          format: options.json ? 'json' : 'markdown',
+          outFile: options.out ?? null,
+          includeDebug: options.includeDebug === true,
+          redacted: options.redacted !== false,
+        });
+        process.exit(0);
+      } catch (error) {
+        printDoctorReportError(error);
+        process.exit(1);
+      }
+    });
+  doctorCommand.action(async () => {
     const [{
       doctorHandler
     }, {

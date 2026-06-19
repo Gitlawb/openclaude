@@ -52,6 +52,17 @@ export const MonitorMcpTask: Task = {
 }
 
 /**
+ * Stop a running monitor_mcp task. Convenience wrapper used by the
+ * background tasks dialog ('x' shortcut and detail-view kill button).
+ */
+export function killMonitorMcp(
+  taskId: string,
+  setAppState: SetAppState,
+): void {
+  void MonitorMcpTask.kill(taskId, setAppState)
+}
+
+/**
  * Kill all monitor tasks owned by a given agent.
  *
  * MonitorTool spawns tasks as local_bash with kind='monitor'. When an agent

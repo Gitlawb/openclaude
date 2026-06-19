@@ -18,7 +18,7 @@ async function _temp() {
     timeoutMs: 15000,
     key: "npm-deprecation-warning",
     text: NPM_DEPRECATION_MESSAGE,
-    color: "warning",
-    priority: "high"
+    color: "warning" as const,
+    priority: "high" as const
   };
 }

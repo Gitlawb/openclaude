@@ -93,12 +93,18 @@ export function clearSessionCaches(
 
   // Clear tungsten session usage tracking
   if (process.env.USER_TYPE === 'ant') {
-    void import('../../tools/TungstenTool/TungstenTool.js').then(
-      ({ clearSessionsWithTungstenUsage, resetInitializationState }) => {
-        clearSessionsWithTungstenUsage()
-        resetInitializationState()
-      },
-    )
+    void import('../../tools/TungstenTool/TungstenTool.js').then(mod => {
+      // TungstenTool.ts is currently a stub module — these helpers may be
+      // absent, so call them only if present.
+      const tungsten = mod as Partial<
+        Record<
+          'clearSessionsWithTungstenUsage' | 'resetInitializationState',
+          () => void
+        >
+      >
+      tungsten.clearSessionsWithTungstenUsage?.()
+      tungsten.resetInitializationState?.()
+    })
   }
   // Clear attribution caches (file content cache, pending bash states)
   // Dynamic import to preserve dead code elimination for COMMIT_ATTRIBUTION feature flag

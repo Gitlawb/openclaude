@@ -354,8 +354,8 @@ export function assembleToolPool(
   // sort would interleave MCP tools into built-ins and invalidate all downstream
   // cache keys whenever an MCP tool sorts between existing built-ins. uniqBy
   // preserves insertion order, so built-ins win on name conflict.
-  // Avoid Array.toSorted (Node 20+) — we support Node 18. builtInTools is
-  // readonly so copy-then-sort; allowedMcpTools is a fresh .filter() result.
+  // Keep copy-then-sort because builtInTools is readonly; allowedMcpTools is a
+  // fresh .filter() result.
   const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)
   return uniqBy(
     [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),

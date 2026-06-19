@@ -39,7 +39,7 @@ import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeSh
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { interpretCommandResult } from './commandSemantics.js';
 import { powershellToolHasPermission } from './powershellPermissions.js';
-import { getDefaultTimeoutMs, getMaxTimeoutMs, getPrompt } from './prompt.js';
+import { getEffectiveTimeoutMs, getMaxTimeoutMs, getPrompt } from './prompt.js';
 import { hasSyncSecurityConcerns, isReadOnlyCommand, resolveToCanonical } from './readOnlyValidation.js';
 import { POWERSHELL_TOOL_NAME } from './toolName.js';
 import { renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseQueuedMessage } from './UI.js';
@@ -707,7 +707,7 @@ async function* runPowerShellCommand({
     dangerouslyDisableSandbox,
     _dangerouslyDisableSandboxApproved
   } = input;
-  const timeoutMs = Math.min(timeout || getDefaultTimeoutMs(), getMaxTimeoutMs());
+  const timeoutMs = getEffectiveTimeoutMs(timeout);
   let fullOutput = '';
   let lastProgressOutput = '';
   let lastTotalLines = 0;

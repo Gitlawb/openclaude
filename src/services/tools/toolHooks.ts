@@ -225,7 +225,11 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
         }
       } else {
         try {
-          const cwd = toolUseContext.options?.cwd ?? process.cwd()
+          // ToolUseContext options don't declare cwd; read it defensively
+          // (no caller sets it today — falls back to process.cwd()).
+          const cwd =
+            (toolUseContext.options as { cwd?: string } | undefined)?.cwd ??
+            process.cwd()
           const autoFixResult = await runAutoFixCheck({
             lint: autoFixConfig.lint,
             test: autoFixConfig.test,
@@ -500,7 +504,11 @@ export async function resolveHookPermissionDecision(
     )
     return {
       decision: fullAccessDecision,
-      input: fullAccessDecision.updatedInput ?? askInput,
+      // deny decisions carry no updatedInput
+      input:
+        fullAccessDecision.behavior === 'deny'
+          ? askInput
+          : (fullAccessDecision.updatedInput ?? askInput),
     }
   }
   const forceDecision =

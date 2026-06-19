@@ -41,7 +41,7 @@ import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { loadPluginOptions, type PluginOptionSchema, savePluginOptions } from '../../utils/plugins/pluginOptionsStorage.js';
 import { isPluginBlockedByPolicy } from '../../utils/plugins/pluginPolicy.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
-import { getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { getRelativeSettingsFilePathForSource, getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
 import { jsonParse } from '../../utils/slowOperations.js';
 import { plural } from '../../utils/stringUtils.js';
 import { formatErrorMessage, getErrorGuidance } from './PluginErrors.js';
@@ -60,6 +60,9 @@ type Props = {
   targetMarketplace?: string;
   action?: 'enable' | 'disable' | 'uninstall';
 };
+
+const projectSettingsDisplayPath = getRelativeSettingsFilePathForSource('projectSettings');
+const localSettingsDisplayPath = getRelativeSettingsFilePathForSource('localSettings');
 type FlaggedPluginInfo = {
   id: string;
   name: string;
@@ -1043,7 +1046,7 @@ export function ManagePlugins({
           {
             if (isBuiltin) break; // guarded above; narrows pluginScope
             if (!isInstallableScope(pluginScope)) break;
-            // If the plugin is enabled in .claude/settings.json (shared with the
+            // If the plugin is enabled in project settings (shared with the
             // team), divert to a confirmation dialog that offers to disable in
             // settings.local.json instead. Check the settings file directly —
             // `pluginScope` (from installed_plugins.json) can be 'user' even when
@@ -1526,7 +1529,7 @@ export function ManagePlugins({
         return;
       }
       clearAllCaches();
-      setResult(`✓ Disabled ${selectedPlugin.plugin.name} in .claude/settings.local.json. Run /reload-plugins to apply.`);
+      setResult(`✓ Disabled ${selectedPlugin.plugin.name} in ${localSettingsDisplayPath}. Run /reload-plugins to apply.`);
       if (onManageComplete) void onManageComplete();
       setParentViewState({
         type: 'menu'
@@ -1760,16 +1763,16 @@ export function ManagePlugins({
       </Box>;
   }
 
-  // Confirm-project-uninstall: warn about shared .claude/settings.json,
+  // Confirm-project-uninstall: warn about shared project settings,
   // offer to disable in settings.local.json instead.
   if (viewState === 'confirm-project-uninstall' && selectedPlugin) {
     return <Box flexDirection="column">
         <Text bold color="warning">
-          {selectedPlugin.plugin.name} is enabled in .claude/settings.json
+          {selectedPlugin.plugin.name} is enabled in {projectSettingsDisplayPath}
           (shared with your team)
         </Text>
         <Box marginTop={1} flexDirection="column">
-          <Text>Disable it just for you in .claude/settings.local.json?</Text>
+          <Text>Disable it just for you in {localSettingsDisplayPath}?</Text>
           <Text dimColor>
             This has the same effect as uninstalling, without affecting other
             contributors.

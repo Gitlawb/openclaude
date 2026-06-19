@@ -394,6 +394,14 @@ function renderIntegrationArtifacts(
     ...modelModules.map(module => `import ${module.importName} from '${module.importPath}'`),
   ]
 
+  const allModelDescriptors = loadedModules.modelModules.flatMap(m => m.descriptors)
+  const uniqueKeys = new Set(allModelDescriptors.map(m => `${m.id}::${m.vendorId}`))
+  if (allModelDescriptors.length > uniqueKeys.size) {
+    throw new Error(
+      `Duplicate model (id, vendorId) pairs detected: ${allModelDescriptors.length} entries, ${uniqueKeys.size} unique.`,
+    )
+  }
+
   const presetManifest = loadedModules.routeModules
     .filter(routeModule => routeModule.descriptor.preset)
     .map(routeModule => buildPresetManifestEntry(routeModule, routeModule.descriptor.preset!))

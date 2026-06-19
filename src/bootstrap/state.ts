@@ -397,7 +397,7 @@ const STATE: State = getInitialState()
  *
  * **Runtime Requirement:** Uses Node.js `async_hooks.AsyncLocalStorage`.
  * Not available in browsers or non-Node JavaScript environments.
- * SDK consumers must run in a Node.js runtime (Node.js 12.17.0+ or 14.0.0+).
+ * SDK consumers must run in OpenClaude's supported Node.js runtime (>=22.0.0).
  */
 type SdkContext = {
   sessionId: SessionId

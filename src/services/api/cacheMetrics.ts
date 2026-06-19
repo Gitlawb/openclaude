@@ -65,6 +65,11 @@ export type CacheAwareProvider =
   | 'copilot'
   | 'copilot-claude'
 
+export type CacheMetricsReliability =
+  | 'reliable'
+  | 'advisory'
+  | 'unsupported'
+
 /** Unified cache metrics for one API response. */
 export type CacheMetrics = {
   /** Tokens served from cache on this request. */
@@ -271,6 +276,18 @@ export function resolveCacheProvider(
   // 'openai' for normalization purposes — if the provider doesn't emit the
   // field we simply get zeros, and hitRate stays null via the 0-guard below.
   return 'openai'
+}
+
+export function getCacheMetricsReliability(
+  provider: CacheAwareProvider,
+): CacheMetricsReliability {
+  if (provider === 'copilot' || provider === 'ollama') {
+    return 'unsupported'
+  }
+  if (provider === 'anthropic' || provider === 'copilot-claude') {
+    return 'reliable'
+  }
+  return 'advisory'
 }
 
 /**

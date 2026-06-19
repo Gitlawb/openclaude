@@ -32,7 +32,7 @@ export function AgentsList(t0) {
     changes,
     activeAgentName
   } = t0;
-  const [selectedAgent, setSelectedAgent] = React.useState(null);
+  const [selectedAgent, setSelectedAgent] = React.useState<ResolvedAgent | null>(null);
   const [isCreateNewSelected, setIsCreateNewSelected] = React.useState(true);
   let t1;
   if ($[0] !== agents) {

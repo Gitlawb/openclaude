@@ -248,16 +248,22 @@ export function parseGitDiff(
         continue
       }
 
-      // Skip binary file markers and other metadata
+      // Skip binary file markers and other metadata. These only appear in the
+      // file preamble before the first @@ hunk header, so only match them when
+      // we are not yet inside a hunk. Once inside a hunk, a line such as
+      // "---legacy-peer-deps" (a removed line whose content starts with "--")
+      // or "+++count" (an added line whose content starts with "++") is real
+      // diff content and must not be dropped as a "+++"/"---" header.
       if (
-        line.startsWith('index ') ||
-        line.startsWith('---') ||
-        line.startsWith('+++') ||
-        line.startsWith('new file') ||
-        line.startsWith('deleted file') ||
-        line.startsWith('old mode') ||
-        line.startsWith('new mode') ||
-        line.startsWith('Binary files')
+        !currentHunk &&
+        (line.startsWith('index ') ||
+          line.startsWith('---') ||
+          line.startsWith('+++') ||
+          line.startsWith('new file') ||
+          line.startsWith('deleted file') ||
+          line.startsWith('old mode') ||
+          line.startsWith('new mode') ||
+          line.startsWith('Binary files'))
       ) {
         continue
       }

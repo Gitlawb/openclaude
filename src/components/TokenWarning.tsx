@@ -34,7 +34,7 @@ function CollapseLabel(t0) {
     getStats,
     subscribe
   } = t1 as typeof import('../services/contextCollapse/index.js');
-  let t2;
+  let t2: () => string;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = () => {
       const s = getStats();

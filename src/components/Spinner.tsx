@@ -18,7 +18,7 @@ import { MessageResponse } from './MessageResponse.js';
 import { TaskListV2 } from './TaskListV2.js';
 import { useTasksV2 } from '../hooks/useTasksV2.js';
 import type { Task } from '../utils/tasks.js';
-import { useAppState } from '../state/AppState.js';
+import { type AppState, useAppState } from '../state/AppState.js';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
 import { stringWidth } from '../ink/stringWidth.js';
 import { getDefaultCharacters, type SpinnerMode } from './Spinner/index.js';
@@ -208,8 +208,8 @@ function SpinnerWithVerbInner({
   // the ref. The tree is only shown when teammates are running; teammate
   // progress updates to s.tasks trigger re-renders that keep this fresh.
   const leaderTokenCount = Math.round(responseLengthRef.current / 4);
-  const defaultColor: keyof Theme = 'claude';
-  const defaultShimmerColor = 'claudeShimmer';
+  const defaultColor: keyof Theme = 'brand';
+  const defaultShimmerColor = 'brandShimmer';
   const messageColor = overrideColor ?? defaultColor;
   const shimmerColor = overrideShimmerColor ?? defaultShimmerColor;
 
@@ -429,7 +429,7 @@ function BriefSpinner(t0) {
 // as BriefSpinner so the input bar never jumps when toggling between
 // working/idle/disconnected. See BriefSpinner's comment for the
 // Notifications overlay coupling.
-function _temp6(s_0) {
+function _temp6(s_0: AppState) {
   return count(Object.values(s_0.tasks), isBackgroundTask) + s_0.remoteBackgroundTaskCount;
 }
 function _temp5(s) {
@@ -488,7 +488,7 @@ export function BriefIdleStatus() {
   }
   return t2;
 }
-function _temp8(s_0) {
+function _temp8(s_0: AppState) {
   return count(Object.values(s_0.tasks), isBackgroundTask) + s_0.remoteBackgroundTaskCount;
 }
 function _temp7(s) {

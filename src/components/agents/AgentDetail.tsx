@@ -3,8 +3,10 @@ import figures from 'figures';
 import * as React from 'react';
 import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import type { KeyboardEvent } from '../../ink/events/keyboard-event.js';
-import { Box, Text } from '../../ink.js';
+import { Box, Text, useInput } from '../../ink.js';
 import { useKeybinding } from '../../keybindings/useKeybinding.js';
+import { AgentRouteSelector } from './AgentRouteSelector.js';
+import { describeRouteLine, getAgentRoute } from '../../services/api/agentRouteSettings.js';
 import type { Tools } from '../../Tool.js';
 import { getAgentColor } from '../../tools/AgentTool/agentColorManager.js';
 import { getMemoryScopeDisplay } from '../../tools/AgentTool/agentMemory.js';
@@ -18,15 +20,27 @@ type Props = {
   tools: Tools;
   allAgents?: AgentDefinition[];
   onBack: () => void;
+  /** Notifies the parent when the route picker opens/closes so an enclosing
+   *  Dialog can deactivate its own Esc handler while the picker owns Esc. */
+  onRoutingChange?: (routing: boolean) => void;
 };
 export function AgentDetail(t0) {
   const $ = _c(48);
   const {
     agent,
     tools,
-    onBack
+    onBack,
+    onRoutingChange
   } = t0;
   const resolvedTools = resolveAgentTools(agent, tools, false);
+  const [routing, setRouting] = React.useState(false);
+  const currentRoute = getAgentRoute(agent.agentType);
+  useInput((input) => {
+    if (!routing && (input === 'm' || input === 'M')) {
+      setRouting(true);
+      onRoutingChange?.(true);
+    }
+  }, { isActive: !routing });
   let t1;
   if ($[0] !== agent) {
     t1 = getActualRelativeAgentFilePath(agent);
@@ -45,16 +59,15 @@ export function AgentDetail(t0) {
     t2 = $[3];
   }
   const backgroundColor = t2;
-  let t3;
-  if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = {
-      context: "Confirmation"
-    };
-    $[4] = t3;
-  } else {
-    t3 = $[4];
-  }
-  useKeybinding("confirm:no", onBack, t3);
+  // While the route picker is open it owns Esc (its Select registers
+  // select:cancel via onClose). Deactivate the detail-level back handler so a
+  // bare Esc only closes the picker instead of exiting the detail view.
+  // Passed inline rather than memoized: useKeybinding keys its effect on the
+  // destructured values, not the options object identity.
+  useKeybinding("confirm:no", onBack, {
+    context: "Confirmation",
+    isActive: !routing
+  });
   let t4;
   if ($[5] !== onBack) {
     t4 = e => {
@@ -216,5 +229,11 @@ export function AgentDetail(t0) {
   } else {
     t24 = $[47];
   }
-  return t24;
+  if (routing) {
+    return <AgentRouteSelector agentType={agent.agentType} current={currentRoute} onClose={() => {
+      setRouting(false);
+      onRoutingChange?.(false);
+    }} />;
+  }
+  return <Box flexDirection="column">{t24}<Text dimColor={true}>{describeRouteLine(currentRoute)}  (press "m" to change)</Text></Box>;
 }

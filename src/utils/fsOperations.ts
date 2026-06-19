@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import {
+  cp as cpPromise,
   mkdir as mkdirPromise,
   open,
   readdir as readdirPromise,
@@ -45,6 +46,12 @@ export type FsOperations = {
   readFile(path: string, options: { encoding: BufferEncoding }): Promise<string>
   /** Renames/moves file asynchronously */
   rename(oldPath: string, newPath: string): Promise<void>
+  /** Copies a file or directory tree asynchronously */
+  cp(
+    source: string,
+    destination: string,
+    options?: { recursive?: boolean },
+  ): Promise<void>
   /** Gets file stats */
   statSync(path: string): fs.Stats
   /** Gets file stats without following symlinks */
@@ -415,12 +422,20 @@ export const NodeFsOperations: FsOperations = {
     try {
       await mkdirPromise(dirPath, { recursive: true, ...options })
     } catch (e) {
+      const code = getErrnoCode(e)
       // Bun/Windows: recursive:true throws EEXIST on directories with the
       // FILE_ATTRIBUTE_READONLY bit set (Group Policy, OneDrive, desktop.ini).
       // Bun's directoryExistsAt misclassifies DIRECTORY+READONLY as not-a-dir
       // (bun-internal src/sys.zig existsAtType). The dir exists; ignore.
       // https://github.com/anthropics/claude-code/issues/30924
-      if (getErrnoCode(e) !== 'EEXIST') throw e
+      if (code === 'EEXIST') return
+      // Permission denied on recursive:true — the parent dir may exist but
+      // refuse writes (e.g. /tmp in container environments with restricted
+      // permissions, systemd private tmp namespaces). If the directory
+      // already exists via a prior mkdir call, treat it as a no-op. This
+      // prevents the error from propagating to callers that don't catch it.
+      if (code === 'EACCES' && fs.existsSync(dirPath)) return
+      throw e
     }
   },
 
@@ -430,6 +445,10 @@ export const NodeFsOperations: FsOperations = {
 
   async rename(oldPath, newPath) {
     return renamePromise(oldPath, newPath)
+  },
+
+  async cp(source, destination, options) {
+    return cpPromise(source, destination, options)
   },
 
   statSync(fsPath) {
@@ -536,12 +555,19 @@ export const NodeFsOperations: FsOperations = {
     try {
       fs.mkdirSync(dirPath, mkdirOptions)
     } catch (e) {
+      const code = getErrnoCode(e)
       // Bun/Windows: recursive:true throws EEXIST on directories with the
       // FILE_ATTRIBUTE_READONLY bit set (Group Policy, OneDrive, desktop.ini).
       // Bun's directoryExistsAt misclassifies DIRECTORY+READONLY as not-a-dir
       // (bun-internal src/sys.zig existsAtType). The dir exists; ignore.
       // https://github.com/anthropics/claude-code/issues/30924
-      if (getErrnoCode(e) !== 'EEXIST') throw e
+      if (code === 'EEXIST') return
+      // Permission denied on recursive:true — the parent dir may exist but
+      // refuse writes (e.g. /tmp in container environments with restricted
+      // permissions, systemd private tmp namespaces). If the directory
+      // already exists via a prior mkdir call, treat it as a no-op.
+      if (code === 'EACCES' && fs.existsSync(dirPath)) return
+      throw e
     }
   },
 

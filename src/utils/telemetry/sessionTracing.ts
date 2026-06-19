@@ -48,7 +48,7 @@ export function isEnhancedTelemetryEnabled(): boolean {
 	return false
 }
 
-export function startInteractionSpan(): Span {
+export function startInteractionSpan(_userPromptText?: string): Span {
 	return noopSpan
 }
 
@@ -92,8 +92,21 @@ export async function executeInSpan<T>(
 	return fn(noopSpan)
 }
 
-export function startHookSpan(): Span {
+export function startHookSpan(
+	_hookEvent?: string,
+	_hookName?: string,
+	_numHooks?: number,
+	_hookDefinitionsJson?: string,
+): Span {
 	return noopSpan
 }
 
-export function endHookSpan() {}
+export function endHookSpan(
+	_span?: Span,
+	_outcomes?: {
+		numSuccess: number
+		numBlocking: number
+		numNonBlockingError: number
+		numCancelled: number
+	},
+) {}

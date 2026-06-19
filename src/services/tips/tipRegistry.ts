@@ -22,6 +22,7 @@ import {
 import { env } from '../../utils/env.js'
 import { cacheKeys } from '../../utils/fileStateCache.js'
 import { getWorktreeCount } from '../../utils/git.js'
+import { getUserSkillExampleDisplayPath } from '../../utils/openclaudeDisplayPaths.js'
 import {
   detectRunningIDEsCached,
   getSortedIdeLockfiles,
@@ -56,6 +57,10 @@ import {
 import { sponsoredTips } from './sponsoredTips.js'
 import { getSessionsSinceLastShown } from './tipHistory.js'
 import type { Tip, TipContext } from './types.js'
+
+export function getCustomCommandsTipContent(): string {
+  return `Create skills at .claude/skills/<name>/SKILL.md in your project or ${getUserSkillExampleDisplayPath()} for skills that work in any project`
+}
 
 let _isOfficialMarketplaceInstalledCache: boolean | undefined
 async function isOfficialMarketplaceInstalled(): Promise<boolean> {
@@ -390,8 +395,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'custom-commands',
-    content: async () =>
-      'Create skills at .claude/skills/<name>/SKILL.md in your project or ~/.openclaude/skills/<name>/SKILL.md for skills that work in any project',
+    content: async () => getCustomCommandsTipContent(),
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()

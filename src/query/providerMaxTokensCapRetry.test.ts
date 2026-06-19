@@ -105,14 +105,12 @@ function makeParams(
   }
 }
 
-async function collect(
-  params: QueryParams,
-): Promise<Array<Awaited<ReturnType<ReturnType<typeof query>['next']>>['value']>> {
+// `any[]` on purpose: the collected stream mixes Message/StreamEvent/Terminal
+// and the assertions below probe optional properties across all of them.
+async function collect(params: QueryParams): Promise<any[]> {
   const previousSimple = process.env.CLAUDE_CODE_SIMPLE
   process.env.CLAUDE_CODE_SIMPLE = '1'
-  const messages: Array<
-    Awaited<ReturnType<ReturnType<typeof query>['next']>>['value']
-  > = []
+  const messages: any[] = []
   try {
     for await (const message of query(params)) {
       messages.push(message)

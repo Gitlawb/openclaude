@@ -8,7 +8,7 @@ export function useDeprecationWarningNotification(model) {
   const {
     addNotification
   } = useNotifications();
-  const lastWarningRef = useRef(null);
+  const lastWarningRef = useRef<string | null>(null);
   let t0;
   let t1;
   if ($[0] !== addNotification || $[1] !== model) {

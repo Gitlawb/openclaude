@@ -503,7 +503,7 @@ export function Select(t0) {
         };
       });
       if (hasDescriptions) {
-        let t19;
+        let t19: (data: (typeof optionData)[number]) => number;
         if ($[61] !== hideIndexes || $[62] !== maxIndexWidth_1) {
           t19 = data => {
             if (data.option.type === "input") {
@@ -589,7 +589,7 @@ export function Select(t0) {
         const isSelected_3 = state.value === option_4.value;
         const isOptionDisabled_2 = option_4.disabled === true;
         const optionColor_2 = isOptionDisabled_2 ? undefined : option_4.color ?? (isSelected_3 ? "success" : isFocused_3 ? "suggestion" : undefined);
-        return <SelectOption key={String(option_4.value)} isFocused={isFocused_3} isSelected={isSelected_3} shouldShowDownArrow={areMoreOptionsBelow_3 && isLastVisibleOption_3} shouldShowUpArrow={areMoreOptionsAbove_3 && isFirstVisibleOption_3}><Box flexDirection="row" flexShrink={0}>{!hideIndexes && <Text dimColor={true}>{`${i_3}.`.padEnd(maxIndexWidth_1 + 2)}</Text>}<Text dimColor={isOptionDisabled_2} color={optionColor_2}>{label_2}{inlineDescriptions && option_4.description && <Text dimColor={isOptionDisabled_2 || option_4.dimDescription !== false}>{" "}{option_4.description}</Text>}</Text></Box>{!inlineDescriptions && option_4.description && <Box flexShrink={99} marginLeft={2}><Text wrap="wrap-trim" dimColor={isOptionDisabled_2 || option_4.dimDescription !== false} color={optionColor_2}><Ansi>{option_4.description}</Ansi></Text></Box>}</SelectOption>;
+        return <SelectOption key={String(option_4.value)} isFocused={isFocused_3} isSelected={isSelected_3} shouldShowDownArrow={areMoreOptionsBelow_3 && isLastVisibleOption_3} shouldShowUpArrow={areMoreOptionsAbove_3 && isFirstVisibleOption_3}><Box flexDirection="row" flexShrink={1}>{!hideIndexes && <Text dimColor={true}>{`${i_3}.`.padEnd(maxIndexWidth_1 + 2)}</Text>}<Text dimColor={isOptionDisabled_2} color={optionColor_2}>{label_2}</Text>{inlineDescriptions && option_4.description && <Box flexShrink={1}><Text wrap="truncate-end" dimColor={isOptionDisabled_2 || option_4.dimDescription !== false} color={optionColor_2}>{" "}{option_4.description}</Text></Box>}</Box>{!inlineDescriptions && option_4.description && <Box flexShrink={99} marginLeft={2}><Text wrap="wrap-trim" dimColor={isOptionDisabled_2 || option_4.dimDescription !== false} color={optionColor_2}><Ansi>{option_4.description}</Ansi></Text></Box>}</SelectOption>;
       });
     }
     $[28] = hideIndexes;

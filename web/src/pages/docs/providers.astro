@@ -1,0 +1,71 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro'
+import { providers } from '../../data/providers'
+
+const toc = [
+  { id: 'how-it-works', label: 'how provider setup works' },
+  { id: 'supported-providers', label: 'supported providers' },
+  { id: 'env-setup', label: 'env-var setup' },
+]
+---
+
+<DocsLayout
+  title="openclaude providers — OpenAI, Gemini, Ollama & 13+ backends"
+  description="Connect openclaude to any model provider: Anthropic, OpenAI-compatible APIs, OpenRouter, Gemini, GitHub Models, Codex OAuth, Ollama, LM Studio, Bedrock, Vertex, and more."
+  heading="model providers"
+  lede="One agent, every backend. Wire a provider once and switch models mid-session."
+  toc={toc}
+>
+  <h2 id="how-it-works">how provider setup works</h2>
+  <p>
+    Run <code>/provider</code> inside a session for guided setup. It walks you through
+    auth, lets you pick a model, and saves the result as a profile so future sessions —
+    and other clones of the repo — boot the same way. You can also configure everything
+    through <a href="/docs/configuration/">environment variables</a>, which is handy for
+    CI and scripted <code>--print</code> runs.
+  </p>
+  <p>
+    Switch models any time with <code>/model</code>, or pass
+    <code>--provider</code> / <code>--model</code> on the command line — see the
+    <a href="/docs/cli-reference/">CLI reference</a>.
+  </p>
+
+  <h2 id="supported-providers">supported providers</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">provider</th>
+          <th scope="col">setup</th>
+          <th scope="col">notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {providers.map(p => (
+          <tr id={p.id}>
+            <td>{p.name}</td>
+            <td>{p.setup}</td>
+            <td>
+              {p.notes}
+              {p.envVars && <span class="env-list"> uses <code>{p.envVars.join(', ')}</code></span>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="env-setup">env-var setup</h2>
+  <p>The fastest OpenAI-compatible setup (works for OpenRouter, DeepSeek, Groq, LM Studio, LiteLLM, and any /v1 server):</p>
+  <pre><code>export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY=sk-your-key-here
+export OPENAI_BASE_URL=https://openrouter.ai/api/v1   # optional, defaults to OpenAI
+export OPENAI_MODEL=deepseek/deepseek-chat
+
+openclaude</code></pre>
+  <p>
+    Local Ollama needs no key at all — point <code>/provider</code> at it and pick a
+    pulled model. The full environment variable list lives on the
+    <a href="/docs/configuration/#environment-variables">configuration page</a>.
+  </p>
+</DocsLayout>

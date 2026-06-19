@@ -6,6 +6,17 @@ import {
 
 const originalSubagentModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL
 const originalOpenAIModel = process.env.OPENAI_MODEL
+const originalDefaultModelEnv = {
+  ANTHROPIC_DEFAULT_OPUS_MODEL: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_SONNET_MODEL: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
+}
 const allowedModelsRef: { value?: string[] } = { value: undefined }
 
 type MockProvider =
@@ -65,6 +76,10 @@ describe('getAgentModel provider-aware fallback', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('utils/model/agent.test.ts')
     delete process.env.CLAUDE_CODE_SUBAGENT_MODEL
+    delete process.env.OPENAI_MODEL
+    for (const key of Object.keys(originalDefaultModelEnv)) {
+      delete process.env[key]
+    }
     setAvailableModelsForTest()
     mockModelAllowlist()
   })
@@ -83,6 +98,13 @@ describe('getAgentModel provider-aware fallback', () => {
         delete process.env.OPENAI_MODEL
       } else {
         process.env.OPENAI_MODEL = originalOpenAIModel
+      }
+      for (const [key, value] of Object.entries(originalDefaultModelEnv)) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
       }
     } finally {
       releaseSharedMutationLock()

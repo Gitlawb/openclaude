@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { getGlobalConfig, saveGlobalConfig } from 'src/utils/config.js'
+import type { GlobalConfig } from 'src/utils/config.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -25,7 +25,7 @@ const REVIEW_WORKFLOW_PATH =
 
 const execCalls: ExecCall[] = []
 const openedUrls: string[] = []
-let initialSetupCount: number | undefined
+let setupConfig: GlobalConfig
 let realModules: RealModules | undefined
 
 function execResult(stdout = '', code = 0, stderr = '') {
@@ -167,6 +167,12 @@ function handleGhCommand(args: string[]) {
 }
 
 function installMocks(real: RealModules): void {
+  mock.module('src/utils/config.js', () => ({
+    saveGlobalConfig: mock((updater: (current: GlobalConfig) => GlobalConfig) => {
+      setupConfig = updater(setupConfig)
+    }),
+  }))
+
   mock.module('../../utils/execFileNoThrow.js', () => ({
     ...real.execFileNoThrow,
     execFileNoThrow: mock(async (file: string, args: string[]) => {
@@ -198,17 +204,12 @@ beforeEach(async () => {
   )
   execCalls.length = 0
   openedUrls.length = 0
-  initialSetupCount = getGlobalConfig().githubActionSetupCount
+  setupConfig = { numStartups: 0, githubActionSetupCount: 0 } as GlobalConfig
   installMocks(await importRealModules())
 })
 
 afterEach(() => {
   try {
-    saveGlobalConfig(current => ({
-      ...current,
-      githubActionSetupCount: initialSetupCount,
-    }))
-    initialSetupCount = undefined
     mock.restore()
     if (realModules) {
       mock.module(
@@ -246,9 +247,7 @@ test('setupGitHubActions creates only the selected review workflow', async () =>
   expect(openedUrls[0]).toContain(
     'https://github.com/owner/repo/compare/main...add-claude-github-actions-',
   )
-  expect(getGlobalConfig().githubActionSetupCount).toBe(
-    (initialSetupCount ?? 0) + 1,
-  )
+  expect(setupConfig.githubActionSetupCount).toBe(1)
 })
 
 test('setupGitHubActions skip mode configures the secret without workflow writes', async () => {
@@ -276,7 +275,5 @@ test('setupGitHubActions skip mode configures the secret without workflow writes
   expect(openedUrls).toHaveLength(0)
   expect(secretSet?.args).toContain('CLAUDE_CODE_OAUTH_TOKEN')
   expect(secretSet?.args).toContain('oauth-token')
-  expect(getGlobalConfig().githubActionSetupCount).toBe(
-    (initialSetupCount ?? 0) + 1,
-  )
+  expect(setupConfig.githubActionSetupCount).toBe(1)
 })

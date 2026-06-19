@@ -239,6 +239,7 @@ export async function createBashShellProvider(
         }
         env.TMPDIR = posixTmpDir
         env.CLAUDE_CODE_TMPDIR = posixTmpDir
+        env.CLAUDE_TMPDIR = posixTmpDir
         // Zsh uses TMPPREFIX (default /tmp/zsh) for heredoc temp files,
         // not TMPDIR. Set it to a path inside the sandbox tmp dir so
         // heredocs work in sandboxed zsh commands.

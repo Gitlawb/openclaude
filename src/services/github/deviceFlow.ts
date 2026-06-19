@@ -1,6 +1,10 @@
 /**
  * GitHub OAuth device flow for CLI login (https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
  * Uses GitHub Copilot's official OAuth app for device authentication.
+ *
+ * Supports GitHub Enterprise Server (GHE) instances via GITHUB_ENTERPRISE_URL.
+ * When GITHUB_ENTERPRISE_URL is set, auth endpoints are routed through the
+ * GHE instance instead of github.com.
  */
 
 import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
@@ -20,6 +24,42 @@ export const COPILOT_HEADERS: Record<string, string> = {
   'Editor-Version': 'vscode/1.99.3',
   'Editor-Plugin-Version': 'copilot-chat/0.26.7',
   'Copilot-Integration-Id': 'vscode-chat',
+}
+
+/**
+ * Build auth endpoint URLs for GitHub Enterprise Server.
+ * GHE instances host OAuth endpoints at {ghe_url}/login/...
+ */
+export function normalizeGithubEnterpriseAuthBaseUrl(
+  gheUrl: string,
+): string {
+  const trimmed = gheUrl.trim()
+  try {
+    return new URL(trimmed).origin
+  } catch {
+    return trimmed.replace(/\/+$/, '')
+  }
+}
+
+export function getGithubEnterpriseDeviceCodeUrl(gheUrl: string): string {
+  return `${normalizeGithubEnterpriseAuthBaseUrl(gheUrl)}/login/device/code`
+}
+
+export function getGithubEnterpriseAccessTokenUrl(gheUrl: string): string {
+  return `${normalizeGithubEnterpriseAuthBaseUrl(gheUrl)}/login/oauth/access_token`
+}
+
+export function getGithubEnterpriseCopilotTokenUrl(gheUrl: string): string {
+  return `${normalizeGithubEnterpriseAuthBaseUrl(gheUrl)}/api/copilot_internal/v2/token`
+}
+
+/**
+ * Get the effective GitHub base URL for auth operations.
+ * Returns the GHE URL if GITHUB_ENTERPRISE_URL is set, otherwise undefined.
+ */
+export function getEffectiveGithubAuthBaseUrl(): string | undefined {
+  const gheUrl = process.env.GITHUB_ENTERPRISE_URL?.trim()
+  return gheUrl ? normalizeGithubEnterpriseAuthBaseUrl(gheUrl) : undefined
 }
 
 export type CopilotTokenResponse = {
@@ -63,6 +103,7 @@ export async function requestDeviceCode(options?: {
   clientId?: string
   scope?: string
   fetchImpl?: FetchLike
+  gheUrl?: string
 }): Promise<DeviceCodeResult> {
   const clientId = options?.clientId ?? getGithubDeviceFlowClientId()
   if (!clientId) {
@@ -78,10 +119,15 @@ export async function requestDeviceCode(options?: {
       ? [requestedScope]
       : [requestedScope, DEFAULT_GITHUB_DEVICE_SCOPE]
 
+  // Use GHE endpoint if GHE URL is provided
+  const deviceCodeUrl = options?.gheUrl
+    ? getGithubEnterpriseDeviceCodeUrl(options.gheUrl)
+    : GITHUB_DEVICE_CODE_URL
+
   let lastError = 'Device code request failed.'
 
   for (const scope of scopesToTry) {
-    const res = await fetchFn(GITHUB_DEVICE_CODE_URL, {
+    const res = await fetchFn(deviceCodeUrl, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       body: new URLSearchParams({
@@ -133,6 +179,7 @@ export type PollOptions = {
   initialInterval?: number
   timeoutSeconds?: number
   fetchImpl?: FetchLike
+  gheUrl?: string
 }
 
 export async function pollAccessToken(
@@ -148,8 +195,13 @@ export async function pollAccessToken(
   const fetchFn = options?.fetchImpl ?? fetch
   const start = Date.now()
 
+  // Use GHE endpoint if GHE URL is provided
+  const accessTokenUrl = options?.gheUrl
+    ? getGithubEnterpriseAccessTokenUrl(options.gheUrl)
+    : GITHUB_DEVICE_ACCESS_TOKEN_URL
+
   while ((Date.now() - start) / 1000 < timeoutSeconds) {
-    const res = await fetchFn(GITHUB_DEVICE_ACCESS_TOKEN_URL, {
+    const res = await fetchFn(accessTokenUrl, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       body: new URLSearchParams({
@@ -219,13 +271,22 @@ export async function openVerificationUri(uri: string): Promise<void> {
 /**
  * Exchange an OAuth access token for a Copilot API token.
  * The OAuth token alone cannot be used with the Copilot API endpoint.
+ *
+ * For GHE instances, the token exchange endpoint is at {ghe_url}/api/copilot_internal/v2/token
  */
 export async function exchangeForCopilotToken(
   oauthToken: string,
   fetchImpl?: FetchLike,
+  gheUrl?: string,
 ): Promise<CopilotTokenResponse> {
   const fetchFn = fetchImpl ?? fetch
-  const res = await fetchFn(COPILOT_TOKEN_URL, {
+
+  // Use GHE endpoint if provided
+  const copilotTokenUrl = gheUrl
+    ? getGithubEnterpriseCopilotTokenUrl(gheUrl)
+    : COPILOT_TOKEN_URL
+
+  const res = await fetchFn(copilotTokenUrl, {
     method: 'GET',
     headers: {
       Accept: 'application/json',

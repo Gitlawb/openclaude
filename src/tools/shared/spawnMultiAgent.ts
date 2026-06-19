@@ -997,6 +997,7 @@ async function handleSpawnInProcess(
       description: input.description,
       model,
       modelWasToolSpecified,
+      subagentType: agent_type,
       agentDefinition,
       teammateContext: result.teammateContext,
       // Strip messages: the teammate never reads toolUseContext.messages

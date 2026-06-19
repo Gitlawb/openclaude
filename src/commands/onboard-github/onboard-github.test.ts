@@ -4,7 +4,9 @@ import {
   activateGithubOnboardingMode,
   applyGithubOnboardingProcessEnv,
   buildGithubOnboardingSettingsEnv,
+  getExistingGithubEnterpriseUrl,
   hasExistingGithubModelsLoginToken,
+  normalizeGithubEnterpriseInputUrl,
   shouldForceGithubRelogin,
 } from './onboard-github.js'
 
@@ -52,6 +54,34 @@ describe('hasExistingGithubModelsLoginToken', () => {
 })
 
 describe('onboarding auth precedence cleanup', () => {
+  test('normalizes Enterprise input URL to the instance origin', () => {
+    expect(
+      normalizeGithubEnterpriseInputUrl(
+        'https://github.mycompany.com/api/copilot/',
+      ),
+    ).toBe('https://github.mycompany.com')
+  })
+
+  test('rejects invalid Enterprise input URL', () => {
+    expect(() => normalizeGithubEnterpriseInputUrl('not-a-url')).toThrow()
+  })
+
+  test('reads existing Enterprise URL from env or user settings', () => {
+    expect(
+      getExistingGithubEnterpriseUrl(
+        { GITHUB_ENTERPRISE_URL: ' https://github.env.example.com/path ' },
+        { GITHUB_ENTERPRISE_URL: 'https://github.settings.example.com' },
+      ),
+    ).toBe('https://github.env.example.com')
+
+    expect(
+      getExistingGithubEnterpriseUrl(
+        { GITHUB_ENTERPRISE_URL: 'undefined' },
+        { GITHUB_ENTERPRISE_URL: 'https://github.settings.example.com/api' },
+      ),
+    ).toBe('https://github.settings.example.com')
+  })
+
   test('clears preexisting OpenAI auth when switching to GitHub', () => {
     const env: NodeJS.ProcessEnv = {
       CLAUDE_CODE_USE_OPENAI: '1',
@@ -62,11 +92,13 @@ describe('onboarding auth precedence cleanup', () => {
       OPENAI_ORGANIZATION: 'org-legacy',
       OPENAI_BASE_URL: 'https://api.openai.com/v1',
       OPENAI_API_BASE: 'https://api.openai.com/v1',
+      GITHUB_COPILOT_KEY: 'stale-copilot-key',
+      GITHUB_ENTERPRISE_URL: 'https://github.old.example.com',
       CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
       CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'profile_old',
     }
 
-    applyGithubOnboardingProcessEnv('github:copilot', env)
+    applyGithubOnboardingProcessEnv('github:copilot', undefined, env)
 
     expect(env.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(env.OPENAI_MODEL).toBe('github:copilot')
@@ -77,6 +109,8 @@ describe('onboarding auth precedence cleanup', () => {
     expect(env.OPENAI_ORGANIZATION).toBeUndefined()
     expect(env.OPENAI_BASE_URL).toBeUndefined()
     expect(env.OPENAI_API_BASE).toBeUndefined()
+    expect(env.GITHUB_COPILOT_KEY).toBeUndefined()
+    expect(env.GITHUB_ENTERPRISE_URL).toBeUndefined()
 
     expect(env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
@@ -89,6 +123,31 @@ describe('onboarding auth precedence cleanup', () => {
     expect(settingsEnv.OPENAI_ORG).toBeUndefined()
     expect(settingsEnv.OPENAI_PROJECT).toBeUndefined()
     expect(settingsEnv.OPENAI_ORGANIZATION).toBeUndefined()
+    expect(settingsEnv.GITHUB_ENTERPRISE_URL).toBeUndefined()
+  })
+
+  test('persists Enterprise URL when switching to GitHub Enterprise', () => {
+    const env: NodeJS.ProcessEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      GITHUB_ENTERPRISE_URL: 'https://github.old.example.com',
+    }
+
+    applyGithubOnboardingProcessEnv(
+      'github:copilot',
+      'https://github.mycompany.com',
+      env,
+    )
+
+    expect(env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(env.GITHUB_ENTERPRISE_URL).toBe('https://github.mycompany.com')
+
+    const settingsEnv = buildGithubOnboardingSettingsEnv(
+      'github:copilot',
+      'https://github.mycompany.com',
+    )
+    expect(settingsEnv.GITHUB_ENTERPRISE_URL).toBe(
+      'https://github.mycompany.com',
+    )
   })
 })
 
@@ -97,12 +156,13 @@ describe('activateGithubOnboardingMode', () => {
     const calls: string[] = []
 
     const result = activateGithubOnboardingMode('  github:copilot  ', {
-      mergeSettingsEnv: model => {
-        calls.push(`merge:${model}`)
+      gheUrl: 'https://github.mycompany.com',
+      mergeSettingsEnv: (model, gheUrl) => {
+        calls.push(`merge:${model}:${gheUrl}`)
         return { ok: true }
       },
-      applyProcessEnv: model => {
-        calls.push(`apply:${model}`)
+      applyProcessEnv: (model, gheUrl) => {
+        calls.push(`apply:${model}:${gheUrl}`)
       },
       hydrateToken: () => {
         calls.push('hydrate')
@@ -114,8 +174,8 @@ describe('activateGithubOnboardingMode', () => {
 
     expect(result).toEqual({ ok: true })
     expect(calls).toEqual([
-      'merge:github:copilot',
-      'apply:github:copilot',
+      'merge:github:copilot:https://github.mycompany.com',
+      'apply:github:copilot:https://github.mycompany.com',
       'hydrate',
       'onChangeAPIKey',
     ])

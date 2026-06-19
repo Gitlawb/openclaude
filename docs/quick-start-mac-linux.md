@@ -4,7 +4,7 @@ This guide uses a standard shell such as Terminal, iTerm, bash, or zsh.
 
 ## 1. Install Node.js
 
-Install Node.js 20 or newer from:
+Install Node.js 22 LTS or newer from:
 
 - `https://nodejs.org/`
 
@@ -98,6 +98,17 @@ openclaude
 Replace `your-model-name` with the model name shown in LM Studio.
 
 No API key is needed for LM Studio local models (but uncomment the `OPENAI_API_KEY` line if you hit auth errors).
+
+### Option E: Using a .env file (Optional)
+
+If you prefer to keep your keys in a `.env` file instead of exporting them individually, note that OpenClaude does not load `.env` files automatically. You must explicitly pass it:
+
+```bash
+openclaude --provider-env-file .env
+```
+
+Keep `.env` out of git because it contains secrets.
+The explicit loader accepts provider/setup variables. Export runtime/debug variables from your shell or launcher instead.
 
 ## 4. If `openclaude` Is Not Found
 

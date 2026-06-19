@@ -21,7 +21,12 @@ const resultMessage = {
   result: 'Task completed successfully',
   stop_reason: 'end_turn',
   total_cost_usd: 0.02,
-  usage: { input_tokens: 200, output_tokens: 100 },
+  usage: {
+    input_tokens: 200,
+    output_tokens: 100,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  },
   modelUsage: {},
   permission_denials: [],
   uuid: 'result-uuid',

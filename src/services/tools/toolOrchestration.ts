@@ -186,3 +186,11 @@ function markToolUseAsComplete(
     return next
   })
 }
+
+/**
+ * Internal helpers exposed for tests. `partitionToolCalls` is the batching
+ * boundary that consumes each tool's `isConcurrencySafe()` to decide whether
+ * consecutive tool-use blocks run concurrently or are serialized — see
+ * AgentTool.copilotScheduling.test.ts for the Copilot scheduler contract.
+ */
+export const _test = { partitionToolCalls }

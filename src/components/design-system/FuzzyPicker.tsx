@@ -22,8 +22,10 @@ type Props<T> = {
   initialQuery?: string;
   items: readonly T[];
   getKey: (item: T) => string;
-  /** Keep to one line — preview handles overflow. */
-  renderItem: (item: T, isFocused: boolean) => React.ReactNode;
+  /** Keep to one line — preview handles overflow. `query` is the live search
+   *  text, passed as an argument (not closed over) so memoized render
+   *  callbacks can highlight matches without going stale. */
+  renderItem: (item: T, isFocused: boolean, query: string) => React.ReactNode;
   renderPreview?: (item: T) => React.ReactNode;
   /** 'right' keeps hints stable (no bounce), but needs width. */
   previewPosition?: 'bottom' | 'right';
@@ -170,7 +172,7 @@ export function FuzzyPicker<T>({
   const visible = items.slice(windowStart, windowStart + visibleCount);
   const emptyText = typeof emptyMessage === 'function' ? emptyMessage(query) : emptyMessage;
   const searchBox = <SearchBox query={query} cursorOffset={cursorOffset} placeholder={placeholder} isFocused isTerminalFocused={isTerminalFocused} />;
-  const listBlock = <List visible={visible} windowStart={windowStart} visibleCount={visibleCount} total={items.length} focusedIndex={focusedIndex} direction={direction} getKey={getKey} renderItem={renderItem} emptyText={emptyText} />;
+  const listBlock = <List visible={visible} windowStart={windowStart} visibleCount={visibleCount} total={items.length} focusedIndex={focusedIndex} direction={direction} getKey={getKey} renderItem={(item: T, isFocused: boolean) => renderItem(item, isFocused, query)} emptyText={emptyText} />;
   const preview = renderPreview && focused ? <Box flexDirection="column" flexGrow={1}>
         {renderPreview(focused)}
       </Box> : null;

@@ -51,7 +51,10 @@ function update(
   return updateToolFailureLoopGuard({
     state,
     toolUseBlocks,
-    toolResults: results,
+    // Minimal fixtures (no uuid/timestamp envelope) — cast type-side only.
+    toolResults: results as unknown as Parameters<
+      typeof updateToolFailureLoopGuard
+    >[0]['toolResults'],
     threshold,
   })
 }

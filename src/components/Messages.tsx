@@ -52,7 +52,9 @@ import type { JumpHandle } from './VirtualMessageList.js';
 // and pegs CPU at 100%. Memo on agentDefinitions so a new messages array
 // doesn't invalidate the logo subtree. LogoV2/StatusNotices internally
 // subscribe to useAppState/useSettings for their own updates.
-const LogoHeader = React.memo(function LogoHeader(t0) {
+const LogoHeader = React.memo(function LogoHeader(t0: {
+  agentDefinitions?: AgentDefinitionsResult;
+}) {
   const $ = _c(3);
   const {
     agentDefinitions

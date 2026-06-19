@@ -119,7 +119,10 @@ export function buildSessionContext(): ComputerUseSessionContext {
     // was true, onDisplayResolvedForApps re-sets the key in the same tick.
     onResolvedDisplayUpdated: id => tuc().setAppState(prev => {
       const cu = prev.computerUseMcpState;
-      if (cu?.selectedDisplayId === id && !cu.displayPinnedByModel && cu.displayResolvedForApps === undefined) {
+      // `cu?.selectedDisplayId === id` only passes with cu undefined when id
+      // is also undefined; resolver writebacks always carry a display id, so
+      // cu is non-null on the right-hand clauses (assert, don't re-check).
+      if (cu?.selectedDisplayId === id && !cu!.displayPinnedByModel && cu!.displayResolvedForApps === undefined) {
         return prev;
       }
       return {

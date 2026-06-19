@@ -29,6 +29,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import type { ThemeSetting } from '../../utils/theme.js'
 import { ThemeProvider, usePreviewTheme } from './ThemeProvider.js'
 
 await acquireSharedMutationLock('components/design-system/ThemeProvider.test.tsx')
@@ -133,7 +134,7 @@ test('useTheme() reflects updated currentTheme after setThemeSetting call', asyn
     return <Text>current:{theme}</Text>
   }
 
-  let setThemeFn: ((s: string) => void) | null = null
+  let setThemeFn: ((s: ThemeSetting) => void) | null = null
   function ThemeSetter() {
     const [, setter] = useTheme()
     useEffect(() => { setThemeFn = setter })
@@ -161,8 +162,10 @@ test('useTheme() reflects updated currentTheme after setThemeSetting call', asyn
     const afterLight = await waitForFrame(getOutput, f => f.includes('current:light'))
     expect(afterLight).toContain('current:light')
 
-    // Change again to confirm no stale caching
-    setThemeFn!('ansi')
+    // Change again to confirm no stale caching. 'ansi' is not a declared
+    // ThemeSetting; the provider stores it verbatim, which is exactly what
+    // this staleness check needs — cast at the boundary.
+    setThemeFn!('ansi' as ThemeSetting)
     const afterAnsi = await waitForFrame(getOutput, f => f.includes('current:ansi'))
     expect(afterAnsi).toContain('current:ansi')
   } finally {

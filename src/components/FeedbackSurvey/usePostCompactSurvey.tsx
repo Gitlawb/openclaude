@@ -43,7 +43,7 @@ export function usePostCompactSurvey(messages, isLoading, t0, t1) {
     enabled: t3
   } = t2;
   const enabled = t3 === undefined ? true : t3;
-  const [gateEnabled, setGateEnabled] = useState(null);
+  const [gateEnabled, setGateEnabled] = useState<boolean | null>(null);
   let t4;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = new Set();
@@ -52,7 +52,7 @@ export function usePostCompactSurvey(messages, isLoading, t0, t1) {
     t4 = $[2];
   }
   const seenCompactBoundaries = useRef(t4);
-  const pendingCompactBoundaryUuid = useRef(null);
+  const pendingCompactBoundaryUuid = useRef<string | null>(null);
   const onOpen = _temp;
   const onSelect = _temp2;
   let t5;
@@ -92,13 +92,13 @@ export function usePostCompactSurvey(messages, isLoading, t0, t1) {
   useEffect(t6, t7);
   let t8;
   if ($[7] !== messages) {
-    t8 = new Set(messages.filter(_temp3).map(_temp4));
+    t8 = new Set<string>(messages.filter(_temp3).map(_temp4));
     $[7] = messages;
     $[8] = t8;
   } else {
     t8 = $[8];
   }
-  const currentCompactBoundaries = t8;
+  const currentCompactBoundaries: Set<string> = t8;
   let t10;
   let t9;
   if ($[9] !== currentCompactBoundaries || $[10] !== enabled || $[11] !== gateEnabled || $[12] !== hasActivePrompt || $[13] !== isLoading || $[14] !== messages || $[15] !== open || $[16] !== state) {

@@ -6,7 +6,17 @@ import type { Message } from './message.js'
 import type { QueueOperationMessage } from './messageQueueTypes.js'
 import type { GoalState } from '../services/goal/types.js'
 
-export type SerializedMessage = Message & {
+// SerializedMessage distributes over Message's `type` discriminant via
+// Extract so that (a) `m.type === '...'` narrowing and Extract<...> both
+// work on transcript entries, and (b) every SerializedMessage variant stays
+// assignable to its Message variant (sessionStorage passes TranscriptMessage
+// where Message is expected). When Message was an `any` stub this used
+// Omit<Message, never> to fabricate an object shape; with the reconstructed
+// discriminated union (issue #473) Extract is both simpler and sound —
+// each variant's `[key: string]: any` escape hatch keeps property access
+// permissive. 'progress' covers legacy on-disk entries (removed from
+// isTranscriptMessage in PR #24099 but still present in old transcripts).
+type SerializedMessageFields = {
   cwd: string
   userType: string
   entrypoint?: string // CLAUDE_CODE_ENTRYPOINT — distinguishes cli/sdk-ts/sdk-py/etc.
@@ -16,6 +26,19 @@ export type SerializedMessage = Message & {
   gitBranch?: string
   slug?: string // Session slug for files like plans (used for resume)
 }
+
+type SerializedMessageOf<K extends Message['type']> = Extract<
+  Message,
+  { type: K }
+> &
+  SerializedMessageFields
+
+export type SerializedMessage =
+  | SerializedMessageOf<'user'>
+  | SerializedMessageOf<'assistant'>
+  | SerializedMessageOf<'attachment'>
+  | SerializedMessageOf<'system'>
+  | SerializedMessageOf<'progress'>
 
 export type LogOption = {
   date: string
@@ -248,11 +271,11 @@ export type SpeculationAcceptMessage = {
  * Persisted context-collapse commit. The archived messages themselves are
  * NOT persisted — they're already in the transcript as ordinary user/
  * assistant messages. We only persist enough to reconstruct the splice
- * instruction (boundary uuids) and the summary placeholder (which is NOT
- * in the transcript because it's never yielded to the REPL).
- *
- * On restore, the store reconstructs CommittedCollapse with archived=[];
- * projectView lazily fills the archive the first time it finds the span.
+ * instruction (boundary uuids), the summary placeholder (which is NOT
+ * in the transcript because it's never yielded to the REPL), and the count
+ * of archived messages so getStats reports the same figure after a resume as
+ * it did live (projectView removes the span but does not refill any per-commit
+ * message list).
  *
  * Discriminator is obfuscated to match the gate name. sessionStorage.ts
  * isn't feature-gated (it's the generic transcript plumbing used by every
@@ -274,6 +297,12 @@ export type ContextCollapseCommitEntry = {
   /** Span boundaries — projectView finds these in the resumed Message[]. */
   firstArchivedUuid: string
   lastArchivedUuid: string
+  /**
+   * Number of messages the span archived. Optional for back-compat with
+   * sessions persisted before this field existed (those restore as 0). Lets
+   * getStats report accurate collapsedMessages after a resume.
+   */
+  archivedCount?: number
 }
 
 /**

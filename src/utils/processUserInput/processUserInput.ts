@@ -9,6 +9,7 @@ import type { QuerySource } from 'src/constants/querySource.js'
 import { logEvent } from 'src/services/analytics/index.js'
 import { getContentText } from 'src/utils/messages.js'
 import {
+  type Command,
   findCommand,
   getCommandName,
   isBridgeSafeCommand,
@@ -97,6 +98,7 @@ export async function processUserInput({
   querySource,
   canUseTool,
   skipSlashCommands,
+  slashCommandOverride,
   bridgeOrigin,
   isMeta,
   skipAttachments,
@@ -125,6 +127,7 @@ export async function processUserInput({
    * trigger local slash commands or skills.
    */
   skipSlashCommands?: boolean
+  slashCommandOverride?: Command
   /**
    * When true, slash commands matching isBridgeSafeCommand() execute even
    * though skipSlashCommands is set. See QueuedCommand.bridgeOrigin.
@@ -168,6 +171,7 @@ export async function processUserInput({
     isMeta,
     skipAttachments,
     preExpansionInput,
+    slashCommandOverride,
   )
   queryCheckpoint('query_process_user_input_base_end')
 
@@ -296,6 +300,7 @@ async function processUserInputBase(
   isMeta?: boolean,
   skipAttachments?: boolean,
   preExpansionInput?: string,
+  slashCommandOverride?: Command,
 ): Promise<ProcessUserInputBaseResult> {
   let inputString: string | null = null
   let precedingInputBlocks: ContentBlockParam[] = []
@@ -546,6 +551,7 @@ async function processUserInputBase(
       uuid,
       isAlreadyProcessing,
       canUseTool,
+      slashCommandOverride,
     )
     return addImageMetadataMessage(slashResult, imageMetadataTexts)
   }

@@ -39,7 +39,12 @@ async function tryGetInstalledAppNames(): Promise<string[] | undefined> {
     )
     return undefined
   }
-  return filterAppsForDescription(installed, homedir())
+  // optionalModules.d.ts stubs InstalledApp.path as optional; Spotlight
+  // enumeration always returns a path, which filterAppsForDescription needs.
+  return filterAppsForDescription(
+    installed as Parameters<typeof filterAppsForDescription>[0],
+    homedir(),
+  )
 }
 
 /**

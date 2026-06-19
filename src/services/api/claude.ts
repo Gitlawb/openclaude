@@ -67,6 +67,7 @@ import {
   CAPPED_DEFAULT_MAX_TOKENS,
   getModelMaxOutputTokens,
   getSonnet1mExpTreatmentEnabled,
+  shouldUseIntegrationRuntimeLimits,
 } from '../../utils/context.js'
 import { resolveAppliedEffort } from '../../utils/effort.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
@@ -952,9 +953,11 @@ function getPreviousRequestIdFromMessages(
   return undefined
 }
 
-function isMedia(
-  block: BetaContentBlockParam,
-): block is BetaImageBlockParam | BetaRequestDocumentBlock {
+// Generic so it accepts both top-level content blocks and the narrower
+// (beta or non-beta) unions nested inside tool_result content.
+function isMedia<T extends { type: string }>(
+  block: T,
+): block is T & (BetaImageBlockParam | BetaRequestDocumentBlock) {
   return block.type === 'image' || block.type === 'document'
 }
 
@@ -1296,7 +1299,9 @@ async function* queryModel(
         ),
       ),
     })
-    messagesForAPI = strategyResult.selectedMessages
+    // applyHybridStrategy is typed over the full Message union but only ever
+    // receives (and returns) the user/assistant subset passed in here.
+    messagesForAPI = strategyResult.selectedMessages as typeof messagesForAPI
   }
 
   // Model-specific post-processing: strip tool-search-specific fields if the
@@ -1331,7 +1336,13 @@ async function* queryModel(
   // Repair tool_use/tool_result pairing mismatches that can occur when resuming
   // remote/teleport sessions. Inserts synthetic error tool_results for orphaned
   // tool_uses and strips orphaned tool_results referencing non-existent tool_uses.
-  messagesForAPI = ensureToolResultPairing(messagesForAPI)
+  messagesForAPI = ensureToolResultPairing(messagesForAPI, {
+    phase: 'api_before_repair',
+    querySource: options.querySource,
+    agentId: options.agentId,
+    model: options.model,
+    provider: getAPIProvider(),
+  })
 
   // Strip advisor blocks — the API rejects them without the beta header.
   if (!betas.includes(ADVISOR_BETA_HEADER)) {
@@ -1526,7 +1537,7 @@ async function* queryModel(
   let stream: Stream<BetaRawMessageStreamEvent> | undefined = undefined
   let streamRequestId: string | null | undefined = undefined
   let clientRequestId: string | undefined = undefined
-  // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in Node 18+ and is used by the SDK
+  // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in supported Node runtimes and is used by the SDK
   let streamResponse: Response | undefined = undefined
 
   // Release all stream resources to prevent native memory leaks.
@@ -1723,8 +1734,11 @@ async function* queryModel(
         enablePromptCaching,
         options.querySource,
         useCachedMC,
-        consumedCacheEdits,
-        consumedPinnedEdits,
+        // The stub's CacheEditsBlock/PinnedCacheEdits type edits as unknown[];
+        // the local types pin the delete-edit shape. The stub only ever
+        // yields null/[] today.
+        consumedCacheEdits as CachedMCEditsBlock | null,
+        consumedPinnedEdits as CachedMCPinnedEdits[],
         options.skipCacheWrite,
       ),
       tools: allTools,
@@ -2288,8 +2302,10 @@ async function* queryModel(
               logEvent('tengu_max_tokens_reached', {
                 max_tokens: maxOutputTokens,
               })
+              const is3pProvider = shouldUseIntegrationRuntimeLimits()
+              const providerNoun = is3pProvider ? "Model's" : "OpenClaude's"
               yield createAssistantAPIErrorMessage({
-                content: `${API_ERROR_MESSAGE_PREFIX}: Claude's response exceeded the ${
+                content: `${API_ERROR_MESSAGE_PREFIX}: ${providerNoun} response exceeded the ${
                   maxOutputTokens
                 } output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.`,
                 apiError: 'max_output_tokens',

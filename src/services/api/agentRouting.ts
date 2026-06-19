@@ -1,4 +1,7 @@
 import type { SettingsJson } from '../../utils/settings/types.js'
+import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
+import { getAgentModel } from '../../utils/model/agent.js'
+import { isModelAlias } from '../../utils/model/aliases.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -11,6 +14,17 @@ export interface ProviderOverride {
   baseURL: string
   /** API key for this provider */
   apiKey: string
+}
+
+/** A model-only route: reuse the session's current provider, just change the model. */
+export type AgentModelOnly = { model: string }
+
+/** A resolved agent route — a full cross-provider override or a model-only swap. */
+export type AgentRoute = ProviderOverride | AgentModelOnly
+
+/** Narrow an AgentRoute to a full cross-provider ProviderOverride. */
+export function isProviderOverride(route: AgentRoute): route is ProviderOverride {
+  return 'apiKey' in route && 'baseURL' in route
 }
 
 export interface AgentRunModelRouting {
@@ -51,20 +65,28 @@ function normalize(key: string): string {
   return key.toLowerCase().replace(/[-_]/g, '')
 }
 
-function toProviderOverride(
+function toAgentRoute(
   configuredModelKey: string,
   modelConfig: AgentModelConfig | undefined,
-): ProviderOverride | null {
+): AgentRoute | null {
   if (!modelConfig) return null
 
-  const apiKey = modelConfig.api_key.trim()
-  if (!apiKey) return null
+  const model = modelConfig.model?.trim() || configuredModelKey
+  const baseURL = modelConfig.base_url?.trim()
+  const apiKey = modelConfig.api_key?.trim()
 
-  return {
-    model: modelConfig.model?.trim() || configuredModelKey,
-    baseURL: modelConfig.base_url,
-    apiKey,
+  // Model-only route: no credentials → reuse the active provider, swap the model.
+  if (!baseURL && !apiKey) return { model }
+
+  // Misconfiguration: a cross-provider route needs BOTH endpoint and key.
+  if (!baseURL || !apiKey) {
+    console.error(
+      `[agentRouting] Warning: agentModels entry "${configuredModelKey}" has only one of base_url/api_key; both are required for cross-provider routing. Skipping this route.`,
+    )
+    return null
   }
+
+  return { model, baseURL, apiKey }
 }
 
 /**
@@ -76,7 +98,7 @@ export function resolveAgentProvider(
   name: string | undefined,
   subagentType: string | undefined,
   settings: SettingsJson | null,
-): ProviderOverride | null {
+): AgentRoute | null {
   if (!settings) return null
 
   const routing = settings.agentRouting
@@ -113,58 +135,100 @@ export function resolveAgentProvider(
 
   if (!modelName) return null
 
-  return toProviderOverride(modelName, models[modelName])
+  return toAgentRoute(modelName, models[modelName])
 }
 
 /**
- * Resolve provider override directly from a requested model name.
+ * Resolve an agent route directly from a requested model name (cross-provider or model-only).
  * Checks for an exact match in agentModels. Does not fuzzy match or normalize case.
  */
 export function resolveAgentModelProvider(
   modelName: string | undefined,
   settings: SettingsJson | null,
-): ProviderOverride | null {
+): AgentRoute | null {
   if (!settings || !settings.agentModels || !modelName) return null
 
   const trimmedModelName = modelName.trim()
-  return toProviderOverride(trimmedModelName, settings.agentModels[trimmedModelName])
+  return toAgentRoute(trimmedModelName, settings.agentModels[trimmedModelName])
+}
+
+/**
+ * Resolve a model-only route's model to what should actually run. A bare
+ * built-in alias ("sonnet"/"haiku"/"opus"/"inherit") is sent through the same
+ * provider-aware path as the agent model selector (getAgentModel), so on
+ * non-Claude-native providers it inherits the parent model instead of being
+ * sent literally and failing with a provider "model not found". A real model id
+ * (a configured agentModels key for the active provider) passes through as-is.
+ */
+function resolveModelOnlyModel(
+  model: string,
+  parentModel: string,
+  permissionMode?: PermissionMode,
+): string {
+  if (model === 'inherit' || isModelAlias(model)) {
+    return getAgentModel(model, parentModel, undefined, permissionMode)
+  }
+  return model
 }
 
 export function resolveAgentRunModelRouting({
   resolvedAgentModel,
+  parentModel,
   toolSpecifiedModel,
   agentName,
   subagentType,
   agentDefinitionModel,
   settings,
+  permissionMode,
 }: {
   resolvedAgentModel: string
+  parentModel: string
   toolSpecifiedModel?: string
   agentName?: string
   subagentType?: string
   agentDefinitionModel?: string
   settings: SettingsJson | null
+  permissionMode?: PermissionMode
 }): AgentRunModelRouting {
   const toolRequestedModel = toolSpecifiedModel?.trim()
   if (toolRequestedModel) {
     // Tool-specified models are explicit. If the request is not a configured
     // agentModels key, preserve getAgentModel() alias/inherit/custom-ID behavior
     // instead of falling through to persistent agentRouting.
-    const providerOverride = resolveAgentModelProvider(toolRequestedModel, settings)
+    const route = resolveAgentModelProvider(toolRequestedModel, settings)
+    if (!route) return { mainLoopModel: resolvedAgentModel }
+    if (isProviderOverride(route)) {
+      return { mainLoopModel: route.model, providerOverride: route }
+    }
     return {
-      mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
-      ...(providerOverride && { providerOverride }),
+      mainLoopModel: resolveModelOnlyModel(route.model, parentModel, permissionMode),
     }
   }
 
-  const providerOverride =
+  const route =
     resolveAgentProvider(agentName, subagentType, settings) ??
     resolveAgentModelProvider(agentDefinitionModel, settings)
-
-  return {
-    mainLoopModel: providerOverride?.model ?? resolvedAgentModel,
-    ...(providerOverride && { providerOverride }),
+  if (!route) return { mainLoopModel: resolvedAgentModel }
+  if (isProviderOverride(route)) {
+    return { mainLoopModel: route.model, providerOverride: route }
   }
+  return {
+    mainLoopModel: resolveModelOnlyModel(route.model, parentModel, permissionMode),
+  }
+}
+
+/**
+ * Whether the org model allowlist must be enforced for a resolved agent run.
+ * Enforce whenever routing changed the model: a cross-provider override is set,
+ * or a model-only route changed the effective model from what getAgentModel()
+ * resolved. An unchanged inherited model was already vetted upstream.
+ */
+export function shouldEnforceModelAllowlist(
+  resolvedAgentModel: string,
+  effectiveModel: string,
+  hasProviderOverride: boolean,
+): boolean {
+  return hasProviderOverride || effectiveModel !== resolvedAgentModel
 }
 
 /**
@@ -189,13 +253,57 @@ export function resolveOutOfProcessTeammateProvider({
 }): ProviderOverride | null {
   const requestedModel = cliModel?.trim()
   if (requestedModel) {
-    return resolveAgentModelProvider(requestedModel, settings)
+    const route = resolveAgentModelProvider(requestedModel, settings)
+    return route && isProviderOverride(route) ? route : null
   }
 
-  return (
+  const route =
     resolveAgentProvider(agentName, agentType, settings) ??
     resolveAgentModelProvider(agentDefinitionModel, settings)
-  )
+  return route && isProviderOverride(route) ? route : null
+}
+
+/**
+ * Resolve the model a pane/window teammate should run when its configured route
+ * is model-only (no cross-provider override). The provider twin above filters to
+ * ProviderOverride, so model-only routes the menu writes (e.g. agentRouting set
+ * to a plain agentModels key) are dropped and the teammate inherits the parent.
+ * This returns that route's provider-aware model so the spawn path can apply it.
+ * Mirrors resolveAgentRunModelRouting's lookup order (tool model, then agent
+ * name/type, then agent-definition model). Returns undefined when there is no
+ * model-only route, so the caller keeps the inherit-parent default.
+ */
+export function resolveOutOfProcessTeammateModelOnly({
+  cliModel,
+  agentName,
+  agentType,
+  agentDefinitionModel,
+  parentModel,
+  permissionMode,
+  settings,
+}: {
+  cliModel?: string
+  agentName?: string
+  agentType?: string
+  agentDefinitionModel?: string
+  parentModel: string
+  permissionMode?: PermissionMode
+  settings: SettingsJson | null
+}): string | undefined {
+  const requestedModel = cliModel?.trim()
+  if (requestedModel) {
+    const route = resolveAgentModelProvider(requestedModel, settings)
+    return route && !isProviderOverride(route)
+      ? resolveModelOnlyModel(route.model, parentModel, permissionMode)
+      : undefined
+  }
+
+  const route =
+    resolveAgentProvider(agentName, agentType, settings) ??
+    resolveAgentModelProvider(agentDefinitionModel, settings)
+  return route && !isProviderOverride(route)
+    ? resolveModelOnlyModel(route.model, parentModel, permissionMode)
+    : undefined
 }
 
 export function resolveOutOfProcessTeammateProviderFromCliArgs(

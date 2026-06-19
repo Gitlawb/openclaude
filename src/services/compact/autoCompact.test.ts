@@ -22,7 +22,6 @@ type ImportAutoCompactOptions = {
 }
 
 async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
-  mock.restore()
   mock.module('../../utils/config.js', () => ({
     ...realConfig,
     getGlobalConfig: () => ({ autoCompactEnabled: true }),
@@ -111,7 +110,7 @@ function userMessage(content: string): Message {
   return {
     type: 'user',
     message: { role: 'user', content },
-    uuid: `test-${Math.random()}`,
+    uuid: `test-${Math.random()}` as Message['uuid'],
     timestamp: new Date().toISOString(),
   }
 }

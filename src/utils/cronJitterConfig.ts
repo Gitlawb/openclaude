@@ -65,10 +65,11 @@ const cronJitterConfigSchema = lazySchema(() =>
  * contexts. Daemon/SDK callers omit getJitterConfig and get defaults.
  */
 export function getCronJitterConfig(): CronJitterConfig {
+  // The local growthbook shim takes no refresh-interval argument;
+  // JITTER_CONFIG_REFRESH_MS documents the intended cadence.
   const raw = getFeatureValue_CACHED_WITH_REFRESH<unknown>(
     'tengu_kairos_cron_config',
     DEFAULT_CRON_JITTER_CONFIG,
-    JITTER_CONFIG_REFRESH_MS,
   )
   const parsed = cronJitterConfigSchema().safeParse(raw)
   return parsed.success ? parsed.data : DEFAULT_CRON_JITTER_CONFIG

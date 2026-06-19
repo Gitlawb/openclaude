@@ -37,7 +37,7 @@ export function useModelMigrationNotifications() {
 }
 function _temp() {
   const config = getGlobalConfig();
-  const notifs = [];
+  const notifs: Notification[] = [];
   for (const migration of MIGRATIONS) {
     const notif = migration(config);
     if (notif) {

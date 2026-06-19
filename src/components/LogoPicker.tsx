@@ -21,7 +21,9 @@ export type LogoPickerProps = {
  * of the palette's range without re-painting the full ASCII logo.
  */
 function previewSwatch(name: LogoPaletteName): string {
-  const stops = LOGO_PALETTES[name].gradient
+  // Widen the per-palette literal tuple union so .map resolves on a single array type
+  const stops: ReadonlyArray<readonly [number, number, number]> =
+    LOGO_PALETTES[name].gradient
   return stops
     .map(([r, g, b]) => `${ansiRgb(r, g, b)}\u2587${ANSI_RESET}`)
     .join('')

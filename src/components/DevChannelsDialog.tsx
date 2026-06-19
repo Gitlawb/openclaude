@@ -86,7 +86,7 @@ export function DevChannelsDialog(t0: Props) {
   }
   let t8;
   if ($[11] !== t5 || $[12] !== t7) {
-    t8 = <Dialog title="WARNING: Loading development channels" color="error" onCancel={handleEscape}>{t5}{t7}</Dialog>;
+    t8 = <Dialog title="WARNING: Loading development channels" color="error" onCancel={handleEscape} showNavigationHint={true}>{t5}{t7}</Dialog>;
     $[11] = t5;
     $[12] = t7;
     $[13] = t8;

@@ -23,7 +23,7 @@ import { registerWorker } from './workSecret.js'
 export type ReplBridgeTransport = {
   write(message: StdoutMessage): Promise<void>
   writeBatch(messages: StdoutMessage[]): Promise<void>
-  close(): void
+  close(): Promise<void>
   isConnectedStatus(): boolean
   getStateLabel(): string
   setOnData(callback: (data: string) => void): void
@@ -210,20 +210,8 @@ export async function createV2ReplTransport(opts: {
       logForDebugging(
         '[bridge:repl] CCR v2: epoch superseded (409) — closing for poll-loop recovery',
       )
-      // Close resources in a try block so the throw always executes.
-      // If ccr.close() or sse.close() throw, we still need to unwind
-      // the caller (request()) — otherwise handleEpochMismatch's `never`
-      // return type is violated at runtime and control falls through.
-      try {
-        ccr.close()
-        sse.close()
-        onCloseCb?.(4090)
-      } catch (closeErr: unknown) {
-        logForDebugging(
-          `[bridge:repl] CCR v2: error during epoch-mismatch cleanup: ${errorMessage(closeErr)}`,
-          { level: 'error' },
-        )
-      }
+      closeResourcesBestEffort('epoch-mismatch cleanup')
+      onCloseCb?.(4090)
       // Don't return — the calling request() code continues after the 409
       // branch, so callers see the logged warning and a false return. We
       // throw to unwind; the uploaders catch it as a send failure.
@@ -267,6 +255,30 @@ export async function createV2ReplTransport(opts: {
   let ccrInitialized = false
   let closed = false
 
+  function closeResources(): Promise<void> {
+    closed = true
+    return Promise.all([ccr.close(), sse.close()]).then(() => {})
+  }
+
+  function closeResourcesBestEffort(reason: string): void {
+    void closeResources().catch((closeErr: unknown) => {
+      logForDebugging(
+        `[bridge:repl] CCR v2: error during ${reason}: ${errorMessage(closeErr)}`,
+        { level: 'error' },
+      )
+    })
+  }
+
+  function closeCcrBestEffort(reason: string): void {
+    closed = true
+    void ccr.close().catch((closeErr: unknown) => {
+      logForDebugging(
+        `[bridge:repl] CCR v2: error during ${reason}: ${errorMessage(closeErr)}`,
+        { level: 'error' },
+      )
+    })
+  }
+
   return {
     write(msg) {
       return ccr.writeEvent(msg)
@@ -281,11 +293,7 @@ export async function createV2ReplTransport(opts: {
         await ccr.writeEvent(m)
       }
     },
-    close() {
-      closed = true
-      ccr.close()
-      sse.close()
-    },
+    close: closeResources,
     isConnectedStatus() {
       // Write-readiness, not read-readiness — replBridge checks this
       // before calling writeBatch. SSE open state is orthogonal.
@@ -309,7 +317,7 @@ export async function createV2ReplTransport(opts: {
       // heartbeat timer before notifying replBridge. (sse.close() doesn't
       // invoke this, so the epoch-mismatch path above isn't double-firing.)
       sse.setOnClose(code => {
-        ccr.close()
+        closeCcrBestEffort('SSE close cleanup')
         cb(code ?? 4092)
       })
     },
@@ -360,8 +368,7 @@ export async function createV2ReplTransport(opts: {
           // so the poll loop can retry on the next work dispatch.
           // Without this callback, replBridge never learns the transport
           // failed to initialize and sits with transport === null forever.
-          ccr.close()
-          sse.close()
+          closeResourcesBestEffort('initialize failure cleanup')
           onCloseCb?.(4091) // 4091 = init failure, distinguishable from 4090 epoch mismatch
         },
       )

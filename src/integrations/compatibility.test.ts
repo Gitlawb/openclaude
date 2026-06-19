@@ -42,6 +42,8 @@ const EXPECTED_PRESETS = [
   'bankr',
   'atomic-chat',
   'gitlawb-opengateway',
+  'nearai',
+  'fireworks',
   'opencode',
   'opencode-go',
 ] as const satisfies readonly ProviderPreset[]

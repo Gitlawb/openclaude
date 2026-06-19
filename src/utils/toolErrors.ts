@@ -102,7 +102,7 @@ export function formatZodValidationError(
   let errorContent = error.message
 
   // Build a human-readable error message
-  const errorParts = []
+  const errorParts: string[] = []
 
   if (missingParams.length > 0) {
     const missingParamErrors = missingParams.map(

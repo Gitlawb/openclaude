@@ -26,11 +26,8 @@ What happened instead?
 
 ## Environment
 
-- OpenClaude version:
-- OS:
-- Terminal:
-- Provider:
-- Model:
+Run `openclaude doctor report --markdown` and paste the redacted report here.
+For JSON attachment, run `openclaude doctor report --json --out openclaude-report.json`.
 
 ## Logs / Screenshots
 

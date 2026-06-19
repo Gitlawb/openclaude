@@ -8,6 +8,7 @@ import {
 } from '../test/sharedMutationLock.js'
 
 const originalEnv = {
+  OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   CLAUDE_CODE_CUSTOM_OAUTH_URL: process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL,
   USER_TYPE: process.env.USER_TYPE,
@@ -18,6 +19,7 @@ let tempDir: string
 beforeEach(async () => {
   await acquireSharedMutationLock('env.test.ts')
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-env-test-'))
+  delete process.env.OPENCLAUDE_CONFIG_DIR
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL
   delete process.env.USER_TYPE
@@ -26,6 +28,11 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     rmSync(tempDir, { recursive: true, force: true })
+    if (originalEnv.OPENCLAUDE_CONFIG_DIR === undefined) {
+      delete process.env.OPENCLAUDE_CONFIG_DIR
+    } else {
+      process.env.OPENCLAUDE_CONFIG_DIR = originalEnv.OPENCLAUDE_CONFIG_DIR
+    }
     if (originalEnv.CLAUDE_CONFIG_DIR === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR
     } else {
@@ -68,6 +75,35 @@ test('getGlobalClaudeFile: migrated user uses .openclaude.json when both files e
   writeFileSync(join(tempDir, '.openclaude.json'), '{}')
   const { getGlobalClaudeFile } = await importFreshEnvModule()
   expect(getGlobalClaudeFile()).toBe(join(tempDir, '.openclaude.json'))
+})
+
+test('getGlobalClaudeFile: OPENCLAUDE_CONFIG_DIR uses preferred config dir', async () => {
+  const preferredDir = mkdtempSync(join(tmpdir(), 'openclaude-preferred-env-test-'))
+  try {
+    process.env.OPENCLAUDE_CONFIG_DIR = preferredDir
+    process.env.CLAUDE_CONFIG_DIR = tempDir
+
+    const { getGlobalClaudeFile } = await importFreshEnvModule()
+
+    expect(getGlobalClaudeFile()).toBe(join(preferredDir, '.openclaude.json'))
+  } finally {
+    rmSync(preferredDir, { recursive: true, force: true })
+  }
+})
+
+test('getGlobalClaudeFile: OPENCLAUDE_CONFIG_DIR keeps .claude.json fallback when only legacy file exists', async () => {
+  const preferredDir = mkdtempSync(join(tmpdir(), 'openclaude-preferred-env-test-'))
+  try {
+    process.env.OPENCLAUDE_CONFIG_DIR = preferredDir
+    process.env.CLAUDE_CONFIG_DIR = tempDir
+    writeFileSync(join(preferredDir, '.claude.json'), '{}')
+
+    const { getGlobalClaudeFile } = await importFreshEnvModule()
+
+    expect(getGlobalClaudeFile()).toBe(join(preferredDir, '.claude.json'))
+  } finally {
+    rmSync(preferredDir, { recursive: true, force: true })
+  }
 })
 
 test('resolveGlobalClaudeFile: failed default migration keeps legacy file when new file is missing', async () => {

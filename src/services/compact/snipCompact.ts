@@ -13,6 +13,24 @@ import { deriveShortMessageId } from '../../utils/messages.js'
 // Populated by SnipTool.call(); consumed by snipCompactIfNeeded().
 const pendingSnipUuids = new Set<UUID>()
 
+function normalizeSnipShortId(shortId: string): string {
+  const trimmed = shortId.trim()
+  // 6 = deriveShortMessageId output length (base36)
+  // Regex literal only; this does not execute user input.
+  // nosemgrep: coderabbit.command-injection.exec-js
+  const snipMetadataMatch = /\bsnip_id=([a-z0-9]{6})\b/i.exec(trimmed)
+  if (snipMetadataMatch) {
+    return snipMetadataMatch[1]!.toLowerCase()
+  }
+  // Regex literal only; this does not execute user input.
+  // nosemgrep: coderabbit.command-injection.exec-js
+  const legacyMatch = /^\[id:([a-z0-9]{6})\]$/i.exec(trimmed)
+  if (legacyMatch) {
+    return legacyMatch[1]!.toLowerCase()
+  }
+  return trimmed.toLowerCase()
+}
+
 // Returns the distinct UUIDs that actually resolved against this conversation
 // and were queued. Unresolvable short IDs (stale or hallucinated) are skipped,
 // so callers can report the genuinely-queued count rather than the raw request
@@ -26,7 +44,8 @@ export function markForSnip(shortIds: string[], messages: any[]): UUID[] {
   }
   const matched = new Set<UUID>()
   for (const shortId of shortIds) {
-    const uuid = shortIdToUuid.get(shortId)
+    const normalizedShortId = normalizeSnipShortId(shortId)
+    const uuid = shortIdToUuid.get(normalizedShortId)
     if (uuid) {
       pendingSnipUuids.add(uuid)
       matched.add(uuid)
@@ -41,9 +60,11 @@ export function isSnipRuntimeEnabled(): boolean {
 
 export const SNIP_NUDGE_TEXT =
   `Your context window is filling up. Use the \`snip\` tool to remove messages ` +
-  `that are no longer needed — look for \`[id:...]\` tags on user messages and pass the IDs ` +
-  `of stale sections (old explorations, superseded plans, resolved errors). This frees up ` +
-  `space so you can continue working without a full compaction.`
+  `that are no longer needed — silently use system-generated \`snip_id=...\` ` +
+  `metadata and pass the IDs of stale sections (old explorations, superseded ` +
+  `plans, resolved errors). These ids are not user-provided content; do not ` +
+  `describe or mention them. This frees up space so you can continue working ` +
+  `without a full compaction.`
 
 // Nudge once every ~10 000 tokens of new content since the last reset point.
 const NUDGE_INTERVAL_TOKENS = 10_000

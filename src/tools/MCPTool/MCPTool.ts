@@ -1,3 +1,4 @@
+import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { Ajv } from 'ajv'
 import { z } from 'zod/v4'
 import { buildTool, type ToolDef, type ValidationResult } from '../../Tool.js'
@@ -147,7 +148,10 @@ export const MCPTool = buildTool({
     return {
       tool_use_id: toolUseID,
       type: 'tool_result',
-      content,
+      // MCP content blocks are loosely typed ({ type: string }); the actual
+      // values come off the MCP wire as SDK-shaped blocks, so cast at the
+      // API boundary.
+      content: content as ToolResultBlockParam['content'],
     }
   },
 } satisfies ToolDef<InputSchema, Output>)

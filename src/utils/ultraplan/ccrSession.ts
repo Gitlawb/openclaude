@@ -5,6 +5,8 @@
 // teleportToRemote's CreateSession events array.
 
 import type {
+  ContentBlock,
+  ContentBlockParam,
   ToolResultBlockParam,
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources'
@@ -101,7 +103,8 @@ export class ExitPlanModeScanner {
   ingest(newEvents: SDKMessage[]): ScanResult {
     for (const m of newEvents) {
       if (m.type === 'assistant') {
-        for (const block of m.message.content) {
+        // SDK wire boundary: SDKAssistantMessage leaves content blocks untyped
+        for (const block of m.message.content as ContentBlock[]) {
           if (block.type !== 'tool_use') continue
           const tu = block as ToolUseBlock
           if (tu.name === EXIT_PLAN_MODE_V2_TOOL_NAME) {
@@ -111,7 +114,8 @@ export class ExitPlanModeScanner {
       } else if (m.type === 'user') {
         const content = m.message.content
         if (!Array.isArray(content)) continue
-        for (const block of content) {
+        // SDK wire boundary: SDKUserMessage leaves content blocks untyped
+        for (const block of content as ContentBlockParam[]) {
           if (block.type === 'tool_result') {
             this.results.set(block.tool_use_id, block)
           }

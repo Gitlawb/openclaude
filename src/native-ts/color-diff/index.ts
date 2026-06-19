@@ -733,13 +733,16 @@ function addLineNumber(
     foreground: h.marker ? decorationColor(h.marker, theme) : theme.foreground,
     background: h.marker ? lineBackground(h.marker, theme) : theme.background,
   }
-  const shouldDim = h.marker === null || h.marker === ' '
+  // Dim every line number, not just context lines: on +/- lines the gutter
+  // used to render at full decoration intensity and competed with the content
+  // for attention (worst on light themes). fullDim lines are dimmed wholesale
+  // by dimContent, so the prefix needs no extra wrapping there.
   for (let i = 0; i < h.lines.length; i++) {
     const prefix =
       i === 0
         ? ` ${String(h.lineNumber).padStart(maxDigits)} `
         : ' '.repeat(maxDigits + 2)
-    const wrapped = shouldDim && !fullDim ? `${DIM}${prefix}${UNDIM}` : prefix
+    const wrapped = fullDim ? prefix : `${DIM}${prefix}${UNDIM}`
     h.lines[i]!.unshift([style, wrapped])
   }
 }

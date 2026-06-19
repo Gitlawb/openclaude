@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test'
 import { buildSdkUrl } from './workSecret.ts'
 
-// Finding #42-5: buildSdkUrl uses string.includes() on the full URL,
-// so a remote URL containing "localhost" in its path gets ws:// (unencrypted).
+// Regression coverage: buildSdkUrl must decide localhost from the parsed
+// hostname only, not from "localhost" appearing elsewhere in the URL.
 
 test('buildSdkUrl uses wss for remote URL that contains localhost in path', () => {
   const url = buildSdkUrl('https://remote.example.com/proxy/localhost/api', 'sess-1')

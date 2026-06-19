@@ -24,7 +24,11 @@ afterAll(() => {
 
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { detectProvider, printStartupScreen } from './StartupScreen.js'
-import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
+import {
+  type GlobalConfig,
+  getGlobalConfig,
+  saveGlobalConfig,
+} from '../utils/config.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
@@ -59,7 +63,8 @@ const originalEnv: Record<string, string | undefined> = {}
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalIsTTY = process.stdout.isTTY
 const originalWrite = process.stdout.write
-const originalModel = getGlobalConfig().model
+// `model` is a legacy loose key not declared on GlobalConfig.
+const originalModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {

@@ -78,7 +78,7 @@ function _temp(e) {
 }
 function SedEditPermissionRequestInner(t0) {
   const $ = _c(35);
-  let contentPromise;
+  let contentPromise: Promise<{ oldContent: string; fileExists: boolean }>;
   let props;
   let sedInfo;
   if ($[0] !== t0) {

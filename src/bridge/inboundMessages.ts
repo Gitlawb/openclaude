@@ -34,7 +34,11 @@ export function extractInboundMessageFields(
       : undefined
 
   return {
-    content: Array.isArray(content) ? normalizeImageBlocks(content) : content,
+    // SDKUserMessage content is typed loosely (string | unknown[]) at the
+    // SDK boundary; bridge user messages carry API content blocks.
+    content: Array.isArray(content)
+      ? normalizeImageBlocks(content as Array<ContentBlockParam>)
+      : content,
     uuid,
   }
 }

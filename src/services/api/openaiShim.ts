@@ -69,6 +69,7 @@ import {
   getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  isLikelyOllamaEndpoint,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
@@ -81,7 +82,7 @@ import {
   classifyOpenAINetworkFailure,
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
-import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
+import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
 import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
 import {
   normalizeToolArguments,
@@ -94,16 +95,6 @@ import {
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
-
-type SecretValueSource = Partial<{
-  OPENAI_API_KEY: string
-  OPENAI_AUTH_HEADER_VALUE: string
-  CODEX_API_KEY: string
-  GEMINI_API_KEY: string
-  GOOGLE_API_KEY: string
-  GEMINI_ACCESS_TOKEN: string
-  MISTRAL_API_KEY: string
-}>
 
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
@@ -356,6 +347,17 @@ function convertToolResultContent(
       continue
     }
 
+    // ToolSearch results are tool_reference blocks with no text payload —
+    // render them so the model learns which deferred tools were loaded
+    // (their schemas arrive in the next request's tools array).
+    if (block?.type === 'tool_reference' && typeof block.tool_name === 'string') {
+      parts.push({
+        type: 'text',
+        text: `Tool "${block.tool_name}" is now loaded and available to call.`,
+      })
+      continue
+    }
+
     if (block?.type === 'image') {
       const source = block.source
       if (source?.type === 'url' && source.url) {
@@ -396,7 +398,12 @@ function convertToolResultContent(
     parts.unshift({ type: 'text', text: 'Error:' })
   }
 
-  return parts
+  // Defense in depth (issue #1421): some OpenAI-compatible providers (e.g.
+  // Xiaomi Mimo) reject `role: "tool"` messages whose `content` is image-only
+  // with a 400 "text is not set". Prepend a placeholder text part so the
+  // payload always carries a text component alongside any images, mirroring
+  // the existing behavior for user-role messages.
+  return ensureTextPartForImageContent(parts)
 }
 
 function convertContentBlocks(
@@ -489,8 +496,12 @@ function hydrateOpenAIShimCompatibilityEnv(
   }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    processEnv.OPENAI_API_KEY ??=
-      processEnv.GITHUB_TOKEN ?? processEnv.GH_TOKEN ?? ''
+    processEnv.OPENAI_API_KEY =
+      processEnv.GITHUB_COPILOT_KEY ??
+      processEnv.OPENAI_API_KEY ??
+      processEnv.GITHUB_TOKEN ??
+      processEnv.GH_TOKEN ??
+      ''
     return
   }
 
@@ -643,9 +654,9 @@ function convertMessages(
         // (harmless) or strict-reject unknown fields (harmful).
         if (preserveReasoningContent) {
           // `thinking` blocks carry their content in `.thinking`; `redacted_thinking`
-          // blocks carry it in `.data` (see thinkingTokenExtractor, token estimation,
-          // and message-size accounting). Read the right field per type so a real
-          // redacted block with non-empty content is not silently dropped to "".
+          // blocks carry it in `.data` (see token estimation and message-size
+          // accounting). Read the right field per type so a real redacted block
+          // with non-empty content is not silently dropped to "".
           const block = thinkingBlock as
             | { type?: string; thinking?: string; data?: string }
             | undefined
@@ -763,13 +774,14 @@ function convertMessages(
     const prev = coalesced[coalesced.length - 1]
 
     // Mistral/Devstral: 'tool' message must be followed by an 'assistant' message.
-    // If a 'tool' result is followed by a 'user' message, we must inject a semantic
-    // assistant response to satisfy the strict role sequence:
+    // If a 'tool' result is followed by a 'user' message, inject a neutral
+    // assistant boundary to satisfy the strict role sequence without implying
+    // that the user interrupted or cancelled anything:
     // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
     if (prev && prev.role === 'tool' && msg.role === 'user') {
       coalesced.push({
         role: 'assistant',
-        content: '[Tool execution interrupted by user]',
+        content: '[Tool results received]',
       })
     }
 
@@ -1041,6 +1053,171 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ollama text-based tool call parser (fix for #1053)
+//
+// When Ollama models cannot emit structured tool_calls via the OpenAI-compat
+// API, they fall back to printing the call as a JSON block in the response
+// text. This parser extracts those calls so the agent loop can execute them.
+//
+// Supported formats emitted by qwen2.5-coder, llama3.x, phi-4, gemma:
+//   ```json\n{"name":"X","arguments":{...}}\n```
+//   {"name":"X","arguments":{...}}
+//   {"type":"function","function":{"name":"X","arguments":{...}}}
+// ---------------------------------------------------------------------------
+
+// Fenced code block arm: non-greedy is safe because ``` acts as terminator.
+const FENCED_TOOL_CALL_RE = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g
+// Bare JSON arm: marks candidate start positions only; balanced extraction follows.
+// Allow optional whitespace (including newlines) before the property key so
+// pretty-printed objects like "{\n  \"name\":" are detected.
+const BARE_TOOL_CALL_START_RE = /\{\s*"(?:name|type)"\s*:/g
+
+interface ParsedTextToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+// Module-level counter ensures unique IDs across calls within a session.
+let _textToolCallCounter = 0
+
+// Walks forward from `start` (which must be `{`) tracking string/escape/brace
+// state and returns the substring up to and including the matching `}`, or
+// null if the braces are never balanced (truncated input).
+function extractBalancedJson(text: string, start: number): string | null {
+  let depth = 0
+  let inString = false
+  let escape = false
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]!
+    if (escape) { escape = false; continue }
+    if (c === '\\' && inString) { escape = true; continue }
+    if (c === '"') { inString = !inString; continue }
+    if (inString) continue
+    if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+function parseAndAdd(
+  raw: string,
+  results: ParsedTextToolCall[],
+  seen: Set<string>,
+): boolean {
+  let obj: Record<string, unknown>
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    return false
+  }
+
+  let name: string | undefined
+  let args: Record<string, unknown> = {}
+
+  if (typeof obj['name'] === 'string') {
+    // {"name": "X", "arguments": {...}}
+    name = obj['name'] as string
+    args = (obj['arguments'] as Record<string, unknown>) ?? {}
+  } else if (
+    obj['type'] === 'function' &&
+    typeof (obj['function'] as any)?.name === 'string'
+  ) {
+    // {"type":"function","function":{"name":"X","arguments":{...}}}
+    const fn = obj['function'] as { name: string; arguments?: unknown }
+    name = fn.name
+    const rawArgs = fn.arguments
+    args =
+      typeof rawArgs === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(rawArgs)
+            } catch {
+              return {}
+            }
+          })()
+        : (rawArgs as Record<string, unknown>) ?? {}
+  }
+
+  if (!name) return false
+
+  const dedupKey = `${name}:${JSON.stringify(args)}`
+  if (seen.has(dedupKey)) return false
+  seen.add(dedupKey)
+
+  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  return true
+}
+
+/** Removes character ranges from `text`, returning the remaining content. */
+function stripRanges(text: string, ranges: Array<[number, number]>): string {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
+  let result = ''
+  let pos = 0
+  for (const [s, e] of sorted) {
+    result += text.slice(pos, s)
+    pos = e
+  }
+  return result + text.slice(pos)
+}
+
+/** Exported for unit testing only. */
+export function parseTextToolCalls(text: string): {
+  calls: ParsedTextToolCall[]
+  toolCallRanges: Array<[number, number]>
+} {
+  const results: ParsedTextToolCall[] = []
+  const seen = new Set<string>()
+  const fencedRanges: Array<[number, number]> = []
+  // acceptedRanges tracks only ranges where parseAndAdd confirmed a valid tool
+  // call was emitted — these are what callers strip from text.  fencedRanges
+  // (all fenced blocks regardless of acceptance) is kept separately so Pass 2
+  // can skip over them and avoid double-processing.
+  const acceptedRanges: Array<[number, number]> = []
+
+  // Pass 1: fenced code blocks — regex is safe, ``` bounds the non-greedy match.
+  // Context guard: same heuristic as Pass 2 — if non-whitespace, non-`{` text
+  // immediately follows the closing fence, the model is explaining a format rather
+  // than calling a tool; skip to avoid false positives on fenced examples.
+  for (const match of text.matchAll(FENCED_TOOL_CALL_RE)) {
+    const raw = (match[1] ?? '').trim()
+    const after = text.slice(match.index! + match[0].length).trimStart()
+    if (after.length > 0 && !after.startsWith('{')) continue
+    const range: [number, number] = [match.index!, match.index! + match[0].length]
+    fencedRanges.push(range)
+    if (raw && parseAndAdd(raw, results, seen)) {
+      acceptedRanges.push(range)
+    }
+  }
+
+  // Pass 2: bare JSON — use the brace scanner so nested objects are captured fully.
+  // processedRanges grows as we extract; inner objects nested inside an outer
+  // tool call are skipped because their start falls inside an already-extracted range.
+  const processedRanges: Array<[number, number]> = [...fencedRanges]
+  for (const match of text.matchAll(BARE_TOOL_CALL_START_RE)) {
+    const start = match.index!
+    if (processedRanges.some(([s, e]) => start >= s && start < e)) continue
+    const raw = extractBalancedJson(text, start)
+    if (raw) {
+      // Context guard: if non-whitespace, non-`{` text immediately follows the JSON
+      // the model is likely explaining, not calling — skip to avoid false positives.
+      const after = text.slice(start + raw.length).trimStart()
+      if (after.length > 0 && !after.startsWith('{')) continue
+      const range: [number, number] = [start, start + raw.length]
+      processedRanges.push(range)
+      if (parseAndAdd(raw, results, seen)) {
+        acceptedRanges.push(range)
+      }
+    }
+  }
+
+  return { calls: results, toolCallRanges: acceptedRanges }
+}
+
 /**
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
@@ -1291,6 +1468,7 @@ async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
+  isOllama = false,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -1311,6 +1489,14 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
+  // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
+  let accumulatedText = ''
+  // Use the resolved value threaded from the call site (resolveProviderRequest)
+  // rather than re-reading env vars inside the generator.
+  const isOllamaStream = isOllama
+  // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
+  // before extraction at finish_reason=stop (P2 fix for #1053).
+  let ollamaTextBuffer = ''
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
 
@@ -1548,7 +1734,13 @@ async function* openaiStreamToAnthropic(
             hasClosedThinking = true
           }
 
-          if (
+          accumulatedText += delta.content
+          if (isOllamaStream) {
+            const visible = thinkFilter.feed(delta.content)
+            if (visible) {
+              ollamaTextBuffer += visible
+            }
+          } else if (
             !hasEmittedContentStart &&
             bufferedRawToolCallsText === null &&
             couldBeRawToolCallsRequestedPrefix(delta.content)
@@ -1588,6 +1780,26 @@ async function* openaiStreamToAnthropic(
                 yield { type: 'content_block_stop', index: contentBlockIndex }
                 contentBlockIndex++
                 hasClosedThinking = true
+              }
+              // Flush buffered Ollama text before processing the tool call.
+              // Must run before hasEmittedContentStart check because for Ollama
+              // streams the text block may not have been opened yet (we buffer
+              // instead of emitting during the streaming phase).
+              if (isOllamaStream && ollamaTextBuffer) {
+                if (!hasEmittedContentStart) {
+                  yield {
+                    type: 'content_block_start',
+                    index: contentBlockIndex,
+                    content_block: { type: 'text', text: '' },
+                  }
+                  hasEmittedContentStart = true
+                }
+                yield {
+                  type: 'content_block_delta',
+                  index: contentBlockIndex,
+                  delta: { type: 'text_delta', text: ollamaTextBuffer },
+                }
+                ollamaTextBuffer = ''
               }
               if (hasEmittedContentStart) {
                 yield* closeActiveContentBlock()
@@ -1674,6 +1886,94 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
+          // Ollama text-based tool call fallback (#1053):
+          // Must run before closeActiveContentBlock so the text buffer can be flushed
+          // with tool-call JSON stripped (P2). Ollama models emit tool calls as raw
+          // JSON text; scan accumulated text on any terminal finish reason with no
+          // API tool calls. finish_reason is mutated to 'tool_calls' only for 'stop'
+          // so the JSON fallback remains scoped to normal completions.
+          const OLLAMA_TERMINAL_REASONS = new Set(['stop', 'length', 'content_filter', 'safety'])
+          const isTerminalOllamaFinish =
+            OLLAMA_TERMINAL_REASONS.has(choice.finish_reason ?? '') &&
+            activeToolCalls.size === 0 &&
+            isOllamaStream
+          const originalFinishReason = choice.finish_reason
+          let ollamaClosedContentBlock = false
+          if (isTerminalOllamaFinish) {
+            const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(accumulatedText)
+            if (textToolCalls.length > 0) {
+              ollamaClosedContentBlock = true
+              // Compute visible prose (tool-call JSON stripped, think-tags removed).
+              // Use accumulatedText (raw) as source because toolCallRanges are relative to it.
+              const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
+              const strippedVisible = stripThinkTags(stripped).trim()
+              if (hasEmittedContentStart) {
+                // Text block was already open — emit stripped prose then close it.
+                if (strippedVisible) {
+                  yield {
+                    type: 'content_block_delta',
+                    index: contentBlockIndex,
+                    delta: { type: 'text_delta', text: strippedVisible },
+                  }
+                }
+                yield* closeActiveContentBlock()
+              } else if (strippedVisible) {
+                // Text was buffered (Ollama path, hasEmittedContentStart === false).
+                // Open a text block, emit the visible prose before the tool call, close it.
+                yield {
+                  type: 'content_block_start',
+                  index: contentBlockIndex,
+                  content_block: { type: 'text', text: '' },
+                }
+                hasEmittedContentStart = true
+                yield {
+                  type: 'content_block_delta',
+                  index: contentBlockIndex,
+                  delta: { type: 'text_delta', text: strippedVisible },
+                }
+                yield* closeActiveContentBlock()
+              }
+              for (const tc of textToolCalls) {
+                const toolBlockIndex = contentBlockIndex
+                yield {
+                  type: 'content_block_start',
+                  index: toolBlockIndex,
+                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
+                }
+                contentBlockIndex++
+                yield {
+                  type: 'content_block_delta',
+                  index: toolBlockIndex,
+                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
+                }
+                yield { type: 'content_block_stop', index: toolBlockIndex }
+              }
+              // Only remap finish_reason to 'tool_calls' for the normal stop case;
+              // non-stop terminal reasons keep their original reason.
+              if (originalFinishReason === 'stop') {
+                choice.finish_reason = 'tool_calls'
+              }
+            } else if (ollamaTextBuffer) {
+              // No tool calls — flush the buffered text before the normal close below.
+              // Open a text block first if one is not already open (guards the edge case
+              // where hasEmittedContentStart is false but the buffer has content).
+              if (!hasEmittedContentStart) {
+                yield {
+                  type: 'content_block_start',
+                  index: contentBlockIndex,
+                  content_block: { type: 'text', text: '' },
+                }
+                hasEmittedContentStart = true
+              }
+              yield {
+                type: 'content_block_delta',
+                index: contentBlockIndex,
+                delta: { type: 'text_delta', text: ollamaTextBuffer },
+              }
+            }
+          }
+
+          // Flush bufferedRawToolCallsText for non-Ollama providers
           const parsedBufferedToolCalls = bufferedRawToolCallsText
             ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
             : null
@@ -1684,8 +1984,9 @@ async function* openaiStreamToAnthropic(
             yield* emitTextDelta(bufferedRawToolCallsText)
             bufferedRawToolCallsText = null
           }
-          // Close any open content blocks
-          if (hasEmittedContentStart) {
+
+          // Close any open content blocks (skipped when Ollama already closed it above)
+          if (hasEmittedContentStart && !ollamaClosedContentBlock) {
             yield* closeActiveContentBlock()
           }
           // Close active tool calls
@@ -1898,7 +2199,7 @@ class OpenAIShimMessages {
               ? anthropicSsePassthrough(response, request.resolvedModel, options?.signal)
               : isGeminiStream
                 ? geminiSseToAnthropic(response, request.resolvedModel, options?.signal)
-                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+                : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, isLikelyOllamaEndpoint(request.baseUrl)),
         )
       }
 
@@ -2148,7 +2449,7 @@ class OpenAIShimMessages {
     const isLocal = isLocalProviderUrl(request.baseUrl)
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
+    const isGithubCopilot = isGithub && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
     const shouldStripResponsesStore =
       (shimConfig.removeBodyFields ?? []).includes('store') ||
@@ -3211,3 +3512,6 @@ export function createOpenAIShimClient(options: {
     messages: beta.messages,
   }
 }
+
+// Test-only surface (same pattern as WebSearchTool's __test export).
+export const __test = { convertMessages }

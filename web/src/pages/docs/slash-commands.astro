@@ -1,0 +1,38 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro'
+import { commandCategories, commands, commandsByCategory } from '../../data/commands'
+
+const toc = commandCategories.map(c => ({ id: c.id, label: c.label }))
+---
+
+<DocsLayout
+  title={`openclaude slash commands reference — all ${commands.length}+ commands`}
+  description={`Complete reference for every openclaude slash command: /init, /config, /mcp, /review, /compact, /resume and ${commands.length}+ more, grouped by category with descriptions.`}
+  heading="slash commands reference"
+  ogImage="/og/commands.png"
+  lede={`All ${commands.length} built-in slash commands, grouped by what they do. Type / inside a session to autocomplete any of them; plugins and skills can add more.`}
+  toc={toc}
+>
+  <p>
+    Commands run inside an interactive session and start with <code>/</code>. For flags
+    you pass when launching the binary, see the
+    <a href="/docs/cli-reference/">CLI reference</a> instead. You can also extend this
+    list with your own <a href="/docs/skills/">skills</a>.
+  </p>
+
+  {commandCategories.map(cat => (
+    <section>
+      <h2 id={cat.id}>{cat.label}</h2>
+      <p>{cat.blurb}</p>
+      {commandsByCategory(cat.id).map(cmd => (
+        <div class="cmd-entry">
+          <h3 id={`cmd-${cmd.name}`}>
+            <code>/{cmd.name}{cmd.args ? ` ${cmd.args}` : ''}</code>
+            <a class="anchor-link" href={`#cmd-${cmd.name}`} aria-label={`link to /${cmd.name}`}>#</a>
+          </h3>
+          <p>{cmd.description}</p>
+        </div>
+      ))}
+    </section>
+  ))}
+</DocsLayout>

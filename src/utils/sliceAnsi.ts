@@ -1,6 +1,7 @@
 import {
   type AnsiCode,
   ansiCodesToString,
+  type Char,
   reduceAnsiCodes,
   tokenize,
   undoAnsiCodes,
@@ -42,8 +43,14 @@ export default function sliceAnsi(
     // advanced position past `end` early and truncated the slice. Callers
     // pass start/end in display cells (via stringWidth), so position must
     // track the same units.
+    // Non-ansi tokens are treated as Char; tokenize doesn't emit ControlCode
+    // for the strings we slice (pre-existing runtime assumption).
     const width =
-      token.type === 'ansi' ? 0 : token.fullWidth ? 2 : stringWidth(token.value)
+      token.type === 'ansi'
+        ? 0
+        : (token as Char).fullWidth
+          ? 2
+          : stringWidth((token as Char).value)
 
     // Break AFTER trailing zero-width marks — a combining mark attaches to
     // the preceding base char, so "भा" (भ + ा, 1 display cell) sliced at
@@ -77,7 +84,8 @@ export default function sliceAnsi(
       }
 
       if (include) {
-        result += token.value
+        // Same Char assumption as the width computation above
+        result += (token as Char).value
       }
 
       position += width

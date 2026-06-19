@@ -43,7 +43,7 @@ function BtwSideQuestion(t0) {
   const [response, setResponse] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<ScrollBoxHandle>(null);
   const {
     rows
   } = useModalOrTerminalSize(useTerminalSize());

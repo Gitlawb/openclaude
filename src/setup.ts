@@ -42,6 +42,7 @@ import { checkAndRestoreITerm2Backup } from './utils/iTermBackup.js'
 import { logError } from './utils/log.js'
 import { getRecentActivity } from './utils/logoV2Utils.js'
 import { lockCurrentVersion } from './utils/nativeInstaller/index.js'
+import { checkSupportedNodeVersion } from './utils/nodeRuntime.js'
 import type { PermissionMode } from './utils/permissions/PermissionMode.js'
 import { getPlanSlug } from './utils/plans.js'
 import { saveWorktreeState } from './utils/sessionStorage.js'
@@ -66,13 +67,12 @@ export async function setup(
 ): Promise<void> {
   logForDiagnosticsNoPII('info', 'setup_started')
 
-  // Check for Node.js version < 18
-  const nodeVersion = process.version.match(/^v(\d+)\./)?.[1]
-  if (!nodeVersion || parseInt(nodeVersion) < 18) {
+  const nodeVersion = checkSupportedNodeVersion(process.version)
+  if (!nodeVersion.ok) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.error(
       chalk.bold.red(
-        'Error: OpenClaude requires Node.js version 18 or higher.',
+        `Error: ${nodeVersion.message}`,
       ),
     )
     process.exit(1)

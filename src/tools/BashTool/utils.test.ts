@@ -1,3 +1,4 @@
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { describe, expect, test } from 'bun:test'
 import {
   stripEmptyLines,
@@ -178,9 +179,11 @@ describe('createContentSummary', () => {
   })
 
   test('summarizes image blocks', () => {
+    // MCP-shaped image blocks (data/mimeType) rather than the SDK's
+    // source-wrapped shape; createContentSummary only reads `type`/`text`.
     const content = [
       { type: 'image' as const, data: 'base64data', mimeType: 'image/png' },
-    ]
+    ] as unknown as ContentBlockParam[]
     const result = createContentSummary(content)
     expect(result).toContain('1 image')
   })
@@ -190,7 +193,7 @@ describe('createContentSummary', () => {
       { type: 'text' as const, text: 'Description' },
       { type: 'image' as const, data: 'base64data', mimeType: 'image/png' },
       { type: 'text' as const, text: 'More text' },
-    ]
+    ] as unknown as ContentBlockParam[]
     const result = createContentSummary(content)
     expect(result).toContain('1 image')
     expect(result).toContain('2 text blocks')

@@ -179,6 +179,7 @@ export function shortErrorStack(e: unknown, maxFrames = 5): string {
  *  ENOENT    — path does not exist
  *  EACCES    — permission denied
  *  EPERM     — operation not permitted
+ *  EROFS     — read-only filesystem
  *  ENOTDIR   — a path component is not a directory (e.g. a file named
  *              `.claude` exists where a directory is expected)
  *  ELOOP     — too many symlink levels (circular symlinks)
@@ -189,6 +190,7 @@ export function isFsInaccessible(e: unknown): e is NodeJS.ErrnoException {
     code === 'ENOENT' ||
     code === 'EACCES' ||
     code === 'EPERM' ||
+    code === 'EROFS' ||
     code === 'ENOTDIR' ||
     code === 'ELOOP'
   )

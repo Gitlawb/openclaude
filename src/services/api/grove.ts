@@ -204,7 +204,8 @@ async function fetchAndStoreGroveConfig(accountId: string): Promise<void> {
     const groveEnabled = result.data.grove_enabled
     const cachedEntry = getGlobalConfig().groveConfigCache?.[accountId]
     if (
-      cachedEntry?.grove_enabled === groveEnabled &&
+      cachedEntry !== undefined &&
+      cachedEntry.grove_enabled === groveEnabled &&
       Date.now() - cachedEntry.timestamp <= GROVE_CACHE_EXPIRATION_MS
     ) {
       return

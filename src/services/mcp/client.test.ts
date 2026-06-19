@@ -1,7 +1,39 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { cleanupFailedConnection, buildMcpStdioCommand } from './client.js'
+import {
+  cleanupFailedConnection,
+  buildMcpStdioCommand,
+  logMcpServerStderr,
+} from './client.js'
+import {
+  _resetErrorLogForTesting,
+  attachErrorLogSink,
+  type ErrorLogSink,
+} from '../../utils/log.js'
+
+function withCapturedMcpLogEvents(
+  fn: (events: Array<['debug' | 'error', string, unknown]>) => void,
+): void {
+  const events: Array<['debug' | 'error', string, unknown]> = []
+  const sink: ErrorLogSink = {
+    logError: error => events.push(['error', 'global', error]),
+    logMCPError: (serverName, error) =>
+      events.push(['error', serverName, error]),
+    logMCPDebug: (serverName, message) =>
+      events.push(['debug', serverName, message]),
+    getErrorsPath: () => '/tmp/errors.log',
+    getMCPLogsPath: serverName => `/tmp/${serverName}.log`,
+  }
+
+  _resetErrorLogForTesting()
+  try {
+    attachErrorLogSink(sink)
+    fn(events)
+  } finally {
+    _resetErrorLogForTesting()
+  }
+}
 
 test('cleanupFailedConnection awaits transport close before resolving', async () => {
   let closed = false
@@ -45,6 +77,34 @@ test('cleanupFailedConnection closes in-process server and transport', async () 
 
   assert.equal(inProcessClosed, true)
   assert.equal(transportClosed, true)
+})
+
+test('successful MCP startup stderr is logged as debug, not error', () => {
+  withCapturedMcpLogEvents(events => {
+    logMcpServerStderr(
+      'context7',
+      'Context7 Documentation MCP Server running on stdio',
+      true,
+    )
+
+    assert.deepEqual(events, [
+      [
+        'debug',
+        'context7',
+        'Server stderr: Context7 Documentation MCP Server running on stdio',
+      ],
+    ])
+  })
+})
+
+test('failed MCP startup stderr remains error-level', () => {
+  withCapturedMcpLogEvents(events => {
+    logMcpServerStderr('context7', 'startup failed', false)
+
+    assert.deepEqual(events, [
+      ['error', 'context7', 'Server stderr: startup failed'],
+    ])
+  })
 })
 
 test('buildMcpStdioCommand — no prefix passes command and args through unchanged', () => {

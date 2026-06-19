@@ -676,7 +676,7 @@ export class SSETransport implements Transport {
     this.onEventCallback = callback
   }
 
-  close(): void {
+  async close(): Promise<void> {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null

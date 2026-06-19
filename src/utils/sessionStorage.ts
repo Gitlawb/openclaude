@@ -104,8 +104,9 @@ function getBuiltInCommandNames(): Set<string> {
   if (builtInCommandNamesCache) return builtInCommandNamesCache
   const commands =
     require('../commands.js') as typeof import('../commands.js')
-  builtInCommandNamesCache = commands.builtInCommandNames()
-  return builtInCommandNamesCache
+  const names = commands.builtInCommandNames()
+  builtInCommandNamesCache = names
+  return names
 }
 
 type Transcript = (
@@ -1589,6 +1590,7 @@ export async function recordContextCollapseCommit(commit: {
   summary: string
   firstArchivedUuid: string
   lastArchivedUuid: string
+  archivedCount: number
 }): Promise<void> {
   const sessionId = getSessionId() as UUID
   if (!sessionId) return
@@ -1983,7 +1985,8 @@ function applyPreservedSegmentRelinks(
         tailIndex: entryIndex.get(lastSeg.tailUuid),
         headIndex: entryIndex.get(lastSeg.headUuid),
         anchorIndex: entryIndex.get(lastSeg.anchorUuid),
-        lastSeenType,
+        lastSeenType:
+          lastSeenType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         breakParentInTranscript: Boolean(
           breakParentUuid && messages.has(breakParentUuid),
         ),
@@ -4803,7 +4806,7 @@ export async function findUnresolvedToolUse(
     const transcriptPath = getTranscriptPath()
     const { messages } = await loadTranscriptFile(transcriptPath)
 
-    let toolUseMessage = null
+    let toolUseMessage: TranscriptMessage | null = null
 
     // Find the tool use but make sure there's not also a result
     for (const message of messages.values()) {

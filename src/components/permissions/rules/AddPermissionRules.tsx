@@ -11,6 +11,7 @@ import { detectUnreachableRules, type UnreachableRule } from '../../../utils/per
 import { SandboxManager } from '../../../utils/sandbox/sandbox-adapter.js';
 import { type EditableSettingSource, SOURCES } from '../../../utils/settings/constants.js';
 import { getRelativeSettingsFilePathForSource } from '../../../utils/settings/settings.js';
+import { getUserSettingsDisplayPath } from '../../../utils/openclaudeDisplayPaths.js';
 import { plural } from '../../../utils/stringUtils.js';
 import type { OptionWithDescription } from '../../CustomSelect/select.js';
 import { Dialog } from '../../design-system/Dialog.js';
@@ -32,7 +33,7 @@ export function optionForPermissionSaveDestination(saveDestination: EditableSett
     case 'userSettings':
       return {
         label: 'User settings',
-        description: `Saved in ~/.openclaude/settings.json`,
+        description: `Saved in ${getUserSettingsDisplayPath()}`,
         value: saveDestination
       };
   }

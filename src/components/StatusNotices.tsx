@@ -20,12 +20,13 @@ async function loadMemoryFiles(): Promise<void> {
   if (memoryFilesPromise) {
     return memoryFilesPromise;
   }
-  memoryFilesPromise = getMemoryFiles().then(files => {
+  const promise = getMemoryFiles().then(files => {
     cachedMemoryFiles = files;
   }).finally(() => {
     memoryFilesPromise = null;
   });
-  return memoryFilesPromise;
+  memoryFilesPromise = promise;
+  return promise;
 }
 
 /**

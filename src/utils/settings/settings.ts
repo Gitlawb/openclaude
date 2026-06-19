@@ -232,7 +232,7 @@ function parseSettingsFileUncached(path: string): {
 
 /**
  * Get the absolute path to the associated file root for a given settings source
- * (e.g. for $PROJ_DIR/.claude/settings.json, returns $PROJ_DIR)
+ * (e.g. for $PROJ_DIR/.openclaude/settings.json, returns $PROJ_DIR)
  * @param source The source of the settings
  * @returns The root path of the settings file
  */

@@ -27,11 +27,11 @@ const featureFlags: Record<string, boolean> = {
   DAEMON: false,                  // Background daemon process (stubbed in open build)
   AGENT_TRIGGERS: false,          // Scheduled remote agent triggers
   ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
-  CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
+  CONTEXT_COLLAPSE: true,        // Context collapsing optimization
   COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
   HISTORY_SNIP: true,             // Model-callable snip tool for context management
   UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
-  BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
+  BG_SESSIONS: true,              // Local detached background sessions
   WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
   CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
   COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
@@ -57,6 +57,7 @@ const featureFlags: Record<string, boolean> = {
   SHOT_STATS: true,                   // Shot distribution stats in session summary
   EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
   FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  RESUME_COMPACT_PROMPT: true,        // Prompt to compact on /resume + determinate progress bar
   VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
   PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
   HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
@@ -153,16 +154,6 @@ result = await Bun.build({
             'export async function daemonMain() { throw new Error("Daemon mode is unavailable in the open build."); }',
           ],
           [
-            '../cli/bg.js',
-            `
-export async function psHandler() { throw new Error("Background sessions are unavailable in the open build."); }
-export async function logsHandler() { throw new Error("Background sessions are unavailable in the open build."); }
-export async function attachHandler() { throw new Error("Background sessions are unavailable in the open build."); }
-export async function killHandler() { throw new Error("Background sessions are unavailable in the open build."); }
-export async function handleBgFlag() { throw new Error("Background sessions are unavailable in the open build."); }
-`,
-          ],
-          [
             '../cli/handlers/templateJobs.js',
             'export async function templatesMain() { throw new Error("Template jobs are unavailable in the open build."); }',
           ],
@@ -182,7 +173,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
         // before the JS plugin phase runs.
 
         build.onResolve(
-          { filter: /^\.\.\/(daemon\/workerRegistry|daemon\/main|cli\/bg|cli\/handlers\/templateJobs|environment-runner\/main|self-hosted-runner\/main)\.js$/ },
+          { filter: /^\.\.\/(daemon\/workerRegistry|daemon\/main|cli\/handlers\/templateJobs|environment-runner\/main|self-hosted-runner\/main)\.js$/ },
           args => {
             if (!internalFeatureStubModules.has(args.path)) return null
             return {
@@ -224,13 +215,10 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'color-diff-napi',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
-          '@anthropic-ai/sandbox-runtime',
           'asciichart',
           'plist',
           'cacache',
           'fuse',
-          'code-excerpt',
-          'stack-utils',
         ]) {
           build.onResolve({ filter: new RegExp(`^${mod}$`) }, () => ({
             path: mod,
@@ -504,7 +492,7 @@ sdkResult = await Bun.build({
           '@anthropic-ai/sandbox-runtime',
           'audio-capture-napi', 'audio-capture.node',
           'image-processor-napi', 'modifiers-napi', 'url-handler-napi', 'color-diff-napi',
-          'asciichart', 'plist', 'cacache', 'fuse', 'code-excerpt', 'stack-utils',
+          'asciichart', 'plist', 'cacache', 'fuse',
         ]
         for (const mod of missingModules) {
           const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -964,10 +952,7 @@ if (result?.success) {
   // known item to revisit, not a blessing that the stub is safe.
   // Entries are repo-relative paths from `src/` onward, without extension — the
   // same shape canonicalStub() produces, so the allowlist reads as the key.
-  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([
-    'src/tools/VerifyPlanExecutionTool/constants',
-    'src/components/tasks/MonitorMcpDetailDialog',
-  ])
+  const ACCEPTABLE_RUNTIME_STUBS = new Set<string>([])
 
   // Stub markers are not byte-stable across build hosts: the per-importer
   // scanner records each stub as the resolved absolute source path, which

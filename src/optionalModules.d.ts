@@ -233,6 +233,7 @@ declare module '@ant/claude-for-chrome-mcp' {
     context: ClaudeForChromeContext,
   ): {
     connect(transport: unknown): Promise<void>
+    close(): Promise<void>
   }
 }
 
@@ -493,6 +494,7 @@ declare module '@ant/computer-use-mcp' {
     coordinateMode: CoordinateMode,
   ): {
     connect(transport: unknown): Promise<void>
+    close(): Promise<void>
     setRequestHandler(schema: unknown, handler: () => Promise<unknown>): void
   }
 

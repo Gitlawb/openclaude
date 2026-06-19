@@ -48,7 +48,7 @@ import {
   requestSize,
   requestSizeNonInteractive,
 } from './commands/request-size/index.js'
-import resume from './commands/resume/index.js'
+import resume, { continueCommand } from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
 import share from './commands/share/index.js'
@@ -64,6 +64,8 @@ const agentsPlatform =
 /* eslint-enable @typescript-eslint/no-require-imports */
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
+import bughunterSecurity from './commands/bughunter-security/index.js'
+import bughunterPerf from './commands/bughunter-perf/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
 import usage from './commands/usage/index.js'
 import theme from './commands/theme/index.js'
@@ -147,6 +149,7 @@ import heapDump from './commands/heapdump/index.js'
 import mockLimits from './commands/mock-limits/index.js'
 import bridgeKick from './commands/bridge-kick.js'
 import version from './commands/version.js'
+import update from './commands/update/index.js'
 import wiki from './commands/wiki/index.js'
 import summary from './commands/summary/index.js'
 import {
@@ -168,6 +171,10 @@ import {
   getDynamicSkills,
 } from './skills/loadSkillsDir.js'
 import { getBundledSkills } from './skills/bundledSkills.js'
+import {
+  getOpenClaudeCommandDescriptionKey,
+  localize,
+} from './i18n/index.js'
 import { getBuiltinPluginSkillCommands } from './plugins/builtinPlugins.js'
 import {
   getPluginCommands,
@@ -235,10 +242,8 @@ export { getCommandName, isCommandEnabled } from './types/command.js'
 export const INTERNAL_ONLY_COMMANDS = [
   backfillSessions,
   breakCache,
-  bughunter,
   commit,
   commitPushPr,
-  ctx_viz,
   goodClaude,
   issue,
   initVerifiers,
@@ -270,6 +275,9 @@ const COMMANDS = memoize((): Command[] => [
   agents,
   autoFix,
   branch,
+  bughunter,
+  bughunterSecurity,
+  bughunterPerf,
   btw,
   cacheProbe,
   cacheStats,
@@ -279,11 +287,13 @@ const COMMANDS = memoize((): Command[] => [
   compact,
   commitMessage,
   config,
+  continueCommand,
   copy,
   desktop,
   context,
   contextNonInteractive,
   cost,
+  ctx_viz,
   diff,
   dream,
   doctor,
@@ -332,6 +342,7 @@ const COMMANDS = memoize((): Command[] => [
   rewind,
   securityReview,
   terminalSetup,
+  update,
   upgrade,
   extraUsage,
   extraUsageNonInteractive,
@@ -365,7 +376,12 @@ const COMMANDS = memoize((): Command[] => [
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
-].filter(isCommand))
+].filter(isCommand).map(withOpenClaudeCommandLocalizationKey))
+
+function withOpenClaudeCommandLocalizationKey(cmd: Command): Command {
+  cmd.localizationKey ??= getOpenClaudeCommandDescriptionKey(cmd.name)
+  return cmd
+}
 
 export const builtInCommandNames = memoize(
   (): Set<string> =>
@@ -543,6 +559,8 @@ export async function getCommands(cwd: string): Promise<Command[]> {
  * Use this when dynamic skills are added to invalidate cached command lists.
  */
 export function clearCommandMemoizationCaches(): void {
+  COMMANDS.cache?.clear?.()
+  builtInCommandNames.cache?.clear?.()
   loadAllCommands.cache?.clear?.()
   getSkillToolCommands.cache?.clear?.()
   getSlashCommandToolSkills.cache?.clear?.()
@@ -648,6 +666,7 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   color, // Change agent color
   vim, // Toggle vim mode
   cost, // Show session cost (local cost tracking)
+  ctx_viz, // Context window usage
   usage, // Show usage info
   copy, // Copy last message
   btw, // Quick note
@@ -677,6 +696,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     compact, // Shrink context — useful mid-session from a phone
     clear, // Wipe transcript
     cost, // Show session cost
+    ctx_viz, // Context window usage
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
@@ -752,7 +772,7 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description ?? ''
+    return formatOpenClaudeOwnedDescription(cmd)
   }
 
   const desc = cmd.description ?? ''
@@ -770,12 +790,22 @@ export function formatDescriptionWithSource(cmd: Command): string {
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return desc
+    return cmd.source === 'builtin'
+      ? formatOpenClaudeOwnedDescription(cmd)
+      : desc
   }
 
   if (cmd.source === 'bundled') {
-    return `${desc} (bundled)`
+    return `${formatOpenClaudeOwnedDescription(cmd)} (bundled)`
   }
 
   return `${desc} (${getSettingSourceName(cmd.source)})`
+}
+
+function formatOpenClaudeOwnedDescription(cmd: Command): string {
+  const desc = cmd.description ?? ''
+  if (cmd.localizationKey) {
+    return localize(cmd.localizationKey, desc)
+  }
+  return desc
 }

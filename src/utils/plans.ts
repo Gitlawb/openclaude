@@ -19,13 +19,17 @@ import { isENOENT } from './errors.js'
 import { getEnvironmentKind } from './filePersistence/outputsScanner.js'
 import { getFsImplementation } from './fsOperations.js'
 import { logError } from './log.js'
+import { resolveConfigDirEnv } from './envUtils.js'
 import { getInitialSettings } from './settings/settings.js'
 import { generateWordSlug } from './words.js'
 
 const MAX_SLUG_RETRIES = 10
 
 export function getDefaultPlansDirectory({
-  configDirEnv = process.env.CLAUDE_CONFIG_DIR,
+  configDirEnv = resolveConfigDirEnv({
+    openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+    legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
+  }),
   homeDir = homedir(),
 }: {
   configDirEnv?: string

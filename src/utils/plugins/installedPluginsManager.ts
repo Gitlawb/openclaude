@@ -6,7 +6,7 @@
  * - Which plugins are installed globally
  * - Installation metadata (version, timestamps, paths)
  *
- * The enabled/disabled state remains in .claude/settings.json for per-repo control.
+ * The enabled/disabled state remains in .openclaude/settings.json for per-repo control.
  *
  * Rationale: Installation is global (a plugin is either on disk or not), while
  * enabled/disabled state is per-repository (different projects may want different

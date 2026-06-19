@@ -170,6 +170,7 @@ type Props = {
     setAppState: (f: (prev: AppState) => AppState) => void;
   }, options?: {
     fromKeybinding?: boolean;
+    slashCommandOverride?: Command;
   }) => Promise<void>;
   onAgentSubmit?: (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => Promise<void>;
   isSearchingHistory: boolean;
@@ -990,7 +991,7 @@ function PromptInput({
   const setSuggestionsState = useCallback((updater: typeof suggestionsState | ((prev: typeof suggestionsState) => typeof suggestionsState)) => {
     setSuggestionsStateRaw(prev => typeof updater === 'function' ? updater(prev) : updater);
   }, []);
-  const onSubmit = useCallback(async (inputParam: string, isSubmittingSlashCommand = false) => {
+  const onSubmit = useCallback(async (inputParam: string, isSubmittingSlashCommand = false, slashCommandOverride?: Command) => {
     inputParam = inputParam.trimEnd();
 
     // Don't submit if a footer indicator is being opened. Read fresh from
@@ -1110,7 +1111,9 @@ function PromptInput({
       setCursorOffset,
       clearBuffer,
       resetHistory
-    });
+    }, undefined, slashCommandOverride ? {
+      slashCommandOverride
+    } : undefined);
   }, [promptSuggestionState, speculation, speculationSessionTimeSavedMs, teamContext, store, footerItems, suggestionsState.suggestions, onSubmitProp, onAgentSubmit, clearBuffer, resetHistory, logOutcomeAtSubmission, setAppState, markAccepted, pastedContents, removeNotification]);
   const {
     suggestions,

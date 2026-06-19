@@ -21,6 +21,8 @@ import { Box, Text, useStdin, useTheme, useTerminalFocus, useTerminalTitle, useT
 import type { TabStatusKind } from '../ink/hooks/use-tab-status.js';
 import { CostThresholdDialog } from '../components/CostThresholdDialog.js';
 import { IdleReturnDialog } from '../components/IdleReturnDialog.js';
+import { ResumeCompactPrompt } from '../components/ResumeCompactPrompt.js';
+import { CompactProgressBar } from '../components/CompactProgressBar.js';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, useLayoutEffect, type RefObject } from 'react';
 import { useNotifications } from '../context/notifications.js';
@@ -28,7 +30,7 @@ import { sendNotification } from '../services/notifier.js';
 import { startPreventSleep, stopPreventSleep } from '../services/preventSleep.js';
 import { useTerminalNotification } from '../ink/useTerminalNotification.js';
 import { hasCursorUpViewportYankBug } from '../ink/terminal.js';
-import { createFileStateCacheWithSizeLimit, mergeFileStateCaches, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js';
+import { createFileStateCacheWithSizeLimit, mergeFileStateCaches, READ_FILE_STATE_CACHE_SIZE, type FileStateCache } from '../utils/fileStateCache.js';
 import { registerPrunableCache } from '../utils/memoryPressure.js';
 import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getProjectRoot, getSessionId, switchSession, setCostStateForRestore, resetTurnHookDuration, resetTurnToolDuration, resetTurnClassifierDuration, setMainLoopModelOverride, setMainThreadAgentType } from '../bootstrap/state.js';
 import { asSessionId, asAgentId } from '../types/ids.js';
@@ -66,6 +68,7 @@ import { useSSHSession } from '../hooks/useSSHSession.js';
 import { useAssistantHistory } from '../hooks/useAssistantHistory.js';
 import type { SSHSession } from '../ssh/createSSHSession.js';
 import { SpinnerWithVerb, BriefIdleStatus, type SpinnerMode } from '../components/Spinner.js';
+import { CompletionFlash } from '../components/Spinner/CompletionFlash.js';
 import { getSystemPrompt } from '../constants/prompts.js';
 import { buildEffectiveSystemPrompt } from '../utils/systemPrompt.js';
 import { getSystemContext, getUserContext } from '../context.js';
@@ -125,7 +128,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { textForResubmit, handleMessageFromStream, type StreamingToolUse, type StreamingThinking, isCompactBoundaryMessage, getMessagesAfterCompactBoundary, getContentText, createUserMessage, createAssistantMessage, createTurnDurationMessage, createAgentsKilledMessage, createSystemMessage, createCommandInputMessage, formatCommandInputTags } from '../utils/messages.js';
 import { getCurrentTurnCacheMetrics, resetCurrentTurn } from '../services/api/cacheStatsTracker.js';
 import { formatCacheMetricsCompact, formatCacheMetricsFull } from '../services/api/cacheMetrics.js';
-import { generateSessionTitle } from '../utils/sessionTitle.js';
+import { generateSessionTitle, titleOrNullForPromptFallback } from '../utils/sessionTitle.js';
 import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
@@ -160,7 +163,7 @@ import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js';
 import { resolveAgentTools } from '../tools/AgentTool/agentToolUtils.js';
 import { resumeAgentBackground } from '../tools/AgentTool/resumeAgent.js';
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js';
-import { useAppState, useSetAppState, useAppStateStore } from '../state/AppState.js';
+import { useAppState, useSetAppState, useAppStateStore, type AppState } from '../state/AppState.js';
 import type { ContentBlockParam, ImageBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs';
 import type { ProcessUserInputContext } from '../utils/processUserInput/processUserInput.js';
 import type { PastedContent } from '../utils/config.js';
@@ -300,6 +303,38 @@ const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
 // Use LRU cache to prevent unbounded memory growth
 // 100 files should be sufficient for most coding sessions while preventing
 // memory issues when working across many files in large projects
+
+// Stubs: Ultraplan (remote planning sessions) is not included in this open
+// snapshot. Every use below is gated behind feature('ULTRAPLAN'), so these
+// render nothing / reject if ever reached.
+function UltraplanChoiceDialog(_props: {
+  plan: string;
+  sessionId: string;
+  taskId: string;
+  setMessages: (action: React.SetStateAction<MessageType[]>) => void;
+  readFileState: FileStateCache;
+  getAppState: () => AppState;
+  setConversationId: React.Dispatch<React.SetStateAction<UUID>>;
+}): React.ReactElement | null {
+  return null;
+}
+function UltraplanLaunchDialog(_props: {
+  onChoice: (choice: 'launch' | 'cancel', opts?: {
+    disconnectedBridge?: boolean;
+  }) => void;
+}): React.ReactElement | null {
+  return null;
+}
+async function launchUltraplan(_opts: {
+  blurb: string;
+  getAppState: () => AppState;
+  setAppState: SetAppState;
+  signal: AbortSignal;
+  disconnectedBridge?: boolean;
+  onSessionReady: (msg: string) => void;
+}): Promise<string> {
+  throw new Error('Ultraplan is not available in this build');
+}
 
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
@@ -1498,6 +1533,12 @@ export function REPL({
   const [spinnerMessage, setSpinnerMessage] = useState<string | null>(null);
   const [spinnerColor, setSpinnerColor] = useState<keyof Theme | null>(null);
   const [spinnerShimmerColor, setSpinnerShimmerColor] = useState<keyof Theme | null>(null);
+  const [compactProgressRatio, setCompactProgressRatio] = useState<number | null>(null);
+  const [resumeCompactPending, setResumeCompactPending] = useState<{
+    tokenCount: number;
+    model: string;
+    messages: MessageType[];
+  } | null>(null);
   const [isMessageSelectorVisible, setIsMessageSelectorVisible] = useState(false);
   const [messageSelectorPreselect, setMessageSelectorPreselect] = useState<UserMessage | undefined>(undefined);
   const [showCostDialog, setShowCostDialog] = useState(false);
@@ -1594,6 +1635,9 @@ export function REPL({
     // External loading (remote/backgrounding) is reset separately by those hooks.
     setIsExternalLoading(false);
     setUserInputOnProcessing(undefined);
+    // Clear any in-flight compaction progress so an aborted/errored compaction
+    // does not leave the progress bar rendered in the idle UI.
+    setCompactProgressRatio(null);
     responseLengthRef.current = 0;
     setStreamingText(null);
     setStreamingToolUses([]);
@@ -1669,7 +1713,7 @@ export function REPL({
     if (wt.creationDurationMs < 15_000) return;
     worktreeTipShownRef.current = true;
     const secs = Math.round(wt.creationDurationMs / 1000);
-    setMessages(prev => [...prev, createSystemMessage(`Worktree creation took ${secs}s. For large repos, set \`worktree.sparsePaths\` in .claude/settings.json to check out only the directories you need — e.g. \`{"worktree": {"sparsePaths": ["src", "packages/foo"]}}\`.`, 'info')]);
+    setMessages(prev => [...prev, createSystemMessage(`Worktree creation took ${secs}s. For large repos, set \`worktree.sparsePaths\` in .openclaude/settings.json to check out only the directories you need — e.g. \`{"worktree": {"sparsePaths": ["src", "packages/foo"]}}\`.`, 'info')]);
   }, [setMessages]);
 
   // Hide spinner when the only in-progress tool is Sleep
@@ -1682,6 +1726,28 @@ export function REPL({
   const mrOnBeforeQuery = useCallback(async (_input: string, _allMessages: MessageType[], _newMessageCount: number) => true, []);
   const mrOnTurnComplete = useCallback(async (_allMessages: MessageType[], _aborted: boolean) => { }, []);
   const mrRender = useCallback(() => null, []);
+  const abortTimedOutQuery = useCallback(() => {
+    const activeAbortController = abortControllerRef.current;
+    if (activeAbortController && !activeAbortController.signal.aborted) {
+      activeAbortController.abort('query-timeout');
+    }
+    if (feature('TOKEN_BUDGET')) {
+      snapshotOutputTokensForTurn(null);
+    }
+
+    // QueryGuard calls this before forceEnd(); defer UI cleanup until after
+    // the guard has released so the normal stale-generation finally path skips.
+    queueMicrotask(() => {
+      resetLoadingState();
+      setAbortController(null);
+      void mrOnTurnComplete(messagesRef.current, true);
+    });
+  }, [mrOnTurnComplete, resetLoadingState]);
+
+  useEffect(() => {
+    return queryGuard.setTimeoutHandler(abortTimedOutQuery);
+  }, [abortTimedOutQuery, queryGuard]);
+
   const showSpinner = (!toolJSX || toolJSX.showSpinner === true) && toolUseConfirmQueue.length === 0 && promptQueue.length === 0 && (
     // Show spinner during input processing, API call, while teammates are running,
     // or while pending task notifications are queued (prevents spinner bounce between consecutive notifications)
@@ -1956,6 +2022,16 @@ export function REPL({
 
       // Clear input to ensure no residual state
       setInputValue('');
+
+      // Prompt to compact if the resumed session is large
+      if (feature('RESUME_COMPACT_PROMPT')) {
+        const { shouldPromptCompactOnResume } = await import('../services/compact/resumeCompactPrompt.js');
+        if (shouldPromptCompactOnResume(hydratedMessages, mainLoopModel, false)) {
+          const tokenCount = (await import('../utils/tokens.js')).tokenCountWithEstimation(hydratedMessages);
+          setResumeCompactPending({ tokenCount, model: mainLoopModel, messages: hydratedMessages });
+        }
+      }
+
       logEvent('tengu_session_resumed', {
         entrypoint: entrypoint as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         success: true,
@@ -2014,6 +2090,20 @@ export function REPL({
         getAppState: () => store.getState(),
         setAppState
       });
+      // Startup resume paths (--continue, --resume <id>, ResumeConversation
+      // screen) install initialMessages via the initial useState rather than
+      // the resume() callback at line ~2024, so schedule the compact prompt
+      // here too. Uses the already-hydrated `messages` state, which mirrors
+      // the hydration applied in resume().
+      if (feature('RESUME_COMPACT_PROMPT')) {
+        void (async () => {
+          const { shouldPromptCompactOnResume } = await import('../services/compact/resumeCompactPrompt.js');
+          if (shouldPromptCompactOnResume(messages, mainLoopModel, false)) {
+            const tokenCount = (await import('../utils/tokens.js')).tokenCountWithEstimation(messages);
+            setResumeCompactPending({ tokenCount, model: mainLoopModel, messages });
+          }
+        })();
+      }
     }
     // Only run on mount - initialMessages shouldn't change during component lifetime
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2041,14 +2131,17 @@ export function REPL({
   // Permission and interactive dialogs can show even when toolJSX is set,
   // as long as shouldContinueAnimation is true. This prevents deadlocks when
   // agents set background hints while waiting for user interaction.
-  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | undefined {
+  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | 'resume-compact' | undefined {
     // Exit states always take precedence
     if (isExiting || exitFlow) return undefined;
 
     // High priority dialogs (always show regardless of typing)
     if (isMessageSelectorVisible) return 'message-selector';
 
-    const allowDialogsWithAnimation = !toolJSX || toolJSX.shouldContinueAnimation;
+    // Resume compact prompt — shown after resuming a large session
+    if (resumeCompactPending) return 'resume-compact';
+
+    const allowDialogsWithAnimation = !toolJSX || !!toolJSX.shouldContinueAnimation;
     const criticalDialog = resolveCriticalInputDialog({
       sandboxPermissionPending: !!sandboxPermissionRequestQueue[0],
       toolUseConfirmPending: !!toolUseConfirmQueue[0],
@@ -2410,7 +2503,7 @@ export function REPL({
       reject
     }]);
   }), []);
-  const getToolUseContext = useCallback((messages: MessageType[], newMessages: MessageType[], abortController: AbortController, mainLoopModel: string): ProcessUserInputContext => {
+  const getToolUseContext = useCallback((messages: MessageType[], newMessages: MessageType[], abortController: AbortController, mainLoopModel: string, queryGeneration?: number): ProcessUserInputContext => {
     // Read mutable values fresh from the store rather than closure-capturing
     // useAppState() snapshots. Same values today (closure is refreshed by the
     // render between turns); decouples freshness from React's render cycle for
@@ -2429,6 +2522,12 @@ export function REPL({
       if (!mainThreadAgentDefinition) return merged;
       return resolveAgentTools(mainThreadAgentDefinition, merged, false, true).resolvedTools;
     };
+    const queryActivity = queryGeneration === undefined ? undefined : {
+      registerActivity: (reason: string) => {
+        queryGuard.registerActivity(reason, queryGeneration);
+      },
+      acquireLease: (input) => queryGuard.acquireLease(input, queryGeneration)
+    } satisfies ProcessUserInputContext['queryActivity'];
     return {
       abortController,
       options: {
@@ -2513,8 +2612,13 @@ export function REPL({
             break;
           case 'compact_start':
             setSpinnerMessage('Compacting conversation');
+            setCompactProgressRatio(0);
+            break;
+          case 'compact_progress':
+            setCompactProgressRatio(event.ratio);
             break;
           case 'compact_end':
+            setCompactProgressRatio(null);
             setSpinnerMessage(null);
             setSpinnerColor(null);
             setSpinnerShimmerColor(null);
@@ -2525,6 +2629,7 @@ export function REPL({
       setHasInterruptibleToolInProgress: (v: boolean) => {
         hasInterruptibleToolInProgressRef.current = v;
       },
+      queryActivity,
       resume,
       setConversationId,
       setActiveSessionAgent: agent => {
@@ -2556,7 +2661,7 @@ export function REPL({
       contentReplacementState: contentReplacementStateRef.current,
       syncToolResultReplacements
     };
-  }, [commands, combinedInitialTools, mainThreadAgentDefinition, debug, initialMcpClients, ideInstallationStatus, dynamicMcpConfig, theme, allowedAgentTypes, store, setAppState, reverify, addNotification, setMessages, onChangeDynamicMcpConfig, resume, requestPrompt, disabled, customSystemPrompt, appendSystemPrompt, setConversationId, syncToolResultReplacements]);
+  }, [commands, combinedInitialTools, mainThreadAgentDefinition, debug, initialMcpClients, ideInstallationStatus, dynamicMcpConfig, theme, allowedAgentTypes, store, setAppState, reverify, addNotification, setMessages, onChangeDynamicMcpConfig, resume, requestPrompt, disabled, customSystemPrompt, appendSystemPrompt, setConversationId, syncToolResultReplacements, queryGuard]);
 
   // Session backgrounding (Ctrl+B to background/foreground)
   const handleBackgroundQuery = useCallback(() => {
@@ -2688,7 +2793,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, effort?: EffortValue) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue) => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -2721,7 +2826,8 @@ export function REPL({
       if (text && !text.startsWith(`<${LOCAL_COMMAND_STDOUT_TAG}>`) && !text.startsWith(`<${COMMAND_MESSAGE_TAG}>`) && !text.startsWith(`<${COMMAND_NAME_TAG}>`) && !text.startsWith(`<${BASH_INPUT_TAG}>`)) {
         haikuTitleAttemptedRef.current = true;
         void generateSessionTitle(text, new AbortController().signal).then(title => {
-          if (title) setHaikuTitle(title); else haikuTitleAttemptedRef.current = false;
+          const generatedTitle = titleOrNullForPromptFallback(title);
+          if (generatedTitle) setHaikuTitle(generatedTitle); else haikuTitleAttemptedRef.current = false;
         }, () => {
           haikuTitleAttemptedRef.current = false;
         });
@@ -2774,7 +2880,7 @@ export function REPL({
       setAbortController(null);
       return;
     }
-    const toolUseContext = getToolUseContext(messagesIncludingNewMessages, newMessages, abortController, mainLoopModelParam);
+    const toolUseContext = getToolUseContext(messagesIncludingNewMessages, newMessages, abortController, mainLoopModelParam, queryGeneration);
     const querySessionId = getSessionId();
     const queryAutoCompactTracking = getAutoCompactTrackingForSession(querySessionId);
     // getToolUseContext reads tools/mcpClients fresh from store.getState()
@@ -2840,6 +2946,7 @@ export function REPL({
         }
       }
     })) {
+      queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
       onQueryEvent(event);
     }
     if (isBuddyEnabled()) {
@@ -2857,7 +2964,7 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged]);
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
@@ -2927,7 +3034,7 @@ export function REPL({
           return;
         }
       }
-      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, effort);
+      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort);
     } finally {
       // queryGuard.end() atomically checks generation and transitions
       // running→idle. Returns false if a newer query owns the guard
@@ -3165,6 +3272,7 @@ export function REPL({
     setAppState: SetAppState;
   }, options?: {
     fromKeybinding?: boolean;
+    slashCommandOverride?: Command;
   }) => {
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
@@ -3532,6 +3640,7 @@ export function REPL({
       canUseTool,
       addNotification,
       setMessages,
+      slashCommandOverride: options?.slashCommandOverride,
       // Read via ref so streamMode can be dropped from onSubmit deps —
       // handlePromptSubmit only uses it for debug log + telemetry event.
       streamMode: streamModeRef.current,
@@ -4550,6 +4659,11 @@ export function REPL({
         {feature('WEB_BROWSER_TOOL') ? WebBrowserPanelModule && <WebBrowserPanelModule.WebBrowserPanel /> : null}
         <Box flexGrow={1} />
         {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
+        {/* Permanently mounted: it observes the isLoading transition to flash
+            `✓ Done` for ~1.5s. Suppressed wherever another element owns the
+            row or the user's attention. */}
+        <CompletionFlash turnActive={isLoading || userInputOnProcessing !== undefined} suppressed={isBriefOnly || hasRunningTeammates || hasActivePrompt || viewedAgentTask !== undefined} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} />
+        {compactProgressRatio !== null && feature('RESUME_COMPACT_PROMPT') && <CompactProgressBar ratio={compactProgressRatio} />}
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
       </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
@@ -4768,6 +4882,22 @@ export function REPL({
               clearBuffer: () => { },
               resetHistory: () => { }
             });
+          }} />}
+          {focusedInputDialog === 'resume-compact' && resumeCompactPending && <ResumeCompactPrompt tokenCount={resumeCompactPending.tokenCount} model={resumeCompactPending.model} onDone={async choice => {
+            const pending = resumeCompactPending;
+            setResumeCompactPending(null);
+            logEvent('tengu_resume_compact_prompt', {
+              action: (choice === 'yes' ? 'accept' : 'decline') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+              tokenCount: pending.tokenCount,
+            });
+            if (choice === 'yes') {
+              skipIdleCheckRef.current = true;
+              void onSubmitRef.current('/compact', {
+                setCursorOffset: () => {},
+                clearBuffer: () => {},
+                resetHistory: () => {}
+              });
+            }
           }} />}
           {focusedInputDialog === 'ide-onboarding' && <IdeOnboardingDialog onDone={() => setShowIdeOnboarding(false)} installationStatus={ideInstallationStatus} />}
           {focusedInputDialog === 'effort-callout' && <EffortCallout model={mainLoopModel} onDone={selection => {

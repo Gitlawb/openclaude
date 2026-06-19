@@ -3,11 +3,12 @@ import { IncrementalTokenCounter, CounterFactory } from './incrementalTokenCount
 import type { Message } from '../types/message.js'
 
 function createMessage(content: string): Message {
+  // Minimal fixture (no uuid/timestamp) — cast rather than fabricate.
   return {
     type: 'user' as const,
     message: { role: 'user', content, id: 'test', type: 'message', created_at: Date.now() },
     sender: 'user',
-  }
+  } as unknown as Message
 }
 
 describe('IncrementalTokenCounter', () => {
@@ -20,7 +21,7 @@ describe('IncrementalTokenCounter', () => {
 
     it('creates with custom config', () => {
       const counter = new IncrementalTokenCounter({
-        maxCacheSize: 500,
+        tokenBudget: 500,
         autoInvalidate: false,
         estimationMultiplier: 1.2,
       })
@@ -116,7 +117,7 @@ describe('IncrementalTokenCounter', () => {
         },
         sender: 'user',
       }
-      const count = counter.estimateMessage(msg)
+      const count = counter.estimateMessage(msg as unknown as Message)
       expect(count).toBeGreaterThan(0)
     })
 
@@ -132,7 +133,7 @@ describe('IncrementalTokenCounter', () => {
         },
         sender: 'user',
       }
-      const count = counter.estimateMessage(msg)
+      const count = counter.estimateMessage(msg as unknown as Message)
       expect(count).toBeGreaterThan(0)
     })
   })
@@ -163,7 +164,7 @@ describe('IncrementalTokenCounter', () => {
 
   describe('isApproachingLimit', () => {
     it('returns false when far from limit', () => {
-      const counter = new IncrementalTokenCounter({ maxCacheSize: 1000 })
+      const counter = new IncrementalTokenCounter({ tokenBudget: 1000 })
       counter.getCount([createMessage('Hi')])
       expect(counter.isApproachingLimit([createMessage('Hi')], 0.8)).toBe(false)
     })
@@ -207,7 +208,7 @@ describe('IncrementalTokenCounter', () => {
   describe('updateConfig', () => {
     it('updates config dynamically', () => {
       const counter = new IncrementalTokenCounter()
-      counter.updateConfig({ maxCacheSize: 2000 })
+      counter.updateConfig({ tokenBudget: 2000 })
       counter.getCount([createMessage('Hello')])
       expect(counter.cachedCount).toBeGreaterThan(0)
     })

@@ -14,8 +14,8 @@ type SettingsChangeDetectorModule = typeof import('./changeDetector.js') & {
 
 const pathsBySource: Record<SettingSource, string | null> = {
   userSettings: normalize('/tmp/openclaude/user/settings.json'),
-  projectSettings: normalize('/tmp/openclaude/project/.claude/settings.json'),
-  localSettings: normalize('/tmp/openclaude/project/.claude/settings.local.json'),
+  projectSettings: normalize('/tmp/openclaude/project/.openclaude/settings.json'),
+  localSettings: normalize('/tmp/openclaude/project/.openclaude/settings.local.json'),
   flagSettings: null,
   policySettings: normalize('/tmp/openclaude/managed/managed-settings.json'),
 }

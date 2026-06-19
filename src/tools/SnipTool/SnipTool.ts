@@ -10,7 +10,7 @@ const inputSchema = lazySchema(() =>
     message_ids: z
       .array(z.string())
       .describe(
-        'Short message IDs to remove — the [id:XXXXXX] values appended to user messages.',
+        'Short internal snip message IDs to remove.',
       ),
   }),
 )
@@ -60,17 +60,10 @@ export const SnipTool = buildTool({
     return {
       type: 'tool_result',
       tool_use_id: toolUseID,
-      // A snip is a queued request, not a guaranteed removal: snipCompactIfNeeded
-      // refuses to drop a tool_result whose paired tool_use would survive (it
-      // would orphan the tool call), so the request can no-op. Describe it
-      // honestly and give the model the observable signal + repair, otherwise it
-      // treats a structural no-op as a successful context reduction.
       content:
         `Queued ${content.sniped} message(s) for snipping before the next model call. ` +
-        `A queued message is kept if removing it would orphan a tool call (for example, ` +
-        `snipping one result from a turn that ran several tools in parallel). If a message ` +
-        `you queued still shows its [id:...] tag on the next turn, it was kept; snip all of ` +
-        `that turn's tool results together to remove them.`,
+        `Some may be kept if removing them would split a tool call from its result; ` +
+        `when pruning old tool output, queue the whole related tool interaction.`,
     }
   },
 } satisfies ToolDef<InputSchema, Output>)

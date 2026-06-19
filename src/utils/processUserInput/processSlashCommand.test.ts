@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { attachmentScanInputForCommand } from './processSlashCommand.js'
+import type { Command } from '../../types/command.js'
+import {
+  attachmentScanInputForCommand,
+  resolveSlashCommand,
+} from './processSlashCommand.js'
 
 describe('attachmentScanInputForCommand', () => {
   // A remote skill:// body must never have its @-mentions / MCP-resource refs
@@ -24,5 +28,42 @@ describe('attachmentScanInputForCommand', () => {
 
   test('returns the text when loadedFrom is undefined', () => {
     expect(attachmentScanInputForCommand({}, 'hi @x')).toBe('hi @x')
+  })
+})
+
+describe('resolveSlashCommand', () => {
+  function promptCommand(source: 'builtin' | 'projectSettings'): Command {
+    return {
+      type: 'prompt',
+      name: 'review',
+      source,
+      description: `${source} review`,
+      progressMessage: 'running',
+      contentLength: 0,
+      getPromptForCommand: async () => [],
+    } as Command
+  }
+
+  test('uses the selected duplicate command override when it matches the slash name', () => {
+    const builtinReview = promptCommand('builtin')
+    const projectReview = promptCommand('projectSettings')
+
+    expect(
+      resolveSlashCommand('review', [builtinReview, projectReview], projectReview),
+    ).toBe(projectReview)
+  })
+
+  test('falls back to the normal command lookup when the override does not match', () => {
+    const builtinReview = promptCommand('builtin')
+    const projectReview = promptCommand('projectSettings')
+    const statusCommand = {
+      ...builtinReview,
+      name: 'status',
+      description: 'Status',
+    } as Command
+
+    expect(
+      resolveSlashCommand('status', [statusCommand], projectReview),
+    ).toBe(statusCommand)
   })
 })

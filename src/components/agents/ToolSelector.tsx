@@ -250,7 +250,7 @@ export function ToolSelector(t0) {
   const toolsByBucket = buckets;
   let t9;
   if ($[22] !== selectedSet) {
-    t9 = bucketTools => {
+    t9 = (bucketTools: Tool[]) => {
       const selected = count(bucketTools, t_5 => selectedSet.has(t_5.name));
       const needsSelection = selected < bucketTools.length;
       return () => {
@@ -321,7 +321,7 @@ export function ToolSelector(t0) {
       if (bucketTools_0.length === 0) {
         return;
       }
-      const selected_0 = count(bucketTools_0, t_8 => selectedSet.has(t_8.name));
+      const selected_0 = count(bucketTools_0, (t_8: Tool) => selectedSet.has(t_8.name));
       const isFullySelected = selected_0 === bucketTools_0.length;
       navigableItems.push({
         id,

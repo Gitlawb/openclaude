@@ -11,7 +11,7 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
-import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider } from '../../services/api/agentRouting.js';
+import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider, resolveOutOfProcessTeammateModelOnly } from '../../services/api/agentRouting.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
@@ -20,6 +20,12 @@ import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { getCwd, runWithCwdOverride } from '../../utils/cwd.js';
 import { logForDebugging } from '../../utils/debug.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
+import {
+  getCopilotMaxConcurrentSubagents,
+  isCopilotPremiumOptimizationEnabled,
+  shouldForceSyncSubagentsInCopilotMode,
+  shouldSuppressSubagentsInCopilotMode,
+} from '../../utils/copilotOptimization.js';
 import { AbortError, errorMessage, toError } from '../../utils/errors.js';
 import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
@@ -329,6 +335,28 @@ export const AgentTool = buildTool({
       if (routedTeammateProvider && !isModelAllowed(routedTeammateProvider.model)) {
         throw new Error(`Model '${routedTeammateProvider.model}' is not available. Your organization restricts model selection.`);
       }
+      // A model-only agentRouting route (no cross-provider creds) is dropped by the
+      // provider resolver above, so resolve it separately and apply it on the next
+      // spawn. The child inherits the parent provider env, so passing the model is
+      // enough. Only consulted when there is no cross-provider override.
+      const routedTeammateModelOnly = routedTeammateProvider
+        ? undefined
+        : resolveOutOfProcessTeammateModelOnly({
+            cliModel: model,
+            agentName: name,
+            agentType: subagent_type,
+            agentDefinitionModel: agentDef?.model,
+            parentModel: toolUseContext.options.mainLoopModel,
+            permissionMode,
+            settings: getInitialSettings()
+          });
+      if (
+        routedTeammateModelOnly &&
+        routedTeammateModelOnly !== toolUseContext.options.mainLoopModel &&
+        !isModelAllowed(routedTeammateModelOnly)
+      ) {
+        throw new Error(`Model '${routedTeammateModelOnly}' is not available. Your organization restricts model selection.`);
+      }
       const result = await spawnTeammate({
         name,
         prompt,
@@ -336,7 +364,7 @@ export const AgentTool = buildTool({
         team_name: teamName,
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
-        model: routedTeammateProvider?.model ?? resolvedTeammateModel,
+        model: routedTeammateProvider?.model ?? routedTeammateModelOnly ?? resolvedTeammateModel,
         modelWasToolSpecified: model !== undefined,
         agent_type: subagent_type,
         invokingRequestId: assistantMessage?.requestId
@@ -457,16 +485,52 @@ export const AgentTool = buildTool({
       setAgentColor(selectedAgent.agentType, selectedAgent.color);
     }
 
+    const forceSyncCopilot = shouldForceSyncSubagentsInCopilotMode();
+
+    // Use inline env check instead of coordinatorModule to avoid circular
+    // dependency issues during test module loading.
+    const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
+
+    // Fork subagent experiment: force ALL spawns async for a unified
+    // <task-notification> interaction model (not just fork spawns — all of them).
+    const forceAsync = isForkSubagentEnabled();
+
+    // Assistant mode: force all agents async. Synchronous subagents hold the
+    // main loop's turn open until they complete — the daemon's inputQueue
+    // backs up, and the first overdue cron catch-up on spawn becomes N
+    // serial subagent turns blocking all user input. Same gate as
+    // executeForkedSlashCommand's fire-and-forget path; the
+    // <task-notification> re-entry there is handled by the else branch
+    // below (registerAsyncAgentTask + notifyOnCompletion).
+    const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
+
+    // Compute shouldRunAsync once, used by both the telemetry log below and
+    // the actual run decision. Must be computed before the telemetry so the
+    // reported is_async matches the actual execution mode.
+    if (shouldSuppressSubagentsInCopilotMode()) {
+      throw new Error(
+        `Sub-agents are disabled in GitHub Copilot mode to conserve Premium Requests. ` +
+        `Run this task directly instead of delegating to Agent('${selectedAgent.agentType}'). ` +
+        `To re-enable sub-agents, set GITHUB_COPILOT_MAX_SUBAGENTS=1, GITHUB_COPILOT_ALLOW_SUBAGENTS=1, ` +
+        `or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1.`,
+      );
+    }
+    const shouldRunAsync = forceSyncCopilot
+      ? false
+      : (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+
     // Resolve agent params for logging and prebuilt system prompts. runAgent
     // resolves the same settings again before the actual query.
     const resolvedAgentModel = getAgentModel(selectedAgent.model, toolUseContext.options.mainLoopModel, isForkPath ? undefined : model, permissionMode);
     const { mainLoopModel: effectiveAgentModel } = resolveAgentRunModelRouting({
       resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
       toolSpecifiedModel: isForkPath ? undefined : model,
       agentName: name,
       subagentType: selectedAgent.agentType,
       agentDefinitionModel: selectedAgent.model,
       settings: getInitialSettings(),
+      permissionMode,
     });
     logEvent('tengu_agent_tool_selected', {
       agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -475,7 +539,7 @@ export const AgentTool = buildTool({
       color: selectedAgent.color as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       is_built_in_agent: isBuiltInAgent(selectedAgent),
       is_resume: false,
-      is_async: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled,
+      is_async: shouldRunAsync,
       is_fork: isForkPath
     });
 
@@ -548,26 +612,39 @@ export const AgentTool = buildTool({
       isBuiltInAgent: isBuiltInAgent(selectedAgent),
       startTime,
       agentType: selectedAgent.agentType,
-      isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled
+      isAsync: shouldRunAsync
     };
-
     // Use inline env check instead of coordinatorModule to avoid circular
     // dependency issues during test module loading.
-    const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
-
-    // Fork subagent experiment: force ALL spawns async for a unified
-    // <task-notification> interaction model (not just fork spawns — all of them).
-    const forceAsync = isForkSubagentEnabled();
-
-    // Assistant mode: force all agents async. Synchronous subagents hold the
-    // main loop's turn open until they complete — the daemon's inputQueue
-    // backs up, and the first overdue cron catch-up on spawn becomes N
-    // serial subagent turns blocking all user input. Same gate as
-    // executeForkedSlashCommand's fire-and-forget path; the
-    // <task-notification> re-entry there is handled by the else branch
-    // below (registerAsyncAgentTask + notifyOnCompletion).
-    const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+    // (isCoordinator / forceAsync / assistantForceAsync already computed
+    // above; shouldRunAsync is the single source of truth for the launch
+    // decision. Throws above are gone — they're at the top now.)
+    if (forceSyncCopilot) {
+      const reason = isEnvTruthy(process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS)
+        ? 'GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS=1'
+        : `GITHUB_COPILOT_MAX_SUBAGENTS=${getCopilotMaxConcurrentSubagents()} (concurrency capped)`;
+      // The remediation depends on the actual cause:
+      //   - FORCE_SYNC=1 → user must unset it (or set OPTIMIZATION_DISABLED=1)
+      //   - MAX=0 → sub-agents are suppressed (NOT just forced sync) — user must
+      //     raise MAX to >=1 or set ALLOW_SUBAGENTS=1
+      //   - MAX>=1 → sub-agents run synchronously one-at-a-time; to restore
+      //     parallel execution set ALLOW_SUBAGENTS=1 or OPTIMIZATION_DISABLED=1
+      const isForcedSync = isEnvTruthy(
+        process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS,
+      );
+      const remediation = isForcedSync
+        ? 'Unset GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS, or set GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, ' +
+          'to allow background sub-agents.'
+        : getCopilotMaxConcurrentSubagents() === 0
+        ? 'Set GITHUB_COPILOT_MAX_SUBAGENTS=1 (or higher) along with GITHUB_COPILOT_ALLOW_SUBAGENTS=1, ' +
+          'or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, to allow background sub-agents.'
+        : 'Set GITHUB_COPILOT_ALLOW_SUBAGENTS=1, or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, ' +
+          'to allow background sub-agents.';
+      logForDebugging(
+        `[CopilotOptimization] Agent '${selectedAgent.agentType}' forced to synchronous execution ` +
+        `because ${reason}. ${remediation}`,
+      );
+    }
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool
@@ -831,7 +908,7 @@ export const AgentTool = buildTool({
           type: 'background';
         }> | undefined;
         let cancelAutoBackground: (() => void) | undefined;
-        if (!isBackgroundTasksDisabled) {
+        if (!isBackgroundTasksDisabled && !forceSyncCopilot) {
           const registration = registerAgentForeground({
             agentId: syncAgentId,
             description,
@@ -885,8 +962,10 @@ export const AgentTool = buildTool({
             const elapsed = Date.now() - agentStartTime;
 
             // Show background hint after threshold (but task is already registered)
-            // Skip if background tasks are disabled
-            if (!isBackgroundTasksDisabled && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
+            // Skip if background tasks are disabled or if Copilot mode is
+            // forcing synchronous execution (no foreground registration, so
+            // the hint would advertise a non-existent affordance).
+            if (!isBackgroundTasksDisabled && !forceSyncCopilot && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
               backgroundHintShown = true;
               toolUseContext.setToolJSX({
                 jsx: <BackgroundHint />,
@@ -1289,7 +1368,17 @@ export const AgentTool = buildTool({
     return `${prefix}${i.prompt}`;
   },
   isConcurrencySafe() {
-    return true;
+    // When Copilot optimizations are disabled, sub-agents are fully
+    // unrestricted and can run concurrently.
+    if (!isCopilotPremiumOptimizationEnabled()) return true
+
+    // Align with the launch path: use shouldForceSyncSubagentsInCopilotMode()
+    // to decide whether the scheduler must serialize sub-agent calls.
+    // This prevents mismatches where the launch path allows async but the
+    // scheduler still serializes, or vice versa (e.g. ALLOW_SUBAGENTS=1
+    // makes launch async but scheduler serialized; FORCE_SYNC=1 + MAX=0
+    // made launch sync but scheduler treated it as concurrency-safe).
+    return !shouldForceSyncSubagentsInCopilotMode()
   },
   userFacingName,
   userFacingNameBackgroundColor,

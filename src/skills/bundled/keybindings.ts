@@ -1,5 +1,8 @@
 import { DEFAULT_BINDINGS } from '../../keybindings/defaultBindings.js'
-import { isKeybindingCustomizationEnabled } from '../../keybindings/loadUserBindings.js'
+import {
+  getKeybindingsPath,
+  isKeybindingCustomizationEnabled,
+} from '../../keybindings/loadUserBindings.js'
 import {
   MACOS_RESERVED,
   NON_REBINDABLE,
@@ -12,7 +15,18 @@ import {
   KEYBINDING_CONTEXTS,
 } from '../../keybindings/schema.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
+import { getDisplayPath } from '../../utils/file.js'
 import { registerBundledSkill } from '../bundledSkills.js'
+
+const KEYBINDINGS_PATH_TOKEN = '{{KEYBINDINGS_PATH}}'
+
+function getKeybindingsDisplayPath(): string {
+  return getDisplayPath(getKeybindingsPath())
+}
+
+function withKeybindingsPath(text: string): string {
+  return text.replaceAll(KEYBINDINGS_PATH_TOKEN, getKeybindingsDisplayPath())
+}
 
 /**
  * Build a markdown table of all contexts.
@@ -149,11 +163,11 @@ const CHORD_EXAMPLE: KeybindingsSchemaType['bindings'][number] = {
 const SECTION_INTRO = [
   '# Keybindings Skill',
   '',
-  'Create or modify `~/.claude/keybindings.json` to customize keyboard shortcuts.',
+  `Create or modify \`${KEYBINDINGS_PATH_TOKEN}\` to customize keyboard shortcuts.`,
   '',
   '## CRITICAL: Read Before Write',
   '',
-  '**Always read `~/.claude/keybindings.json` first** (it may not exist yet). Merge changes with existing bindings — never replace the entire file.',
+  `**Always read \`${KEYBINDINGS_PATH_TOKEN}\` first** (it may not exist yet). Merge changes with existing bindings — never replace the entire file.`,
   '',
   '- Use **Edit** tool for modifications to existing files',
   '- Use **Write** tool only if the file does not exist yet',
@@ -231,7 +245,7 @@ const SECTION_BEHAVIORAL_RULES = [
 const SECTION_DOCTOR = [
   '## Validation with /doctor',
   '',
-  'The `/doctor` command includes a "Keybinding Configuration Issues" section that validates `~/.claude/keybindings.json`.',
+  `The \`/doctor\` command includes a "Keybinding Configuration Issues" section that validates \`${KEYBINDINGS_PATH_TOKEN}\`.`,
   '',
   '### Common Issues and Fixes',
   '',
@@ -280,7 +294,7 @@ const SECTION_DOCTOR = [
   '',
   '```',
   'Keybinding Configuration Issues',
-  'Location: ~/.claude/keybindings.json',
+  `Location: ${KEYBINDINGS_PATH_TOKEN}`,
   '  └ [Error] Unknown context "chat"',
   '    → Valid contexts: Global, Chat, Autocomplete, ...',
   '  └ [Warning] "ctrl+c" may not work: Terminal interrupt (SIGINT)',
@@ -293,7 +307,7 @@ export function registerKeybindingsSkill(): void {
   registerBundledSkill({
     name: 'keybindings-help',
     description:
-      'Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".',
+      `Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ${getKeybindingsDisplayPath()}. Examples: "rebind ctrl+s", "add a chord shortcut", "change the submit key", "customize keybindings".`,
     allowedTools: ['Read'],
     userInvocable: false,
     isEnabled: isKeybindingCustomizationEnabled,
@@ -321,7 +335,7 @@ export function registerKeybindingsSkill(): void {
         sections.push(`## User Request\n\n${args}`)
       }
 
-      return [{ type: 'text', text: sections.join('\n\n') }]
+      return [{ type: 'text', text: withKeybindingsPath(sections.join('\n\n')) }]
     },
   })
 }

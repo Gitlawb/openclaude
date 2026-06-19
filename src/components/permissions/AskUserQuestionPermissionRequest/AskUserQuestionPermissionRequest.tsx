@@ -175,7 +175,7 @@ function AskUserQuestionPermissionRequestBody(t0) {
     t7 = function onImagePaste(questionText, base64Image, mediaType, filename, dimensions, _sourcePath) {
       nextPasteIdRef.current = nextPasteIdRef.current + 1;
       const pasteId = nextPasteIdRef.current;
-      const newContent = {
+      const newContent: PastedContent = {
         id: pasteId,
         type: "image",
         content: base64Image,

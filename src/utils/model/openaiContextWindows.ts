@@ -39,7 +39,7 @@ function readExternalLimits(
             Number.isFinite(entry[1]) &&
             entry[1] > 0,
         )
-        .map(([key, value]) => [key.trim(), value])
+        .map(([key, value]): [string, number] => [key.trim(), value])
         .filter(([key]) => key.length > 0),
     )
   } catch {

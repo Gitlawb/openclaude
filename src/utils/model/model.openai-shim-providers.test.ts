@@ -4,17 +4,18 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { getGlobalConfig, saveGlobalConfig } from '../config.js'
-
+import { resetStateForTests } from '../../bootstrap/state.js'
+import {
+  type GlobalConfig,
+  getGlobalConfig,
+  saveGlobalConfig,
+} from '../config.js'
+import {
+  clearPluginSettingsBase,
+  resetSettingsCache,
+} from '../settings/settingsCache.js'
 async function importFreshModelModule() {
   mock.restore()
-  mock.module('../auth.js', () => ({
-    getSubscriptionType: () => 'max',
-    isClaudeAISubscriber: () => true,
-    isMaxSubscriber: () => true,
-    isProSubscriber: () => false,
-    isTeamPremiumSubscriber: () => false,
-  }))
   mock.module('./providers.js', () => ({
     getAPIProvider: () => {
       if (process.env.NVIDIA_NIM) return 'nvidia-nim'
@@ -36,8 +37,23 @@ async function importFreshModelModule() {
       return 'firstParty'
     },
   }))
+  mock.module('./modelAllowlist.js', () => ({
+    isModelAllowed: () => true,
+  }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./model.js?ts=${nonce}`)
+}
+
+async function restoreMockedModulesToActual(): Promise<void> {
+  const nonce = `${Date.now()}-${Math.random()}`
+  const [actualProviders, actualModelAllowlist] = await Promise.all([
+    import(`./providers.js?restore=${nonce}`),
+    import(`./modelAllowlist.js?restore=${nonce}`),
+  ])
+  mock.module('./providers.js', () => actualProviders)
+  mock.module('src/utils/model/providers.js', () => actualProviders)
+  mock.module('./modelAllowlist.js', () => actualModelAllowlist)
+  mock.module('src/utils/model/modelAllowlist.js', () => actualModelAllowlist)
 }
 
 const SAVED_ENV = {
@@ -56,8 +72,30 @@ const SAVED_ENV = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
+  ANTHROPIC_DEFAULT_OPUS_MODEL: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_NAME:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_SONNET_MODEL: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_NAME:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
 }
-const savedModel = getGlobalConfig().model
+// `model` is a legacy loose key not declared on GlobalConfig.
+const savedModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {
@@ -74,6 +112,9 @@ beforeEach(async () => {
   // globally. Without mock.restore() here, those overrides bleed into this
   // suite and the provider-kind branches we're testing become unreachable.
   mock.restore()
+  resetStateForTests()
+  resetSettingsCache()
+  clearPluginSettingsBase()
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -89,21 +130,39 @@ beforeEach(async () => {
   delete process.env.OPENAI_BASE_URL
   delete process.env.CODEX_API_KEY
   delete process.env.CHATGPT_ACCOUNT_ID
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES
   saveGlobalConfig(current => ({
     ...current,
     model: undefined,
+    availableModels: undefined,
   }))
 })
 
-afterEach(() => {
+afterEach(async () => {
   try {
     mock.restore()
+    resetStateForTests()
+    resetSettingsCache()
+    clearPluginSettingsBase()
+    await restoreMockedModulesToActual()
     for (const key of Object.keys(SAVED_ENV) as Array<keyof typeof SAVED_ENV>) {
       restoreEnv(key)
     }
     saveGlobalConfig(current => ({
       ...current,
       model: savedModel,
+      availableModels: undefined,
     }))
   } finally {
     releaseSharedMutationLock()
@@ -351,4 +410,3 @@ test('default helpers do not leak claude-* names to Xiaomi MiMo', async () => {
     expect(model.toLowerCase()).not.toContain('opus')
   }
 })
-

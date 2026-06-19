@@ -6,6 +6,7 @@ import { resolveOpenAIShimRuntimeContext } from '../integrations/runtimeMetadata
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
+  modelSupports1M,
 } from './context.ts'
 
 const originalEnv = {
@@ -765,4 +766,111 @@ test('DashScope models clamp oversized max output overrides to the provider limi
   expect(getMaxOutputTokensForModel('kimi-k2.5')).toBe(32_768)
   expect(getMaxOutputTokensForModel('glm-5')).toBe(16_384)
   expect(getMaxOutputTokensForModel('glm-5.1')).toBe(16_384)
+})
+
+test('Ollama model with no runtime metadata uses permissive upper limit (#1604)', () => {
+  // gemma4:e4b is not in the Ollama catalog — no runtime maxOutputTokens
+  // available. Previously the fallback Anthropic 64k upper limit silently
+  // capped the user's CLAUDE_CODE_MAX_OUTPUT_TOKENS override.
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_MODEL = 'gemma4:e4b'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+
+  expect(getModelMaxOutputTokens('gemma4:e4b')).toEqual({
+    default: 32_000,
+    upperLimit: 128_000,
+  })
+  expect(getMaxOutputTokensForModel('gemma4:e4b')).toBe(32_000)
+})
+
+test('Ollama model with no runtime metadata honors CLAUDE_CODE_MAX_OUTPUT_TOKENS above 64k (#1604)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_MODEL = 'gemma4:e4b'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '128000'
+  delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+
+  // Previously this returned 64000 because the unknown-model fallback used
+  // MAX_OUTPUT_TOKENS_UPPER_LIMIT (64k) as the upper limit, silently capping
+  // the user's 128000 override.
+  expect(getMaxOutputTokensForModel('gemma4:e4b')).toBe(128_000)
+})
+
+test('Ollama model with no runtime metadata caps absurd overrides at the context window (#1604)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_MODEL = 'gemma4:e4b'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    'gemma4:e4b': 32_000,
+  })
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '999999999'
+  delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+
+  expect(getMaxOutputTokensForModel('gemma4:e4b')).toBe(32_000)
+})
+
+test('Ollama model with no runtime metadata caps at fallback context window when context window is also unknown (#1604)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_MODEL = 'gemma4:e4b'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '999999999'
+  delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+  delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+
+  expect(getMaxOutputTokensForModel('gemma4:e4b')).toBe(128_000)
+})
+
+test('Anthropic model with high CLAUDE_CODE_MAX_OUTPUT_TOKENS still caps at model upper limit (#1604)', () => {
+  // Regression guard: the fix for #1604 must not relax the cap for Anthropic
+  // models where the API itself rejects values above the model's real limit.
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_BASE_URL
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '128000'
+
+  expect(getMaxOutputTokensForModel('sonnet-4-6')).toBe(128_000)
+  expect(getMaxOutputTokensForModel('opus-4-1')).toBe(32_000)
+  expect(getMaxOutputTokensForModel('claude-3-opus')).toBe(4_096)
+})
+
+test('modelSupports1M recognizes the current default Opus (4.7) as 1M-capable', () => {
+  const original = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+  delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+  try {
+    // Regression: the firstParty default session model is claude-opus-4-7[1m]
+    // (getDefaultMainLoopModelSetting), so dropping 4.7 here downgrades a 1M
+    // session to 200K and trips a spurious "Context limit reached" — exactly
+    // what resolveSkillModelOverride relies on this predicate to prevent.
+    expect(modelSupports1M('claude-opus-4-7')).toBe(true)
+    expect(modelSupports1M('claude-opus-4-7[1m]')).toBe(true)
+    // Existing 1M models must keep working.
+    expect(modelSupports1M('claude-opus-4-6')).toBe(true)
+    expect(modelSupports1M('claude-sonnet-4-6')).toBe(true)
+    expect(modelSupports1M('claude-sonnet-4-5')).toBe(true)
+    // Models without a 1M variant must stay false.
+    expect(modelSupports1M('claude-opus-4-1')).toBe(false)
+    expect(modelSupports1M('claude-opus-4-0')).toBe(false)
+    expect(modelSupports1M('claude-3-5-haiku')).toBe(false)
+  } finally {
+    if (original === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = original
+    }
+  }
+})
+
+test('modelSupports1M honors the 1M disable switch even for Opus 4.7', () => {
+  const original = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+  process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = '1'
+  try {
+    expect(modelSupports1M('claude-opus-4-7')).toBe(false)
+  } finally {
+    if (original === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = original
+    }
+  }
 })

@@ -22,8 +22,17 @@ function toApiView(messages: Message[]): Message[] {
     const {
       projectView
     } = require('../../services/contextCollapse/operations.js') as typeof import('../../services/contextCollapse/operations.js');
+    const {
+      isContextCollapseEnabled
+    } = require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js');
     /* eslint-enable @typescript-eslint/no-require-imports */
-    view = projectView(view);
+    // Gate on runtime enablement, matching the query path (which only calls
+    // applyCollapsesIfNeeded while collapse is enabled). After the user turns
+    // collapse off, the API gets the full transcript again, so projecting a
+    // lingering commit log here would under-report the real token usage.
+    if (isContextCollapseEnabled()) {
+      view = projectView(view);
+    }
   }
   return view;
 }

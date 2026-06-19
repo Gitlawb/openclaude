@@ -206,8 +206,10 @@ export function registerLoopSkill(): void {
     name: 'loop',
     description:
       'Run a prompt on a fixed interval or dynamically reschedule it, including bare maintenance-mode loops.',
+    descriptionKey: 'skills.loop.description',
     whenToUse:
       'When the user wants to poll for status, babysit a workflow, run recurring maintenance, or keep re-running a prompt within the current session.',
+    whenToUseKey: 'skills.loop.whenToUse',
     argumentHint: '[interval] [prompt]',
     userInvocable: true,
     isEnabled: isKairosCronEnabled,

@@ -37,6 +37,7 @@ import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
+  type LegacyAPIProvider,
 } from './model/providers.js'
 import { jsonStringify } from './slowOperations.js'
 import { zodToJsonSchema } from './zodToJsonSchema.js'
@@ -169,20 +170,53 @@ export type ToolSearchMode = 'tst' | 'tst-auto' | 'standard'
  *   false / auto:100      standard
  *   (unset)               tst (default: always defer MCP and shouldDefer tools)
  */
-export function getToolSearchMode(): ToolSearchMode {
+/**
+ * Providers whose requests leave on the raw Anthropic wire format. Tool search
+ * emits beta API shapes there (defer_loading on tool definitions,
+ * tool_reference content blocks, the beta header), so the experimental-betas
+ * kill switch must be honoured. Every other provider goes through a converter
+ * (OpenAI shims, Gemini Vertex client) that re-renders those shapes into
+ * plain text / plain function schemas — no beta shape ever reaches the wire,
+ * so the kill switch has nothing to protect and must not disable deferral
+ * (sending hundreds of inline MCP tools crashes e.g. the Codex backend).
+ */
+const ANTHROPIC_WIRE_PROVIDERS: ReadonlySet<LegacyAPIProvider> = new Set([
+  'firstParty',
+  'bedrock',
+  'vertex',
+  'foundry',
+  'minimax',
+])
+
+/**
+ * Pure resolver for the tool search mode — injectable env/provider for tests.
+ */
+export function resolveToolSearchMode(
+  env: {
+    ENABLE_TOOL_SEARCH?: string
+    CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS?: string
+    [key: string]: string | undefined
+  },
+  provider: LegacyAPIProvider,
+): ToolSearchMode {
   // CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS is a kill switch for beta API
   // features. Tool search emits defer_loading on tool definitions and
   // tool_reference content blocks — both require the API to accept a beta
   // header. When the kill switch is set, force 'standard' so no beta shapes
   // reach the wire, even if ENABLE_TOOL_SEARCH is also set. This is the
   // explicit escape hatch for proxy gateways that the heuristic in
-  // isToolSearchEnabledOptimistic doesn't cover.
+  // isToolSearchEnabledOptimistic doesn't cover. Scoped to Anthropic-wire
+  // providers: converted wires (OpenAI shims, Gemini Vertex) never carry
+  // beta shapes, so deferral stays available there.
   // github.com/anthropics/claude-code/issues/20031
-  if (isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS)) {
+  if (
+    isEnvTruthy(env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS) &&
+    ANTHROPIC_WIRE_PROVIDERS.has(provider)
+  ) {
     return 'standard'
   }
 
-  const value = process.env.ENABLE_TOOL_SEARCH
+  const value = env.ENABLE_TOOL_SEARCH
 
   // Handle auto:N syntax - check edge cases first
   const autoPercent = value ? parseAutoPercentage(value) : null
@@ -193,8 +227,12 @@ export function getToolSearchMode(): ToolSearchMode {
   }
 
   if (isEnvTruthy(value)) return 'tst'
-  if (isEnvDefinedFalsy(process.env.ENABLE_TOOL_SEARCH)) return 'standard'
+  if (isEnvDefinedFalsy(value)) return 'standard'
   return 'tst' // default: always defer MCP and shouldDefer tools
+}
+
+export function getToolSearchMode(): ToolSearchMode {
+  return resolveToolSearchMode(process.env, getAPIProvider())
 }
 
 /**

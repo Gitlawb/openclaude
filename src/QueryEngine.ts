@@ -846,7 +846,10 @@ export class QueryEngine {
           if (includePartialMessages) {
             yield {
               type: 'stream_event' as const,
-              event: message.event,
+              // The generated SDK type erases the event union to
+              // Record<string, unknown>; BetaRawMessageStreamEvent interfaces
+              // lack an index signature, so a direct assignment is rejected.
+              event: message.event as unknown as Record<string, unknown>,
               session_id: getSessionId(),
               parent_tool_use_id: null,
               uuid: randomUUID(),
@@ -1225,7 +1228,9 @@ export class QueryEngine {
           throw new TypeError("'message.content' must be a string or array")
         }
       }
-      return msg
+      // `messages` is declared Message[]; the runtime checks above only guard
+      // untyped SDK callers. The validator param is `unknown` by design.
+      return msg as Message
     }, 'injectMessages')
     this.mutableMessages.push(...validated)
   }
@@ -1257,7 +1262,9 @@ export class QueryEngine {
           }
         }
       }
-      return agent
+      // `agents` is declared AgentDefinition[]; the runtime checks above only
+      // guard untyped SDK callers. The validator param is `unknown` by design.
+      return agent as AgentDefinition
     }, 'injectAgents')
     this.config.agents = validated
   }

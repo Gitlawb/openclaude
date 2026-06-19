@@ -1,8 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 
-import { renderMessagesToJSON, renderMessagesToMarkdown } from './exportRenderer.js'
+import {
+  renderMessagesToJSON as renderMessagesToJSONStrict,
+  renderMessagesToMarkdown as renderMessagesToMarkdownStrict,
+} from './exportRenderer.js'
 
-// Minimal Message-shaped objects (Message = any in this codebase)
+// The renderers are defensive against malformed transcript entries, and these
+// tests deliberately feed minimal/invalid shapes (e.g. type: 'tool'). Loosen
+// the signatures type-side only so the fixtures don't need full envelopes.
+const renderMessagesToMarkdown =
+  renderMessagesToMarkdownStrict as unknown as (messages: unknown[]) => string
+const renderMessagesToJSON = renderMessagesToJSONStrict as unknown as (
+  messages: unknown[],
+) => string
+
+// Minimal Message-shaped objects (full Message union now reconstructed; the
+// fixtures here intentionally remain partial)
 function userMessage(text: string) {
   return {
     type: 'user',

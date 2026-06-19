@@ -86,7 +86,7 @@ describe('multiTurnContext', () => {
     it('sets and gets turn state', () => {
       startNewTurn()
       setTurnState('key', 'value')
-      expect(getTurnState('key')).toBe('value')
+      expect(getTurnState<string>('key')).toBe('value')
     })
 
     it('returns undefined for unknown keys', () => {

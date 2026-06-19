@@ -1,0 +1,44 @@
+---
+interface Props {
+  command: string
+  class?: string
+}
+
+const { command, class: className = '' } = Astro.props
+---
+
+<button
+  type="button"
+  class={`copy-cmd ${className}`.trim()}
+  data-copy={command}
+  aria-label={`copy command: ${command}`}
+>
+  <span class="prefix" aria-hidden="true">$</span>
+  <span class="cmd">{command}</span>
+  <span class="hint" aria-hidden="true">copy</span>
+  <span class="visually-hidden" role="status" data-copy-status></span>
+</button>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.copy
+      if (!text) return
+      try {
+        await navigator.clipboard.writeText(text)
+        const hint = btn.querySelector('.hint')
+        const status = btn.querySelector('[data-copy-status]')
+        btn.classList.add('copied')
+        if (hint) hint.textContent = '✓ copied'
+        if (status) status.textContent = 'copied to clipboard'
+        window.setTimeout(() => {
+          btn.classList.remove('copied')
+          if (hint) hint.textContent = 'copy'
+          if (status) status.textContent = ''
+        }, 1400)
+      } catch {
+        /* clipboard unavailable */
+      }
+    })
+  })
+</script>

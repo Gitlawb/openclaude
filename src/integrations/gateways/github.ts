@@ -9,6 +9,26 @@ import { defineGateway } from '../define.js'
  *
  * @see src/utils/model/providers.ts — isGithubNativeAnthropicMode()
  * @see src/services/api/openaiShim.ts — getGithubEndpointType()
+ *
+ * ## Premium Request Optimization
+ *
+ * GitHub Copilot tracks "Premium Requests" per billing cycle, with the exact
+ * quota set by the user's Copilot plan (not a property of this runtime).
+ * Each HTTP request to api.githubcopilot.com counts toward this quota.
+ * OpenClaude's sub-agent architecture can consume multiple Premium Requests
+ * per chat interaction (one per agent per turn), rapidly depleting the quota.
+ *
+ * By default, when CLAUDE_CODE_USE_GITHUB=1 is active, OpenClaude limits
+ * sub-agents to synchronous in-process execution (max 1 concurrent) to mitigate
+ * Premium Request consumption (mitigates #678). Configure these env vars to tune behaviour:
+ *
+ *   GITHUB_COPILOT_MAX_SUBAGENTS=0          Disable sub-agents entirely (most conservative)
+ *   GITHUB_COPILOT_MAX_SUBAGENTS=1          One sub-agent at a time (default when unset)
+ *   GITHUB_COPILOT_ALLOW_SUBAGENTS=1        Re-enable background/parallel sub-agents
+ *   GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS=1   Force all sub-agents to run synchronously
+ *   GITHUB_COPILOT_OPTIMIZATION_DISABLED=1  Turn off all Copilot optimizations
+ *
+ * @see src/utils/copilotOptimization.ts
  */
 export default defineGateway({
   id: 'github',

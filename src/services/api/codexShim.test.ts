@@ -695,6 +695,46 @@ describe('Codex request translation', () => {
     ])
   })
 
+  test('renders tool_reference blocks from ToolSearch results as readable text', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_ts1', name: 'ToolSearch', input: { query: 'memory' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_ts1',
+            content: [
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_search' },
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_store' },
+            ],
+          },
+        ],
+      },
+    ])
+
+    const output = items.find(item => item.type === 'function_call_output') as
+      | { type: 'function_call_output'; output: string }
+      | undefined
+    expect(output).toBeDefined()
+    expect(output!.output).toContain('mcp__example__memory_search')
+    expect(output!.output).toContain('mcp__example__memory_store')
+  })
+
+  test('keeps the ToolSearch tool in the Responses tools list', () => {
+    const tools = convertToolsToResponsesTools([
+      { name: 'ToolSearch', description: 'Find deferred tools', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      { name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
+    ])
+
+    expect(tools.map(t => t.name)).toEqual(['ToolSearch', 'Read'])
+  })
+
   test('converts completed Codex tool response into Anthropic message', () => {
     const message = convertCodexResponseToAnthropicMessage(
       {

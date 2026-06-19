@@ -1,4 +1,5 @@
 import { profileCheckpoint } from '../utils/startupProfiler.js'
+import { validateEnvVars } from '../utils/envValidation.js'
 import '../bootstrap/state.js'
 import '../utils/config.js'
 import memoize from 'lodash-es/memoize.js'
@@ -46,8 +47,9 @@ export const init = memoize(async (): Promise<void> => {
   const initStartTime = Date.now()
   logForDiagnosticsNoPII('info', 'init_started')
   profileCheckpoint('init_function_start')
-
-  // Validate configs are valid and enable configuration system
+  // Validate critical environment variables early
+  // Crashes immediately if invalid to avoid wasting time
+  validateEnvVars()
   try {
     const configsStart = Date.now()
     enableConfigs()
@@ -65,6 +67,9 @@ export const init = memoize(async (): Promise<void> => {
     // before any TLS connections. Bun caches the TLS cert store at boot
     // via BoringSSL, so this must happen before the first TLS handshake.
     applyExtraCACertsFromConfig()
+
+    // Re-validate values hydrated from trusted config before network setup.
+    validateEnvVars()
 
     logForDiagnosticsNoPII('info', 'init_safe_env_vars_applied', {
       duration_ms: Date.now() - envVarsStart,

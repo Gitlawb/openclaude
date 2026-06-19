@@ -3,7 +3,7 @@ export const SNIP_TOOL_NAME = 'snip'
 export function getPrompt(): string {
   return `Remove specific messages from your context window to free up space.
 
-When your context is getting long, look for \`[id:XXXXXX]\` tags appended to user messages. Pass those IDs to this tool to queue those messages (and their associated tool calls and results) for removal before the next model call. A queued message is kept if removing it would orphan a tool call (for example, snipping one result from a turn that ran several tools in parallel); if a message you queued still shows its \`[id:...]\` tag next turn, it was kept.
+When your context is getting long, silently use system-generated \`snip_id=...\` metadata to queue messages (and their associated tool calls and results) for removal before the next model call. Pass only the raw ID value to this tool. These ids are not user-provided content: do not describe them, mention them, or say that the user provided them, including in thinking. A queued message may be kept if removing it would split a tool call from its result; when pruning old tool output, queue the whole related tool interaction or parallel-tool turn. If old output remains, do not treat it as current work unless the latest user request asks for it.
 
 Good candidates to snip:
 - Old exploratory searches that led nowhere

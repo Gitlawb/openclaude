@@ -1,6 +1,7 @@
 import type { LspServerConfig } from '../services/lsp/types.js'
 import type { McpServerConfig } from '../services/mcp/types.js'
 import type { BundledSkillDefinition } from '../skills/bundledSkills.js'
+import type { LocalizationKey } from '../i18n/types.js'
 import type {
   CommandMetadata,
   PluginAuthor,
@@ -20,6 +21,7 @@ export type BuiltinPluginDefinition = {
   name: string
   /** Description shown in the /plugin UI */
   description: string
+  descriptionKey?: LocalizationKey
   /** Optional version string */
   version?: string
   /** Skills provided by this plugin */

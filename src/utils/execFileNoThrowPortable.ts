@@ -1,4 +1,4 @@
-import { type Options as ExecaOptions, execaSync } from 'execa'
+import { execaSync, type SyncOptions as ExecaSyncOptions } from 'execa'
 import { getCwd } from '../utils/cwd.js'
 import { slowLogging } from './slowOperations.js'
 
@@ -9,7 +9,8 @@ type ExecSyncOptions = {
   abortSignal?: AbortSignal
   timeout?: number
   input?: string
-  stdio?: ExecaOptions['stdio']
+  // Sync variant: execaSync rejects async-only stdio values like 'overlapped'
+  stdio?: ExecaSyncOptions['stdio']
 }
 
 /**
@@ -82,7 +83,9 @@ export function execSyncWithDefaults_DEPRECATED(
     if (!result.stdout) {
       return null
     }
-    return result.stdout.trim() || null
+    // stdout is a string here: callers only pass plain pipe/ignore stdio
+    // configs (no `lines`/object modes), and encoding is the default utf8.
+    return (result.stdout as string).trim() || null
   } catch {
     return null
   }

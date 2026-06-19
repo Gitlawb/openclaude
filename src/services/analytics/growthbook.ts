@@ -66,8 +66,8 @@ export type GrowthBookUserAttributes = {
 	github?: unknown
 }
 
-/** No-op: no background refresh to subscribe to. */
-export function onGrowthBookRefresh(): void {}
+/** No-op: no background refresh to subscribe to. The listener is never invoked. */
+export function onGrowthBookRefresh(_listener?: () => void): void {}
 
 /** Returns false — no env overrides when GrowthBook is disabled. */
 export function hasGrowthBookEnvOverride(_feature: string): boolean {
@@ -122,6 +122,9 @@ export function getFeatureValue_CACHED_MAY_BE_STALE<T>(
 export function getFeatureValue_CACHED_WITH_REFRESH<T>(
 	_featureName: string,
 	defaultValue: T,
+	// Refresh interval accepted for callsite compatibility; this local-file
+	// shim has no background refresh, so the value is unused.
+	_refreshIntervalMs?: number,
 ): T {
 	return _getFlagValue(_featureName, defaultValue)
 }

@@ -361,7 +361,7 @@ export function readFileSyncCached(filePath: string): string {
  */
 export function writeFileSyncAndFlush_DEPRECATED(
   filePath: string,
-  content: string,
+  content: string | Buffer,
   options: { encoding: BufferEncoding; mode?: number } = { encoding: 'utf-8' },
 ): void {
   const fs = getFsImplementation()

@@ -14,6 +14,11 @@ import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js';
 import type { HookEventMetadata } from 'src/utils/hooks/hooksConfigManager.js';
 import { Box, Link, Text } from '../../ink.js';
+import { getDisplayPath } from '../../utils/file.js';
+import {
+  getRelativeSettingsFilePathForSource,
+  getSettingsFilePathForSource
+} from '../../utils/settings/settings.js';
 import { plural } from '../../utils/stringUtils.js';
 import { Select } from '../CustomSelect/select.js';
 import { Dialog } from '../design-system/Dialog.js';
@@ -25,6 +30,11 @@ type Props = {
   onSelectEvent: (event: HookEvent) => void;
   onCancel: () => void;
 };
+function getBlockedHooksSettingsDisplayText(): string {
+  const userSettingsPath = getSettingsFilePathForSource('userSettings');
+  const userSettingsDisplayPath = userSettingsPath ? getDisplayPath(userSettingsPath) : 'settings.json';
+  return `Only hooks from managed settings can run. User-defined hooks from ${userSettingsDisplayPath}, ${getRelativeSettingsFilePathForSource('projectSettings')}, and ${getRelativeSettingsFilePathForSource('localSettings')} are blocked.`;
+}
 export function SelectEventMode(t0) {
   const $ = _c(23);
   const {
@@ -46,7 +56,7 @@ export function SelectEventMode(t0) {
   const subtitle = `${totalHooksCount} ${t1} configured`;
   let t2;
   if ($[2] !== restrictedByPolicy) {
-    t2 = restrictedByPolicy && <Box flexDirection="column"><Text color="suggestion">{figures.info} Hooks Restricted by Policy</Text><Text dimColor={true}>Only hooks from managed settings can run. User-defined hooks from ~/.claude/settings.json, .claude/settings.json, and .claude/settings.local.json are blocked.</Text></Box>;
+    t2 = restrictedByPolicy && <Box flexDirection="column"><Text color="suggestion">{figures.info} Hooks Restricted by Policy</Text><Text dimColor={true}>{getBlockedHooksSettingsDisplayText()}</Text></Box>;
     $[2] = restrictedByPolicy;
     $[3] = t2;
   } else {

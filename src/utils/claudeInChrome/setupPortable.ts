@@ -1,3 +1,4 @@
+import type { Dirent } from 'fs'
 import { readdir } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -160,7 +161,7 @@ export async function detectExtensionInstallationPortable(
 
   // Check each browser for the extension
   for (const { browser, path: browserBasePath } of browserPaths) {
-    let browserProfileEntries = []
+    let browserProfileEntries: Dirent[] = []
 
     try {
       browserProfileEntries = await readdir(browserBasePath, {
