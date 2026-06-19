@@ -262,16 +262,18 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     }
     if (devChannels && devChannels.length > 0) {
       // OpenClaude removed the OAuth/org-policy gates from
-      // gateChannelServer(), which means an API-key/no-OAuth session
-      // can now pass --dangerously-load-development-channels and
-      // register channels without ever seeing the warning. We must
-      // always show the confirmation dialog whenever the user passes
-      // the flag, regardless of OAuth / tengu_harbor state — only
-      // explicit user acceptance enables the dev entries.
+      // gateChannelServer(), which means a non-OAuth session can now
+      // pass --dangerously-load-development-channels and register
+      // channels without ever seeing the warning. The dialog must
+      // always show when the flag is passed and `isChannelsEnabled()`
+      // is true — only explicit user acceptance enables the dev
+      // entries.
       //
-      // Only skip when the channels feature itself is feature-flagged
-      // off (KAIROS / KAIROS_CHANNELS), in which case the dev entries
-      // are inert and the dialog is misleading.
+      // Skip the dialog only when the channels feature itself is
+      // disabled (`isChannelsEnabled()` returns false). In that case
+      // dev entries are still registered so `ChannelsNotice` can
+      // render the blocked branch with them named; the dialog is
+      // omitted because acceptance would be moot.
       const { isChannelsEnabled } = await import(
         './services/mcp/channelAllowlist.js'
       )
