@@ -33,11 +33,13 @@ import {
 import type { TeamMemorySyncPushResult } from './types.js'
 
 const DEBOUNCE_MS = 2000 // Wait 2s after last change before pushing
+const MAX_RESCHEDULE_ATTEMPTS = 5
 
 // ─── Watcher state ──────────────────────────────────────────
 let watcher: FSWatcher | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let pushInProgress = false
+let rescheduleCount = 0
 let hasPendingChanges = false
 let currentPushPromise: Promise<void> | null = null
 let watcherStarted = false
@@ -137,9 +139,16 @@ function schedulePush(): void {
   }
   debounceTimer = setTimeout(() => {
     if (pushInProgress) {
-      schedulePush()
+      if (rescheduleCount < MAX_RESCHEDULE_ATTEMPTS) {
+        rescheduleCount++
+        schedulePush()
+      } else {
+        rescheduleCount = 0
+        currentPushPromise = executePush()
+      }
       return
     }
+    rescheduleCount = 0
     currentPushPromise = executePush()
   }, DEBOUNCE_MS)
 }
@@ -370,6 +379,7 @@ export function _resetWatcherStateForTesting(opts?: {
   watcher = null
   debounceTimer = null
   pushInProgress = false
+  rescheduleCount = 0
   hasPendingChanges = false
   currentPushPromise = null
   watcherStarted = opts?.skipWatcher ?? false
