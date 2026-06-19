@@ -466,7 +466,9 @@ describe('discoverModelsForRoute', () => {
     })
 
     setMockFetch(mock((_input, init) => {
-      expect(init?.headers ?? {}).toEqual({})
+      const headers = new Headers(init?.headers)
+      expect(headers.get('authorization')).toBeNull()
+      expect(headers.get('api-key')).toBeNull()
       return Promise.resolve(
         new Response(
           JSON.stringify({

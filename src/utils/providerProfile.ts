@@ -1578,7 +1578,12 @@ export async function buildLaunchEnv(options: {
       // it won't be promoted into XAI_API_KEY / OPENAI_API_KEY for
       // this profile's env.
       processEnv: isOAuthProfile
-        ? { ...processEnv, OPENAI_API_KEY: undefined, XAI_API_KEY: undefined }
+        ? {
+            ...processEnv,
+            OPENAI_API_KEYS: undefined,
+            OPENAI_API_KEY: undefined,
+            XAI_API_KEY: undefined,
+          }
         : processEnv,
     })
     const customHeaders = shellCustomHeaders || persistedCustomHeaders
@@ -1597,8 +1602,16 @@ export async function buildLaunchEnv(options: {
     // process.env.OPENAI_API_KEYS / OPENAI_API_KEY before falling back
     // to the stored OAuth token; leaving shell credentials there would
     // short-circuit OAuth and send the wrong bearer to api.x.ai/v1.
+    const compatibilityProcessEnv =
+      isOAuthProfile && !env.XAI_API_KEY
+        ? {
+            ...processEnv,
+            OPENAI_API_KEYS: undefined,
+            OPENAI_API_KEY: undefined,
+          }
+        : processEnv
     const result = buildCompatibilityProcessEnv({
-      processEnv,
+      processEnv: compatibilityProcessEnv,
       compatibilityMode: 'openai',
       profileEnv: env,
     })
