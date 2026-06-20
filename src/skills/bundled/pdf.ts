@@ -92,7 +92,7 @@ export function registerPdfSkill(): void {
       'Use when the user wants to create, generate, build, or produce a PDF document.',
     argumentHint: '<description of PDF to generate>',
     userInvocable: true,
-    allowedTools: ['Bash', 'Read', 'Write'],
+    allowedTools: ['Bash(bun *)', 'Read', 'Write'],
     files: {
       'pdfgen.ts': PDFGEN_SOURCE,
     },
@@ -253,6 +253,16 @@ function wrapText(text: string, maxWidth: number, fontSize: number, font: string
         remaining = remaining.substring(charsPerLine)
       }
     }
+  }
+  return result.length ? result : ['']
+}
+
+function wrapCodeLine(line: string, maxWidth: number, fontSize: number): string[] {
+  const charWidth = 0.6 * fontSize
+  const charsPerLine = Math.max(1, Math.floor(maxWidth / charWidth))
+  const result: string[] = []
+  for (let i = 0; i < line.length; i += charsPerLine) {
+    result.push(line.substring(i, i + charsPerLine))
   }
   return result.length ? result : ['']
 }
@@ -495,7 +505,7 @@ function buildPageStreams(
         const codeLines = toWinAnsi(el.text).split('\\n')
         const wrappedCodeLines: string[] = []
         for (const rawLine of codeLines) {
-          wrappedCodeLines.push(...wrapText(rawLine, codeAvailW, size, 'Courier'))
+          wrappedCodeLines.push(...wrapCodeLine(rawLine, codeAvailW, size))
         }
 
         y -= 6
@@ -608,6 +618,9 @@ function buildPageStreams(
           // Render row in page-sized chunks to handle rows taller than one page
           let linesRendered = 0
           while (linesRendered < maxCellLines) {
+            if (y - (lh + 6) < maxY) {
+              flushPage()
+            }
             const availH = y - maxY
             const maxLinesThisPage = Math.max(1, Math.floor((availH - 6) / lh))
             const linesToRender = Math.min(maxLinesThisPage, maxCellLines - linesRendered)

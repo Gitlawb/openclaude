@@ -197,6 +197,20 @@ test('code block background height follows wrapped lines', async () => {
   expect(Number(rectMatch?.[1])).toBeGreaterThan(24.15)
 })
 
+test('code blocks preserve indentation and repeated spaces', async () => {
+  const { createPDF } = await importPdfgen()
+  const pdf = await createPDF({
+    pages: [
+      {
+        content: [{ type: 'code', text: 'if (ok) {\n    const value  = 1\n}' }],
+      },
+    ],
+  })
+  const text = pdf.toString('latin1')
+
+  expect(text).toContain('(    const value  = 1)')
+})
+
 test('empty pages or empty content arrays are supported and produce a valid blank page', async () => {
   const { createPDF } = await importPdfgen()
   const pdf = await createPDF({
@@ -250,6 +264,27 @@ test('table headers too tall for page are rejected', async () => {
       }]
     }]
   })).rejects.toThrow('Table headers are too tall to fit on a single page.')
+})
+
+test('table rows flush before rendering below the bottom margin', async () => {
+  const { createPDF } = await importPdfgen()
+  const pdf = await createPDF({
+    pages: [
+      {
+        margins: { top: 50, right: 50, bottom: 50, left: 50 },
+        content: [
+          { type: 'spacer', height: 685 },
+          { type: 'table', headers: ['A'], rows: [['value']] },
+        ],
+      },
+    ],
+  })
+  const text = pdf.toString('latin1')
+  const rowMatch = text.match(/BT \/F1 9 Tf 54 ([\d.]+) Td \(value\) Tj ET/)
+
+  expect(text).toContain('/Count 2')
+  expect(rowMatch).not.toBeNull()
+  expect(Number(rowMatch?.[1])).toBeGreaterThan(80)
 })
 
 test('importing pdfgen as a library does not run the CLI writer', async () => {

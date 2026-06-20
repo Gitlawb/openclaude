@@ -277,43 +277,6 @@ function worktreePathFor(repoRoot: string, slug: string): string {
 }
 
 /**
- * Git for Windows keeps long-path support opt-in, even on Windows versions
- * that support extended-length paths. Worktrees add a few directory segments
- * to every checked-out file, so a repository that works at its root can still
- * fail while `git worktree add` is checking it out.
- *
- * This is a repository-local setting: it affects only Git operations in this
- * repository and is required before creating the worktree, not after Git has
- * already attempted the checkout.
- */
-async function enableGitLongPathsForWorktrees(repoRoot: string): Promise<void> {
-  if (getPlatform() !== 'windows') {
-    return
-  }
-
-  const { code, stderr } = await execFileNoThrowWithCwd(
-    gitExe(),
-    ['config', '--local', 'core.longpaths', 'true'],
-    { cwd: repoRoot },
-  )
-  if (code !== 0) {
-    logForDebugging(
-      `Could not enable Git long-path support before creating worktree: ${stderr.trim() || `exit code ${code}`}`,
-      { level: 'warn' },
-    )
-  }
-}
-
-export function buildWorktreeCreationFailureMessage(stderr: string): string {
-  const detail = stderr.trim() || 'no error detail'
-  const longPathHint =
-    getPlatform() === 'windows' && /filename too long/i.test(stderr)
-      ? ' Git rejected a long path; run `git config --local core.longpaths true` in the main repository and retry.'
-      : ''
-  return `Failed to create worktree: ${detail}${longPathHint}`
-}
-
-/**
  * Creates a new git worktree for the given slug, or resumes it if it already exists.
  * Named worktrees reuse the same path across invocations, so the existence check
  * prevents unconditionally running `git fetch` (which can hang waiting for credentials)
@@ -354,7 +317,6 @@ async function getOrCreateWorktree(
 
     // New worktree: fetch base branch then add
     await mkdir(worktreesDir(repoRoot), { recursive: true })
-    await enableGitLongPathsForWorktrees(repoRoot)
 
     const fetchEnv = { ...process.env, ...GIT_NO_PROMPT_ENV }
 
@@ -426,30 +388,10 @@ async function getOrCreateWorktree(
     // Saves a `git branch -D` subprocess (~15ms spawn overhead) on every create.
     addArgs.push('-B', worktreeBranch, worktreePath, baseBranch)
 
-    const { code: createCode, stderr: createStderr, error: createError } =
+    const { code: createCode, stderr: createStderr } =
       await execFileNoThrowWithCwd(gitExe(), addArgs, { cwd: repoRoot })
     if (createCode !== 0) {
-      // `git worktree add` creates and registers the worktree before checking
-      // out its files. If checkout fails (for example, due to a Windows path
-      // limit), leaving it in place makes the fast-resume path treat the
-      // incomplete worktree as healthy on the next attempt.
-      const { code: cleanupCode, stderr: cleanupStderr } =
-        await execFileNoThrowWithCwd(
-          gitExe(),
-          ['worktree', 'remove', '--force', worktreePath],
-          { cwd: repoRoot },
-        )
-      if (cleanupCode !== 0) {
-        logForDebugging(
-          `Could not remove incomplete worktree after creation failure: ${cleanupStderr.trim() || `exit code ${cleanupCode}`}`,
-          { level: 'warn' },
-        )
-      }
-      throw new Error(
-        buildWorktreeCreationFailureMessage(
-          createStderr || createError || `exit code ${createCode}`,
-        ),
-      )
+      throw new Error(`Failed to create worktree: ${createStderr}`)
     }
 
     if (sparsePaths?.length) {
