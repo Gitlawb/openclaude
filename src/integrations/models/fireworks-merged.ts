@@ -873,7 +873,7 @@ export default [
     vendorId: 'fireworks',
     classification: ['chat', 'coding'],
     capabilities: { supportsVision: false, supportsStreaming: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: false, supportsPreciseTokenCount: false },
-    contextWindow: 1_000_000,
+    contextWindow: 1_040_000,
     maxOutputTokens: 32_768,
   }),
   defineModel({
