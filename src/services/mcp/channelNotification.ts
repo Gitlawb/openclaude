@@ -150,22 +150,17 @@ export function buildChannelMessageCommand(
 }
 
 /**
- * Effective allowlist for the current session. OpenClaude: simplified to
- * always return the hardcoded allowlist. Org overrides (allowedChannelPlugins)
- * are accepted if provided for forward-compatibility.
- *
- * Signature kept for backward-compat with ChannelsNotice.tsx.
+ * Effective allowlist for the current session. OpenClaude: always returns
+ * the hardcoded allowlist (ledger). The org override path was removed so
+ * that startup guidance (ChannelsNotice) uses exactly the same allowlist
+ * as the runtime gate (gateChannelServer) — a plugin present in an org
+ * policy list but absent from the ledger would otherwise show no
+ * "not on the allowlist" warning and then be skipped at registration.
  */
-export function getEffectiveChannelAllowlist(
-  _sub?: string | null,
-  orgList?: ChannelAllowlistEntry[] | undefined,
-): {
+export function getEffectiveChannelAllowlist(): {
   entries: ChannelAllowlistEntry[]
-  source: 'org' | 'ledger'
+  source: 'ledger'
 } {
-  if (orgList && orgList.length > 0) {
-    return { entries: orgList, source: 'org' }
-  }
   return { entries: getChannelAllowlist(), source: 'ledger' }
 }
 
