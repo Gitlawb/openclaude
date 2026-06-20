@@ -1537,6 +1537,15 @@ async function* queryLoop(
             routedFallbackUsed = true
             attemptWithFallback = true
             recordRoutingEscalation()
+            // Re-pin to strong so this turn's later continuation passes (next_turn)
+            // don't re-route to the failing simple model and fall back again.
+            pinnedTurnRoute = {
+              routed: true,
+              model: strongModel,
+              complexity: 'strong',
+              reason: 'fell back from simple model',
+              strongModel,
+            }
 
             yield* yieldMissingToolResultBlocks(
               assistantMessages,
