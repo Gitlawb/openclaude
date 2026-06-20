@@ -14,14 +14,25 @@ import {
   shouldDropPinForProviderSwap,
   type TurnRoutingDecision,
 } from './index.js'
-import * as settingsModule from '../../../utils/settings/settings.js'
+import * as modelAllowlistModule from '../../../utils/model/modelAllowlist.js'
 import type { SettingsJson } from '../../../utils/settings/types.js'
 
-/** Set the ambient allowlist that isModelAllowed reads via getSettings_DEPRECATED. */
+// Control isModelAllowed directly rather than the global settings singleton it
+// reads. This keeps these tests deterministic even when another test file leaks
+// a mock.module of modelAllowlist (e.g. agent.test.ts), and the afterEach
+// restore guarantees we never leak our own spy if an assertion throws first.
+let activeAllowlistSpy: ReturnType<typeof spyOn> | undefined
+afterEach(() => {
+  activeAllowlistSpy?.mockRestore()
+  activeAllowlistSpy = undefined
+})
+
+/** Force isModelAllowed to allow only the given models (exact membership). */
 function mockGlobalAllowlist(availableModels: string[] | undefined) {
-  return spyOn(settingsModule, 'getSettings_DEPRECATED').mockReturnValue(
-    (availableModels ? { availableModels } : {}) as unknown as SettingsJson,
+  activeAllowlistSpy = spyOn(modelAllowlistModule, 'isModelAllowed').mockImplementation(
+    (model: string) => (availableModels ? availableModels.includes(model) : true),
   )
+  return activeAllowlistSpy
 }
 
 const PARENT = 'gpt-5'
