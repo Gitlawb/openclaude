@@ -126,6 +126,39 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toContain('my_token=redacted')
     expect(redacted).toContain('#section')
   })
+
+  // Regression: the malformed-URL fallback must decode percent-encoded
+  // param names before running the sensitive-name predicate, otherwise
+  // encoded variants like %74oken (= 'token') slip through.
+  test('malformed URL fallback redacts encoded sensitive query param names', () => {
+    const malformed = '//host/path?%74oken=SECRET'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toContain('%74oken=redacted')
+    expect(redacted).not.toContain('SECRET')
+  })
+
+  // Regression: the userinfo regex must stop at query (?) and fragment (#)
+  // delimiters. Without this boundary, a malformed URL like
+  // //host?email=user@example.com&token=SECRET would have the regex
+  // greedily match //host?email=user@ (through the query) and replace it
+  // with //redacted@, destroying query params.
+  test('malformed URL fallback userinfo regex respects query delimiter', () => {
+    const malformed =
+      '//api.example.com?email=user@example.com&token=SECRET'
+    const redacted = redactUrlForDisplay(malformed)
+    // Userinfo regex must not eat the query string looking for an @ sign.
+    expect(redacted).toBe(
+      '//api.example.com?email=user@example.com&token=redacted',
+    )
+  })
+
+  test('malformed URL fallback userinfo regex respects fragment delimiter', () => {
+    const malformed =
+      '//api.example.com#frag@illegal'
+    const redacted = redactUrlForDisplay(malformed)
+    // No userinfo before the fragment delimiter should be consumed.
+    expect(redacted).toBe(malformed)
+  })
 })
 
 describe('shouldRedactUrlQueryParam', () => {

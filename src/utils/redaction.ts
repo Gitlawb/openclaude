@@ -320,9 +320,15 @@ function redactMalformedQuery(rawUrl: string): string {
     .map(pair => {
       const eqIndex = pair.indexOf('=')
       if (eqIndex === -1) return pair
-      const key = pair.slice(0, eqIndex)
+      const rawKey = pair.slice(0, eqIndex)
+      let key: string
+      try {
+        key = decodeURIComponent(rawKey)
+      } catch {
+        key = rawKey
+      }
       if (shouldRedactUrlQueryParam(key)) {
-        return `${key}=redacted`
+        return `${rawKey}=redacted`
       }
       return pair
     })
@@ -350,7 +356,7 @@ export function redactUrlForDisplay(rawUrl: string): string {
     return parsed.toString()
   } catch {
     const userinfoRedacted = rawUrl.replace(
-      /\/\/[^/@\s]+(?::[^/@\s]*)?@/g,
+      /\/\/[^/@\s?#]+(?::[^/@\s?#]*)?@/g,
       '//redacted@',
     )
     return redactMalformedQuery(userinfoRedacted)

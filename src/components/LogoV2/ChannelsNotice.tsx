@@ -186,7 +186,7 @@ function _temp() {
   const sub = getSubscriptionType();
   const managed = sub === "team" || sub === "enterprise";
   const policy = getSettingsForSource("policySettings");
-  const allowlist = getEffectiveChannelAllowlist(sub, policy?.allowedChannelPlugins);
+  const allowlist = getEffectiveChannelAllowlist();
   return {
     channels: ch,
     disabled: !isChannelsEnabled(),
@@ -257,7 +257,7 @@ function findUnmatched(entries: readonly ChannelEntry[], allowlist: ReturnType<t
     if (!entry.dev && !allowed.some(e => e.plugin === entry.name && e.marketplace === entry.marketplace)) {
       out.push({
         entry,
-        why: source === 'org' ? "not on your org's approved channels list" : 'not on the approved channels allowlist'
+        why: 'not on the approved channels allowlist'
       });
     }
   }
