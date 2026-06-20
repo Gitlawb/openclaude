@@ -23,7 +23,7 @@ test('Bash commands with shell parser limitations are serialized', () => {
       options: {
         tools: [BashTool],
       },
-    } as never,
+    },
   )
 
   expect(batches).toEqual([

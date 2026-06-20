@@ -61,7 +61,16 @@ function makeToolUseContext(
   } as never
 }
 
+let legacyParserEnvToggleQueue = Promise.resolve()
+
 async function withLegacyParserDisabled<T>(fn: () => Promise<T>): Promise<T> {
+  const waitForTurn = legacyParserEnvToggleQueue
+  let releaseQueue!: () => void
+  legacyParserEnvToggleQueue = new Promise<void>(resolve => {
+    releaseQueue = resolve
+  })
+  await waitForTurn
+
   const originalInjectionFlag =
     process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK
   process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK = '1'
@@ -74,6 +83,7 @@ async function withLegacyParserDisabled<T>(fn: () => Promise<T>): Promise<T> {
       process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK =
         originalInjectionFlag
     }
+    releaseQueue()
   }
 }
 
