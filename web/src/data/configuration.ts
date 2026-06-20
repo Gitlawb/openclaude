@@ -50,6 +50,7 @@ export const settingOptions: SettingOption[] = [
   { key: 'verbose', description: 'Verbose output by default.' },
   { key: 'allowAutoUpdates', description: 'Enable or disable the auto-updater.' },
   { key: 'hooks', description: 'Shell hooks that run on tool events (PreToolUse, PostToolUse, …).' },
+  { key: 'smartRouting', description: 'Opt-in smart auto-routing: { enabled, simpleModel, strongModel } route simple turns to a cheaper model. Configure with /smartroute.' },
 ]
 
 export interface EnvVar {
@@ -74,4 +75,7 @@ export const envVars: EnvVar[] = [
   { name: 'HTTP_PROXY / HTTPS_PROXY', description: 'Route API traffic through a proxy.' },
   { name: 'NODE_EXTRA_CA_CERTS', description: 'Extra CA certificates for corporate TLS interception.' },
   { name: 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', description: 'Disable non-essential network traffic.' },
+  { name: 'OPENCLAUDE_SMART_ROUTING', description: 'Set to 1/true to enable smart auto-routing as a startup default (settings.smartRouting overrides it).' },
+  { name: 'OPENCLAUDE_SMART_ROUTING_SIMPLE', description: 'agentModels key or model id used for turns classified "simple".' },
+  { name: 'OPENCLAUDE_SMART_ROUTING_STRONG', description: 'agentModels key or model id used for "strong" turns and as the routed-error fallback.' },
 ]

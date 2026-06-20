@@ -216,6 +216,7 @@ Beginner-friendly guides:
 Advanced and source-build guides:
 
 - [Advanced Setup](docs/advanced-setup.md)
+- [Smart Auto-Routing](docs/smart-routing.md)
 - [Android Install](ANDROID_INSTALL.md)
 
 ## Supported Providers
