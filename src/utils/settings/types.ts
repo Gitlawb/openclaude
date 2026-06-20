@@ -780,6 +780,32 @@ export const SettingsSchema = lazySchema(() =>
             'Use "default" key as fallback. Model name must exist in agentModels. ' +
             'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
         ),
+      smartRouting: z
+        .object({
+          enabled: z.boolean().optional().describe('Opt in to per-turn simple-vs-strong model routing. Off by default.'),
+          simpleModel: z
+            .string()
+            .optional()
+            .describe('agentModels key (or bare model id) used for turns classified "simple".'),
+          strongModel: z
+            .string()
+            .optional()
+            .describe('agentModels key (or bare model id) used for "strong" turns and whenever routing is unsure.'),
+          simpleMaxChars: z
+            .number()
+            .optional()
+            .describe('Max characters in user input to qualify as "simple". Passed to routeModel.'),
+          simpleMaxWords: z
+            .number()
+            .optional()
+            .describe('Max whitespace-separated words to qualify as "simple". Passed to routeModel.'),
+        })
+        .optional()
+        .describe(
+          'Opt-in smart routing: classify each user turn and route simple turns to a cheaper model. ' +
+            'simpleModel/strongModel are agentModels keys (or bare model ids). ' +
+            'Example: { "enabled": true, "simpleModel": "mini", "strongModel": "main" }',
+        ),
       providerFallbackChain: z
         .array(z.string())
         .optional()
