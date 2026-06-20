@@ -4,6 +4,7 @@ import {
   decideTurnModel,
   deriveUserTurnNumber,
   extractLatestUserText,
+  formatRoutingSummary,
   getRoutingTally,
   isRetryableRoutedModelError,
   isSmartRoutingDisabledForSession,
@@ -204,5 +205,38 @@ describe('routing tally', () => {
     recordRoutingDecision('simple')
     resetRoutingTally()
     expect(getRoutingTally()).toEqual({ simple: 0, strong: 0, escalations: 0 })
+  })
+})
+
+describe('formatRoutingSummary', () => {
+  test('null when nothing routed', () => {
+    expect(formatRoutingSummary({ simple: 0, strong: 0, escalations: 0 })).toBeNull()
+  })
+
+  test('shows split and escalations', () => {
+    const out = formatRoutingSummary({ simple: 5, strong: 2, escalations: 1 })
+    expect(out).toContain('5 simple, 2 strong')
+    expect(out).toContain('1 escalated to strong')
+  })
+
+  test('estimated savings line when both models priced and simple cheaper', () => {
+    const out = formatRoutingSummary({ simple: 3, strong: 1, escalations: 0 }, {
+      simpleInputCost: 1,
+      strongInputCost: 5,
+    })
+    expect(out).toContain('~80% lower')
+  })
+
+  test('savings unavailable when a price is unknown', () => {
+    const out = formatRoutingSummary({ simple: 3, strong: 1, escalations: 0 }, { strongInputCost: 5 })
+    expect(out).toContain('Estimated savings unavailable')
+  })
+
+  test('notes no savings when simple is not cheaper', () => {
+    const out = formatRoutingSummary({ simple: 3, strong: 1, escalations: 0 }, {
+      simpleInputCost: 5,
+      strongInputCost: 5,
+    })
+    expect(out).toContain('not cheaper')
   })
 })

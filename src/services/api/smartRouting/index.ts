@@ -144,6 +144,52 @@ export function resetRoutingTally(): void {
   tally.escalations = 0
 }
 
+/**
+ * Format the session routing summary for `/cost`. Returns null when nothing has
+ * been routed. The split and escalation count are always shown (the falsifiable
+ * core); the estimated-savings line is gated on first-party pricing for both
+ * roles and is annotated as unavailable when either price is unknown.
+ */
+export function formatRoutingSummary(
+  t: RoutingTally,
+  pricing?: { simpleInputCost?: number; strongInputCost?: number },
+): string | null {
+  if (t.simple + t.strong === 0) return null
+  const head =
+    `Smart routing: ${t.simple} simple, ${t.strong} strong` +
+    (t.escalations ? `, ${t.escalations} escalated to strong` : '')
+  const s = pricing?.simpleInputCost
+  const st = pricing?.strongInputCost
+  let savings: string
+  if (s != null && st != null && st > 0) {
+    savings =
+      s < st
+        ? `  Estimated: simple turns use a model priced ~${Math.round((1 - s / st) * 100)}% lower per input token (actual savings depend on token mix and cache).`
+        : '  Estimated: simple model is not cheaper than strong — no savings expected.'
+  } else {
+    savings = '  Estimated savings unavailable: one or both models have no known pricing.'
+  }
+  return `${head}\n${savings}`
+}
+
+/**
+ * Build the `/cost` routing summary from the live tally and the configured
+ * roles' first-party pricing. Reads `settings.smartRouting` for the role models.
+ */
+export function getRoutingSummaryForDisplay(settings: SettingsJson | null): string | null {
+  const sr = settings?.smartRouting
+  const simpleModelId = sr?.simpleModel
+    ? settings?.agentModels?.[sr.simpleModel]?.model ?? sr.simpleModel
+    : undefined
+  const strongModelId = sr?.strongModel
+    ? settings?.agentModels?.[sr.strongModel]?.model ?? sr.strongModel
+    : undefined
+  return formatRoutingSummary(getRoutingTally(), {
+    simpleInputCost: simpleModelId ? getKnownInputCost(simpleModelId) : undefined,
+    strongInputCost: strongModelId ? getKnownInputCost(strongModelId) : undefined,
+  })
+}
+
 /** Minimal message shape for turn counting — avoids importing heavy message types. */
 interface TurnCountMessage {
   type: string

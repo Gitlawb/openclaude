@@ -9,6 +9,8 @@ import {
   resetSessionCacheStats,
 } from './services/api/cacheStatsTracker.js'
 import { getAPIProvider, isGithubNativeAnthropicMode } from './utils/model/providers.js'
+import { getRoutingSummaryForDisplay } from './services/api/smartRouting/index.js'
+import { getSettings_DEPRECATED } from './utils/settings/settings.js'
 import {
   addToTotalCostState,
   addToTotalLinesChanged,
@@ -286,9 +288,12 @@ Total duration (wall): ${formatDuration(getTotalDuration())}
 Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed`,
   )
 
+  const routingSummary = getRoutingSummaryForDisplay(getSettings_DEPRECATED())
+  const routingSection = routingSummary ? `\n\n${chalk.dim(routingSummary)}` : ''
+
   return `${statsBlock}${tokenSection}
 
-${modelUsageDisplay}`
+${modelUsageDisplay}${routingSection}`
 }
 
 function round(number: number, precision: number): number {
