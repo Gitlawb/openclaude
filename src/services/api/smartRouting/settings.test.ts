@@ -77,4 +77,35 @@ describe('readSmartRouting', () => {
     })
     errSpy.mockRestore()
   })
+
+  describe('env fallback (settings override env)', () => {
+    test('env enables routing when settings say nothing', () => {
+      const env = {
+        OPENCLAUDE_SMART_ROUTING: '1',
+        OPENCLAUDE_SMART_ROUTING_SIMPLE: 'mini',
+        OPENCLAUDE_SMART_ROUTING_STRONG: 'main',
+      } as unknown as NodeJS.ProcessEnv
+      expect(readSmartRouting(null, env)).toEqual({
+        enabled: true,
+        simpleModel: 'mini',
+        strongModel: 'main',
+        simpleMaxChars: undefined,
+        simpleMaxWords: undefined,
+      })
+    })
+
+    test('settings block present (even disabled) overrides env', () => {
+      const env = {
+        OPENCLAUDE_SMART_ROUTING: '1',
+        OPENCLAUDE_SMART_ROUTING_SIMPLE: 'mini',
+        OPENCLAUDE_SMART_ROUTING_STRONG: 'main',
+      } as unknown as NodeJS.ProcessEnv
+      // settings explicitly disables -> env's enable does not apply
+      expect(readSmartRouting(settingsWith({ enabled: false }), env)).toEqual({ enabled: false })
+    })
+
+    test('no env and no settings is disabled', () => {
+      expect(readSmartRouting(null, {} as NodeJS.ProcessEnv)).toEqual({ enabled: false })
+    })
+  })
 })

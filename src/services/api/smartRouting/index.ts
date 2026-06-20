@@ -1,8 +1,20 @@
 import type { PermissionMode } from '../../../utils/permissions/PermissionMode.js'
 import type { SettingsJson } from '../../../utils/settings/types.js'
 import { isModelAllowed } from '../../../utils/model/modelAllowlist.js'
+import { getCanonicalName } from '../../../utils/model/model.js'
+import { MODEL_COSTS } from '../../../utils/modelCost.js'
 import { routeModel, type RoutingInput } from '../smartModelRouting.js'
 import { resolveSmartRoutingConfig } from './resolveConfig.js'
+
+/**
+ * Per-million input-token price for a model when it is in the first-party
+ * pricing table, else `undefined` (third-party / gateway models have no known
+ * price). Used for the "simple isn't cheaper" warning (U5) and to gate the
+ * estimated-savings line (U6).
+ */
+export function getKnownInputCost(model: string): number | undefined {
+  return MODEL_COSTS[getCanonicalName(model)]?.inputTokens
+}
 
 export { readSmartRouting, type NormalizedSmartRouting } from './settings.js'
 export { resolveSmartRoutingConfig } from './resolveConfig.js'
