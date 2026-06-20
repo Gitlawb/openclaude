@@ -89,6 +89,49 @@ export function decideTurnModel({
   return { routed: true, model, complexity, reason: decision.reason, strongModel: config.strongModel }
 }
 
+/**
+ * Whether a routed model-call error is worth retrying on the strong model.
+ * 4xx client errors (bad request, auth, permission) will not be fixed by a
+ * different model, so they propagate; transport/5xx/model-unavailable do retry.
+ * Callers must check abort separately (an aborted turn must not retry).
+ */
+export function isRetryableRoutedModelError(err: unknown): boolean {
+  const status =
+    (err as { status?: number })?.status ?? (err as { statusCode?: number })?.statusCode
+  if (status === 400 || status === 401 || status === 403) return false
+  return true
+}
+
+/** Session-level routing tally, rendered by the cost/status surfaces (U6). */
+export interface RoutingTally {
+  simple: number
+  strong: number
+  /** Simple-routed turns that fell back to strong on a routed-model error. */
+  escalations: number
+}
+
+const tally: RoutingTally = { simple: 0, strong: 0, escalations: 0 }
+
+/** Record a pinned routing decision (once per user turn). */
+export function recordRoutingDecision(complexity: 'simple' | 'strong'): void {
+  tally[complexity]++
+}
+
+/** Record a simple→strong fallback escalation (U4). */
+export function recordRoutingEscalation(): void {
+  tally.escalations++
+}
+
+export function getRoutingTally(): RoutingTally {
+  return { ...tally }
+}
+
+export function resetRoutingTally(): void {
+  tally.simple = 0
+  tally.strong = 0
+  tally.escalations = 0
+}
+
 /** Minimal message shape for turn counting — avoids importing heavy message types. */
 interface TurnCountMessage {
   type: string

@@ -142,6 +142,9 @@ import {
   decideTurnModel,
   deriveUserTurnNumber,
   extractLatestUserText,
+  isRetryableRoutedModelError,
+  recordRoutingDecision,
+  recordRoutingEscalation,
   type TurnRoutingDecision,
 } from './services/api/smartRouting/index.js'
 import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
@@ -1014,6 +1017,9 @@ async function* queryLoop(
           'warning',
         )
       }
+      if (pinnedTurnRoute.routed) {
+        recordRoutingDecision(pinnedTurnRoute.complexity)
+      }
     }
     if (pinnedTurnRoute?.routed) {
       const priorModel = currentModel
@@ -1177,6 +1183,10 @@ async function* queryLoop(
     const toolsForModel = agentStepLimit?.summaryRequested
       ? []
       : toolUseContext.options.tools
+    // Once-only guard for the smart-routing routed-error fallback (U4): a
+    // simple-routed call that errors retries once on the strong model; a second
+    // failure propagates normally rather than re-routing.
+    let routedFallbackUsed = false
 
     queryCheckpoint('query_api_loop_start')
     try {
@@ -1509,6 +1519,55 @@ async function* queryLoop(
               'warning',
             )
 
+            continue
+          }
+          // Smart-routing routed-error fallback (U4): a simple-routed call that
+          // errors retries once on the strong model. Reuses this same
+          // attemptWithFallback retry loop — not a new retry mechanism. Aborts
+          // and 4xx client errors (auth/permission/bad-request) are NOT retried.
+          if (
+            pinnedTurnRoute?.routed &&
+            pinnedTurnRoute.complexity === 'simple' &&
+            !routedFallbackUsed &&
+            !(innerError instanceof FallbackTriggeredError) &&
+            !toolUseContext.abortController.signal.aborted &&
+            isRetryableRoutedModelError(innerError)
+          ) {
+            const strongModel = pinnedTurnRoute.strongModel
+            routedFallbackUsed = true
+            attemptWithFallback = true
+            recordRoutingEscalation()
+
+            yield* yieldMissingToolResultBlocks(
+              assistantMessages,
+              'Smart-routing fallback to strong model',
+            )
+            assistantMessages.length = 0
+            toolResults.length = 0
+            toolUseBlocks.length = 0
+            needsFollowUp = false
+
+            if (streamingToolExecutor) {
+              streamingToolExecutor.discard()
+              streamingToolExecutor = new StreamingToolExecutor(
+                toolUseContext.options.tools,
+                canUseTool,
+                toolUseContext,
+              )
+            }
+
+            currentModel = strongModel
+            toolUseContext.options.mainLoopModel = strongModel
+            // Strip prior-model thinking before retrying on the strong model,
+            // under the provider gate (never for preserve-reasoning providers).
+            messagesForQuery = stripThinkingBlocksIfProviderAllows(
+              messagesForQuery as unknown as Parameters<typeof stripThinkingBlocksIfProviderAllows>[0],
+            ) as unknown as typeof messagesForQuery
+
+            yield createSystemMessage(
+              `Smart routing: retrying on ${renderModelName(strongModel)} after the simple model failed`,
+              'warning',
+            )
             continue
           }
           throw innerError

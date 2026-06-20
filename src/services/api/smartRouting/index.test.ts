@@ -4,7 +4,12 @@ import {
   decideTurnModel,
   deriveUserTurnNumber,
   extractLatestUserText,
+  getRoutingTally,
+  isRetryableRoutedModelError,
   isSmartRoutingDisabledForSession,
+  recordRoutingDecision,
+  recordRoutingEscalation,
+  resetRoutingTally,
 } from './index.js'
 import * as settingsModule from '../../../utils/settings/settings.js'
 import type { SettingsJson } from '../../../utils/settings/types.js'
@@ -165,5 +170,39 @@ describe('decideTurnModel', () => {
     expect(isSmartRoutingDisabledForSession('sess-1')).toBe(true)
     expect(isSmartRoutingDisabledForSession('sess-2')).toBe(false)
     spy.mockRestore()
+  })
+})
+
+describe('isRetryableRoutedModelError', () => {
+  test('4xx client errors (bad request / auth / permission) are not retryable', () => {
+    expect(isRetryableRoutedModelError({ status: 400 })).toBe(false)
+    expect(isRetryableRoutedModelError({ status: 401 })).toBe(false)
+    expect(isRetryableRoutedModelError({ statusCode: 403 })).toBe(false)
+  })
+
+  test('5xx, network, and unclassified errors are retryable', () => {
+    expect(isRetryableRoutedModelError({ status: 500 })).toBe(true)
+    expect(isRetryableRoutedModelError({ status: 529 })).toBe(true)
+    expect(isRetryableRoutedModelError(new Error('socket hang up'))).toBe(true)
+    expect(isRetryableRoutedModelError(undefined)).toBe(true)
+  })
+})
+
+describe('routing tally', () => {
+  afterEach(() => resetRoutingTally())
+
+  test('records decisions and escalations', () => {
+    resetRoutingTally()
+    recordRoutingDecision('simple')
+    recordRoutingDecision('simple')
+    recordRoutingDecision('strong')
+    recordRoutingEscalation()
+    expect(getRoutingTally()).toEqual({ simple: 2, strong: 1, escalations: 1 })
+  })
+
+  test('reset clears the tally', () => {
+    recordRoutingDecision('simple')
+    resetRoutingTally()
+    expect(getRoutingTally()).toEqual({ simple: 0, strong: 0, escalations: 0 })
   })
 })
