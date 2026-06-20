@@ -160,7 +160,7 @@ export function resolveAgentModelProvider(
  * sent literally and failing with a provider "model not found". A real model id
  * (a configured agentModels key for the active provider) passes through as-is.
  */
-function resolveModelOnlyModel(
+export function resolveModelOnlyModel(
   model: string,
   parentModel: string,
   permissionMode?: PermissionMode,
