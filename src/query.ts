@@ -145,6 +145,7 @@ import {
   isRetryableRoutedModelError,
   recordRoutingDecision,
   recordRoutingEscalation,
+  shouldDropPinForProviderSwap,
   type TurnRoutingDecision,
 } from './services/api/smartRouting/index.js'
 import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
@@ -1027,8 +1028,11 @@ async function* queryLoop(
         pinnedRouteProviderId = getActiveProviderProfile()?.id
       }
     } else if (
-      pinnedTurnRoute?.routed &&
-      getActiveProviderProfile()?.id !== pinnedRouteProviderId
+      shouldDropPinForProviderSwap(
+        pinnedTurnRoute,
+        pinnedRouteProviderId,
+        getActiveProviderProfile()?.id,
+      )
     ) {
       // A provider-fallback swap happened mid-turn: the pinned model belongs to
       // the previous provider. Drop the pin and let today's resolution (already
@@ -1036,6 +1040,8 @@ async function* queryLoop(
       // turn rather than sending a stale model id to the new endpoint.
       pinnedTurnRoute = undefined
     }
+    // Apply whatever pin survived the guard above (may be undefined after an
+    // invalidation, in which case currentModel keeps today's resolution).
     if (pinnedTurnRoute?.routed) {
       const priorModel = currentModel
       currentModel = pinnedTurnRoute.model
@@ -1200,7 +1206,10 @@ async function* queryLoop(
       : toolUseContext.options.tools
     // Once-only guard for the smart-routing routed-error fallback (U4): a
     // simple-routed call that errors retries once on the strong model; a second
-    // failure propagates normally rather than re-routing.
+    // failure propagates normally rather than re-routing. Intentionally scoped
+    // per user turn (here, outside the while(attemptWithFallback) retry loop) —
+    // moving it inside would reset it every attempt and defeat the once-only
+    // guarantee.
     let routedFallbackUsed = false
 
     queryCheckpoint('query_api_loop_start')

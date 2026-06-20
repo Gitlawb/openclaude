@@ -38,10 +38,32 @@ export type TurnRoutingDecision =
       strongModel: string
     }
 
+/**
+ * Whether a pinned route must be dropped because the active provider changed
+ * since the route was pinned (a mid-turn provider-fallback swap). A model-only
+ * route is keyed to the provider it resolved against, so replaying it at a new
+ * endpoint would send an unknown model id (KTD6).
+ */
+export function shouldDropPinForProviderSwap(
+  pinned: TurnRoutingDecision | undefined,
+  pinnedProviderId: string | undefined,
+  currentProviderId: string | undefined,
+): boolean {
+  return !!pinned && pinned.routed && currentProviderId !== pinnedProviderId
+}
+
 // Session-scoped disable set. Keyed by session id so a disable never leaks into
 // an unrelated session in a long-lived host (gRPC/SDK) — a new session has a new
 // id and is therefore never in the set. NOT a process-global boolean.
+// Capped so a long-lived host with a persistent allowlist conflict can't grow it
+// without bound; clearing is safe (a cleared session re-evaluates and re-disables).
+const MAX_DISABLED_SESSIONS = 1024
 const disabledSessions = new Set<string>()
+
+function markSessionDisabled(sessionId: string): void {
+  if (disabledSessions.size >= MAX_DISABLED_SESSIONS) disabledSessions.clear()
+  disabledSessions.add(sessionId)
+}
 
 /** Clear the session-disable flag (e.g. on explicit `/smartroute enable`). */
 export function clearSmartRoutingSessionDisable(sessionId: string | undefined): void {
@@ -95,7 +117,7 @@ export function decideTurnModel({
       // session; with no sessionId we can't dedupe, so stay silent rather than
       // emit the notice on every turn.
       const first = sessionId ? !disabledSessions.has(sessionId) : false
-      if (sessionId) disabledSessions.add(sessionId)
+      if (sessionId) markSessionDisabled(sessionId)
       return first ? { routed: false, justDisabledForSession: true } : { routed: false }
     }
   }
@@ -105,9 +127,13 @@ export function decideTurnModel({
 
 /**
  * Whether a routed model-call error is worth retrying on the strong model.
- * 4xx client errors (bad request, auth, permission) will not be fixed by a
- * different model, so they propagate; transport/5xx/model-unavailable do retry.
- * Callers must check abort separately (an aborted turn must not retry).
+ * 400/401/403 (bad request, auth, permission) are about the request itself and
+ * a different model won't fix them, so they propagate. Everything else retries,
+ * including 404 and 429 by design: the fallback switches to a *different* model
+ * (strong), so a 404 ("simple model not found", e.g. a typo'd role) or a 429
+ * (the simple model rate-limited) is recovered by completing the turn on strong
+ * rather than failing it. Callers must check abort separately (an aborted turn
+ * must not retry).
  */
 export function isRetryableRoutedModelError(err: unknown): boolean {
   const status =

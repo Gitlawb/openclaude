@@ -11,6 +11,8 @@ import {
   recordRoutingDecision,
   recordRoutingEscalation,
   resetRoutingTally,
+  shouldDropPinForProviderSwap,
+  type TurnRoutingDecision,
 } from './index.js'
 import * as settingsModule from '../../../utils/settings/settings.js'
 import type { SettingsJson } from '../../../utils/settings/types.js'
@@ -184,6 +186,20 @@ describe('decideTurnModel', () => {
     expect(isSmartRoutingDisabledForSession('sess-2')).toBe(false)
     spy.mockRestore()
   })
+
+  test('clearSmartRoutingSessionDisable re-enables a disabled session (the /smartroute on path)', () => {
+    const spy = mockGlobalAllowlist(['x'])
+    decideTurnModel({
+      settings: enabledSettings(),
+      parentModel: PARENT,
+      input: { userText: 'ok', turnNumber: 3 },
+      sessionId: 'sess-1',
+    })
+    expect(isSmartRoutingDisabledForSession('sess-1')).toBe(true)
+    clearSmartRoutingSessionDisable('sess-1')
+    expect(isSmartRoutingDisabledForSession('sess-1')).toBe(false)
+    spy.mockRestore()
+  })
 })
 
 describe('isRetryableRoutedModelError', () => {
@@ -193,11 +209,46 @@ describe('isRetryableRoutedModelError', () => {
     expect(isRetryableRoutedModelError({ statusCode: 403 })).toBe(false)
   })
 
+  test('404 and 429 are retryable by design (the fallback switches to a different model)', () => {
+    expect(isRetryableRoutedModelError({ status: 404 })).toBe(true)
+    expect(isRetryableRoutedModelError({ status: 429 })).toBe(true)
+  })
+
   test('5xx, network, and unclassified errors are retryable', () => {
     expect(isRetryableRoutedModelError({ status: 500 })).toBe(true)
     expect(isRetryableRoutedModelError({ status: 529 })).toBe(true)
     expect(isRetryableRoutedModelError(new Error('socket hang up'))).toBe(true)
     expect(isRetryableRoutedModelError(undefined)).toBe(true)
+  })
+})
+
+describe('shouldDropPinForProviderSwap', () => {
+  const routed: TurnRoutingDecision = {
+    routed: true,
+    model: 'mini',
+    complexity: 'simple',
+    reason: 'x',
+    strongModel: 'main',
+  }
+
+  test('no pin -> never drop', () => {
+    expect(shouldDropPinForProviderSwap(undefined, 'p1', 'p2')).toBe(false)
+  })
+
+  test('routed pin, same provider -> keep', () => {
+    expect(shouldDropPinForProviderSwap(routed, 'p1', 'p1')).toBe(false)
+  })
+
+  test('routed pin, provider changed -> drop', () => {
+    expect(shouldDropPinForProviderSwap(routed, 'p1', 'p2')).toBe(true)
+  })
+
+  test('no provider profiles (both undefined) -> keep', () => {
+    expect(shouldDropPinForProviderSwap(routed, undefined, undefined)).toBe(false)
+  })
+
+  test('non-routed pin -> never drop', () => {
+    expect(shouldDropPinForProviderSwap({ routed: false }, 'p1', 'p2')).toBe(false)
   })
 })
 
