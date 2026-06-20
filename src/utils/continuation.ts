@@ -127,12 +127,5 @@ export function analyzeContinuationIntent(
     return { shouldNudge: true, reason: 'continuation_signal' }
   }
 
-  // 4. Soft fallback: if no terminal punctuation and no explicit completion signal,
-  // assume the model intends to continue (important for non-Claude models that
-  // don't use the specific continuation phrasing expected by this heuristic).
-  if (!hasTerminalPunctuation && !COMPLETION_MARKERS.test(lowerText)) {
-    return { shouldNudge: true, reason: 'continuation_signal' }
-  }
-
   return { shouldNudge: false }
 }

@@ -500,11 +500,24 @@ async function* queryLoop(
       queryCheckpoint('query_snip_end')
     }
 
-    // [PATCH] microcompact disabled — was causing aggressive conversation trimming
-    // Apply microcompact before autocompact
-    queryCheckpoint('query_microcompact_start')
-    const pendingCacheEdits = undefined as const
-    queryCheckpoint('query_microcompact_end')
+    // Only run microcompact if compaction is not explicitly disabled via settings
+    let pendingCacheEdits: unknown = undefined
+    if (getGlobalConfig().maxMessagesCompactionThreshold !== 'off') {
+      queryCheckpoint('query_microcompact_start')
+      const microcompactResult = await deps.microcompact(
+        messagesForQuery,
+        toolUseContext,
+        querySource,
+      )
+      messagesForQuery = microcompactResult.messages
+      pendingCacheEdits = feature('CACHED_MICROCOMPACT')
+        ? microcompactResult.compactionInfo?.pendingCacheEdits
+        : undefined
+      queryCheckpoint('query_microcompact_end')
+    } else {
+      queryCheckpoint('query_microcompact_start')
+      queryCheckpoint('query_microcompact_end')
+    }
 
     // Project the collapsed context view and maybe commit more collapses.
     // Runs BEFORE autocompact so that if collapse gets us under the
