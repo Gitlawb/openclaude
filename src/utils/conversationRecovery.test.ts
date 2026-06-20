@@ -686,6 +686,42 @@ test('deserializeMessages preserves thinking blocks for DeepSeek 3P provider (#9
   expect(content.some(block => block.type === 'thinking')).toBe(true)
 })
 
+test('stripThinkingBlocksIfProviderAllows preserves thinking for preserve-reasoning 3P (Z.AI GLM / DeepSeek)', async () => {
+  // Smart routing reuses this gate on a per-turn model swap. A preserve-reasoning
+  // provider 400s if the thinking block is stripped, so the gate must leave it.
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek-v4-flash'
+  const { stripThinkingBlocksIfProviderAllows } = await importFreshConversationRecovery()
+
+  const result = stripThinkingBlocksIfProviderAllows([
+    {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'answer' }] },
+    } as any,
+  ])
+  const content = (result[0] as any)?.message?.content as Array<{ type: string }>
+  expect(content.some(block => block.type === 'thinking')).toBe(true)
+})
+
+test('stripThinkingBlocksIfProviderAllows strips thinking for generic OpenAI 3P', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5-mini'
+  const { stripThinkingBlocksIfProviderAllows } = await importFreshConversationRecovery()
+
+  const result = stripThinkingBlocksIfProviderAllows([
+    {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'answer' }] },
+    } as any,
+  ])
+  const content = (result[0] as any)?.message?.content as Array<{ type: string }>
+  expect(content.some(block => block.type === 'thinking')).toBe(false)
+})
+
 test('deserializeMessages still strips thinking blocks for generic OpenAI 3P (no preserveReasoningContent)', async () => {
   // Counter-test: providers that don't set preserveReasoningContent keep the
   // original strip behaviour from #248; thinking blocks were causing 400s

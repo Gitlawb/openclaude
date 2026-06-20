@@ -135,7 +135,15 @@ import {
   getCurrentTurnTokenBudget,
   getTurnOutputTokens,
   incrementBudgetContinuationCount,
+  getSessionId,
 } from './bootstrap/state.js'
+import { stripThinkingBlocksIfProviderAllows } from './utils/conversationRecovery.js'
+import {
+  decideTurnModel,
+  deriveUserTurnNumber,
+  extractLatestUserText,
+  type TurnRoutingDecision,
+} from './services/api/smartRouting/index.js'
 import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
 import { count } from './utils/array.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -555,6 +563,11 @@ async function* queryLoop(
   // trigger point. Loop-local (not on State) to avoid touching the 7 continue
   // sites.
   let taskBudgetRemaining: number | undefined = undefined
+  // Smart-routing decision, pinned once per user turn (transition===undefined)
+  // and reused on every continuation pass. Loop-local (not on State) so it
+  // survives the State rebuilds at the continue sites for free — mirrors
+  // taskBudgetRemaining above.
+  let pinnedTurnRoute: TurnRoutingDecision | undefined = undefined
   const toolFailureGuardState = createToolFailureLoopGuardState()
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
@@ -978,6 +991,43 @@ async function* queryLoop(
         permissionMode === 'plan' &&
         doesMostRecentAssistantMessageExceed200k(messagesForQuery),
     })
+
+    // Smart routing (opt-in): classify once per user turn (transition===undefined)
+    // and pin the decision; reuse the pin on every continuation pass. Applied
+    // BEFORE the blocking-limit math below so the token-budget guard and the
+    // model call agree on the model. Disabled/misconfigured → pin is `routed:false`
+    // and currentModel keeps today's resolution (byte-for-byte unchanged).
+    if (state.transition === undefined) {
+      pinnedTurnRoute = decideTurnModel({
+        settings: appState.settings as unknown as Parameters<typeof decideTurnModel>[0]['settings'],
+        parentModel: currentModel,
+        permissionMode,
+        input: {
+          userText: extractLatestUserText(messagesForQuery),
+          turnNumber: deriveUserTurnNumber(messagesForQuery),
+        },
+        sessionId: getSessionId(),
+      })
+      if (pinnedTurnRoute.routed === false && pinnedTurnRoute.justDisabledForSession) {
+        yield createSystemMessage(
+          'Smart routing disabled for this session: both configured models are outside the org allowlist. Using the default model.',
+          'warning',
+        )
+      }
+    }
+    if (pinnedTurnRoute?.routed) {
+      const priorModel = currentModel
+      currentModel = pinnedTurnRoute.model
+      toolUseContext.options.mainLoopModel = pinnedTurnRoute.model
+      // A model change at the turn boundary would replay a prior model's
+      // thinking signature; strip it under the provider gate (never for
+      // preserve-reasoning providers, which 400 on a stripped block).
+      if (pinnedTurnRoute.model !== priorModel) {
+        messagesForQuery = stripThinkingBlocksIfProviderAllows(
+          messagesForQuery as unknown as Parameters<typeof stripThinkingBlocksIfProviderAllows>[0],
+        ) as unknown as typeof messagesForQuery
+      }
+    }
 
     queryCheckpoint('query_setup_end')
 

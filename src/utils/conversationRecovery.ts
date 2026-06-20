@@ -252,6 +252,35 @@ function shouldPreserveThinkingBlocksForProviderReplay(): boolean {
   )
 }
 
+/**
+ * Strip protected-thinking blocks from history only when the active provider
+ * tolerates it. Mirrors the gate used during session-resume deserialization:
+ * strip for non-preserve third-party providers, leave Anthropic-native and
+ * preserve-reasoning providers (DeepSeek/Kimi/Z.AI GLM — which 400 on a
+ * stripped block, issue #957) untouched.
+ *
+ * Exposed for callers that rewrite history across a model change (e.g. smart
+ * routing's per-turn model swap), so a model-bound thinking signature is never
+ * replayed to a different model without re-creating the preserve-reasoning 400.
+ */
+export function stripThinkingBlocksIfProviderAllows(
+  messages: NormalizedMessage[],
+): NormalizedMessage[] {
+  const provider = getAPIProvider()
+  const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
+    processEnv: process.env,
+    model: process.env.OPENAI_MODEL,
+    providerCategory: provider as NonNullable<
+      Parameters<typeof usesAnthropicNativeMessageFormat>[0]
+    >['providerCategory'],
+  })
+  const isThirdPartyProvider = provider !== 'foundry' && !isAnthropicNativeTransport
+  if (isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()) {
+    return stripThinkingBlocks(messages)
+  }
+  return messages
+}
+
 function parsePrIdentifier(value: string): number | null {
   const directNumber = parseInt(value, 10)
   if (!isNaN(directNumber) && directNumber > 0) {
