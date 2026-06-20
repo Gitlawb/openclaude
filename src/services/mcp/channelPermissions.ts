@@ -173,21 +173,29 @@ export function truncateForPreview(input: unknown): string {
  * server's explicit opt-in — a relay-only channel never becomes a
  * permission surface by accident (Kenneth's "users may be unpleasantly
  * surprised"). Centralized here so a future fourth condition lands once.
+ *
+ * The `isInAllowlist` predicate receives the runtime `pluginSource` (when
+ * available) so the caller can do marketplace-aware matching — see
+ * `findChannelEntry(name, allowedChannels, pluginSource)` in
+ * `channelNotification.ts`. A bare-name match is unsafe for plugin-kind
+ * entries: a `plugin:slack@evilcorp` installation would otherwise piggy-
+ * back on a `plugin:slack@anthropic` session entry.
  */
 export function filterPermissionRelayClients<
   T extends {
     type: string
     name: string
     capabilities?: { experimental?: Record<string, unknown> }
+    config?: { pluginSource?: string }
   },
 >(
   clients: readonly T[],
-  isInAllowlist: (name: string) => boolean,
+  isInAllowlist: (name: string, pluginSource?: string) => boolean,
 ): (T & { type: 'connected' })[] {
   return clients.filter(
     (c): c is T & { type: 'connected' } =>
       c.type === 'connected' &&
-      isInAllowlist(c.name) &&
+      isInAllowlist(c.name, c.config?.pluginSource) &&
       c.capabilities?.experimental?.['claude/channel'] !== undefined &&
       c.capabilities?.experimental?.['claude/channel/permission'] !== undefined,
   )

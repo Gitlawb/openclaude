@@ -320,9 +320,17 @@ function handleInteractivePermission(
   ) {
     const channelRequestId = shortRequestId(ctx.toolUseID)
     const allowedChannels = getAllowedChannels()
+    // Marketplace-aware: pass the runtime pluginSource (stashed on
+    // the server config at addPluginScopeToServers) so a
+    // `plugin:slack@evilcorp` installation cannot piggy-back on a
+    // `plugin:slack@anthropic` session entry to receive permission
+    // request previews. The bare name match would otherwise let
+    // findChannelEntry resolve to the approved entry, leaking tool
+    // names/descriptions/input previews to the unapproved plugin.
     const channelClients = filterPermissionRelayClients(
       ctx.toolUseContext.getAppState().mcp.clients,
-      name => findChannelEntry(name, allowedChannels) !== undefined,
+      (name, pluginSource) =>
+        findChannelEntry(name, allowedChannels, pluginSource) !== undefined,
     )
 
     if (channelClients.length > 0) {
