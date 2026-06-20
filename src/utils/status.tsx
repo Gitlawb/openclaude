@@ -151,17 +151,36 @@ function getConfiguredSecretSubstringSource(
   return substringSource;
 }
 
+function encodeURIComponentStrict(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    character =>
+      `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function addPercentEscapeCaseVariants(
+  variants: Set<string>,
+  value: string,
+): void {
+  variants.add(value);
+  variants.add(
+    value.replace(/%[0-9A-F]{2}/g, match => match.toLowerCase()),
+  );
+}
+
 function addEncodedSecretVariants(
   variants: Set<string>,
   value: string,
 ): void {
   let encoded = value;
+  let strictlyEncoded = value;
   for (let depth = 0; depth < MAX_CONFIGURED_SECRET_ENCODING_DEPTH; depth++) {
     encoded = encodeURIComponent(encoded);
-    variants.add(encoded);
-    variants.add(
-      encoded.replace(/%[0-9A-F]{2}/g, match => match.toLowerCase()),
-    );
+    addPercentEscapeCaseVariants(variants, encoded);
+
+    strictlyEncoded = encodeURIComponentStrict(strictlyEncoded);
+    addPercentEscapeCaseVariants(variants, strictlyEncoded);
   }
 }
 
