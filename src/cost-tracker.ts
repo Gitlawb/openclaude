@@ -9,7 +9,7 @@ import {
   resetSessionCacheStats,
 } from './services/api/cacheStatsTracker.js'
 import { getAPIProvider, isGithubNativeAnthropicMode } from './utils/model/providers.js'
-import { getRoutingSummaryForDisplay } from './services/api/smartRouting/index.js'
+import { getRoutingSummaryForDisplay, resetRoutingTally } from './services/api/smartRouting/index.js'
 import { getSettings_DEPRECATED } from './utils/settings/settings.js'
 import {
   addToTotalCostState,
@@ -85,6 +85,9 @@ export {
 export function resetCostState(): void {
   baseResetCostState()
   resetSessionCacheStats()
+  // Keep the routing summary scoped to the same session window as the cost
+  // block it renders beside — otherwise /cost shows stale cross-session counts.
+  resetRoutingTally()
 }
 
 type StoredCostState = {

@@ -160,6 +160,18 @@ describe('decideTurnModel', () => {
     spy.mockRestore()
   })
 
+  test('both disallowed with no sessionId stays silent (no per-turn notice storm)', () => {
+    const spy = mockGlobalAllowlist(['some-other-model'])
+    const d = decideTurnModel({
+      settings: enabledSettings(),
+      parentModel: PARENT,
+      input: { userText: 'ok thanks', turnNumber: 3 },
+      // no sessionId
+    })
+    expect(d).toEqual({ routed: false })
+    spy.mockRestore()
+  })
+
   test('a session disable does not leak into another session', () => {
     const spy = mockGlobalAllowlist(['x'])
     decideTurnModel({

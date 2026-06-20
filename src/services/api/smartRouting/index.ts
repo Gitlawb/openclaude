@@ -91,10 +91,12 @@ export function decideTurnModel({
     complexity = 'strong'
     if (!isModelAllowed(model)) {
       // Both roles outside the allowlist — disable for the session and let the
-      // caller use today's (allowlist-clean) resolution. Notice fires once.
-      const first = sessionId ? !disabledSessions.has(sessionId) : true
+      // caller use today's (allowlist-clean) resolution. Notice fires once per
+      // session; with no sessionId we can't dedupe, so stay silent rather than
+      // emit the notice on every turn.
+      const first = sessionId ? !disabledSessions.has(sessionId) : false
       if (sessionId) disabledSessions.add(sessionId)
-      return { routed: false, justDisabledForSession: first }
+      return first ? { routed: false, justDisabledForSession: true } : { routed: false }
     }
   }
 

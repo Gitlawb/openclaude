@@ -114,7 +114,7 @@ import { queryCheckpoint } from './utils/queryProfiler.js'
 import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { resolveNextFallbackProviderFromState } from './utils/providerFallback.js'
-import { setActiveProviderProfile } from './utils/providerProfiles.js'
+import { setActiveProviderProfile, getActiveProviderProfile } from './utils/providerProfiles.js'
 import { getPrimaryModel } from './utils/providerModels.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
@@ -571,6 +571,11 @@ async function* queryLoop(
   // survives the State rebuilds at the continue sites for free — mirrors
   // taskBudgetRemaining above.
   let pinnedTurnRoute: TurnRoutingDecision | undefined = undefined
+  // Provider profile the pinned route's model was resolved against. If a
+  // mid-turn provider-fallback swap changes the active provider, the pinned
+  // model (a model-only route keyed to the old provider) must not be replayed
+  // at the new endpoint — KTD6 in the plan.
+  let pinnedRouteProviderId: string | undefined = undefined
   const toolFailureGuardState = createToolFailureLoopGuardState()
 
   // Snapshot immutable env/statsig/session state once at entry. See QueryConfig
@@ -1019,7 +1024,17 @@ async function* queryLoop(
       }
       if (pinnedTurnRoute.routed) {
         recordRoutingDecision(pinnedTurnRoute.complexity)
+        pinnedRouteProviderId = getActiveProviderProfile()?.id
       }
+    } else if (
+      pinnedTurnRoute?.routed &&
+      getActiveProviderProfile()?.id !== pinnedRouteProviderId
+    ) {
+      // A provider-fallback swap happened mid-turn: the pinned model belongs to
+      // the previous provider. Drop the pin and let today's resolution (already
+      // re-derived to the new provider's model above) stand for the rest of the
+      // turn rather than sending a stale model id to the new endpoint.
+      pinnedTurnRoute = undefined
     }
     if (pinnedTurnRoute?.routed) {
       const priorModel = currentModel

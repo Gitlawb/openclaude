@@ -58,6 +58,19 @@ describe('/smartroute command', () => {
     })
   })
 
+  test('setting the strong role to a valid key persists', async () => {
+    const ctx = makeContext()
+    await call('strong main', ctx)
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', { smartRouting: { strongModel: 'main' } })
+  })
+
+  test('simple/strong with no value argument is rejected', async () => {
+    const ctx = makeContext()
+    const res = await call('simple', ctx)
+    expect(res.value).toContain('Specify an agentModels key')
+    expect(writeSpy).not.toHaveBeenCalled()
+  })
+
   test('setting a role to an unknown key is rejected with available keys', async () => {
     const ctx = makeContext()
     const res = await call('simple nope', ctx)
