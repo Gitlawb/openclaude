@@ -219,6 +219,53 @@ describe('Query interrupt lifecycle', () => {
     const messages = await drainQuery(q)
     expect(Array.isArray(messages)).toBe(true)
   }, 10_000)
+
+  test('interrupt() with reason "interrupt" does not yield synthetic user cancellation message', async () => {
+    const ac = new AbortController()
+    const q = query({
+      prompt: 'test interrupt reason',
+      options: { cwd: process.cwd(), abortController: ac },
+    })
+    ac.abort('interrupt')
+    const messages = await drainQuery(q)
+    expect(Array.isArray(messages)).toBe(true)
+    const userCancelMsg = messages.find((m: any) => 
+      m.type === 'user' && 
+      Array.isArray(m.message?.content) && 
+      m.message.content[0]?.text === '[Request interrupted by user]'
+    )
+    expect(userCancelMsg).toBeUndefined()
+  }, 10_000)
+
+  test('interrupt() with reason undefined yields synthetic user cancellation message', async () => {
+    const q = query({
+      prompt: 'test undefined reason',
+      options: { cwd: process.cwd() },
+    })
+    const iterator = q[Symbol.asyncIterator]()
+    const firstPromise = iterator.next()
+    
+    // Interrupt during execution
+    q.interrupt()
+
+    const messages: any[] = []
+    try {
+      let result = await firstPromise
+      while (!result.done) {
+        messages.push(result.value)
+        result = await iterator.next()
+      }
+    } catch (err) {
+      if (!isExpectedDrainAbort(err)) throw err
+    }
+
+    const userCancelMsg = messages.find((m: any) => 
+      m.type === 'user' && 
+      Array.isArray(m.message?.content) && 
+      m.message.content[0]?.text === '[Request interrupted by user]'
+    )
+    expect(userCancelMsg).toBeDefined()
+  }, 10_000)
 })
 
 describe('Query resume lifecycle', () => {

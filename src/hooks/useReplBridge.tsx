@@ -391,7 +391,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
             onInboundMessage: handleInboundMessage,
             onPermissionResponse: handlePermissionResponse,
             onInterrupt() {
-              abortControllerRef.current?.abort();
+              abortControllerRef.current?.abort('interrupt');
             },
             onSetModel(model) {
               const resolved = model === 'default' ? null : model ?? null;

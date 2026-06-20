@@ -2849,7 +2849,7 @@ function runHeadlessStreaming(
             }))
           }
           if (abortController) {
-            abortController.abort()
+            abortController.abort('interrupt')
           }
           suggestionState.abortController?.abort()
           suggestionState.abortController = null
