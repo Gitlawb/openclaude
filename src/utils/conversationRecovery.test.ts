@@ -12,6 +12,20 @@ import {
 } from '../test/sharedMutationLock.js'
 import * as realUdsClient from './udsClient.js'
 import * as realProviders from './model/providers.js'
+import type { NormalizedMessage } from '../types/message.js'
+
+// Typed fixture for the thinking-strip gate tests. The full NormalizedMessage
+// shape carries fields these tests don't exercise, so the cast is centralized
+// here once rather than re-spelled as `as any` at each call site.
+function assistantThinkingMessage(): NormalizedMessage {
+  return {
+    type: 'assistant',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'answer' }],
+    },
+  } as unknown as NormalizedMessage
+}
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
@@ -695,12 +709,7 @@ test('stripThinkingBlocksIfProviderAllows preserves thinking for preserve-reason
   process.env.OPENAI_MODEL = 'deepseek-v4-flash'
   const { stripThinkingBlocksIfProviderAllows } = await importFreshConversationRecovery()
 
-  const result = stripThinkingBlocksIfProviderAllows([
-    {
-      type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'answer' }] },
-    } as any,
-  ])
+  const result = stripThinkingBlocksIfProviderAllows([assistantThinkingMessage()])
   const content = (result[0] as any)?.message?.content as Array<{ type: string }>
   expect(content.some(block => block.type === 'thinking')).toBe(true)
 })
@@ -712,12 +721,7 @@ test('stripThinkingBlocksIfProviderAllows strips thinking for generic OpenAI 3P'
   process.env.OPENAI_MODEL = 'gpt-5-mini'
   const { stripThinkingBlocksIfProviderAllows } = await importFreshConversationRecovery()
 
-  const result = stripThinkingBlocksIfProviderAllows([
-    {
-      type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'x' }, { type: 'text', text: 'answer' }] },
-    } as any,
-  ])
+  const result = stripThinkingBlocksIfProviderAllows([assistantThinkingMessage()])
   const content = (result[0] as any)?.message?.content as Array<{ type: string }>
   expect(content.some(block => block.type === 'thinking')).toBe(false)
 })

@@ -2,6 +2,14 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import command from './index.js'
 import * as settingsModule from '../../utils/settings/settings.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
+import type { LocalCommandResult } from '../../types/command.js'
+
+// The command always returns a `text` result; narrow the union so `.value` is
+// accessible without an `as` cast (and assert that contract while we're here).
+function expectText(res: LocalCommandResult): Extract<LocalCommandResult, { type: 'text' }> {
+  if (res.type !== 'text') throw new Error(`expected a text result, got ${res.type}`)
+  return res
+}
 
 // Two model-only agentModels keys with first-party-priced models so the
 // cheaper-than warning can be exercised: haiku (cheap) vs opus (expensive).
@@ -37,14 +45,14 @@ describe('/smartroute command', () => {
 
   test('status with no config shows disabled and available keys', async () => {
     const ctx = makeContext()
-    const res = await call('', ctx)
+    const res = expectText(await call('', ctx))
     expect(res.value).toContain('status: disabled')
     expect(res.value).toContain('mini, main')
   })
 
   test('on without both roles set is rejected', async () => {
     const ctx = makeContext({ smartRouting: { enabled: false, simpleModel: 'mini' } })
-    const res = await call('on', ctx)
+    const res = expectText(await call('on', ctx))
     expect(res.value).toContain('Set both roles first')
     expect(writeSpy).not.toHaveBeenCalled()
   })
@@ -66,14 +74,14 @@ describe('/smartroute command', () => {
 
   test('simple/strong with no value argument is rejected', async () => {
     const ctx = makeContext()
-    const res = await call('simple', ctx)
+    const res = expectText(await call('simple', ctx))
     expect(res.value).toContain('Specify an agentModels key')
     expect(writeSpy).not.toHaveBeenCalled()
   })
 
   test('setting a role to an unknown key is rejected with available keys', async () => {
     const ctx = makeContext()
-    const res = await call('simple nope', ctx)
+    const res = expectText(await call('simple nope', ctx))
     expect(res.value).toContain('not a configured agentModels key')
     expect(res.value).toContain('mini, main')
     expect(writeSpy).not.toHaveBeenCalled()
@@ -81,7 +89,7 @@ describe('/smartroute command', () => {
 
   test('enabling with simple cheaper than strong gives no warning', async () => {
     const ctx = makeContext({ smartRouting: { enabled: false, simpleModel: 'mini', strongModel: 'main' } })
-    const res = await call('on', ctx)
+    const res = expectText(await call('on', ctx))
     expect(res.value).toContain('Smart routing enabled')
     expect(res.value).not.toContain('Heads up')
     expect(writeSpy).toHaveBeenCalledWith('userSettings', {
@@ -92,14 +100,14 @@ describe('/smartroute command', () => {
   test('warns when the simple model is not cheaper than the strong model', async () => {
     // Swap roles: simple=opus (expensive), strong=haiku (cheap).
     const ctx = makeContext({ smartRouting: { enabled: false, simpleModel: 'main', strongModel: 'mini' } })
-    const res = await call('on', ctx)
+    const res = expectText(await call('on', ctx))
     expect(res.value).toContain('Heads up')
     expect(res.value).toContain('not cheaper')
   })
 
   test('off disables', async () => {
     const ctx = makeContext({ smartRouting: { enabled: true, simpleModel: 'mini', strongModel: 'main' } })
-    const res = await call('off', ctx)
+    const res = expectText(await call('off', ctx))
     expect(res.value).toContain('disabled')
     expect(writeSpy).toHaveBeenCalledWith('userSettings', {
       smartRouting: { enabled: false, simpleModel: 'mini', strongModel: 'main' },

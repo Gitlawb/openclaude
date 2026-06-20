@@ -376,22 +376,7 @@ export function deserializeMessagesWithInterruptDetection(
     // outgoing OpenAI-format message. Stripping the block leaves the shim with
     // no reasoning text to attach, and the provider 400s with
     // "reasoning_content in the thinking mode must be passed back" (issue #957).
-    const provider = getAPIProvider()
-    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
-      processEnv: process.env,
-      model: process.env.OPENAI_MODEL,
-      // runtimeMetadata's inline providerCategory union predates the newer
-      // 'xai'/'xiaomi-mimo' categories; they take the same third-party path.
-      providerCategory: provider as NonNullable<
-        Parameters<typeof usesAnthropicNativeMessageFormat>[0]
-      >['providerCategory'],
-    })
-    const isThirdPartyProvider =
-      provider !== 'foundry' && !isAnthropicNativeTransport
-    const thinkingStripped =
-      isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()
-        ? stripThinkingBlocks(filteredThinking)
-        : filteredThinking
+    const thinkingStripped = stripThinkingBlocksIfProviderAllows(filteredThinking)
 
     // Filter out assistant messages with only whitespace text content.
     // This can happen when model outputs "\n\n" before thinking, user cancels mid-stream.

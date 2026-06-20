@@ -112,6 +112,7 @@ describe('decideTurnModel', () => {
   })
 
   test('short non-first turn routes simple', () => {
+    mockGlobalAllowlist(undefined) // allow all; immune to a leaked cross-file allowlist mock
     const d = decideTurnModel({
       settings: enabledSettings(),
       parentModel: PARENT,
@@ -121,6 +122,7 @@ describe('decideTurnModel', () => {
   })
 
   test('first turn routes strong (routeModel turnNumber===1 guard)', () => {
+    mockGlobalAllowlist(undefined)
     const d = decideTurnModel({
       settings: enabledSettings(),
       parentModel: PARENT,
@@ -130,6 +132,7 @@ describe('decideTurnModel', () => {
   })
 
   test('strong-signal prompt routes strong', () => {
+    mockGlobalAllowlist(undefined)
     const d = decideTurnModel({
       settings: enabledSettings(),
       parentModel: PARENT,
