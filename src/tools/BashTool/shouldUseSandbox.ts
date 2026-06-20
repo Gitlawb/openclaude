@@ -9,6 +9,7 @@ import {
   stripAllLeadingEnvVars,
   stripSafeWrappers,
 } from './bashPermissions.js'
+import type { BashCommandAnalysis } from './bashCommandAnalysis.js'
 
 type SandboxInput = {
   command?: string
@@ -19,7 +20,14 @@ type SandboxInput = {
 // NOTE: excludedCommands is a user-facing convenience feature, not a security boundary.
 // It is not a security bug to be able to bypass excludedCommands — the sandbox permission
 // system (which prompts users) is the actual security control.
-function containsExcludedCommand(command: string): boolean {
+function containsExcludedCommand(
+  command: string,
+  analysis?: BashCommandAnalysis,
+): boolean {
+  if (analysis?.legacyParse.kind === 'failed') {
+    return false
+  }
+
   // Check dynamic config for disabled commands and substrings
   const raw = getFeatureValue_CACHED_MAY_BE_STALE<{
     commands: string[]
@@ -137,7 +145,10 @@ function containsExcludedCommand(command: string): boolean {
   return false
 }
 
-export function shouldUseSandbox(input: Partial<SandboxInput>): boolean {
+export function shouldUseSandbox(
+  input: Partial<SandboxInput>,
+  analysis?: BashCommandAnalysis,
+): boolean {
   if (!SandboxManager.isSandboxingEnabled()) {
     return false
   }
@@ -159,7 +170,7 @@ export function shouldUseSandbox(input: Partial<SandboxInput>): boolean {
   }
 
   // Don't sandbox if the command contains user-configured excluded commands
-  if (containsExcludedCommand(input.command)) {
+  if (containsExcludedCommand(input.command, analysis)) {
     return false
   }
 

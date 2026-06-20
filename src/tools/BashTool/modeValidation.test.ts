@@ -42,3 +42,12 @@ test('acceptEdits still blocks dangerous rm paths even in auto-allow mode', () =
 
   expect(result.behavior).toBe('ask')
 })
+
+test('acceptEdits does not auto-allow commands with shell parser limitations', () => {
+  const result = checkPermissionMode(
+    { command: 'cat ${value + 1}' } as never,
+    acceptEditsContext,
+  )
+
+  expect(result.behavior).toBe('passthrough')
+})

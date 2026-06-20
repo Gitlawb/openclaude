@@ -41,6 +41,7 @@ import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, get
 import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
+import { parseLegacyShellCommandForAnalysis } from './bashCommandAnalysis.js';
 import { interpretCommandResult } from './commandSemantics.js';
 import { getEffectiveTimeoutMs, getMaxTimeoutMs, getSimplePrompt } from './prompt.js';
 import { checkReadOnlyConstraints } from './readOnlyValidation.js';
@@ -442,8 +443,9 @@ export const BashTool = buildTool({
     return this.isReadOnly?.(input) ?? false;
   },
   isReadOnly(input) {
-    const compoundCommandHasCd = commandHasAnyCd(input.command);
-    const result = checkReadOnlyConstraints(input, compoundCommandHasCd);
+    const legacyParse = parseLegacyShellCommandForAnalysis(input.command);
+    const compoundCommandHasCd = commandHasAnyCd(input.command, legacyParse);
+    const result = checkReadOnlyConstraints(input, compoundCommandHasCd, legacyParse);
     return result.behavior === 'allow';
   },
   toAutoClassifierInput(input) {
