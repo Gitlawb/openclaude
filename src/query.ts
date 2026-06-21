@@ -14,6 +14,7 @@ import {
 } from './services/compact/autoCompact.js'
 import { consumeCompactionRequest } from './utils/memoryPressure.js'
 import { buildPostCompactMessages } from './services/compact/compact.js'
+import type { PendingCacheEdits } from './services/compact/microCompact.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const reactiveCompact = feature('REACTIVE_COMPACT')
   ? (require('./services/compact/reactiveCompact.js') as typeof import('./services/compact/reactiveCompact.js'))
@@ -501,7 +502,7 @@ async function* queryLoop(
     }
 
     // Only run microcompact if compaction is not explicitly disabled via settings
-    let pendingCacheEdits: unknown = undefined
+    let pendingCacheEdits: PendingCacheEdits | undefined = undefined
     if (getGlobalConfig().maxMessagesCompactionThreshold !== 'off') {
       queryCheckpoint('query_microcompact_start')
       const microcompactResult = await deps.microcompact(

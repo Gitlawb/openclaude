@@ -101,8 +101,9 @@ export function analyzeContinuationIntent(
     if (hasTerminalPunctuation) {
       const strongIntent = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|next step is to)\b/i.test(lowerText) || 
                            /je suis en train d'/i.test(lowerText) || /◻/.test(lastText)
+      const presentProgressive = /\bnow \w+ing\b/i.test(lateText) || /\b\w+ing\s+(the|this|these|a|an|remaining|next|files|data|model)\b/i.test(lateText)
       const endsWithColon = /:\s*$/.test(lastText)
-      if (strongIntent || endsWithColon) {
+      if (strongIntent || endsWithColon || presentProgressive) {
         return { shouldNudge: true, reason: 'continuation_signal' }
       }
     } else {

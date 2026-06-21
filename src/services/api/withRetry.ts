@@ -203,7 +203,6 @@ export async function* withRetry<T>(
   let consecutive529Errors = options.initialConsecutive529Errors ?? 0
   let lastError: unknown
   let persistentAttempt = 0
-  let remaining429Retries = 5
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     if (options.signal?.aborted) {
       throw new APIUserAbortError()
@@ -389,17 +388,6 @@ export async function* withRetry<T>(
               retryContext,
             )
           }
-        }
-      }
-
-      // [PATCH] Retry 429 rate limit errors for non-Claude providers with backoff
-      if (error instanceof APIError && error.status === 429 && !isClaudeAISubscriber()) {
-        if (remaining429Retries > 0) {
-          remaining429Retries--
-          const retryAfterMs = getRetryAfterMs(error) ?? Math.min(2_000 * (5 - remaining429Retries), 30_000)
-          logForDebugging(`Rate limited (429), ${remaining429Retries} retries left, waiting ${retryAfterMs}ms`, { level: 'error' })
-          await sleep(retryAfterMs, options.signal, { abortError })
-          continue
         }
       }
 

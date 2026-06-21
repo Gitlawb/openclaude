@@ -1868,12 +1868,12 @@ function runHeadlessStreaming(
         }
       : undefined
 
-  // [PATCH] Disabled command-queue abort — was interrupting running bash tools
-  // subscribeToCommandQueue(() => {
-  //   if (abortController && getCommandsByMaxPriority('now').length > 0) {
-  //     abortController.abort('interrupt')
-  //   }
-  // })
+  // Abort the current operation when a 'now' priority message arrives.
+  subscribeToCommandQueue(() => {
+    if (abortController && getCommandsByMaxPriority('now').length > 0) {
+      abortController.abort('interrupt')
+    }
+  })
 
   const run = async () => {
     if (running) {
