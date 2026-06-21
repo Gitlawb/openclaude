@@ -291,6 +291,11 @@ async function enableGitLongPathsForWorktrees(repoRoot: string): Promise<void> {
     return
   }
 
+  const settings = getInitialSettings().worktree
+  if (settings?.enableGitLongPaths === false) {
+    return
+  }
+
   const { code, stderr } = await execFileNoThrowWithCwd(
     gitExe(),
     ['config', '--local', 'core.longpaths', 'true'],
@@ -1632,4 +1637,10 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
   }
 
   return { handled: true }
+}
+
+/** @private exported for testing only */
+export const _test = {
+  getOrCreateWorktree,
+  enableGitLongPathsForWorktrees,
 }
