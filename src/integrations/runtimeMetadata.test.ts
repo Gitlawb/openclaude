@@ -85,6 +85,7 @@ describe('resolveModelRuntimeLimits', () => {
               apiName: 'gpt-5.4',
               label: 'gpt-5.4',
               contextWindow: 400_000,
+              maxOutputTokens: 32_000,
             },
           ],
         },
@@ -100,6 +101,7 @@ describe('resolveModelRuntimeLimits', () => {
         }),
       ).toMatchObject({
         contextWindow: 1_050_000,
+        maxOutputTokens: 128_000,
       })
     })
   })

@@ -106,6 +106,16 @@ function mergeRemoveBodyFields(
   return merged.size > 0 ? [...merged] : undefined
 }
 
+function pickLargestDefinedValue(
+  ...values: Array<number | undefined>
+): number | undefined {
+  const defined = values.filter(
+    (value): value is number => value !== undefined,
+  )
+
+  return defined.length > 0 ? Math.max(...defined) : undefined
+}
+
 function mergeOpenAIShimConfig(
   baseConfig: OpenAIShimTransportConfig | undefined,
   entryConfig: Partial<OpenAIShimTransportConfig> | undefined,
@@ -420,15 +430,19 @@ export function resolveModelRuntimeLimits(options: {
   return {
     contextWindow:
       externalContextWindow.exact ??
-      catalogEntry?.contextWindow ??
-      modelDescriptor?.contextWindow ??
-      cachedCatalogEntry?.contextWindow ??
+      pickLargestDefinedValue(
+        modelDescriptor?.contextWindow,
+        catalogEntry?.contextWindow,
+        cachedCatalogEntry?.contextWindow,
+      ) ??
       externalContextWindow.prefix,
     maxOutputTokens:
       externalMaxOutputTokens.exact ??
-      catalogEntry?.maxOutputTokens ??
-      modelDescriptor?.maxOutputTokens ??
-      cachedCatalogEntry?.maxOutputTokens ??
+      pickLargestDefinedValue(
+        modelDescriptor?.maxOutputTokens,
+        catalogEntry?.maxOutputTokens,
+        cachedCatalogEntry?.maxOutputTokens,
+      ) ??
       externalMaxOutputTokens.prefix,
   }
 }
