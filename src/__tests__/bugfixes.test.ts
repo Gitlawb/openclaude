@@ -8,7 +8,7 @@
  * 4. Web search result count improvements
  */
 
-import { describe, test, expect, mock } from 'bun:test'
+import { afterEach, describe, test, expect, mock } from 'bun:test'
 import { resolve } from 'path'
 import {
   clearRegisteredHooks,
@@ -424,17 +424,33 @@ describe('Dev-channels dialog coverage', () => {
     expect(content).toContain('if (!isChannelsEnabled())')
     expect(content).toContain('DevChannelsDialog')
 
-    // Verify that dev entries are always marked with dev: true
-    // so the allowlist bypass never leaks to --channels entries.
+    // Verify that dev entries are always marked with dev: true (two logical
+    // sites in interactiveHelpers.tsx): one in the disabled branch (line ~286)
+    // where entries are registered directly without user interaction, and one
+    // in the DevChannelsDialog onAccept handler (line ~303) after the user
+    // confirms. Both must set dev:true so the allowlist bypass (which the
+    // dev flag grants) never leaks to --channels entries scoped at the same
+    // name — the security invariant is that a dev entry cannot be confused
+    // with a production --channels entry in gateChannelServer's allowlist
+    // check marker. If a refactor adds or removes a site, update this count.
     const devMap = content.match(/\.map\(c => \({ \.\.\.c, dev: true }\)\)/g)
     expect(devMap).not.toBeNull()
-    // Two occurrences: one for disabled branch (line ~286) and one for onAccept (line ~303)
     expect(devMap!.length).toBe(2)
   })
 
   // Mock-based runtime tests: mock isChannelsEnabled both true and false,
   // then exercise the exact branching logic from showSetupScreens.
   describe('isChannelsEnabled branching', () => {
+    // Each test calls mock.module('./services/mcp/channelAllowlist.js', …)
+    // with a different factory. Subsequent calls for the same module replace
+    // the previous registration, so sequential tests within this describe
+    // work correctly. mock.restore() does NOT clear module-level mocks in
+    // bun (see betas.test.ts:89), but calling it in afterEach is the
+    // established pattern for hygiene / future-proofing.
+    afterEach(() => {
+      mock.restore()
+    })
+
     const devChannels = [
       { kind: 'server' as const, name: 'dev-server' },
     ]
