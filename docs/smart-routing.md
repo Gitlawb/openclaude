@@ -1,10 +1,10 @@
 # Smart auto-routing
 
-Smart routing is an opt-in mode that classifies each user turn as **simple** or **strong** and sends it to a cheaper or a stronger model accordingly, so you stop paying strong-model prices for trivial turns ("ok", "rename this", "what does this do?") while keeping the strong model for everything non-trivial.
+Smart routing is an opt-in mode that classifies each user turn as **simple** or **strong** and sends it to your configured **simple** or **strong** model accordingly, so trivial turns ("ok", "rename this", "what does this do?") can go to a cheaper model while the strong model handles everything non-trivial. Whether the simple role is actually cheaper depends on how your provider bills it. OpenClaude routes to the role you set and does not verify your provider's pricing.
 
 It is **off by default** and **experimental** — the classifier is a fast heuristic (prompt length, code blocks, reasoning/planning keywords, first turn of a session), not a perfect judge. When in doubt it routes to the strong model, so the failure mode is "no savings on a turn that could have been cheap," never a silently degraded answer on a turn you cared about.
 
-Smart routing is provider-agnostic: it swaps the model within your current provider. It works against any backend where you have both a cheaper and a stronger model configured.
+Smart routing is provider-agnostic: it swaps the model within your current provider. It works against any backend where you have both a cheaper and a stronger model configured. It does not read your provider's, gateway's, or account's pricing, so any savings or cost estimates it shows are based on a first-party reference table and may not match what you are actually billed.
 
 ## Setup
 
@@ -54,4 +54,4 @@ These set a startup default. An explicit `smartRouting` block in settings always
 - **Fallback.** If a simple-routed turn's model call errors (transport or server error), it retries once on the strong model. Aborts and auth/permission/bad-request errors are not retried.
 - **Allowlist.** Any model smart routing selects is checked against your org model allowlist (`availableModels`). A disallowed model is coerced to strong; if strong is also disallowed, routing disables itself for the session and the default model is used. Running `/smartroute on` re-enables routing and clears that session disable.
 - **Same-provider only.** Roles must be model-only `agentModels` entries (or bare model ids). If a role resolves to a cross-provider entry (one with `base_url`/`api_key`), routing silently disables — cross-provider routing is not supported yet.
-- **Auditing.** `/cost` shows a routing summary: how many turns went simple vs strong, how many escalated to strong via fallback, and an estimated savings line when both models have known pricing.
+- **Auditing.** `/cost` shows a routing summary: how many turns went simple vs strong, how many escalated to strong via fallback, and an estimated savings line when both models appear in the first-party reference pricing table. That estimate is reference pricing only and may not reflect what your provider/gateway/account actually bills.

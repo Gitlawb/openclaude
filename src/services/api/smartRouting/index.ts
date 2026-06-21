@@ -192,10 +192,10 @@ export function formatRoutingSummary(
   if (s != null && st != null && st > 0) {
     savings =
       s < st
-        ? `  Estimated: simple turns use a model priced ~${Math.round((1 - s / st) * 100)}% lower per input token (actual savings depend on token mix and cache).`
-        : '  Estimated: simple model is not cheaper than strong — no savings expected.'
+        ? `  Estimated (first-party reference pricing): simple turns use a model priced ~${Math.round((1 - s / st) * 100)}% lower per input token. Your provider/gateway/account may bill differently; actual savings depend on token mix and cache.`
+        : '  Estimated (first-party reference pricing): simple model is not cheaper than strong, so no savings expected. Your provider may bill differently.'
   } else {
-    savings = '  Estimated savings unavailable: one or both models have no known pricing.'
+    savings = '  Estimated savings unavailable: one or both models have no first-party reference pricing.'
   }
   return `${head}\n${savings}`
 }

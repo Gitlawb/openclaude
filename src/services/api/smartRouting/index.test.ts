@@ -302,11 +302,17 @@ describe('formatRoutingSummary', () => {
       strongInputCost: 5,
     })
     expect(out).toContain('~80% lower')
+    // The estimate must disclose it is first-party reference pricing, not the
+    // active provider's billed rate (jatmn P2).
+    expect(out).toContain('first-party reference pricing')
+    expect(out).toContain('may bill differently')
   })
 
   test('savings unavailable when a price is unknown', () => {
     const out = formatRoutingSummary({ simple: 3, strong: 1, escalations: 0 }, { strongInputCost: 5 })
     expect(out).toContain('Estimated savings unavailable')
+    // The unavailable line must name first-party reference pricing as the source.
+    expect(out).toContain('no first-party reference pricing')
   })
 
   test('notes no savings when simple is not cheaper', () => {
@@ -315,5 +321,8 @@ describe('formatRoutingSummary', () => {
       strongInputCost: 5,
     })
     expect(out).toContain('not cheaper')
+    // The not-cheaper branch must carry the same first-party reference hedge.
+    expect(out).toContain('first-party reference pricing')
+    expect(out).toContain('may bill differently')
   })
 })

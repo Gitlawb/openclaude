@@ -103,6 +103,10 @@ describe('/smartroute command', () => {
     const res = expectText(await call('on', ctx))
     expect(res.value).toContain('Heads up')
     expect(res.value).toContain('not cheaper')
+    // The warning must be hedged as first-party reference pricing, since the
+    // active provider may bill these models differently (jatmn P2).
+    expect(res.value).toContain('first-party reference pricing')
+    expect(res.value).toContain('provider may bill differently')
   })
 
   test('off disables', async () => {

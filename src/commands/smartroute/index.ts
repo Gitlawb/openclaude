@@ -29,12 +29,16 @@ function roleModelString(key: string | undefined, settings: SettingsJson | null)
   return settings?.agentModels?.[key]?.model ?? key
 }
 
-/** Warn when both roles are first-party priced and simple is not actually cheaper. */
+/**
+ * Warn when both roles have first-party reference pricing and, by that pricing,
+ * simple is not actually cheaper. The numbers are first-party list prices, not
+ * the active provider's, so the warning is hedged accordingly.
+ */
 function cheaperWarning(s: SmartRoutingSettings, settings: SettingsJson | null): string {
   const simple = getKnownInputCost(roleModelString(s.simpleModel, settings) ?? '')
   const strong = getKnownInputCost(roleModelString(s.strongModel, settings) ?? '')
   if (simple != null && strong != null && simple >= strong) {
-    return `\nHeads up: the simple model is not cheaper than the strong model (${simple} vs ${strong} per Mtok input). Smart routing will not save money.`
+    return `\nHeads up: by first-party reference pricing the simple model is not cheaper than the strong model (${simple} vs ${strong} per Mtok input); your provider may bill differently. Smart routing may not save money.`
   }
   return ''
 }
