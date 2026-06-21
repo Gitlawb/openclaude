@@ -71,6 +71,39 @@ describe('resolveModelRuntimeLimits', () => {
     })
   })
 
+  it('prefers the model descriptor over a smaller discovered context window', async () => {
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:4000/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'gpt-5.4',
+              apiName: 'gpt-5.4',
+              label: 'gpt-5.4',
+              contextWindow: 400_000,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'gpt-5.4',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+          },
+        }),
+      ).toMatchObject({
+        contextWindow: 1_050_000,
+      })
+    })
+  })
+
   it('uses built-in Z.AI GLM-5.2 runtime limits', () => {
     const limits = resolveModelRuntimeLimits({
       model: 'glm-5.2',
