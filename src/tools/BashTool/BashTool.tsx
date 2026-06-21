@@ -41,7 +41,7 @@ import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, get
 import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
-import { parseLegacyShellCommandForAnalysis } from './bashCommandAnalysis.js';
+import { analyzeBashCommand, parseLegacyShellCommandForAnalysis, type BashCommandAnalysis } from './bashCommandAnalysis.js';
 import { interpretCommandResult } from './commandSemantics.js';
 import { getEffectiveTimeoutMs, getMaxTimeoutMs, getSimplePrompt } from './prompt.js';
 import { checkReadOnlyConstraints } from './readOnlyValidation.js';
@@ -653,9 +653,11 @@ export const BashTool = buildTool({
     const isMainThread = !toolUseContext.agentId;
     const preventCwdChanges = !isMainThread;
     try {
+      const commandAnalysis = await analyzeBashCommand(input.command);
       // Use the new async generator version of runShellCommand
       const commandGenerator = runShellCommand({
         input,
+        commandAnalysis,
         abortController,
         // Use the always-shared task channel so async agents' background
         // bash tasks are actually registered (and killable on agent exit).
@@ -864,6 +866,7 @@ export const BashTool = buildTool({
 } satisfies ToolDef<InputSchema, Out, BashProgress>);
 async function* runShellCommand({
   input,
+  commandAnalysis,
   abortController,
   setAppState,
   setToolJSX,
@@ -873,6 +876,7 @@ async function* runShellCommand({
   agentId
 }: {
   input: BashToolInput;
+  commandAnalysis: BashCommandAnalysis;
   abortController: AbortController;
   setAppState: (f: (prev: AppState) => AppState) => void;
   setToolJSX?: SetToolJSXFn;
@@ -932,7 +936,7 @@ async function* runShellCommand({
       }
     },
     preventCwdChanges,
-    shouldUseSandbox: shouldUseSandbox(input),
+    shouldUseSandbox: shouldUseSandbox(input, commandAnalysis),
     shouldAutoBackground
   });
 

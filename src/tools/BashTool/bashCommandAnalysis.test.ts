@@ -1,10 +1,18 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { parseForSecurityFromAst } from '../../utils/bash/ast.js'
 import { PARSE_ABORTED } from '../../utils/bash/parser.js'
 import * as realDebug from '../../utils/debug.js'
 import { analyzeBashCommand } from './bashCommandAnalysis.js'
 
 let importCounter = 0
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('tools/BashTool/bashCommandAnalysis.test.ts')
+})
 
 async function importAnalysisWithDebugSpy(
   debugSpy: ReturnType<
@@ -20,8 +28,12 @@ async function importAnalysisWithDebugSpy(
 }
 
 afterEach(() => {
-  mock.restore()
-  mock.module('../../utils/debug.js', () => realDebug)
+  try {
+    mock.restore()
+    mock.module('../../utils/debug.js', () => realDebug)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 async function withLegacyParserFallback<T>(fn: () => Promise<T>): Promise<T> {
