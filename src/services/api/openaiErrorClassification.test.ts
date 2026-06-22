@@ -222,6 +222,42 @@ test('reports retryability for extracted category markers', () => {
   expect(isRetryableOpenAICompatibilityFailureCategory('network_error')).toBe(true)
 })
 
+test('classifies 5xx with HTML body as provider_unavailable, not malformed_provider_response', () => {
+  // Regression: gateways return HTML 502/504 pages during overload. The old
+  // ordering matched isMalformedProviderResponse first, marking the error
+  // non-retryable and surfacing "Provider returned a malformed response"
+  // even though a manual retry would succeed.
+  const failure = classifyOpenAIHttpFailure({
+    status: 502,
+    body: '<!doctype html><html><body>Bad Gateway</body></html>',
+  })
+
+  expect(failure.category).toBe('provider_unavailable')
+  expect(failure.retryable).toBe(true)
+})
+
+test('classifies 504 gateway timeout HTML as provider_unavailable', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 504,
+    body: '<html><head><title>504 Gateway Time-out</title></head></html>',
+  })
+
+  expect(failure.category).toBe('provider_unavailable')
+  expect(failure.retryable).toBe(true)
+})
+
+test('classifies 4xx with HTML body as malformed_provider_response (unchanged)', () => {
+  // Non-5xx HTML bodies are still genuine malformed responses — the provider
+  // returned something we can't parse when it should have returned JSON.
+  const failure = classifyOpenAIHttpFailure({
+    status: 400,
+    body: '<!doctype html><html><body>Bad Request</body></html>',
+  })
+
+  expect(failure.category).toBe('malformed_provider_response')
+  expect(failure.retryable).toBe(false)
+})
+
 test('isLocalhostLikeHost matches loopback variants', () => {
   expect(isLocalhostLikeHost('localhost')).toBe(true)
   expect(isLocalhostLikeHost('127.0.0.1')).toBe(true)
