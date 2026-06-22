@@ -88,6 +88,7 @@ async function executePush(): Promise<void> {
     return
   }
   pushInProgress = true
+  const capturedPromise = currentPushPromise
   try {
     const result = await pushTeamMemory(syncState)
     if (result.success) {
@@ -124,8 +125,27 @@ async function executePush(): Promise<void> {
     })
   } finally {
     pushInProgress = false
-    currentPushPromise = null
+    if (currentPushPromise === capturedPromise) {
+      currentPushPromise = null
+    }
   }
+}
+
+function onDebounceFire(): void {
+  if (pushInProgress) {
+    if (rescheduleCount < MAX_RESCHEDULE_ATTEMPTS) {
+      rescheduleCount++
+      schedulePush()
+    } else {
+      rescheduleCount = 0
+      currentPushPromise = (currentPushPromise ?? Promise.resolve()).then(
+        () => executePush(),
+      )
+    }
+    return
+  }
+  rescheduleCount = 0
+  currentPushPromise = executePush()
 }
 
 /**
@@ -137,22 +157,7 @@ function schedulePush(): void {
   if (debounceTimer) {
     clearTimeout(debounceTimer)
   }
-  debounceTimer = setTimeout(() => {
-    if (pushInProgress) {
-      if (rescheduleCount < MAX_RESCHEDULE_ATTEMPTS) {
-        rescheduleCount++
-        schedulePush()
-      } else {
-        rescheduleCount = 0
-        currentPushPromise = (currentPushPromise ?? Promise.resolve()).then(
-          () => executePush(),
-        )
-      }
-      return
-    }
-    rescheduleCount = 0
-    currentPushPromise = executePush()
-  }, DEBOUNCE_MS)
+  debounceTimer = setTimeout(onDebounceFire, DEBOUNCE_MS)
 }
 
 /**
@@ -396,4 +401,18 @@ export function _resetWatcherStateForTesting(opts?: {
  */
 export function _startFileWatcherForTesting(dir: string): Promise<void> {
   return startFileWatcher(dir)
+}
+
+export const _test = {
+  DEBOUNCE_MS,
+  MAX_RESCHEDULE_ATTEMPTS,
+  get pushInProgress(): boolean { return pushInProgress },
+  set pushInProgress(v: boolean) { pushInProgress = v },
+  get rescheduleCount(): number { return rescheduleCount },
+  get currentPushPromise(): Promise<void> | null { return currentPushPromise },
+  set currentPushPromise(v: Promise<void> | null) { currentPushPromise = v },
+  get hasPendingChanges(): boolean { return hasPendingChanges },
+  schedulePush,
+  onDebounceFire,
+  executePush,
 }
