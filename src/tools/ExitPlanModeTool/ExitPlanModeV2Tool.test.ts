@@ -26,12 +26,6 @@ beforeAll(async () => {
     persistFileSnapshotIfRemote: () => Promise.resolve(),
   }))
 
-  mock.module('fs/promises', () => ({
-    writeFile: async () => {
-      throw Object.assign(new Error('write failed'), { code: 'ENOSPC' })
-    },
-  }))
-
   const mod = await import(
     `./ExitPlanModeV2Tool.ts?exitPlanModeWriteTest=${Date.now()}-${Math.random()}`
   )
@@ -61,10 +55,21 @@ function makeCtx() {
 }
 
 test('surfaces write error when plan file write fails', async () => {
-  await expect(
-    ExitPlanModeV2Tool!.call(
-      { plan: 'edited plan content' } as never,
-      makeCtx(),
-    ),
-  ).rejects.toThrow('write failed')
+  mock.module('fs/promises', () => ({
+    writeFile: async () => {
+      throw Object.assign(new Error('write failed'), { code: 'ENOSPC' })
+    },
+  }))
+  try {
+    await expect(
+      ExitPlanModeV2Tool!.call(
+        { plan: 'edited plan content' } as never,
+        makeCtx(),
+        (() => Promise.resolve({ behavior: 'allow' })) as never,
+        {} as never,
+      ),
+    ).rejects.toThrow('write failed')
+  } finally {
+    mock.restore()
+  }
 })
