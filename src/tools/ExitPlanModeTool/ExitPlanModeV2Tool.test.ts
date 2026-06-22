@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -9,7 +9,6 @@ type ExitPlanModeModule = typeof import('./ExitPlanModeV2Tool.js')
 type ExitPlanModeTool = ExitPlanModeModule['ExitPlanModeV2Tool']
 
 let ExitPlanModeV2Tool: ExitPlanModeTool | undefined
-let realWriteFile: typeof import('fs/promises')['writeFile'] | undefined
 
 beforeAll(async () => {
   await acquireSharedMutationLock(
@@ -19,8 +18,6 @@ beforeAll(async () => {
   const actualPlans = await import(
     `../../utils/plans.ts?exitPlanModeWriteTest=${Date.now()}-${Math.random()}`
   )
-  const realFs = await import('fs/promises')
-  realWriteFile = realFs.writeFile
 
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
@@ -43,17 +40,6 @@ afterAll(() => {
   }
 })
 
-// Restore fs/promises mock after each test so it cannot leak into
-// loadAgentsDir.test.ts on Linux CI. Addresses jatmn's P2 on #1725.
-afterEach(() => {
-  mock.restore()
-  // Re-apply the plans mock that afterAll's mock.restore() cleared,
-  // so subsequent tests in this file still see the mocked plans module.
-  if (realWriteFile) {
-    // No-op: plans mock is re-established per test below if needed.
-  }
-})
-
 function makeCtx() {
   const toolPermissionContext = getEmptyToolPermissionContext()
   return {
@@ -69,22 +55,31 @@ function makeCtx() {
 }
 
 test('surfaces write error when plan file write fails', async () => {
-  // Mock fs/promises.writeFile to throw. The afterEach restores this so
-  // it cannot leak into loadAgentsDir.test.ts on Linux CI.
-  const realFs = await import('fs/promises')
-  mock.module('fs/promises', () => ({
-    ...realFs,
-    writeFile: async () => {
-      throw Object.assign(new Error('write failed'), { code: 'ENOSPC' })
-    },
+  // Re-mock plans.js to point getPlanFilePath at a directory that doesn't
+  // exist, so the REAL fs/promises.writeFile rejects with ENOENT. This
+  // avoids mocking fs/promises globally, which leaked into
+  // loadAgentsDir.test.ts on Linux CI even with afterEach(mock.restore()).
+  // The fresh tool import picks up the new mock.
+  const actualPlans = await import(
+    `../../utils/plans.ts?failCase=${Date.now()}-${Math.random()}`
+  )
+  mock.module('../../utils/plans.js', () => ({
+    ...actualPlans,
+    getPlanFilePath: () =>
+      '/nonexistent-dir-for-test/test-plan.md',
+    getPlan: () => 'plan content',
+    persistFileSnapshotIfRemote: () => Promise.resolve(),
   }))
 
+  const mod = await import(
+    `./ExitPlanModeV2Tool.ts?failCase=${Date.now()}-${Math.random()}`
+  )
   await expect(
-    ExitPlanModeV2Tool!.call(
+    mod.ExitPlanModeV2Tool.call(
       { plan: 'edited plan content' } as never,
       makeCtx(),
       (() => Promise.resolve({ behavior: 'allow' })) as never,
       {} as never,
     ),
-  ).rejects.toThrow('write failed')
+  ).rejects.toThrow()
 })
