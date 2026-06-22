@@ -480,6 +480,32 @@ test('prefixed OpenGateway Gemini Flash Lite uses integration metadata', () => {
   })
   expect(getMaxOutputTokensForModel('google/gemini-3.1-flash-lite')).toBe(65_536)
 })
+test('prefixed Gemini 3.1 Pro router model uses integration metadata', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('google/gemini-3.1-pro')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('google/gemini-3.1-pro')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('google/gemini-3.1-pro')).toBe(65_536)
+})
+
+test('NVIDIA NIM DeepSeek V4 Pro uses NIM route catalog metadata', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-ai/deepseek-v4-pro')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-ai/deepseek-v4-pro')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-ai/deepseek-v4-pro')).toBe(65_536)
+})
 
 test('OpenAI-compatible custom model limits honor documented env overrides', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

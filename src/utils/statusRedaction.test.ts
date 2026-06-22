@@ -96,6 +96,8 @@ describe('redactUrlForStatus', () => {
 describe('redactPathForStatus', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('utils/statusRedaction.test.ts')
+    process.env.HOME = REAL_HOMEDIR
+    restoreEnvValue('USERPROFILE', ORIGINAL_USERPROFILE)
   })
 
   afterEach(() => {

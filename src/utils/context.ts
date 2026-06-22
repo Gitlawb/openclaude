@@ -11,6 +11,7 @@ import {
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 import { resolveAntModel } from './model/antModels.js'
+import { getActiveProviderProfile } from './providerProfiles.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -42,6 +43,8 @@ export const CAPPED_DEFAULT_MAX_TOKENS = 8_000
 export const ESCALATED_MAX_TOKENS = 64_000
 
 const warnedUnknownIntegrationRuntimeLimitKeys = new Set<string>()
+const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
+const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
 
 /**
  * Check if 1M context is disabled via environment variable.
@@ -71,10 +74,32 @@ export function modelSupports1M(model: string): boolean {
   )
 }
 
+function getAppliedActiveProfileProvider(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
+    return undefined
+  }
+
+  const activeProfile = getActiveProviderProfile()
+  if (!activeProfile) {
+    return undefined
+  }
+
+  const appliedId = processEnv[PROFILE_ENV_APPLIED_ID]?.trim()
+  if (appliedId && appliedId !== activeProfile.id) {
+    return undefined
+  }
+
+  return activeProfile.provider
+}
+
 export function shouldUseIntegrationRuntimeLimits(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const routeId = resolveActiveRouteIdFromEnv(processEnv)
+  const routeId = resolveActiveRouteIdFromEnv(processEnv, {
+    activeProfileProvider: getAppliedActiveProfileProvider(processEnv),
+  })
   const transportKind = routeId ? getTransportKindForRoute(routeId) : null
 
   return (
@@ -93,7 +118,10 @@ export function shouldUseIntegrationRuntimeLimits(
  * the Ink runtime treats console errors as application errors.
  */
 function warnUnknownIntegrationRuntimeLimits(model: string): void {
-  const routeId = resolveActiveRouteIdFromEnv(process.env) ?? 'unknown-route'
+  const routeId =
+    resolveActiveRouteIdFromEnv(process.env, {
+      activeProfileProvider: getAppliedActiveProfileProvider(process.env),
+    }) ?? 'unknown-route'
   const warningKey = `${routeId}:${model}`
   if (warnedUnknownIntegrationRuntimeLimitKeys.has(warningKey)) return
 
@@ -134,7 +162,10 @@ export function getContextWindowForModel(
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
   if (shouldUseIntegrationRuntimeLimits()) {
-    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
     if (runtimeLimits.contextWindow !== undefined) {
       return runtimeLimits.contextWindow
     }
@@ -235,7 +266,10 @@ export function getModelMaxOutputTokens(model: string): {
 
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
   if (shouldUseIntegrationRuntimeLimits()) {
-    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
     if (runtimeLimits.maxOutputTokens !== undefined) {
       return {
         default: runtimeLimits.maxOutputTokens,
