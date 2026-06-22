@@ -384,7 +384,10 @@ export function _resetWatcherStateForTesting(opts?: {
   pushSuppressedReason?: string | null
 }): void {
   watcher = null
-  debounceTimer = null
+  if (debounceTimer !== null) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
   pushInProgress = false
   rescheduleCount = 0
   hasPendingChanges = false

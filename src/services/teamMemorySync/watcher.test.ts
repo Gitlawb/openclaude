@@ -49,6 +49,9 @@ describe('rescheduleCount behavior', () => {
 
     mod._test.onDebounceFire()
     expect(mod._test.rescheduleCount).toBe(0)
+
+    mod._test.pushInProgress = false
+    mod._resetWatcherStateForTesting()
   })
 
   test('resets to 0 when executePush completes', async () => {
