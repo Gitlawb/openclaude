@@ -24,8 +24,44 @@ function restoreEnv(key: string, value: string | undefined): void {
   }
 }
 
+function clearCompetingProviderEnv(): void {
+  for (const key of [
+    'ANTHROPIC_BASE_URL',
+    'CHATGPT_ACCOUNT_ID',
+    'CLAUDE_CODE_USE_BEDROCK',
+    'CLAUDE_CODE_USE_FOUNDRY',
+    'CLAUDE_CODE_USE_GEMINI',
+    'CLAUDE_CODE_USE_GITHUB',
+    'CLAUDE_CODE_USE_MISTRAL',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CODEX_ACCOUNT_ID',
+    'CODEX_API_KEY',
+    'CODEX_CREDENTIAL_SOURCE',
+    'GEMINI_API_KEY',
+    'GITHUB_COPILOT_KEY',
+    'GITHUB_ENTERPRISE_URL',
+    'MIMO_API_KEY',
+    'MINIMAX_API_KEY',
+    'MISTRAL_API_KEY',
+    'NVIDIA_API_KEY',
+    'NVIDIA_NIM',
+    'OPENAI_API_BASE',
+    'OPENAI_API_FORMAT',
+    'OPENAI_AUTH_HEADER',
+    'OPENAI_AUTH_HEADER_VALUE',
+    'OPENAI_AUTH_SCHEME',
+    'XAI_API_KEY',
+    'XAI_CREDENTIAL_SOURCE',
+  ]) {
+    delete process.env[key]
+  }
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/model/openaiModelDiscovery.test.ts')
+  mock.restore()
+  mock.module('./providers.js', () => ({ getAPIProvider: () => 'openai' }))
+  clearCompetingProviderEnv()
 })
 
 afterEach(() => {
@@ -66,6 +102,7 @@ test('skips legacy OpenAI-compatible model discovery when nonessential traffic i
 })
 
 test('legacy OpenAI-compatible model discovery rejects placeholder values inside pools', async () => {
+  delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
   process.env.OPENAI_API_KEYS = 'key-a,SUA_CHAVE'
@@ -95,6 +132,7 @@ test('legacy OpenAI-compatible model discovery rejects placeholder values inside
   ])
 })
 test('legacy OpenAI-compatible model discovery uses the first pooled credential', async () => {
+  delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
   process.env.OPENAI_API_KEYS = 'key-a,key-b'
