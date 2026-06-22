@@ -565,15 +565,20 @@ describe('Dev-channels dialog coverage', () => {
     expect(content).toContain('if (!isChannelsEnabled())')
     expect(content).toContain('DevChannelsDialog')
 
-    // Verify that dev entries are always marked with dev: true (two logical
-    // sites in interactiveHelpers.tsx): one in the disabled branch (line ~286)
-    // where entries are registered directly without user interaction, and one
-    // in the DevChannelsDialog onAccept handler (line ~303) after the user
-    // confirms. Both must set dev:true so the allowlist bypass (which the
-    // dev flag grants) never leaks to --channels entries scoped at the same
-    // name — the security invariant is that a dev entry cannot be confused
-    // with a production --channels entry in gateChannelServer's allowlist
-    // check marker. If a refactor adds or removes a site, update this count.
+    // Verify that dev entries are always marked with dev: true.
+    // This count is a SEMANTIC requirement, not a style preference.
+    // interactiveHelpers.tsx has exactly two sites that materialize
+    // dev entries:
+    //   1. The `!isChannelsEnabled()` branch (~line 286): entries
+    //      are registered directly without user interaction.
+    //   2. The DevChannelsDialog `onAccept` handler (~line 303):
+    //      entries are registered after the user confirms.
+    // Both sites must set `dev: true` so the allowlist bypass
+    // (which the dev flag grants in `gateChannelServer`) cannot
+    // leak to production `--channels` entries. If a refactor adds
+    // or removes a site, update this count AND verify the security
+    // invariant still holds: a dev entry is never confused with a
+    // production entry in the allowlist check.
     const devMap = content.match(/\.map\(c => \({ \.\.\.c, dev: true }\)\)/g)
     expect(devMap).not.toBeNull()
     expect(devMap!.length).toBe(2)
@@ -581,15 +586,35 @@ describe('Dev-channels dialog coverage', () => {
 
   // Mock-based runtime tests: mock isChannelsEnabled both true and false,
   // then exercise the exact branching logic from showSetupScreens.
-  describe('isChannelsEnabled branching', () => {
+  describe('isChannelsEnabled branching', async () => {
+    // Re-import the real channelAllowlist module via a cache-busting
+    // URL at describe-entry so the inner afterEach can re-register it
+    // after each test mocks the module. Without this, adjacent test
+    // files that import the real `channelAllowlist.js` (e.g.
+    // channelNotification.test.ts) fail with "Export named
+    // 'getChannelAllowlist' not found".
+    const _realChannelAllowlist = await import(
+      `../services/mcp/channelAllowlist.js?real=${Date.now()}-${Math.random()}`
+    )
+
     // Each test calls mock.module('./services/mcp/channelAllowlist.js', …)
     // with a different factory. Subsequent calls for the same module replace
     // the previous registration, so sequential tests within this describe
-    // work correctly. mock.restore() does NOT clear module-level mocks in
-    // bun (see betas.test.ts:89), but calling it in afterEach is the
-    // established pattern for hygiene / future-proofing.
+    // work correctly.
+    //
+    // mock.restore() does NOT clear module-level mock.module() overrides
+    // in bun (the registry is process-global). If we don't restore the
+    // real `channelAllowlist.js` module here, any test that imports the
+    // real module after this describe block (e.g. neighboring
+    // channelNotification.test.ts) fails with "Export named
+    // 'getChannelAllowlist' not found". Re-register the real module
+    // from the cache-busted reference captured at describe-entry.
     afterEach(() => {
       mock.restore()
+      mock.module(
+        '../services/mcp/channelAllowlist.js',
+        () => _realChannelAllowlist,
+      )
     })
 
     const devChannels = [

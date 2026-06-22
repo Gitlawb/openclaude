@@ -10,6 +10,7 @@ import {
   type ChannelPermissionRequestParams,
   findChannelEntry,
 } from '../../../services/mcp/channelNotification.js'
+import { parsePluginIdentifier } from '../../../utils/plugins/pluginIdentifier.js'
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
   filterPermissionRelayClients,
@@ -321,16 +322,29 @@ function handleInteractivePermission(
     const channelRequestId = shortRequestId(ctx.toolUseID)
     const allowedChannels = getAllowedChannels()
     // Marketplace-aware: pass the runtime pluginSource (stashed on
-    // the server config at addPluginScopeToServers) so a
-    // `plugin:slack@evilcorp` installation cannot piggy-back on a
-    // `plugin:slack@anthropic` session entry to receive permission
-    // request previews. The bare name match would otherwise let
-    // findChannelEntry resolve to the approved entry, leaking tool
-    // names/descriptions/input previews to the unapproved plugin.
+    // the server config at addPluginScopeToServers) and reject
+    // mismatches explicitly. `findChannelEntry` alone would happily
+    // resolve a `plugin:slack@evilcorp` lookup to a
+    // `plugin:slack@anthropic` session entry when only one
+    // candidate exists, leaking permission-request previews to the
+    // unapproved plugin. Mirror the marketplace check that
+    // `gateChannelServer` performs so the relay path enforces the
+    // same boundary.
     const channelClients = filterPermissionRelayClients(
       ctx.toolUseContext.getAppState().mcp.clients,
-      (name, pluginSource) =>
-        findChannelEntry(name, allowedChannels, pluginSource) !== undefined,
+      (name, pluginSource) => {
+        const entry = findChannelEntry(name, allowedChannels, pluginSource)
+        if (!entry) return false
+        if (entry.kind === 'server') return true
+        // Plugin-kind: require a runtime source whose marketplace
+        // matches the session entry. A missing or mismatched
+        // `pluginSource` fails the relay filter — `gateChannelServer`
+        // would have skipped this client already, so the relay
+        // should match that decision.
+        if (!pluginSource) return false
+        const actual = parsePluginIdentifier(pluginSource).marketplace
+        return actual === entry.marketplace
+      },
     )
 
     if (channelClients.length > 0) {
