@@ -42,7 +42,7 @@ export function SessionSummary({ summary, compact = false }: SessionSummaryProps
         {chalk.gray('Steps:')} {summary.totalSteps} ({summary.userRequests} user requests)
       </Text>
       <Text>
-        {chalk.gray('Tools:')} {formatToolBreakdown(summary.toolBreakdown)}
+        {chalk.gray('Tools:')} {Object.keys(summary.toolBreakdown).length > 0 ? formatToolBreakdown(summary.toolBreakdown) : 'None'}
       </Text>
       <Text>
         {chalk.gray('Files modified:')} {summary.filesModified.length}
@@ -55,8 +55,8 @@ export function SessionSummary({ summary, compact = false }: SessionSummaryProps
       </Text>
       {summary.filesModified.length > 0 && (
         <Box marginLeft={2} flexDirection="column">
-          {summary.filesModified.slice(0, 5).map((file, i) => (
-            <Text key={i} dimColor>
+          {summary.filesModified.slice(0, 5).map(file => (
+            <Text key={file} dimColor>
               {file}
             </Text>
           ))}

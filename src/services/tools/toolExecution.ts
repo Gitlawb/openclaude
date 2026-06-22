@@ -822,6 +822,34 @@ export async function checkPermissionsAndCallTool(
     ]
   }
 
+  const lifecycleStartTime = Date.now()
+  function getLifecycleBashTimeoutMs(input: unknown): number | undefined {
+    if (
+      tool.name !== BASH_TOOL_NAME ||
+      !input ||
+      typeof input !== 'object' ||
+      !('timeout' in input)
+    ) {
+      return undefined
+    }
+    return (input as BashToolInput).timeout
+  }
+
+  function trackLifecycleToolUse(input: unknown): void {
+    const lifecycleBashTimeoutMs = getLifecycleBashTimeoutMs(input)
+    toolUseContext.queryLifecycle?.startToolUse({
+      toolUseId: toolUseID,
+      toolName: tool.name,
+      startedAt: lifecycleStartTime,
+      ...(tool.name === BASH_TOOL_NAME && { isBash: true }),
+      ...(lifecycleBashTimeoutMs !== undefined && {
+        timeoutMs: lifecycleBashTimeoutMs,
+      }),
+    })
+  }
+
+  trackLifecycleToolUse(parsedInput.data)
+
   // Validate input values. Each tool has its own validation logic
   const isValidCall = await tool.validateInput?.(
     parsedInput.data,
@@ -978,6 +1006,7 @@ export async function checkPermissionsAndCallTool(
         // Hook provided updatedInput without making a permission decision (passthrough)
         // Update processedInput so it's used in the normal permission flow
         processedInput = result.updatedInput
+        trackLifecycleToolUse(processedInput)
         break
       case 'preventContinuation':
         shouldPreventContinuation = result.shouldPreventContinuation
@@ -1065,6 +1094,7 @@ export async function checkPermissionsAndCallTool(
   )
   const permissionDecision = resolved.decision
   processedInput = resolved.input
+  trackLifecycleToolUse(processedInput)
   const permissionDurationMs = Date.now() - permissionStart
 
   // In auto mode, canUseTool awaits the classifier (side_query) — if that's
@@ -1272,6 +1302,7 @@ export async function checkPermissionsAndCallTool(
   // (Don't overwrite if undefined - processedInput may have been modified by passthrough hooks)
   if (permissionDecision.updatedInput !== undefined) {
     processedInput = permissionDecision.updatedInput
+    trackLifecycleToolUse(processedInput)
   }
 
   // Prepare tool parameters for logging in tool_result event.

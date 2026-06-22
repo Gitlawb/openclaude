@@ -134,43 +134,51 @@ function ReplaySessionPicker({
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   // If args provided, try to find session by ID or search
   if (args?.trim()) {
-    const sessionId = validateUuid(args.trim());
-    if (sessionId) {
-      const matchingLog = await findLogBySessionId(sessionId);
-      const transcriptPath = matchingLog?.fullPath || getTranscriptPathForSession(sessionId);
-      const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
-      if (replayIndex) {
-        return <ReplayTimeline index={replayIndex} onExit={() => onDone('Replay dismissed')} />;
-      }
-      return <MessageResponse>
-        <Text>No replay data found for session {chalk.bold(args.trim())}</Text>
-      </MessageResponse>;
-    }
-    
-    // Try to search by title
-    const logs = await loadSameRepoMessageLogs(await getWorktreePaths(getOriginalCwd()));
-    const matchingLog = logs.find(l => 
-      l.customTitle?.toLowerCase().includes(args.trim().toLowerCase()) ||
-      l.firstPrompt?.toLowerCase().includes(args.trim().toLowerCase())
-    );
-    
-    if (matchingLog) {
-      const sessionId = validateUuid(getSessionIdFromLog(matchingLog));
+    const query = args.trim();
+    try {
+      const sessionId = validateUuid(query);
       if (sessionId) {
-        const transcriptPath = matchingLog.fullPath || getTranscriptPathForSession(sessionId);
+        const matchingLog = await findLogBySessionId(sessionId);
+        const transcriptPath = matchingLog?.fullPath || getTranscriptPathForSession(sessionId);
         const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
         if (replayIndex) {
           return <ReplayTimeline index={replayIndex} onExit={() => onDone('Replay dismissed')} />;
         }
         return <MessageResponse>
-          <Text>No replay data found for session {chalk.bold(matchingLog.customTitle ?? matchingLog.firstPrompt ?? args.trim())}</Text>
+          <Text>No replay data found for session {chalk.bold(query)}</Text>
         </MessageResponse>;
       }
+
+      // Try to search by title
+      const logs = await loadSameRepoMessageLogs(await getWorktreePaths(getOriginalCwd()));
+      const matchingLog = logs.find(l =>
+        l.customTitle?.toLowerCase().includes(query.toLowerCase()) ||
+        l.firstPrompt?.toLowerCase().includes(query.toLowerCase())
+      );
+
+      if (matchingLog) {
+        const sessionId = validateUuid(getSessionIdFromLog(matchingLog));
+        if (sessionId) {
+          const transcriptPath = matchingLog.fullPath || getTranscriptPathForSession(sessionId);
+          const replayIndex = await loadReplayIndex(sessionId, transcriptPath);
+          if (replayIndex) {
+            return <ReplayTimeline index={replayIndex} onExit={() => onDone('Replay dismissed')} />;
+          }
+          return <MessageResponse>
+            <Text>No replay data found for session {chalk.bold(matchingLog.customTitle ?? matchingLog.firstPrompt ?? query)}</Text>
+          </MessageResponse>;
+        }
+      }
+
+      return <MessageResponse>
+        <Text>No session found matching &quot;{query}&quot;</Text>
+      </MessageResponse>;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return <MessageResponse>
+        <Text>Unable to load replay data for {chalk.bold(query)}: {message}</Text>
+      </MessageResponse>;
     }
-    
-    return <MessageResponse>
-      <Text>No session found matching "{args.trim()}"</Text>
-    </MessageResponse>;
   }
 
   // No args - show session picker
