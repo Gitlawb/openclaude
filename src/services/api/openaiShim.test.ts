@@ -2533,6 +2533,67 @@ test.each([
   expect(capturedBody).not.toHaveProperty('store')
 })
 
+test('opencode go messages endpoint rotates raw x-api-key credentials after rate-limit failure', async () => {
+  const capturedUrls: string[] = []
+  const capturedKeys: Array<string | null> = []
+
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  process.env.OPENAI_MODEL = 'minimax-m3'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENCODE_API_KEY = 'fake-opencode-a,fake-opencode-b'
+
+  globalThis.fetch = (async (input, init) => {
+    const headers = new Headers(init?.headers)
+    capturedUrls.push(String(input))
+    capturedKeys.push(headers.get('x-api-key'))
+
+    if (capturedKeys.length === 1) {
+      return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'msg_opencode_go_retry',
+        type: 'message',
+        role: 'assistant',
+        model: 'minimax-m3',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'minimax-m3',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedUrls).toEqual([
+    'https://opencode.ai/zen/go/v1/messages',
+    'https://opencode.ai/zen/go/v1/messages',
+  ])
+  expect(capturedKeys).toEqual(['fake-opencode-a', 'fake-opencode-b'])
+})
+
 test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY as bearer auth despite stale generic base URL', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_MODEL = 'gpt-5.5'
