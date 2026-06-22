@@ -261,38 +261,53 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       await checkGate_CACHED_OR_BLOCKING('tengu_harbor');
     }
     if (devChannels && devChannels.length > 0) {
-      const [{
-        isChannelsEnabled
-      }, {
-        getClaudeAIOAuthTokens
-      }] = await Promise.all([import('./services/mcp/channelAllowlist.js'), import('./utils/auth.js')]);
-      // Skip the dialog when channels are blocked (tengu_harbor off or no
-      // OAuth) — accepting then immediately seeing "not available" in
-      // ChannelsNotice is worse than no dialog. Append entries anyway so
-      // ChannelsNotice renders the blocked branch with the dev entries
-      // named. dev:true here is for the flag label in ChannelsNotice
-      // (hasNonDev check); the allowlist bypass it also grants is moot
-      // since the gate blocks upstream.
-      if (!isChannelsEnabled() || !getClaudeAIOAuthTokens()?.accessToken) {
-        setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
-          ...c,
-          dev: true
-        }))]);
-        setHasDevChannels(true);
+      // OpenClaude removed the OAuth/org-policy gates from
+      // gateChannelServer(), which means an API-key/no-OAuth session
+      // can now pass --dangerously-load-development-channels and
+      // register channels without ever seeing the warning. We must
+      // always show the confirmation dialog whenever the user passes
+      // the flag, regardless of OAuth / tengu_harbor state — only
+      // explicit user acceptance enables the dev entries.
+      //
+      // Only skip when the channels feature itself is feature-flagged
+      // off (KAIROS / KAIROS_CHANNELS), in which case the dev entries
+      // are inert and the dialog is misleading.
+      const { isChannelsEnabled } = await import(
+        './services/mcp/channelAllowlist.js'
+      )
+      if (!isChannelsEnabled()) {
+        // Channels feature is unavailable. Still register the dev
+        // entries so ChannelsNotice renders the blocked branch with
+        // them named — but do not show the dialog since acceptance
+        // would be moot. This preserves the previous behavior for the
+        // genuinely-disabled case.
+        setAllowedChannels([
+          ...getAllowedChannels(),
+          ...devChannels.map(c => ({ ...c, dev: true })),
+        ])
+        setHasDevChannels(true)
       } else {
         const {
-          DevChannelsDialog
-        } = await import('./components/DevChannelsDialog.js');
-        await showSetupDialog(root, done => <DevChannelsDialog channels={devChannels} onAccept={() => {
-          // Mark dev entries per-entry so the allowlist bypass doesn't leak
-          // to --channels entries when both flags are passed.
-          setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
-            ...c,
-            dev: true
-          }))]);
-          setHasDevChannels(true);
-          void done();
-        }} />);
+          DevChannelsDialog,
+        } = await import('./components/DevChannelsDialog.js')
+        await showSetupDialog(
+          root,
+          done => (
+            <DevChannelsDialog
+              channels={devChannels}
+              onAccept={() => {
+                // Mark dev entries per-entry so the allowlist bypass doesn't leak
+                // to --channels entries when both flags are passed.
+                setAllowedChannels([
+                  ...getAllowedChannels(),
+                  ...devChannels.map(c => ({ ...c, dev: true })),
+                ])
+                setHasDevChannels(true)
+                void done()
+              }}
+            />
+          ),
+        )
       }
     }
   }
