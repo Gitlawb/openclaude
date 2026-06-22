@@ -291,15 +291,41 @@ export function shouldRedactUrlQueryParam(name: string): boolean {
 }
 
 /**
- * Pre-built regex for the malformed-URL fallback. Derived from
- * `SENSITIVE_URL_QUERY_PARAM_TOKENS` so the fallback path can never
- * drift behind the primary `URL` parser path. Value runs to the next
- * `&` / `#` / end of string, matching the original hand-rolled regex.
+ * Per-query-param redaction for the malformed-URL fallback path.
+ *
+ * `shouldRedactUrlQueryParam` uses substring semantics: any param
+ * whose name contains a sensitive token (e.g. `my_api_key`,
+ * `x_access_token`) is matched. The function below iterates over the
+ * URL's `?…&…` segment and substitutes each value, mirroring the
+ * primary path's `parsed.searchParams.keys()` loop.
+ *
+ * Returns the redacted URL. The fragment (if any) is preserved
+ * verbatim — redaction shouldn't touch `#…` content.
  */
-const MALFORMED_URL_PARAM_PATTERN = new RegExp(
-  `([?&](?:${SENSITIVE_URL_QUERY_PARAM_TOKENS.join('|')})=)[^&#]*`,
-  'gi',
-)
+function redactMalformedQuery(rawUrl: string): string {
+  const queryStart = rawUrl.indexOf('?')
+  if (queryStart === -1) return rawUrl
+  const prefix = rawUrl.slice(0, queryStart + 1)
+  const queryAndFragment = rawUrl.slice(queryStart + 1)
+  const hashIndex = queryAndFragment.indexOf('#')
+  const query = hashIndex === -1
+    ? queryAndFragment
+    : queryAndFragment.slice(0, hashIndex)
+  const fragment = hashIndex === -1 ? '' : queryAndFragment.slice(hashIndex)
+  const redacted = query
+    .split('&')
+    .map(pair => {
+      const eqIndex = pair.indexOf('=')
+      if (eqIndex === -1) return pair
+      const key = pair.slice(0, eqIndex)
+      if (shouldRedactUrlQueryParam(key)) {
+        return `${key}=redacted`
+      }
+      return pair
+    })
+    .join('&')
+  return `${prefix}${redacted}${fragment}`
+}
 
 export function redactUrlForDisplay(rawUrl: string): string {
   try {
@@ -320,10 +346,11 @@ export function redactUrlForDisplay(rawUrl: string): string {
     parsed.hash = ''
     return parsed.toString()
   } catch {
-    return rawUrl
-      .replace(/\/\/[^/@\s]+(?::[^/@\s]*)?@/g, '//redacted@')
-      .replace(MALFORMED_URL_PARAM_PATTERN, '$1redacted')
-      .replace(/#.*$/, '')
+    const userinfoRedacted = rawUrl.replace(
+      /\/\/[^/@\s]+(?::[^/@\s]*)?@/g,
+      '//redacted@',
+    )
+    return redactMalformedQuery(userinfoRedacted)
   }
 }
 

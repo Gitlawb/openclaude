@@ -97,6 +97,35 @@ describe('redactUrlForDisplay', () => {
       '//redacted@api.example.com/v1?token=redacted',
     )
   })
+
+  // Regression: the fallback path must use the same substring predicate
+  // as `shouldRedactUrlQueryParam`. The previous hand-rolled regex only
+  // matched exact parameter names (`api_key=`, `access_token=`), so
+  // `my_api_key` and `x_access_token` slipped through unchanged even
+  // though `shouldRedactUrlQueryParam` flags them as sensitive. The new
+  // path iterates pairs and runs the same predicate on each key.
+  test('malformed URL fallback redacts prefixed credential params', () => {
+    const malformed = '//host/path?my_api_key=SECRET&x_access_token=TOKEN'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toContain('my_api_key=redacted')
+    expect(redacted).toContain('x_access_token=redacted')
+    expect(redacted).not.toContain('SECRET')
+    expect(redacted).not.toContain('TOKEN')
+  })
+
+  test('malformed URL fallback leaves non-sensitive params unchanged', () => {
+    const malformed = '//host/path?model=llama3.1&temperature=0.7'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toContain('model=llama3.1')
+    expect(redacted).toContain('temperature=0.7')
+  })
+
+  test('malformed URL fallback preserves fragment after redacted query', () => {
+    const malformed = '//host/path?my_token=SECRET#section'
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toContain('my_token=redacted')
+    expect(redacted).toContain('#section')
+  })
 })
 
 describe('shouldRedactUrlQueryParam', () => {
