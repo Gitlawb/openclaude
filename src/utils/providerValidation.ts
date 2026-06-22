@@ -548,6 +548,8 @@ export async function getProviderValidationError(
 
       if (descriptorValidationError) {
         if (
+          descriptorValidationError ===
+            validationTarget.descriptor.validation?.missingCredentialMessage &&
           validationTarget.kind === 'vendor' &&
           validationTarget.descriptor.id === 'openai' &&
           !hasOpenAICredential(env) &&

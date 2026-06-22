@@ -131,6 +131,7 @@ test('legacy OpenAI-compatible model discovery rejects placeholder values inside
     },
   ])
 })
+
 test('legacy OpenAI-compatible model discovery uses the first pooled credential', async () => {
   delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -151,6 +152,38 @@ test('legacy OpenAI-compatible model discovery uses the first pooled credential'
 
   const { discoverOpenAICompatibleModelOptions } = await import(
     `./openaiModelDiscovery.js?pooled=${Date.now()}-${Math.random()}`
+  )
+
+  await expect(discoverOpenAICompatibleModelOptions()).resolves.toEqual([
+    {
+      value: 'gpt-5.5',
+      label: 'gpt-5.5',
+      description: 'Discovered from OpenAI-compatible endpoint',
+    },
+  ])
+  expect(getSpy).toHaveBeenCalled()
+})
+
+test('legacy OpenAI-compatible model discovery ignores placeholder singular key when pool is usable', async () => {
+  delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+
+  const getSpy = mock(async (_url: string, options?: { headers?: Record<string, string> }) => {
+    expect(options?.headers).toEqual({ Authorization: 'Bearer key-a' })
+    return {
+      data: {
+        data: [{ id: 'gpt-5.5' }],
+      },
+    }
+  })
+  axios.get = getSpy as typeof axios.get
+
+  const { discoverOpenAICompatibleModelOptions } = await import(
+    `./openaiModelDiscovery.js?pooled-singular-placeholder=${Date.now()}-${Math.random()}`
   )
 
   await expect(discoverOpenAICompatibleModelOptions()).resolves.toEqual([

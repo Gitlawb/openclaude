@@ -499,7 +499,14 @@ export function checkOpenAIEnv(): CheckResult[] {
   const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const hasGithubRouteCredential =
     credentialContext.routeId === 'github' && Boolean(githubToken?.trim())
-  if (hasPlaceholderCredential(key) || hasPlaceholderCredential(providerCredential)) {
+  const hasPlaceholderProviderCredential = credentialContext.envVars.some(envVar =>
+    hasPlaceholderCredential(process.env[envVar]),
+  )
+  if (
+    hasPlaceholderCredential(key) ||
+    hasPlaceholderCredential(providerCredential) ||
+    hasPlaceholderProviderCredential
+  ) {
     results.push(fail(credentialLabel, 'Placeholder value detected: SUA_CHAVE.'))
   } else if (
     !providerCredential &&

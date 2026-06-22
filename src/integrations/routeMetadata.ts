@@ -214,9 +214,15 @@ function hasUsableEnvCredentialValue(
   }
 
   if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
-    return value.split(',').some(part => part.trim() !== '')
+    const credentials = value
+      .split(',')
+      .map(part => part.trim())
+      .filter(Boolean)
+    return (
+      credentials.length > 0 &&
+      credentials.every(credential => credential !== 'SUA_CHAVE')
+    )
   }
-
   return value.trim() !== ''
 }
 

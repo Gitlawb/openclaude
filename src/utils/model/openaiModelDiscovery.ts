@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../../services/api/credentialPool.js'
+import { firstUsableCredential, parseCredentialList } from '../../services/api/credentialPool.js'
 import { logForDebugging } from '../debug.js'
 import { isEssentialTrafficOnly } from '../privacyLevel.js'
 import type { ModelOption } from './modelOptions.js'
@@ -50,16 +50,11 @@ function isBankrBaseUrl(baseUrl: string): boolean {
 }
 
 function getOpenAIAuthHeaders(baseUrl: string): Record<string, string> {
-  if (
-    hasInvalidCredentialPlaceholder(process.env.OPENAI_API_KEYS) ||
-    hasInvalidCredentialPlaceholder(process.env.OPENAI_API_KEY)
-  ) {
-    return {}
-  }
-
-  const apiKey =
-    firstUsableCredential(process.env.OPENAI_API_KEYS) ??
-    firstUsableCredential(process.env.OPENAI_API_KEY)
+  const hasPooledCredentials =
+    parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
+  const apiKey = hasPooledCredentials
+    ? firstUsableCredential(process.env.OPENAI_API_KEYS)
+    : firstUsableCredential(process.env.OPENAI_API_KEY)
   if (!apiKey) {
     return {}
   }

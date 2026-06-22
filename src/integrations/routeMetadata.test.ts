@@ -121,6 +121,25 @@ test('route credential discovery ignores delimiter-only OPENAI_API_KEYS before s
   ).toBe('sk-openai-single')
 })
 
+test('route credential discovery ignores placeholder OpenAI credentials', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'SUA_CHAVE',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
+  expect(
+    resolveRouteCredentialValue({
+      baseUrl: 'https://api.openai.com/v1',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_KEYS: 'SUA_CHAVE',
+        OPENAI_API_KEY: 'SUA_CHAVE',
+      },
+    }),
+  ).toBeUndefined()
+})
+
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('venice')).toBe('https://api.venice.ai/api/v1')
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
@@ -169,6 +188,7 @@ test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', 
     }),
   ).toBe('venice')
 })
+
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
   expect(
     resolveActiveRouteIdFromEnv({
