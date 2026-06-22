@@ -357,7 +357,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "routeId": "opencode-go",
     "vendorId": "openai",
     "gatewayId": "opencode-go",
-    "description": "OpenCode Go - $10/mo subscription for open models (20 models)",
+    "description": "OpenCode Go - $10/mo subscription for open models (13 models)",
     "apiKeyEnvVars": [
       "OPENCODE_API_KEY"
     ],

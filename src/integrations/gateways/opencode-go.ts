@@ -29,24 +29,17 @@ function catalogEntry(spec: OpenCodeGoCatalogSpec) {
 const goModels: OpenCodeGoCatalogSpec[] = [
   { id: 'minimax-m3', apiName: 'minimax-m3', label: 'MiniMax M3', endpointPath: '/messages' },
   { id: 'minimax-m2.7', apiName: 'minimax-m2.7', label: 'MiniMax M2.7', endpointPath: '/messages' },
-  { id: 'minimax-m2.5', apiName: 'minimax-m2.5', label: 'MiniMax M2.5', endpointPath: '/messages' },
   { id: 'kimi-k2.7-code', apiName: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
   { id: 'kimi-k2.6', apiName: 'kimi-k2.6', label: 'Kimi K2.6' },
-  { id: 'kimi-k2.5', apiName: 'kimi-k2.5', label: 'Kimi K2.5' },
   { id: 'glm-5.2', apiName: 'glm-5.2', label: 'GLM 5.2' },
   { id: 'glm-5.1', apiName: 'glm-5.1', label: 'GLM 5.1' },
-  { id: 'glm-5', apiName: 'glm-5', label: 'GLM 5' },
   { id: 'deepseek-v4-pro', apiName: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
   { id: 'deepseek-v4-flash', apiName: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
   { id: 'qwen3.7-max', apiName: 'qwen3.7-max', label: 'Qwen3.7 Max', endpointPath: '/messages' },
   { id: 'qwen3.7-plus', apiName: 'qwen3.7-plus', label: 'Qwen3.7 Plus', endpointPath: '/messages' },
   { id: 'qwen3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen3.6 Plus', endpointPath: '/messages' },
-  { id: 'qwen3.5-plus', apiName: 'qwen3.5-plus', label: 'Qwen3.5 Plus', endpointPath: '/messages' },
-  { id: 'mimo-v2-pro', apiName: 'mimo-v2-pro', label: 'MiMo V2 Pro' },
-  { id: 'mimo-v2-omni', apiName: 'mimo-v2-omni', label: 'MiMo V2 Omni' },
   { id: 'mimo-v2.5-pro', apiName: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' },
   { id: 'mimo-v2.5', apiName: 'mimo-v2.5', label: 'MiMo V2.5' },
-  { id: 'hy3-preview', apiName: 'hy3-preview', label: 'HY3 Preview' },
 ]
 
 export default defineGateway({
@@ -78,7 +71,7 @@ export default defineGateway({
   preset: {
     id: 'opencode-go',
     vendorId: 'openai',
-    description: 'OpenCode Go - $10/mo subscription for open models (20 models)',
+    description: 'OpenCode Go - $10/mo subscription for open models (13 models)',
     apiKeyEnvVars: ['OPENCODE_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
   },
