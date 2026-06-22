@@ -10,6 +10,7 @@ import {
   type ProviderProfile,
 } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
+import { resolveGeminiVertexAuthMode } from './geminiAuth.js'
 import type { ModelOption } from './model/modelOptions.js'
 import { getPrimaryModel, parseModelList } from './providerModels.js'
 import { PROVIDER_SELECTION_FLAGS } from './providerSelectionFlags.js'
@@ -863,11 +864,7 @@ export function applyProviderProfileToProcessEnv(
       ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
     }
   } else if (compatibilityMode === 'gemini-vertex') {
-    const vertexAuthMode =
-      process.env.GEMINI_VERTEX_AUTH_MODE === 'access-token' ||
-      process.env.GEMINI_VERTEX_AUTH_MODE === 'adc'
-        ? process.env.GEMINI_VERTEX_AUTH_MODE
-        : 'adc'
+    const vertexAuthMode = resolveGeminiVertexAuthMode(process.env)
     profileEnv = buildGeminiVertexProfileEnv({
       model: primaryModel,
       project:
@@ -1389,11 +1386,7 @@ function buildStartupProfileFromActiveProfile(
         })),
       }
     case 'gemini-vertex': {
-      const vertexAuthMode =
-        process.env.GEMINI_VERTEX_AUTH_MODE === 'access-token' ||
-        process.env.GEMINI_VERTEX_AUTH_MODE === 'adc'
-          ? process.env.GEMINI_VERTEX_AUTH_MODE
-          : 'adc'
+      const vertexAuthMode = resolveGeminiVertexAuthMode(process.env)
       const env = buildGeminiVertexProfileEnv({
         model: getPrimaryModel(activeProfile.model),
         // baseUrl carries the project id, but the preset can seed it with the
