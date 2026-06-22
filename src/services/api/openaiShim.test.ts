@@ -7101,17 +7101,22 @@ test.each([
   ['glm-5.2?reasoning=medium', 'high'],
   ['glm-5.2?reasoning=high', 'high'],
   ['glm-5.2?reasoning=xhigh', 'max'],
+  ['openrouter/zhipu/glm-5.2?reasoning=low', 'high'],
+  ['openrouter/zhipu/glm-5.2?reasoning=medium', 'high'],
+  ['openrouter/zhipu/glm-5.2?reasoning=high', 'high'],
+  ['openrouter/zhipu/glm-5.2?reasoning=xhigh', 'max'],
 ] as const)('Z.AI GLM-5.2: %s enables mapped reasoning effort', async (model, effort) => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'
 
+  const expectedModel = model.split('?')[0];
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
     requestBody = JSON.parse(String(init?.body))
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'glm-5.2',
+        model: expectedModel,
         choices: [
           { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
         ],
@@ -7128,7 +7133,7 @@ test.each([
     stream: false,
   })
 
-  expect(requestBody?.model).toBe('glm-5.2')
+  expect(requestBody?.model).toBe(expectedModel)
   expect(requestBody?.thinking).toEqual({ type: 'enabled' })
   expect(requestBody?.reasoning_effort).toBe(effort)
 })

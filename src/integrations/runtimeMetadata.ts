@@ -207,8 +207,9 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
-  const hasGlm = segments.some(s => s.startsWith('glm'))
-  if (hasGlm) {
+  const hasGlm = segments.some(s => /^glm-\d/.test(s))
+  const isFireworks = segments.some(s => s === 'fireworks')
+  if (hasGlm && !isFireworks) {
     return {
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,

@@ -544,29 +544,58 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
   })
 
   describe('GLM models', () => {
-    it('should NOT infer preserveReasoningContent for custom glm aliases', () => {
-      const result = resolveOpenAIShimRuntimeContext({
-        processEnv: {},
-        model: 'my-glm-assistant',
-      })
-      expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
+    it('should NOT infer Z.AI overrides for custom glm aliases', () => {
+      for (const model of ['my-glm-assistant', 'glm-assistant', 'glm-router']) {
+        const result = resolveOpenAIShimRuntimeContext({
+          processEnv: {},
+          model,
+        })
+        expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
+        expect(result.openaiShimConfig.thinkingRequestFormat).toBeUndefined()
+        expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBeUndefined()
+        expect(result.openaiShimConfig.reasoningContentFallback).toBeUndefined()
+        expect(result.openaiShimConfig.maxTokensField).toBeUndefined()
+        expect(result.openaiShimConfig.removeBodyFields).toBeUndefined()
+      }
     })
 
-    it('should infer preserveReasoningContent for GLM paths', () => {
+    it('should NOT infer Z.AI overrides for Fireworks GLM catalog entries', () => {
+      const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
+        model: 'accounts/fireworks/models/glm-5p2',
+      })
+      expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
+      expect(result.openaiShimConfig.thinkingRequestFormat).toBeUndefined()
+      expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBeUndefined()
+      expect(result.openaiShimConfig.reasoningContentFallback).toBeUndefined()
+      expect(result.openaiShimConfig.maxTokensField).toBeUndefined()
+      expect(result.openaiShimConfig.removeBodyFields).toBeUndefined()
+    })
+
+    it('should infer full GLM config for GLM paths', () => {
       const result = resolveOpenAIShimRuntimeContext({
         processEnv: {},
         model: 'openrouter/zhipu/glm-5.2',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
       expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+      expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+      expect(result.openaiShimConfig.reasoningContentFallback).toBe('')
+      expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+      expect(result.openaiShimConfig.removeBodyFields).toEqual(['store'])
     })
 
-    it('should infer preserveReasoningContent for direct glm model names', () => {
+    it('should infer full GLM config for direct glm model names', () => {
       const result = resolveOpenAIShimRuntimeContext({
         processEnv: {},
         model: 'glm-5.2',
       })
       expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+      expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+      expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+      expect(result.openaiShimConfig.reasoningContentFallback).toBe('')
+      expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+      expect(result.openaiShimConfig.removeBodyFields).toEqual(['store'])
     })
   })
 
