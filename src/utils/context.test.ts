@@ -20,6 +20,10 @@ const originalEnv = {
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
 }
@@ -34,6 +38,8 @@ beforeEach(async () => {
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
 })
@@ -82,6 +88,18 @@ afterEach(() => {
       delete process.env.OPENAI_API_KEY
     } else {
       process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY
+    }
+    if (originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED =
+        originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    }
+    if (originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID =
+        originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
     }
     if (originalEnv.MINIMAX_API_KEY === undefined) {
       delete process.env.MINIMAX_API_KEY
@@ -484,6 +502,8 @@ test('prefixed Gemini 3.1 Pro router model uses integration metadata', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 
   expect(getContextWindowForModel('google/gemini-3.1-pro')).toBe(1_048_576)
   expect(getModelMaxOutputTokens('google/gemini-3.1-pro')).toEqual({
@@ -498,6 +518,8 @@ test('NVIDIA NIM DeepSeek V4 Pro uses NIM route catalog metadata', () => {
   process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 
   expect(getContextWindowForModel('deepseek-ai/deepseek-v4-pro')).toBe(1_048_576)
   expect(getModelMaxOutputTokens('deepseek-ai/deepseek-v4-pro')).toEqual({

@@ -324,6 +324,8 @@ describe('OpenCode model catalog', () => {
       'opencode-go-minimax-m3',
       'opencode-go-minimax-m2.7',
       'opencode-go-minimax-m2.5',
+      'opencode-go-qwen3.7-max',
+      'opencode-go-qwen3.7-plus',
       'opencode-go-qwen3.6-plus',
       'opencode-go-qwen3.5-plus',
     ]
