@@ -335,7 +335,7 @@ function handleInteractivePermission(
       (name, pluginSource) => {
         const entry = findChannelEntry(name, allowedChannels, pluginSource)
         if (!entry) return false
-        if (entry.kind === 'server') return true
+        if (entry.kind === 'server') return entry.dev === true
         // Plugin-kind: require a runtime source whose marketplace
         // matches the session entry. A missing or mismatched
         // `pluginSource` fails the relay filter — `gateChannelServer`

@@ -39,14 +39,12 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toBe('//redacted@localhost:11434?token=redacted&mode=test')
   })
 
-  test('fallback redaction preserves fragments for malformed URLs', () => {
+  test('fallback redaction drops fragments for malformed URLs', () => {
     const redacted = redactUrlForDisplay(
       '//user:pass@localhost:11434?token=abc#access_token=fragment-secret',
     )
 
-    expect(redacted).toBe(
-      '//redacted@localhost:11434?token=redacted#access_token=fragment-secret',
-    )
+    expect(redacted).toBe('//redacted@localhost:11434?token=redacted')
   })
 
   test('keeps non-sensitive URLs unchanged', () => {
@@ -122,11 +120,19 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toContain('temperature=0.7')
   })
 
-  test('malformed URL fallback preserves fragment after redacted query', () => {
+  test('malformed URL fallback drops fragment after redacted query', () => {
     const malformed = '//host/path?my_token=SECRET#section'
     const redacted = redactUrlForDisplay(malformed)
-    expect(redacted).toContain('my_token=redacted')
-    expect(redacted).toContain('#section')
+    expect(redacted).toBe('//host/path?my_token=redacted')
+  })
+
+  // Regression: the malformed-URL fallback must drop fragments even
+  // when there is no query string, matching the valid-URL path.
+  test('malformed URL fallback drops fragment-only credential', () => {
+    const redacted = redactUrlForDisplay(
+      '//host/path#access_token=SECRET',
+    )
+    expect(redacted).toBe('//host/path')
   })
 
   // Regression: the malformed-URL fallback must decode percent-encoded
@@ -159,7 +165,8 @@ describe('redactUrlForDisplay', () => {
       '//api.example.com#frag@illegal'
     const redacted = redactUrlForDisplay(malformed)
     // No userinfo before the fragment delimiter should be consumed.
-    expect(redacted).toBe(malformed)
+    // Fragment is dropped to match the valid-URL path.
+    expect(redacted).toBe('//api.example.com')
   })
 })
 
