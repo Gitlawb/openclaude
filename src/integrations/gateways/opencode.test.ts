@@ -478,6 +478,7 @@ describe('OpenCode edge cases', () => {
     expect(models.get('opencode-go-minimax-m2.5')?.maxOutputTokens).toBe(65_536)
     expect(models.get('opencode-go-hy3-preview')?.contextWindow).toBe(256_000)
   })
+
   test('zen gateway validation message mentions OPENCODE_API_KEY', () => {
     const gateway = getGateway('opencode')
     expect(gateway!.validation!.missingCredentialMessage).toContain('OPENCODE_API_KEY')
