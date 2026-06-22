@@ -13,7 +13,7 @@ import {
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../../utils/sessionStorage.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import { redactSensitiveInfo } from '../../utils/redaction.js'
+import { jsonRedactor, redactSensitiveInfo } from '../../utils/redaction.js'
 
 type TranscriptShareResult = {
   success: boolean
@@ -69,7 +69,18 @@ export async function submitTranscriptShare(
       rawTranscriptJsonl,
     }
 
-    const content = redactSensitiveInfo(jsonStringify(data))
+    // Two-pass redaction:
+    // 1. `jsonRedactor` runs as the JSON.stringify replacer so the
+    //    key-aware check applies during serialization — a credential
+    //    field whose value is an unknown shape (object, array) gets
+    //    collapsed to `'[REDACTED]'` instead of being serialized and
+    //    then re-parsed by a regex over the text.
+    // 2. `redactSensitiveInfo` runs over the final string as a
+    //    defense-in-depth second pass — catches secrets embedded in
+    //    free-form text (log lines, error messages) inside any field,
+    //    even when the field name isn't on the credential-substring
+    //    list.
+    const content = redactSensitiveInfo(jsonStringify(data, jsonRedactor))
 
     await checkAndRefreshOAuthTokenIfNeeded()
 

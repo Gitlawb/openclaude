@@ -26,7 +26,7 @@ import {
   redactSecretSubstringsForDisplay,
   type SecretValueSource,
 } from '../src/utils/providerSecrets.js'
-import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
+import { redactUrlForDisplay } from '../src/utils/redaction.js'
 import {
   MIN_NODE_ENGINE_RANGE,
   checkSupportedNodeVersion,

@@ -7,7 +7,7 @@ import {
   redactDiagnosticUrl,
   redactHomePath,
   summarizeSecretEnvPresence,
-} from './redaction.js'
+} from '../redaction.js'
 
 describe('diagnostic redaction', () => {
   test('collects every known provider secret env var from the centralized registry', () => {

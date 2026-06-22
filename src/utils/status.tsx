@@ -22,7 +22,7 @@ import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from
 import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
 import { getKnownProviderSecretEnvKeys, redactSecretSubstringsForDisplay, redactSecretValueForDisplay, sanitizeApiKey, type SecretValueSource } from './providerSecrets.js';
-import { redactPathForStatus, redactUrlForStatus } from './statusRedaction.js';
+import { redactPathForStatus, redactUrlForStatus } from './redaction.js';
 import {
   getRouteCredentialEnvVars,
   getRouteDefaultBaseUrl,

@@ -92,7 +92,7 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay, type SecretValueSource } from '../../utils/providerProfile.js'
-import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
+import { shouldRedactUrlQueryParam } from '../../utils/redaction.js'
 import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import {
   normalizeToolArguments,

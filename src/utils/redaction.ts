@@ -2,20 +2,33 @@
  * Centralized credential redaction utility.
  *
  * Single source of truth for redacting secrets (API keys, tokens, passwords)
- * from strings and JSON values that flow into logs, bug reports, transcript
- * shares, and other diagnostic surfaces. The shape of the regex set lives
- * here; call sites should never fork their own copy of these patterns.
+ * from strings, JSON values, URLs, filesystem paths, and structured
+ * diagnostic objects that flow into logs, bug reports, transcript shares,
+ * /status output, doctor reports, and other public-safe surfaces. The
+ * regex sets and credential-name lists live here; call sites should never
+ * fork their own copy of these patterns.
  *
- * Two exports:
+ * Surface map:
  *
- * - `redactSensitiveInfo(text)`: pass a free-form string (log line, error
- *   message, transcript body) and get back a copy with secrets replaced.
- *   Cheap enough to call inline; runs a fixed sequence of regexes.
+ *   Logs / bug reports / transcript shares
+ *     redactSensitiveInfo(text)             free-form string scrub
+ *     jsonRedactor(key, value)             JSON.stringify replacer
  *
- * - `jsonRedactor(key, value)`: a `JSON.stringify` replacer that redacts
- *   string values whose key looks like a credential field, and runs
- *   `redactSensitiveInfo` over every other string. Use this when you need
- *   structural protection (an unknown field could still hold a secret).
+ *   URL display
+ *     redactUrlForDisplay(url)              masks userinfo + sensitive query params
+ *     shouldRedactUrlQueryParam(name)       predicate for external callers
+ *
+ *   /status output
+ *     redactUrlForStatus(url)               redactUrlForDisplay + drop fragment
+ *     redactPathForStatus(path)             ~-redact $HOME prefix
+ *
+ *   Diagnostic reports (doctor / issue export)
+ *     collectProviderSecretEnvVars()        list known env var names
+ *     summarizeSecretEnvPresence(env)       [{name, present}] summary
+ *     redactDiagnosticObject(value)         recursive walk; [set] / [redacted]
+ *     redactDiagnosticUrl(url)              url redacted + trailing / stripped
+ *     redactHomePath(value)                 $HOME → ~
+ *     redactLikelySecrets(value)            free-form text scrub
  *
  * Provider coverage is generated from two sources:
  * - `getKnownProviderSecretEnvKeys()` for env-var name patterns, so a new
@@ -24,6 +37,7 @@
  *   AIza..., ghp_..., etc.) which show up outside of env-var contexts.
  */
 
+import { homedir } from 'node:os'
 import { getKnownProviderSecretEnvKeys } from './providerSecrets.js'
 
 // Anthropic API keys (sk-ant...)
@@ -236,4 +250,268 @@ export function jsonRedactor(key: string, value: unknown): unknown {
   }
 
   return value
+}
+
+// ---------------------------------------------------------------------------
+//                             URL redaction
+// ---------------------------------------------------------------------------
+
+const SENSITIVE_URL_QUERY_PARAM_TOKENS = [
+  'api_key',
+  'apikey',
+  'key',
+  'token',
+  'access_token',
+  'refresh_token',
+  'signature',
+  'sig',
+  'secret',
+  'password',
+  'passwd',
+  'pwd',
+  'auth',
+  'authorization',
+] as const
+
+/**
+ * Single source of truth for "which query-param names look like
+ * credentials". Used by `redactUrlForDisplay` and by external callers
+ * (notably `openaiShim.redactUrlForDiagnostics`) that need the same
+ * coverage as `redactUrlForDisplay` instead of forking a copy that
+ * drifts.
+ */
+export function shouldRedactUrlQueryParam(name: string): boolean {
+  const lower = name.toLowerCase()
+  return SENSITIVE_URL_QUERY_PARAM_TOKENS.some(token => lower.includes(token))
+}
+
+export function redactUrlForDisplay(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    if (parsed.username) {
+      parsed.username = 'redacted'
+    }
+    if (parsed.password) {
+      parsed.password = 'redacted'
+    }
+
+    for (const key of parsed.searchParams.keys()) {
+      if (shouldRedactUrlQueryParam(key)) {
+        parsed.searchParams.set(key, 'redacted')
+      }
+    }
+
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return rawUrl
+      .replace(/\/\/[^/@\s]+(?::[^/@\s]*)?@/g, '//redacted@')
+      .replace(
+        /([?&](?:token|access_token|refresh_token|api_key|apikey|key|password|passwd|pwd|auth|authorization|signature|sig|secret)=)[^&#]*/gi,
+        '$1redacted',
+      )
+      .replace(/#.*$/, '')
+  }
+}
+
+// ---------------------------------------------------------------------------
+//                             Status redaction
+// ---------------------------------------------------------------------------
+
+/**
+ * Redact a URL for /status and other public-safe diagnostic surfaces.
+ *
+ * Wraps `redactUrlForDisplay` (which masks user/password and sensitive
+ * query params) and additionally drops the fragment, which can carry tokens
+ * or session IDs and is not useful when debugging proxy/TLS issues.
+ *
+ * Returned URLs are safe to paste in public issues or screenshots.
+ */
+export function redactUrlForStatus(rawUrl: string): string {
+  if (!rawUrl) return rawUrl
+
+  const redacted = redactUrlForDisplay(rawUrl)
+
+  // Drop the fragment. On the well-formed path (new URL succeeded) the
+  // produced string contains at most one '#', which is the fragment
+  // delimiter. On the malformed/regex-fallback path there is normally no
+  // '#' (userinfo containing '#' broke URL parsing and the regex consumed
+  // it); slicing at a stray '#' there would only shorten already-safe
+  // output, never expose a secret.
+  const hashIndex = redacted.indexOf('#')
+  return hashIndex === -1 ? redacted : redacted.slice(0, hashIndex)
+}
+
+/**
+ * Redact a filesystem path for /status and other public-safe diagnostic
+ * surfaces. Replaces a leading $HOME segment with `~` so absolute paths
+ * (e.g. mTLS cert/key, CA bundle) stay useful without leaking usernames
+ * or home directory layout.
+ */
+export function redactPathForStatus(rawPath: string): string {
+  if (!rawPath) return rawPath
+
+  const stripTrailingSep = (path: string) => path.replace(/[\\/]+$/, '')
+  const isWindowsLike = (path: string) =>
+    /^[a-zA-Z]:[\\/]/.test(path) || path.includes('\\')
+  const normalizeForCompare = (path: string) =>
+    isWindowsLike(path) ? path.toLowerCase() : path
+  const normalizedRawPath = stripTrailingSep(rawPath)
+  const rawPathForCompare = normalizeForCompare(normalizedRawPath)
+
+  // Cover POSIX (`HOME`), Windows (`USERPROFILE`), and containers where
+  // neither is set (`os.homedir()` reads the OS passwd db). Check each
+  // candidate; redact on the first prefix match. Filter out root-like
+  // candidates so a misconfigured homedir never causes mass over-redaction.
+  const candidates = [
+    process.env.HOME,
+    process.env.USERPROFILE,
+    homedir(),
+  ].filter((value): value is string =>
+    Boolean(value && stripTrailingSep(value) && stripTrailingSep(value) !== '/'),
+  )
+
+  for (const candidate of candidates) {
+    const normalizedCandidate = stripTrailingSep(candidate)
+    if (normalizeForCompare(normalizedCandidate) === rawPathForCompare) {
+      return '~'
+    }
+    if (
+      rawPathForCompare.startsWith(normalizeForCompare(normalizedCandidate))
+    ) {
+      const suffix = normalizedRawPath.slice(normalizedCandidate.length)
+      return `~${suffix}`
+    }
+  }
+
+  return rawPath
+}
+
+// ---------------------------------------------------------------------------
+//                          Diagnostic redaction
+// ---------------------------------------------------------------------------
+
+// Substrings that flag a JSON field name as a credential container, used by
+// `redactDiagnosticObject`. Matches the union already defined above as
+// `SENSITIVE_FIELD_SUBSTRINGS` — re-exported under the diagnostics alias
+// for the existing test surface.
+const DIAGNOSTIC_SECRET_KEY_PATTERN =
+  /(?:api[_-]?key|auth(?:orization)?|bearer|cookie|credential|password|passwd|pwd|private[_-]?key|refresh[_-]?token|secret|token)/i
+
+type SecretValuePattern = {
+  pattern: RegExp
+  replacement: string
+}
+
+const LIKELY_SECRET_VALUE_PATTERNS = [
+  { pattern: /\bsk-[A-Za-z0-9_-]{8,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bsk-ant-[A-Za-z0-9_-]{8,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bAIza[0-9A-Za-z_-]{10,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/gi, replacement: '[redacted]' },
+  { pattern: /\bgithub_pat_[A-Za-z0-9_]{10,}\b/g, replacement: '[redacted]' },
+  { pattern: /\bgh[pousr]_[A-Za-z0-9_]{10,}\b/g, replacement: '[redacted]' },
+  {
+    pattern:
+      /\b((?:MISTRAL_API_KEY|mistral(?:\s+api)?\s+key)(?:\s*[:=]\s*|\s+)["']?)[A-Za-z0-9._~+/=-]{12,}(?=$|[\s"',;)\]}])/gi,
+    replacement: '$1[redacted]',
+  },
+] satisfies SecretValuePattern[]
+
+export type SecretEnvPresence = {
+  name: string
+  present: boolean
+}
+
+function unique<T extends string>(values: Iterable<T>): T[] {
+  return [...new Set([...values].filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  )
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function collectProviderSecretEnvVars(): string[] {
+  return unique(getKnownProviderSecretEnvKeys())
+}
+
+export function summarizeSecretEnvPresence(
+  env: NodeJS.ProcessEnv,
+  envVars: readonly string[] = collectProviderSecretEnvVars(),
+): SecretEnvPresence[] {
+  return unique(envVars).map(name => ({
+    name,
+    present: Boolean(env[name]?.trim()),
+  }))
+}
+
+export function redactDiagnosticUrl(rawUrl: string | undefined): string | undefined {
+  if (!rawUrl) return undefined
+  return redactUrlForDisplay(rawUrl).replace(/\/+$/, '')
+}
+
+export function redactHomePath(
+  value: string,
+  homeDir = homedir(),
+): string {
+  if (!value || !homeDir) return value
+  const normalizedHome = homeDir.replace(/[/\\]+$/, '')
+  if (!normalizedHome) return value
+  return value.replace(
+    new RegExp(`${escapeRegExp(normalizedHome)}(?=$|[/\\\\])`, 'g'),
+    '~',
+  )
+}
+
+export function redactLikelySecrets(value: string): string {
+  return LIKELY_SECRET_VALUE_PATTERNS.reduce(
+    (current, { pattern, replacement }) => current.replace(pattern, replacement),
+    value,
+  )
+}
+
+function isDiagnosticSecretKey(key: string): boolean {
+  return DIAGNOSTIC_SECRET_KEY_PATTERN.test(key)
+}
+
+function isEnvPresenceKey(key: string): boolean {
+  return /^[A-Z0-9_]+$/.test(key) && /(?:API_KEY|TOKEN|SECRET|PASSWORD|AUTH)/.test(key)
+}
+
+export function redactDiagnosticObject(value: unknown): unknown {
+  return redactDiagnosticObjectInternal(value)
+}
+
+function redactDiagnosticObjectInternal(value: unknown, key?: string): unknown {
+  if (value === null || value === undefined) return value
+
+  if (typeof value === 'string') {
+    if (key && isDiagnosticSecretKey(key)) {
+      return isEnvPresenceKey(key) ? '[set]' : '[redacted]'
+    }
+    return redactLikelySecrets(redactHomePath(value))
+  }
+
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => redactDiagnosticObjectInternal(item))
+  }
+
+  if (typeof value === 'object') {
+    const output: Record<string, unknown> = {}
+    for (const [entryKey, entryValue] of Object.entries(value)) {
+      output[entryKey] = redactDiagnosticObjectInternal(entryValue, entryKey)
+    }
+    return output
+  }
+
+  return String(value)
 }
