@@ -50,11 +50,14 @@ function isBankrBaseUrl(baseUrl: string): boolean {
 }
 
 function getOpenAIAuthHeaders(baseUrl: string): Record<string, string> {
-  const hasPooledCredentials =
+  const pooledCredential = firstUsableCredential(process.env.OPENAI_API_KEYS)
+  const hasPooledCredentialSource =
     parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
-  const apiKey = hasPooledCredentials
-    ? firstUsableCredential(process.env.OPENAI_API_KEYS)
-    : firstUsableCredential(process.env.OPENAI_API_KEY)
+  const apiKey =
+    pooledCredential ??
+    (hasPooledCredentialSource
+      ? undefined
+      : firstUsableCredential(process.env.OPENAI_API_KEY))
   if (!apiKey) {
     return {}
   }

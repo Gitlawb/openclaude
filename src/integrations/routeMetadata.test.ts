@@ -140,6 +140,15 @@ test('route credential discovery ignores placeholder OpenAI credentials', () => 
   ).toBeUndefined()
 })
 
+test('route credential discovery ignores mixed placeholder OpenAI pools before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'sk-openai-a,SUA_CHAVE',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
+})
+
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('venice')).toBe('https://api.venice.ai/api/v1')
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
