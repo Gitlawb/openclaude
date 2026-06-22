@@ -140,6 +140,7 @@ const PRESET_ORDER = [
   'Venice',
   'xAI',
   'Xiaomi MiMo',
+  'Xiaomi MiMo (Token Plan)',
   'Z.AI - GLM Coding Plan',
   'Custom',
 ] as const

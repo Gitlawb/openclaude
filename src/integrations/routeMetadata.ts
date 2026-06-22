@@ -30,6 +30,10 @@ const TRANSPORT_KIND_PROVIDER_TYPE_LABELS: Partial<
 
 const XIAOMI_MIMO_PRIMARY_HOST = 'api.xiaomimimo.com'
 const XIAOMI_MIMO_STALE_DOCS_HOST = 'api.mimo-v2.com'
+const XIAOMI_MIMO_TOKEN_PLAN_HOSTS = [
+  'token-plan-sgp.xiaomimimo.com',
+  'token-plan-cn.xiaomimimo.com',
+]
 export const XIAOMI_MIMO_PRIMARY_BASE_URL = `https://${XIAOMI_MIMO_PRIMARY_HOST}/v1`
 
 function getValidationRoutingHosts(
@@ -247,7 +251,8 @@ export function isXiaomiMimoBaseUrl(value: string | undefined): boolean {
     const hostname = new URL(trimmed).hostname.toLowerCase()
     return (
       hostname === XIAOMI_MIMO_PRIMARY_HOST ||
-      hostname === XIAOMI_MIMO_STALE_DOCS_HOST
+      hostname === XIAOMI_MIMO_STALE_DOCS_HOST ||
+      XIAOMI_MIMO_TOKEN_PLAN_HOSTS.includes(hostname)
     )
   } catch {
     return false

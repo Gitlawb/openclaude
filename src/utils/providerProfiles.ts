@@ -739,7 +739,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     const supportsApiFormat = routeSupportsApiFormatSelection(capabilityRouteId)
     const supportsAuthHeaders = routeSupportsAuthHeaders(capabilityRouteId)
     const normalizedProfileBaseUrl =
-      route.routeId === 'xiaomi-mimo'
+      route.routeId === 'xiaomi-mimo' || route.routeId === 'xiaomi-mimo-token'
         ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
         : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
@@ -782,7 +782,14 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
+      if (
+        route.routeId === 'xiaomi-mimo' ||
+        route.routeId === 'xiaomi-mimo-token' ||
+        profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') ||
+        profile.baseUrl.toLowerCase().includes('api.mimo-v2.com') ||
+        profile.baseUrl.toLowerCase().includes('token-plan-sgp.xiaomimimo.com') ||
+        profile.baseUrl.toLowerCase().includes('token-plan-cn.xiaomimimo.com')
+      ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {

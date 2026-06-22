@@ -38,6 +38,7 @@ const EXPECTED_PRESETS = [
   'xai',
   'venice',
   'xiaomi-mimo',
+  'xiaomi-mimo-token',
   'zai',
   'bankr',
   'atomic-chat',

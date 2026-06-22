@@ -223,6 +223,17 @@ function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
+function buildXiaomiMimoTokenProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'xiaomi-mimo-token',
+    name: 'Xiaomi MiMo Token Plan',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'tp-test-key',
+    ...overrides,
+  })
+}
+
 function buildFireworksProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'fireworks',
@@ -749,6 +760,26 @@ describe('applyProviderProfileToProcessEnv', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
     expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('xiaomi mimo token plan profile applies OpenAI-compatible env with MIMO_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoTokenProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('tp-test-key')
+    expect(process.env.MIMO_API_KEY).toBe('tp-test-key')
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
   })
 
@@ -1662,6 +1693,22 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('https://api.xiaomimimo.com/v1')
     expect(defaults.model).toBe('mimo-v2.5-pro')
     expect(defaults.apiKey).toBe('mimo-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('xiaomi mimo token plan preset defaults to the token-plan SGP endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.MIMO_API_KEY = 'tp-live-key'
+
+    const defaults = getProviderPresetDefaults('xiaomi-mimo-token')
+
+    expect(defaults.provider).toBe('xiaomi-mimo-token')
+    expect(defaults.name).toBe('Xiaomi MiMo (Token Plan)')
+    expect(defaults.baseUrl).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+    expect(defaults.model).toBe('mimo-v2.5-pro')
+    expect(defaults.apiKey).toBe('tp-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
