@@ -279,11 +279,27 @@ const SENSITIVE_URL_QUERY_PARAM_TOKENS = [
  * (notably `openaiShim.redactUrlForDiagnostics`) that need the same
  * coverage as `redactUrlForDisplay` instead of forking a copy that
  * drifts.
+ *
+ * The same list also drives the malformed-URL fallback regex
+ * `MALFORMED_URL_PARAM_PATTERN` below — both paths must agree on
+ * which parameter names are sensitive. Any addition to this list
+ * automatically extends the fallback coverage.
  */
 export function shouldRedactUrlQueryParam(name: string): boolean {
   const lower = name.toLowerCase()
   return SENSITIVE_URL_QUERY_PARAM_TOKENS.some(token => lower.includes(token))
 }
+
+/**
+ * Pre-built regex for the malformed-URL fallback. Derived from
+ * `SENSITIVE_URL_QUERY_PARAM_TOKENS` so the fallback path can never
+ * drift behind the primary `URL` parser path. Value runs to the next
+ * `&` / `#` / end of string, matching the original hand-rolled regex.
+ */
+const MALFORMED_URL_PARAM_PATTERN = new RegExp(
+  `([?&](?:${SENSITIVE_URL_QUERY_PARAM_TOKENS.join('|')})=)[^&#]*`,
+  'gi',
+)
 
 export function redactUrlForDisplay(rawUrl: string): string {
   try {
@@ -306,10 +322,7 @@ export function redactUrlForDisplay(rawUrl: string): string {
   } catch {
     return rawUrl
       .replace(/\/\/[^/@\s]+(?::[^/@\s]*)?@/g, '//redacted@')
-      .replace(
-        /([?&](?:token|access_token|refresh_token|api_key|apikey|key|password|passwd|pwd|auth|authorization|signature|sig|secret)=)[^&#]*/gi,
-        '$1redacted',
-      )
+      .replace(MALFORMED_URL_PARAM_PATTERN, '$1redacted')
       .replace(/#.*$/, '')
   }
 }
@@ -376,8 +389,19 @@ export function redactPathForStatus(rawPath: string): string {
     if (normalizeForCompare(normalizedCandidate) === rawPathForCompare) {
       return '~'
     }
+    // Boundary check: the candidate must be followed by a path
+    // separator (`/` or `\`) so `/home/alice` doesn't match
+    // `/home/alice2/project`. The exact-length comparison above
+    // already handles the equality case; this branch handles the
+    // prefix case.
+    const normalizedCandidateForCompare = normalizeForCompare(
+      normalizedCandidate,
+    )
     if (
-      rawPathForCompare.startsWith(normalizeForCompare(normalizedCandidate))
+      rawPathForCompare.length > normalizedCandidateForCompare.length &&
+      rawPathForCompare.startsWith(normalizedCandidateForCompare) &&
+      (rawPathForCompare[normalizedCandidateForCompare.length] === '/' ||
+        rawPathForCompare[normalizedCandidateForCompare.length] === '\\')
     ) {
       const suffix = normalizedRawPath.slice(normalizedCandidate.length)
       return `~${suffix}`

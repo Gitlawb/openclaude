@@ -160,6 +160,26 @@ describe('redactPathForStatus', () => {
     )
   })
 
+  test('does not redact a sibling directory whose name shares a home prefix', () => {
+    // Regression: `/home/alice2/project` must NOT match `/home/alice`
+    // even though the latter is a string prefix of the former. The
+    // boundary check at redaction.ts requires a `/` (or `\` on
+    // Windows) immediately after the candidate prefix.
+    const fakeHome = '/home/alice'
+    delete process.env.USERPROFILE
+    process.env.HOME = fakeHome
+    expect(redactPathForStatus('/home/alice2/project')).toBe(
+      '/home/alice2/project',
+    )
+    expect(redactPathForStatus('/home/alice.bak/file')).toBe(
+      '/home/alice.bak/file',
+    )
+    // But the true prefix path still redacts correctly.
+    expect(redactPathForStatus('/home/alice/project')).toBe(
+      '~/project',
+    )
+  })
+
   test('leaves non-home absolute paths unchanged', () => {
     expect(redactPathForStatus('/etc/ssl/certs/ca-certificates.crt')).toBe(
       '/etc/ssl/certs/ca-certificates.crt',

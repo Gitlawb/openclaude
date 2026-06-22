@@ -71,6 +71,32 @@ describe('redactUrlForDisplay', () => {
       redactUrlForDisplay('https://api.example.com/v1?apikey=sk-abc'),
     ).toBe('https://api.example.com/v1?apikey=redacted')
   })
+
+  // Regression: the malformed-URL fallback regex must cover the same
+  // credential parameter set as the primary `URL` parser path. The two
+  // paths were previously maintained as separate string lists — any
+  // drift (e.g. forgetting `signature` / `sig` in the fallback) leaked
+  // through the malformed path. Both lists are now derived from
+  // `SENSITIVE_URL_QUERY_PARAM_TOKENS` so the set can never diverge.
+  test('malformed URL fallback redacts the full credential parameter set', () => {
+    // Trigger the catch branch with `//host` form (no scheme).
+    const malformed = `//user:pass@localhost:11434?api_key=secret&access_token=abc&refresh_token=def&signature=sig1&sig=sig2&secret=s3&password=p4&apikey=k5&model=m6`
+    const redacted = redactUrlForDisplay(malformed)
+    expect(redacted).toBe(
+      '//redacted@localhost:11434?api_key=redacted&access_token=redacted&refresh_token=redacted&signature=redacted&sig=redacted&secret=redacted&password=redacted&apikey=redacted&model=m6',
+    )
+    // Non-sensitive param survives.
+    expect(redacted).toContain('model=m6')
+  })
+
+  test('malformed URL fallback redacts userinfo in the same pass', () => {
+    // Bare relative URL — exercises the userinfo regex AND the
+    // parameter regex in sequence against a single malformed input.
+    const malformed = '//alice:hunter2@api.example.com/v1?token=abc'
+    expect(redactUrlForDisplay(malformed)).toBe(
+      '//redacted@api.example.com/v1?token=redacted',
+    )
+  })
 })
 
 describe('shouldRedactUrlQueryParam', () => {
