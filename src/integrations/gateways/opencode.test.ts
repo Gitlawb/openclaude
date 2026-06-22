@@ -318,6 +318,19 @@ describe('OpenCode model catalog', () => {
     for (const id of actualIds) {
       expect(expectedIds.has(id)).toBe(true)
     }
+    // Explicitly verify removed models are not included
+    const removedIds = [
+      'opencode-go-minimax-m2.5',
+      'opencode-go-kimi-k2.5',
+      'opencode-go-glm-5',
+      'opencode-go-qwen3.5-plus',
+      'opencode-go-mimo-v2-pro',
+      'opencode-go-mimo-v2-omni',
+      'opencode-go-hy3-preview',
+    ];
+    for (const id of removedIds) {
+      expect(actualIds.has(id)).toBe(false);
+    }
   })
 
   test('all zen gpt models have modelDescriptorId', () => {
