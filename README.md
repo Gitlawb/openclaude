@@ -198,7 +198,8 @@ Advanced and source-build guides:
 | Z.AI GLM Coding Plan | `/provider` or OpenAI-compatible env vars | Uses `OPENAI_API_KEY` at `https://api.z.ai/api/coding/paas/v4` and defaults to `glm-5.2` |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | Fireworks AI | `/provider` or env vars | First-class provider with 276 curated models (DeepSeek, Qwen, Llama, Gemma, and more); uses `FIREWORKS_API_KEY` |
-| Gemini | `/provider` or env vars | Supports API key only |
+| Gemini | `/provider` or env vars | Google AI Studio (Gemini API), API key only |
+| Google Vertex AI (Gemini) | `/provider` or env vars | Native Gemini on Vertex AI (`generateContent`), enabled via `CLAUDE_CODE_USE_GEMINI_VERTEX`. Auth is ambient Google ADC by default, or an access token (`GEMINI_ACCESS_TOKEN` with `GEMINI_VERTEX_AUTH_MODE=access-token`). Project from `GEMINI_VERTEX_PROJECT` / `GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT` / `GOOGLE_PROJECT_ID` (or ADC-derived); model via `GEMINI_VERTEX_MODEL`, region via `GEMINI_VERTEX_LOCATION`. Distinct from API-key Gemini and from Claude-on-Vertex |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
