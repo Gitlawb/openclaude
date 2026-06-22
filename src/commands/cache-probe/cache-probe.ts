@@ -1,5 +1,6 @@
 import { getSessionId } from '../../bootstrap/state.js'
-import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../../services/api/credentialPool.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
+import { resolveOpenAICredentialEnvState } from '../../utils/providerProfile.js'
 import { resolveProviderRequest } from '../../services/api/providerConfig.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -44,18 +45,12 @@ function getModelFamily(model: string | undefined): string {
 export function resolveCacheProbeApiKey(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  if (hasInvalidCredentialPlaceholder(env.OPENAI_API_KEYS)) {
-    return ''
-  }
-  if (hasInvalidCredentialPlaceholder(env.OPENAI_API_KEY)) {
+  const credentialState = resolveOpenAICredentialEnvState(env)
+  if (!credentialState.configured || !credentialState.envVar) {
     return ''
   }
 
-  return (
-    firstUsableCredential(env.OPENAI_API_KEYS) ??
-    firstUsableCredential(env.OPENAI_API_KEY) ??
-    ''
-  )
+  return firstUsableCredential(env[credentialState.envVar]) ?? ''
 }
 
 function resolveGithubCacheProbeApiKey(env: NodeJS.ProcessEnv): string {

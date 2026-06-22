@@ -14,9 +14,8 @@ import {
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
-  hasInvalidOpenAICredentialPool,
   saveProfileFile,
-  sanitizeOpenAICredentialPool,
+  resolveOpenAICredentialEnvState,
   type ProfileFile,
   type ProviderProfile,
 } from '../src/utils/providerProfile.ts'
@@ -39,16 +38,7 @@ type CliOptions = {
 export function getOpenAIConfigurationState(
   env: NodeJS.ProcessEnv = process.env,
 ): { configured: boolean; invalid: boolean } {
-  const invalid =
-    hasInvalidOpenAICredentialPool(env.OPENAI_API_KEYS) ||
-    hasInvalidOpenAICredentialPool(env.OPENAI_API_KEY)
-  const configured =
-    !invalid &&
-    Boolean(
-      sanitizeOpenAICredentialPool(env.OPENAI_API_KEYS) ||
-        sanitizeOpenAICredentialPool(env.OPENAI_API_KEY),
-    )
-
+  const { configured, invalid } = resolveOpenAICredentialEnvState(env)
   return { configured, invalid }
 }
 

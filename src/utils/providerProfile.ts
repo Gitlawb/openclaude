@@ -672,6 +672,30 @@ export function hasInvalidOpenAICredentialPool(
   return resolveOpenAICredentialPool(value).kind === 'invalid'
 }
 
+export function resolveOpenAICredentialEnvState(env: Record<string, string | undefined>): {
+  configured: boolean
+  invalid: boolean
+  envVar?: 'OPENAI_API_KEYS' | 'OPENAI_API_KEY'
+} {
+  const plural = resolveOpenAICredentialPool(env.OPENAI_API_KEYS)
+  if (plural.kind === 'usable') {
+    return { configured: true, invalid: false, envVar: 'OPENAI_API_KEYS' }
+  }
+  if (plural.kind === 'invalid') {
+    return { configured: false, invalid: true, envVar: 'OPENAI_API_KEYS' }
+  }
+
+  const singular = resolveOpenAICredentialPool(env.OPENAI_API_KEY)
+  if (singular.kind === 'usable') {
+    return { configured: true, invalid: false, envVar: 'OPENAI_API_KEY' }
+  }
+  if (singular.kind === 'invalid') {
+    return { configured: false, invalid: true, envVar: 'OPENAI_API_KEY' }
+  }
+
+  return { configured: false, invalid: false }
+}
+
 function resolveOpenAICredentialPool(
   value: string | null | undefined,
 ):

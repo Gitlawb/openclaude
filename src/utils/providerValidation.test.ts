@@ -317,6 +317,15 @@ test('openai validation accepts OPENAI_API_KEYS without OPENAI_API_KEY', async (
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('openai validation accepts valid OPENAI_API_KEYS before placeholder OPENAI_API_KEY fallback', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,sk-openai-b'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('openai validation rejects placeholder values in OPENAI_API_KEYS', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
@@ -455,6 +464,7 @@ test.each([
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
+
 test('opengateway validation still requires a key on the model-specific path', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'

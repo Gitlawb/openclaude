@@ -40,7 +40,10 @@ async function defaultHasStoredXaiOAuthCredentials(): Promise<boolean> {
   const stored = await readXaiCredentialsAsync()
   return Boolean(stored?.accessToken && stored?.refreshToken)
 }
-import { PROFILE_FILE_NAME } from './providerProfile.js'
+import {
+  PROFILE_FILE_NAME,
+  resolveOpenAICredentialEnvState,
+} from './providerProfile.js'
 import {
   redactSecretValueForDisplay,
   type SecretValueSource,
@@ -298,7 +301,31 @@ function getCredentialEnvValidationError(
   env: NodeJS.ProcessEnv,
   request?: ReturnType<typeof resolveProviderRequest>,
 ): string | null {
+  const credentialEnvVars = validation.credentialEnvVars
+  const usesOpenAIFallback =
+    credentialEnvVars.includes('OPENAI_API_KEYS') ||
+    credentialEnvVars.includes('OPENAI_API_KEY')
+
+  if (usesOpenAIFallback) {
+    const openAIState = resolveOpenAICredentialEnvState(env)
+    if (openAIState.invalid) {
+      return (
+        validation.invalidCredentialValues?.find(
+          invalidValue => invalidValue.envVar === openAIState.envVar,
+        )?.message ?? null
+      )
+    }
+  }
+
   for (const invalidValue of validation.invalidCredentialValues ?? []) {
+    if (
+      usesOpenAIFallback &&
+      (invalidValue.envVar === 'OPENAI_API_KEYS' ||
+        invalidValue.envVar === 'OPENAI_API_KEY')
+    ) {
+      continue
+    }
+
     const envValue = env[invalidValue.envVar]
     const envValues = (envValue ?? '').split(',').map(value => value.trim())
     if (envValues.includes(invalidValue.value)) {
@@ -316,9 +343,7 @@ function getCredentialEnvValidationError(
   }
 
   if (
-    validation.credentialEnvVars.some(envVar =>
-      hasUsableCredentialEnvValue(env, envVar),
-    )
+    credentialEnvVars.some(envVar => hasUsableCredentialEnvValue(env, envVar))
   ) {
     return null
   }

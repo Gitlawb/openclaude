@@ -218,6 +218,27 @@ describe('system-check provider diagnostics', () => {
     expect(summary.PROVIDER_API_KEY_SET).toBe(true)
   })
 
+  test('accepts valid OPENAI_API_KEYS before placeholder OPENAI_API_KEY fallback', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.OPENAI_API_KEYS = 'sk-openai-a,sk-openai-b'
+    process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+    const results = checkOpenAIEnv()
+    const summary = serializeSafeEnvSummary()
+    const credentialResult = results.find(
+      result => result.label === 'OPENAI_API_KEYS or OPENAI_API_KEY',
+    )
+
+    expect(credentialResult).toEqual({
+      ok: true,
+      label: 'OPENAI_API_KEYS or OPENAI_API_KEY',
+      detail: 'Configured.',
+    })
+    expect(summary.PROVIDER_API_KEY_SET).toBe(true)
+  })
+
   test('rejects placeholder values inside OPENAI_API_KEYS pools', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'

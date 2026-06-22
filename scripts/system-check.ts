@@ -17,7 +17,10 @@ import {
   getLocalOpenAICompatibleProviderLabel,
   probeOllamaGenerationReadiness,
 } from '../src/utils/providerDiscovery.js'
-import { DEFAULT_GEMINI_MODEL } from '../src/utils/providerProfile.js'
+import {
+  DEFAULT_GEMINI_MODEL,
+  resolveOpenAICredentialEnvState,
+} from '../src/utils/providerProfile.js'
 import {
   redactSecretValueForDisplay,
   redactSecretSubstringsForDisplay,
@@ -489,7 +492,6 @@ export function checkOpenAIEnv(): CheckResult[] {
     return results
   }
 
-  const key = process.env.OPENAI_API_KEY
   const credentialContext = getOpenAICompatibleCredentialContext(request.baseUrl)
   const providerCredential = credentialContext.value
   const credentialLabel =
@@ -499,11 +501,20 @@ export function checkOpenAIEnv(): CheckResult[] {
   const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const hasGithubRouteCredential =
     credentialContext.routeId === 'github' && Boolean(githubToken?.trim())
-  const hasPlaceholderProviderCredential = credentialContext.envVars.some(envVar =>
-    hasPlaceholderCredential(process.env[envVar]),
-  )
+  const openAIState = resolveOpenAICredentialEnvState(process.env)
+  const hasOpenAIFallback =
+    credentialContext.envVars.includes('OPENAI_API_KEYS') ||
+    credentialContext.envVars.includes('OPENAI_API_KEY')
+  const hasPlaceholderProviderCredential = credentialContext.envVars.some(envVar => {
+    if (
+      hasOpenAIFallback &&
+      (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY')
+    ) {
+      return openAIState.invalid && openAIState.envVar === envVar
+    }
+    return hasPlaceholderCredential(process.env[envVar])
+  })
   if (
-    hasPlaceholderCredential(key) ||
     hasPlaceholderCredential(providerCredential) ||
     hasPlaceholderProviderCredential
   ) {

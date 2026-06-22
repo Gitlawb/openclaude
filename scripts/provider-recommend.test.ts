@@ -29,6 +29,17 @@ describe('provider-recommend OpenAI credential detection', () => {
     ).toEqual({ configured: true, invalid: false })
   })
 
+  test('ignores placeholder OPENAI_API_KEY when OPENAI_API_KEYS is usable', () => {
+    expect(
+      getOpenAIConfigurationState(
+        envWithOpenAI({
+          OPENAI_API_KEYS: 'key-a,key-b',
+          OPENAI_API_KEY: 'SUA_CHAVE',
+        }),
+      ),
+    ).toEqual({ configured: true, invalid: false })
+  })
+
   test('distinguishes placeholder pools from unset credentials', () => {
     expect(
       getOpenAIConfigurationState(

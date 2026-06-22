@@ -9,9 +9,8 @@ import {
 } from '../src/utils/providerRecommendation.ts'
 import {
   buildLaunchEnv,
-  hasInvalidOpenAICredentialPool,
   loadProfileFile,
-  sanitizeOpenAICredentialPool,
+  resolveOpenAICredentialEnvState,
   selectAutoProfile,
   type ProfileFile,
   type ProviderProfile,
@@ -154,6 +153,12 @@ function hasUsableGeminiLaunchAuth(env: NodeJS.ProcessEnv): boolean {
   )
 }
 
+export function hasUsableOpenAILaunchCredential(
+  env: NodeJS.ProcessEnv,
+): boolean {
+  return resolveOpenAICredentialEnvState(env).configured
+}
+
 async function main(): Promise<void> {
   const options = parseLaunchOptions(process.argv.slice(2))
   const requestedProfile = options.requestedProfile
@@ -229,15 +234,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  if (
-    profile === 'openai' &&
-    (hasInvalidOpenAICredentialPool(env.OPENAI_API_KEYS) ||
-      hasInvalidOpenAICredentialPool(env.OPENAI_API_KEY) ||
-      !(
-        sanitizeOpenAICredentialPool(env.OPENAI_API_KEYS) ||
-        sanitizeOpenAICredentialPool(env.OPENAI_API_KEY)
-      ))
-  ) {
+  if (profile === 'openai' && !hasUsableOpenAILaunchCredential(env)) {
     console.error(
       'OPENAI_API_KEYS or OPENAI_API_KEY is required for openai profile and cannot include SUA_CHAVE. Run: bun run profile:init -- --provider openai --api-key <key>',
     )
@@ -277,6 +274,8 @@ async function main(): Promise<void> {
   process.exit(devCode)
 }
 
-await main()
+if (import.meta.main) {
+  await main()
+}
 
 export {}
