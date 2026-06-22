@@ -292,6 +292,34 @@ describe('OpenCode model catalog', () => {
     expect(models.length).toBe(13)
   })
 
+  test('go model set matches opencode.ai/go catalog exactly', () => {
+    const models = getCatalogEntriesForRoute('opencode-go')
+    const expectedIds = new Set([
+      'opencode-go-glm-5.2',
+      'opencode-go-qwen3.7-max',
+      'opencode-go-kimi-k2.7-code',
+      'opencode-go-mimo-v2.5-pro',
+      'opencode-go-deepseek-v4-pro',
+      'opencode-go-qwen3.7-plus',
+      'opencode-go-minimax-m3',
+      'opencode-go-mimo-v2.5',
+      'opencode-go-deepseek-v4-flash',
+      'opencode-go-glm-5.1',
+      'opencode-go-kimi-k2.6',
+      'opencode-go-qwen3.6-plus',
+      'opencode-go-minimax-m2.7',
+    ])
+    const actualIds = new Set(models.map(m => m.id))
+    // All expected IDs present
+    for (const id of expectedIds) {
+      expect(actualIds.has(id)).toBe(true)
+    }
+    // No removed or unexpected IDs remain
+    for (const id of actualIds) {
+      expect(expectedIds.has(id)).toBe(true)
+    }
+  })
+
   test('all zen gpt models have modelDescriptorId', () => {
     const models = getCatalogEntriesForRoute('opencode')
     const gptModels = models.filter(m => m.apiName.startsWith('gpt-'))
