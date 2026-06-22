@@ -14,7 +14,14 @@ function catalogEntry(spec: OpenCodeGoCatalogSpec) {
     label: spec.label,
     modelDescriptorId: `opencode-go-${spec.id}`,
     ...(spec.endpointPath
-      ? { transportOverrides: { openaiShim: { endpointPath: spec.endpointPath } } }
+      ? {
+          transportOverrides: {
+            openaiShim: {
+              endpointPath: spec.endpointPath,
+              defaultAuthHeader: { name: 'x-api-key', scheme: 'raw' as const },
+            },
+          },
+        }
       : {}),
   }
 }
