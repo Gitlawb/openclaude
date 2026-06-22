@@ -335,7 +335,6 @@ function redactMalformedQuery(rawUrl: string): string {
     .join('&')
   return `${prefix}${redacted}${fragment}`
 }
-
 export function redactUrlForDisplay(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl)
