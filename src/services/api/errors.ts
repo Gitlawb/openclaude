@@ -456,13 +456,11 @@ function parseOpenCodeGoLimitError(
   workspace?: string
   retryAfterSeconds?: number
 } | null {
-  // Only relevant for the opencode-go gateway. Check the base URL on the
-  // error's request or fall back to an env-var check for direct-mode usage.
-  const url = error.headers?.get?.('x-opencode-request-url') ?? ''
-  const envBaseUrl = process.env.OPENAI_BASE_URL ?? ''
-  const isOpencodeGo =
-    url.includes('opencode.ai/zen/go') ||
-    envBaseUrl.includes('opencode.ai/zen/go')
+  const requestUrl = error.headers?.get?.('x-opencode-request-url')
+  const baseUrl = requestUrl !== null && requestUrl !== undefined
+    ? requestUrl
+    : (process.env.OPENAI_BASE_URL ?? '')
+  const isOpencodeGo = baseUrl.includes('opencode.ai/zen/go')
   if (!isOpencodeGo) return null
 
   const body = error.message ?? ''

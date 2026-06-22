@@ -7,6 +7,7 @@ import {
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
   OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE,
 } from './errors.js'
+import { shouldRetry } from './withRetry.js'
 
 function getFirstText(message: ReturnType<typeof getAssistantMessageFromError>): string {
   const first = message.message.content[0]
@@ -155,4 +156,55 @@ test('classifyAPIError returns opencode_go_quota_exhausted for FreeUsageLimitErr
 test('classifyAPIError returns rate_limit for generic opencode-go 429', () => {
   const error = makeGoError(JSON.stringify({ error: { message: 'slow down' } }))
   expect(classifyAPIError(error)).toBe('rate_limit')
+})
+
+test('shouldRetry returns false for OpenCode Go usage limits', () => {
+  const freeError = makeGoError(
+    JSON.stringify({ error: { type: 'FreeUsageLimitError' } }),
+  )
+  expect(shouldRetry(freeError, false)).toBe(false)
+
+  const goError = makeGoError(
+    JSON.stringify({ error: { type: 'GoUsageLimitError' } }),
+  )
+  expect(shouldRetry(goError, false)).toBe(false)
+})
+
+test('shouldRetry returns true for similar body on non-OpenCode 429', () => {
+  const savedBaseUrl = process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_BASE_URL
+  try {
+    const error = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({ error: { type: 'FreeUsageLimitError' } }),
+      new Headers({ 'x-opencode-request-url': 'https://api.openai.com/v1/messages' }),
+    )
+    expect(shouldRetry(error, false)).toBe(true)
+  } finally {
+    if (savedBaseUrl !== undefined) {
+      process.env.OPENAI_BASE_URL = savedBaseUrl
+    }
+  }
+})
+
+test('precedence: when request header points to non-OpenCode, environment variable is ignored', () => {
+  // Set env var to OpenCode Go url (simulating stale config)
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+
+  const error = APIError.generate(
+    429,
+    undefined,
+    JSON.stringify({
+      error: { type: 'FreeUsageLimitError', message: 'free exhausted' },
+    }),
+    new Headers({ 'x-opencode-request-url': 'https://api.openai.com/v1/messages' }),
+  )
+
+  // Message should NOT be OpenCode Go message
+  const text = getFirstText(getAssistantMessageFromError(error, 'glm-4.6'))
+  expect(text).not.toContain('OpenCode Go')
+
+  // Retry gate should allow retry
+  expect(shouldRetry(error, false)).toBe(true)
 })

@@ -844,15 +844,16 @@ function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean 
   // OpenCode Go subscription quota exhaustion is terminal — retrying burns
   // the same 429 and confuses the user with repeated "mysterious stop"
   // failures. getAssistantMessageFromError surfaces the actionable message.
+  const requestUrl = error.headers?.get?.('x-opencode-request-url')
+  const baseUrl = requestUrl !== null && requestUrl !== undefined
+    ? requestUrl
+    : (process.env.OPENAI_BASE_URL ?? '')
   if (
     error.status === 429 &&
     typeof error.message === 'string' &&
     (error.message.includes('GoUsageLimitError') ||
       error.message.includes('FreeUsageLimitError')) &&
-    ((error.headers?.get?.('x-opencode-request-url') ?? '').includes(
-      'opencode.ai/zen/go',
-    ) ||
-      process.env.OPENAI_BASE_URL?.includes('opencode.ai/zen/go'))
+    baseUrl.includes('opencode.ai/zen/go')
   ) {
     return false
   }
@@ -1078,3 +1079,5 @@ export function getRateLimitResetDelayMs(error: APIError): number | null {
   // bedrock, vertex, foundry, gemini — no standard reset header
   return null
 }
+
+export { shouldRetry }
