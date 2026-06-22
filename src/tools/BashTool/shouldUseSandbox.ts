@@ -9,7 +9,10 @@ import {
   stripAllLeadingEnvVars,
   stripSafeWrappers,
 } from './bashPermissions.js'
-import type { BashCommandAnalysis } from './bashCommandAnalysis.js'
+import {
+  parseLegacyShellCommandForAnalysis,
+  type BashCommandAnalysis,
+} from './bashCommandAnalysis.js'
 
 type SandboxInput = {
   command?: string
@@ -175,4 +178,27 @@ export function shouldUseSandbox(
   }
 
   return true
+}
+
+export function shouldUseSandboxForPresentation(
+  input: Partial<SandboxInput>,
+): boolean {
+  if (!input.command) {
+    return shouldUseSandbox(input)
+  }
+
+  const legacyParse = parseLegacyShellCommandForAnalysis(input.command)
+  if (legacyParse.kind !== 'failed') {
+    return shouldUseSandbox(input)
+  }
+
+  return shouldUseSandbox(input, {
+    command: input.command,
+    injectionCheckDisabled: false,
+    shadowEnabled: false,
+    astRoot: null,
+    astResult: { kind: 'parse-unavailable' },
+    astSubcommands: null,
+    legacyParse,
+  })
 }

@@ -1,7 +1,15 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import * as realLog from '../log.js'
 
 let importCounter = 0
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/bash/shellQuote.test.ts')
+})
 
 async function importShellQuoteWithLogSpy(
   logErrorSpy: ReturnType<typeof mock<(error: Error) => void>>,
@@ -15,8 +23,12 @@ async function importShellQuoteWithLogSpy(
 }
 
 afterEach(() => {
-  mock.restore()
-  mock.module('../log.js', () => realLog)
+  try {
+    mock.restore()
+    mock.module('../log.js', () => realLog)
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('parses valid shell expansion normally', async () => {

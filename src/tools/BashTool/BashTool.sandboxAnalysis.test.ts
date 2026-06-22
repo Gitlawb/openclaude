@@ -15,6 +15,8 @@ const originalSandboxMethods = {
 }
 const originalInjectionFlag =
   process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK
+const originalSandboxIndicatorFlag =
+  process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR
 
 let importCounter = 0
 let capturedExecOptions: { shouldUseSandbox?: boolean } | undefined
@@ -36,6 +38,12 @@ afterEach(() => {
     } else {
       process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK =
         originalInjectionFlag
+    }
+    if (originalSandboxIndicatorFlag === undefined) {
+      delete process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR
+    } else {
+      process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR =
+        originalSandboxIndicatorFlag
     }
   } finally {
     releaseSharedMutationLock()
@@ -118,6 +126,28 @@ async function importBashToolWithExecutionMocks() {
   return import(`./BashTool.js?sandboxAnalysisTest=${importCounter++}`)
 }
 
+async function importSandboxPresentationWithMocks() {
+  const getFeatureValue_CACHED_MAY_BE_STALE = mock(
+    <T,>(key: string, fallback: T): T => {
+      if (key === 'tengu_sandbox_disabled_commands') {
+        return { commands: [], substrings: ['echo'] } as T
+      }
+      return fallback
+    },
+  )
+
+  mock.module('../../services/analytics/growthbook.js', () => ({
+    ...realGrowthbook,
+    getFeatureValue_CACHED_MAY_BE_STALE,
+  }))
+  mock.module('src/services/analytics/growthbook.js', () => ({
+    ...realGrowthbook,
+    getFeatureValue_CACHED_MAY_BE_STALE,
+  }))
+
+  return import(`./shouldUseSandbox.js?presentationTest=${importCounter++}`)
+}
+
 test('execution sandbox decision uses parser analysis for parser-limited commands', async () => {
   process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK = '1'
   SandboxManager.isSandboxingEnabled = () => true
@@ -131,4 +161,30 @@ test('execution sandbox decision uses parser analysis for parser-limited command
   )
 
   expect(capturedExecOptions?.shouldUseSandbox).toBe(true)
+})
+
+test('presentation sandbox decision fails closed for parser-limited excluded commands', async () => {
+  SandboxManager.isSandboxingEnabled = () => true
+  SandboxManager.areUnsandboxedCommandsAllowed = () => true
+
+  const { shouldUseSandboxForPresentation } =
+    await importSandboxPresentationWithMocks()
+
+  expect(shouldUseSandboxForPresentation({ command: 'echo hello' })).toBe(false)
+  expect(
+    shouldUseSandboxForPresentation({ command: 'echo ${value + 1}' }),
+  ).toBe(true)
+})
+
+test('sandbox indicator label matches parser-limited execution decision', async () => {
+  process.env.CLAUDE_CODE_BASH_SANDBOX_SHOW_INDICATOR = '1'
+  SandboxManager.isSandboxingEnabled = () => true
+  SandboxManager.areUnsandboxedCommandsAllowed = () => true
+
+  const { BashTool } = await importBashToolWithExecutionMocks()
+
+  expect(BashTool.userFacingName({ command: 'echo hello' })).toBe('Bash')
+  expect(BashTool.userFacingName({ command: 'echo ${value + 1}' })).toBe(
+    'SandboxedBash',
+  )
 })
