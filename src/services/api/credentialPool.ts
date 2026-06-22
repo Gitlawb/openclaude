@@ -107,6 +107,14 @@ export function hasInvalidCredentialPlaceholder(value: string | undefined): bool
   return parseCredentialList(value).some(credential => credential === 'SUA_CHAVE')
 }
 
+export function hasUsableOpenAICredential(value: string | undefined): boolean {
+  const credentials = parseCredentialList(value)
+  return (
+    credentials.length > 0 &&
+    credentials.every(credential => credential !== 'SUA_CHAVE')
+  )
+}
+
 export function firstUsableCredential(value: string | undefined): string | undefined {
   if (hasInvalidCredentialPlaceholder(value)) {
     return undefined

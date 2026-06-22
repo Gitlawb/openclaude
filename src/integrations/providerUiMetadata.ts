@@ -1,3 +1,4 @@
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import type { AuthMode, PresetBadge } from './descriptors.js'
 import type { ProviderPresetManifestEntry } from './descriptors.js'
 import { routeForPreset } from './compatibility.js'
@@ -41,14 +42,7 @@ function hasUsableEnvValue(envVar: string, value: string | undefined): boolean {
   }
 
   if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
-    const credentials = value
-      .split(',')
-      .map(part => part.trim())
-      .filter(Boolean)
-    return (
-      credentials.length > 0 &&
-      credentials.every(credential => credential !== 'SUA_CHAVE')
-    )
+    return hasUsableOpenAICredential(value)
   }
 
   return true

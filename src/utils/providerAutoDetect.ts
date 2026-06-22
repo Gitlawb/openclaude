@@ -34,6 +34,7 @@
 
 import { existsSync } from 'fs'
 import { homedir } from 'os'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { join } from 'path'
 
 export type DetectedProviderKind =
@@ -70,16 +71,7 @@ function envHasNonEmpty(env: EnvLike, key: string): boolean {
 }
 
 function envHasUsableOpenAICredential(env: EnvLike, key: string): boolean {
-  const value = env[key]
-  if (typeof value !== 'string') return false
-  const credentials = value
-    .split(',')
-    .map(part => part.trim())
-    .filter(Boolean)
-  return (
-    credentials.length > 0 &&
-    credentials.every(credential => credential !== 'SUA_CHAVE')
-  )
+  return hasUsableOpenAICredential(env[key])
 }
 
 function firstSet(env: EnvLike, keys: readonly string[]): string | undefined {

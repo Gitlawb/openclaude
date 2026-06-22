@@ -27,6 +27,7 @@ import {
   resolveProviderRequest,
   shouldUseCodexTransport,
 } from '../services/api/providerConfig.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { getGlobalClaudeFile } from './env.js'
 import { isBareMode } from './envUtils.js'
 import {
@@ -129,16 +130,16 @@ function hasUsableCredentialEnvValue(
   }
 
   if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
-    return value.split(',').some(part => part.trim() !== '')
+    return hasUsableOpenAICredential(value)
   }
 
   return value.trim() !== ''
 }
 
 function hasOpenAICredential(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(
-    getRouteCredentialValue('openai', env) ||
-    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEY'),
+  return (
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEYS') ||
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEY')
   )
 }
 
