@@ -10,11 +10,13 @@ import {
 import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js'
 
 import {
+  getAllowedChannels,
   setAllowedChannels,
   setHasDevChannels,
 } from '../../bootstrap/state.js'
 import type { ChannelEntry } from '../../bootstrap/state.js'
-import { gateChannelServer } from './channelNotification.js'
+import { findChannelEntry, gateChannelServer } from './channelNotification.js'
+import { filterPermissionRelayClients } from './channelPermissions.js'
 
 // Module-level mocks for the GrowthBook-backed helpers. The gate
 // reads these on every call; resetting between tests keeps the
@@ -228,5 +230,55 @@ describe('gateChannelServer', () => {
       'plugin:slack@anthropic',
     )
     expect(result.action).toBe('register')
+  })
+})
+
+describe('filterPermissionRelayClients', () => {
+  test('rejects server-kind entry without dev flag', () => {
+    setAllowedChannels([{ kind: 'server', name: 'slack' }])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: {},
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true
+      return true
+    })
+    expect(filtered).toHaveLength(0)
+  })
+
+  test('accepts server-kind entry with dev flag', () => {
+    setAllowedChannels([{ kind: 'server', name: 'slack', dev: true }])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: {},
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true
+      return true
+    })
+    expect(filtered).toHaveLength(1)
   })
 })

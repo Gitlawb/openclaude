@@ -302,19 +302,16 @@ export function shouldRedactUrlQueryParam(name: string): boolean {
  * URL's `?…&…` segment and substitutes each value, mirroring the
  * primary path's `parsed.searchParams.keys()` loop.
  *
- * Returns the redacted URL. The fragment (if any) is preserved
- * verbatim — redaction shouldn't touch `#…` content.
+ * Fragments are always dropped to prevent credential leaks, matching
+ * the valid-URL path which sets `parsed.hash = ''`.
  */
 function redactMalformedQuery(rawUrl: string): string {
-  const queryStart = rawUrl.indexOf('?')
-  if (queryStart === -1) return rawUrl
-  const prefix = rawUrl.slice(0, queryStart + 1)
-  const queryAndFragment = rawUrl.slice(queryStart + 1)
-  const hashIndex = queryAndFragment.indexOf('#')
-  const query = hashIndex === -1
-    ? queryAndFragment
-    : queryAndFragment.slice(0, hashIndex)
-  const fragment = hashIndex === -1 ? '' : queryAndFragment.slice(hashIndex)
+  const hashIndex = rawUrl.indexOf('#')
+  const noFragment = hashIndex === -1 ? rawUrl : rawUrl.slice(0, hashIndex)
+  const queryStart = noFragment.indexOf('?')
+  if (queryStart === -1) return noFragment
+  const prefix = noFragment.slice(0, queryStart + 1)
+  const query = noFragment.slice(queryStart + 1)
   const redacted = query
     .split('&')
     .map(pair => {
@@ -333,7 +330,7 @@ function redactMalformedQuery(rawUrl: string): string {
       return pair
     })
     .join('&')
-  return `${prefix}${redacted}${fragment}`
+  return `${prefix}${redacted}`
 }
 export function redactUrlForDisplay(rawUrl: string): string {
   try {
