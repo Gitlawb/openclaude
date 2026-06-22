@@ -2239,6 +2239,115 @@ async function* openaiStreamToAnthropic(
   let xmlToolCallText: string | null = null
   let xmlHoldback = ''
 
+  // Emit message_start
+  yield {
+    type: 'message_start',
+    message: {
+      id: messageId,
+      type: 'message',
+      role: 'assistant',
+      content: [],
+      model,
+      stop_reason: null,
+      stop_sequence: null,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+  }
+
+  const contentType = response.headers.get('content-type') ?? ''
+  if (contentType.includes('application/json')) {
+    const text = await response.text().catch(() => '')
+    let parsed: any
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      throw APIError.generate(
+        response.status,
+        undefined,
+        `Unexpected JSON response from provider: ${text}`,
+        response.headers as unknown as Headers,
+      )
+    }
+
+    if (parsed && typeof parsed === 'object' && parsed.error) {
+      const errorMsg = parsed.error.message || JSON.stringify(parsed.error)
+      const failure = classifyOpenAIHttpFailure({
+        status: response.status,
+        body: text,
+        url: response.url,
+      })
+      throw APIError.generate(
+        response.status,
+        parsed,
+        buildOpenAICompatibilityErrorMessage(
+          `OpenAI API error ${response.status}: ${errorMsg}`,
+          { ...failure, requestUrl: response.url },
+        ),
+        response.headers as unknown as Headers,
+      )
+    }
+
+    // Convert non-streaming response into stream events
+    const choice = parsed.choices?.[0]
+    const content = choice?.message?.content || ''
+    const reasoning = choice?.message?.reasoning_content || ''
+
+    if (reasoning) {
+      yield {
+        type: 'content_block_start',
+        index: contentBlockIndex,
+        content_block: { type: 'thinking', thinking: '' },
+      }
+      yield {
+        type: 'content_block_delta',
+        index: contentBlockIndex,
+        delta: { type: 'thinking_delta', thinking: reasoning },
+      }
+      yield {
+        type: 'content_block_stop',
+        index: contentBlockIndex,
+      }
+      contentBlockIndex++
+    }
+
+    if (content) {
+      yield {
+        type: 'content_block_start',
+        index: contentBlockIndex,
+        content_block: { type: 'text', text: '' },
+      }
+      yield {
+        type: 'content_block_delta',
+        index: contentBlockIndex,
+        delta: { type: 'text_delta', text: content },
+      }
+      yield {
+        type: 'content_block_stop',
+        index: contentBlockIndex,
+      }
+      contentBlockIndex++
+    }
+
+    yield {
+      type: 'message_delta',
+      delta: {
+        stop_reason: choice?.finish_reason || 'end_turn',
+        stop_sequence: null,
+      },
+      usage: {
+        output_tokens: parsed.usage?.completion_tokens ?? 0,
+        input_tokens: parsed.usage?.prompt_tokens ?? 0,
+      },
+    }
+    yield { type: 'message_stop' }
+    return
+  }
+
   const readerOrNull = response.body?.getReader()
   if (!readerOrNull) throw new Error('Response body is not readable')
   const reader: ReadableStreamDefaultReader<Uint8Array> = readerOrNull

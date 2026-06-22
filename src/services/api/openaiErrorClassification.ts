@@ -5,6 +5,7 @@ export type OpenAICompatibilityFailureCategory =
   | 'network_error'
   | 'auth_invalid'
   | 'rate_limited'
+  | 'quota_exhausted'
   | 'model_not_found'
   | 'endpoint_not_found'
   | 'vision_not_supported'
@@ -37,6 +38,7 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'network_error',
     'auth_invalid',
     'rate_limited',
+    'quota_exhausted',
     'model_not_found',
     'endpoint_not_found',
     'vision_not_supported',
@@ -199,6 +201,23 @@ function isModelNotFoundMessage(body: string): boolean {
   )
 }
 
+function isQuotaExhaustedMessage(body: string): boolean {
+  const lower = body.toLowerCase()
+  return (
+    lower.includes('limit: 0') ||
+    lower.includes('exceeded your current quota') ||
+    lower.includes('insufficient credit') ||
+    lower.includes('credit limit') ||
+    lower.includes('out of credits') ||
+    lower.includes('payment required') ||
+    lower.includes('usage limit') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('allotment') ||
+    lower.includes('insufficient funds') ||
+    lower.includes('billing')
+  )
+}
+
 export function formatOpenAICategoryMarker(
   category: OpenAICompatibilityFailureCategory,
   host?: string,
@@ -315,6 +334,21 @@ export function classifyOpenAIHttpFailure(options: {
   const body = options.body ?? ''
   const hostname = options.url ? getHostname(options.url) : null
   const isLocalHost = isLocalhostLikeHostname(hostname)
+
+  if (
+    options.status === 402 ||
+    ((options.status === 400 || options.status === 403 || options.status === 429) &&
+      isQuotaExhaustedMessage(body))
+  ) {
+    return {
+      source: 'http',
+      category: 'quota_exhausted',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider quota or usage allotment has run out. Enable billing or switch provider.',
+    }
+  }
 
   if (options.status === 401 || options.status === 403) {
     // OAuth-issued tokens (GitHub Models via /onboard-github, Codex) expire

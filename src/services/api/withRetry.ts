@@ -124,9 +124,24 @@ function isPersistentRetryEnabled(): boolean {
 function isQuotaExhausted(error: any): boolean {
   const msg = (error?.message || '').toLowerCase()
 
+  // OpenRouter (and other gateways) return 402 with instructions to adjust max_tokens.
+  // If the 402 is retryable via token adjustment, do not treat it as exhausted.
+  if (error?.status === 402 && error instanceof APIError && parseOpenRouterAffordableMaxTokensError(error) !== undefined) {
+    return false
+  }
+
   return (
-    error?.status === 429 &&
-    (msg.includes('limit: 0') || msg.includes('exceeded your current quota'))
+    error?.status === 402 ||
+    msg.includes('quota_exhausted') ||
+    ((error?.status === 429 || error?.status === 403 || error?.status === 400) &&
+      (msg.includes('limit: 0') ||
+        msg.includes('exceeded your current quota') ||
+        msg.includes('credit') ||
+        msg.includes('billing') ||
+        msg.includes('payment required') ||
+        msg.includes('usage limit') ||
+        msg.includes('allotment') ||
+        msg.includes('quota')))
   )
 }
 

@@ -323,6 +323,38 @@ describe('OpenAI-compatible retry classification', () => {
     expect(attempts).toBe(1)
   })
 
+  test('does not retry quota/allotment exhaustion failures', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      402,
+      undefined,
+      'OpenAI API error 402: Payment Required [openai_category=quota_exhausted,host=opencode.ai] Hint: Provider quota or usage allotment has run out.',
+      new Headers(),
+    )
+    let attempts = 0
+
+    await expect(
+      drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      ),
+    ).rejects.toBeInstanceOf(CannotRetryError)
+
+    expect(attempts).toBe(1)
+  })
+
   test('keeps parseable 402 affordability errors on the max_tokens retry path', async () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
     const { withRetry } = await importFreshWithRetryModule('openai')

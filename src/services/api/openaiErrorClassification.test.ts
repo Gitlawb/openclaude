@@ -266,3 +266,35 @@ test('isLocalhostLikeHost matches loopback variants', () => {
   expect(isLocalhostLikeHost('integrate.api.nvidia.com')).toBe(false)
   expect(isLocalhostLikeHost(undefined)).toBe(false)
 })
+
+test('classifies 402 Payment Required as quota_exhausted', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 402,
+    body: 'Billing limit reached',
+  })
+
+  expect(failure.category).toBe('quota_exhausted')
+  expect(failure.retryable).toBe(false)
+  expect(failure.hint).toContain('quota or usage allotment')
+})
+
+test('classifies 429 with credit messages as quota_exhausted', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 429,
+    body: 'You exceeded your current quota, please check your plan and billing details.',
+  })
+
+  expect(failure.category).toBe('quota_exhausted')
+  expect(failure.retryable).toBe(false)
+})
+
+test('classifies 403 with allotment messages as quota_exhausted', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 403,
+    body: 'OpenCode Go usage allotment has run out.',
+  })
+
+  expect(failure.category).toBe('quota_exhausted')
+  expect(failure.retryable).toBe(false)
+})
+
