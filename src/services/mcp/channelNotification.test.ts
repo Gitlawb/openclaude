@@ -17,6 +17,7 @@ import {
 import type { ChannelEntry } from '../../bootstrap/state.js'
 import { findChannelEntry, gateChannelServer } from './channelNotification.js'
 import { filterPermissionRelayClients } from './channelPermissions.js'
+import { parsePluginIdentifier } from '../../utils/plugins/pluginIdentifier.js'
 
 // Module-level mocks for the GrowthBook-backed helpers. The gate
 // reads these on every call; resetting between tests keeps the
@@ -278,6 +279,119 @@ describe('filterPermissionRelayClients', () => {
       if (!entry) return false
       if (entry.kind === 'server') return entry.dev === true
       return true
+    })
+    expect(filtered).toHaveLength(1)
+  })
+
+  test('rejects plugin-kind entry without pluginSource', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'plugin:slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: {},
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true
+      if (!pluginSource) return false
+      const actual = parsePluginIdentifier(pluginSource).marketplace
+      return actual === entry.marketplace
+    })
+    expect(filtered).toHaveLength(0)
+  })
+
+  test('rejects plugin-kind entry with mismatched marketplace', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'plugin:slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: { pluginSource: 'plugin:slack@evilcorp' },
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true
+      if (!pluginSource) return false
+      const actual = parsePluginIdentifier(pluginSource).marketplace
+      return actual === entry.marketplace
+    })
+    expect(filtered).toHaveLength(0)
+  })
+
+  test('accepts plugin-kind entry with matching marketplace', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+    ])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'plugin:slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: { pluginSource: 'plugin:slack@anthropic' },
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true
+      if (!pluginSource) return false
+      const actual = parsePluginIdentifier(pluginSource).marketplace
+      return actual === entry.marketplace
+    })
+    expect(filtered).toHaveLength(1)
+  })
+
+  test('disambiguates same-name plugin entries by runtime marketplace', () => {
+    setAllowedChannels([
+      { kind: 'plugin', name: 'slack', marketplace: 'anthropic' },
+      { kind: 'plugin', name: 'slack', marketplace: 'evilcorp' },
+    ])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'plugin:slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': {},
+          },
+        },
+        config: { pluginSource: 'plugin:slack@anthropic' },
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, (name, pluginSource) => {
+      const entry = findChannelEntry(name, getAllowedChannels(), pluginSource)
+      if (!entry) return false
+      if (entry.kind === 'server') return entry.dev === true
+      if (!pluginSource) return false
+      const actual = parsePluginIdentifier(pluginSource).marketplace
+      return actual === entry.marketplace
     })
     expect(filtered).toHaveLength(1)
   })
