@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { firstUsableCredential, parseCredentialList } from '../../services/api/credentialPool.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
 import { logForDebugging } from '../debug.js'
 import { isEssentialTrafficOnly } from '../privacyLevel.js'
 import type { ModelOption } from './modelOptions.js'
@@ -50,14 +50,9 @@ function isBankrBaseUrl(baseUrl: string): boolean {
 }
 
 function getOpenAIAuthHeaders(baseUrl: string): Record<string, string> {
-  const pooledCredential = firstUsableCredential(process.env.OPENAI_API_KEYS)
-  const hasPooledCredentialSource =
-    parseCredentialList(process.env.OPENAI_API_KEYS).length > 0
   const apiKey =
-    pooledCredential ??
-    (hasPooledCredentialSource
-      ? undefined
-      : firstUsableCredential(process.env.OPENAI_API_KEY))
+    firstUsableCredential(process.env.OPENAI_API_KEYS) ??
+    firstUsableCredential(process.env.OPENAI_API_KEY)
   if (!apiKey) {
     return {}
   }

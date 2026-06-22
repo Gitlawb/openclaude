@@ -101,16 +101,16 @@ test('skips legacy OpenAI-compatible model discovery when nonessential traffic i
   expect(getSpy).not.toHaveBeenCalled()
 })
 
-test('legacy OpenAI-compatible model discovery rejects placeholder values inside pools', async () => {
+test('legacy OpenAI-compatible model discovery falls back to singular key for unusable pooled credentials', async () => {
   delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
-  process.env.OPENAI_API_KEYS = 'key-a,SUA_CHAVE'
-  process.env.OPENAI_API_KEY = 'key-single'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,SUA_CHAVE'
+  process.env.OPENAI_API_KEY = 'sk-openai-single'
   process.env.OPENAI_MODEL = 'gpt-5.5'
 
   const getSpy = mock(async (_url: string, options?: { headers?: Record<string, string> }) => {
-    expect(options?.headers).toEqual({})
+    expect(options?.headers).toEqual({ Authorization: 'Bearer sk-openai-single' })
     return {
       data: {
         data: [{ id: 'gpt-5.5' }],
