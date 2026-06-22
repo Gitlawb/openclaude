@@ -5,7 +5,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import { redactPathForStatus, redactUrlForStatus } from './statusRedaction.ts'
+import { redactPathForStatus, redactUrlForStatus } from './redaction.js'
 
 const REAL_HOMEDIR = homedir()
 const ORIGINAL_HOME = process.env.HOME

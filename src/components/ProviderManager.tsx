@@ -75,7 +75,7 @@ import {
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
 import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
-import { redactUrlForDisplay } from '../utils/urlRedaction.js'
+import { redactUrlForDisplay } from '../utils/redaction.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
