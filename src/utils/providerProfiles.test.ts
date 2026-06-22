@@ -783,6 +783,28 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
   })
 
+  test('xiaomi mimo token plan CN profile applies OpenAI-compatible env with MIMO_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoTokenProfile({
+      baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+    }))
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-cn.xiaomimimo.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('tp-test-key')
+    expect(process.env.MIMO_API_KEY).toBe('tp-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
   test('fireworks profile applies OpenAI-compatible env with FIREWORKS_API_KEY mirror', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

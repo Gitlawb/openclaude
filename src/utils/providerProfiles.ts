@@ -44,7 +44,13 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { isFireworksBaseUrl, isNearaiBaseUrl, isXaiBaseUrl, resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import {
+  isFireworksBaseUrl,
+  isNearaiBaseUrl,
+  isXaiBaseUrl,
+  isXiaomiMimoBaseUrl,
+  resolveEnvOnlyProviderRouteId,
+} from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -785,10 +791,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (
         route.routeId === 'xiaomi-mimo' ||
         route.routeId === 'xiaomi-mimo-token' ||
-        profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') ||
-        profile.baseUrl.toLowerCase().includes('api.mimo-v2.com') ||
-        profile.baseUrl.toLowerCase().includes('token-plan-sgp.xiaomimimo.com') ||
-        profile.baseUrl.toLowerCase().includes('token-plan-cn.xiaomimimo.com')
+        isXiaomiMimoBaseUrl(profile.baseUrl)
       ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
