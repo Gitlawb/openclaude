@@ -93,7 +93,7 @@ const GENERIC_CREDENTIAL_ENV_PATTERN =
 // private_key. This is the catch-all for "the secret sits next to a known
 // field name in arbitrary text" — header dumps, log lines, error payloads.
 const GENERIC_HEADER_FIELD_PATTERN =
-  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\s)}\]]+)/gi
+  /(["']?(?:x-api-key|authorization|bearer|api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|cookie|set[-_]?cookie|id[-_]?token|exchanged[-_]?api[-_]?key|trusted[-_]?device[-_]?token|private[-_]?key)["']?\s*[:=]\s*["']?)(?:bearer\s+)?([^"',\s)}\[\]]+)/gi
 
 // Substrings that flag a JSON field name as a credential container, used by
 // `jsonRedactor`. Normalized keys (lowercased, dashes/underscores stripped)
@@ -206,6 +206,16 @@ export function redactSensitiveInfo(text: string): string {
   // Generic *_API_KEY / *_SECRET / *_TOKEN / *_PASSWORD env vars
   redacted = redacted.replace(
     GENERIC_CREDENTIAL_ENV_PATTERN,
+    '$1[REDACTED]',
+  )
+
+  // PEM private keys — the generic header-field pattern below only captures
+  // up to the first whitespace, so a value like
+  // `private_key: -----BEGIN RSA PRIVATE KEY-----\n...` would redact only
+  // the `-----BEGIN` prefix and leak the rest. This pass consumes the full
+  // multi-line PEM block before the generic regex touches it.
+  redacted = redacted.replace(
+    /(["']?private[-_]?key["']?\s*[:=]\s*["']?)-{3,}BEGIN[\s\S]*?-{3,}END\s+(?:\w+\s+)?PRIVATE\s+KEY-{3,}/gi,
     '$1[REDACTED]',
   )
 
