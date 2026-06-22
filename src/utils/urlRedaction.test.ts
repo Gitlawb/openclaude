@@ -39,12 +39,14 @@ describe('redactUrlForDisplay', () => {
     expect(redacted).toBe('//redacted@localhost:11434?token=redacted&mode=test')
   })
 
-  test('fallback redaction also drops fragments for malformed URLs', () => {
+  test('fallback redaction preserves fragments for malformed URLs', () => {
     const redacted = redactUrlForDisplay(
       '//user:pass@localhost:11434?token=abc#access_token=fragment-secret',
     )
 
-    expect(redacted).toBe('//redacted@localhost:11434?token=redacted')
+    expect(redacted).toBe(
+      '//redacted@localhost:11434?token=redacted#access_token=fragment-secret',
+    )
   })
 
   test('keeps non-sensitive URLs unchanged', () => {
