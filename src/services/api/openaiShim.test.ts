@@ -2452,9 +2452,9 @@ test('xiaomi mimo route uses api-key auth header and max_completion_tokens', asy
 test.each([
   'minimax-m3',
   'minimax-m2.7',
-  'minimax-m2.5',
+  'qwen3.7-max',
+  'qwen3.7-plus',
   'qwen3.6-plus',
-  'qwen3.5-plus',
 ])('opencode go %s direct env routing ignores stale custom auth and uses the Anthropic Messages request contract', async model => {
   let capturedUrl = ''
   let capturedHeaders: Headers | undefined
