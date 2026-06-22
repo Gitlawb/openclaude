@@ -543,6 +543,33 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
     })
   })
 
+  describe('GLM models', () => {
+    it('should NOT infer preserveReasoningContent for custom glm aliases', () => {
+      const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
+        model: 'my-glm-assistant',
+      })
+      expect(result.openaiShimConfig.preserveReasoningContent).toBeUndefined()
+    })
+
+    it('should infer preserveReasoningContent for GLM paths', () => {
+      const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
+        model: 'openrouter/zhipu/glm-5.2',
+      })
+      expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+      expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    })
+
+    it('should infer preserveReasoningContent for direct glm model names', () => {
+      const result = resolveOpenAIShimRuntimeContext({
+        processEnv: {},
+        model: 'glm-5.2',
+      })
+      expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    })
+  })
+
   describe('Non-matching models', () => {
     it('should return undefined for gpt-4o (negative case)', () => {
       const result = resolveOpenAIShimRuntimeContext({
