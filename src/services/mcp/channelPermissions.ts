@@ -196,7 +196,7 @@ export function filterPermissionRelayClients<
     (c): c is T & { type: 'connected' } =>
       c.type === 'connected' &&
       isInAllowlist(c.name, c.config?.pluginSource) &&
-      c.capabilities?.experimental?.['claude/channel'] !== undefined &&
+      Boolean(c.capabilities?.experimental?.['claude/channel']) &&
       c.capabilities?.experimental?.['claude/channel/permission'] !== undefined,
   )
 }

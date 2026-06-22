@@ -395,4 +395,26 @@ describe('filterPermissionRelayClients', () => {
     })
     expect(filtered).toHaveLength(1)
   })
+
+  // Regression: the relay capability check must use truthiness like
+  // gateChannelServer does, not !== undefined, so an explicit false
+  // capability is treated as a miss and the client is not selected.
+  test('rejects client with explicit false claude/channel capability', () => {
+    setAllowedChannels([{ kind: 'server', name: 'slack', dev: true }])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': false,
+            'claude/channel/permission': {},
+          },
+        },
+        config: {},
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, () => true)
+    expect(filtered).toHaveLength(0)
+  })
 })

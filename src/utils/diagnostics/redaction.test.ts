@@ -6,6 +6,7 @@ import {
   redactDiagnosticObject,
   redactDiagnosticUrl,
   redactHomePath,
+  redactSensitiveInfo,
   summarizeSecretEnvPresence,
 } from '../redaction.js'
 
@@ -121,6 +122,39 @@ describe('diagnostic redaction', () => {
       ),
     ).toBe(
       'https://redacted:redacted@example.com/v1?api_key=redacted&mode=test&token=redacted',
+    )
+  })
+})
+
+describe('redactSensitiveInfo', () => {
+  // Regression: the generic header-field regex stops at the first whitespace,
+  // so a PEM private key value would only redact the `-----BEGIN` prefix and
+  // leak the rest. The dedicated PEM pattern must consume the full block.
+  test('redacts PEM private key values as a whole', () => {
+    const input = [
+      'private_key: -----BEGIN RSA PRIVATE KEY-----',
+      'FAKE_SECRET_BODY',
+      '-----END RSA PRIVATE KEY-----',
+    ].join('\n')
+    expect(redactSensitiveInfo(input)).toBe(
+      'private_key: [REDACTED]',
+    )
+  })
+
+  test('redacts inline PEM private key with escaped newlines', () => {
+    const input =
+      'privateKey: -----BEGIN PRIVATE KEY-----\\nFAKE_SECRET_BODY\\n-----END PRIVATE KEY-----'
+    expect(redactSensitiveInfo(input)).toBe(
+      'privateKey: [REDACTED]',
+    )
+  })
+
+  test('redacts private_key label with non-PEM value after space', () => {
+    // The generic header regex still handles single-word values after space,
+    // but the PEM pattern runs first and is more aggressive.
+    const input = 'private_key: my-secret-token'
+    expect(redactSensitiveInfo(input)).toBe(
+      'private_key: [REDACTED]',
     )
   })
 })
