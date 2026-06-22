@@ -727,7 +727,7 @@ function formatFileLines(file: { content: string; startLine: number }): string {
 }
 
 export const CYBER_RISK_MITIGATION_REMINDER =
-  '\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n'
+  '\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing.\n</system-reminder>\n'
 
 // Models where cyber risk mitigation should be skipped
 const MITIGATION_EXEMPT_MODELS = new Set(['claude-opus-4-6'])
