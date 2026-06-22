@@ -25,9 +25,9 @@ import {
   getOriginalCwd,
   getPlanSlugCache,
   getPromptId,
+  getReplayIndexBuilder,
   getSessionId,
   getSessionProjectDir,
-  isSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
 import { COMMAND_NAME_TAG, TICK_TAG } from '../constants/xml.js'
@@ -89,7 +89,7 @@ import {
   readTranscriptForLoad,
   SKIP_PRECOMPACT_THRESHOLD,
 } from './sessionStoragePortable.js'
-import { getSettings_DEPRECATED } from './settings/settings.js'
+import { shouldSkipSessionPersistence } from './sessionPersistencePolicy.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
@@ -465,6 +465,23 @@ function getProject(): Project {
           project?.reAppendSessionMetadata()
         } catch {
           // Best-effort — don't let metadata re-append crash the cleanup
+        }
+
+        try {
+          const { resetAllReplayIndexBuilders } = await import('src/bootstrap/state.js')
+          const replayBuilders = resetAllReplayIndexBuilders()
+          if (!shouldSkipSessionPersistence()) {
+            const { writeReplayIndex } = await import('./replayIndex.js')
+            for (const { sessionId, builder, projectDir } of replayBuilders) {
+              const transcriptPath = projectDir
+                ? join(projectDir, `${sessionId}.jsonl`)
+                : getTranscriptPathForSession(sessionId)
+              const index = builder.build(sessionId)
+              await writeReplayIndex(sessionId, transcriptPath, index)
+            }
+          }
+        } catch {
+          // Best-effort — don't let replay index cleanup crash shutdown
         }
       })
       cleanupRegistered = true
@@ -977,18 +994,7 @@ class Project {
    * test sessions don't pollute the user's --resume list.
    */
   private shouldSkipPersistence(): boolean {
-    const allowTestPersistence = isEnvTruthy(
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE,
-    )
-    if (allowTestPersistence) {
-      return false
-    }
-    return (
-      getNodeEnv() === 'test' ||
-      getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
-      isSessionPersistenceDisabled() ||
-      isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
-    )
+    return shouldSkipSessionPersistence()
   }
 
   /**
@@ -1085,6 +1091,47 @@ class Project {
           slug,
         }
         await this.appendEntry(transcriptMessage)
+        const shouldTrackReplay = !this.shouldSkipPersistence()
+        if (shouldTrackReplay && !isSidechain && message.type === 'user') {
+          const content = getFirstMeaningfulUserMessageTextContent([message])
+          if (content) {
+            try {
+              getReplayIndexBuilder().trackUserMessage(
+                content,
+                message.timestamp ?? new Date().toISOString(),
+              )
+            } catch {
+              // Replay tracking is best-effort and must not affect transcript writes.
+            }
+          }
+        }
+        if (shouldTrackReplay && !isSidechain && message.type === 'system') {
+          try {
+            if (message.subtype === 'api_error') {
+              getReplayIndexBuilder().trackRetry(
+                'api',
+                message.error.message || `API error ${message.error.status ?? ''}`.trim(),
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  attempt: message.retryAttempt,
+                  maxRetries: message.maxRetries,
+                  retryDelayMs: message.retryInMs,
+                },
+              )
+            } else if (message.subtype === 'permission_retry') {
+              getReplayIndexBuilder().trackRetry(
+                'permission',
+                message.content,
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  commands: message.commands,
+                },
+              )
+            }
+          } catch {
+            // Replay tracking is best-effort and must not affect transcript writes.
+          }
+        }
         if (isChainParticipant(message)) {
           parentUuid = message.uuid
         }

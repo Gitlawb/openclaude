@@ -44,6 +44,7 @@ import onboarding from './commands/onboarding/index.js'
 import pr_comments from './commands/pr_comments/index.js'
 import releaseNotes from './commands/release-notes/index.js'
 import rename from './commands/rename/index.js'
+import replay from './commands/replay/index.js'
 import {
   requestSize,
   requestSizeNonInteractive,
@@ -323,6 +324,7 @@ const COMMANDS = memoize((): Command[] => [
   releaseNotes,
   reloadPlugins,
   rename,
+  replay,
   requestSize,
   requestSizeNonInteractive,
   resume,

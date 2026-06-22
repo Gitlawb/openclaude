@@ -354,6 +354,97 @@ export type Entry =
   | ContextCollapseCommitEntry
   | ContextCollapseSnapshotEntry
 
+// Replay Index Types
+
+/**
+ * Single step in the replay timeline - represents a tool execution or user message.
+ */
+export type ReplayStep =
+  | ReplayToolStep
+  | ReplayUserStep
+  | ReplayRetryStep
+  | ReplayErrorStep
+
+/**
+ * Tool execution step with input, result, and timing information.
+ */
+export interface ReplayToolStep {
+  type: 'tool'
+  stepNumber: number
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  inputSummary: string // Human-readable summary: "Read src/utils.ts"
+  resultStatus: 'success' | 'error' | 'cancelled' | 'permission_denied'
+  resultPreview?: string // First 200 chars of result
+  durationMs: number
+  timestamp: string
+  filesModified?: string[] // From file history if Edit/Write tool
+  repeatedAttemptNumber?: number // 1 for first occurrence, 2+ for repeated tool/input executions
+  isRepeatedAttempt?: boolean
+}
+
+/**
+ * User message step.
+ */
+export interface ReplayUserStep {
+  type: 'user'
+  stepNumber: number
+  content: string // User's request
+  timestamp: string
+}
+
+/**
+ * Retry event emitted by real retry paths such as API retry or permission retry.
+ */
+export interface ReplayRetryStep {
+  type: 'retry'
+  stepNumber: number
+  retryType: 'api' | 'permission'
+  attempt?: number
+  maxRetries?: number
+  retryDelayMs?: number
+  reason: string
+  commands?: string[]
+  timestamp: string
+}
+
+/**
+ * Error step for unexpected failures.
+ */
+export interface ReplayErrorStep {
+  type: 'error'
+  stepNumber: number
+  error: string
+  timestamp: string
+}
+
+/**
+ * Summary statistics for the replay session.
+ */
+export interface ReplaySummary {
+  totalSteps: number
+  toolBreakdown: Record<string, number> // { Read: 5, Edit: 3, Bash: 2 }
+  filesModified: string[]
+  durationMs: number
+  startTimestamp: string
+  endTimestamp: string
+  userRequests: number
+  retryAttempts?: number
+  repeatedAttempts?: number
+}
+
+/**
+ * Complete replay index stored as .replay.json alongside the transcript.
+ */
+export interface ReplayIndex {
+  sessionId: string
+  version: 1
+  createdAt: string
+  summary: ReplaySummary
+  steps: ReplayStep[]
+}
+
 export function sortLogs(logs: LogOption[]): LogOption[] {
   return logs.sort((a, b) => {
     // Sort by modified date (newest first)
