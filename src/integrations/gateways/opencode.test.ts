@@ -466,6 +466,18 @@ describe('OpenCode edge cases', () => {
     }
   })
 
+  test('model descriptors preserve OpenCode provider limit metadata', () => {
+    const models = new Map(
+      getAllModels()
+        .filter(m => m.id.startsWith('opencode-'))
+        .map(model => [model.id, model]),
+    )
+
+    expect(models.get('opencode-qwen3.6-plus')?.contextWindow).toBe(262_144)
+    expect(models.get('opencode-deepseek-v4-pro')?.maxOutputTokens).toBe(384_000)
+    expect(models.get('opencode-go-minimax-m2.5')?.maxOutputTokens).toBe(65_536)
+    expect(models.get('opencode-go-hy3-preview')?.contextWindow).toBe(256_000)
+  })
   test('zen gateway validation message mentions OPENCODE_API_KEY', () => {
     const gateway = getGateway('opencode')
     expect(gateway!.validation!.missingCredentialMessage).toContain('OPENCODE_API_KEY')

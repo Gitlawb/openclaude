@@ -93,8 +93,8 @@ describe('resolveModelRuntimeLimits', () => {
       },
     })
 
-    expect(limits.contextWindow).toBe(256_000)
-    expect(limits.maxOutputTokens).toBe(32_768)
+    expect(limits.contextWindow).toBe(262_144)
+    expect(limits.maxOutputTokens).toBe(65_536)
   })
 
   it('preserves composite provider paths before generic last-segment fallbacks', () => {
