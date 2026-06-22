@@ -826,6 +826,22 @@ function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean 
     return false
   }
 
+  // OpenCode Go subscription quota exhaustion is terminal — retrying burns
+  // the same 429 and confuses the user with repeated "mysterious stop"
+  // failures. getAssistantMessageFromError surfaces the actionable message.
+  if (
+    error.status === 429 &&
+    typeof error.message === 'string' &&
+    (error.message.includes('GoUsageLimitError') ||
+      error.message.includes('FreeUsageLimitError')) &&
+    ((error.headers?.get?.('x-opencode-request-url') ?? '').includes(
+      'opencode.ai/zen/go',
+    ) ||
+      process.env.OPENAI_BASE_URL?.includes('opencode.ai/zen/go'))
+  ) {
+    return false
+  }
+
   // Persistent mode: 429/529 always retryable, bypass subscriber gates and
   // x-should-retry header.
   if (persistentRetryEnabled && isTransientCapacityError(error)) {

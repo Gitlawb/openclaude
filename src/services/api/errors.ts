@@ -430,6 +430,69 @@ export function getVisionNotSupportedErrorMessage(): string {
 export const OAUTH_ORG_NOT_ALLOWED_ERROR_MESSAGE =
   'Your account does not have access to OpenClaude. Please run /login.'
 
+// OpenCode Go subscription quota exhaustion. The opencode.ai gateway returns
+// 429 with one of these error types in the response body:
+//   - FreeUsageLimitError: free tier exhausted, upgrade required
+//   - GoUsageLimitError: paid Go subscription limit hit (rolling/weekly/monthly)
+// The `retry-after` header (seconds) indicates when the paid limit resets.
+// See https://github.com/anomalyco/opencode packages/opencode/src/session/retry.ts
+// for the canonical implementation we're mirroring.
+export const OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE =
+  'OpenCode Go free usage exhausted · Subscribe at https://opencode.ai/go'
+export const OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE =
+  'OpenCode Go subscription limit reached · See https://opencode.ai/workspace/go'
+
+function parseOpenCodeGoLimitError(
+  error: APIError,
+): {
+  kind: 'free' | 'go'
+  limitName?: string
+  workspace?: string
+  retryAfterSeconds?: number
+} | null {
+  // Only relevant for the opencode-go gateway. Check the base URL on the
+  // error's request or fall back to an env-var check for direct-mode usage.
+  const url = error.headers?.get?.('x-opencode-request-url') ?? ''
+  const envBaseUrl = process.env.OPENAI_BASE_URL ?? ''
+  const isOpencodeGo =
+    url.includes('opencode.ai/zen/go') ||
+    envBaseUrl.includes('opencode.ai/zen/go')
+  if (!isOpencodeGo) return null
+
+  const body = error.message ?? ''
+  const retryAfter = error.headers?.get?.('retry-after')
+  const retryAfterSeconds = retryAfter ? Number(retryAfter) : undefined
+
+  if (body.includes('FreeUsageLimitError')) {
+    return { kind: 'free' }
+  }
+  if (body.includes('GoUsageLimitError')) {
+    const limitNameMatch = body.match(/"limitName"\s*:\s*"([^"]+)"/)
+    const workspaceMatch = body.match(/"workspace"\s*:\s*"([^"]+)"/)
+    return {
+      kind: 'go',
+      limitName: limitNameMatch?.[1],
+      workspace: workspaceMatch?.[1],
+      retryAfterSeconds:
+        typeof retryAfterSeconds === 'number' && !isNaN(retryAfterSeconds)
+          ? retryAfterSeconds
+          : undefined,
+    }
+  }
+  return null
+}
+
+function formatResetDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 && days === 0) parts.push(`${minutes}m`)
+  return parts.join(' ') || 'soon'
+}
+
 export function getTokenRevokedErrorMessage(): string {
   return getIsNonInteractiveSession()
     ? 'Your account does not have access to Claude. Please login again or contact your administrator.'
@@ -706,6 +769,33 @@ export function getAssistantMessageFromError(
         model,
         rawMessage: error.message,
         host: extractOpenAICategoryHost(error.message),
+      })
+    }
+  }
+
+  // OpenCode Go subscription quota exhaustion (429 with FreeUsageLimitError
+  // or GoUsageLimitError in the body). Terminal — must not be retried.
+  if (error instanceof APIError) {
+    const goLimit = parseOpenCodeGoLimitError(error)
+    if (goLimit) {
+      if (goLimit.kind === 'free') {
+        return createAssistantAPIErrorMessage({
+          content: OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
+          error: 'rate_limit',
+        })
+      }
+      const reset =
+        goLimit.retryAfterSeconds !== undefined
+          ? ` · Resets in ${formatResetDuration(goLimit.retryAfterSeconds)}`
+          : ''
+      const workspace =
+        goLimit.workspace && goLimit.workspace !== 'default'
+          ? ` · Workspace: ${goLimit.workspace}`
+          : ''
+      const limit = goLimit.limitName ? ` · Limit: ${goLimit.limitName}` : ''
+      return createAssistantAPIErrorMessage({
+        content: `${OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE}${limit}${workspace}${reset}`,
+        error: 'rate_limit',
       })
     }
   }
@@ -1300,6 +1390,11 @@ export function classifyAPIError(error: unknown): string {
     error.message.includes(CUSTOM_OFF_SWITCH_MESSAGE)
   ) {
     return 'capacity_off_switch'
+  }
+
+  // OpenCode Go subscription quota exhaustion (distinct from generic 429)
+  if (error instanceof APIError && parseOpenCodeGoLimitError(error)) {
+    return 'opencode_go_quota_exhausted'
   }
 
   // Rate limiting
