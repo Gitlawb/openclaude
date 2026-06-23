@@ -3946,7 +3946,7 @@ function runHeadlessStreaming(
                     structuredIO.injectControlResponse(response)
                   },
                   onInterrupt() {
-                    abortController?.abort()
+                    abortController?.abort('interrupt')
                   },
                   onSetModel(model) {
                     const resolved =
