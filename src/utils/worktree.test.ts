@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 
 import {
   _resetGitWorktreeMutationLocksForTesting,
+  _testDeps,
   buildRevParseFailureMessage,
   buildWorktreeCreationFailureMessage,
   withGitWorktreeMutationLock,
@@ -101,16 +102,32 @@ test('buildRevParseFailureMessage trims trailing whitespace from stderr', () => 
   expect(msg).toContain(': some error (HEAD')
 })
 
-test('buildWorktreeCreationFailureMessage provides a Windows long-path recovery hint', () => {
-  const msg = buildWorktreeCreationFailureMessage(
-    'error: unable to create file src/components/example.tsx: Filename too long\n',
-  )
-  expect(msg).toContain('Failed to create worktree')
-  expect(msg).toContain('Filename too long')
-
-  if (process.platform === 'win32') {
+test('buildWorktreeCreationFailureMessage provides a Windows long-path recovery hint on Windows', () => {
+  const originalGetPlatform = _testDeps.getPlatform
+  _testDeps.getPlatform = () => 'windows'
+  try {
+    const msg = buildWorktreeCreationFailureMessage(
+      'error: unable to create file src/components/example.tsx: Filename too long\n',
+    )
+    expect(msg).toContain('Failed to create worktree')
+    expect(msg).toContain('Filename too long')
     expect(msg).toContain('core.longpaths true')
-  } else {
+  } finally {
+    _testDeps.getPlatform = originalGetPlatform
+  }
+})
+
+test('buildWorktreeCreationFailureMessage does not provide a Windows long-path recovery hint on non-Windows', () => {
+  const originalGetPlatform = _testDeps.getPlatform
+  _testDeps.getPlatform = () => 'linux'
+  try {
+    const msg = buildWorktreeCreationFailureMessage(
+      'error: unable to create file src/components/example.tsx: Filename too long\n',
+    )
+    expect(msg).toContain('Failed to create worktree')
+    expect(msg).toContain('Filename too long')
     expect(msg).not.toContain('core.longpaths true')
+  } finally {
+    _testDeps.getPlatform = originalGetPlatform
   }
 })

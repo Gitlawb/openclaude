@@ -1,102 +1,12 @@
 import { expect, mock, test, afterEach } from 'bun:test'
+import { _test, _testDeps } from './worktree.js'
 
-import * as realPlatform from './platform.js'
-import * as realSettings from './settings/settings.js'
-import * as realExecFileNoThrow from './execFileNoThrow.js'
-import * as realGitFilesystem from './git/gitFilesystem.js'
-import * as realGit from './git.js'
-import * as realDebug from './debug.js'
-import * as realConfig from './config.js'
-import * as realErrors from './errors.js'
-import * as realCwd from './cwd.js'
-import * as realPath from './path.js'
-import * as realSleep from './sleep.js'
-import * as realHooks from './hooks.js'
-import * as realSwarmBackendsDetection from './swarm/backends/detection.js'
-import * as realFsPromises from 'fs/promises'
-import * as realIgnore from 'ignore'
-import * as realChildProcess from 'child_process'
-import * as realChalk from 'chalk'
-
-
-/**
- * Each test in this file sets up mock.module mocks before dynamically importing
- * `./worktree.js` with a unique cache-busting query param. This keeps mocks
- * isolated per test even though mock.module is process-global in Bun.
- */
+const originalDeps = { ..._testDeps }
 
 afterEach(() => {
   mock.restore()
-  mock.module('./platform.js', () => realPlatform)
-  mock.module('./settings/settings.js', () => realSettings)
-  mock.module('./execFileNoThrow.js', () => realExecFileNoThrow)
-  mock.module('./git/gitFilesystem.js', () => realGitFilesystem)
-  mock.module('./git.js', () => realGit)
-  mock.module('./debug.js', () => realDebug)
-  mock.module('./config.js', () => realConfig)
-  mock.module('./errors.js', () => realErrors)
-  mock.module('./cwd.js', () => realCwd)
-  mock.module('./path.js', () => realPath)
-  mock.module('./sleep.js', () => realSleep)
-  mock.module('./hooks.js', () => realHooks)
-  mock.module('./swarm/backends/detection.js', () => realSwarmBackendsDetection)
-  mock.module('fs/promises', () => realFsPromises)
-  mock.module('ignore', () => realIgnore)
-  mock.module('child_process', () => realChildProcess)
-  mock.module('chalk', () => realChalk)
+  Object.assign(_testDeps, originalDeps)
 })
-
-let importCounter = 0
-
-async function importTestModule(mocks: Record<string, () => object>) {
-  importCounter++
-  const suffix = `${Date.now()}.${importCounter}.${Math.random().toString(36).slice(2, 8)}`
-  for (const [modPath, factory] of Object.entries(mocks)) {
-    mock.module(modPath, factory)
-  }
-  return await import(`./worktree.js?cachebust=${suffix}`)
-}
-
-// Bun's mock.module validates that the mock factory provides ALL exports that
-// the real module exposes (including re-exports). These helpers enumerate the
-// full export set so we don't hit SyntaxError at import time.
-
-function makeSettingsMock(custom: object) {
-  return {
-    getInitialSettings: () => ({}),
-    getRelativeSettingsFilePathForSource: () => undefined,
-    getSettingsForSource: () => null,
-    loadManagedFileSettings: () => ({}),
-    getManagedFileSettingsPresence: () => ({}),
-    parseSettingsFile: () => ({}),
-    getSettingsRootPathForSource: () => '',
-    getSettingsFilePathForSource: () => '',
-    updateSettingsForSource: async () => {},
-    settingsMergeCustomizer: () => ({}),
-    getManagedSettingsKeysForLogging: () => [],
-    getSettings_DEPRECATED: () => ({}),
-    getSettingsWithSources: () => ({}),
-    getSettingsWithErrors: () => ({}),
-    hasSkipDangerousModePermissionPrompt: () => false,
-    hasSkipFullAccessModePermissionPrompt: () => false,
-    hasAllowBypassPermissionsMode: () => false,
-    hasAutoModeOptIn: () => false,
-    getUseAutoModeDuringPlan: () => false,
-    getAutoModeConfig: () => ({}),
-    rawSettingsContainsKey: () => false,
-    getPolicySettingsOrigin: () => null,
-    ...custom,
-  }
-}
-
-function makeExecNoThrowMock(custom: object) {
-  return {
-    execFileNoThrow: async () => ({ code: 0, stdout: '', stderr: '' }),
-    execFileNoThrowWithCwd: async () => ({ code: 0, stdout: '', stderr: '' }),
-    execSyncWithDefaults_DEPRECATED: () => ({ status: 0, stdout: '', stderr: '' }),
-    ...custom,
-  }
-}
 
 // ---------------------------------------------------------------------------
 // autoConfigureLongPathsForWorktrees — setting gating
@@ -111,17 +21,9 @@ test('autoConfigureLongPaths applies core.longpaths on Windows when setting is u
     }),
   )
 
-  const { _test } = await importTestModule({
-    './platform.js': () => ({
-      SUPPORTED_PLATFORMS: ['windows'],
-      getPlatform: () => 'windows',
-      getWslVersion: () => undefined,
-      getLinuxDistroInfo: () => undefined,
-      detectVcs: async () => [],
-    }),
-    './settings/settings.js': () => makeSettingsMock({}),
-    './execFileNoThrow.js': () => makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
-  })
+  _testDeps.getPlatform = () => 'windows'
+  _testDeps.getInitialSettings = () => ({})
+  _testDeps.execFileNoThrowWithCwd = execMock
 
   await _test.autoConfigureLongPathsForWorktrees('/repo')
 
@@ -142,22 +44,11 @@ test('autoConfigureLongPaths skips core.longpaths on Windows when setting is fal
     }),
   )
 
-  const { _test } = await importTestModule({
-    './platform.js': () => ({
-      SUPPORTED_PLATFORMS: ['windows'],
-      getPlatform: () => 'windows',
-      getWslVersion: () => undefined,
-      getLinuxDistroInfo: () => undefined,
-      detectVcs: async () => [],
-    }),
-    './settings/settings.js': () =>
-      makeSettingsMock({
-        getInitialSettings: () => ({
-          worktree: { autoConfigureLongPaths: false },
-        }),
-      }),
-    './execFileNoThrow.js': () => makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
+  _testDeps.getPlatform = () => 'windows'
+  _testDeps.getInitialSettings = () => ({
+    worktree: { autoConfigureLongPaths: false },
   })
+  _testDeps.execFileNoThrowWithCwd = execMock
 
   await _test.autoConfigureLongPathsForWorktrees('/repo')
   expect(execMock).not.toHaveBeenCalled()
@@ -172,17 +63,9 @@ test('autoConfigureLongPaths skips core.longpaths on non-Windows', async () => {
     }),
   )
 
-  const { _test } = await importTestModule({
-    './platform.js': () => ({
-      SUPPORTED_PLATFORMS: ['linux'],
-      getPlatform: () => 'linux',
-      getWslVersion: () => undefined,
-      getLinuxDistroInfo: () => undefined,
-      detectVcs: async () => [],
-    }),
-    './settings/settings.js': () => makeSettingsMock({}),
-    './execFileNoThrow.js': () => makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
-  })
+  _testDeps.getPlatform = () => 'linux'
+  _testDeps.getInitialSettings = () => ({})
+  _testDeps.execFileNoThrowWithCwd = execMock
 
   await _test.autoConfigureLongPathsForWorktrees('/repo')
   expect(execMock).not.toHaveBeenCalled()
@@ -193,205 +76,6 @@ test('autoConfigureLongPaths skips core.longpaths on non-Windows', async () => {
 // ---------------------------------------------------------------------------
 
 const GIT_SHA = 'abc123def456abc123def456abc123def4567890\n'
-
-function makeBaseMocks(execMock: ReturnType<typeof mock>) {
-  return {
-    './platform.js': () => ({
-      SUPPORTED_PLATFORMS: ['windows'],
-      getPlatform: () => 'windows',
-      getWslVersion: () => undefined,
-      getLinuxDistroInfo: () => undefined,
-      detectVcs: async () => [],
-    }),
-    './settings/settings.js': () => makeSettingsMock({}),
-    './git/gitFilesystem.js': () => ({
-      clearResolveGitDirCache: () => {},
-      resolveGitDir: () => '/repo/.git',
-      isSafeRefName: () => true,
-      isValidGitSha: () => true,
-      readGitHead: async () => null,
-      resolveRef: () => null,
-      getCommonDir: () => '/repo',
-      readRawSymref: async () => null,
-      getCachedBranch: async () => 'main',
-      getCachedHead: async () => '',
-      getCachedRemoteUrl: async () => null,
-      getCachedDefaultBranch: async () => 'main',
-      resetGitFileWatcher: () => {},
-      getHeadForDir: async () => null,
-      readWorktreeHeadSha: () => null,
-      getRemoteUrlForDir: async () => null,
-      isShallowClone: async () => false,
-      getWorktreeCountFromFs: async () => 0,
-    }),
-    './git.js': () => ({
-      findGitRoot: () => '/repo',
-      findCanonicalGitRoot: () => '/repo',
-      gitExe: () => 'git',
-      getIsGit: async () => true,
-      getGitDir: async () => '/repo/.git',
-      isAtGitRoot: async () => true,
-      dirIsInGitRepo: async () => true,
-      getHead: async () => 'abc123',
-      getBranch: () => 'main',
-      getDefaultBranch: () => 'main',
-      getRemoteUrl: async () => null,
-      normalizeGitRemoteUrl: () => null,
-      getRepoRemoteHash: async () => null,
-      getIsHeadOnRemote: async () => true,
-      hasUnpushedCommits: async () => false,
-      getIsClean: async () => true,
-      getChangedFiles: async () => [],
-      getFileStatus: async () => ({}),
-      getWorktreeCount: async () => 0,
-      stashToCleanState: async () => true,
-      getGitState: async () => null,
-      getGithubRepo: async () => null,
-      findRemoteBase: async () => null,
-      preserveGitStateForIssue: async () => null,
-      isCurrentDirectoryBareGitRepo: () => false,
-    }),
-    './debug.js': () => ({
-      getMinDebugLogLevel: () => 0,
-      isDebugMode: () => false,
-      enableDebugLogging: () => {},
-      getDebugFilter: () => '',
-      isDebugToStdErr: () => false,
-      getDebugFilePath: () => '',
-      setHasFormattedOutput: () => {},
-      getHasFormattedOutput: () => false,
-      flushDebugLogs: async () => {},
-      logForDebugging: () => {},
-      getDebugLogPath: () => '',
-      logAntError: () => {},
-    }),
-    './config.js': () => ({
-      SHOW_CACHE_STATS_MODES: [],
-      MAX_MESSAGES_COMPACTION_THRESHOLDS: [],
-      normalizeMaxMessagesCompactionThreshold: () => 0,
-      DEFAULT_GLOBAL_CONFIG: {},
-      GLOBAL_CONFIG_KEYS: [],
-      isGlobalConfigKey: () => false,
-      PROJECT_CONFIG_KEYS: [],
-      resetTrustDialogAcceptedCacheForTesting: () => {},
-      checkHasTrustDialogAccepted: () => false,
-      isPathTrusted: () => true,
-      isProjectConfigKey: () => false,
-      saveGlobalConfig: async () => {},
-      getGlobalConfigWriteCount: () => 0,
-      CONFIG_WRITE_DISPLAY_THRESHOLD: 0,
-      getGlobalConfig: () => ({}),
-      getRemoteControlAtStartup: () => null,
-      getCustomApiKeyStatus: () => null,
-      enableConfigs: () => true,
-      getProjectPathForConfig: () => '',
-      getCurrentProjectConfig: () => ({}),
-      saveCurrentProjectConfig: async () => {},
-      isAutoUpdaterDisabled: () => false,
-      shouldSkipPluginAutoupdate: () => false,
-      formatAutoUpdaterDisabledReason: () => '',
-      getAutoUpdaterDisabledReason: () => '',
-      getOrCreateUserID: async () => '',
-      recordFirstStartTime: async () => {},
-      getMemoryPath: () => '',
-      getManagedClaudeRulesDir: () => '',
-      getUserClaudeRulesDir: () => '',
-      _getConfigForTesting: () => ({}),
-      _wouldLoseAuthStateForTesting: () => false,
-      _setGlobalConfigCacheForTesting: () => {},
-    }),
-    './errors.js': () => ({
-      isAbortError: () => false,
-      hasExactErrorMessage: () => false,
-      toError: (e: unknown) => e instanceof Error ? e : new Error(String(e)),
-      errorMessage: (e: unknown) => String(e),
-      getErrnoCode: () => 'TEST',
-      isENOENT: () => false,
-      getErrnoPath: () => '',
-      shortErrorStack: () => '',
-      isFsInaccessible: () => false,
-      sdkErrorFromType: () => ({} as Error),
-      classifyAxiosError: () => null,
-    }),
-    './cwd.js': () => ({
-      runWithCwdOverride: async () => {},
-      pwd: () => '/repo',
-      getCwd: () => '/repo',
-    }),
-    './path.js': () => ({
-      expandPath: (p: string) => p,
-      toRelativePath: (p: string) => p,
-      getDirectoryForPath: (p: string) => p,
-      containsPathTraversal: () => false,
-      normalizePathForConfigKey: (p: string) => p,
-    }),
-    './sleep.js': () => ({
-      sleep: async () => {},
-      withTimeout: async <T>(p: Promise<T>) => p,
-    }),
-    './hooks.js': () => ({
-      isFallbackAgentLaunchSuccessStatus: () => false,
-      getSessionEndHookTimeoutMs: () => 5000,
-      shouldSkipHookDueToTrust: () => false,
-      createBaseHookInput: () => ({}),
-      getMatchingHooks: async () => [],
-      getPreToolHookBlockingMessage: () => null,
-      getStopHookMessage: () => '',
-      getTeammateIdleHookMessage: () => null,
-      getTaskCreatedHookMessage: () => null,
-      getTaskCompletedHookMessage: () => null,
-      getUserPromptSubmitHookBlockingMessage: () => null,
-      hasBlockingResult: () => false,
-      executeNotificationHooks: async () => {},
-      executeStopFailureHooks: async () => {},
-      executePreCompactHooks: async () => {},
-      executePostCompactHooks: async () => {},
-      executeSessionEndHooks: async () => {},
-      executeConfigChangeHooks: async () => {},
-      executeCwdChangedHooks: async () => {},
-      executeFileChangedHooks: async () => {},
-      hasInstructionsLoadedHook: () => false,
-      executeInstructionsLoadedHooks: async () => {},
-      executeElicitationHooks: async () => {},
-      executeElicitationResultHooks: async () => {},
-      executeStatusLineCommand: async () => '',
-      executeFileSuggestionCommand: async () => '',
-      hasWorktreeCreateHook: () => false,
-      executeWorktreeCreateHook: async () => {},
-      executeWorktreeRemoveHook: async () => {},
-    }),
-    './swarm/backends/detection.js': () => ({
-      isInsideTmuxSync: () => false,
-      isInsideTmux: () => false,
-      getLeaderPaneId: () => null,
-      isTmuxAvailable: () => false,
-      isInITerm2: () => false,
-      IT2_COMMAND: '',
-      isIt2CliAvailable: () => false,
-      resetDetectionCache: () => {},
-    }),
-    './execFileNoThrow.js': () =>
-      makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
-    'fs/promises': () => ({
-      mkdir: async () => {},
-      copyFile: async () => {},
-      readdir: async () => [],
-      readFile: async () => '',
-      stat: async () => ({}),
-      symlink: async () => {},
-      utimes: async () => {},
-    }),
-    ignore: () => ({
-      default: () => ({ add: () => {}, ignores: () => false }),
-    }),
-    child_process: () => ({
-      spawnSync: () => ({ status: 0, stdout: '', stderr: '' }),
-    }),
-    chalk: () => ({
-      default: { red: (s: string) => s },
-    }),
-  }
-}
 
 test('getOrCreateWorktree calls core.longpaths before worktree add on Windows', async () => {
   const gitCalls: string[] = []
@@ -406,8 +90,14 @@ test('getOrCreateWorktree calls core.longpaths before worktree add on Windows', 
     },
   )
 
-  const mocks = makeBaseMocks(execMock)
-  const { _test } = await importTestModule(mocks)
+  _testDeps.getPlatform = () => 'windows'
+  _testDeps.getInitialSettings = () => ({})
+  _testDeps.readWorktreeHeadSha = async () => null
+  _testDeps.resolveGitDir = async () => '/repo/.git'
+  _testDeps.resolveRef = async () => null
+  _testDeps.getDefaultBranch = async () => 'main'
+  _testDeps.mkdir = async () => undefined
+  _testDeps.execFileNoThrowWithCwd = execMock
 
   await _test.getOrCreateWorktree('/repo', 'my-slug')
 
@@ -440,8 +130,14 @@ test('getOrCreateWorktree cleans up with worktree remove --force on failure', as
     },
   )
 
-  const mocks = makeBaseMocks(execMock)
-  const { _test } = await importTestModule(mocks)
+  _testDeps.getPlatform = () => 'windows'
+  _testDeps.getInitialSettings = () => ({})
+  _testDeps.readWorktreeHeadSha = async () => null
+  _testDeps.resolveGitDir = async () => '/repo/.git'
+  _testDeps.resolveRef = async () => null
+  _testDeps.getDefaultBranch = async () => 'main'
+  _testDeps.mkdir = async () => undefined
+  _testDeps.execFileNoThrowWithCwd = execMock
 
   await expect(_test.getOrCreateWorktree('/repo', 'my-slug')).rejects.toThrow(
     'Failed to create worktree',
@@ -468,16 +164,14 @@ test('getOrCreateWorktree does not call core.longpaths on non-Windows', async ()
     },
   )
 
-  const mocks = makeBaseMocks(execMock)
-  mocks['./platform.js'] = () => ({
-    SUPPORTED_PLATFORMS: ['linux'],
-    getPlatform: () => 'linux',
-    getWslVersion: () => undefined,
-    getLinuxDistroInfo: () => undefined,
-    detectVcs: async () => [],
-  })
-
-  const { _test } = await importTestModule(mocks)
+  _testDeps.getPlatform = () => 'linux'
+  _testDeps.getInitialSettings = () => ({})
+  _testDeps.readWorktreeHeadSha = async () => null
+  _testDeps.resolveGitDir = async () => '/repo/.git'
+  _testDeps.resolveRef = async () => null
+  _testDeps.getDefaultBranch = async () => 'main'
+  _testDeps.mkdir = async () => undefined
+  _testDeps.execFileNoThrowWithCwd = execMock
 
   await _test.getOrCreateWorktree('/repo', 'my-slug')
 
