@@ -49,8 +49,12 @@ import { isInITerm2 } from './swarm/backends/detection.js'
 export const _testDeps = {
   getPlatform: () => getPlatform(),
   getInitialSettings: () => getInitialSettings(),
-  execFileNoThrowWithCwd: (exe: string, args: string[], opts?: any) => execFileNoThrowWithCwd(exe, args, opts),
-  mkdir: (path: string, opts?: any) => mkdir(path, opts),
+  execFileNoThrowWithCwd: (
+    exe: string,
+    args: string[],
+    opts?: Parameters<typeof execFileNoThrowWithCwd>[2],
+  ) => execFileNoThrowWithCwd(exe, args, opts),
+  mkdir: (path: string, opts?: Parameters<typeof mkdir>[1]) => mkdir(path, opts),
   readWorktreeHeadSha: (path: string) => readWorktreeHeadSha(path),
   resolveGitDir: (path: string) => resolveGitDir(path),
   resolveRef: (gitDir: string, ref: string) => resolveRef(gitDir, ref),
@@ -485,7 +489,11 @@ async function getOrCreateWorktree(
           { cwd: worktreePath },
         )
       if (sparseCode !== 0) {
-        await tearDown(`Failed to configure sparse-checkout: ${sparseErr}`)
+        await tearDown(
+          buildWorktreeCreationFailureMessage(
+            `Failed to configure sparse-checkout: ${sparseErr}`,
+          ),
+        )
       }
       const { code: coCode, stderr: coErr } = await _testDeps.execFileNoThrowWithCwd(
         gitExe(),
@@ -493,7 +501,11 @@ async function getOrCreateWorktree(
         { cwd: worktreePath },
       )
       if (coCode !== 0) {
-        await tearDown(`Failed to checkout sparse worktree: ${coErr}`)
+        await tearDown(
+          buildWorktreeCreationFailureMessage(
+            `Failed to checkout sparse worktree: ${coErr}`,
+          ),
+        )
       }
     }
 
