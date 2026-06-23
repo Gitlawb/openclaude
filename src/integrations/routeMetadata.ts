@@ -378,6 +378,26 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
   }
 }
 
+/**
+ * Checks whether the given URL value targets the Cloudflare Workers AI API by
+ * matching the hostname against `api.cloudflare.com`. The shared AI Gateway host
+ * (`gateway.ai.cloudflare.com`) is intentionally excluded — it proxies arbitrary
+ * upstream providers (OpenAI, Anthropic, …), so a profile pointed there is not
+ * necessarily a Workers AI / Cloudflare-credentialed profile.
+ */
+export function isCloudflareBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'api.cloudflare.com'
+  } catch {
+    return false
+  }
+}
+
 export function getClinePassBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {

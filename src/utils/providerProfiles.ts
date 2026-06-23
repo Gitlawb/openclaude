@@ -722,8 +722,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('api.cloudflare.com') ||
-      profile.baseUrl?.toLowerCase().includes('gateway.ai.cloudflare.com')
+    (isCloudflareBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLOUDFLARE_API_TOKEN, profile.apiKey)
       : true)
@@ -892,7 +891,7 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'cloudflare' || profile.baseUrl.toLowerCase().includes('api.cloudflare.com') || profile.baseUrl.toLowerCase().includes('gateway.ai.cloudflare.com')) {
+      if (route.routeId === 'cloudflare' || isCloudflareBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.CLOUDFLARE_API_TOKEN = profile.apiKey
       }
     }

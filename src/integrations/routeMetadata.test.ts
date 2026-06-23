@@ -6,10 +6,37 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  isCloudflareBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+
+test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway', () => {
+  // Workers AI lives on api.cloudflare.com.
+  expect(
+    isCloudflareBaseUrl(
+      'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    ),
+  ).toBe(true)
+  // The shared AI Gateway host proxies arbitrary providers (OpenAI, Anthropic),
+  // so a profile pointed there must NOT be treated as Cloudflare-credentialed.
+  expect(
+    isCloudflareBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/openai',
+    ),
+  ).toBe(false)
+  expect(
+    isCloudflareBaseUrl(
+      'https://gateway.ai.cloudflare.com/v1/acct/gw/anthropic',
+    ),
+  ).toBe(false)
+  // Lookalike host must not match.
+  expect(isCloudflareBaseUrl('https://api.cloudflare.com.evil.test/v1')).toBe(
+    false,
+  )
+  expect(isCloudflareBaseUrl(undefined)).toBe(false)
+})
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
   expect(getRouteProviderTypeLabel('anthropic')).toBe('Anthropic native API')
