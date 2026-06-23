@@ -157,4 +157,22 @@ describe('redactSensitiveInfo', () => {
       'private_key: [REDACTED]',
     )
   })
+
+  // Regression: logForDebugging redacts BEFORE JSON-stringifying multiline
+  // messages, so the PEM pattern sees the raw (unescaped) key label.
+  // If the order were reversed, `private_key` would be JSON-escaped
+  // first and the PEM pattern would miss it.
+  test('redacts PEM private key when redacted before JSON stringify', () => {
+    const multiline = [
+      'private_key: -----BEGIN RSA PRIVATE KEY-----',
+      'FAKE_SECRET_BODY',
+      '-----END RSA PRIVATE KEY-----',
+    ].join('\n')
+
+    // Simulate the logForDebugging ordering: redact first, then stringify.
+    const redacted = redactSensitiveInfo(multiline)
+    const jsonFormatted = JSON.stringify(redacted)
+
+    expect(jsonFormatted).toBe('"private_key: [REDACTED]"')
+  })
 })
