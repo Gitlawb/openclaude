@@ -14,18 +14,18 @@ afterEach(() => {
 
 // Helper: mock settings to return the given subscriptionType from a specific
 // source (or no source at all). The trusted-source helper in auth.ts reads
-// from policy/flag/user/local only — project and repository settings must
+// from user settings only — project, local, flag, and policy settings must
 // NOT propagate subscriptionType.
 function mockSettings(
   subscriptionType: string | undefined,
-  source: 'trusted' | 'project' | 'none' = 'trusted',
+  source: 'user' | 'project' | 'none' = 'user',
 ) {
   mock.module('./settings/settings.js', () => ({
     ...originalSettings,
     getSettings_DEPRECATED: () =>
       source === 'project'
         ? { subscriptionType } // simulates merged view including project
-        : source === 'trusted'
+        : source === 'user'
           ? { subscriptionType }
           : {},
     getSettingsForSource: (s: string) => {
@@ -36,27 +36,21 @@ function mockSettings(
           ? { subscriptionType }
           : undefined
       }
-      // trusted: only user/local/flag/policy carry the override
-      const trusted = new Set([
-        'userSettings',
-        'localSettings',
-        'flagSettings',
-        'policySettings',
-      ])
-      return trusted.has(s) ? { subscriptionType } : undefined
+      // user settings only:
+      return s === 'userSettings' ? { subscriptionType } : undefined
     },
   }))
 }
 
-test('isClaudeAISubscriber returns true if subscriptionType is pro in trusted settings', async () => {
-  mockSettings('pro', 'trusted')
+test('isClaudeAISubscriber returns true if subscriptionType is pro in user settings', async () => {
+  mockSettings('pro', 'user')
   const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
   expect(isClaudeAISubscriber()).toBe(true)
   expect(getSubscriptionType()).toBe('pro')
 })
 
-test('isClaudeAISubscriber returns false if subscriptionType is free in trusted settings', async () => {
-  mockSettings('free', 'trusted')
+test('isClaudeAISubscriber returns false if subscriptionType is free in user settings', async () => {
+  mockSettings('free', 'user')
   const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
   expect(isClaudeAISubscriber()).toBe(false)
   expect(getSubscriptionType()).toBe('free')
@@ -68,7 +62,7 @@ test('isClaudeAISubscriber returns false if subscriptionType is free in trusted 
 // test sets a fake Claude AI OAuth token that WOULD satisfy the OAuth path,
 // then asserts the free override wins.
 test('isClaudeAISubscriber returns false for free override even when OAuth tokens would qualify', async () => {
-  mockSettings('free', 'trusted')
+  mockSettings('free', 'user')
   // Plant a fake token so isAnthropicAuthEnabled() / shouldUseClaudeAIAuth()
   // would return true without the override. The override must win.
   const previousTokens = process.env.CLAUDE_AI_OAUTH_TOKEN
@@ -101,4 +95,29 @@ test('isClaudeAISubscriber ignores subscriptionType from projectSettings', async
   // isClaudeAISubscriber falls through to the OAuth path; without OAuth
   // tokens set in the test env, it should return false rather than true.
   expect(isClaudeAISubscriber()).toBe(false)
+})
+
+// P2/P3 regression: when subscriptionType is 'free', isClaudeAISubscriber() returns false
+// even if fallback auth conditions (OAuth/environment) are satisfied, and getSubscriptionType() returns 'free'.
+test("when subscriptionType is 'free', isClaudeAISubscriber() returns false even if fallback auth conditions are satisfied, and getSubscriptionType() returns 'free'", async () => {
+  mockSettings('free', 'user')
+  const previousTokens = process.env.CLAUDE_AI_OAUTH_TOKEN
+  process.env.CLAUDE_AI_OAUTH_TOKEN = JSON.stringify({
+    accessToken: 'test-fallback-access-token',
+    refreshToken: 'test-fallback-refresh-token',
+    expiresAt: Date.now() + 3600_000,
+    scopes: ['user:inference', 'user:profile'],
+    subscriptionType: 'pro',
+  })
+  try {
+    const { isClaudeAISubscriber, getSubscriptionType } = await importAuthFresh()
+    expect(isClaudeAISubscriber()).toBe(false)
+    expect(getSubscriptionType()).toBe('free')
+  } finally {
+    if (previousTokens === undefined) {
+      delete process.env.CLAUDE_AI_OAUTH_TOKEN
+    } else {
+      process.env.CLAUDE_AI_OAUTH_TOKEN = previousTokens
+    }
+  }
 })

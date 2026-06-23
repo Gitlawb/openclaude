@@ -1584,38 +1584,25 @@ async function checkAndRefreshOAuthTokenIfNeededImpl(
 }
 
 /**
- * Read subscriptionType only from trusted settings sources
- * (user/local/flag/policy). Project and repository settings are excluded
- * because they can be checked into shared repos and would otherwise let a
- * `.openclaude/settings.json` spoof subscriber state. See jatmn's P1 on #1731.
+ * Read subscriptionType only from user settings source.
+ * Project, local, flag, and policy settings are excluded.
+ * See jatmn's P1 on #1731.
  */
 function getTrustedSubscriptionType(): SubscriptionType | null {
-  // Priority order: policy > flag > user > local. Mirrors the trust
-  // boundary used by hasSkipDangerousModePermissionPrompt() and siblings.
-  const sources: Array<SettingSource> = [
-    'policySettings',
-    'flagSettings',
-    'userSettings',
-    'localSettings',
-  ]
-  for (const source of sources) {
-    const candidate = getSettingsForSource(source)?.subscriptionType
-    if (candidate) {
-      return candidate as SubscriptionType
-    }
+  const candidate = getSettingsForSource('userSettings')?.subscriptionType
+  if (candidate) {
+    return candidate as SubscriptionType
   }
   return null
 }
 
 export function isClaudeAISubscriber(): boolean {
   const override = getTrustedSubscriptionType()
+  if (override === 'free') {
+    return false
+  }
   if (override) {
-    // `free` is authoritative: an explicit "I am free" override short-circuits
-    // any OAuth-detected subscriber state. Other values affirm subscriber
-    // state without hitting the OAuth path. Fixes jatmn's P2 on #1731: prior
-    // code only short-circuited non-free values, so `subscriptionType: "free"`
-    // with otherwise-valid OAuth tokens still returned true.
-    return override !== 'free'
+    return true
   }
 
   if (!isAnthropicAuthEnabled()) {
