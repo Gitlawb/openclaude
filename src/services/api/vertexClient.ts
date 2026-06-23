@@ -219,7 +219,10 @@ export class AnthropicVertex extends BaseAnthropic {
       this.projectId = projectId
     }
 
-    options.headers = mergeHeaders(authHeaders, options.headers)
+    // Resolved Google auth headers MUST win: merge them last so a caller-supplied
+    // Authorization / x-goog-user-project can't override the Vertex credential
+    // and send the wrong token upstream. Other request headers still pass through.
+    options.headers = mergeHeaders(options.headers, authHeaders)
   }
 
   override async buildRequest(
