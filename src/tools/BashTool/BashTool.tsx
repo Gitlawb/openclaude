@@ -297,7 +297,8 @@ const outputSchema = lazySchema(() => z.object({
   noOutputExpected: z.boolean().optional().describe('Whether the command is expected to produce no output on success'),
   structuredContent: z.array(z.any()).optional().describe('Structured content blocks'),
   persistedOutputPath: z.string().optional().describe('Path to the persisted full output in tool-results dir (set when output is too large for inline)'),
-  persistedOutputSize: z.number().optional().describe('Total size of the output in bytes (set when output is too large for inline)')
+  persistedOutputSize: z.number().optional().describe('Total size of the output in bytes (set when output is too large for inline)'),
+  persistedOutputTruncated: z.boolean().optional().describe('Whether the persisted file is capped (only the first portion of the output was saved)')
 }));
 type OutputSchema = ReturnType<typeof outputSchema>;
 export type Out = z.infer<OutputSchema>;
@@ -641,7 +642,8 @@ export const BashTool = buildTool({
     assistantAutoBackgrounded,
     structuredContent,
     persistedOutputPath,
-    persistedOutputSize
+    persistedOutputSize,
+    persistedOutputTruncated
   }, toolUseID): ToolResultBlockParam {
     // Handle structured content
     if (structuredContent && structuredContent.length > 0) {
@@ -676,7 +678,8 @@ export const BashTool = buildTool({
         originalSize: persistedOutputSize ?? 0,
         isJson: false,
         preview: preview.preview,
-        hasMore: preview.hasMore
+        hasMore: preview.hasMore,
+        truncated: persistedOutputTruncated
       });
     }
     let errorMessage = normalizedStderr.trim();
@@ -863,6 +866,7 @@ export const BashTool = buildTool({
     // FileRead. If > 64 MB, truncate after copying.
     let persistedOutputPath: string | undefined;
     let persistedOutputSize: number | undefined;
+    let persistedOutputTruncated: boolean | undefined;
     if (result.outputFilePath && result.outputTaskId) {
       const persisted = await persistShellOutputFile(
         result.outputFilePath,
@@ -871,6 +875,7 @@ export const BashTool = buildTool({
       if (persisted) {
         persistedOutputPath = persisted.path;
         persistedOutputSize = persisted.size;
+        persistedOutputTruncated = persisted.truncated;
       }
     }
     const commandType = input.command.split(' ')[0];
@@ -934,7 +939,8 @@ export const BashTool = buildTool({
       assistantAutoBackgrounded: result.assistantAutoBackgrounded,
       dangerouslyDisableSandbox: 'dangerouslyDisableSandbox' in input ? input.dangerouslyDisableSandbox as boolean | undefined : undefined,
       persistedOutputPath,
-      persistedOutputSize
+      persistedOutputSize,
+      persistedOutputTruncated
     };
     return {
       data
