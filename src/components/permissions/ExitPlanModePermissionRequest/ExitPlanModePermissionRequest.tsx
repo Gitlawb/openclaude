@@ -30,7 +30,8 @@ import { type PermissionMode, toExternalPermissionMode } from '../../../utils/pe
 import type { PermissionUpdate } from '../../../utils/permissions/PermissionUpdateSchema.js';
 import { isAutoModeGateEnabled, restoreDangerousPermissions, stripDangerousPermissionsForAutoMode } from '../../../utils/permissions/permissionSetup.js';
 import { getPewterLedgerVariant, isPlanModeInterviewPhaseEnabled } from '../../../utils/planModeV2.js';
-import { getPlan, getPlanFilePath } from '../../../utils/plans.js';
+import { writeFile } from 'fs/promises';
+import { getPlan, getPlanFilePath, persistFileSnapshotIfRemote } from '../../../utils/plans.js';
 import { editFileInEditor, editPromptInEditor } from '../../../utils/promptEditor.js';
 import { getCurrentSessionTitle, getTranscriptPath, saveAgentName, saveCustomTitle } from '../../../utils/sessionStorage.js';
 import { getSettings_DEPRECATED } from '../../../utils/settings/settings.js';
@@ -337,6 +338,22 @@ export function ExitPlanModePermissionRequest({
     }
   };
   async function handleResponse(value: ResponseValue): Promise<void> {
+    if (value !== 'no' && value !== 'ultraplan' && isV2 && planFilePath) {
+      try {
+        await writeFile(planFilePath, currentPlan, 'utf-8');
+        void persistFileSnapshotIfRemote();
+      } catch (e) {
+        logError(`Failed to save plan file to ${planFilePath}: ${e}`);
+        addNotification({
+          key: 'plan-save-error',
+          text: `Failed to save plan file: ${e instanceof Error ? e.message : String(e)}`,
+          color: 'warning',
+          priority: 'high'
+        });
+        return;
+      }
+    }
+
     const trimmedFeedback = planFeedback.trim();
     const acceptFeedback = trimmedFeedback || undefined;
 
