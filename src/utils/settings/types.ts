@@ -475,7 +475,7 @@ export const SettingsSchema = lazySchema(() =>
               'Directories to include when creating worktrees, via git sparse-checkout (cone mode). ' +
                 'Dramatically faster in large monorepos — only the listed paths are written to disk.',
             ),
-          enableGitLongPaths: z
+          autoConfigureLongPaths: z
             .boolean()
             .optional()
             .describe(

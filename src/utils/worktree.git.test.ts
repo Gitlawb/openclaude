@@ -1,10 +1,51 @@
-import { expect, mock, test } from 'bun:test'
+import { expect, mock, test, afterEach } from 'bun:test'
+
+import * as realPlatform from './platform.js'
+import * as realSettings from './settings/settings.js'
+import * as realExecFileNoThrow from './execFileNoThrow.js'
+import * as realGitFilesystem from './git/gitFilesystem.js'
+import * as realGit from './git.js'
+import * as realDebug from './debug.js'
+import * as realConfig from './config.js'
+import * as realErrors from './errors.js'
+import * as realCwd from './cwd.js'
+import * as realPath from './path.js'
+import * as realSleep from './sleep.js'
+import * as realHooks from './hooks.js'
+import * as realSwarmBackendsDetection from './swarm/backends/detection.js'
+import * as realFsPromises from 'fs/promises'
+import * as realIgnore from 'ignore'
+import * as realChildProcess from 'child_process'
+import * as realChalk from 'chalk'
+
 
 /**
  * Each test in this file sets up mock.module mocks before dynamically importing
  * `./worktree.js` with a unique cache-busting query param. This keeps mocks
  * isolated per test even though mock.module is process-global in Bun.
  */
+
+afterEach(() => {
+  mock.restore()
+  mock.module('./platform.js', () => realPlatform)
+  mock.module('./settings/settings.js', () => realSettings)
+  mock.module('./execFileNoThrow.js', () => realExecFileNoThrow)
+  mock.module('./git/gitFilesystem.js', () => realGitFilesystem)
+  mock.module('./git.js', () => realGit)
+  mock.module('./debug.js', () => realDebug)
+  mock.module('./config.js', () => realConfig)
+  mock.module('./errors.js', () => realErrors)
+  mock.module('./cwd.js', () => realCwd)
+  mock.module('./path.js', () => realPath)
+  mock.module('./sleep.js', () => realSleep)
+  mock.module('./hooks.js', () => realHooks)
+  mock.module('./swarm/backends/detection.js', () => realSwarmBackendsDetection)
+  mock.module('fs/promises', () => realFsPromises)
+  mock.module('ignore', () => realIgnore)
+  mock.module('child_process', () => realChildProcess)
+  mock.module('chalk', () => realChalk)
+})
+
 let importCounter = 0
 
 async function importTestModule(mocks: Record<string, () => object>) {
@@ -58,10 +99,10 @@ function makeExecNoThrowMock(custom: object) {
 }
 
 // ---------------------------------------------------------------------------
-// enableGitLongPathsForWorktrees — setting gating
+// autoConfigureLongPathsForWorktrees — setting gating
 // ---------------------------------------------------------------------------
 
-test('enableGitLongPaths applies core.longpaths on Windows when setting is unset (default on)', async () => {
+test('autoConfigureLongPaths applies core.longpaths on Windows when setting is unset (default on)', async () => {
   const execMock = mock(
     async (_exe: string, _args: string[], _opts?: object) => ({
       code: 0,
@@ -82,7 +123,7 @@ test('enableGitLongPaths applies core.longpaths on Windows when setting is unset
     './execFileNoThrow.js': () => makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
   })
 
-  await _test.enableGitLongPathsForWorktrees('/repo')
+  await _test.autoConfigureLongPathsForWorktrees('/repo')
 
   expect(execMock).toHaveBeenCalledTimes(1)
   expect(execMock).toHaveBeenCalledWith(
@@ -92,7 +133,7 @@ test('enableGitLongPaths applies core.longpaths on Windows when setting is unset
   )
 })
 
-test('enableGitLongPaths skips core.longpaths on Windows when setting is false', async () => {
+test('autoConfigureLongPaths skips core.longpaths on Windows when setting is false', async () => {
   const execMock = mock(
     async (_exe: string, _args: string[], _opts?: object) => ({
       code: 0,
@@ -112,17 +153,17 @@ test('enableGitLongPaths skips core.longpaths on Windows when setting is false',
     './settings/settings.js': () =>
       makeSettingsMock({
         getInitialSettings: () => ({
-          worktree: { enableGitLongPaths: false },
+          worktree: { autoConfigureLongPaths: false },
         }),
       }),
     './execFileNoThrow.js': () => makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
   })
 
-  await _test.enableGitLongPathsForWorktrees('/repo')
+  await _test.autoConfigureLongPathsForWorktrees('/repo')
   expect(execMock).not.toHaveBeenCalled()
 })
 
-test('enableGitLongPaths skips core.longpaths on non-Windows', async () => {
+test('autoConfigureLongPaths skips core.longpaths on non-Windows', async () => {
   const execMock = mock(
     async (_exe: string, _args: string[], _opts?: object) => ({
       code: 0,
@@ -143,7 +184,7 @@ test('enableGitLongPaths skips core.longpaths on non-Windows', async () => {
     './execFileNoThrow.js': () => makeExecNoThrowMock({ execFileNoThrowWithCwd: execMock }),
   })
 
-  await _test.enableGitLongPathsForWorktrees('/repo')
+  await _test.autoConfigureLongPathsForWorktrees('/repo')
   expect(execMock).not.toHaveBeenCalled()
 })
 

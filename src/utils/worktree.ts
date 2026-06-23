@@ -286,13 +286,13 @@ function worktreePathFor(repoRoot: string, slug: string): string {
  * repository and is required before creating the worktree, not after Git has
  * already attempted the checkout.
  */
-async function enableGitLongPathsForWorktrees(repoRoot: string): Promise<void> {
+async function autoConfigureLongPathsForWorktrees(repoRoot: string): Promise<void> {
   if (getPlatform() !== 'windows') {
     return
   }
 
   const settings = getInitialSettings().worktree
-  if (settings?.enableGitLongPaths === false) {
+  if (settings?.autoConfigureLongPaths === false) {
     return
   }
 
@@ -359,7 +359,7 @@ async function getOrCreateWorktree(
 
     // New worktree: fetch base branch then add
     await mkdir(worktreesDir(repoRoot), { recursive: true })
-    await enableGitLongPathsForWorktrees(repoRoot)
+    await autoConfigureLongPathsForWorktrees(repoRoot)
 
     const fetchEnv = { ...process.env, ...GIT_NO_PROMPT_ENV }
 
@@ -1642,5 +1642,5 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
 /** @private exported for testing only */
 export const _test = {
   getOrCreateWorktree,
-  enableGitLongPathsForWorktrees,
+  autoConfigureLongPathsForWorktrees,
 }
