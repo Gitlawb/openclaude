@@ -29,15 +29,15 @@ function mockSettings(
           ? { subscriptionType }
           : {},
     getSettingsForSource: (s: string) => {
-      if (source === 'none') return undefined
+      if (source === 'none') return null
       if (source === 'project') {
         // projectSettings/repoSettings are untrusted and must be ignored
         return s === 'projectSettings' || s === 'repositorySettings'
           ? { subscriptionType }
-          : undefined
+          : null
       }
       // user settings only:
-      return s === 'userSettings' ? { subscriptionType } : undefined
+      return s === 'userSettings' ? { subscriptionType } : null
     },
   }))
 }

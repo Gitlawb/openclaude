@@ -69,7 +69,6 @@ import {
   getMacOsKeychainStorageServiceName,
   getUsername,
 } from './secureStorage/macOsKeychainHelpers.js'
-import { type SettingSource } from './settings/constants.js'
 import {
   getSettings_DEPRECATED,
   getSettingsForSource,
