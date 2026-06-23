@@ -569,6 +569,7 @@ describe('background session log streaming', () => {
       },
     }
 
+    let resolved = false
     const following = followLogFile('/tmp/stdout.log', 0, {
       output,
       chunkSize: 4,
@@ -576,19 +577,61 @@ describe('background session log streaming', () => {
       setInterval: scheduler.setInterval,
       clearInterval: scheduler.clearInterval,
       openFile: async () => handle,
+    }).then(() => {
+      resolved = true
     })
 
     scheduler.tick()
     await readStarted.promise
     abort.abort()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(resolved).toBe(false)
     releaseRead.resolve()
     await following
-    await waitFor(() => closed)
     scheduler.tick()
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(scheduler.cleared).toBe(true)
+    expect(closed).toBe(true)
     expect(output.bytes().length).toBe(0)
+  })
+
+  it('preserves streamed progress when a later close failure occurs', async () => {
+    const output = new TestOutput()
+    const scheduler = createManualScheduler()
+    const abort = new AbortController()
+    let openCount = 0
+
+    const following = followLogFile('/tmp/stdout.log', 0, {
+      output,
+      chunkSize: 4,
+      signal: abort.signal,
+      setInterval: scheduler.setInterval,
+      clearInterval: scheduler.clearInterval,
+      openFile: async () => {
+        openCount++
+        return {
+          stat: async () => ({ size: 4 }),
+          read: async (buffer: Buffer) => {
+            buffer.write('once')
+            return { bytesRead: 4 }
+          },
+          close: async () => {
+            if (openCount === 1) throw new Error('close failed')
+          },
+        }
+      },
+    })
+
+    scheduler.tick()
+    await waitFor(() => output.bytes().toString() === 'once')
+    scheduler.tick()
+    await waitFor(() => openCount === 2)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    abort.abort()
+    await following
+
+    expect(output.bytes().toString()).toBe('once')
   })
 
   it('handles EPIPE and destroyed stdout without throwing', async () => {

@@ -534,12 +534,13 @@ async function streamLogRange(
       throw new Error('Log stream buffer factory returned a short buffer')
     }
 
-    const { bytesRead } = await handle.read(
-      buffer,
-      0,
-      bytesToRead,
-      position,
-    )
+    let bytesRead: number
+    try {
+      const readResult = await handle.read(buffer, 0, bytesToRead, position)
+      bytesRead = readResult.bytesRead
+    } catch {
+      return { position, outputOpen: true }
+    }
     if (bytesRead <= 0) break
     if (options.signal?.aborted) return { position, outputOpen: false }
 
@@ -559,19 +560,27 @@ async function streamLogSnapshot(
   offset: number,
   options: StreamLogOptions,
 ): Promise<StreamLogResult> {
+  let handle: LogFileHandle
   try {
-    const handle = await (options.openFile ?? open)(path, 'r')
-    try {
-      const { size } = await handle.stat()
-      const start = size < offset ? 0 : offset
-      if (size <= start) return { position: start, outputOpen: true }
-      return await streamLogRange(handle, start, size, options)
-    } finally {
-      await handle.close()
-    }
+    handle = await (options.openFile ?? open)(path, 'r')
   } catch {
     // Keep following; the child may create or rotate the file later.
     return { position: offset, outputOpen: true }
+  }
+
+  let result: StreamLogResult = { position: offset, outputOpen: true }
+  try {
+    const { size } = await handle.stat()
+    const start = size < offset ? 0 : offset
+    result =
+      size <= start
+        ? { position: start, outputOpen: true }
+        : await streamLogRange(handle, start, size, options)
+    return result
+  } catch {
+    return result
+  } finally {
+    await handle.close().catch(() => undefined)
   }
 }
 
@@ -594,6 +603,7 @@ export async function followLogFile(
   let reading = false
   let stopped = false
   let timer: LogFollowTimer | undefined
+  let activePoll: Promise<void> | undefined
 
   await new Promise<void>(resolve => {
     const cleanup = () => {
@@ -604,13 +614,18 @@ export async function followLogFile(
       process.off('SIGINT', cleanup)
       process.off('SIGTERM', cleanup)
       options.signal?.removeEventListener('abort', cleanup)
-      resolve()
+      const pendingPoll = activePoll
+      if (pendingPoll) {
+        void pendingPoll.finally(resolve)
+      } else {
+        resolve()
+      }
     }
 
     const poll = () => {
       if (stopped || reading) return
       reading = true
-      void (async () => {
+      const pollPromise = (async () => {
         try {
           const result = await streamLogSnapshot(path, position, {
             ...options,
@@ -623,6 +638,10 @@ export async function followLogFile(
           reading = false
         }
       })()
+      activePoll = pollPromise
+      void pollPromise.finally(() => {
+        if (activePoll === pollPromise) activePoll = undefined
+      })
     }
 
     process.once('SIGINT', cleanup)
