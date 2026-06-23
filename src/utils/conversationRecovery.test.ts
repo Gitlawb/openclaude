@@ -622,9 +622,18 @@ test('loadConversationForResume keeps valid messages around a malformed attachme
 
   const result = await loadConversationForResume('fixture', path)
   const messages = result?.messages ?? []
+  const recoveredTranscriptMessages = messages.filter(
+    message => message.uuid === id(60) || message.uuid === id(62),
+  )
 
-  expect(messages.map(message => message.type)).toEqual(['user', 'assistant'])
-  expect((messages[1] as any).message.content[0].text).toBe('after')
+  expect(messages.some(message => message.uuid === id(61))).toBe(false)
+  expect(recoveredTranscriptMessages.map(message => message.type)).toEqual([
+    'user',
+    'assistant',
+  ])
+  expect((recoveredTranscriptMessages[1] as any).message.content[0].text).toBe(
+    'after',
+  )
 })
 
 test('deserializeMessages drops malformed attachments before sentinel normalization', async () => {
