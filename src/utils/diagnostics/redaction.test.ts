@@ -196,7 +196,12 @@ describe('logForDebugging', () => {
     debug.setHasFormattedOutput(true)
   })
 
+  let originalDebug: string | undefined
+  let originalArgv: string[]
+
   beforeEach(() => {
+    originalDebug = process.env.DEBUG
+    originalArgv = [...process.argv]
     process.env.DEBUG = '1'
     // Route output through writeToStderr so the mock captures it.
     if (!process.argv.includes('--debug-to-stderr')) {
@@ -205,8 +210,12 @@ describe('logForDebugging', () => {
   })
 
   afterEach(() => {
-    delete process.env.DEBUG
-    process.argv = process.argv.filter(a => a !== '--debug-to-stderr')
+    if (originalDebug === undefined) {
+      delete process.env.DEBUG
+    } else {
+      process.env.DEBUG = originalDebug
+    }
+    process.argv = originalArgv
   })
 
   test('redacts multiline PEM private key from debug output', async () => {
