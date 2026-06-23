@@ -40,7 +40,10 @@ import { logForDebugging } from '../../utils/debug.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
-import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
+import {
+  hydrateGithubModelsTokenFromSecureStorage,
+  refreshCopilotTokenOn401,
+} from '../../utils/githubModelsCredentials.js'
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
@@ -3002,7 +3005,7 @@ class OpenAIShimMessages {
       const authValue =
         explicitCustomAuthHeaderValue ||
         credentialLease?.value ||
-        (credentialPool ? '' : singleAuthValue)
+        (credentialPool ? '' : refreshedCopilotToken || singleAuthValue)
 
       if (authValue) {
         if (hasCustomAuthHeader && customAuthHeader) {
@@ -3100,6 +3103,8 @@ class OpenAIShimMessages {
     let requestUrl = buildRequestUrl(activeBaseUrl)
     const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
     let didRetryWithoutTools = false
+    let didRefreshCopilotToken = false
+    let refreshedCopilotToken: string | undefined
 
     const promoteNextLocalBaseUrl = (
       reason: 'endpoint_not_found' | 'localhost_resolution_failed',
@@ -3443,6 +3448,29 @@ class OpenAIShimMessages {
         body: errorBody,
         hasImages: bodyContainsImages(),
       })
+
+      // GitHub Copilot 401 with expired token: force-refresh and retry once.
+      // Only applies to the Copilot endpoint, not GitHub Models API or custom
+      // routes, and only when the failing credential is the stored Copilot
+      // token (not a provider override, route credential, or custom auth).
+      // The refreshed token is stored in refreshedCopilotToken so the next
+      // iteration's buildHeadersForAttempt picks it up instead of the stale
+      // singleAuthValue captured before the loop.
+      if (isGithubCopilot && response.status === 401 && !didRefreshCopilotToken) {
+        const lowerBody = errorBody.toLowerCase()
+        if (lowerBody.includes('token expired') || lowerBody.includes('token has expired')) {
+          didRefreshCopilotToken = true
+          const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
+          const refreshed = await refreshCopilotTokenOn401()
+          if (refreshed) {
+            const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
+            if (newApiKey && newApiKey !== oldToken) {
+              refreshedCopilotToken = newApiKey
+            }
+            continue
+          }
+        }
+      }
 
       const credentialFailureKind =
         failure.category === 'auth_invalid' && !failure.retryable
