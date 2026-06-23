@@ -55,6 +55,7 @@ export default defineVendor({
       { id: 'moonshotai/Kimi-K2-Thinking', apiName: 'moonshotai/Kimi-K2-Thinking', label: 'Kimi K2 Thinking', contextWindow: 262_144 },
       { id: 'moonshotai/Kimi-K2-Instruct-0905', apiName: 'moonshotai/Kimi-K2-Instruct-0905', label: 'Kimi K2 Instruct 0905', contextWindow: 262_144 },
       { id: 'moonshotai/Kimi-K2-Instruct', apiName: 'moonshotai/Kimi-K2-Instruct', label: 'Kimi K2 Instruct', contextWindow: 131_072 },
+      { id: 'zai-org/glm-5.2', apiName: 'zai-org/glm-5.2', label: 'GLM 5.2', contextWindow: 202_752 },
       { id: 'zai-org/glm-5.1', apiName: 'zai-org/glm-5.1', label: 'GLM 5.1', contextWindow: 202_752 },
       { id: 'zai-org/glm-5', apiName: 'zai-org/glm-5', label: 'GLM 5', contextWindow: 202_752 },
       { id: 'zai-org/glm-5-turbo', apiName: 'zai-org/glm-5-turbo', label: 'GLM 5 Turbo', contextWindow: 262_144 },
