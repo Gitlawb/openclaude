@@ -30,7 +30,6 @@
   ],
   "ignoreDependencies": [
     "@types/bun",
-    "@anthropic-ai/foundry-sdk",
-    "@anthropic-ai/vertex-sdk"
+    "@anthropic-ai/foundry-sdk"
   ]
 }

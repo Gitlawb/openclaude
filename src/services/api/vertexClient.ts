@@ -6,6 +6,12 @@ const MODEL_ENDPOINTS = new Set(['/v1/messages', '/v1/messages?beta=true'])
 
 type VertexAuthHeaders = HeadersInit | Record<string, string | undefined>
 
+// The base client passes its already-parsed request headers into prepareOptions
+// (HeadersLike, which includes the internal NullableHeaders wrapper). Accept
+// that shape in the merge helpers in addition to the google-auth header shapes
+// so the types line up with what the SDK actually hands us.
+type RequestHeaders = Parameters<BaseAnthropic['prepareOptions']>[0]['headers']
+
 type VertexAuthClient = {
   projectId?: string | null
   getRequestHeaders: () => VertexAuthHeaders | Promise<VertexAuthHeaders>
@@ -42,7 +48,10 @@ function setHeader(
   }
 }
 
-function appendHeaders(target: Headers, source: VertexAuthHeaders | undefined): void {
+function appendHeaders(
+  target: Headers,
+  source: VertexAuthHeaders | RequestHeaders,
+): void {
   if (!source) {
     return
   }
@@ -52,19 +61,45 @@ function appendHeaders(target: Headers, source: VertexAuthHeaders | undefined): 
     return
   }
 
+  // NullableHeaders (the base client's parsed request headers):
+  // { values: Headers, nulls: Set<string> } — copy values, honor explicit unsets.
+  if (
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    'values' in source &&
+    source.values instanceof Headers
+  ) {
+    source.values.forEach((value, key) => target.set(key, value))
+    const nulls = (source as { nulls?: unknown }).nulls
+    if (nulls instanceof Set) {
+      for (const key of nulls as Set<string>) {
+        target.delete(key)
+      }
+    }
+    return
+  }
+
   if (Array.isArray(source)) {
     for (const [key, value] of source) {
-      target.set(key, value)
+      setHeader(target, key as string, value as string | undefined | null)
     }
     return
   }
 
   for (const [key, value] of Object.entries(source)) {
-    setHeader(target, key, value)
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        setHeader(target, key, v as string | undefined | null)
+      }
+    } else {
+      setHeader(target, key, value as string | undefined | null)
+    }
   }
 }
 
-function mergeHeaders(...sources: (VertexAuthHeaders | undefined)[]): Headers {
+function mergeHeaders(
+  ...sources: (VertexAuthHeaders | RequestHeaders)[]
+): Headers {
   const headers = new Headers()
   for (const source of sources) {
     appendHeaders(headers, source)
@@ -100,6 +135,11 @@ function getHeaderValue(
 }
 
 export class AnthropicVertex extends BaseAnthropic {
+  // Re-declare the resource surface that the upstream @anthropic-ai/vertex-sdk
+  // client exposed. BaseAnthropic does not declare these, so typed consumers
+  // (client.ts, the SDK calling `.messages`) would otherwise lose the types.
+  messages: Resources.Messages
+  beta: Resources.Beta
   region: string
   projectId: string | null
   accessToken: string | null
