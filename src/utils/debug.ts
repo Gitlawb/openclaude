@@ -214,13 +214,15 @@ export function logForDebugging(
     return
   }
 
+  // Strip credentials from debug logs before JSON formatting, so the
+  // redactor sees the raw (unescaped) message and can match patterns
+  // like private_key / PEM blocks that JSON encoding would obscure.
+  message = redactSensitiveInfo(message)
+
   // Multiline messages break the jsonl output format, so make any multiline messages JSON.
   if (hasFormattedOutput && message.includes('\n')) {
     message = jsonStringify(message)
   }
-  // Strip credentials from debug logs so a leaked token cannot end up in the
-  // debug file that ships in bug reports. Single call, no per-call allocation.
-  message = redactSensitiveInfo(message)
   const timestamp = new Date().toISOString()
   const output = `${timestamp} [${level.toUpperCase()}] ${message.trim()}\n`
   if (isDebugToStdErr()) {
