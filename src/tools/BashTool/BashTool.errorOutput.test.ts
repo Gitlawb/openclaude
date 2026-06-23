@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync, readFileSync, rmSync } from 'fs'
 import {
   BashTool,
   appendPersistedOutputHint,
@@ -81,17 +82,37 @@ describe('BashTool error output (#1231)', () => {
     // Generate ~50k bytes (well above BASH_MAX_OUTPUT_DEFAULT=30000) then
     // exit non-zero. The shell's rolling-file path engages once the in-memory
     // accumulator exceeds the cap.
-    const err = await expectShellError(
-      `for i in $(seq 1 700); do printf 'line %04d %s\\n' "$i" "padding-to-make-this-line-fat-enough-to-cross-the-limit"; done; exit 1`,
-    )
-    expect(err.code).toBe(1)
-    const formatted = formatError(err)
-    expect(formatted).toContain('Exit code 1')
-    // The marker tells the model the full output is on disk along with the
-    // byte count. We don't pin the exact path (it's a temp dir) but we do
-    // require the canonical phrasing so the model's prompt template can
-    // anchor on it.
-    expect(formatted).toMatch(/full output \(\d+ bytes\) saved to .+; read with the Read tool/)
+    let persistedPath: string | undefined
+    try {
+      const err = await expectShellError(
+        `for i in $(seq 1 700); do printf 'line %04d %s\\n' "$i" "padding-to-make-this-line-fat-enough-to-cross-the-limit"; done; exit 1`,
+      )
+      expect(err.code).toBe(1)
+      const formatted = formatError(err)
+      expect(formatted).toContain('Exit code 1')
+      // The marker tells the model the full output is on disk along with the
+      // byte count. We don't pin the exact path (it's a temp dir) but we do
+      // require the canonical phrasing so the model's prompt template can
+      // anchor on it.
+      const match = formatted.match(
+        /full output \(\d+ bytes\) saved to (.+); read with the Read tool/,
+      )
+      expect(match).not.toBeNull()
+      persistedPath = match?.[1]
+      expect(persistedPath).toBeDefined()
+
+      // The saved file must actually be readable and contain the late output
+      // that #1359 needs the model to recover — i.e. the tail line, which the
+      // truncated in-memory chunk dropped.
+      expect(existsSync(persistedPath!)).toBe(true)
+      const saved = readFileSync(persistedPath!, 'utf8')
+      expect(saved).toContain('line 0700')
+    } finally {
+      // Don't leave tool-results artifacts under the real project storage.
+      if (persistedPath && existsSync(persistedPath)) {
+        rmSync(persistedPath, { force: true })
+      }
+    }
   })
 
   // Follow-up to #1359 — persistShellOutputFile caps the saved roll file at

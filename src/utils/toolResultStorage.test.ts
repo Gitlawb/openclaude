@@ -3,8 +3,30 @@ import { expect, test } from 'bun:test'
 import { createUserMessage } from './messages.ts'
 import {
   applyToolResultReplacementsToMessages,
+  buildLargeToolResultMessage,
   filterContentReplacementsForMessages,
 } from './toolResultStorage.ts'
+
+const baseResult = {
+  filepath: '/tmp/tool-results/abc.txt',
+  originalSize: 100_000,
+  isJson: false,
+  preview: 'first chunk',
+  hasMore: true,
+}
+
+test('buildLargeToolResultMessage says "Full output" when the file is complete', () => {
+  const message = buildLargeToolResultMessage(baseResult)
+  expect(message).toContain('Full output saved to: /tmp/tool-results/abc.txt')
+  expect(message).not.toContain('capped')
+})
+
+test('buildLargeToolResultMessage avoids "Full output" wording when the file was capped', () => {
+  const message = buildLargeToolResultMessage({ ...baseResult, truncated: true })
+  expect(message).not.toContain('Full output')
+  expect(message).toContain('Partial output saved to: /tmp/tool-results/abc.txt')
+  expect(message).toContain('capped')
+})
 
 test('applyToolResultReplacementsToMessages replaces matching tool results and preserves unrelated messages', () => {
   const unrelated = createUserMessage({ content: 'keep me' })
