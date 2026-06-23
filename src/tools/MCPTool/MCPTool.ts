@@ -41,8 +41,8 @@ export type Output = z.infer<OutputSchema>
 // Re-export MCPProgress from centralized types to break import cycles
 export type { MCPProgress } from '../../types/tools.js'
 
-const draft7Ajv = new Ajv({ strict: false })
-const draft202012Ajv = new Ajv2020({ strict: false })
+const draft7Ajv = new Ajv({ strict: false, validateSchema: false })
+const draft202012Ajv = new Ajv2020({ strict: false, validateSchema: false })
 
 type CompiledValidator = {
   validate: ValidateFunction

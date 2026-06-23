@@ -1,4 +1,4 @@
-import { Ajv } from 'ajv'
+import Ajv2020 from 'ajv/dist/2020.js'
 import { z } from 'zod/v4'
 import type { Tool, ToolInputJSONSchema } from '../../Tool.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
@@ -155,7 +155,7 @@ function buildSyntheticOutputTool(
   jsonSchema: Record<string, unknown>,
 ): CreateResult {
   try {
-    const ajv = new Ajv({ allErrors: true })
+    const ajv = new Ajv2020({ allErrors: true })
     const isValidSchema = ajv.validateSchema(jsonSchema)
     if (!isValidSchema) {
       return { error: ajv.errorsText(ajv.errors) }
