@@ -123,7 +123,7 @@
     "react-reconciler": "0.33.0",
     "semver": "7.7.4",
     "sharp": "^0.34.5",
-    "shell-quote": "1.8.3",
+    "shell-quote": "1.8.4",
     "signal-exit": "4.1.0",
     "supports-hyperlinks": "3.2.0",
     "tree-kill": "1.2.2",
