@@ -36,6 +36,7 @@ const ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
+  'CLOUDFLARE_API_TOKEN',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ]
@@ -72,6 +73,7 @@ const RESET_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
+  'CLOUDFLARE_API_TOKEN',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ] as const
@@ -160,6 +162,28 @@ describe('applyProviderFlag - openai', () => {
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+  })
+})
+
+describe('applyProviderFlag - cloudflare', () => {
+  test('does not seed the placeholder <ACCOUNT_ID> base URL', () => {
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    const result = applyProviderFlag('cloudflare', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    // The descriptor default contains an unresolved `<ACCOUNT_ID>` placeholder;
+    // it must not be installed verbatim as a broken endpoint.
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  })
+
+  test('keeps a real account-scoped base URL the user already configured', () => {
+    process.env.CLOUDFLARE_API_TOKEN = 'cf-token'
+    process.env.OPENAI_BASE_URL =
+      'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1'
+    applyProviderFlag('cloudflare', [])
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.cloudflare.com/client/v4/accounts/real123/ai/v1',
+    )
   })
 })
 

@@ -189,9 +189,26 @@ function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
   )
 }
 
+// Descriptor defaults can carry an unresolved `<...>` placeholder that the user
+// must replace before the endpoint works — e.g. Cloudflare Workers AI's
+// `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`. Seeding it
+// verbatim would leave the shortcut "configured" with an endpoint that cannot
+// serve a single request.
+function isPlaceholderBaseUrl(baseUrl: string): boolean {
+  return /<[^>]+>/.test(baseUrl)
+}
+
 function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   const normalizedBaseUrl = baseUrl?.trim()
   if (!normalizedBaseUrl) {
+    return
+  }
+
+  // Never seed an unresolved placeholder endpoint. The user must supply a real
+  // base URL (via `OPENAI_BASE_URL` or the `/provider` baseUrl edit) first; the
+  // `/provider` wizard treats such defaults as requiring explicit setup, and
+  // the CLI shortcut should not silently install a broken endpoint.
+  if (isPlaceholderBaseUrl(normalizedBaseUrl)) {
     return
   }
 
