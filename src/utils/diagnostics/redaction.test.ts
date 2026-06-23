@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { homedir } from 'node:os'
 import { getKnownProviderSecretEnvKeys } from '../providerSecrets.js'
 import {
@@ -9,6 +9,18 @@ import {
   redactSensitiveInfo,
   summarizeSecretEnvPresence,
 } from '../redaction.js'
+
+const writeToStderrMock = mock((data: string) => {})
+let capturedStderr = ''
+beforeEach(() => {
+  capturedStderr = ''
+  writeToStderrMock.mockImplementation((data: string) => {
+    capturedStderr += data
+  })
+})
+mock.module('../process.js', () => ({
+  writeToStderr: writeToStderrMock,
+}))
 
 describe('diagnostic redaction', () => {
   test('collects every known provider secret env var from the centralized registry', () => {
@@ -174,5 +186,43 @@ describe('redactSensitiveInfo', () => {
     const jsonFormatted = JSON.stringify(redacted)
 
     expect(jsonFormatted).toBe('"private_key: [REDACTED]"')
+  })
+})
+
+describe('logForDebugging', () => {
+  beforeAll(async () => {
+    // Dynamic import so mock.module takes effect before debug.ts loads process.js
+    const debug = await import('../debug.js')
+    debug.setHasFormattedOutput(true)
+  })
+
+  beforeEach(() => {
+    process.env.DEBUG = '1'
+    // Route output through writeToStderr so the mock captures it.
+    if (!process.argv.includes('--debug-to-stderr')) {
+      process.argv.push('--debug-to-stderr')
+    }
+  })
+
+  afterEach(() => {
+    delete process.env.DEBUG
+    process.argv = process.argv.filter(a => a !== '--debug-to-stderr')
+  })
+
+  test('redacts multiline PEM private key from debug output', async () => {
+    const debug = await import('../debug.js')
+
+    const multiline = [
+      'private_key: -----BEGIN RSA PRIVATE KEY-----',
+      'FAKE_SECRET_BODY',
+      '-----END RSA PRIVATE KEY-----',
+    ].join('\n')
+
+    debug.logForDebugging(multiline)
+
+    expect(capturedStderr).toContain('private_key: [REDACTED]')
+    expect(capturedStderr).not.toContain('FAKE_SECRET_BODY')
+    expect(capturedStderr).not.toContain('BEGIN RSA PRIVATE KEY')
+    expect(capturedStderr).not.toContain('END RSA PRIVATE KEY')
   })
 })
