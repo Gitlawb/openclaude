@@ -34,6 +34,108 @@ describe('background session CLI parsing', () => {
     ])
   })
 
+  it('preserves provider env-file values before the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--provider-env-file',
+      '.env',
+      'fix failing tests',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--provider-env-file',
+      '.env',
+      '--print',
+      'fix failing tests',
+    ])
+  })
+
+  it('preserves provider env-file values after the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env',
+    ])
+  })
+
+  it('preserves repeated provider env-file values while finding the prompt', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--provider-env-file',
+      '.env.local',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env.ci',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--provider-env-file',
+      '.env.local',
+      '--print',
+      'fix failing tests',
+      '--provider-env-file',
+      '.env.ci',
+    ])
+  })
+
+  it('preserves inline provider env-file values', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      'fix failing tests',
+      '--provider-env-file=.env',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      'fix failing tests',
+      '--provider-env-file=.env',
+    ])
+  })
+
+  it('preserves provider env-file paths containing spaces', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      'fix failing tests',
+      '--provider-env-file',
+      'config files/provider.env',
+    ])
+
+    expect(parsed.prompt).toBe('fix failing tests')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      'fix failing tests',
+      '--provider-env-file',
+      'config files/provider.env',
+    ])
+  })
+
+  it('keeps provider env-file-looking prompts after -- positional', () => {
+    const parsed = parseBackgroundInvocation([
+      '--bg',
+      '--',
+      '--provider-env-file=.env',
+    ])
+
+    expect(parsed.prompt).toBe('--provider-env-file=.env')
+    expect(parsed.childArgs).toEqual([
+      '--print',
+      '--',
+      '--provider-env-file=.env',
+    ])
+  })
+
   it('does not duplicate --print when the user already passed it', () => {
     const parsed = parseBackgroundInvocation([
       '--background',
