@@ -1004,19 +1004,28 @@ export function addProviderProfile(
     const currentProfiles = getProviderProfiles(current)
     const nextProfiles = [...currentProfiles, profile]
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
-    // Resolve the *effective* active state the same way getActiveProviderProfile
-    // does: an unset id with saved profiles implicitly means the first profile,
-    // not "no active profile". Adding a profile with makeActive:false must not
-    // silently switch a user — whether they are on built-in Anthropic (sentinel),
-    // an explicit profile, or the implicit first profile — over to the new one
-    // (#1426).
-    const hasEffectiveActive =
-      currentActive === ANTHROPIC_DEFAULT_PROFILE_ID ||
-      (currentActive
-        ? nextProfiles.some(p => p.id === currentActive)
-        : currentProfiles.length > 0)
+    // Resolve the *effective* active id the same way getActiveProviderProfile
+    // does, so adding a profile with makeActive:false preserves whatever is
+    // actually active now rather than silently switching the user (#1426):
+    //   - Anthropic sentinel               -> built-in Anthropic (keep sentinel)
+    //   - explicit id for a saved profile  -> that profile
+    //   - stale or unset id with profiles  -> implicit first profile
+    //   - no saved profiles                -> nothing active yet
+    // The stale-id case matters: getActiveProviderProfile() falls back to
+    // profiles[0] for an id whose profile was deleted, so makeActive:false must
+    // keep profiles[0] and not promote the newly added profile.
+    let effectiveActiveId: string | undefined
+    if (currentActive === ANTHROPIC_DEFAULT_PROFILE_ID) {
+      effectiveActiveId = ANTHROPIC_DEFAULT_PROFILE_ID
+    } else if (currentActive && currentProfiles.some(p => p.id === currentActive)) {
+      effectiveActiveId = currentActive
+    } else if (currentProfiles.length > 0) {
+      effectiveActiveId = currentProfiles[0].id
+    } else {
+      effectiveActiveId = undefined
+    }
     const nextActiveId =
-      makeActive || !hasEffectiveActive ? profile.id : currentActive
+      makeActive || effectiveActiveId === undefined ? profile.id : effectiveActiveId
 
     return {
       ...current,

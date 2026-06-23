@@ -121,6 +121,28 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
 }
 
 /**
+ * Undo {@link hydrateGithubModelsTokenFromSecureStorage} for the current
+ * session: drop a `GITHUB_TOKEN` that was hydrated from secure storage along
+ * with its marker. A user-supplied `GITHUB_TOKEN` — one that does not match the
+ * stored credential — is preserved. No-op when the hydration marker is absent.
+ *
+ * `storedToken` is the secure-storage credential, passed in so callers control
+ * whether it is read before or after they clear it (the delete path reads it
+ * before clearing; the switch-to-Anthropic path leaves it in place).
+ */
+export function clearHydratedGithubModelsTokenFromEnv(storedToken?: string): void {
+  if (process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] !== '1') {
+    return
+  }
+  const normalizedStored = storedToken?.trim()
+  const sessionToken = process.env.GITHUB_TOKEN?.trim()
+  if (sessionToken && (!normalizedStored || sessionToken === normalizedStored)) {
+    delete process.env.GITHUB_TOKEN
+  }
+  delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+}
+
+/**
  * Startup auto-refresh for GitHub Models mode.
  *
  * If a stored Copilot token is expired/invalid and an OAuth token is present,

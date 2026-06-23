@@ -64,6 +64,7 @@ import {
 import { getDefaultMainLoopModelSetting } from '../utils/model/model.js'
 import {
   clearGithubModelsToken,
+  clearHydratedGithubModelsTokenFromEnv,
   GITHUB_MODELS_HYDRATED_ENV_MARKER,
   hydrateGithubModelsTokenFromSecureStorage,
   readGithubModelsToken,
@@ -1233,6 +1234,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // startup no longer replays a third-party profile, and keeps saved
         // profiles for later re-selection (#1426).
         clearActiveProviderProfile()
+        // clearActiveProviderProfile clears the managed provider flags (e.g.
+        // CLAUDE_CODE_USE_GITHUB) but not a GitHub Models token hydrated into the
+        // session from secure storage. Drop that hydrated token + marker so the
+        // built-in Anthropic session does not keep a GitHub credential around,
+        // mirroring the GitHub delete path; a user-supplied token is preserved.
+        clearHydratedGithubModelsTokenFromEnv(readGithubModelsToken())
         // Clear any startup provider override persisted in user settings
         // (CLAUDE_CODE_USE_OPENAI, OPENAI_BASE_URL, provider API keys, ...) so a
         // restart does not replay the third-party provider. The saved-profile

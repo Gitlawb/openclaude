@@ -1314,6 +1314,33 @@ describe('Anthropic sentinel survives profile management (#1426)', () => {
     expect(getActiveProviderProfile()?.id).toBe('saved_one')
   })
 
+  test('addProviderProfile with makeActive:false keeps the resolved first profile active when the active id is stale', async () => {
+    const { addProviderProfile, getActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+
+    // activeProviderProfileId points at a profile that no longer exists.
+    // getActiveProviderProfile resolves a stale id to the first profile, so
+    // adding another with makeActive:false must keep that first profile active
+    // rather than promoting the new one (#1426).
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'saved_one', name: 'Saved One' })],
+      activeProviderProfileId: 'deleted_profile_id',
+    }))
+
+    addProviderProfile(
+      {
+        provider: 'openai',
+        name: 'Saved Two',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      },
+      { makeActive: false },
+    )
+
+    expect(getActiveProviderProfile()?.id).toBe('saved_one')
+  })
+
   test('updateProviderProfile of a non-active profile keeps the Anthropic sentinel active', async () => {
     const {
       updateProviderProfile,
