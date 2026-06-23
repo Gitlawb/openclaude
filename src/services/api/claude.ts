@@ -70,7 +70,7 @@ import {
   shouldUseIntegrationRuntimeLimits,
 } from '../../utils/context.js'
 import { resolveAppliedEffort } from '../../utils/effort.js'
-import { isEnvTruthy } from '../../utils/envUtils.js'
+import { isEnvDefinedFalsy, isEnvTruthy } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
 import { computeFingerprintFromMessages } from '../../utils/fingerprint.js'
 import { captureAPIRequest, logError } from '../../utils/log.js'
@@ -1950,9 +1950,15 @@ async function* queryModel(
     // kill hung streams. Without this, a silently dropped connection can hang
     // the session indefinitely since the SDK's request timeout only covers the
     // initial fetch(), not the streaming body.
-    const streamWatchdogEnabled = isEnvTruthy(
-      process.env.CLAUDE_ENABLE_STREAM_WATCHDOG,
-    )
+    // Enabled by default, matching the always-on idle timeout already used by
+    // the OpenAI/Codex shims (readWithTimeout). A silently dropped Anthropic
+    // stream now aborts and falls back to a non-streaming retry within
+    // STREAM_IDLE_TIMEOUT_MS, instead of hanging until QueryGuard's 5-minute
+    // idle timeout. Opt out with CLAUDE_DISABLE_STREAM_WATCHDOG=1 (or by
+    // explicitly setting CLAUDE_ENABLE_STREAM_WATCHDOG to a falsy value).
+    const streamWatchdogEnabled =
+      !isEnvTruthy(process.env.CLAUDE_DISABLE_STREAM_WATCHDOG) &&
+      !isEnvDefinedFalsy(process.env.CLAUDE_ENABLE_STREAM_WATCHDOG)
     const STREAM_IDLE_TIMEOUT_MS =
       parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || '', 10) || 90_000
     const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2
