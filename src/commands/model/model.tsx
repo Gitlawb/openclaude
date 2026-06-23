@@ -678,7 +678,7 @@ function ModelPickerWrapper({
       // it (jatmn review, #1119).
       const switchFastMode = reconcileFastModeForSwitch(
         switchTarget.model,
-        isFastMode,
+        isFastMode ?? false,
       )
       if (switchFastMode === 'off') {
         setAppState(prev => ({ ...prev, fastMode: false }))
@@ -719,7 +719,7 @@ function ModelPickerWrapper({
       message += ` with ${chalk.bold(effort)} effort`
     }
 
-    const fastModeResult = reconcileFastModeForSwitch(model, isFastMode)
+    const fastModeResult = reconcileFastModeForSwitch(model, isFastMode ?? false)
     if (fastModeResult === 'off') {
       setAppState(prev => ({
         ...prev,
@@ -891,6 +891,7 @@ function ModelPickerWrapper({
       onSelect={handleSelect}
       onCancel={handleCancel}
       isStandaloneCommand
+      allowProfileSwitch
       showFastModeNotice={
         isFastModeEnabled() &&
         isFastMode &&

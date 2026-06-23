@@ -11,7 +11,7 @@ import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getAvailableEffortLevels, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
-import { getModelOptions, type ModelOption, parseSwitchProfileValue } from '../utils/model/modelOptions.js';
+import { getModelOptions, type ModelOption, parseSwitchProfileValue, SWITCH_PROFILE_VALUE_PREFIX } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
@@ -42,6 +42,14 @@ export type Props = {
   optionsOverride?: ModelOption[];
   discoveryState?: ModelPickerDiscoveryState;
   onRefresh?: () => void;
+  /**
+   * Allow cross-profile "switch profile" options (issue #1119) to appear in the
+   * list. These carry an encoded `__switch_profile__:<id>:<model>` value that
+   * only the `/model` command's onSelect knows how to activate. Inline pickers
+   * (prompt hotkey, Settings) that write the raw value to `mainLoopModel` must
+   * leave this off so they never surface an option they cannot honor.
+   */
+  allowProfileSwitch?: boolean;
 };
 const NO_PREFERENCE = '__NO_PREFERENCE__';
 function normalizeModelPickerValue(value: unknown): string | null {
@@ -86,7 +94,8 @@ export function ModelPicker(t0) {
     skipSettingsWrite,
     optionsOverride,
     discoveryState,
-    onRefresh
+    onRefresh,
+    allowProfileSwitch
   } = t0;
   const setAppState = useSetAppState();
   const exitState = useExitOnCtrlCDWithKeybindings();
@@ -112,7 +121,18 @@ export function ModelPicker(t0) {
   } else {
     t3 = $[3];
   }
-  const modelOptions = optionsOverride ?? t3;
+  const modelOptionsBase = optionsOverride ?? t3;
+  // Cross-profile switch options can only be honored by the /model command's
+  // onSelect, which decodes the value and activates the target profile. Strip
+  // them for inline pickers (allowProfileSwitch falsy) so a hotkey/Settings
+  // selection never writes the raw `__switch_profile__:...` value as a model.
+  const modelOptions = allowProfileSwitch
+    ? modelOptionsBase
+    : modelOptionsBase.filter(
+        opt =>
+          typeof opt.value !== 'string' ||
+          !opt.value.startsWith(SWITCH_PROFILE_VALUE_PREFIX),
+      );
   let t4;
   bb0: {
     if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => optionMatchesPickerValue(opt, initial))) {
