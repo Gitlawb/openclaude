@@ -624,6 +624,11 @@ function CodexManualCallbackInput({
           const trimmed = submitted.trim()
           if (trimmed) onSubmit(trimmed)
         }}
+        // The pasted callback URL carries the OAuth `code` and `state` query
+        // params — enough to complete the in-flight exchange — so mask it the
+        // same way the xAI manual-code field above does, to keep it out of
+        // terminal scrollback, recordings, and shared sessions.
+        mask="*"
         // The parent `CodexOAuthSetup` owns Esc via `useKeybinding('confirm:no')`.
         disableEscapeDoublePress
       />
