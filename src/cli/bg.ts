@@ -89,6 +89,7 @@ type StreamLogOptions = {
   createBuffer?: (size: number) => Buffer
   signal?: AbortSignal
   openFile?: (path: string, flags: 'r') => Promise<LogFileHandle>
+  continueOnFileError?: boolean
 }
 
 type FollowLogOptions = StreamLogOptions & {
@@ -538,7 +539,8 @@ async function streamLogRange(
     try {
       const readResult = await handle.read(buffer, 0, bytesToRead, position)
       bytesRead = readResult.bytesRead
-    } catch {
+    } catch (error) {
+      if (!options.continueOnFileError) throw error
       return { position, outputOpen: true }
     }
     if (bytesRead <= 0) break
@@ -563,7 +565,8 @@ async function streamLogSnapshot(
   let handle: LogFileHandle
   try {
     handle = await (options.openFile ?? open)(path, 'r')
-  } catch {
+  } catch (error) {
+    if (!options.continueOnFileError) throw error
     // Keep following; the child may create or rotate the file later.
     return { position: offset, outputOpen: true }
   }
@@ -577,10 +580,15 @@ async function streamLogSnapshot(
         ? { position: start, outputOpen: true }
         : await streamLogRange(handle, start, size, options)
     return result
-  } catch {
+  } catch (error) {
+    if (!options.continueOnFileError) throw error
     return result
   } finally {
-    await handle.close().catch(() => undefined)
+    if (options.continueOnFileError) {
+      await handle.close().catch(() => undefined)
+    } else {
+      await handle.close()
+    }
   }
 }
 
@@ -631,6 +639,7 @@ export async function followLogFile(
             ...options,
             output,
             signal: cleanupController.signal,
+            continueOnFileError: true,
           })
           position = result.position
           if (!result.outputOpen) cleanup()
@@ -766,7 +775,14 @@ export async function logsHandler(
     fail(`Log file does not exist: ${logPath}`)
   }
 
-  const offset = await printExistingLog(logPath)
+  let offset: number
+  try {
+    offset = await printExistingLog(logPath, {
+      continueOnFileError: parsed.follow,
+    })
+  } catch (error) {
+    fail(`Failed to read log file: ${errorMessage(error)}`)
+  }
   if (parsed.follow) {
     await followLogFile(logPath, offset)
   }

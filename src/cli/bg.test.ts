@@ -634,6 +634,29 @@ describe('background session log streaming', () => {
     expect(output.bytes().toString()).toBe('once')
   })
 
+  it('surfaces non-follow file read failures', async () => {
+    let closed = false
+    const readError = Object.assign(new Error('read failed'), {
+      code: 'EIO',
+    })
+
+    await expect(
+      printExistingLog('/tmp/stdout.log', {
+        chunkSize: 4,
+        openFile: async () => ({
+          stat: async () => ({ size: 4 }),
+          read: async () => {
+            throw readError
+          },
+          close: async () => {
+            closed = true
+          },
+        }),
+      }),
+    ).rejects.toThrow('read failed')
+    expect(closed).toBe(true)
+  })
+
   it('handles EPIPE and destroyed stdout without throwing', async () => {
     const path = await tempFile('stdout.log')
     await writeFile(path, Buffer.from('closed-pipe'))
