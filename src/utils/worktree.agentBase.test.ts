@@ -3,7 +3,10 @@ import { execFileSync } from 'child_process'
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { createAgentWorktree } from './worktree.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
@@ -18,6 +21,17 @@ import {
 // rather than via the ambient getCwd(): bun runs test files concurrently in
 // one process and a sibling test mutates the global cwd state, which would
 // otherwise race this test.
+//
+// Isolation: bun's mock.module is process-global, so a neighboring suite that
+// mocks './execFileNoThrow.js' (used by worktree.ts to shell out to git) could
+// otherwise bind into this test. We hold the shared mutation lock for the whole
+// test so we never run interleaved with those suites, and import the worktree
+// module only after the lock is held — via a cache-busted dynamic import — so
+// the binding is resolved against the real module, never a leaked mock.
+async function importCreateAgentWorktree() {
+  const mod = await import(`./worktree.js?ts=${Date.now()}-${Math.random()}`)
+  return mod.createAgentWorktree
+}
 
 let repoDir: string
 let cfgDir: string
@@ -36,7 +50,9 @@ function git(cwd: string, ...args: string[]): string {
   }).trim()
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/worktree.agentBase.test.ts')
+
   cfgDir = mkdtempSync(join(tmpdir(), 'openclaude-wt-cfg-'))
   setClaudeConfigHomeDirForTesting(cfgDir)
   getClaudeConfigHomeDir.cache?.clear?.()
@@ -61,20 +77,25 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  setClaudeConfigHomeDirForTesting(undefined)
-  getClaudeConfigHomeDir.cache?.clear?.()
-  for (const dir of [repoDir, cfgDir]) {
-    try {
-      rmSync(dir, { recursive: true, force: true })
-    } catch {
-      // best-effort cleanup
+  try {
+    setClaudeConfigHomeDirForTesting(undefined)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    for (const dir of [repoDir, cfgDir]) {
+      try {
+        rmSync(dir, { recursive: true, force: true })
+      } catch {
+        // best-effort cleanup
+      }
     }
+  } finally {
+    releaseSharedMutationLock()
   }
 })
 
 test('agent worktree is based on the parent session HEAD, not origin/main', async () => {
   const parentHead = git(repoDir, 'rev-parse', 'HEAD')
 
+  const createAgentWorktree = await importCreateAgentWorktree()
   const result = await createAgentWorktree('issue-1586-base', { cwd: repoDir })
 
   expect(result.worktreePath).toBeDefined()
