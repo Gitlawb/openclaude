@@ -1,7 +1,8 @@
 import { createHash } from 'crypto'
 import { readFile, writeFile } from 'fs/promises'
 import { getWikiPaths } from './paths.js'
-import { getProjectIdentity } from './identity.js'
+import { getProjectIdentity, type ProjectIdentity } from './identity.js'
+import { rebuildWikiIndex } from './indexBuilder.js'
 import type { ConventionResult } from './types.js'
 
 // ─── Config File Detection ────────────────────────────────────────
@@ -268,8 +269,21 @@ const SCANNERS: Scanner[] = [
 
 // ─── Fingerprint ──────────────────────────────────────────────────
 
-function computeFingerprint(results: { label: string; lines: string[] }[]): string {
+function computeFingerprint(
+  identity: ProjectIdentity,
+  results: { label: string; lines: string[] }[],
+): string {
   const hash = createHash('sha256')
+  // Identity fields are rendered into the page (name, languages, monorepo,
+  // default branch), so a change in any of them must invalidate the cache even
+  // when the detected config sections are unchanged. (We can't just hash the
+  // final markdown — it embeds a "Last scanned" timestamp that always differs.)
+  hash.update(identity.name)
+  hash.update(identity.isMonorepo ? 'mono' : 'single')
+  hash.update(identity.mainBranch)
+  for (const lang of identity.languages) {
+    hash.update(`${lang.name}:${lang.fileCount}`)
+  }
   for (const r of results) {
     hash.update(r.label)
     for (const line of r.lines) {
@@ -307,7 +321,7 @@ export async function scanProjectConventions(cwd: string): Promise<ScanResult> {
   }
 
   const markdown = formatConventions(identity, sections)
-  const fingerprint = computeFingerprint(sections)
+  const fingerprint = computeFingerprint(identity, sections)
 
   return { sections, markdown, fingerprint, identity }
 }
@@ -397,11 +411,14 @@ export async function scanAndSaveConventions(cwd: string): Promise<ConventionRes
   }
 
   await writeCache(cwd, scan.fingerprint)
+  // Reindex so the (possibly new) conventions page is listed in the wiki index.
+  await rebuildWikiIndex(cwd).catch(() => {})
 
   return {
     markdown: scan.markdown,
     fingerprint: scan.fingerprint,
     scannedAt: new Date().toISOString(),
+    saved: true,
   }
 }
 
@@ -412,17 +429,27 @@ export async function forceScanConventions(cwd: string): Promise<ConventionResul
   const scan = await scanProjectConventions(cwd)
   const { conventionsFile } = getWikiPaths(cwd)
 
+  let saved = false
   try {
     await writeFile(conventionsFile, scan.markdown, { encoding: 'utf-8' })
+    saved = true
   } catch {
-    // Wiki not initialized — result still returned
+    // Wiki not initialized (.openclaude/wiki is missing). Don't touch the cache
+    // file below — its directory is missing too and writeFile would throw
+    // ENOENT, crashing `/wiki scan`. The caller surfaces a "run /wiki init"
+    // message based on `saved`.
   }
 
-  await writeCache(cwd, scan.fingerprint)
+  if (saved) {
+    await writeCache(cwd, scan.fingerprint)
+    // Reindex so the (possibly new) conventions page is listed in the index.
+    await rebuildWikiIndex(cwd).catch(() => {})
+  }
 
   return {
     markdown: scan.markdown,
     fingerprint: scan.fingerprint,
     scannedAt: new Date().toISOString(),
+    saved,
   }
 }

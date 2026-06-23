@@ -120,6 +120,13 @@ async function runWikiCommand(
 
   if (normalized === 'scan') {
     const result = await forceScanConventions(cwd)
+    if (!result.saved) {
+      onDone(
+        'The wiki is not initialized yet. Run `/wiki init` first, then `/wiki scan`.',
+        { display: 'system' },
+      )
+      return
+    }
     onDone(
       [
         'Project conventions scanned and saved.',

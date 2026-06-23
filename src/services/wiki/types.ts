@@ -43,4 +43,6 @@ export type ConventionResult = {
   fingerprint: string
   /** ISO timestamp of last scan */
   scannedAt: string
+  /** Whether the page was actually written (false when the wiki isn't initialized). */
+  saved: boolean
 }

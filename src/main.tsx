@@ -440,11 +440,16 @@ export function startDeferredPrefetches(): void {
     cleanupCountFilesSignal,
   );
 
-  // Project convention scanner — reads config files and persists to wiki.
-  // No-op if wiki isn't initialized (~1 stat call).
-  void import('./services/wiki/conventions.js').then(({ scanAndSaveConventions }) =>
-    scanAndSaveConventions(getCwd()),
-  );
+  // Project convention scanner — reads config files and runs git (via project
+  // identity), then persists to the wiki. Gate on trust exactly like
+  // prefetchSystemContextIfSafe above: run when trust is implicit (--print) or
+  // the trust dialog has been accepted — never before trust is established in
+  // an interactive session. No-op if the wiki isn't initialized (~1 stat call).
+  if (getIsNonInteractiveSession() || checkHasTrustDialogAccepted()) {
+    void import('./services/wiki/conventions.js').then(({ scanAndSaveConventions }) =>
+      scanAndSaveConventions(getCwd()),
+    );
+  }
 
   // Analytics and feature flag initialization
   void initializeAnalyticsGates();

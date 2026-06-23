@@ -147,3 +147,63 @@ test('forceScanConventions always returns result', async () => {
   expect(second).not.toBeNull()
   expect(second.fingerprint).toBe(first.fingerprint)
 })
+
+// PR #1010 review fix #2: fingerprint must cover identity, not just config
+// sections, or an identity-only change leaves conventions.md stale.
+test('scanAndSaveConventions re-saves when only identity changes', async () => {
+  const cwd = await makeProjectDir()
+  await initializeWiki(cwd)
+  await writeFile(
+    join(cwd, 'package.json'),
+    JSON.stringify({ name: 'id-change', scripts: { test: 'bun test' } }),
+    'utf8',
+  )
+
+  const first = await scanAndSaveConventions(cwd)
+  expect(first).not.toBeNull()
+
+  // Identity-only change: a new source file shifts the language counts, but no
+  // scanned config section changes. The cache must still invalidate.
+  await writeFile(join(cwd, 'main.py'), 'print(1)\n', 'utf8')
+
+  const second = await scanAndSaveConventions(cwd)
+  expect(second).not.toBeNull()
+  expect(second!.fingerprint).not.toBe(first!.fingerprint)
+})
+
+// PR #1010 review fix #3: /wiki scan must not crash (ENOENT) before /wiki init.
+test('forceScanConventions does not write cache or throw before /wiki init', async () => {
+  const cwd = await makeProjectDir()
+  await writeFile(
+    join(cwd, 'package.json'),
+    JSON.stringify({ name: 'no-wiki' }),
+    'utf8',
+  )
+
+  // Must not throw even though .openclaude/ does not exist.
+  const result = await forceScanConventions(cwd)
+  expect(result.saved).toBe(false)
+
+  // The cache file must NOT have been created (its directory is missing).
+  const { conventionsCacheFile } = getWikiPaths(cwd)
+  expect(await Bun.file(conventionsCacheFile).exists()).toBe(false)
+})
+
+// PR #1010 integration fix #4: a saved scan reindexes so the conventions page
+// is listed in the wiki index (the index pipeline post-dates the original PR).
+test('scanAndSaveConventions reindexes so conventions appears in the wiki index', async () => {
+  const cwd = await makeProjectDir()
+  await initializeWiki(cwd)
+  await writeFile(
+    join(cwd, 'package.json'),
+    JSON.stringify({ name: 'indexed', scripts: { test: 'bun test' } }),
+    'utf8',
+  )
+
+  const result = await scanAndSaveConventions(cwd)
+  expect(result?.saved).toBe(true)
+
+  const { indexFile } = getWikiPaths(cwd)
+  const index = await Bun.file(indexFile).text()
+  expect(index).toContain('Project Conventions')
+})
