@@ -17,10 +17,11 @@ import {
 import * as actualProviderProfiles from '../providerProfiles.js'
 import * as actualProviders from './providers.js'
 import * as actualAuth from '../auth.js'
+import type { ProviderProfile } from '../config.js'
 
 function buildProviderProfileFixture(
-  overrides: Partial<actualProviderProfiles.ProviderProfile> = {},
-): actualProviderProfiles.ProviderProfile {
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
   return {
     id: 'profile_default',
     name: 'Default Profile',
@@ -162,7 +163,7 @@ test('getInactiveProviderProfileOptions: surfaces all configured profiles when n
   const { getInactiveProviderProfileOptions } =
     await importFreshModelOptionsModule({
       getProviderProfiles: () => [profileA, profileB],
-      getActiveProviderProfile: () => null,
+      getActiveProviderProfile: () => undefined,
       getProfileModelOptions: profile => [
         { value: profile.model, label: profile.model, description: profile.name },
       ],
@@ -189,7 +190,7 @@ test('getInactiveProviderProfileOptions: explodes multi-model profiles into one 
   const { getInactiveProviderProfileOptions } =
     await importFreshModelOptionsModule({
       getProviderProfiles: () => [multi],
-      getActiveProviderProfile: () => null,
+      getActiveProviderProfile: () => undefined,
       getProfileModelOptions: () => [
         {
           value: 'deepseek/deepseek-v4-flash:nitro',
@@ -249,6 +250,69 @@ test('getModelOptionsBase: 3P path includes inactive profile options when env ap
       profileId: 'profile_inactive',
       model: 'glm-5.1',
     })
+  } finally {
+    if (previousFlag === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = previousFlag
+    }
+  }
+})
+
+test('getModelOptionsBase: allowlist matches the decoded cross-profile model, not the encoded value', async () => {
+  // Regression for #1164 review: the option's value is the encoded
+  // `__switch_profile__:<id>:glm-5.1`. An allowlist that permits the bare model
+  // `glm-5.1` must keep the cross-profile entry (and an allowlist without it
+  // must drop the entry).
+  const active = buildProviderProfileFixture({
+    id: 'profile_active',
+    name: 'Active',
+    model: 'sonnet',
+  })
+  const inactive = buildProviderProfileFixture({
+    id: 'profile_inactive',
+    name: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-5.1',
+  })
+
+  const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  try {
+    setSessionSettingsCache({
+      settings: { availableModels: ['glm-5.1'] },
+      errors: [],
+    })
+    const allowed = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    expect(
+      allowed
+        .getModelOptions(false)
+        .some(o => o.switchToProfileId === 'profile_inactive'),
+    ).toBe(true)
+
+    // Same profile, but the decoded model is not on the allowlist → dropped.
+    setSessionSettingsCache({
+      settings: { availableModels: ['some-other-model'] },
+      errors: [],
+    })
+    const denied = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, inactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+    expect(
+      denied
+        .getModelOptions(false)
+        .some(o => o.switchToProfileId === 'profile_inactive'),
+    ).toBe(false)
   } finally {
     if (previousFlag === undefined) {
       delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
@@ -327,7 +391,7 @@ test('getModelOptionsBase: 3P path omits inactive profile options when env NOT a
   try {
     const { getModelOptions } = await importFreshModelOptionsModule({
       getProviderProfiles: () => [inactive],
-      getActiveProviderProfile: () => null,
+      getActiveProviderProfile: () => undefined,
       getProfileModelOptions: profile => [
         { value: profile.model, label: profile.model, description: profile.name },
       ],

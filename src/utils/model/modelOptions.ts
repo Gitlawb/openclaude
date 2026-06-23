@@ -1023,10 +1023,18 @@ function filterModelOptionsByAllowlist(options: ModelOption[]): ModelOption[] {
   const settings = getSettings_DEPRECATED() || {}
   const filtered = !settings.availableModels
     ? options // No restrictions
-    : options.filter(
-    opt =>
-      opt.value === null || (opt.value !== null && isModelAllowed(opt.value)),
-  )
+    : options.filter(opt => {
+        if (opt.value === null) {
+          return true
+        }
+        // Cross-profile options carry an encoded
+        // `__switch_profile__:<id>:<model>` value; evaluate the allowlist
+        // against the decoded target model so an allowed model is not dropped
+        // just because of the switch wrapper.
+        const effectiveModel =
+          parseSwitchProfileValue(opt.value)?.model ?? opt.value
+        return isModelAllowed(effectiveModel)
+      })
 
   // Select state uses option values as identity keys. If two entries share the
   // same value (e.g. provider-specific aliases collapsing to one model ID),
