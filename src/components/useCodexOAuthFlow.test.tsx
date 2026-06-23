@@ -393,3 +393,88 @@ test('reports credential persistence failures without token values', async () =>
     await Bun.sleep(0)
   }
 })
+
+test('exposes submitManualCallback in the waiting state and delegates success and failure results', async () => {
+  // The service's manual-callback result is what the ProviderManager UI relies
+  // on; verify the hook surfaces it in the waiting status and passes both the
+  // raw input and the service's result straight back to the caller.
+  const submitManualCallback = mock((input: string) =>
+    input.includes('code=good')
+      ? ({ ok: true as const })
+      : ({ ok: false as const, error: 'State mismatch' }),
+  )
+  const cleanup = mock(() => {})
+  const deps = {
+    createOAuthService: () => ({
+      async startOAuthFlow(
+        onAuthorizationUrl: (authUrl: string) => void | Promise<void>,
+      ) {
+        await onAuthorizationUrl('https://chatgpt.com/codex')
+        // Stay in the waiting state so the manual-callback path is reachable.
+        return new Promise<typeof TOKENS>(() => {})
+      },
+      cleanup,
+      submitManualCallback,
+    }),
+    openBrowser: async () => false,
+    saveCodexCredentials: mock(() => ({ success: true })),
+    isBareMode: () => false,
+  }
+
+  const { useCodexOAuthFlow } = await import(
+    `./useCodexOAuthFlow.js?waiting-manual-${Date.now()}-${Math.random()}`
+  )
+
+  let latestStatus:
+    | {
+        state: string
+        submitManualCallback?: (
+          input: string,
+        ) => { ok: boolean; error?: string }
+      }
+    | undefined
+
+  function Harness(): React.ReactNode {
+    const status = useCodexOAuthFlow({
+      onAuthenticated: async () => {},
+      deps,
+    })
+    latestStatus = status as typeof latestStatus
+    return <Text>{status.state}</Text>
+  }
+
+  const streams = createTestStreams()
+  const root = await createRoot({
+    stdout: streams.stdout as unknown as NodeJS.WriteStream,
+    stdin: streams.stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+  root.render(<Harness />)
+
+  try {
+    await waitForCondition(() => latestStatus?.state === 'waiting')
+    expect(latestStatus?.state).toBe('waiting')
+    expect(typeof latestStatus?.submitManualCallback).toBe('function')
+
+    const okResult = latestStatus?.submitManualCallback?.(
+      'http://localhost:41100/auth/callback?code=good&state=s',
+    )
+    expect(okResult).toEqual({ ok: true })
+
+    const failResult = latestStatus?.submitManualCallback?.(
+      'http://localhost:41100/auth/callback?code=bad&state=s',
+    )
+    expect(failResult?.ok).toBe(false)
+    expect(failResult?.error).toBe('State mismatch')
+
+    expect(submitManualCallback).toHaveBeenCalledTimes(2)
+    expect(submitManualCallback).toHaveBeenCalledWith(
+      'http://localhost:41100/auth/callback?code=good&state=s',
+    )
+  } finally {
+    root.unmount()
+    streams.stdin.end()
+    streams.stdout.end()
+    await Bun.sleep(0)
+  }
+})

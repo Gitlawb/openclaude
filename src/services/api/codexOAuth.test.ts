@@ -323,7 +323,15 @@ test('manual callback paste completes the flow when the loopback is unreachable'
     const flowPromise = service.startOAuthFlow(async () => {})
 
     // Wait until startOAuthFlow has populated expectedState via the listener.
+    // Bound the wait so a regression that never captures the state fails with a
+    // clear assertion instead of hanging the suite indefinitely.
+    const stateDeadline = Date.now() + 5_000
     while (!capturedState) {
+      if (Date.now() > stateDeadline) {
+        throw new Error(
+          'startOAuthFlow did not capture the OAuth state within 5s',
+        )
+      }
       await Bun.sleep(0)
     }
 
