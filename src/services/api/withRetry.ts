@@ -845,15 +845,18 @@ function shouldRetry(error: APIError, persistentRetryEnabled: boolean): boolean 
   // the same 429 and confuses the user with repeated "mysterious stop"
   // failures. getAssistantMessageFromError surfaces the actionable message.
   const requestUrl = error.headers?.get?.('x-opencode-request-url')
-  const baseUrl = requestUrl !== null && requestUrl !== undefined
-    ? requestUrl
-    : (process.env.OPENAI_BASE_URL ?? '')
+  let isOpencodeGo = false
+  if (typeof requestUrl === 'string') {
+    isOpencodeGo = requestUrl.includes('opencode.ai/zen/go')
+  } else {
+    isOpencodeGo = (process.env.OPENAI_BASE_URL ?? '').includes('opencode.ai/zen/go')
+  }
   if (
     error.status === 429 &&
     typeof error.message === 'string' &&
     (error.message.includes('GoUsageLimitError') ||
       error.message.includes('FreeUsageLimitError')) &&
-    baseUrl.includes('opencode.ai/zen/go')
+    isOpencodeGo
   ) {
     return false
   }

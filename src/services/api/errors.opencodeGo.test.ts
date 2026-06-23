@@ -208,3 +208,89 @@ test('precedence: when request header points to non-OpenCode, environment variab
   // Retry gate should allow retry
   expect(shouldRetry(error, false)).toBe(true)
 })
+
+test('retry regression: FreeUsageLimitError and GoUsageLimitError are not retried on OpenCode Go', () => {
+  // 1. With authoritative header pointing to OpenCode Go
+  const errorHeaderFree = APIError.generate(
+    429,
+    undefined,
+    JSON.stringify({ error: { type: 'FreeUsageLimitError' } }),
+    new Headers({ 'x-opencode-request-url': 'https://opencode.ai/zen/go/v1/messages' }),
+  )
+  expect(shouldRetry(errorHeaderFree, false)).toBe(false)
+
+  const errorHeaderGo = APIError.generate(
+    429,
+    undefined,
+    JSON.stringify({ error: { type: 'GoUsageLimitError' } }),
+    new Headers({ 'x-opencode-request-url': 'https://opencode.ai/zen/go/v1/messages' }),
+  )
+  expect(shouldRetry(errorHeaderGo, false)).toBe(false)
+
+  // 2. With header absent, falling back to environment variable pointing to OpenCode Go
+  const originalEnv = process.env.OPENAI_BASE_URL
+  try {
+    process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+    
+    const errorEnvFree = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({ error: { type: 'FreeUsageLimitError' } }),
+      new Headers(),
+    )
+    expect(shouldRetry(errorEnvFree, false)).toBe(false)
+
+    const errorEnvGo = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({ error: { type: 'GoUsageLimitError' } }),
+      new Headers(),
+    )
+    expect(shouldRetry(errorEnvGo, false)).toBe(false)
+  } finally {
+    process.env.OPENAI_BASE_URL = originalEnv
+  }
+})
+
+test('retry regression: non-OpenCode 429 errors with similar body markers are retried', () => {
+  // 1. Header is present but points to non-OpenCode
+  const errorHeaderFree = APIError.generate(
+    429,
+    undefined,
+    JSON.stringify({ error: { type: 'FreeUsageLimitError' } }),
+    new Headers({ 'x-opencode-request-url': 'https://api.openai.com/v1/messages' }),
+  )
+  expect(shouldRetry(errorHeaderFree, false)).toBe(true)
+
+  const errorHeaderGo = APIError.generate(
+    429,
+    undefined,
+    JSON.stringify({ error: { type: 'GoUsageLimitError' } }),
+    new Headers({ 'x-opencode-request-url': 'https://api.openai.com/v1/messages' }),
+  )
+  expect(shouldRetry(errorHeaderGo, false)).toBe(true)
+
+  // 2. Header is absent, and environment variable does not point to OpenCode Go
+  const originalEnv = process.env.OPENAI_BASE_URL
+  try {
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    
+    const errorEnvFree = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({ error: { type: 'FreeUsageLimitError' } }),
+      new Headers(),
+    )
+    expect(shouldRetry(errorEnvFree, false)).toBe(true)
+
+    const errorEnvGo = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({ error: { type: 'GoUsageLimitError' } }),
+      new Headers(),
+    )
+    expect(shouldRetry(errorEnvGo, false)).toBe(true)
+  } finally {
+    process.env.OPENAI_BASE_URL = originalEnv
+  }
+})

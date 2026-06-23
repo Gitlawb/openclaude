@@ -457,10 +457,12 @@ function parseOpenCodeGoLimitError(
   retryAfterSeconds?: number
 } | null {
   const requestUrl = error.headers?.get?.('x-opencode-request-url')
-  const baseUrl = requestUrl !== null && requestUrl !== undefined
-    ? requestUrl
-    : (process.env.OPENAI_BASE_URL ?? '')
-  const isOpencodeGo = baseUrl.includes('opencode.ai/zen/go')
+  let isOpencodeGo = false
+  if (typeof requestUrl === 'string') {
+    isOpencodeGo = requestUrl.includes('opencode.ai/zen/go')
+  } else {
+    isOpencodeGo = (process.env.OPENAI_BASE_URL ?? '').includes('opencode.ai/zen/go')
+  }
   if (!isOpencodeGo) return null
 
   const body = error.message ?? ''
