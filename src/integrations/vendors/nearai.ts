@@ -35,6 +35,12 @@ export default defineVendor({
     models: [
       // ── Anthropic (proxied) ──
       {
+        id: 'anthropic/claude-opus-4-8',
+        apiName: 'anthropic/claude-opus-4-8',
+        label: 'Claude Opus 4.8',
+        modelDescriptorId: 'anthropic/claude-opus-4-8',
+      },
+      {
         id: 'anthropic/claude-opus-4-7',
         apiName: 'anthropic/claude-opus-4-7',
         label: 'Claude Opus 4.7',

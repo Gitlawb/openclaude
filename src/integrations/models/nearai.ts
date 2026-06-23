@@ -3,6 +3,17 @@ import { defineModel } from '../define.js'
 export default [
   // ── Anthropic (proxied) ──
   defineModel({
+    id: 'anthropic/claude-opus-4-8',
+    defaultModel: 'anthropic/claude-opus-4-8',
+    label: 'Claude Opus 4.8',
+    brandId: 'nearai',
+    vendorId: 'nearai',
+    classification: ['chat', 'coding'],
+    capabilities: { supportsVision: false, supportsStreaming: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: false, supportsPreciseTokenCount: false },
+    contextWindow: 1000000,
+    maxOutputTokens: 65536,
+  }),
+  defineModel({
     id: 'anthropic/claude-opus-4-7',
     defaultModel: 'anthropic/claude-opus-4-7',
     label: 'Claude Opus 4.7',

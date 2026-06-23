@@ -895,6 +895,8 @@ test('modelSupports1M recognizes the current default Opus (4.7) as 1M-capable', 
     // (getDefaultMainLoopModelSetting), so dropping 4.7 here downgrades a 1M
     // session to 200K and trips a spurious "Context limit reached" — exactly
     // what resolveSkillModelOverride relies on this predicate to prevent.
+    expect(modelSupports1M('claude-opus-4-8')).toBe(true)
+    expect(modelSupports1M('claude-opus-4-8[1m]')).toBe(true)
     expect(modelSupports1M('claude-opus-4-7')).toBe(true)
     expect(modelSupports1M('claude-opus-4-7[1m]')).toBe(true)
     // Existing 1M models must keep working.
