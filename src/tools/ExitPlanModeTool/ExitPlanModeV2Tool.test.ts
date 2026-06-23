@@ -4,20 +4,25 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
+import {
+  setDynamicTeamContext,
+  clearDynamicTeamContext,
+} from '../../utils/teammate.js'
 
 type ExitPlanModeModule = typeof import('./ExitPlanModeV2Tool.js')
 type ExitPlanModeTool = ExitPlanModeModule['ExitPlanModeV2Tool']
 
 let ExitPlanModeV2Tool: ExitPlanModeTool | undefined
+let actualPlans: any
+let actualTeammateMailbox: any
 
 beforeAll(async () => {
   await acquireSharedMutationLock(
     'tools/ExitPlanModeTool/ExitPlanModeV2Tool.test.ts',
   )
 
-  const actualPlans = await import(
-    `../../utils/plans.ts?exitPlanModeWriteTest=${Date.now()}-${Math.random()}`
-  )
+  actualPlans = await import('../../utils/plans.ts')
+  actualTeammateMailbox = await import('../../utils/teammateMailbox.ts')
 
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
@@ -32,9 +37,14 @@ beforeAll(async () => {
   ExitPlanModeV2Tool = mod.ExitPlanModeV2Tool
 })
 
-afterAll(() => {
+afterAll(async () => {
   try {
     mock.restore()
+    clearDynamicTeamContext()
+    // Restore mock modules back to their actual implementations
+    mock.module('../../utils/plans.js', () => actualPlans)
+    mock.module('../../utils/teammateMailbox.js', () => actualTeammateMailbox)
+    mock.module('fs/promises', () => require('fs/promises'))
   } finally {
     releaseSharedMutationLock()
   }
@@ -65,9 +75,6 @@ test('surfaces write error when plan file write fails and asserts no side effect
   }))
 
   const persistFileSnapshotIfRemoteMock = mock(() => Promise.resolve())
-  const actualPlans = await import(
-    `../../utils/plans.ts?test1=${Date.now()}-${Math.random()}`
-  )
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
     getPlanFilePath: () => '/tmp/test-plan.md',
@@ -75,14 +82,7 @@ test('surfaces write error when plan file write fails and asserts no side effect
     persistFileSnapshotIfRemote: persistFileSnapshotIfRemoteMock,
   }))
 
-  const actualTeammate = await import(
-    `../../utils/teammate.ts?test1=${Date.now()}-${Math.random()}`
-  )
-  mock.module('../../utils/teammate.js', () => ({
-    ...actualTeammate,
-    isTeammate: () => false,
-    isPlanModeRequired: () => false,
-  }))
+  clearDynamicTeamContext()
 
   const setAppStateMock = mock(() => undefined)
   const toolPermissionContext = getEmptyToolPermissionContext()
@@ -116,6 +116,9 @@ test('surfaces write error when plan file write fails and asserts no side effect
     expect(setAppStateMock).not.toHaveBeenCalled()
   } finally {
     mock.restore()
+    clearDynamicTeamContext()
+    mock.module('../../utils/plans.js', () => actualPlans)
+    mock.module('fs/promises', () => require('fs/promises'))
   }
 })
 
@@ -130,9 +133,6 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
   }))
 
   const persistFileSnapshotIfRemoteMock = mock(() => Promise.resolve())
-  const actualPlans = await import(
-    `../../utils/plans.ts?test2=${Date.now()}-${Math.random()}`
-  )
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
     getPlanFilePath: () => '/tmp/test-plan.md',
@@ -140,16 +140,12 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
     persistFileSnapshotIfRemote: persistFileSnapshotIfRemoteMock,
   }))
 
-  const actualTeammate = await import(
-    `../../utils/teammate.ts?test2=${Date.now()}-${Math.random()}`
-  )
-  mock.module('../../utils/teammate.js', () => ({
-    ...actualTeammate,
-    isTeammate: () => true,
-    isPlanModeRequired: () => true,
-    getAgentName: () => 'test-agent',
-    getTeamName: () => 'test-team',
-  }))
+  setDynamicTeamContext({
+    agentId: 'test-agent',
+    agentName: 'test-agent',
+    teamName: 'test-team',
+    planModeRequired: true,
+  })
 
   const writeToMailboxMock = mock(() => Promise.resolve())
   mock.module('../../utils/teammateMailbox.js', () => ({
@@ -189,5 +185,9 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
     expect(setAppStateMock).not.toHaveBeenCalled()
   } finally {
     mock.restore()
+    clearDynamicTeamContext()
+    mock.module('../../utils/plans.js', () => actualPlans)
+    mock.module('../../utils/teammateMailbox.js', () => actualTeammateMailbox)
+    mock.module('fs/promises', () => require('fs/promises'))
   }
 })
