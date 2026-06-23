@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { buildSdkUrl } from './workSecret.ts'
+import { buildSdkUrl, isLocalhostBaseUrl } from './workSecret.ts'
 
 // Regression coverage: buildSdkUrl must decide localhost from the parsed
 // hostname only, not from "localhost" appearing elsewhere in the URL.
@@ -33,4 +33,36 @@ test('buildSdkUrl uses v2 path for localhost', () => {
 test('buildSdkUrl uses v1 path for remote', () => {
   const url = buildSdkUrl('https://api.example.com', 'sess-abc')
   expect(url).toContain('/v1/session_ingress/ws/sess-abc')
+})
+
+// isLocalhostBaseUrl gates the HTTP-over-the-wire credential guard in
+// bridgeMain. It must match the loopback hostname exactly, not anywhere the
+// literal text "localhost"/"127.0.0.1" happens to appear in the URL.
+
+test('isLocalhostBaseUrl: true for localhost hostname', () => {
+  expect(isLocalhostBaseUrl('http://localhost:8080')).toBe(true)
+})
+
+test('isLocalhostBaseUrl: true for 127.0.0.1 hostname', () => {
+  expect(isLocalhostBaseUrl('http://127.0.0.1:3000')).toBe(true)
+})
+
+test('isLocalhostBaseUrl: false when localhost is only in the path', () => {
+  expect(isLocalhostBaseUrl('http://evil.example.com/localhost')).toBe(false)
+})
+
+test('isLocalhostBaseUrl: false for a domain that merely ends in localhost', () => {
+  expect(isLocalhostBaseUrl('http://evil.localhost.com')).toBe(false)
+})
+
+test('isLocalhostBaseUrl: false when 127.0.0.1 is a label prefix of a remote host', () => {
+  expect(isLocalhostBaseUrl('http://127.0.0.1.evil.com')).toBe(false)
+})
+
+test('isLocalhostBaseUrl: false for a regular remote hostname', () => {
+  expect(isLocalhostBaseUrl('https://api.example.com')).toBe(false)
+})
+
+test('isLocalhostBaseUrl: false for a malformed URL', () => {
+  expect(isLocalhostBaseUrl('not a url')).toBe(false)
 })
