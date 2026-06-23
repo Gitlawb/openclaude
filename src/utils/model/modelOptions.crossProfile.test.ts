@@ -17,17 +17,87 @@ import {
 import * as actualProviderProfiles from '../providerProfiles.js'
 import * as actualProviders from './providers.js'
 import * as actualAuth from '../auth.js'
+import * as actualProviderConfig from '../../services/api/providerConfig.js'
 import type { ProviderProfile } from '../config.js'
 
 // Snapshot the real modules before any mock.module runs. bun live-repoints the
-// `actual*` namespaces to the active mock once a per-test mock.module is
-// installed, so a later harness call spreading `...actualProviders` would copy a
-// stale mock (with the previous test's overrides) rather than the genuine
-// module. These plain-object copies are the stable handle used to build the
-// mocks from a clean base each call.
+// `actual*` namespaces to the active mock, so these plain-object copies are the
+// stable handle on the genuine implementations.
 const realProviderProfiles = { ...actualProviderProfiles }
 const realProviders = { ...actualProviders }
 const realAuth = { ...actualAuth }
+const realProviderConfig = { ...actualProviderConfig }
+
+// bun's mock.module is process-wide and mock.restore() does NOT undo it, so
+// per-test mocks installed in a harness would persist and leak into later
+// suites (e.g. providerConfig's cache-scope tests reading a pinned
+// getAPIProvider). Instead install each mock ONCE here, gated on this flag, and
+// delegate to the real implementation whenever a cross-profile test is not
+// actively running. afterEach clears the flag, so the persisted mock becomes a
+// transparent passthrough for every other file. Same pattern as the
+// cross-spawn/file-suggestions leak fix (#1667).
+let activeProfilesOverride: Partial<typeof actualProviderProfiles> | null = null
+// Overrides getAdditionalModelOptionsCacheScope (used by getModelOptions to pick
+// the openai-scope branch) only while a test sets it. Keeps the full
+// providerConfig surface so the persisted mock doesn't strip resolveProviderRequest
+// etc. from later suites (e.g. providerConfig.local).
+let activeCacheScopeOverride: string | null = null
+
+mock.module('../../services/api/providerConfig.js', () => ({
+  ...realProviderConfig,
+  getAdditionalModelOptionsCacheScope: () =>
+    activeCacheScopeOverride ??
+    realProviderConfig.getAdditionalModelOptionsCacheScope(),
+}))
+
+mock.module('../providerProfiles.js', () => ({
+  ...realProviderProfiles,
+  getProviderProfiles: (...args: Parameters<typeof realProviderProfiles.getProviderProfiles>) =>
+    (activeProfilesOverride?.getProviderProfiles ??
+      realProviderProfiles.getProviderProfiles)(...args),
+  getActiveProviderProfile: (...args: Parameters<typeof realProviderProfiles.getActiveProviderProfile>) =>
+    (activeProfilesOverride?.getActiveProviderProfile ??
+      realProviderProfiles.getActiveProviderProfile)(...args),
+  getProfileModelOptions: (...args: Parameters<typeof realProviderProfiles.getProfileModelOptions>) =>
+    (activeProfilesOverride?.getProfileModelOptions ??
+      realProviderProfiles.getProfileModelOptions)(...args),
+}))
+
+// The 3P path reads getAPIProvider + subscriber checks; pin them to a stable
+// 3P-openai non-subscriber shape only while a cross-profile test is active.
+mock.module('./providers.js', () => ({
+  ...realProviders,
+  getAPIProvider: () =>
+    activeProfilesOverride ? 'openai' : realProviders.getAPIProvider(),
+  getAPIProviderForStatsig: () =>
+    activeProfilesOverride
+      ? 'openai'
+      : realProviders.getAPIProviderForStatsig(),
+  isFirstPartyAnthropicBaseUrl: (...args: Parameters<typeof realProviders.isFirstPartyAnthropicBaseUrl>) =>
+    activeProfilesOverride
+      ? false
+      : realProviders.isFirstPartyAnthropicBaseUrl(...args),
+  isGithubNativeAnthropicMode: (...args: Parameters<typeof realProviders.isGithubNativeAnthropicMode>) =>
+    activeProfilesOverride
+      ? false
+      : realProviders.isGithubNativeAnthropicMode(...args),
+  usesAnthropicAccountFlow: (...args: Parameters<typeof realProviders.usesAnthropicAccountFlow>) =>
+    activeProfilesOverride
+      ? false
+      : realProviders.usesAnthropicAccountFlow(...args),
+}))
+
+mock.module('../auth.js', () => ({
+  ...realAuth,
+  isClaudeAISubscriber: (...args: Parameters<typeof realAuth.isClaudeAISubscriber>) =>
+    activeProfilesOverride ? false : realAuth.isClaudeAISubscriber(...args),
+  isMaxSubscriber: (...args: Parameters<typeof realAuth.isMaxSubscriber>) =>
+    activeProfilesOverride ? false : realAuth.isMaxSubscriber(...args),
+  isTeamPremiumSubscriber: (...args: Parameters<typeof realAuth.isTeamPremiumSubscriber>) =>
+    activeProfilesOverride
+      ? false
+      : realAuth.isTeamPremiumSubscriber(...args),
+}))
 
 function buildProviderProfileFixture(
   overrides: Partial<ProviderProfile> = {},
@@ -46,43 +116,23 @@ function buildProviderProfileFixture(
 async function importFreshModelOptionsModule(
   providerProfilesMock: Partial<typeof actualProviderProfiles>,
 ) {
-  mock.restore()
-  mock.module('../providerProfiles.js', () => ({
-    ...realProviderProfiles,
-    ...providerProfilesMock,
-  }))
-  // The 3P path also reads getAPIProvider and a handful of subscriber checks;
-  // pin them to a stable 3P-openai shape so the picker exercises the inactive
-  // profile branch we care about.
-  mock.module('./providers.js', () => ({
-    ...realProviders,
-    getAPIProvider: () => 'openai',
-    getAPIProviderForStatsig: () => 'openai',
-    isFirstPartyAnthropicBaseUrl: () => false,
-    isGithubNativeAnthropicMode: () => false,
-    usesAnthropicAccountFlow: () => false,
-  }))
-  // Subscriber checks short-circuit the 3P path with a Claude.AI-shaped option
-  // list and never reach the inactive-profile append. Pin to non-subscriber
-  // for these tests so the openai 3P branch runs end-to-end.
-  mock.module('../auth.js', () => ({
-    ...realAuth,
-    isClaudeAISubscriber: () => false,
-    isMaxSubscriber: () => false,
-    isTeamPremiumSubscriber: () => false,
-  }))
+  activeProfilesOverride = providerProfilesMock
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./modelOptions.js?ts=${nonce}`)
 }
 
 beforeEach(() => {
-  mock.restore()
+  activeProfilesOverride = null
+  activeCacheScopeOverride = null
   setSessionSettingsCache({ settings: {}, errors: [] })
   resetModelStringsForTestingOnly()
 })
 
 afterEach(() => {
-  mock.restore()
+  // Clear the gates so the persisted provider/auth/profile/providerConfig mocks
+  // fall through to the real implementations for every later suite.
+  activeProfilesOverride = null
+  activeCacheScopeOverride = null
   resetSettingsCache()
   resetModelStringsForTestingOnly()
 })
@@ -291,11 +341,9 @@ test('getModelOptionsBase: local OpenAI-compatible scope still appends inactive 
   const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
   // Force the local OpenAI-compatible branch by pinning the scope getter to
-  // an `openai:` value. The real source reads the global config; we override
-  // it directly to keep the test hermetic.
-  mock.module('../../services/api/providerConfig.js', () => ({
-    getAdditionalModelOptionsCacheScope: () => 'openai:http://localhost:11434/v1',
-  }))
+  // an `openai:` value (via the gated override installed at module load, which
+  // keeps the rest of providerConfig real so it can't leak into other suites).
+  activeCacheScopeOverride = 'openai:http://localhost:11434/v1'
   try {
     const { getModelOptions, parseSwitchProfileValue } =
       await importFreshModelOptionsModule({
