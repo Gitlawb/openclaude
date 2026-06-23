@@ -446,9 +446,9 @@ export function startDeferredPrefetches(): void {
   // the trust dialog has been accepted — never before trust is established in
   // an interactive session. No-op if the wiki isn't initialized (~1 stat call).
   if (getIsNonInteractiveSession() || checkHasTrustDialogAccepted()) {
-    void import('./services/wiki/conventions.js').then(({ scanAndSaveConventions }) =>
-      scanAndSaveConventions(getCwd()),
-    );
+    void import('./services/wiki/conventions.js')
+      .then(({ scanAndSaveConventions }) => scanAndSaveConventions(getCwd()))
+      .catch(logError);
   }
 
   // Analytics and feature flag initialization

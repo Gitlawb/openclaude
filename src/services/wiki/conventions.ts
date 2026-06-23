@@ -299,7 +299,7 @@ export type ScanResult = {
   sections: { label: string; lines: string[] }[]
   markdown: string
   fingerprint: string
-  identity: ReturnType<typeof getProjectIdentity>
+  identity: ProjectIdentity
 }
 
 /**
@@ -307,7 +307,7 @@ export type ScanResult = {
  * Returns structured results and a markdown summary.
  */
 export async function scanProjectConventions(cwd: string): Promise<ScanResult> {
-  const identity = getProjectIdentity(cwd)
+  const identity = await getProjectIdentity(cwd)
   const sections: { label: string; lines: string[] }[] = []
 
   for (const scanner of SCANNERS) {
@@ -327,7 +327,7 @@ export async function scanProjectConventions(cwd: string): Promise<ScanResult> {
 }
 
 function formatConventions(
-  identity: ReturnType<typeof getProjectIdentity>,
+  identity: ProjectIdentity,
   sections: { label: string; lines: string[] }[],
 ): string {
   const parts: string[] = [
@@ -405,9 +405,13 @@ export async function scanAndSaveConventions(cwd: string): Promise<ConventionRes
   const { conventionsFile } = getWikiPaths(cwd)
   try {
     await writeFile(conventionsFile, scan.markdown, { encoding: 'utf-8' })
-  } catch {
-    // Wiki may not be initialized — silently skip
-    return null
+  } catch (error) {
+    // Only a missing wiki (ENOENT) is an expected "not initialized" skip;
+    // surface real failures (EACCES, EROFS, …) instead of masking them.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    throw error
   }
 
   await writeCache(cwd, scan.fingerprint)
@@ -433,11 +437,14 @@ export async function forceScanConventions(cwd: string): Promise<ConventionResul
   try {
     await writeFile(conventionsFile, scan.markdown, { encoding: 'utf-8' })
     saved = true
-  } catch {
-    // Wiki not initialized (.openclaude/wiki is missing). Don't touch the cache
-    // file below — its directory is missing too and writeFile would throw
-    // ENOENT, crashing `/wiki scan`. The caller surfaces a "run /wiki init"
-    // message based on `saved`.
+  } catch (error) {
+    // Only ENOENT means the wiki isn't initialized — leave saved=false so the
+    // cache write below is skipped (its dir is missing too) and the caller
+    // surfaces a "run /wiki init" message. Surface any other failure
+    // (EACCES, EROFS, …) instead of masking it as "not initialized".
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error
+    }
   }
 
   if (saved) {

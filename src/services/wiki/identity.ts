@@ -1,5 +1,5 @@
-import { execFileSync } from 'child_process'
 import { basename } from 'path'
+import { execa } from 'execa'
 import { getFsImplementation } from '../../utils/fsOperations.js'
 
 export type ProjectIdentity = {
@@ -86,17 +86,20 @@ function detectMonorepo(cwd: string): boolean {
 }
 
 /**
- * Detect the main branch name from git.
+ * Detect the main branch name from git. Uses async execa (the service-layer
+ * subprocess convention) so the startup scan never blocks the event loop.
  */
-function detectMainBranch(cwd: string): string {
+async function detectMainBranch(cwd: string): Promise<string> {
   try {
-    const output = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }) as string
-    return output.trim().replace('refs/remotes/origin/', '')
+    const result = await execa(
+      'git',
+      ['symbolic-ref', 'refs/remotes/origin/HEAD'],
+      { cwd, timeout: 2000, stdin: 'ignore', reject: false },
+    )
+    if (result.failed || typeof result.stdout !== 'string') {
+      return 'main'
+    }
+    return result.stdout.trim().replace('refs/remotes/origin/', '') || 'main'
   } catch {
     return 'main'
   }
@@ -105,7 +108,7 @@ function detectMainBranch(cwd: string): string {
 /**
  * Build a project identity fingerprint.
  */
-export function getProjectIdentity(cwd: string): ProjectIdentity {
+export async function getProjectIdentity(cwd: string): Promise<ProjectIdentity> {
   let name = basename(cwd)
 
   const fs = getFsImplementation()
@@ -123,6 +126,6 @@ export function getProjectIdentity(cwd: string): ProjectIdentity {
     name,
     languages: detectLanguages(cwd),
     isMonorepo: detectMonorepo(cwd),
-    mainBranch: detectMainBranch(cwd),
+    mainBranch: await detectMainBranch(cwd),
   }
 }
