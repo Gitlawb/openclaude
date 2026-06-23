@@ -41,6 +41,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let pushInProgress = false
 let rescheduleCount = 0
 let hasPendingChanges = false
+let isFollowUpQueued = false
 let currentPushPromise: Promise<void> | null = null
 let watcherStarted = false
 
@@ -83,52 +84,55 @@ let syncState: SyncState | null = null
  * suppression is needed — edits arriving mid-push hit schedulePush() and
  * the debounce re-arms after this push completes.
  */
-async function executePush(): Promise<void> {
+function executePush(): Promise<void> {
   if (!syncState) {
-    return
+    return Promise.resolve()
   }
   pushInProgress = true
-  const capturedPromise = currentPushPromise
-  try {
-    const result = await pushTeamMemory(syncState)
-    if (result.success) {
-      hasPendingChanges = false
-    }
-    if (result.success && result.filesUploaded > 0) {
-      logForDebugging(
-        `team-memory-watcher: pushed ${result.filesUploaded} files`,
-        { level: 'info' },
-      )
-    } else if (!result.success) {
-      logForDebugging(`team-memory-watcher: push failed: ${result.error}`, {
+  let promise: Promise<void> | null = null
+  promise = (async () => {
+    try {
+      const result = await pushTeamMemory(syncState!)
+      if (result.success) {
+        hasPendingChanges = false
+      }
+      if (result.success && result.filesUploaded > 0) {
+        logForDebugging(
+          `team-memory-watcher: pushed ${result.filesUploaded} files`,
+          { level: 'info' },
+        )
+      } else if (!result.success) {
+        logForDebugging(`team-memory-watcher: push failed: ${result.error}`, {
+          level: 'warn',
+        })
+        if (isPermanentFailure(result) && pushSuppressedReason === null) {
+          pushSuppressedReason =
+            result.httpStatus !== undefined
+              ? `http_${result.httpStatus}`
+              : (result.errorType ?? 'unknown')
+          logForDebugging(
+            `team-memory-watcher: suppressing retry until next unlink or session restart (${pushSuppressedReason})`,
+            { level: 'warn' },
+          )
+          logEvent('tengu_team_mem_push_suppressed', {
+            reason:
+              pushSuppressedReason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            ...(result.httpStatus && { status: result.httpStatus }),
+          })
+        }
+      }
+    } catch (e) {
+      logForDebugging(`team-memory-watcher: push error: ${errorMessage(e)}`, {
         level: 'warn',
       })
-      if (isPermanentFailure(result) && pushSuppressedReason === null) {
-        pushSuppressedReason =
-          result.httpStatus !== undefined
-            ? `http_${result.httpStatus}`
-            : (result.errorType ?? 'unknown')
-        logForDebugging(
-          `team-memory-watcher: suppressing retry until next unlink or session restart (${pushSuppressedReason})`,
-          { level: 'warn' },
-        )
-        logEvent('tengu_team_mem_push_suppressed', {
-          reason:
-            pushSuppressedReason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-          ...(result.httpStatus && { status: result.httpStatus }),
-        })
+    } finally {
+      pushInProgress = false
+      if (currentPushPromise === promise) {
+        currentPushPromise = null
       }
     }
-  } catch (e) {
-    logForDebugging(`team-memory-watcher: push error: ${errorMessage(e)}`, {
-      level: 'warn',
-    })
-  } finally {
-    pushInProgress = false
-    if (currentPushPromise === capturedPromise) {
-      currentPushPromise = null
-    }
-  }
+  })()
+  return promise!
 }
 
 function onDebounceFire(): void {
@@ -138,9 +142,20 @@ function onDebounceFire(): void {
       schedulePush()
     } else {
       rescheduleCount = 0
-      currentPushPromise = (currentPushPromise ?? Promise.resolve()).then(
-        () => executePush(),
-      )
+      if (!isFollowUpQueued) {
+        isFollowUpQueued = true
+        const nextPromise = (currentPushPromise ?? Promise.resolve())
+          .then(() => {
+            isFollowUpQueued = false
+            return executePush()
+          })
+          .finally(() => {
+            if (currentPushPromise === nextPromise) {
+              currentPushPromise = null
+            }
+          })
+        currentPushPromise = nextPromise
+      }
     }
     return
   }
@@ -391,6 +406,7 @@ export function _resetWatcherStateForTesting(opts?: {
   pushInProgress = false
   rescheduleCount = 0
   hasPendingChanges = false
+  isFollowUpQueued = false
   currentPushPromise = null
   watcherStarted = opts?.skipWatcher ?? false
   pushSuppressedReason = opts?.pushSuppressedReason ?? null
@@ -412,6 +428,8 @@ export const _test = {
   get pushInProgress(): boolean { return pushInProgress },
   set pushInProgress(v: boolean) { pushInProgress = v },
   get rescheduleCount(): number { return rescheduleCount },
+  get isFollowUpQueued(): boolean { return isFollowUpQueued },
+  set isFollowUpQueued(v: boolean) { isFollowUpQueued = v },
   get currentPushPromise(): Promise<void> | null { return currentPushPromise },
   set currentPushPromise(v: Promise<void> | null) { currentPushPromise = v },
   get hasPendingChanges(): boolean { return hasPendingChanges },

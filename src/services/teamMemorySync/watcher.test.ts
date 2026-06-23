@@ -20,7 +20,24 @@ async function freshMod(): Promise<WatcherModule> {
   return m
 }
 
-afterEach(() => {
+afterEach(async () => {
+  if (resolvePush) {
+    try {
+      resolvePush()
+    } catch {
+      // ignore
+    }
+  }
+  if (mod && mod._test.currentPushPromise) {
+    try {
+      await mod._test.currentPushPromise
+    } catch {
+      // ignore
+    }
+  }
+  if (mod) {
+    mod._resetWatcherStateForTesting()
+  }
   resolvePush = null
   mockPush.mockReset()
 })
@@ -58,12 +75,11 @@ describe('rescheduleCount behavior', () => {
     mod = await freshMod()
     hangPush()
 
-    mod._test.executePush()
+    mod._test.currentPushPromise = mod._test.executePush()
     expect(mod._test.pushInProgress).toBe(true)
 
     resolvePush!()
-    await Promise.resolve()
-    await Promise.resolve()
+    await mod._test.currentPushPromise
 
     expect(mod._test.pushInProgress).toBe(false)
     expect(mod._test.rescheduleCount).toBe(0)
@@ -73,40 +89,106 @@ describe('rescheduleCount behavior', () => {
     mod = await freshMod()
     let callCount = 0
     let resolveFirst!: (v: unknown) => void
+    let firstPushStarted = false
+    let secondPushStarted = false
+
     mockPush.mockImplementation(() => {
       callCount++
       if (callCount === 1) {
-        return new Promise(resolve => { resolveFirst = resolve })
+        firstPushStarted = true
+        return new Promise(resolve => {
+          resolveFirst = resolve
+          resolvePush = () => resolve({ success: true, filesUploaded: 0 })
+        })
+      }
+      if (callCount === 2) {
+        secondPushStarted = true
+        return Promise.resolve({ success: true, filesUploaded: 0 })
       }
       return Promise.resolve({ success: true, filesUploaded: 0 })
     })
 
-    const firstPush = mod._test.executePush()
+    // Start first push
+    mod._test.currentPushPromise = mod._test.executePush()
     expect(mod._test.pushInProgress).toBe(true)
-
-    mod._test.currentPushPromise = (mod._test.currentPushPromise ?? Promise.resolve()).then(
-      () => mod._test.executePush(),
-    )
-
     expect(callCount).toBe(1)
+    expect(firstPushStarted).toBe(true)
+    expect(secondPushStarted).toBe(false)
 
+    // Trigger capped reschedule
+    for (let i = 0; i <= mod._test.MAX_RESCHEDULE_ATTEMPTS; i++) {
+      mod._test.onDebounceFire()
+    }
+
+    // Second push cannot start until the first resolves
+    expect(secondPushStarted).toBe(false)
+    expect(callCount).toBe(1)
+    expect(mod._test.isFollowUpQueued).toBe(true)
+
+    // Resolve first push
     resolveFirst({ success: true, filesUploaded: 0 })
-    await firstPush
     await mod._test.currentPushPromise
 
-    expect(mod._test.pushInProgress).toBe(false)
+    // Second push has completed and state is cleaned up
+    expect(secondPushStarted).toBe(true)
+    expect(callCount).toBe(2)
+    expect(mod._test.isFollowUpQueued).toBe(false)
+    expect(mod._test.currentPushPromise).toBeNull()
+  })
+
+  test('does not queue multiple duplicate follow-up pushes when one is already queued', async () => {
+    mod = await freshMod()
+    let callCount = 0
+    let resolveFirst!: (v: unknown) => void
+    mockPush.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        return new Promise(resolve => {
+          resolveFirst = resolve
+          resolvePush = () => resolve({ success: true, filesUploaded: 0 })
+        })
+      }
+      return Promise.resolve({ success: true, filesUploaded: 0 })
+    })
+
+    // Start the first push
+    mod._test.currentPushPromise = mod._test.executePush()
+    expect(callCount).toBe(1)
+
+    // Trigger first capped reschedule to queue the follow-up
+    for (let i = 0; i <= mod._test.MAX_RESCHEDULE_ATTEMPTS; i++) {
+      mod._test.onDebounceFire()
+    }
+    expect(mod._test.isFollowUpQueued).toBe(true)
+    const followUpPromise = mod._test.currentPushPromise
+
+    // Trigger second capped reschedule while follow-up is already queued
+    for (let i = 0; i <= mod._test.MAX_RESCHEDULE_ATTEMPTS; i++) {
+      mod._test.onDebounceFire()
+    }
+    // The currentPushPromise should remain the same promise instance (no new promise was chained/created)
+    expect(mod._test.currentPushPromise).toBe(followUpPromise)
+
+    // Resolve first push
+    resolveFirst({ success: true, filesUploaded: 0 })
+    await followUpPromise
+
+    // Only 2 calls to push should have been made in total (the first push, and the single follow-up push)
     expect(callCount).toBe(2)
   })
 })
 
 describe('executePush identity safety', () => {
-  test('clears currentPushPromise when it was null before execution', async () => {
+  test('clears currentPushPromise when it was set to the executing promise', async () => {
     immediatePush()
     mod = await freshMod()
     mod._resetWatcherStateForTesting({ syncState: { lastKnownChecksum: null, serverChecksums: new Map(), serverMaxEntries: null } })
 
     expect(mod._test.currentPushPromise).toBeNull()
-    await mod._test.executePush()
+    mod._test.currentPushPromise = mod._test.executePush()
+    expect(mod._test.currentPushPromise).not.toBeNull()
+
+    await mod._test.currentPushPromise
 
     expect(mod._test.pushInProgress).toBe(false)
     expect(mod._test.currentPushPromise).toBeNull()
@@ -120,7 +202,7 @@ describe('executePush identity safety', () => {
     const replacement: Promise<void> = Promise.resolve()
 
     const pushP = mod._test.executePush()
-
+    mod._test.currentPushPromise = pushP
     mod._test.currentPushPromise = replacement
 
     await pushP
