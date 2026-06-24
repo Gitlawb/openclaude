@@ -12,9 +12,15 @@ import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from '../../utils/settings/settingsCache.js'
+import { encodeSwitchProfileValue } from '../../utils/model/modelOptions.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
 import type { ModelSetting } from '../../utils/model/model.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
+import * as actualFastModeForModelTest from '../../utils/fastMode.js'
+
+// Snapshot the real fast-mode module up front so the cross-profile switch test
+// can mock it with a full surface and restore the real one afterwards.
+const REAL_FAST_MODE_FOR_MODEL_TEST = { ...actualFastModeForModelTest }
 
 type SettingsModule = typeof import('../../utils/settings/settings.js')
 
@@ -2729,4 +2735,89 @@ test('/model does not auto-refresh descriptor models when nonessential traffic i
 
   expect(result).toBeTruthy()
   expect(discoverModelsForRoute).not.toHaveBeenCalled()
+})
+
+test('cross-profile /model switch drops latched fast mode before activating an unsupported target profile (#1119)', async () => {
+  // Fast mode is enabled on the source provider; activating the target profile
+  // flips isFastModeEnabled() to false (the new provider can't use fast mode).
+  // This guards the ordering bug: reconcileFastModeForSwitch must evaluate
+  // against the source provider (before activation), otherwise it short-circuits
+  // to 'unchanged' once the new provider is active and leaves fastMode latched.
+  let targetProfileActivated = false
+  mock.module('../../utils/fastMode.js', () => ({
+    ...REAL_FAST_MODE_FOR_MODEL_TEST,
+    isFastModeEnabled: () => !targetProfileActivated,
+    isFastModeSupportedByModel: (m: string | null) => m === 'claude-opus-4-7',
+    isFastModeAvailable: () => true,
+    clearFastModeCooldown: () => {},
+  }))
+  mockProviderProfiles({
+    setActiveProviderProfile: (profileId: string) => {
+      targetProfileActivated = true
+      return {
+        id: profileId,
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      }
+    },
+  } as never)
+
+  let capturedOnSelect:
+    | ((model: string | null, effort: unknown) => void)
+    | undefined
+  mock.module('../../components/ModelPicker.js', () => ({
+    ModelPicker: function MockModelPicker(props: {
+      onSelect?: (model: string | null, effort: unknown) => void
+    }): React.ReactNode {
+      capturedOnSelect = props.onSelect
+      return null
+    },
+  }))
+
+  const { getDefaultAppState } = await import('../../state/AppState.js')
+  const observedStates: Array<{ fastMode?: boolean }> = []
+  const { call } = await importFreshModelModule('fast-cross-profile-order')
+  const element = await call(() => {}, {} as never, '')
+  const { AppStateProvider } = await import('../../state/AppState.js')
+  const { render } = await import('../../ink.js')
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+  const instance = await render(
+    <AppStateProvider
+      initialState={
+        {
+          ...getDefaultAppState(),
+          fastMode: true,
+          mainLoopModel: 'claude-opus-4-7',
+        } as never
+      }
+      onChangeAppState={({
+        newState,
+      }: {
+        newState: { fastMode?: boolean }
+      }) => {
+        observedStates.push(newState)
+      }}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  await waitForCondition(() => capturedOnSelect !== undefined)
+  capturedOnSelect?.(
+    encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+    undefined,
+  )
+
+  await waitForCondition(() =>
+    observedStates.some(state => state.fastMode === false),
+  )
+  expect(observedStates.at(-1)?.fastMode).toBe(false)
+
+  instance.unmount()
+  // Restore the real fast-mode module for sibling tests in this file.
+  mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
 })

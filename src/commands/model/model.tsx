@@ -654,6 +654,19 @@ function ModelPickerWrapper({
         )
         return
       }
+      // Run the same fast-mode reconciliation as the regular switch path —
+      // otherwise a user with fastMode latched on Anthropic would carry the
+      // latched state into the new profile even when its model can't support
+      // it (jatmn review, #1119). This MUST run before setActiveProviderProfile:
+      // reconcileFastModeForSwitch gates on isFastModeEnabled(), which reads the
+      // *active* provider, so once the target profile is activated it reflects
+      // the new (fast-mode-less) provider and short-circuits to 'unchanged',
+      // leaving fastMode latched on.
+      const switchFastMode = reconcileFastModeForSwitch(
+        switchTarget.model,
+        isFastMode ?? false,
+      )
+
       const activated = setActiveProviderProfile(switchTarget.profileId)
       if (!activated) {
         onDone(`Could not activate provider profile "${switchTarget.profileId}".`, {
@@ -672,14 +685,6 @@ function ModelPickerWrapper({
         mainLoopModelForSession: null,
       }))
 
-      // Run the same fast-mode reconciliation as the regular switch path —
-      // otherwise a user with fastMode latched on Anthropic would carry the
-      // latched state into the new profile even when its model can't support
-      // it (jatmn review, #1119).
-      const switchFastMode = reconcileFastModeForSwitch(
-        switchTarget.model,
-        isFastMode ?? false,
-      )
       if (switchFastMode === 'off') {
         setAppState(prev => ({ ...prev, fastMode: false }))
       }
