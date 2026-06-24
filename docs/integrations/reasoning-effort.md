@@ -11,7 +11,8 @@ OpenClaude treats reasoning support as a per-model capability. Provider and gate
 ```ts
 reasoning: {
   mode: 'levels' | 'toggle' | 'always-on'
-  levels?: ['low', 'medium', 'high', 'xhigh', 'max']
+  // Any supported subset for this exact model, for example ['high', 'xhigh'].
+  levels?: ReasoningEffortLevel[]
   defaultLevel?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   wireFormat?:
     | 'reasoning_effort'
@@ -31,11 +32,11 @@ The `/effort` resolver is intentionally conservative:
 1. Explicit per-model `reasoning` metadata wins.
 2. Existing hardcoded legacy effort support remains unchanged.
 3. `supportsReasoning: true` without `reasoning` metadata is treated as reasoning-capable but not controllable.
-4. Unknown models do not receive new reasoning request fields.
+4. Truly unknown models do not receive new reasoning request fields.
 
 This means existing OpenAI, Codex, Claude, Gemini, and configured 3P override behavior remains active, while catalogs can safely mark models with `supportsReasoning` before their exact request shape has been audited.
 
-A temporary compatibility layer also preserves verified request shaping that existed before per-model `reasoning` metadata. For example, DeepSeek-compatible routes can still map `/effort xhigh` to provider `reasoning_effort: "max"`, and Z.AI GLM routes can still map supported controls through their `thinking` request shape. These compatibility rules are intentionally centralized in the effort resolver so they can be removed as catalogs gain explicit `reasoning` metadata.
+A temporary compatibility layer also preserves verified request shaping that existed before per-model `reasoning` metadata. For example, DeepSeek-compatible routes can still map `/effort xhigh` to provider `reasoning_effort: "max"`, and Z.AI GLM routes can still map supported controls through their `thinking` request shape. Those compatibility rules also cover matching uncataloged DeepSeek/Z.AI route traffic, so the unknown-model rule only applies after explicit metadata and compatibility resolution both fail. These rules are intentionally centralized in the effort resolver so they can be removed as catalogs gain explicit `reasoning` metadata.
 
 ## Provider and Gateway Rules
 

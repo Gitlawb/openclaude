@@ -652,11 +652,12 @@ test('OpenAI shim reasoning request plan centralizes DeepSeek and Z.AI serializa
   })
 })
 
-test('explicit non-generic metadata wire formats stay non-controllable until planner support exists', async () => {
+test('explicit compat metadata wire formats are controllable and feed the request planner', async () => {
   const {
     modelSupportsEffort,
     modelSupportsWireEffort,
     resolveModelReasoningControl,
+    resolveOpenAIShimReasoningRequestPlan,
   } = await importFreshEffortModule({
     provider: 'openai',
     supportsCodexReasoningEffort: false,
@@ -675,12 +676,24 @@ test('explicit non-generic metadata wire formats stay non-controllable until pla
     ],
   })
 
-  expect(resolveModelReasoningControl('custom-deepseek-model')).toMatchObject({
+  const reasoningControl = resolveModelReasoningControl('custom-deepseek-model')
+  expect(reasoningControl).toMatchObject({
     supportsReasoning: true,
-    controllable: false,
+    controllable: true,
     source: 'metadata',
     wireFormat: 'deepseek_compatible',
   })
-  expect(modelSupportsEffort('custom-deepseek-model')).toBe(false)
-  expect(modelSupportsWireEffort('custom-deepseek-model')).toBe(false)
+  expect(modelSupportsEffort('custom-deepseek-model')).toBe(true)
+  expect(modelSupportsWireEffort('custom-deepseek-model')).toBe(true)
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-deepseek-model',
+    requestedEffort: 'xhigh',
+    requestThinkingType: 'enabled',
+    reasoningControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'max',
+    wireFormat: 'deepseek_compatible',
+    source: 'metadata',
+  })
 })

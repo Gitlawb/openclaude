@@ -8,6 +8,7 @@ import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import {
+  ensureIntegrationsLoaded,
   getCatalogEntriesForRoute,
   getModel,
   resolveActiveRouteIdFromEnv,
@@ -123,10 +124,9 @@ function normalizeReasoningDefaultLevel(
 function metadataWireFormatSupportsEffort(
   wireFormat: ReasoningWireFormat | undefined,
 ): boolean {
-  // Explicit metadata is controllable only when the planner consumes that exact
-  // wire format directly. DeepSeek/Z.AI formats are currently enabled through
-  // temporary compatibility rules, not catalog metadata.
-  return wireFormat === 'reasoning_effort'
+  return wireFormat === 'reasoning_effort' ||
+    wireFormat === 'deepseek_compatible' ||
+    wireFormat === 'zai_compatible'
 }
 
 function normalizedBaseModel(model: string | undefined): string {
@@ -300,6 +300,7 @@ function resolveCatalogReasoningMetadata(
     return undefined
   }
 
+  ensureIntegrationsLoaded()
   const normalizedModel = model.trim().split('?', 1)[0]!.trim().toLowerCase()
   const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
   const entry = entries.find(catalogEntry =>
@@ -535,11 +536,29 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
   requestThinkingType?: string
   defaultThinkingType?: string
   thinkingRequestFormat?: OpenAIShimThinkingRequestFormat
+  routeId?: string | null
+  useRuntimeFallback?: boolean
+  reasoningControl?: Pick<ReasoningControlResolution, 'source' | 'wireFormat' | 'levels'>
 }): OpenAIShimReasoningRequestPlan {
-  const wireFormat = resolveCompatibilityWireFormat(
-    options.model,
-    options.thinkingRequestFormat,
-  )
+  const metadataWireFormat = options.reasoningControl?.source === 'metadata'
+    ? options.reasoningControl.wireFormat
+    : undefined
+  if (metadataWireFormat && !metadataWireFormatSupportsEffort(metadataWireFormat)) {
+    return {
+      wireFormat: metadataWireFormat,
+      source: 'none',
+    }
+  }
+
+  const wireFormat = metadataWireFormat
+    ? metadataWireFormat
+    : resolveCompatibilityWireFormat(
+      options.model,
+      options.thinkingRequestFormat,
+      options.routeId,
+      options.useRuntimeFallback ?? true,
+    )
+  const source = metadataWireFormat ? 'metadata' : 'compat'
   const requestedThinkingType = normalizeReasoningThinkingType(
     options.requestThinkingType,
   )
@@ -556,7 +575,7 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
       thinkingType,
       reasoningEffort,
       wireFormat,
-      source: 'compat',
+      source,
     }
   }
 
@@ -566,19 +585,29 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
       return {
         thinkingType: 'disabled',
         wireFormat,
-        source: 'compat',
+        source,
       }
     }
 
     const shouldEnableThinking = thinkingType === 'enabled' || options.requestedEffort !== undefined
-    const reasoningEffort = options.requestedEffort && supportsZaiReasoningEffort(options.model)
+    const metadataZaiSupportsReasoningEffort =
+      metadataWireFormat === 'zai_compatible' &&
+      (options.reasoningControl?.levels.includes('xhigh') ||
+        options.reasoningControl?.levels.includes('max') ||
+        options.reasoningControl?.levels.includes('medium') ||
+        options.reasoningControl?.levels.includes('low'))
+    const reasoningEffort = options.requestedEffort &&
+      (metadataZaiSupportsReasoningEffort || (
+        metadataWireFormat !== 'zai_compatible' &&
+        supportsZaiReasoningEffort(options.model)
+      ))
       ? normalizeZaiReasoningEffort(options.requestedEffort)
       : undefined
     return {
       thinkingType: shouldEnableThinking ? 'enabled' : undefined,
       reasoningEffort,
       wireFormat,
-      source: 'compat',
+      source,
     }
   }
 

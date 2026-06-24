@@ -184,6 +184,26 @@ describe('resolveOpenAIShimRuntimeContext - Z.AI GLM-5.2', () => {
   })
 })
 
+describe('resolveOpenAIShimRuntimeContext - provider override route preference', () => {
+  it('does not inherit ambient route config when the preferred base URL is unrecognized', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'gpt-4o',
+      baseUrl: 'https://custom.example.test/v1',
+      preferBaseUrlRoute: true,
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.groq.com/openai/v1',
+      },
+    })
+
+    expect(result.routeId).toBeNull()
+    expect(result.descriptor).toBeNull()
+    expect(result.catalogEntry).toBeNull()
+    expect(result.openaiShimConfig.removeBodyFields).toBeUndefined()
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBeUndefined()
+  })
+})
+
 describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
   describe('DeepSeek models', () => {
     it('should NOT infer preserveReasoningContent for custom aliases (false-positive case)', () => {

@@ -38,7 +38,10 @@ import {
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
-import { resolveOpenAIShimReasoningRequestPlan } from '../../utils/effort.js'
+import {
+  resolveModelReasoningControl,
+  resolveOpenAIShimReasoningRequestPlan,
+} from '../../utils/effort.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
@@ -2434,12 +2437,20 @@ class OpenAIShimMessages {
       ),
     })
 
+    const reasoningControl = resolveModelReasoningControl(request.resolvedModel, {
+      routeId: runtimeShimContext.routeId,
+      useRuntimeFallback: false,
+      openaiShimConfig: shimConfig,
+    })
     const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
       model: request.resolvedModel,
       requestedEffort: request.reasoning?.effort,
       requestThinkingType: (params.thinking as { type?: string } | undefined)?.type,
       defaultThinkingType: request.thinking?.type,
       thinkingRequestFormat: shimConfig.thinkingRequestFormat,
+      routeId: runtimeShimContext.routeId,
+      useRuntimeFallback: false,
+      reasoningControl,
     })
 
     const body: Record<string, unknown> = {
