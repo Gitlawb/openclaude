@@ -178,26 +178,27 @@ export function logError(error: unknown): void {
       return
     }
 
-    const errorStr = err.stack || err.message
-    const sanitizedErrorStr = redactSensitiveInfo(errorStr)
-
-    const errorInfo = {
-      error: sanitizedErrorStr,
-      timestamp: new Date().toISOString(),
-    }
-
-    // Always add to in-memory log (no dependencies needed)
-    addToInMemoryErrorLog(errorInfo)
-
     // Build a sanitized copy so callers that keep a reference to the
     // original error don't see redacted message/stack as a side effect.
-    // Object.assign copies own enumerable properties (name, message, stack,
-    // cause, custom props) while preserving the prototype chain.
+    // Object.create(err) sets __proto__ so instanceof checks work and
+    // inherited getters (name) resolve through the prototype chain.
+    // Object.assign copies own enumerable properties (cause, custom props).
+    // message and stack are own non-enumerable properties that Object.assign
+    // copies anyway (Object.assign handles non-enumerable own properties);
+    // they are then overwritten with their redacted versions below.
     const sanitizedErr = Object.assign(Object.create(err), err)
     sanitizedErr.message = redactSensitiveInfo(err.message)
     if (err.stack) {
       sanitizedErr.stack = redactSensitiveInfo(err.stack)
     }
+
+    const errorInfo = {
+      error: sanitizedErr.stack || sanitizedErr.message,
+      timestamp: new Date().toISOString(),
+    }
+
+    // Always add to in-memory log (no dependencies needed)
+    addToInMemoryErrorLog(errorInfo)
 
     // If sink not attached, queue the event
     if (errorLogSink === null) {

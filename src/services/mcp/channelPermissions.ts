@@ -23,6 +23,7 @@
  * See PR discussion 2956440848.
  */
 
+import { redactSensitiveInfo } from '../../utils/redaction.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 
@@ -160,7 +161,8 @@ export function shortRequestId(toolUseID: string): string {
 export function truncateForPreview(input: unknown): string {
   try {
     const s = jsonStringify(input)
-    return s.length > 200 ? s.slice(0, 200) + '…' : s
+    const redacted = redactSensitiveInfo(s)
+    return redacted.length > 200 ? redacted.slice(0, 200) + '…' : redacted
   } catch {
     return '(unserializable)'
   }
