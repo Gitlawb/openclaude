@@ -1,3 +1,4 @@
+import { APIError } from '@anthropic-ai/sdk'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { asMockFetch } from '../../test/typedMocks.js'
@@ -5,6 +6,7 @@ import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } f
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
+import * as realCodexShim from './codexShim.js'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
 
 type FetchType = typeof globalThis.fetch
@@ -7699,6 +7701,11 @@ test('renders tool_reference blocks as text on the chat/completions path', async
   expect(content).toContain('mcp__example__memory_store')
 })
 
+function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
+  const data = JSON.stringify(responseData)
+  return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
+}
+
 test('GitHub Copilot 401 chat_completions retries with refreshed token', async () => {
   const realModule = realGithubModelsCredentials
   try {
@@ -7766,5 +7773,82 @@ test('GitHub Copilot 401 chat_completions retries with refreshed token', async (
     expect(response).toBeDefined()
   } finally {
     mock.module('../../utils/githubModelsCredentials.js', () => realModule)
+  }
+})
+
+test('GitHub Copilot 401 codex_responses retries with refreshed token', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  const realCodexModule = realCodexShim
+  try {
+    const refreshSpy = mock(async () => {
+      process.env.GITHUB_TOKEN = 'refreshed-token'
+      process.env.OPENAI_API_KEY = 'refreshed-token'
+      return true
+    })
+
+    mock.module('../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    let codexCallCount = 0
+    let firstAuth: string | undefined
+    let secondAuth: string | undefined
+
+    mock.module('./codexShim.js', () => ({
+      ...realCodexModule,
+      performCodexRequest: mock(async (opts: { credentials: { apiKey: string } }) => {
+        codexCallCount++
+        const apiKey = opts.credentials?.apiKey
+
+        if (codexCallCount === 1) {
+          firstAuth = apiKey
+          throw APIError.generate(401, undefined, 'token expired', new Headers())
+        }
+
+        if (codexCallCount === 2) {
+          secondAuth = apiKey
+          return makeCodexSseResponse({
+            response: {
+              id: 'resp_test',
+              output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }],
+              model: 'gpt-5',
+              usage: { input_tokens: 10, output_tokens: 5 },
+            },
+          })
+        }
+
+        throw new Error(`unexpected codex call #${codexCallCount}`)
+      }),
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    process.env.OPENAI_API_KEY = 'initial-token'
+    process.env.GITHUB_TOKEN = 'initial-token'
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-retry-codex')
+
+    const client = createClient({}) as OpenAIShimClient
+
+    const response = await client.beta.messages.create({
+      model: 'gpt-5',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    })
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1)
+    expect(process.env.GITHUB_TOKEN).toBe('refreshed-token')
+    expect(process.env.OPENAI_API_KEY).toBe('refreshed-token')
+    expect(codexCallCount).toBe(2)
+    expect(firstAuth).toBe('initial-token')
+    expect(secondAuth).toBe('refreshed-token')
+    expect(response).toBeDefined()
+    expect((response as Record<string, unknown>).content).toBeDefined()
+  } finally {
+    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
+    mock.module('./codexShim.js', () => realCodexModule)
   }
 })
