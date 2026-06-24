@@ -72,13 +72,16 @@ const VERB_ING = ACTION_VERBS.map(v => {
 // (Using function to keep construction readable.)
 function buildContinuationSignals(): RegExp[] {
   const v = VERB_ALT
+  // "time to" needs "do" explicitly, but the rest of the verb list without "do"
+  // (use filtered array instead of string.replace so reordering ACTION_VERBS doesn't break it)
+  const vWithoutDo = ACTION_VERBS.filter(a => a !== 'do').join('|')
   return [
     // English: Action-transition phrases (requires intent + action)
     new RegExp(`\\bso now (i|let me|we) (need to|have to|should|must|will) (${v})\\b`, 'i'),
     new RegExp(`\\bnow i('ll| will) (${v})\\b`, 'i'),
     new RegExp(`\\bi (will|shall|now|need to|have to|must|should) (now )?(${v})\\b`, 'i'),
     new RegExp(`\\blet me (go ahead and |now )?(${v})\\b`, 'i'),
-    new RegExp(`\\btime to (do|${v.replace(/^do\|/, '')}|get started|begin|start)\\b`, 'i'),
+    new RegExp(`\\btime to (do|${vWithoutDo}|get started|begin|start)\\b`, 'i'),
     new RegExp(`\\b(moving on to|next step is to|starting to|proceeding to|continuing with|applying (the|these) changes|${VERB_ING})\\b`, 'i'),
     // French: Support for common continuation phrasing (relaxed boundaries for accents and apostrophes)
     /(^|\s)(je passe (à|au)|ensuite|l'étape suivante est de|je continue avec|au suivant|passons à|je reviens vers vous|je suis en train d'|je vais maintenant)(\s|$|[a-zà-ÿ])/i,
