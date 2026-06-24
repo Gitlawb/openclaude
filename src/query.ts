@@ -833,7 +833,7 @@ async function* queryLoop(
           queryCheckpoint('query_api_streaming_start')
           if (toolUseContext.abortController.signal.aborted) {
             yield* yieldMissingToolResultBlocks(assistantMessages, 'Interrupted by user')
-            return { reason: 'aborted_streaming' }
+            break
           }
           for await (const message of deps.callModel({
             messages: prependUserContext(messagesForQuery, userContext),
