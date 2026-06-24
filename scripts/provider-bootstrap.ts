@@ -167,12 +167,14 @@ async function main(): Promise<void> {
       goal,
       model: argModel || null,
       baseUrl: argBaseUrl || null,
-      apiKey: argApiKey || process.env.OPENAI_API_KEY || null,
+      apiKey: argApiKey || null,
       processEnv: process.env,
     })
 
     if (!builtEnv) {
-      console.error('OpenAI profile requires a real API key. Use --api-key or set OPENAI_API_KEY.')
+      console.error(
+        'OpenAI profile requires real credential(s). Use --api-key or set OPENAI_API_KEYS or OPENAI_API_KEY.',
+      )
       process.exit(1)
     }
 

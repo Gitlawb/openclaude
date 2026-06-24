@@ -1,9 +1,36 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Tool } from '../Tool.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../tools/ToolSearchTool/constants.js'
 import { countMcpToolTokens } from './analyzeContext.js'
 import { createRequestSizeReport } from './requestSizeBreakdown.js'
 import type { ContextData } from './analyzeContext.js'
+
+const originalEnv = {
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS:
+    process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
+  ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH,
+}
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/analyzeContext.mcp.test.ts')
+  delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+  delete process.env.ENABLE_TOOL_SEARCH
+})
+
+afterEach(() => {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+  releaseSharedMutationLock()
+})
 
 function makeMcpTool(name: string): Tool {
   return {
@@ -25,6 +52,12 @@ function makeToolSearchTool(): Tool {
 
 const emptyPermissionContext = async () => ({ mode: 'default' }) as never
 const countToolDefinitions = async () => 1_500
+const savedToolSearchEnv = {
+  ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH,
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS:
+    process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+}
 
 function makeContextData(overrides: Partial<ContextData> = {}): ContextData {
   return {
@@ -45,6 +78,22 @@ function makeContextData(overrides: Partial<ContextData> = {}): ContextData {
 }
 
 describe('countMcpToolTokens', () => {
+  beforeEach(() => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    delete process.env.ANTHROPIC_BASE_URL
+  })
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedToolSearchEnv)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  })
+
   test('marks MCP tools loaded and request-size groups them by server when Tool Search is not deferred', async () => {
     const result = await countMcpToolTokens(
       [makeMcpTool('mcp__alpha__search'), makeMcpTool('mcp__beta__list')],
@@ -78,40 +127,59 @@ describe('countMcpToolTokens', () => {
   })
 
   test('keeps deferred MCP schemas excluded from the outgoing request estimate when Tool Search is deferred', async () => {
-    const result = await countMcpToolTokens(
-      [
-        makeToolSearchTool(),
-        makeMcpTool('mcp__alpha__search'),
-        makeMcpTool('mcp__beta__list'),
-      ],
-      emptyPermissionContext,
-      { activeAgents: [] } as never,
-      'test-model',
-      [],
-      countToolDefinitions,
-    )
-
-    expect(result.mcpToolTokens).toBe(0)
-    expect(result.deferredToolTokens).toBeGreaterThan(0)
-    expect(result.mcpToolDetails.every(tool => !tool.isLoaded)).toBe(true)
-
-    const report = createRequestSizeReport(
-      makeContextData({
-        categories: [
-          {
-            name: 'MCP tools (deferred)',
-            tokens: result.deferredToolTokens,
-            color: 'inactive',
-            isDeferred: true,
-          },
+    const previousToolSearch = process.env.ENABLE_TOOL_SEARCH
+    const previousDisableBetas =
+      process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+    try {
+      const result = await countMcpToolTokens(
+        [
+          makeToolSearchTool(),
+          makeMcpTool('mcp__alpha__search'),
+          makeMcpTool('mcp__beta__list'),
         ],
-        mcpTools: result.mcpToolDetails,
-      }),
-    )
-    const labels = report.contributors.map(contributor => contributor.label)
+        emptyPermissionContext,
+        { activeAgents: [] } as never,
+        'test-model',
+        [],
+        countToolDefinitions,
+      )
 
-    expect(report.estimatedTokens).toBe(0)
-    expect(labels).not.toContain('MCP server alpha')
-    expect(labels).not.toContain('MCP server beta')
+      expect(result.mcpToolTokens).toBe(0)
+      expect(result.deferredToolTokens).toBeGreaterThan(0)
+      expect(result.mcpToolDetails.every(tool => !tool.isLoaded)).toBe(true)
+
+      const report = createRequestSizeReport(
+        makeContextData({
+          categories: [
+            {
+              name: 'MCP tools (deferred)',
+              tokens: result.deferredToolTokens,
+              color: 'inactive',
+              isDeferred: true,
+            },
+          ],
+          mcpTools: result.mcpToolDetails,
+        }),
+      )
+      const labels = report.contributors.map(contributor => contributor.label)
+
+      expect(report.estimatedTokens).toBe(0)
+      expect(labels).not.toContain('MCP server alpha')
+      expect(labels).not.toContain('MCP server beta')
+    } finally {
+      if (previousToolSearch === undefined) {
+        delete process.env.ENABLE_TOOL_SEARCH
+      } else {
+        process.env.ENABLE_TOOL_SEARCH = previousToolSearch
+      }
+      if (previousDisableBetas === undefined) {
+        delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+      } else {
+        process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS =
+          previousDisableBetas
+      }
+    }
   })
 })

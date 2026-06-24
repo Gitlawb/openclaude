@@ -4,8 +4,19 @@ import type { ContentReplacementRecord } from 'src/utils/toolResultStorage.js'
 import type { AgentId } from './ids.js'
 import type { Message } from './message.js'
 import type { QueueOperationMessage } from './messageQueueTypes.js'
+import type { GoalState } from '../services/goal/types.js'
 
-export type SerializedMessage = Message & {
+// SerializedMessage distributes over Message's `type` discriminant via
+// Extract so that (a) `m.type === '...'` narrowing and Extract<...> both
+// work on transcript entries, and (b) every SerializedMessage variant stays
+// assignable to its Message variant (sessionStorage passes TranscriptMessage
+// where Message is expected). When Message was an `any` stub this used
+// Omit<Message, never> to fabricate an object shape; with the reconstructed
+// discriminated union (issue #473) Extract is both simpler and sound —
+// each variant's `[key: string]: any` escape hatch keeps property access
+// permissive. 'progress' covers legacy on-disk entries (removed from
+// isTranscriptMessage in PR #24099 but still present in old transcripts).
+type SerializedMessageFields = {
   cwd: string
   userType: string
   entrypoint?: string // CLAUDE_CODE_ENTRYPOINT — distinguishes cli/sdk-ts/sdk-py/etc.
@@ -15,6 +26,19 @@ export type SerializedMessage = Message & {
   gitBranch?: string
   slug?: string // Session slug for files like plans (used for resume)
 }
+
+type SerializedMessageOf<K extends Message['type']> = Extract<
+  Message,
+  { type: K }
+> &
+  SerializedMessageFields
+
+export type SerializedMessage =
+  | SerializedMessageOf<'user'>
+  | SerializedMessageOf<'assistant'>
+  | SerializedMessageOf<'attachment'>
+  | SerializedMessageOf<'system'>
+  | SerializedMessageOf<'progress'>
 
 export type LogOption = {
   date: string
@@ -50,6 +74,7 @@ export type LogOption = {
   mode?: 'coordinator' | 'normal' // Session mode for coordinator/normal detection
   worktreeSession?: PersistedWorktreeSession | null // Worktree state at session end (null = exited, undefined = never entered)
   contentReplacements?: ContentReplacementRecord[] // Replacement decisions for resume reconstruction
+  goal?: GoalState | null // Last session goal state, if any
 }
 
 export type SummaryMessage = {
@@ -185,6 +210,12 @@ export type ContentReplacementEntry = {
   replacements: ContentReplacementRecord[]
 }
 
+export type GoalStateEntry = {
+  type: 'goal-state'
+  sessionId: UUID
+  goal: GoalState | null
+}
+
 export type FileHistorySnapshotMessage = {
   type: 'file-history-snapshot'
   messageId: UUID
@@ -240,11 +271,11 @@ export type SpeculationAcceptMessage = {
  * Persisted context-collapse commit. The archived messages themselves are
  * NOT persisted — they're already in the transcript as ordinary user/
  * assistant messages. We only persist enough to reconstruct the splice
- * instruction (boundary uuids) and the summary placeholder (which is NOT
- * in the transcript because it's never yielded to the REPL).
- *
- * On restore, the store reconstructs CommittedCollapse with archived=[];
- * projectView lazily fills the archive the first time it finds the span.
+ * instruction (boundary uuids), the summary placeholder (which is NOT
+ * in the transcript because it's never yielded to the REPL), and the count
+ * of archived messages so getStats reports the same figure after a resume as
+ * it did live (projectView removes the span but does not refill any per-commit
+ * message list).
  *
  * Discriminator is obfuscated to match the gate name. sessionStorage.ts
  * isn't feature-gated (it's the generic transcript plumbing used by every
@@ -266,6 +297,12 @@ export type ContextCollapseCommitEntry = {
   /** Span boundaries — projectView finds these in the resumed Message[]. */
   firstArchivedUuid: string
   lastArchivedUuid: string
+  /**
+   * Number of messages the span archived. Optional for back-compat with
+   * sessions persisted before this field existed (those restore as 0). Lets
+   * getStats report accurate collapsedMessages after a resume.
+   */
+  archivedCount?: number
 }
 
 /**
@@ -313,8 +350,100 @@ export type Entry =
   | ModeEntry
   | WorktreeStateEntry
   | ContentReplacementEntry
+  | GoalStateEntry
   | ContextCollapseCommitEntry
   | ContextCollapseSnapshotEntry
+
+// Replay Index Types
+
+/**
+ * Single step in the replay timeline - represents a tool execution or user message.
+ */
+export type ReplayStep =
+  | ReplayToolStep
+  | ReplayUserStep
+  | ReplayRetryStep
+  | ReplayErrorStep
+
+/**
+ * Tool execution step with input, result, and timing information.
+ */
+export interface ReplayToolStep {
+  type: 'tool'
+  stepNumber: number
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  inputSummary: string // Human-readable summary: "Read src/utils.ts"
+  resultStatus: 'success' | 'error' | 'cancelled' | 'permission_denied'
+  resultPreview?: string // First 200 chars of result
+  durationMs: number
+  timestamp: string
+  filesModified?: string[] // From file history if Edit/Write tool
+  repeatedAttemptNumber?: number // 1 for first occurrence, 2+ for repeated tool/input executions
+  isRepeatedAttempt?: boolean
+}
+
+/**
+ * User message step.
+ */
+export interface ReplayUserStep {
+  type: 'user'
+  stepNumber: number
+  content: string // User's request
+  timestamp: string
+}
+
+/**
+ * Retry event emitted by real retry paths such as API retry or permission retry.
+ */
+export interface ReplayRetryStep {
+  type: 'retry'
+  stepNumber: number
+  retryType: 'api' | 'permission'
+  attempt?: number
+  maxRetries?: number
+  retryDelayMs?: number
+  reason: string
+  commands?: string[]
+  timestamp: string
+}
+
+/**
+ * Error step for unexpected failures.
+ */
+export interface ReplayErrorStep {
+  type: 'error'
+  stepNumber: number
+  error: string
+  timestamp: string
+}
+
+/**
+ * Summary statistics for the replay session.
+ */
+export interface ReplaySummary {
+  totalSteps: number
+  toolBreakdown: Record<string, number> // { Read: 5, Edit: 3, Bash: 2 }
+  filesModified: string[]
+  durationMs: number
+  startTimestamp: string
+  endTimestamp: string
+  userRequests: number
+  retryAttempts?: number
+  repeatedAttempts?: number
+}
+
+/**
+ * Complete replay index stored as .replay.json alongside the transcript.
+ */
+export interface ReplayIndex {
+  sessionId: string
+  version: 1
+  createdAt: string
+  summary: ReplaySummary
+  steps: ReplayStep[]
+}
 
 export function sortLogs(logs: LogOption[]): LogOption[] {
   return logs.sort((a, b) => {

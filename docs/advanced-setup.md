@@ -4,6 +4,9 @@ This guide is for users who want source builds, Bun workflows, provider profiles
 
 ## Install Options
 
+OpenClaude requires Node.js `>=22.0.0` for npm installs and runtime. Bun is
+only required when building or running from source.
+
 ### Option A: npm
 
 ```bash
@@ -12,7 +15,7 @@ npm install -g @gitlawb/openclaude@latest
 
 ### Option B: From source with Bun
 
-Use Bun `1.3.13` or newer for source builds on Windows. Older Bun versions can fail during `bun run build`.
+Use Bun `1.3.13` or newer for source builds. Older Bun versions can fail during `bun run build`.
 
 ```bash
 git clone https://github.com/Gitlawb/openclaude.git
@@ -194,7 +197,7 @@ export OPENAI_MODEL=gpt-5.4
 openclaude
 ```
 
-OpenCode Zen is a pay-as-you-go AI gateway with 41 models (GPT, Claude, Gemini,
+OpenCode Zen is a pay-as-you-go AI gateway with 48 models (GPT, Claude, Gemini,
 Qwen, MiniMax, GLM, Kimi, Grok, Big Pickle, DeepSeek, Nemotron). Uses the same
 `OPENCODE_API_KEY` as OpenCode Go. Get your key from https://opencode.ai.
 
@@ -209,7 +212,7 @@ export OPENAI_MODEL=glm-5.1
 openclaude
 ```
 
-OpenCode Go is a $10/mo subscription for 12 open models (GLM, Kimi, DeepSeek,
+OpenCode Go is a $10/mo subscription for 13 open models (GLM, Kimi, DeepSeek,
 MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
 
 ### Gitlawb Opengateway
@@ -239,6 +242,31 @@ export OPENAI_MODEL=mimo-v2.5-pro
 
 The `/provider` Xiaomi MiMo preset uses the same endpoint and stores the key as `MIMO_API_KEY`. `OPENAI_API_KEY` also works as a compatibility fallback, but `MIMO_API_KEY` keeps the profile tied to the MiMo route.
 
+### NEAR AI
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export NEARAI_API_KEY=...
+export OPENAI_BASE_URL=https://cloud-api.near.ai/v1
+export OPENAI_MODEL=anthropic/claude-sonnet-4-6
+
+openclaude
+```
+
+NEAR AI is a unified OpenAI-compatible gateway that proxies Anthropic, OpenAI,
+and Google models alongside TEE-hosted open models (GLM 5.1, Qwen3.5, Kimi K2.6).
+All models are accessible from a single endpoint with one API key.
+Get your key from https://cloud.near.ai/dashboard/organizations.
+
+Model IDs use `provider/model-name` format (e.g. `anthropic/claude-opus-4-7`,
+`openai/gpt-5.5`, `google/gemini-3.5-flash`, `zai-org/GLM-5.1-FP8`).
+
+For direct TEE completions (lower latency, verifiable privacy):
+
+```bash
+export OPENAI_BASE_URL=https://qwen35-122b.completions.near.ai/v1
+```
+
 ### Mistral
 
 ```bash
@@ -256,15 +284,52 @@ export OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments
 export OPENAI_MODEL=gpt-4o
 ```
 
+### Microsoft Foundry / Azure OpenAI (resource URL + deployment)
+
+When your endpoint is the **resource base URL** (not the full `.../deployments/.../v1` path), set `OPENAI_MODEL` to the **deployment name** and `AZURE_OPENAI_API_VERSION` to your API version. The OpenAI shim builds:
+
+`{base}/openai/deployments/{OPENAI_MODEL}/chat/completions?api-version={AZURE_OPENAI_API_VERSION}`
+
+and sends the key in the `api-key` header for Azure hosts.
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY=your-azure-key
+export OPENAI_BASE_URL=https://your-resource.openai.azure.com
+export OPENAI_MODEL=your-deployment-name
+export AZURE_OPENAI_API_VERSION=2024-12-01-preview
+```
+
+If your hostname is not detected as Azure (for example some inference endpoints), force Azure URL and header behavior:
+
+```bash
+export OPENAI_AZURE_STYLE=1
+```
+
+### Fireworks AI
+
+Fireworks AI provides a fully OpenAI-compatible endpoint. Model IDs use the full path format `accounts/fireworks/models/<model-name>`.
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export FIREWORKS_API_KEY=fw_your_key_here
+export OPENAI_BASE_URL=https://api.fireworks.ai/inference/v1
+export OPENAI_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
+```
+
+The **OpenClaude VS Code extension** can store the key in Secret Storage and set these variables for you when you launch from the Control Center. See `vscode-extension/openclaude-vscode/README.md`.
+
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `CLAUDE_CODE_USE_OPENAI` | OpenAI-compatible only | Set to `1` to enable the OpenAI-compatible provider path |
-| `OPENAI_API_KEY` | OpenAI-compatible cloud routes* | Your API key (`*` not needed for local models like Ollama, LM Studio, Atomic Chat, or other local OpenAI-compatible proxies) |
+| `OPENAI_API_KEYS` | One of `OPENAI_API_KEYS` or `OPENAI_API_KEY` for non-local OpenAI-compatible cloud routes* | Comma-separated OpenAI-compatible API key pool. Takes precedence over `OPENAI_API_KEY` and rotates to the next key on auth, quota, or rate-limit failures (`*` not needed for local models like Ollama, LM Studio, Atomic Chat, or other local OpenAI-compatible proxies). |
+| `OPENAI_API_KEY` | Required only when `OPENAI_API_KEYS` is unset or empty for non-local OpenAI-compatible cloud routes* | Your API key (`*` not needed for local models like Ollama, LM Studio, Atomic Chat, or other local OpenAI-compatible proxies). A comma-separated list also enables key rotation. |
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` | No | JSON map of OpenAI-compatible model names to context windows, such as `{"custom-model":1000000}`. Use this when a custom provider does not expose context metadata from `/v1/models`. |
 | `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |
 | `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
 | `CLAUDE_CODE_USE_GEMINI` | Gemini only | Set to `1` to enable the direct Gemini provider path |
@@ -306,6 +371,12 @@ bun run doctor:runtime:json
 # persist a diagnostics report to reports/doctor-runtime.json
 bun run doctor:report
 
+# print a redacted public issue report
+openclaude doctor report --markdown
+
+# write a redacted JSON issue report for attachment
+openclaude doctor report --json --out openclaude-report.json
+
 # full local hardening check (smoke + runtime doctor)
 bun run hardening:check
 
@@ -319,6 +390,7 @@ Notes:
 - `doctor:runtime` also validates the dedicated Gemini and Mistral env paths when `CLAUDE_CODE_USE_GEMINI=1` or `CLAUDE_CODE_USE_MISTRAL=1`.
 - Local providers such as `http://localhost:11434/v1`, `http://10.0.0.1:11434/v1`, and `http://127.0.0.1:1337/v1` can run without `OPENAI_API_KEY`.
 - Codex profiles validate `CODEX_API_KEY` or the Codex CLI auth file and probe `POST /responses` instead of `GET /models`.
+- `openclaude doctor report` is redacted by default and is intended for GitHub issues. It summarizes provider/runtime/build/settings state without prompts, transcripts, raw settings files, API keys, MCP command details, or full home-directory paths.
 
 ## Provider Launch Profiles
 
@@ -361,7 +433,7 @@ bun run dev:profile
 # codex profile (uses CODEX_API_KEY or ~/.codex/auth.json)
 bun run dev:codex
 
-# OpenAI profile (uses the saved OpenAI profile, or OPENAI_API_KEY from your shell)
+# OpenAI profile (uses the saved OpenAI profile, or OPENAI_API_KEYS / OPENAI_API_KEY from your shell)
 bun run dev:openai
 
 # Gemini profile (uses the saved Gemini profile, or GEMINI_API_KEY / GOOGLE_API_KEY from your shell)
@@ -411,3 +483,26 @@ run `doctor:runtime` first and only launch the app if checks pass.
 For `dev:ollama`, make sure Ollama is running locally before launch.
 
 For `dev:atomic-chat`, make sure Atomic Chat is running with a model loaded before launch.
+
+## Message-Count Compaction Threshold
+
+By default, OpenClaude compacts conversations based on token usage. A secondary
+message-count-based trigger (`OPENCLAUDE_MAX_ACTIVE_MESSAGES`) exists for
+diagnostics but is disabled by default.
+
+If you frequently resume long sessions that accumulate hundreds of small
+tool-result messages with negligible token cost, you can opt in to message-count
+compaction via the in-app `/config` command:
+
+```text
+/config
+```
+
+Select **Message-count compaction** and choose a threshold (`100`, `200`, `500`,
+or `1000`). Setting it to `off` (default) disables the message-count trigger.
+
+This setting is intended for power users debugging specific edge cases. Most
+users should leave it at `off`.
+
+The legacy `OPENCLAUDE_MAX_ACTIVE_MESSAGES` environment variable is still
+honored when the setting is `off`.

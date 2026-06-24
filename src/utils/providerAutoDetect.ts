@@ -16,9 +16,12 @@
  *   5. GEMINI_API_KEY or GOOGLE_API_KEY
  *   6. MISTRAL_API_KEY
  *   7. MINIMAX_API_KEY
- *   8. XAI_API_KEY
- *   9. Local Ollama reachable (default localhost:11434)
- *  10. Local LM Studio reachable (default localhost:1234)
+ *   8. MIMO_API_KEY (Xiaomi Mimo)
+ *   9. XAI_API_KEY
+ *  10. NEARAI_API_KEY
+ *  11. FIREWORKS_API_KEY
+ *  12. Local Ollama reachable (default localhost:11434)
+ *  13. Local LM Studio reachable (default localhost:1234)
  *
  * Local-service probes are parallelized and cheap (short timeout, no
  * request body). Env scans are synchronous and run first so we don't make
@@ -31,6 +34,7 @@
 
 import { existsSync } from 'fs'
 import { homedir } from 'os'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { join } from 'path'
 
 export type DetectedProviderKind =
@@ -43,6 +47,8 @@ export type DetectedProviderKind =
   | 'minimax'
   | 'xiaomi-mimo'
   | 'xai'
+  | 'nearai'
+  | 'fireworks'
   | 'ollama'
   | 'lm-studio'
   | 'gitlawb-opengateway'
@@ -64,9 +70,23 @@ function envHasNonEmpty(env: EnvLike, key: string): boolean {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function envHasUsableOpenAICredential(env: EnvLike, key: string): boolean {
+  return hasUsableOpenAICredential(env[key])
+}
+
 function firstSet(env: EnvLike, keys: readonly string[]): string | undefined {
   for (const key of keys) {
     if (envHasNonEmpty(env, key)) return key
+  }
+  return undefined
+}
+
+function firstOpenAICredentialSet(
+  env: EnvLike,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    if (envHasUsableOpenAICredential(env, key)) return key
   }
   return undefined
 }
@@ -141,7 +161,10 @@ export function detectProviderFromEnv(
     }
   }
 
-  const openaiKey = firstSet(env, ['OPENAI_API_KEYS', 'OPENAI_API_KEY'])
+  const openaiKey = firstOpenAICredentialSet(env, [
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   if (openaiKey) {
     return {
       kind: 'openai',
@@ -169,6 +192,20 @@ export function detectProviderFromEnv(
 
   if (envHasNonEmpty(env, 'XAI_API_KEY')) {
     return { kind: 'xai', source: 'XAI_API_KEY set' }
+  }
+
+  if (envHasNonEmpty(env, 'NEARAI_API_KEY')) {
+    return {
+      kind: 'nearai',
+      source: 'NEARAI_API_KEY set',
+    }
+  }
+
+  if (envHasNonEmpty(env, 'FIREWORKS_API_KEY')) {
+    return {
+      kind: 'fireworks',
+      source: 'FIREWORKS_API_KEY set',
+    }
   }
 
   return null

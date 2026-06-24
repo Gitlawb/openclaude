@@ -1,1 +1,4 @@
-.vercel
+dist/
+node_modules/
+.astro/
+.vercel/

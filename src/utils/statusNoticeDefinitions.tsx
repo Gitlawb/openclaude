@@ -16,6 +16,7 @@ import type { LocalModelContextWarning } from './statusNoticeLocalModel.js';
 import type { PermissionMode } from './permissions/PermissionMode.js';
 import { modelSupportsAutoMode } from './betas.js';
 import { getAPIProvider } from './model/providers.js';
+import { logForDebugging } from './debug.js';
 
 // Types
 export type StatusNoticeType = 'warning' | 'info';
@@ -315,5 +316,14 @@ export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFil
 
 // Helper functions for external use
 export function getActiveNotices(context: StatusNoticeContext): StatusNoticeDefinition[] {
-  return statusNoticeDefinitions.filter(notice => notice.isActive(context));
+  return statusNoticeDefinitions.filter(notice => {
+    try {
+      return notice.isActive(context);
+    } catch (error) {
+      logForDebugging(
+        `status_notice_isActive_failed noticeId=${notice.id} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  });
 }

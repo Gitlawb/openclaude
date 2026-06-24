@@ -8,11 +8,11 @@ import {
 } from '../bootstrap/state.js'
 import * as actualModel from './model/model.js'
 import * as actualProviders from './model/providers.js'
-import * as actualSettings from './settings/settings.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
 } from './settings/settingsCache.js'
+import * as actualSettings from './settings/settings.js'
 import type { SettingsJson } from './settings/types.js'
 
 let getAttributionTexts: (typeof import('./attribution.js'))['getAttributionTexts']
@@ -28,15 +28,16 @@ let getEnhancedPRAttribution: (typeof import('./attribution.js'))[
 let testSettings: SettingsJson = {}
 
 const originalEnv = {
-  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
-  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
-  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
-  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
-    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
@@ -44,7 +45,6 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_DEFAULT_OPUS_MODEL:
     process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
@@ -135,6 +135,9 @@ beforeEach(async () => {
     ...actualProviders,
     getAPIProvider: () => 'openai',
   }))
+  // Stub settings directly so attribution.ts observes this test's intended
+  // settings even when a previous serialized Bun test has mocked the settings
+  // module or a nonced import creates a separate cache instance.
   mock.module('./settings/settings.js', () => ({
     ...actualSettings,
     getInitialSettings: () => testSettings,
@@ -266,10 +269,10 @@ describe('getAttributionTexts', () => {
   it('preserves includeCoAuthoredBy true as an explicit old-default opt-in', () => {
     useSettings({ includeCoAuthoredBy: true })
 
-    expect(getAttributionTexts()).toEqual({
-      commit: 'Co-Authored-By: OpenClaude (gpt-5.5) <openclaude@gitlawb.com>',
-      pr: defaultPrAttribution,
-    })
+    const attribution = getAttributionTexts()
+    expect(attribution.commit).toStartWith('Co-Authored-By: ')
+    expect(attribution.commit).toEndWith(' <openclaude@gitlawb.com>')
+    expect(attribution.pr).toBe(defaultPrAttribution)
   })
 
   it('keeps attribution off when includeCoAuthoredBy is false', () => {

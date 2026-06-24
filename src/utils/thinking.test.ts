@@ -79,6 +79,8 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     expect(modelSupportsThinking('GLM-5-Turbo')).toBe(true)
     expect(modelSupportsThinking('GLM-4.7')).toBe(true)
     expect(modelSupportsThinking('GLM-4.5-Air')).toBe(true)
+    expect(modelSupportsThinking('glm-5.2?thinking=disabled')).toBe(true)
+    expect(modelSupportsThinking('glm-5.2 ?thinking=disabled')).toBe(true)
   })
 
   test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', async () => {

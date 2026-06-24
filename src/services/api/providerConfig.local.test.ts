@@ -12,6 +12,7 @@ import {
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
   OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
@@ -37,6 +38,7 @@ afterEach(() => {
   try {
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+    restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
     restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
@@ -136,9 +138,19 @@ test('partitions local openai-compatible model cache scope by credentials and he
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Route: second'
   const thirdScope = getAdditionalModelOptionsCacheScope()
 
+  delete process.env.OPENAI_API_KEY
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Route: first'
+  process.env.OPENAI_API_KEYS = 'first-a,first-b'
+  const pooledScope = getAdditionalModelOptionsCacheScope()
+
+  process.env.OPENAI_API_KEYS = 'second-a,second-b'
+  const secondPooledScope = getAdditionalModelOptionsCacheScope()
+
   expect(firstScope).not.toBe(secondScope)
   expect(firstScope).not.toBe(thirdScope)
+  expect(pooledScope).not.toBe(secondPooledScope)
   expect(firstScope?.startsWith('openai:http://localhost:1234/v1:')).toBe(true)
+  expect(pooledScope?.startsWith('openai:http://localhost:1234/v1:')).toBe(true)
 })
 
 test('uses responses transport when OpenAI-compatible API format requests responses', () => {

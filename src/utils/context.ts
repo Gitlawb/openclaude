@@ -1,6 +1,7 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
 import { getGlobalConfig } from './config.js'
+import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
 import { resolveModelRuntimeLimits } from '../integrations/runtimeMetadata.js'
 import {
@@ -9,6 +10,8 @@ import {
 } from '../integrations/routeMetadata.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
+import { resolveAntModel } from './model/antModels.js'
+import { getActiveProviderProfile } from './providerProfiles.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -39,6 +42,10 @@ const MAX_OUTPUT_TOKENS_UPPER_LIMIT = 64_000
 export const CAPPED_DEFAULT_MAX_TOKENS = 8_000
 export const ESCALATED_MAX_TOKENS = 64_000
 
+const warnedUnknownIntegrationRuntimeLimitKeys = new Set<string>()
+const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
+const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
+
 /**
  * Check if 1M context is disabled via environment variable.
  * Used by C4E admins to disable 1M context for HIPAA compliance.
@@ -60,13 +67,39 @@ export function modelSupports1M(model: string): boolean {
     return false
   }
   const canonical = getCanonicalName(model)
-  return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
+  return (
+    canonical.includes('claude-sonnet-4') ||
+    canonical.includes('opus-4-6') ||
+    canonical.includes('opus-4-7')
+  )
 }
 
-function shouldUseIntegrationRuntimeLimits(
+function getAppliedActiveProfileProvider(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
+    return undefined
+  }
+
+  const activeProfile = getActiveProviderProfile()
+  if (!activeProfile) {
+    return undefined
+  }
+
+  const appliedId = processEnv[PROFILE_ENV_APPLIED_ID]?.trim()
+  if (appliedId && appliedId !== activeProfile.id) {
+    return undefined
+  }
+
+  return activeProfile.provider
+}
+
+export function shouldUseIntegrationRuntimeLimits(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const routeId = resolveActiveRouteIdFromEnv(processEnv)
+  const routeId = resolveActiveRouteIdFromEnv(processEnv, {
+    activeProfileProvider: getAppliedActiveProfileProvider(processEnv),
+  })
   const transportKind = routeId ? getTransportKindForRoute(routeId) : null
 
   return (
@@ -74,6 +107,30 @@ function shouldUseIntegrationRuntimeLimits(
     transportKind === 'anthropic-proxy' ||
     transportKind === 'local' ||
     transportKind === 'gemini-native'
+  )
+}
+
+/**
+ * Emit one debug-only metadata fallback warning per active route/model pair.
+ *
+ * Unknown runtime metadata is recoverable because the fallback context window
+ * keeps compaction budgets positive. Keep this out of console.error because
+ * the Ink runtime treats console errors as application errors.
+ */
+function warnUnknownIntegrationRuntimeLimits(model: string): void {
+  const routeId =
+    resolveActiveRouteIdFromEnv(process.env, {
+      activeProfileProvider: getAppliedActiveProfileProvider(process.env),
+    }) ?? 'unknown-route'
+  const warningKey = `${routeId}:${model}`
+  if (warnedUnknownIntegrationRuntimeLimitKeys.has(warningKey)) return
+
+  warnedUnknownIntegrationRuntimeLimitKeys.add(warningKey)
+  logForDebugging(
+    `[context] Warning: model "${model}" not in integration model metadata for route "${routeId}" — ` +
+      `using fallback ${OPENAI_FALLBACK_CONTEXT_WINDOW} token context window. ` +
+      'Add it to src/integrations/models for accurate compaction.',
+    { level: 'warn' },
   )
 }
 
@@ -105,14 +162,14 @@ export function getContextWindowForModel(
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
   if (shouldUseIntegrationRuntimeLimits()) {
-    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
     if (runtimeLimits.contextWindow !== undefined) {
       return runtimeLimits.contextWindow
     }
-    console.error(
-      `[context] Warning: model "${model}" not in integration model metadata — using conservative 128k default. ` +
-      'Add it to src/integrations/models for accurate compaction.',
-    )
+    warnUnknownIntegrationRuntimeLimits(model)
     return OPENAI_FALLBACK_CONTEXT_WINDOW
   }
 
@@ -209,12 +266,25 @@ export function getModelMaxOutputTokens(model: string): {
 
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
   if (shouldUseIntegrationRuntimeLimits()) {
-    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    const runtimeLimits = resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
     if (runtimeLimits.maxOutputTokens !== undefined) {
       return {
         default: runtimeLimits.maxOutputTokens,
         upperLimit: runtimeLimits.maxOutputTokens,
       }
+    }
+    // 3P provider with no runtime maxOutputTokens (e.g. ad-hoc Ollama models
+    // like `gemma4:e4b` not in the route catalog) — fall through to a
+    // permissive upper limit so CLAUDE_CODE_MAX_OUTPUT_TOKENS isn't silently
+    // capped to the Anthropic 64k fallback below (issue #1604). Bound by the
+    // runtime context window when known; otherwise use the same fallback as
+    // context budgeting so output reservation cannot exceed the window.
+    return {
+      default: MAX_OUTPUT_TOKENS_DEFAULT,
+      upperLimit: runtimeLimits.contextWindow ?? OPENAI_FALLBACK_CONTEXT_WINDOW,
     }
   }
 

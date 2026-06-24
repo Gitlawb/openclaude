@@ -22,7 +22,6 @@ type ImportAutoCompactOptions = {
 }
 
 async function importAutoCompact(options: ImportAutoCompactOptions = {}) {
-  mock.restore()
   mock.module('../../utils/config.js', () => ({
     ...realConfig,
     getGlobalConfig: () => ({ autoCompactEnabled: true }),
@@ -111,7 +110,7 @@ function userMessage(content: string): Message {
   return {
     type: 'user',
     message: { role: 'user', content },
-    uuid: `test-${Math.random()}`,
+    uuid: `test-${Math.random()}` as Message['uuid'],
     timestamp: new Date().toISOString(),
   }
 }
@@ -247,11 +246,37 @@ describe('getAutoCompactThreshold', () => {
 })
 
 describe('getAutoCompactFailureCooldownMs', () => {
-  test('uses valid positive integer override', async () => {
-    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = ' 5000 '
+  test('uses valid positive integer override above the floor', async () => {
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = ' 15000 '
     const { getAutoCompactFailureCooldownMs } = await importAutoCompact()
 
-    expect(getAutoCompactFailureCooldownMs()).toBe(5000)
+    expect(getAutoCompactFailureCooldownMs()).toBe(15000)
+  })
+
+  test('rejects overrides below the minimum cooldown floor', async () => {
+    const {
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+      getAutoCompactFailureCooldownMs,
+      MIN_AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    } = await importAutoCompact()
+
+    // 5000 is below the 10_000ms floor — must fall back to the default
+    // rather than being accepted as a valid test override.
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
+    expect(MIN_AUTOCOMPACT_FAILURE_COOLDOWN_MS).toBe(10_000)
+
+    // Boundary: exactly the floor value is accepted.
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '10000'
+    expect(getAutoCompactFailureCooldownMs()).toBe(10_000)
+
+    // One below the floor is rejected.
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '9999'
+    expect(getAutoCompactFailureCooldownMs()).toBe(
+      AUTOCOMPACT_FAILURE_COOLDOWN_MS,
+    )
   })
 
   test('ignores partial or invalid override values', async () => {
@@ -453,7 +478,7 @@ describe('resolveAutoCompactCircuitBreakerState', () => {
 describe('autoCompactIfNeeded circuit breaker', () => {
   beforeEach(() => {
     process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = '1'
-    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '5000'
+    process.env.OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS = '15000'
   })
 
   test('trips after three non-user failures and records a retry time', async () => {
@@ -648,7 +673,7 @@ describe('autoCompactIfNeeded circuit breaker', () => {
       )
 
       expect(result.lastFailureAtMs).toBe(106_000)
-      expect(result.nextRetryAtMs).toBe(111_000)
+      expect(result.nextRetryAtMs).toBe(121_000)
     } finally {
       Date.now = originalDateNow
     }

@@ -90,7 +90,7 @@ function routeCatalogSupportsThinking(model: string): boolean | undefined {
     return undefined
   }
 
-  const normalizedModel = model.trim().toLowerCase()
+  const normalizedModel = model.trim().split('?', 1)[0]!.trim().toLowerCase()
   const entry = getCatalogEntriesForRoute(routeId).find(catalogEntry =>
     catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
     catalogEntry.id.trim().toLowerCase() === normalizedModel,

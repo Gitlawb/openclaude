@@ -161,9 +161,6 @@ export function registerLSPNotificationHandlers(
       serverInstance.onNotification(
         'textDocument/publishDiagnostics',
         (params: unknown) => {
-          logForDebugging(
-            `[PASSIVE DIAGNOSTICS] Handler invoked for ${serverName}! Params type: ${typeof params}`,
-          )
           try {
             // Validate params structure before casting
             if (
@@ -183,9 +180,6 @@ export function registerLSPNotificationHandlers(
             }
 
             const diagnosticParams = params as PublishDiagnosticsParams
-            logForDebugging(
-              `Received diagnostics from ${serverName}: ${diagnosticParams.diagnostics.length} diagnostic(s) for ${diagnosticParams.uri}`,
-            )
 
             // Convert LSP diagnostics to Claude format (can throw on invalid URIs)
             const diagnosticFiles =
@@ -211,10 +205,6 @@ export function registerLSPNotificationHandlers(
                 serverName,
                 files: diagnosticFiles,
               })
-
-              logForDebugging(
-                `LSP Diagnostics: Registered ${diagnosticFiles.length} diagnostic file(s) from ${serverName} for async delivery`,
-              )
 
               // Success - reset failure counter for this server
               diagnosticFailures.delete(serverName)

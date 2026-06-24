@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { inputSchema } from './AgentTool.js'
+import {
+  AgentTool,
+  assertAgentToolCwdAllowed,
+  fullInputSchema,
+  inputSchema,
+  outputSchema,
+  resolveAgentToolCwdOverride,
+  resolveAgentToolEffectiveIsolation,
+} from './AgentTool.js'
+import { renderToolResultMessage } from './UI.js'
+import { renderToString } from '../../utils/staticRender.js'
 
 const baseInput = {
   description: 'Run check',
@@ -65,5 +75,143 @@ describe('AgentTool input schema model override', () => {
     expect(description).toContain('provider-supported model ID')
     expect(description).toContain('Takes precedence')
     expect(description).toContain('inherit')
+  })
+})
+
+describe('AgentTool input schema isolation contract', () => {
+  test('accepts worktree isolation with the base required fields', () => {
+    expect(
+      inputSchema().safeParse({ ...baseInput, isolation: 'worktree' }).success,
+    ).toBe(true)
+  })
+
+  test('rejects the removed remote isolation value', () => {
+    expect(
+      inputSchema().safeParse({ ...baseInput, isolation: 'remote' }).success,
+    ).toBe(false)
+  })
+
+  test('rejects cwd together with worktree isolation in the full schema', () => {
+    expect(
+      fullInputSchema().safeParse({
+        ...baseInput,
+        isolation: 'worktree',
+        cwd: '/tmp/openclaude-agent',
+      }).success,
+    ).toBe(false)
+  })
+
+  test('accepts cwd without worktree isolation in the full schema', () => {
+    expect(
+      fullInputSchema().safeParse({
+        ...baseInput,
+        cwd: '/tmp/openclaude-agent',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('inherits worktree isolation from agent definitions', () => {
+    expect(resolveAgentToolEffectiveIsolation(undefined, 'worktree')).toBe(
+      'worktree',
+    )
+    expect(resolveAgentToolEffectiveIsolation('worktree', undefined)).toBe(
+      'worktree',
+    )
+    expect(resolveAgentToolEffectiveIsolation(undefined, undefined)).toBe(
+      undefined,
+    )
+  })
+
+  test('rejects cwd for any effective worktree isolation source', () => {
+    expect(() =>
+      assertAgentToolCwdAllowed('/tmp/openclaude-agent', 'worktree'),
+    ).toThrow('cwd is mutually exclusive with isolation: "worktree".')
+    expect(() =>
+      assertAgentToolCwdAllowed('/tmp/openclaude-agent', undefined),
+    ).not.toThrow()
+  })
+
+  test('prefers worktree cwd over explicit cwd when both are present defensively', () => {
+    expect(
+      resolveAgentToolCwdOverride('/tmp/openclaude-agent', {
+        worktreePath: '/tmp/openclaude-worktree',
+      }),
+    ).toBe('/tmp/openclaude-worktree')
+    expect(resolveAgentToolCwdOverride('/tmp/openclaude-agent', null)).toBe(
+      '/tmp/openclaude-agent',
+    )
+  })
+})
+
+describe('AgentTool output status contract', () => {
+  test('rejects removed remote-launched output status', () => {
+    expect(
+      outputSchema().safeParse({
+        status: 'remote_launched',
+        prompt: baseInput.prompt,
+        sessionUrl: 'https://example.com/session',
+      }).success,
+    ).toBe(false)
+  })
+
+  test('maps async-launched output to the expected tool result text', () => {
+    const block = AgentTool.mapToolResultToToolResultBlockParam(
+      {
+        status: 'async_launched',
+        agentId: 'agent-1',
+        description: baseInput.description,
+        prompt: baseInput.prompt,
+        outputFile: '/tmp/openclaude-agent-output.txt',
+        canReadOutputFile: true,
+      },
+      'toolu_1',
+    )
+
+    expect(block.type).toBe('tool_result')
+    const text = block.content[0]?.type === 'text' ? block.content[0].text : ''
+    expect(text).toContain('Async agent launched successfully')
+    expect(text).toContain('output_file: /tmp/openclaude-agent-output.txt')
+  })
+
+  test('throws for unsupported output statuses', () => {
+    expect(() =>
+      AgentTool.mapToolResultToToolResultBlockParam(
+        { status: 'remote_launched' } as never,
+        'toolu_1',
+      ),
+    ).toThrow('Unexpected agent tool result status: remote_launched')
+  })
+
+  test('renders async-launched output as a backgrounded agent', async () => {
+    const output = await renderToString(
+      renderToolResultMessage(
+        {
+          status: 'async_launched',
+          agentId: 'agent-1',
+          description: baseInput.description,
+          prompt: baseInput.prompt,
+          outputFile: '/tmp/openclaude-agent-output.txt',
+          canReadOutputFile: true,
+        },
+        [],
+        { tools: [], verbose: false, theme: 'dark' },
+      ),
+      80,
+    )
+
+    expect(output).toContain('Backgrounded agent')
+  })
+
+  test('does not render the removed remote-launched status', async () => {
+    const output = await renderToString(
+      renderToolResultMessage(
+        { status: 'remote_launched' } as never,
+        [],
+        { tools: [], verbose: false, theme: 'dark' },
+      ),
+      80,
+    )
+
+    expect(output.trim()).toBe('')
   })
 })

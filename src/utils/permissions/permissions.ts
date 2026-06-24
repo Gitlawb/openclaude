@@ -23,7 +23,10 @@ import {
   SETTING_SOURCES,
 } from '../settings/constants.js'
 import { plural } from '../stringUtils.js'
-import { permissionModeTitle } from './PermissionMode.js'
+import {
+  type PermissionMode,
+  permissionModeTitle,
+} from './PermissionMode.js'
 import type {
   PermissionAskDecision,
   PermissionDecision,
@@ -433,11 +436,13 @@ async function runPermissionRequestHooksForHeadlessAgent(
         const finalInput = decision.updatedInput ?? input
         // Persist permission updates if provided
         if (decision.updatedPermissions?.length) {
+          // Capture so the narrowing survives into the setAppState callback
+          const updatedPermissions = decision.updatedPermissions
           let updatedContext = context.getAppState().toolPermissionContext
           context.setAppState(prev => {
             updatedContext = applyPermissionUpdatesToLiveContext(
               prev.toolPermissionContext,
-              decision.updatedPermissions,
+              updatedPermissions,
             )
             if (prev.toolPermissionContext === updatedContext) return prev
             return {
@@ -859,11 +864,9 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
         // the tengu_iron_gate_closed gate.
         if (classifierResult.unavailable) {
           if (
-            getFeatureValue_CACHED_WITH_REFRESH(
-              'tengu_iron_gate_closed',
-              true,
-              CLASSIFIER_FAIL_CLOSED_REFRESH_MS,
-            )
+            // The local growthbook shim takes no refresh-interval argument;
+            // CLASSIFIER_FAIL_CLOSED_REFRESH_MS documents the intended cadence.
+            getFeatureValue_CACHED_WITH_REFRESH('tengu_iron_gate_closed', true)
           ) {
             logForDebugging(
               'Auto mode classifier unavailable, denying with retry guidance (fail closed)',
@@ -1168,7 +1171,9 @@ export async function checkRuleBasedPermissions(
   if (
     toolPermissionResult?.behavior === 'ask' &&
     toolPermissionResult.decisionReason?.type === 'safetyCheck' &&
-    appState.toolPermissionContext.mode !== 'fullAccess'
+    // Widen: control flow already narrowed 'fullAccess' away via the
+    // isFullAccessMode early return; keep the defensive re-check as-is.
+    (appState.toolPermissionContext.mode as PermissionMode) !== 'fullAccess'
   ) {
     return toolPermissionResult
   }

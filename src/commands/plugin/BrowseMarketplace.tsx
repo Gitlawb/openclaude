@@ -18,6 +18,7 @@ import { getMarketplace, loadKnownMarketplacesConfig } from '../../utils/plugins
 import { OFFICIAL_MARKETPLACE_NAME } from '../../utils/plugins/officialMarketplace.js';
 import { installPluginFromMarketplace } from '../../utils/plugins/pluginInstallationHelpers.js';
 import { isPluginBlockedByPolicy } from '../../utils/plugins/pluginPolicy.js';
+import type { PluginMarketplaceEntry } from '../../utils/plugins/schemas.js';
 import { plural } from '../../utils/stringUtils.js';
 import { truncateToWidth } from '../../utils/truncate.js';
 import { findPluginOptionsTarget, PluginOptionsFlow } from './PluginOptionsFlow.js';
@@ -139,11 +140,12 @@ export function BrowseMarketplace({
           data: marketplace
         } of marketplaces_0) {
           if (marketplace) {
+            const plugins = marketplace.plugins as PluginMarketplaceEntry[];
             // Count how many plugins from this marketplace are installed
-            const installedFromThisMarketplace = count(marketplace.plugins, plugin => isPluginInstalled(createPluginId(plugin.name, name)));
+            const installedFromThisMarketplace = count(plugins, plugin => isPluginInstalled(createPluginId(plugin.name, name)));
             marketplaceInfos.push({
               name,
-              totalPlugins: marketplace.plugins.length,
+              totalPlugins: plugins.length,
               installedCount: installedFromThisMarketplace,
               source: getMarketplaceSourceDisplay(marketplaceConfig.source)
             });

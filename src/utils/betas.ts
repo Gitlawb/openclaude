@@ -27,7 +27,7 @@ import { has1mContext } from './context.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
-import { getAPIProvider } from './model/providers.js'
+import { getAPIProvider, isGithubNativeAnthropicMode } from './model/providers.js'
 import { getInitialSettings } from './settings/settings.js'
 
 /**
@@ -232,7 +232,7 @@ export function shouldUseGlobalCacheScope(): boolean {
 }
 
 export const getAllModelBetas = memoize((model: string): string[] => {
-  const betaHeaders = []
+  const betaHeaders: string[] = []
   const isHaiku = getCanonicalName(model).includes('haiku')
   const provider = getAPIProvider()
   const includeFirstPartyOnlyBetas = shouldIncludeFirstPartyOnlyBetas()
@@ -394,10 +394,22 @@ export const getBedrockExtraBodyParamsBetas = memoize(
  *   included by getAllModelBetas(); for Haiku they're excluded since
  *   non-agentic calls (compaction, classifiers, token estimation) don't need them.
  */
+export function isAnthropicProvider(): boolean {
+  const provider = getAPIProvider()
+  return provider === 'firstParty' || provider === 'bedrock' || provider === 'vertex' || provider === 'foundry'
+}
+
 export function getMergedBetas(
   model: string,
   options?: { isAgenticQuery?: boolean },
 ): string[] {
+  // Beta headers are Anthropic-specific. Non-Anthropic providers (OpenAI,
+  // Gemini, Codex, etc.) do not understand them and may reject requests
+  // containing unknown headers. GitHub Native Anthropic mode is an exception.
+  if (!isAnthropicProvider() && !isGithubNativeAnthropicMode(model)) {
+    return []
+  }
+
   const baseBetas = [...getModelBetas(model)]
 
   // Agentic queries always need claude-code and cli-internal beta headers.

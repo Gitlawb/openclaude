@@ -114,6 +114,53 @@ test('system prompt model identity updates when model changes mid-session', asyn
   expect(secondText).not.toContain('You are powered by the model old-test-model.')
 })
 
+test('system prompt includes immediate-tool-use directive in non-REPL mode', async () => {
+  const originalReplMode = process.env.CLAUDE_REPL_MODE
+  const originalCodeRepl = process.env.CLAUDE_CODE_REPL
+  process.env.CLAUDE_CODE_REPL = '0'
+
+  try {
+    const prompt = await getSystemPrompt([], 'gpt-4o')
+    const text = prompt.join('\n')
+    expect(text).toContain('If you intend to use a tool to accomplish a task or analyze a file, use the tool IMMEDIATELY. Do not output a message explaining what you are going to do and then stop to wait for the user to prompt you again. Always call the tool in the same response.')
+  } finally {
+    if (originalReplMode === undefined) {
+      delete process.env.CLAUDE_REPL_MODE
+    } else {
+      process.env.CLAUDE_REPL_MODE = originalReplMode
+    }
+    if (originalCodeRepl === undefined) {
+      delete process.env.CLAUDE_CODE_REPL
+    } else {
+      process.env.CLAUDE_CODE_REPL = originalCodeRepl
+    }
+  }
+})
+
+test('system prompt includes immediate-tool-use directive in REPL mode', async () => {
+  const originalReplMode = process.env.CLAUDE_REPL_MODE
+  const originalCodeRepl = process.env.CLAUDE_CODE_REPL
+  delete process.env.CLAUDE_CODE_REPL
+  process.env.CLAUDE_REPL_MODE = '1'
+
+  try {
+    const prompt = await getSystemPrompt([], 'gpt-4o')
+    const text = prompt.join('\n')
+    expect(text).toContain('If you intend to use a tool to accomplish a task or analyze a file, use the tool IMMEDIATELY. Do not output a message explaining what you are going to do and then stop to wait for the user to prompt you again. Always call the tool in the same response.')
+  } finally {
+    if (originalReplMode === undefined) {
+      delete process.env.CLAUDE_REPL_MODE
+    } else {
+      process.env.CLAUDE_REPL_MODE = originalReplMode
+    }
+    if (originalCodeRepl === undefined) {
+      delete process.env.CLAUDE_CODE_REPL
+    } else {
+      process.env.CLAUDE_CODE_REPL = originalCodeRepl
+    }
+  }
+})
+
 test('built-in agent prompts describe OpenClaude instead of Claude Code', () => {
   expect(DEFAULT_AGENT_PROMPT).toContain('OpenClaude')
   expect(DEFAULT_AGENT_PROMPT).not.toContain('Claude Code')

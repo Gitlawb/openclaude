@@ -99,6 +99,55 @@ export function toRelativePath(absolutePath: string): string {
 }
 
 /**
+ * Relativizes the file-path portion of a ripgrep content-mode line.
+ *
+ * A content row is `<absolute path><delimiter><rest>`, where the delimiter is
+ * `:` / `:<n>:` for match rows and `-` / `-<n>-` for context rows (`-A`/`-B`/
+ * `-C`). Locating that delimiter by inspection is unreliable on Windows: drive
+ * colons, dashes inside directory/file names (e.g. a `proj-2024-01-15` cwd), and
+ * line-number-less context rows (`path-content`, emitted when line numbers are
+ * disabled) all defeat a delimiter heuristic.
+ *
+ * Instead we strip the known absolute search root. Every path ripgrep emits for
+ * a search under the root begins with `<root><sep>`, so removing exactly that
+ * prefix yields the relative path plus the original delimiter and content
+ * verbatim — independent of the delimiter and of whether line numbers are on.
+ * Paths not under the root keep their absolute form, matching {@link
+ * toRelativePath}.
+ *
+ * @param line - A single ripgrep content line (match or context row)
+ * @param root - The absolute search root to relativize against (defaults to the
+ *   current working directory; injectable for deterministic tests)
+ * @returns The line with its leading path made relative, or unchanged when the
+ *   path is not under `root`
+ */
+export function relativizeContentLine(
+  line: string,
+  root: string = getCwd(),
+): string {
+  // Windows roots (drive-letter or backslash) compare case-insensitively and
+  // treat `/` and `\` as equivalent — mirroring toRelativePath's path.win32
+  // behavior — so `getCwd()` and ripgrep spelling the same root with different
+  // casing/slashes still relativizes. POSIX roots compare exactly. We normalize
+  // only for the comparison and slice the ORIGINAL line by the prefix length
+  // (case/slash normalization preserves length), so content is returned verbatim.
+  const isWindowsRoot = /^[A-Za-z]:[\\/]/.test(root) || root.includes('\\')
+  const norm = (s: string): string =>
+    isWindowsRoot ? s.toLowerCase().replace(/\//g, '\\') : s
+  // Try both separators so the same logic works for Windows (`\`) and POSIX
+  // (`/`) roots regardless of the host OS the tests run on. The trailing
+  // separator is required so a sibling like `C:\proj2` is not treated as being
+  // under `C:\proj`.
+  for (const sep of ['/', '\\']) {
+    const prefix = root.endsWith(sep) ? root : root + sep
+    if (norm(line).startsWith(norm(prefix))) {
+      return line.slice(prefix.length)
+    }
+  }
+  return line
+}
+
+/**
  * Gets the directory path for a given file or directory path.
  * If the path is a directory, returns the path itself.
  * If the path is a file or doesn't exist, returns the parent directory.

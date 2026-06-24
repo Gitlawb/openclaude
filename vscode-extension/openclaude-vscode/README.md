@@ -24,6 +24,7 @@ A practical VS Code companion for OpenClaude with a project-aware **Control Cent
   - Open Setup Guide
   - Open Command Palette
 - **Built-in dark theme**: `OpenClaude Terminal Black`
+- **Microsoft Foundry / Azure OpenAI**: optional wizard and settings store endpoint, API version, deployment name, and API key (Secret Storage); launch injects `OPENAI_*` and `AZURE_OPENAI_API_VERSION` into the OpenClaude terminal (see `docs/advanced-setup.md` on the repo).
 
 ## Requirements
 
@@ -38,14 +39,29 @@ A practical VS Code companion for OpenClaude with a project-aware **Control Cent
 - `OpenClaude: Open Repository`
 - `OpenClaude: Open Setup Guide`
 - `OpenClaude: Open Workspace Profile`
+- `OpenClaude: New Chat` / `OpenClaude: Open Chat Panel` / `OpenClaude: Resume Session` / `OpenClaude: Abort Generation`
+- `OpenClaude: Configure Azure / Foundry Chat (wizard)`
+- `OpenClaude: Set Azure / Foundry API Key (Secret Storage)`
+- `OpenClaude: Clear Azure / Foundry API Key`
+- `OpenClaude: Open Azure / Foundry Settings`
+
+## Microsoft Foundry / Azure OpenAI (terminal chat)
+
+1. Command Palette → **OpenClaude: Configure Azure / Foundry Chat (wizard)** and enter endpoint, API version, deployment name, and API key; or set `openclaude.azure.*` in Settings and use **OpenClaude: Set Azure / Foundry API Key**.
+2. Enable **OpenClaude: Azure: Enabled** (the wizard turns this on).
+3. **OpenClaude: Launch in Terminal** — the extension merges env vars the OpenAI shim expects (`CLAUDE_CODE_USE_OPENAI`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `AZURE_OPENAI_API_VERSION`, and `OPENAI_AZURE_STYLE` when forced).
+
+If you use `.openclaude-profile.json` for the same workspace, leave Azure injection off to avoid conflicting provider configuration.
 
 ## Settings
 
 - `openclaude.launchCommand` (default: `openclaude`)
 - `openclaude.terminalName` (default: `OpenClaude`)
 - `openclaude.useOpenAIShim` (default: `false`)
+- `openclaude.azure.*` — Foundry / Azure OpenAI terminal injection (see Settings UI)
+- `openclaude.permissionMode` — chat permission mode
 
-`openclaude.useOpenAIShim` only injects `CLAUDE_CODE_USE_OPENAI=1` into terminals launched by the extension. It does not guess or configure a provider by itself.
+`openclaude.useOpenAIShim` only injects `CLAUDE_CODE_USE_OPENAI=1` when Azure injection did not already set it. It does not configure endpoints or keys by itself.
 
 ## Notes on Status Detection
 

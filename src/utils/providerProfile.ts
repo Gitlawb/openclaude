@@ -10,6 +10,7 @@ import {
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
 import { parseChatgptAccountId } from '../services/api/codexOAuthShared.js'
+import { parseCredentialList } from '../services/api/credentialPool.js'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
@@ -30,6 +31,7 @@ import {
   redactSecretValueForDisplay,
   sanitizeApiKey,
   sanitizeProviderConfigValue,
+  type SecretValueSource,
 } from './providerSecrets.js'
 
 export {
@@ -70,7 +72,11 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'GITHUB_COPILOT_KEY',
+  'GITHUB_ENTERPRISE_URL',
+  'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
@@ -97,6 +103,9 @@ const PROFILE_ENV_KEYS = [
   'XAI_CREDENTIAL_SOURCE',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
+  'NEARAI_API_KEY',
+  'FIREWORKS_API_KEY',
   'OPENCODE_API_KEY',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
@@ -107,24 +116,9 @@ export type CompatibilityProfileMode =
   | 'gemini'
   | 'mistral'
   | 'github'
+  | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
-
-const SECRET_ENV_KEYS = [
-  'OPENAI_API_KEY',
-  'OPENAI_AUTH_HEADER_VALUE',
-  'CODEX_API_KEY',
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'NVIDIA_API_KEY',
-  'MINIMAX_API_KEY',
-  'MISTRAL_API_KEY',
-  'BNKR_API_KEY',
-  'XAI_API_KEY',
-  'VENICE_API_KEY',
-  'MIMO_API_KEY',
-  'OPENCODE_API_KEY',
-] as const
 
 export type ProviderProfile =
   | 'anthropic'
@@ -137,6 +131,7 @@ export type ProviderProfile =
   | 'minimax'
   | 'mistral'
   | 'github'
+  | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
   | 'xai'
@@ -152,11 +147,14 @@ export type ProfileEnv = {
   OPENAI_BASE_URL?: string
   OPENAI_API_BASE?: string
   OPENAI_MODEL?: string
-  OPENAI_API_FORMAT?: 'chat_completions' | 'responses'
+  OPENAI_API_FORMAT?: 'chat_completions' | 'responses' | 'responses_compat'
   OPENAI_AUTH_HEADER?: string
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
+  OPENAI_API_KEYS?: string
   OPENAI_API_KEY?: string
+  GITHUB_COPILOT_KEY?: string
+  GITHUB_ENTERPRISE_URL?: string
   CODEX_API_KEY?: string
   CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
   CHATGPT_ACCOUNT_ID?: string
@@ -182,7 +180,11 @@ export type ProfileEnv = {
   XAI_CREDENTIAL_SOURCE?: 'oauth'
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
+  ATLAS_CLOUD_API_KEY?: string
+  NEARAI_API_KEY?: string
+  FIREWORKS_API_KEY?: string
   OPENCODE_API_KEY?: string
+  CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
 }
 
 export type ProfileFile = {
@@ -191,24 +193,10 @@ export type ProfileFile = {
   createdAt: string
 }
 
-type SecretValueSource = Partial<
-  Record<
-    | 'OPENAI_API_KEY'
-    | 'ANTHROPIC_API_KEY'
-    | 'OPENAI_AUTH_HEADER_VALUE'
-    | 'CODEX_API_KEY'
-    | 'GEMINI_API_KEY'
-    | 'GOOGLE_API_KEY'
-    | 'NVIDIA_API_KEY'
-    | 'MINIMAX_API_KEY'
-    | 'MISTRAL_API_KEY'
-    | 'BNKR_API_KEY'
-    | 'XAI_API_KEY'
-    | 'VENICE_API_KEY'
-    | 'MIMO_API_KEY',
-    string | undefined
-  >
->
+// SecretValueSource is intentionally open (Partial<Record<string, ...>>) so
+// that newly declared provider credential env vars are redactable without a
+// matching type update. See providerSecrets.ts for the canonical definition.
+export type { SecretValueSource } from './providerSecrets.js'
 
 export type ProfileFileLocation = {
   configDir?: string
@@ -318,6 +306,7 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'minimax' ||
     value === 'mistral' ||
     value === 'github' ||
+    value === 'github-enterprise' ||
     value === 'bedrock' ||
     value === 'vertex' ||
     value === 'xai' ||
@@ -342,6 +331,19 @@ export function buildGithubProfileEnv(options: {
   }
 
   return env
+}
+
+function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl?.trim()) return undefined
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.origin === 'https://api.githubcopilot.com') {
+      return undefined
+    }
+    return parsed.origin
+  } catch {
+    return undefined
+  }
 }
 
 export function buildOllamaProfileEnv(
@@ -571,6 +573,46 @@ export function buildXiaomiMimoProfileEnv(options: {
   }
 }
 
+export function buildAtlasCloudProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.ATLAS_CLOUD_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('atlas-cloud')
+  const defaultModel = getRouteDefaultModel('atlas-cloud')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Atlas Cloud route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    ATLAS_CLOUD_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    ATLAS_CLOUD_API_KEY: key,
+  }
+}
+
 export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
@@ -617,19 +659,157 @@ export function buildGeminiProfileEnv(options: {
   return env
 }
 
+export function sanitizeOpenAICredentialPool(
+  value: string | null | undefined,
+): string | undefined {
+  const resolved = resolveOpenAICredentialPool(value)
+  return resolved.kind === 'usable' ? resolved.value : undefined
+}
+
+export function hasInvalidOpenAICredentialPool(
+  value: string | null | undefined,
+): boolean {
+  return resolveOpenAICredentialPool(value).kind === 'invalid'
+}
+
+export function resolveOpenAICredentialEnvState(env: Record<string, string | undefined>): {
+  configured: boolean
+  invalid: boolean
+  envVar?: 'OPENAI_API_KEYS' | 'OPENAI_API_KEY'
+} {
+  const plural = resolveOpenAICredentialPool(env.OPENAI_API_KEYS)
+  if (plural.kind === 'usable') {
+    return { configured: true, invalid: false, envVar: 'OPENAI_API_KEYS' }
+  }
+  if (plural.kind === 'invalid') {
+    return { configured: false, invalid: true, envVar: 'OPENAI_API_KEYS' }
+  }
+
+  const singular = resolveOpenAICredentialPool(env.OPENAI_API_KEY)
+  if (singular.kind === 'usable') {
+    return { configured: true, invalid: false, envVar: 'OPENAI_API_KEY' }
+  }
+  if (singular.kind === 'invalid') {
+    return { configured: false, invalid: true, envVar: 'OPENAI_API_KEY' }
+  }
+
+  return { configured: false, invalid: false }
+}
+
+function resolveOpenAICredentialPool(
+  value: string | null | undefined,
+):
+  | { kind: 'empty' }
+  | { kind: 'invalid' }
+  | { kind: 'usable'; value: string; count: number } {
+  const credentials = parseCredentialList(value ?? undefined)
+  if (credentials.length === 0) {
+    return { kind: 'empty' }
+  }
+  if (credentials.some(credential => credential === 'SUA_CHAVE')) {
+    return { kind: 'invalid' }
+  }
+  return {
+    kind: 'usable',
+    value: credentials.join(','),
+    count: credentials.length,
+  }
+}
+type OpenAICredentialEnvSelection =
+  | {
+      kind: 'usable'
+      envVar: 'OPENAI_API_KEYS' | 'OPENAI_API_KEY'
+      value: string
+    }
+  | {
+      kind: 'invalid'
+      envVar: 'OPENAI_API_KEYS' | 'OPENAI_API_KEY'
+      value: string
+    }
+
+function resolveOpenAICredentialEnvSelection(
+  env: SecretValueSource,
+): OpenAICredentialEnvSelection | undefined {
+  const pooled = resolveOpenAICredentialPool(env.OPENAI_API_KEYS)
+  if (pooled.kind === 'invalid') {
+    return {
+      kind: 'invalid',
+      envVar: 'OPENAI_API_KEYS',
+      value: env.OPENAI_API_KEYS ?? '',
+    }
+  }
+  if (pooled.kind === 'usable') {
+    return { kind: 'usable', envVar: 'OPENAI_API_KEYS', value: pooled.value }
+  }
+
+  const single = resolveOpenAICredentialPool(env.OPENAI_API_KEY)
+  if (single.kind === 'invalid') {
+    return {
+      kind: 'invalid',
+      envVar: 'OPENAI_API_KEY',
+      value: env.OPENAI_API_KEY ?? '',
+    }
+  }
+  if (single.kind === 'usable') {
+    return { kind: 'usable', envVar: 'OPENAI_API_KEY', value: single.value }
+  }
+
+  return undefined
+}
+
+function resolveOpenAICredentialEnvOverride(
+  primary: SecretValueSource,
+  fallback: SecretValueSource,
+): OpenAICredentialEnvSelection | undefined {
+  return (
+    resolveOpenAICredentialEnvSelection(primary) ||
+    resolveOpenAICredentialEnvSelection(fallback)
+  )
+}
+
 export function buildOpenAIProfileEnv(options: {
   goal: RecommendationGoal
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
-  apiFormat?: 'chat_completions' | 'responses' | null
+  apiFormat?: 'chat_completions' | 'responses' | 'responses_compat' | null
   authHeader?: string | null
   authScheme?: 'bearer' | 'raw' | null
   authHeaderValue?: string | null
+  maxContextLength?: number | null
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
-  const key = sanitizeApiKey(options.apiKey ?? processEnv.OPENAI_API_KEY)
+  const explicitCredential = resolveOpenAICredentialPool(options.apiKey)
+  if (explicitCredential.kind === 'invalid') {
+    return null
+  }
+
+  const envOpenAIKeysCredential = resolveOpenAICredentialPool(
+    processEnv.OPENAI_API_KEYS,
+  )
+  const envOpenAIKeyCredential = resolveOpenAICredentialPool(
+    processEnv.OPENAI_API_KEY,
+  )
+  if (
+    explicitCredential.kind !== 'usable' &&
+    (envOpenAIKeysCredential.kind === 'invalid' ||
+      envOpenAIKeyCredential.kind === 'invalid')
+  ) {
+    return null
+  }
+
+  const envCredential = resolveOpenAICredentialEnvSelection(processEnv)
+  const key =
+    explicitCredential.kind === 'usable'
+      ? explicitCredential.value
+      : envCredential?.value
+  const keyEnvVar =
+    explicitCredential.kind === 'usable' && explicitCredential.count > 1
+      ? 'OPENAI_API_KEYS'
+      : explicitCredential.kind === 'usable'
+        ? 'OPENAI_API_KEY'
+        : envCredential?.envVar ?? 'OPENAI_API_KEY'
   const authHeaderValue = sanitizeApiKey(
     options.authHeaderValue ?? processEnv.OPENAI_AUTH_HEADER_VALUE,
   )
@@ -639,6 +819,7 @@ export function buildOpenAIProfileEnv(options: {
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
   const secretSource: SecretValueSource = {
+    OPENAI_API_KEYS: key,
     OPENAI_API_KEY: key,
     OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
   }
@@ -659,23 +840,31 @@ export function buildOpenAIProfileEnv(options: {
     apiFormat: processEnv.OPENAI_API_FORMAT,
   })
   const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
+  const normalizedModel =
+    normalizeProfileModel(
+      sanitizeProviderConfigValue(options.model, secretSource),
+    ) ||
+    (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
+    defaultModel
 
   return {
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       DEFAULT_OPENAI_BASE_URL,
-    OPENAI_MODEL:
-      normalizeProfileModel(
-        sanitizeProviderConfigValue(options.model, secretSource),
-      ) ||
-      (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
-      defaultModel,
+    OPENAI_MODEL: normalizedModel,
     ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
     ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
     ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
     ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
-    ...(key ? { OPENAI_API_KEY: key } : {}),
+    ...(key ? { [keyEnvVar]: key } : {}),
+    ...(options.maxContextLength
+      ? {
+          CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+            [normalizedModel]: options.maxContextLength,
+          }),
+        }
+      : {}),
   }
 }
 
@@ -841,6 +1030,7 @@ function getCompatibilityProfileFlag(
     case 'openai':
       return 'CLAUDE_CODE_USE_OPENAI'
     case 'github':
+    case 'github-enterprise':
       return 'CLAUDE_CODE_USE_GITHUB'
     case 'gemini':
       return 'CLAUDE_CODE_USE_GEMINI'
@@ -1083,10 +1273,18 @@ function hasConcreteProviderSelection(
     )
   }
 
-  return (
+  if (
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  ) {
+    return true
+  }
+
+  // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
+  return (
+    sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined
   )
 }
 
@@ -1108,8 +1306,9 @@ export async function buildLaunchEnv(options: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options.processEnv ?? process.env
+  let selectedProfile = options.profile
   const persistedEnv =
-    options.persisted?.profile === options.profile
+    options.persisted?.profile === selectedProfile
       ? options.persisted.env ?? {}
       : {}
   const persistedOpenAIModel = normalizeProfileModel(
@@ -1184,29 +1383,43 @@ export async function buildLaunchEnv(options: {
     for (const [envKey, provider] of explicitProfileOverrides) {
       if (isEnvTruthy(processEnv[envKey])) {
         const isCodexOAuthProfile =
-          options.profile === 'codex' &&
+          selectedProfile === 'codex' &&
           provider === 'openai' &&
           persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
         if (!isCodexOAuthProfile) {
-          options.profile = provider
+          selectedProfile = provider
         }
         break
       }
     }
   }
 
-  if (options.profile === 'github') {
+  if (selectedProfile === 'github' || selectedProfile === 'github-enterprise') {
+    const baseUrl = shellOpenAIBaseUrl || persistedOpenAIBaseUrl
+    const profileEnv = buildGithubProfileEnv({
+      model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
+      baseUrl,
+    })
+    if (selectedProfile === 'github-enterprise') {
+      const enterpriseUrl = deriveGithubEnterpriseUrl(baseUrl)
+      if (enterpriseUrl) {
+        profileEnv.GITHUB_ENTERPRISE_URL = enterpriseUrl
+      }
+      const copilotKey =
+        sanitizeApiKey(processEnv.GITHUB_COPILOT_KEY) ||
+        sanitizeApiKey(persistedEnv.GITHUB_COPILOT_KEY)
+      if (copilotKey) {
+        profileEnv.GITHUB_COPILOT_KEY = copilotKey
+      }
+    }
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'github',
-      profileEnv: buildGithubProfileEnv({
-        model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
-        baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
-      }),
+      profileEnv,
     })
   }
 
-  if (options.profile === 'anthropic') {
+  if (selectedProfile === 'anthropic') {
     const anthropicBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BASE_URL)
@@ -1236,7 +1449,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'bedrock') {
+  if (selectedProfile === 'bedrock') {
     const bedrockBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_BEDROCK_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BEDROCK_BASE_URL)
@@ -1258,7 +1471,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'vertex') {
+  if (selectedProfile === 'vertex') {
     const vertexBaseUrl =
       sanitizeProviderConfigValue(processEnv.ANTHROPIC_VERTEX_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_VERTEX_BASE_URL)
@@ -1280,7 +1493,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'gemini') {
+  if (selectedProfile === 'gemini') {
     const env: ProfileEnv = {
       GEMINI_MODEL:
         shellGeminiModel ||
@@ -1317,7 +1530,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'mistral') {
+  if (selectedProfile === 'mistral') {
     const shellMistralModel = normalizeProfileModel(
       sanitizeProviderConfigValue(
         processEnv.MISTRAL_MODEL,
@@ -1361,7 +1574,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'xai') {
+  if (selectedProfile === 'xai') {
     // For OAuth-tagged profiles, do not fall back to OPENAI_API_KEY /
     // persisted OPENAI_API_KEY. The user's shell OpenAI key is for
     // api.openai.com — sending it as a bearer to api.x.ai/v1 just
@@ -1389,7 +1602,12 @@ export async function buildLaunchEnv(options: {
       // it won't be promoted into XAI_API_KEY / OPENAI_API_KEY for
       // this profile's env.
       processEnv: isOAuthProfile
-        ? { ...processEnv, OPENAI_API_KEY: undefined, XAI_API_KEY: undefined }
+        ? {
+            ...processEnv,
+            OPENAI_API_KEYS: undefined,
+            OPENAI_API_KEY: undefined,
+            XAI_API_KEY: undefined,
+          }
         : processEnv,
     })
     const customHeaders = shellCustomHeaders || persistedCustomHeaders
@@ -1403,45 +1621,63 @@ export async function buildLaunchEnv(options: {
       env.XAI_CREDENTIAL_SOURCE = 'oauth'
     }
 
-    // For OAuth profiles, also clear any ambient OPENAI_API_KEY from
+    // For OAuth profiles, also clear any ambient OpenAI credentials from
     // the returned compatibility env. openaiShim's resolver checks
-    // process.env.OPENAI_API_KEY before falling back to the stored
-    // OAuth token; leaving the shell key there would short-circuit
-    // OAuth and send the wrong bearer to api.x.ai/v1.
+    // process.env.OPENAI_API_KEYS / OPENAI_API_KEY before falling back
+    // to the stored OAuth token; leaving shell credentials there would
+    // short-circuit OAuth and send the wrong bearer to api.x.ai/v1.
+    const compatibilityProcessEnv =
+      isOAuthProfile && !env.XAI_API_KEY
+        ? {
+            ...processEnv,
+            OPENAI_API_KEYS: undefined,
+            OPENAI_API_KEY: undefined,
+          }
+        : processEnv
     const result = buildCompatibilityProcessEnv({
-      processEnv,
+      processEnv: compatibilityProcessEnv,
       compatibilityMode: 'openai',
       profileEnv: env,
     })
     if (isOAuthProfile && !env.XAI_API_KEY) {
+      delete result.OPENAI_API_KEYS
       delete result.OPENAI_API_KEY
     }
     return result
   }
 
-  if (options.profile === 'opencode') {
+  if (selectedProfile === 'opencode') {
     const opencodeKey =
       sanitizeApiKey(processEnv.OPENCODE_API_KEY) ||
       sanitizeApiKey(persistedEnv.OPENCODE_API_KEY)
+    const openAICredential = resolveOpenAICredentialEnvOverride(
+      processEnv,
+      persistedEnv,
+    )
     const opencodeBaseUrl =
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) ||
       sanitizeProviderConfigValue(persistedEnv.OPENAI_BASE_URL) ||
       DEFAULT_OPENCODE_BASE_URL
     const opencodeModel =
       shellOpenAIModel || persistedOpenAIModel || 'gpt-5.4'
+    const profileEnv: ProfileEnv = {
+      OPENAI_BASE_URL: opencodeBaseUrl,
+      OPENAI_MODEL: opencodeModel,
+    }
+    if (opencodeKey) {
+      profileEnv.OPENAI_API_KEY = opencodeKey
+    } else if (openAICredential) {
+      profileEnv[openAICredential.envVar] = openAICredential.value
+    }
 
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
-      profileEnv: {
-        OPENAI_BASE_URL: opencodeBaseUrl,
-        OPENAI_MODEL: opencodeModel,
-        ...(opencodeKey ? { OPENAI_API_KEY: opencodeKey } : {}),
-      },
+      profileEnv,
     })
   }
 
-  if (options.profile === 'ollama') {
+  if (selectedProfile === 'ollama') {
     const getOllamaBaseUrl =
       options.getOllamaChatBaseUrl ?? (() => 'http://localhost:11434/v1')
     const resolveOllamaModel =
@@ -1459,7 +1695,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'atomic-chat') {
+  if (selectedProfile === 'atomic-chat') {
     const getAtomicChatBaseUrl =
       options.getAtomicChatChatBaseUrl ?? (() => 'http://127.0.0.1:1337/v1')
     const resolveModel =
@@ -1478,7 +1714,7 @@ export async function buildLaunchEnv(options: {
     })
   }
 
-  if (options.profile === 'codex') {
+  if (selectedProfile === 'codex') {
     const isCodexOAuthProfile = persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
     const codexKey = isCodexOAuthProfile
       ? undefined
@@ -1573,13 +1809,44 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.OPENAI_AUTH_HEADER_VALUE
   }
-  const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
-  if (openAIKey) {
-    env.OPENAI_API_KEY = openAIKey
+  const openAICredential = resolveOpenAICredentialEnvOverride(
+    processEnv,
+    persistedEnv,
+  )
+  if (openAICredential) {
+    env[openAICredential.envVar] = openAICredential.value
+  }
+  // Dedicated vendor credentials ride alongside the generic OpenAI env in
+  // persisted profiles (e.g. ATLAS_CLOUD_API_KEY). Carry them over — a live
+  // shell value wins over the persisted one, matching OPENAI_API_KEY
+  // precedence — because dedicatedCredentialsOnly routes ignore
+  // OPENAI_API_KEY, so dropping them would leave the relaunched profile
+  // unauthenticated.
+  for (const dedicatedKey of [
+    'ATLAS_CLOUD_API_KEY',
+    'NEARAI_API_KEY',
+    'FIREWORKS_API_KEY',
+    'MIMO_API_KEY',
+    'VENICE_API_KEY',
+  ] as const) {
+    const dedicatedValue =
+      sanitizeApiKey(processEnv[dedicatedKey]) ||
+      sanitizeApiKey(persistedEnv[dedicatedKey])
+    if (dedicatedValue) {
+      env[dedicatedKey] = dedicatedValue
+    }
   }
   const customHeaders = shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {
     env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
+  }
+  const contextWindows =
+    processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS ||
+    (usePersistedOpenAIConfig
+      ? persistedEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+      : undefined)
+  if (contextWindows) {
+    env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = contextWindows
   }
 
   return buildCompatibilityProcessEnv({
@@ -1593,7 +1860,6 @@ export async function buildStartupEnvFromProfile(options?: {
   persisted?: ProfileFile | null
   goal?: RecommendationGoal
   processEnv?: NodeJS.ProcessEnv
-  hasConfiguredProviderProfile?: boolean
   getOllamaChatBaseUrl?: (baseUrl?: string) => string
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
   readGeminiAccessToken?: () => string | undefined
@@ -1603,8 +1869,6 @@ export async function buildStartupEnvFromProfile(options?: {
     options && 'persisted' in options ? options.persisted : loadProfileFile()
 
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  const hasConfiguredProviderProfile =
-    options?.hasConfiguredProviderProfile ?? false
 
   // The single-profile file in the user config directory is a
   // first-run / fallback mechanism. The newer plural provider-profile
@@ -1622,15 +1886,10 @@ export async function buildStartupEnvFromProfile(options?: {
     return processEnv
   }
 
-  // If startup already has a concrete provider selection and the modern
-  // plural-profile system is configured, keep trusting that selection.
-  // This prevents the legacy single-profile file from becoming a silent
-  // third precedence layer when `/provider` profiles or explicit env/flags
-  // already chose a provider before startup fallback runs.
-  if (
-    hasConfiguredProviderProfile &&
-    hasConcreteProviderSelection(processEnv)
-  ) {
+  // If startup already has a concrete provider selection, keep trusting it.
+  // This prevents legacy profiles or the fresh-install default from becoming
+  // a silent third precedence layer over explicit env/flags.
+  if (hasConcreteProviderSelection(processEnv)) {
     return processEnv
   }
 
@@ -1639,6 +1898,18 @@ export async function buildStartupEnvFromProfile(options?: {
   }
 
   if (!persisted) {
+    // No saved profile. If the user explicitly disabled the OpenAI-compatible
+    // provider (CLAUDE_CODE_USE_OPENAI=0), honor that opt-out instead of
+    // injecting the default Opengateway profile — otherwise the fallback
+    // re-enables OpenAI and the startup validator reports a spurious missing
+    // OPENAI_API_KEY warning (#1245).
+    if (
+      processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+    ) {
+      return processEnv
+    }
+
     // No saved profile — default to Gitlawb Opengateway.
     const env = buildCompatibilityProcessEnv({
       processEnv,
@@ -1675,6 +1946,33 @@ export function applyProfileEnvToProcessEnv(
 ): void {
   clearManagedProfileEnv(targetEnv)
   Object.assign(targetEnv, nextEnv)
+}
+
+type StartupEnvOptions = NonNullable<Parameters<typeof buildStartupEnvFromProfile>[0]>
+
+export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
+  onValidationError?: (message: string) => void
+}): Promise<string | null> {
+  const processEnv = options?.processEnv ?? process.env
+  const { onValidationError, ...startupOptions } = options ?? {}
+  const startupEnv = await buildStartupEnvFromProfile({
+    ...startupOptions,
+    processEnv,
+  })
+  if (startupEnv === processEnv) {
+    return null
+  }
+
+  const validationError = await getProviderValidationError(startupEnv)
+  if (validationError) {
+    onValidationError?.(
+      `Warning: ignoring saved provider profile. ${validationError}`,
+    )
+    return validationError
+  }
+
+  applyProfileEnvToProcessEnv(processEnv, startupEnv)
+  return null
 }
 
 export async function applySavedProfileToCurrentSession(options: {

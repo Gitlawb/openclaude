@@ -1,5 +1,7 @@
 import { afterEach, expect, mock, test } from 'bun:test'
+import type { ServerResponse } from 'node:http'
 import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
+import { asMockFetch } from '../../test/typedMocks.js'
 import { CodexOAuthService } from './codexOAuth.js'
 
 type CodexOAuthTestSnapshot = {
@@ -36,9 +38,9 @@ type FakeAuthCodeListenerInstance = {
   ) => Promise<string>
   handleSuccessRedirect: (
     scopes: string[],
-    customHandler?: (res: FakeServerResponse, scopes: string[]) => void,
+    customHandler?: (res: ServerResponse, scopes: string[]) => void,
   ) => void
-  handleErrorRedirect: (customHandler?: (res: FakeServerResponse) => void) => void
+  handleErrorRedirect: (customHandler?: (res: ServerResponse) => void) => void
   cancelPendingAuthorization: (error?: Error) => void
   close: () => void
 }
@@ -105,14 +107,16 @@ function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerI
 
     handleSuccessRedirect(
       scopes: string[],
-      customHandler?: (res: FakeServerResponse, scopes: string[]) => void,
+      customHandler?: (res: ServerResponse, scopes: string[]) => void,
     ): void {
       if (!this.pending || !this.capture) {
         return
       }
 
       const res = createFakeServerResponse(this.capture)
-      customHandler?.(res, scopes)
+      // FakeServerResponse implements the structural subset of ServerResponse
+      // that the production redirect handlers touch; cast at this one boundary.
+      customHandler?.(res as unknown as ServerResponse, scopes)
       if (!res.writableEnded) {
         res.end()
       }
@@ -120,14 +124,14 @@ function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerI
     }
 
     handleErrorRedirect(
-      customHandler?: (res: FakeServerResponse) => void,
+      customHandler?: (res: ServerResponse) => void,
     ): void {
       if (!this.pending || !this.capture) {
         return
       }
 
       const res = createFakeServerResponse(this.capture)
-      customHandler?.(res)
+      customHandler?.(res as unknown as ServerResponse)
       if (!res.writableEnded) {
         res.end()
       }
@@ -206,18 +210,20 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   try {
     process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
-    globalThis.fetch = mock(async () => {
-      return new Response(
-        JSON.stringify({
-          access_token: 'access-token',
-          refresh_token: 'refresh-token',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-    }) as typeof fetch
+    globalThis.fetch = asMockFetch(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }),
+    )
 
     const service = new CodexOAuthService({
       callbackPort: 0,
@@ -262,29 +268,31 @@ test('cancellation during token exchange returns a cancelled page and rejects th
       resolveFetchStart = resolve
     })
 
-    globalThis.fetch = mock((_input, init) => {
-      return new Promise<Response>((_resolve, reject) => {
-        resolveFetchStart()
+    globalThis.fetch = asMockFetch(
+      mock((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          resolveFetchStart()
 
-        const signal = init?.signal
-        if (!signal) {
-          return
-        }
+          const signal = init?.signal
+          if (!signal) {
+            return
+          }
 
-        if (signal.aborted) {
-          reject(signal.reason)
-          return
-        }
-
-        signal.addEventListener(
-          'abort',
-          () => {
+          if (signal.aborted) {
             reject(signal.reason)
-          },
-          { once: true },
-        )
-      })
-    }) as typeof fetch
+            return
+          }
+
+          signal.addEventListener(
+            'abort',
+            () => {
+              reject(signal.reason)
+            },
+            { once: true },
+          )
+        })
+      }),
+    )
 
     const service = new CodexOAuthService({
       callbackPort: 0,

@@ -1,0 +1,47 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro'
+import { skills } from '../../data/skills'
+
+const toc = [
+  { id: 'what-are-skills', label: 'what are skills' },
+  { id: 'bundled-skills', label: 'bundled skills' },
+  { id: 'your-own', label: 'writing your own' },
+]
+---
+
+<DocsLayout
+  title="openclaude skills — bundled agent skills reference"
+  description="Reference for the agent skills bundled with openclaude: what each skill does, when it triggers, and how to invoke it with slash commands."
+  heading="bundled skills"
+  lede="Skills are reusable instruction packs the agent can load on demand — invoked like slash commands, extensible with your own."
+  toc={toc}
+>
+  <h2 id="what-are-skills">what are skills</h2>
+  <p>
+    A skill is a markdown instruction pack (plus optional scripts) that teaches the agent
+    a repeatable workflow. Invoke one by typing its slash form — e.g.
+    <code>/simplify</code> — or let the agent activate it when a task matches its
+    description. List everything available in your session with <code>/skills</code>.
+  </p>
+
+  <h2 id="bundled-skills">bundled skills</h2>
+  {skills.map(s => (
+    <div class="cmd-entry">
+      <h3 id={`skill-${s.name}`}>
+        <code>{s.invocation}</code>
+        <a class="anchor-link" href={`#skill-${s.name}`} aria-label={`link to ${s.invocation}`}>#</a>
+      </h3>
+      <p>{s.description}</p>
+    </div>
+  ))}
+
+  <h2 id="your-own">writing your own</h2>
+  <p>
+    Project skills live in <code>.claude/skills/&lt;name&gt;/SKILL.md</code>; user-level
+    skills default to <code>~/.openclaude/skills/</code> and follow
+    <code>OPENCLAUDE_CONFIG_DIR</code> when it is set. Each SKILL.md has frontmatter
+    (<code>name</code>, <code>description</code>) followed by the instructions the
+    agent loads when the skill is invoked. Plugins can ship skills too — manage
+    them with <code>/plugin</code>.
+  </p>
+</DocsLayout>

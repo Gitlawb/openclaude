@@ -22,7 +22,9 @@ function TestBypassPermissionsModeDialog({
     onAccept()
   }, [mode, onAccept])
 
-  return null
+  // Render an empty fragment (not null) to satisfy the production
+  // BypassPermissionsModeDialog's `(props: Props) => Element` type.
+  return <></>
 }
 
 function createTestStreams(): {

@@ -355,7 +355,7 @@ export function logAPIError({
     ...getAnthropicEnvMetadata(),
   })
 
-  
+
   // Log first error for teleported sessions (reliability tracking)
   const teleportInfo = getTeleportedSessionInfo()
   if (teleportInfo?.isTeleported && !teleportInfo.hasLoggedFirstMessage) {

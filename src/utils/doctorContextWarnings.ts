@@ -1,5 +1,5 @@
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
-import type { Tool, ToolPermissionContext } from '../Tool.js'
+import type { ToolPermissionContext, Tools } from '../Tool.js'
 import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js'
 import { countMcpToolTokens } from './analyzeContext.js'
 import {
@@ -143,7 +143,7 @@ async function checkAgentDescriptions(
  * Check MCP tools token count
  */
 async function estimateMcpToolTokens(
-  tools: Tool[],
+  tools: Tools,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   agentInfo: AgentDefinitionsResult | null,
 ): Promise<{
@@ -266,7 +266,7 @@ function buildMcpToolsWarning(
 }
 
 async function checkMcpTools(
-  tools: Tool[],
+  tools: Tools,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   agentInfo: AgentDefinitionsResult | null,
   tokenStrategy: CheckContextWarningsOptions['mcpTokenStrategy'] = 'api',
@@ -347,7 +347,7 @@ async function checkUnreachableRules(
  * Check all context warnings for the doctor command
  */
 export async function checkContextWarnings(
-  tools: Tool[],
+  tools: Tools,
   agentInfo: AgentDefinitionsResult | null,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   options: CheckContextWarningsOptions = {},

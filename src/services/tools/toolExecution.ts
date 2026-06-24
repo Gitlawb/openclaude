@@ -20,6 +20,7 @@ import {
 } from 'src/services/analytics/metadata.js'
 import {
   addToToolDuration,
+  getReplayIndexBuilder,
   getStatsStore,
 } from '../../bootstrap/state.js'
 import {
@@ -54,6 +55,7 @@ import type { HookProgress } from '../../types/hooks.js'
 import type {
   AssistantMessage,
   AttachmentMessage,
+  HookResultMessage,
   Message,
   ProgressMessage,
   StopHookInfo,
@@ -65,6 +67,7 @@ import {
   AbortError,
   errorMessage,
   getErrnoCode,
+  isAbortError,
   ShellError,
   TelemetrySafeError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 } from '../../utils/errors.js'
@@ -86,6 +89,7 @@ import {
   startSessionActivity,
   stopSessionActivity,
 } from '../../utils/sessionActivity.js'
+import { shouldSkipSessionPersistence } from '../../utils/sessionPersistencePolicy.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { Stream } from '../../utils/stream.js'
 import {
@@ -107,6 +111,7 @@ import {
 } from '../mcp/client.js'
 import { mcpInfoFromString } from '../mcp/mcpStringUtils.js'
 import { normalizeNameForMCP } from '../mcp/normalization.js'
+import { createToolQueryLeaseInput } from './queryActivityLease.js'
 import type { MCPServerConnection } from '../mcp/types.js'
 import {
   getLoggingSafeMcpBaseUrl,
@@ -125,6 +130,69 @@ export const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 500
 /** Log a debug warning when hooks/permission-decision block for this long. Matches
  * BashTool's PROGRESS_THRESHOLD_MS — the collapsed view feels stuck past this. */
 const SLOW_PHASE_LOG_THRESHOLD_MS = 2000
+
+export function getReplayModifiedFiles(
+  toolName: string,
+  input: unknown,
+): string[] | undefined {
+  if (!input || typeof input !== 'object') {
+    return undefined
+  }
+
+  const record = input as Record<string, unknown>
+  const path =
+    toolName === NOTEBOOK_EDIT_TOOL_NAME
+      ? record.notebook_path
+      : toolName === BASH_TOOL_NAME
+        ? getReplayBashModifiedFile(record)
+      : toolName === FILE_EDIT_TOOL_NAME || toolName === FILE_WRITE_TOOL_NAME
+        ? record.file_path
+        : undefined
+
+  return typeof path === 'string' && path.length > 0 ? [path] : undefined
+}
+
+export function getReplayResultStatusForError(
+  error: unknown,
+): 'error' | 'cancelled' {
+  return isAbortError(error) ? 'cancelled' : 'error'
+}
+
+export function normalizeReplayToolInput<T>(
+  processedInput: T,
+  originalInput: T,
+  backfilledClone: T | null,
+): T {
+  if (
+    backfilledClone &&
+    processedInput !== originalInput &&
+    typeof processedInput === 'object' &&
+    processedInput !== null &&
+    'file_path' in processedInput &&
+    typeof originalInput === 'object' &&
+    originalInput !== null &&
+    'file_path' in originalInput &&
+    (processedInput as Record<string, unknown>).file_path ===
+      (backfilledClone as Record<string, unknown>).file_path
+  ) {
+    return {
+      ...processedInput,
+      file_path: (originalInput as Record<string, unknown>).file_path,
+    } as T
+  }
+
+  return processedInput !== backfilledClone ? processedInput : originalInput
+}
+
+function getReplayBashModifiedFile(
+  input: Record<string, unknown>,
+): unknown {
+  const simulatedSedEdit = input._simulatedSedEdit
+  if (!simulatedSedEdit || typeof simulatedSedEdit !== 'object') {
+    return undefined
+  }
+  return (simulatedSedEdit as Record<string, unknown>).filePath
+}
 
 /**
  * Classify a tool execution error into a telemetry-safe string.
@@ -664,7 +732,7 @@ export function normalizeToolInputForValidation(
   }
 }
 
-async function checkPermissionsAndCallTool(
+export async function checkPermissionsAndCallTool(
   tool: Tool,
   toolUseID: string,
   input: unknown,
@@ -754,6 +822,34 @@ async function checkPermissionsAndCallTool(
     ]
   }
 
+  const lifecycleStartTime = Date.now()
+  function getLifecycleBashTimeoutMs(input: unknown): number | undefined {
+    if (
+      tool.name !== BASH_TOOL_NAME ||
+      !input ||
+      typeof input !== 'object' ||
+      !('timeout' in input)
+    ) {
+      return undefined
+    }
+    return (input as BashToolInput).timeout
+  }
+
+  function trackLifecycleToolUse(input: unknown): void {
+    const lifecycleBashTimeoutMs = getLifecycleBashTimeoutMs(input)
+    toolUseContext.queryLifecycle?.startToolUse({
+      toolUseId: toolUseID,
+      toolName: tool.name,
+      startedAt: lifecycleStartTime,
+      ...(tool.name === BASH_TOOL_NAME && { isBash: true }),
+      ...(lifecycleBashTimeoutMs !== undefined && {
+        timeoutMs: lifecycleBashTimeoutMs,
+      }),
+    })
+  }
+
+  trackLifecycleToolUse(parsedInput.data)
+
   // Validate input values. Each tool has its own validation logic
   const isValidCall = await tool.validateInput?.(
     parsedInput.data,
@@ -826,7 +922,7 @@ async function checkPermissionsAndCallTool(
     )
   }
 
-  const resultingMessages = []
+  const resultingMessages: MessageUpdateLazy[] = []
 
   // Defense-in-depth: strip _simulatedSedEdit from model-provided Bash input.
   // This field is internal-only — it must only be injected by the permission
@@ -910,6 +1006,7 @@ async function checkPermissionsAndCallTool(
         // Hook provided updatedInput without making a permission decision (passthrough)
         // Update processedInput so it's used in the normal permission flow
         processedInput = result.updatedInput
+        trackLifecycleToolUse(processedInput)
         break
       case 'preventContinuation':
         shouldPreventContinuation = result.shouldPreventContinuation
@@ -997,7 +1094,9 @@ async function checkPermissionsAndCallTool(
   )
   const permissionDecision = resolved.decision
   processedInput = resolved.input
+  trackLifecycleToolUse(processedInput)
   const permissionDurationMs = Date.now() - permissionStart
+
   // In auto mode, canUseTool awaits the classifier (side_query) — if that's
   // slow the collapsed view shows "Running…" with no (Ns) tick since
   // bash_progress hasn't started yet. Auto-only: in default mode this timer
@@ -1048,6 +1147,29 @@ async function checkPermissionsAndCallTool(
   if (permissionDecision.behavior !== 'allow') {
     logForDebugging(`${tool.name} tool permission denied`)
     const decisionInfo = toolUseContext.toolDecisions?.get(toolUseID)
+
+    if (!shouldSkipSessionPersistence()) {
+      try {
+        const replayBuilder = getReplayIndexBuilder()
+        replayBuilder.trackToolStart(
+          toolUseID,
+          tool.name,
+          normalizeReplayToolInput(
+            processedInput,
+            callInput,
+            backfilledClone,
+          ) as Record<string, unknown>,
+        )
+        replayBuilder.trackToolEnd(
+          toolUseID,
+          tool.name,
+          'permission_denied',
+          permissionDecision.message,
+        )
+      } catch {
+        // Ignore errors in replay tracking
+      }
+    }
 
     logEvent('tengu_tool_use_can_use_tool_rejected', {
       messageID:
@@ -1180,6 +1302,7 @@ async function checkPermissionsAndCallTool(
   // (Don't overwrite if undefined - processedInput may have been modified by passthrough hooks)
   if (permissionDecision.updatedInput !== undefined) {
     processedInput = permissionDecision.updatedInput
+    trackLifecycleToolUse(processedInput)
   }
 
   // Prepare tool parameters for logging in tool_result event.
@@ -1232,24 +1355,33 @@ async function checkPermissionsAndCallTool(
   // the backfill-expanded value, restore the model's original so the tool
   // result string embeds the path the model emitted — keeps transcript/VCR
   // hashes stable. Other hook modifications flow through unchanged.
-  if (
-    backfilledClone &&
-    processedInput !== callInput &&
-    typeof processedInput === 'object' &&
-    processedInput !== null &&
-    'file_path' in processedInput &&
-    'file_path' in (callInput as Record<string, unknown>) &&
-    (processedInput as Record<string, unknown>).file_path ===
-      (backfilledClone as Record<string, unknown>).file_path
-  ) {
-    callInput = {
-      ...processedInput,
-      file_path: (callInput as Record<string, unknown>).file_path,
-    } as typeof processedInput
-  } else if (processedInput !== backfilledClone) {
-    callInput = processedInput
+  callInput = normalizeReplayToolInput(processedInput, callInput, backfilledClone)
+
+  let queryActivityLease: { release(): void } | undefined
+
+  if (!shouldSkipSessionPersistence()) {
+    try {
+      getReplayIndexBuilder().trackToolStart(
+        toolUseID,
+        tool.name,
+        callInput as Record<string, unknown>,
+      )
+    } catch {
+      // Ignore errors in replay tracking
+    }
   }
+
   try {
+    const queryActivityLeaseInput = createToolQueryLeaseInput(
+      tool.name,
+      toolUseID,
+      callInput,
+    )
+    queryActivityLease = queryActivityLeaseInput
+      ? toolUseContext.queryActivity?.acquireLease(queryActivityLeaseInput)
+      : undefined
+    toolUseContext.queryActivity?.registerActivity(`tool:${tool.name}:start`)
+
     const result = await tool.call(
       callInput,
       {
@@ -1261,6 +1393,9 @@ async function checkPermissionsAndCallTool(
       canUseTool,
       assistantMessage,
       progress => {
+        toolUseContext.queryActivity?.registerActivity(
+          `tool:${tool.name}:progress`,
+        )
         onToolProgress({
           toolUseID: progress.toolUseID,
           data: progress.data,
@@ -1269,6 +1404,8 @@ async function checkPermissionsAndCallTool(
     )
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
+    const replayResultPreview =
+      typeof result.data === 'string' ? result.data.slice(0, 200) : undefined
 
     // Capture structured output from tool result if present
     if (typeof result === 'object' && 'structured_output' in result) {
@@ -1372,10 +1509,10 @@ async function checkPermissionsAndCallTool(
       ? getMcpServerScopeFromToolName(tool.name)
       : null
 
-    
+
     // Run PostToolUse hooks
     let toolOutput = result.data
-    const hookResults = []
+    const hookResults: MessageUpdateLazy<HookResultMessage>[] = []
     const toolContextModifier = result.contextModifier
     const mcpMeta = result.mcpMeta
 
@@ -1564,10 +1701,39 @@ async function checkPermissionsAndCallTool(
     for (const hookResult of hookResults) {
       resultingMessages.push(hookResult)
     }
+    if (!shouldSkipSessionPersistence()) {
+      try {
+        const replayBuilder = getReplayIndexBuilder()
+        replayBuilder.trackToolEnd(
+          toolUseID,
+          tool.name,
+          'success',
+          replayResultPreview,
+          getReplayModifiedFiles(tool.name, callInput),
+        )
+      } catch {
+        // Ignore errors in replay tracking
+      }
+    }
     return resultingMessages
   } catch (error) {
     const durationMs = Date.now() - startTime
     addToToolDuration(durationMs)
+
+    if (!shouldSkipSessionPersistence()) {
+      try {
+        const replayBuilder = getReplayIndexBuilder()
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        replayBuilder.trackToolEnd(
+          toolUseID,
+          tool.name,
+          getReplayResultStatusForError(error),
+          errorMsg.slice(0, 200),
+        )
+      } catch {
+        // Ignore errors in replay tracking
+      }
+    }
 
     // Handle MCP auth errors by updating the client status to 'needs-auth'
     // This updates the /mcp display to show the server needs re-authorization
@@ -1703,10 +1869,15 @@ async function checkPermissionsAndCallTool(
       ...hookMessages,
     ]
   } finally {
-    stopSessionActivity('tool_exec')
-    // Clean up decision info after logging
-    if (decisionInfo) {
-      toolUseContext.toolDecisions?.delete(toolUseID)
+    try {
+      queryActivityLease?.release()
+      toolUseContext.queryActivity?.registerActivity(`tool:${tool.name}:end`)
+    } finally {
+      stopSessionActivity('tool_exec')
+      // Clean up decision info after logging
+      if (decisionInfo) {
+        toolUseContext.toolDecisions?.delete(toolUseID)
+      }
     }
   }
 }

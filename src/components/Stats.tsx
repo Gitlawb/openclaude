@@ -11,7 +11,7 @@ import { applyColor } from '../ink/colorize.js';
 import { stringWidth as getStringWidth } from '../ink/stringWidth.js';
 import type { Color } from '../ink/styles.js';
 // eslint-disable-next-line custom-rules/prefer-use-keybindings -- raw j/k/arrow stats navigation
-import { Ansi, Box, Text, useInput } from '../ink.js';
+import { Ansi, Box, type Key, Text, useInput } from '../ink.js';
 import { useKeybinding } from '../keybindings/useKeybinding.js';
 import { getGlobalConfig } from '../utils/config.js';
 import { formatDuration, formatNumber } from '../utils/format.js';
@@ -45,6 +45,10 @@ type StatsResult = {
 } | {
   type: 'empty';
 };
+type StatsTab = 'Overview' | 'Models';
+type StatsCache = Partial<Record<StatsDateRange, ClaudeCodeStats>>;
+type ModelUsageStats = ClaudeCodeStats['modelUsage'][string];
+type ModelUsageEntry = [string, ModelUsageStats];
 const DATE_RANGE_LABELS: Record<StatsDateRange, string> = {
   '7d': 'Last 7 days',
   '30d': 'Last 30 days',
@@ -79,19 +83,19 @@ function createAllTimeStatsPromise(): Promise<StatsResult> {
     };
   });
 }
-export function Stats(t0) {
+export function Stats(t0: Props): React.ReactNode {
   const $ = _c(4);
   const {
     onClose
   } = t0;
-  let t1;
+  let t1: Promise<StatsResult>;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = createAllTimeStatsPromise();
     $[0] = t1;
   } else {
     t1 = $[0];
   }
-  const allTimePromise = t1;
+  const allTimePromise: Promise<StatsResult> = t1;
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = <Box marginTop={1}><Spinner /><Text> Loading your OpenClaude stats…</Text></Box>;
@@ -118,27 +122,27 @@ type StatsContentProps = {
  * Inner component that uses React 19's use() to read the stats promise.
  * Suspends while loading all-time stats, then handles date range changes without suspending.
  */
-function StatsContent(t0) {
+function StatsContent(t0: StatsContentProps): React.ReactNode {
   const $ = _c(34);
   const {
     allTimePromise,
     onClose
   } = t0;
-  const allTimeResult = use(allTimePromise);
-  const [dateRange, setDateRange] = useState("all");
-  let t1;
+  const allTimeResult: StatsResult = use(allTimePromise);
+  const [dateRange, setDateRange] = useState<StatsDateRange>("all");
+  let t1: StatsCache;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = {};
     $[0] = t1;
   } else {
     t1 = $[0];
   }
-  const [statsCache, setStatsCache] = useState(t1);
+  const [statsCache, setStatsCache] = useState<StatsCache>(t1);
   const [isLoadingFiltered, setIsLoadingFiltered] = useState(false);
-  const [activeTab, setActiveTab] = useState("Overview");
-  const [copyStatus, setCopyStatus] = useState(null);
-  let t2;
-  let t3;
+  const [activeTab, setActiveTab] = useState<StatsTab>("Overview");
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  let t2: React.EffectCallback;
+  let t3: [StatsDateRange, StatsCache];
   if ($[1] !== dateRange || $[2] !== statsCache) {
     t2 = () => {
       if (dateRange === "all") {
@@ -176,8 +180,8 @@ function StatsContent(t0) {
     t3 = $[4];
   }
   useEffect(t2, t3);
-  const displayStats = dateRange === "all" ? allTimeResult.type === "success" ? allTimeResult.data : null : statsCache[dateRange] ?? (allTimeResult.type === "success" ? allTimeResult.data : null);
-  const allTimeStats = allTimeResult.type === "success" ? allTimeResult.data : null;
+  const displayStats: ClaudeCodeStats | null = dateRange === "all" ? allTimeResult.type === "success" ? allTimeResult.data : null : statsCache[dateRange] ?? (allTimeResult.type === "success" ? allTimeResult.data : null);
+  const allTimeStats: ClaudeCodeStats | null = allTimeResult.type === "success" ? allTimeResult.data : null;
   let t4;
   if ($[5] !== onClose) {
     t4 = () => {
@@ -201,9 +205,9 @@ function StatsContent(t0) {
     t5 = $[7];
   }
   useKeybinding("confirm:no", handleClose, t5);
-  let t6;
+  let t6: (input: string, key: Key) => void;
   if ($[8] !== activeTab || $[9] !== dateRange || $[10] !== displayStats || $[11] !== onClose) {
-    t6 = (input, key) => {
+    t6 = (input: string, key: Key) => {
       if (key.ctrl && (input === "c" || input === "d")) {
         onClose("Stats dialog dismissed", {
           display: "system"
@@ -309,10 +313,14 @@ function StatsContent(t0) {
   }
   return t12;
 }
-function _temp(prev_0) {
+function _temp(prev_0: StatsTab): StatsTab {
   return prev_0 === "Overview" ? "Models" : "Overview";
 }
-function DateRangeSelector(t0) {
+type DateRangeSelectorProps = {
+  dateRange: StatsDateRange;
+  isLoading: boolean;
+};
+function DateRangeSelector(t0: DateRangeSelectorProps): React.ReactNode {
   const $ = _c(9);
   const {
     dateRange,
@@ -510,19 +518,6 @@ function OverviewTab({
           </Text>
         </Box>
       </Box>
-
-      {/* Speculation time saved (internal-only) */}
-      {"external" === 'ant' && stats.totalSpeculationTimeSavedMs > 0 && <Box flexDirection="row" gap={4}>
-            <Box flexDirection="column" width={28}>
-              <Text wrap="truncate">
-                Speculation saved:{' '}
-                <Text color="claude">
-                  {formatDuration(stats.totalSpeculationTimeSavedMs)}
-                </Text>
-              </Text>
-            </Box>
-          </Box>}
-
       {/* Shot stats (internal-only) */}
       {shotStatsData && <>
           <Box marginTop={1}>
@@ -713,7 +708,12 @@ function generateFunFactoid(stats: ClaudeCodeStats, totalTokens: number): string
   const randomIndex = Math.floor(Math.random() * factoids.length);
   return factoids[randomIndex]!;
 }
-function ModelsTab(t0) {
+type ModelsTabProps = {
+  stats: ClaudeCodeStats;
+  dateRange: StatsDateRange;
+  isLoading: boolean;
+};
+function ModelsTab(t0: ModelsTabProps): React.ReactNode {
   const $ = _c(15);
   const {
     stats,
@@ -728,7 +728,7 @@ function ModelsTab(t0) {
   const {
     columns: terminalWidth
   } = useTerminalSize();
-  const modelEntries = Object.entries(stats.modelUsage).sort(_temp7);
+  const modelEntries: ModelUsageEntry[] = Object.entries(stats.modelUsage).sort(_temp7);
   const t1 = !headerFocused;
   let t2;
   if ($[0] !== t1) {
@@ -813,21 +813,21 @@ function ModelsTab(t0) {
           return <ModelEntry key={model_0} model={model_0} usage={usage_0} totalTokens={totalTokens} />;
         })}</Box>{t9}</Box>{t10}</Box>;
 }
-function _temp1(item, i) {
+function _temp1(item: ChartLegend, i: number): React.ReactNode {
   return <Text key={item.model}>{i > 0 ? " \xB7 " : ""}<Ansi>{item.coloredBullet}</Ansi> {item.model}</Text>;
 }
-function _temp0(t0) {
+function _temp0(t0: ModelUsageEntry): string {
   const [model] = t0;
   return model;
 }
-function _temp9(sum, t0) {
+function _temp9(sum: number, t0: ModelUsageEntry): number {
   const [, usage] = t0;
   return sum + usage.inputTokens + usage.outputTokens;
 }
-function _temp8(prev_0) {
+function _temp8(prev_0: number): number {
   return Math.max(prev_0 - 2, 0);
 }
-function _temp7(t0, t1) {
+function _temp7(t0: ModelUsageEntry, t1: ModelUsageEntry): number {
   const [, a] = t0;
   const [, b] = t1;
   return b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens);
@@ -841,7 +841,7 @@ type ModelEntryProps = {
   };
   totalTokens: number;
 };
-function ModelEntry(t0) {
+function ModelEntry(t0: ModelEntryProps): React.ReactNode {
   const $ = _c(21);
   const {
     model,
@@ -1149,12 +1149,6 @@ function renderOverviewToAnsi(stats: ClaudeCodeStats): string[] {
   const activeDaysVal = `${stats.activeDays}/${stats.totalDays}`;
   const peakHourVal = stats.peakActivityHour !== null ? `${stats.peakActivityHour}:00-${stats.peakActivityHour + 1}:00` : 'N/A';
   lines.push(row('Active days', activeDaysVal, 'Peak hour', peakHourVal));
-
-  // Speculation time saved (internal-only)
-  if ("external" === 'ant' && stats.totalSpeculationTimeSavedMs > 0) {
-    const label = 'Speculation saved:'.padEnd(COL1_LABEL_WIDTH);
-    lines.push(label + h(formatDuration(stats.totalSpeculationTimeSavedMs)));
-  }
 
   // Shot stats (internal-only)
   if (feature('SHOT_STATS') && stats.shotDistribution) {

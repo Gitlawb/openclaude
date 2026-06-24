@@ -1,135 +1,74 @@
 import { c as _c } from "react-compiler-runtime";
+import { join } from 'path';
 import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { Box, Link, Text } from '../ink.js';
 import type { ExternalClaudeMdInclude } from '../utils/claudemd.js';
 import { saveCurrentProjectConfig } from '../utils/config.js';
+import { getClaudeConfigHomeDir } from '../utils/envUtils.js';
+import { getDisplayPath } from '../utils/file.js';
 import { Select } from './CustomSelect/index.js';
 import { Dialog } from './design-system/Dialog.js';
 type Props = {
   onDone(): void;
   isStandaloneDialog?: boolean;
   externalIncludes?: ExternalClaudeMdInclude[];
+  scope?: 'User' | 'Project';
 };
+function acceptProject(current: any) {
+  return { ...current, hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true };
+}
+function acceptUser(current: any) {
+  return { ...current, hasClaudeMdExternalIncludesApprovedForUser: true, hasClaudeMdExternalIncludesWarningShownForUser: true };
+}
+function declineProject(current: any) {
+  return { ...current, hasClaudeMdExternalIncludesApproved: false, hasClaudeMdExternalIncludesWarningShown: true };
+}
+function declineUser(current: any) {
+  return { ...current, hasClaudeMdExternalIncludesApprovedForUser: false, hasClaudeMdExternalIncludesWarningShownForUser: true };
+}
+function getUserClaudeMdDisplayPath(): string {
+  return getDisplayPath(join(getClaudeConfigHomeDir(), 'CLAUDE.md'));
+}
 export function ClaudeMdExternalIncludesDialog(t0: Props) {
   const $ = _c(18);
-  const {
-    onDone,
-    isStandaloneDialog,
-    externalIncludes
-  } = t0;
-  let t1: [];
-  if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = [];
-    $[0] = t1;
-  } else {
-    t1 = $[0];
-  }
-  React.useEffect(_temp, t1);
-  let t2;
-  if ($[1] !== onDone) {
-    t2 = (value: 'yes' | 'no') => {
-      if (value === "no") {
-        logEvent("tengu_claude_md_external_includes_dialog_declined", {});
-        saveCurrentProjectConfig(_temp2);
-      } else {
-        logEvent("tengu_claude_md_external_includes_dialog_accepted", {});
-        saveCurrentProjectConfig(_temp3);
-      }
-      onDone();
-    };
-    $[1] = onDone;
-    $[2] = t2;
-  } else {
-    t2 = $[2];
-  }
-  const handleSelection = t2;
-  let t3;
-  if ($[3] !== handleSelection) {
-    t3 = () => {
-      handleSelection("no");
-    };
-    $[3] = handleSelection;
-    $[4] = t3;
-  } else {
-    t3 = $[4];
-  }
-  const handleEscape = t3;
-  const t4 = !isStandaloneDialog;
-  const t5 = !isStandaloneDialog;
-  let t6;
-  if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Text>This project's CLAUDE.md imports files outside the current working directory. Never allow this for third-party repositories.</Text>;
-    $[5] = t6;
-  } else {
-    t6 = $[5];
-  }
-  let t7;
-  if ($[6] !== externalIncludes) {
-    t7 = externalIncludes && externalIncludes.length > 0 && <Box flexDirection="column"><Text dimColor={true}>External imports:</Text>{externalIncludes.map(_temp4)}</Box>;
-    $[6] = externalIncludes;
-    $[7] = t7;
-  } else {
-    t7 = $[7];
-  }
-  let t8;
-  if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Text dimColor={true}>Important: Only use Claude Code with files you trust. Accessing untrusted files may pose security risks{" "}<Link url="https://code.claude.com/docs/en/security" />{" "}</Text>;
-    $[8] = t8;
-  } else {
-    t8 = $[8];
-  }
-  let t9;
-  if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = [{
-      label: "Yes, allow external imports",
-      value: "yes"
-    }, {
-      label: "No, disable external imports",
-      value: "no"
-    }];
-    $[9] = t9;
-  } else {
-    t9 = $[9];
-  }
-  let t10;
-  if ($[10] !== handleSelection) {
-    t10 = <Select options={t9} onChange={(value_0: string) => handleSelection(value_0 as 'yes' | 'no')} />;
-    $[10] = handleSelection;
-    $[11] = t10;
-  } else {
-    t10 = $[11];
-  }
-  let t11;
-  if ($[12] !== handleEscape || $[13] !== t10 || $[14] !== t4 || $[15] !== t5 || $[16] !== t7) {
-    t11 = <Dialog title="Allow external CLAUDE.md file imports?" color="warning" onCancel={handleEscape} hideBorder={t4} hideInputGuide={t5}>{t6}{t7}{t8}{t10}</Dialog>;
-    $[12] = handleEscape;
-    $[13] = t10;
-    $[14] = t4;
-    $[15] = t5;
-    $[16] = t7;
-    $[17] = t11;
-  } else {
-    t11 = $[17];
-  }
-  return t11;
-}
-function _temp4(include: ExternalClaudeMdInclude, i: number) {
-  return <Text key={i} dimColor={true}>{"  "}{include.path}</Text>;
-}
-function _temp3(current_0: any) {
-  return {
-    ...current_0,
-    hasClaudeMdExternalIncludesApproved: true,
-    hasClaudeMdExternalIncludesWarningShown: true
-  };
-}
-function _temp2(current: any) {
-  return {
-    ...current,
-    hasClaudeMdExternalIncludesApproved: false,
-    hasClaudeMdExternalIncludesWarningShown: true
-  };
+  const { onDone, isStandaloneDialog, externalIncludes, scope } = t0;
+  React.useEffect(_temp, []);
+  const handleSelection = React.useCallback((value: 'yes' | 'no') => {
+    if (value === "no") {
+      logEvent("tengu_claude_md_external_includes_dialog_declined", {});
+      saveCurrentProjectConfig(scope === 'User' ? declineUser : declineProject);
+    } else {
+      logEvent("tengu_claude_md_external_includes_dialog_accepted", {});
+      saveCurrentProjectConfig(scope === 'User' ? acceptUser : acceptProject);
+    }
+    onDone();
+  }, [onDone, scope]);
+  const handleEscape = React.useCallback(() => handleSelection("no"), [handleSelection]);
+  const title = scope === 'User'
+    ? "Allow user CLAUDE.md file imports?"
+    : "Allow external CLAUDE.md file imports?";
+  const description = scope === 'User'
+    ? <Text>Your user CLAUDE.md ({getUserClaudeMdDisplayPath()}) imports files outside the current working directory.</Text>
+    : <Text>This project's CLAUDE.md imports files outside the current working directory. Never allow this for third-party repositories.</Text>;
+  return (
+    <Dialog title={title} color="warning" onCancel={handleEscape} hideBorder={!isStandaloneDialog} hideInputGuide={!isStandaloneDialog}>
+      {description}
+      {externalIncludes && externalIncludes.length > 0 && (
+        <Box flexDirection="column">
+          <Text dimColor={true}>External imports:</Text>
+          {externalIncludes.map((include, i) => (
+            <Text key={i} dimColor={true}>{"  "}{include.path}</Text>
+          ))}
+        </Box>
+      )}
+      <Text dimColor={true}>Important: Only use Claude Code with files you trust. Accessing untrusted files may pose security risks{" "}<Link url="https://code.claude.com/docs/en/security" />{" "}</Text>
+      <Select options={[
+        { label: "Yes, allow external imports", value: "yes" },
+        { label: "No, disable external imports", value: "no" },
+      ]} onChange={(value: string) => handleSelection(value as 'yes' | 'no')} />
+    </Dialog>
+  );
 }
 function _temp() {
   logEvent("tengu_claude_md_includes_dialog_shown", {});

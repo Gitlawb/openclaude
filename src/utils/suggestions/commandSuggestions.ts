@@ -6,7 +6,52 @@ import {
   getCommandName,
 } from '../../commands.js'
 import type { SuggestionItem } from '../../components/PromptInput/PromptInputFooterSuggestions.js'
+import { logForDebugging } from '../debug.js'
 import { getSkillUsageScore } from './skillUsageTracking.js'
+
+// Commands expose dynamic getters (description/isHidden/etc.) that read live
+// state and can throw. These getters run for every command while building the
+// search index, so a single bad command must never break suggestions for the
+// rest. Track which ones we've already warned about so the dev log fires once.
+const warnedBrokenCommands = new Set<string>()
+
+function warnBrokenCommand(label: string, err: unknown): void {
+  if (warnedBrokenCommands.has(label)) {
+    return
+  }
+  warnedBrokenCommands.add(label)
+  logForDebugging(
+    `command suggestion: skipped metadata for "${label}" — getter threw: ${
+      err instanceof Error ? err.message : String(err)
+    }`,
+    { level: 'warn' },
+  )
+}
+
+/**
+ * Read a command's `isHidden` getter without letting a throw propagate.
+ * Defaults to not-hidden so a command with a broken getter stays usable.
+ */
+function safeIsHidden(command: Command): boolean {
+  try {
+    return Boolean(command.isHidden)
+  } catch (err) {
+    warnBrokenCommand(safeCommandName(command) ?? 'unknown', err)
+    return false
+  }
+}
+
+/**
+ * Read a command's name without letting a throw propagate. Returns null when
+ * even the name can't be resolved — such a command is unusable and dropped.
+ */
+function safeCommandName(command: Command): string | null {
+  try {
+    return getCommandName(command)
+  } catch {
+    return null
+  }
+}
 
 // Treat these characters as word separators for command search
 const SEPARATORS = /[:_-]/g
@@ -19,34 +64,49 @@ type CommandSearchItem = {
   aliasKey: string[] | undefined
 }
 
-// Cache the Fuse index keyed by the commands array identity. The commands
-// array is stable (memoized in REPL.tsx), so we only rebuild when it changes
-// rather than on every keystroke.
+type CommandSearchSnapshot = {
+  aliases: string[] | undefined
+  command: Command
+  commandName: string
+  isHidden: boolean
+  renderedDescription: string
+}
+
+// Cache the Fuse index keyed by the commands array identity plus a signature
+// of the searchable UI text. The commands array is stable (memoized in
+// REPL.tsx), while language changes can alter rendered descriptions in place.
 let fuseCache: {
   commands: Command[]
+  signature: string
   fuse: Fuse<CommandSearchItem>
 } | null = null
 
 function getCommandFuse(commands: Command[]): Fuse<CommandSearchItem> {
-  if (fuseCache?.commands === commands) {
+  const snapshots = getCommandSearchSnapshots(commands)
+  const signature = getCommandSearchSignature(snapshots)
+
+  if (
+    fuseCache?.commands === commands &&
+    fuseCache.signature === signature
+  ) {
     return fuseCache.fuse
   }
 
-  const commandData: CommandSearchItem[] = commands
-    .filter(cmd => !cmd.isHidden)
-    .map(cmd => {
-      const commandName = getCommandName(cmd)
+  const commandData: CommandSearchItem[] = snapshots
+    .filter(snapshot => !snapshot.isHidden)
+    .map(snapshot => {
+      const { aliases, command, commandName, renderedDescription } = snapshot
       const parts = commandName.split(SEPARATORS).filter(Boolean)
 
       return {
-        descriptionKey: (cmd.description ?? '')
-          .split(' ')
+        descriptionKey: renderedDescription
+          .split(/\s+/)
           .map(word => cleanWord(word))
           .filter(Boolean),
         partKey: parts.length > 1 ? parts : undefined,
         commandName,
-        command: cmd,
-        aliasKey: cmd.aliases,
+        command,
+        aliasKey: aliases,
       }
     })
 
@@ -75,8 +135,50 @@ function getCommandFuse(commands: Command[]): Fuse<CommandSearchItem> {
     ],
   })
 
-  fuseCache = { commands, fuse }
+  fuseCache = { commands, signature, fuse }
   return fuse
+}
+
+function getCommandSearchSnapshots(
+  commands: Command[],
+): CommandSearchSnapshot[] {
+  const snapshots: CommandSearchSnapshot[] = []
+  for (const command of commands) {
+    const commandName = safeCommandName(command)
+    // A command we can't even name is unusable — drop it rather than risk a
+    // throw poisoning the whole index.
+    if (commandName === null) {
+      continue
+    }
+    let aliases: string[] | undefined
+    try {
+      aliases = command.aliases
+    } catch {
+      aliases = undefined
+    }
+    snapshots.push({
+      aliases,
+      command,
+      commandName,
+      isHidden: safeIsHidden(command),
+      // getRenderedCommandDescription already falls back to '' on a throw.
+      renderedDescription: getRenderedCommandDescription(command),
+    })
+  }
+  return snapshots
+}
+
+function getCommandSearchSignature(
+  snapshots: CommandSearchSnapshot[],
+): string {
+  return JSON.stringify(
+    snapshots.map(snapshot => [
+      snapshot.commandName,
+      snapshot.aliases ?? [],
+      snapshot.isHidden,
+      snapshot.renderedDescription,
+    ]),
+  )
 }
 
 /**
@@ -201,6 +303,23 @@ export function isCommandInput(input: string): boolean {
   return input.startsWith('/')
 }
 
+export function getCommandSuggestionForEnter(
+  input: string,
+  suggestion: SuggestionItem | undefined,
+  commands: Command[],
+): string | SuggestionItem | undefined {
+  const exactCommandName = !input.includes(' ') && isCommandInput(input)
+    ? input.slice(1).toLowerCase().trim()
+    : ''
+  const exactCommands = exactCommandName
+    ? commands.filter(cmd => getCommandName(cmd).toLowerCase() === exactCommandName)
+    : []
+
+  return exactCommands.length === 1
+    ? getCommandName(exactCommands[0]!)
+    : suggestion
+}
+
 /**
  * Checks if a command input has arguments
  * A command with just a trailing space is considered to have no arguments
@@ -271,11 +390,7 @@ function createCommandSuggestionItem(
   const aliasText = matchedAlias ? ` (${matchedAlias})` : ''
 
   const isWorkflow = cmd.type === 'prompt' && cmd.kind === 'workflow'
-  const fullDescription =
-    (isWorkflow ? cmd.description : formatDescriptionWithSource(cmd)) +
-    (cmd.type === 'prompt' && cmd.argNames?.length
-      ? ` (arguments: ${cmd.argNames.join(', ')})`
-      : '')
+  const fullDescription = getRenderedCommandDescription(cmd)
 
   return {
     id: getCommandId(cmd),
@@ -283,6 +398,28 @@ function createCommandSuggestionItem(
     tag: isWorkflow ? 'workflow' : undefined,
     description: fullDescription,
     metadata: cmd,
+  }
+}
+
+function getRenderedCommandDescription(cmd: Command): string {
+  // Command descriptions can be dynamic getters that read live state and may
+  // throw (e.g. a backend returning null). This runs for every command while
+  // building the Fuse index, so a single throwing getter must not break the
+  // entire suggestion list — fall back to an empty description instead.
+  try {
+    const isWorkflow = cmd.type === 'prompt' && cmd.kind === 'workflow'
+    const description = isWorkflow
+      ? cmd.description
+      : formatDescriptionWithSource(cmd)
+    return (
+      description +
+      (cmd.type === 'prompt' && cmd.argNames?.length
+        ? ` (arguments: ${cmd.argNames.join(', ')})`
+        : '')
+    )
+  } catch (err) {
+    warnBrokenCommand(safeCommandName(cmd) ?? 'unknown', err)
+    return ''
   }
 }
 
@@ -326,7 +463,7 @@ export function generateCommandSuggestions(
 
   // When just typing '/' without additional text
   if (query === '') {
-    const visibleCommands = commands.filter(cmd => !cmd.isHidden)
+    const visibleCommands = commands.filter(cmd => !safeIsHidden(cmd))
 
     // Find recently used skills (only prompt commands have usage tracking)
     const recentlyUsed: Command[] = []
@@ -398,15 +535,12 @@ export function generateCommandSuggestions(
     ].map(cmd => createCommandSuggestionItem(cmd)))
   }
 
-  // The Fuse index filters isHidden at build time and is keyed on the
-  // (memoized) commands array identity, so a command that is hidden when Fuse
-  // first builds stays invisible to Fuse for the whole session. If the user
-  // types the exact name of a currently-hidden command, prepend it to the
-  // Fuse results so exact-name always wins over weak description fuzzy
-  // matches — but only when no visible command shares the name (that would
-  // be the user's explicit override and should win). Prepend rather than
-  // early-return so visible prefix siblings (e.g. /voice-memo) still appear
-  // below, and getBestCommandMatch can still find a non-empty suffix.
+  // The Fuse index filters hidden commands, so an exact hidden command name
+  // will not appear in Fuse results. If no visible command shares the name,
+  // prepend the hidden exact match so explicit invocation still works.
+  // Prepend rather than early-return so visible prefix siblings (e.g.
+  // /voice-memo) still appear below, and getBestCommandMatch can still find
+  // a non-empty suffix.
   let hiddenExact = commands.find(
     cmd => cmd.isHidden && getCommandName(cmd).toLowerCase() === query,
   )
@@ -501,12 +635,8 @@ export function generateCommandSuggestions(
     const matchedAlias = findMatchedAlias(query, cmd.aliases)
     return createCommandSuggestionItem(cmd, matchedAlias)
   })
-  // Skip the prepend if hiddenExact is already in fuseSuggestions — this
-  // happens when isHidden flips false→true mid-session (OAuth expiry,
-  // GrowthBook kill-switch) and the stale Fuse index still holds the
-  // command. Fuse already sorts exact-name matches first, so no reorder
-  // is needed; we just don't want a duplicate id (duplicate React keys,
-  // both rows rendering as selected).
+  // Skip the prepend defensively if the command is already present; duplicate
+  // ids confuse React keys and selection state.
   if (hiddenExact) {
     const hiddenId = getCommandId(hiddenExact)
     if (!fuseSuggestions.some(s => s.id === hiddenId)) {
@@ -528,7 +658,11 @@ export function applyCommandSuggestion(
   commands: Command[],
   onInputChange: (value: string) => void,
   setCursorOffset: (offset: number) => void,
-  onSubmit: (value: string, isSubmittingSlashCommand?: boolean) => void,
+  onSubmit: (
+    value: string,
+    isSubmittingSlashCommand?: boolean,
+    slashCommandOverride?: Command,
+  ) => void,
 ): void {
   // Extract command name and object from string or SuggestionItem metadata
   let commandName: string
@@ -555,14 +689,14 @@ export function applyCommandSuggestion(
       commandObj.type !== 'prompt' ||
       (commandObj.argNames ?? []).length === 0
     ) {
-      onSubmit(newInput, /* isSubmittingSlashCommand */ true)
+      onSubmit(newInput, /* isSubmittingSlashCommand */ true, commandObj)
     }
   }
 }
 
 // Helper function at bottom of file per CLAUDE.md
 function cleanWord(word: string) {
-  return word.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
 }
 
 /**

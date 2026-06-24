@@ -32,6 +32,16 @@ test('buildInheritedEnvVars marks spawned teammates as host-managed for provider
   expect(envVars).toContain('CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1')
 })
 
+test('buildInheritedEnvVars forwards pooled OpenAI credentials', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+
+  const envVars = buildInheritedEnvVars()
+
+  expect(envVars).toContain('CLAUDE_CODE_USE_OPENAI=1')
+  expect(envVars).toContain('OPENAI_API_KEYS=key-a\\,key-b')
+})
+
 test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups', () => {
   process.env.PATH = '/custom/bin:/usr/bin'
 

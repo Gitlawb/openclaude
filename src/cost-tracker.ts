@@ -246,6 +246,15 @@ function formatModelUsage(): string {
   return result
 }
 
+function formatTokenBar(label: string, tokens: number, maxTokens: number, colorFn: (text: string) => string): string {
+  const barWidth = 20
+  const ratio = maxTokens > 0 ? Math.min(tokens / maxTokens, 1) : 0
+  const filled = Math.round(ratio * barWidth)
+  const empty = barWidth - filled
+  const bar = colorFn('█'.repeat(filled)) + chalk.gray('░'.repeat(empty))
+  return `  ${label.padEnd(14)} ${bar} ${formatNumber(tokens)}`
+}
+
 export function formatTotalCost(): string {
   const costDisplay =
     formatCost(getTotalCostUSD()) +
@@ -254,14 +263,32 @@ export function formatTotalCost(): string {
       : '')
 
   const modelUsageDisplay = formatModelUsage()
+  const totalInput = getTotalInputTokens()
+  const totalOutput = getTotalOutputTokens()
+  const totalCacheRead = getTotalCacheReadInputTokens()
+  const totalCacheCreation = getTotalCacheCreationInputTokens()
+  const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheCreation
+  const tokenSection = totalTokens > 0 ? (() => {
+    const maxTokens = Math.max(totalInput, totalOutput, totalCacheRead, totalCacheCreation, 1)
+    const tokenBars = [
+      formatTokenBar('Input tokens', totalInput, maxTokens, chalk.blue),
+      formatTokenBar('Output tokens', totalOutput, maxTokens, chalk.green),
+      totalCacheRead > 0 ? formatTokenBar('Cache read', totalCacheRead, maxTokens, chalk.cyan) : null,
+      totalCacheCreation > 0 ? formatTokenBar('Cache write', totalCacheCreation, maxTokens, chalk.yellow) : null,
+    ].filter(Boolean).join('\n')
+    return `\nToken usage:\n${tokenBars}`
+  })() : ''
 
-  return chalk.dim(
+  const statsBlock = chalk.dim(
     `Total cost:            ${costDisplay}\n` +
       `Total duration (API):  ${formatDuration(getTotalAPIDuration())}
 Total duration (wall): ${formatDuration(getTotalDuration())}
-Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed
-${modelUsageDisplay}`,
+Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed`,
   )
+
+  return `${statsBlock}${tokenSection}
+
+${modelUsageDisplay}`
 }
 
 function round(number: number, precision: number): number {

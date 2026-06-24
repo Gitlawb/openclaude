@@ -307,7 +307,7 @@ async function countSystemTokens(
           content.length > 0 && content !== SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
       )
       .map(content => ({ name: extractSectionName(content), content })),
-    ...Object.entries(systemContext)
+    ...(Object.entries(systemContext) as Array<[string, string]>)
       .filter(([, content]) => content.length > 0)
       .map(([name, content]) => ({ name, content })),
   ]

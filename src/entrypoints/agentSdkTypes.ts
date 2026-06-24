@@ -49,23 +49,12 @@ export {
 
 // Import types needed for @internal function signatures kept below
 import type {
-  AnyZodRawShape,
   ForkSessionOptions,
   ForkSessionResult,
   GetSessionInfoOptions,
-  GetSessionMessagesOptions,
-  InferShape,
-  InternalOptions,
-  InternalQuery,
   ListSessionsOptions,
-  Options,
-  Query,
-  SDKSession,
-  SDKSessionOptions,
-  SdkMcpToolDefinition,
-  SessionMessage,
   SessionMutationOptions,
-} from './sdk/runtimeTypes.js'
+} from './sdk/shared.js'
 
 import type {
   SDKMessage,

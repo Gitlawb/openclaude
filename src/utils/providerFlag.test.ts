@@ -33,6 +33,7 @@ const ENV_KEYS = [
   'MINIMAX_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'MISTRAL_MODEL',
@@ -68,6 +69,7 @@ const RESET_KEYS = [
   'MINIMAX_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
+  'ATLAS_CLOUD_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'MISTRAL_MODEL',
@@ -144,6 +146,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('zai')
     expect(VALID_PROVIDERS).toContain('venice')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
+    expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
   })
 })
 
@@ -510,7 +513,7 @@ describe('applyProviderFlag - zai', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
-    expect(process.env.OPENAI_MODEL).toBe('GLM-5.1')
+    expect(process.env.OPENAI_MODEL).toBe('glm-5.2')
   })
 })
 
@@ -534,6 +537,40 @@ describe('applyProviderFlag - xiaomi-mimo', () => {
   })
 })
 
+describe('applyProviderFlag - xiaomi-mimo-token', () => {
+  test('sets Xiaomi MiMo Token Plan OpenAI-compatible defaults and mirrors MIMO_API_KEY', () => {
+    process.env.MIMO_API_KEY = 'tp-token-plan-key'
+
+    const result = applyProviderFlag('xiaomi-mimo-token', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('tp-token-plan-key')
+  })
+
+  test('replaces stale known provider base URL with the token-plan default', () => {
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+
+    const result = applyProviderFlag('xiaomi-mimo-token', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://token-plan-sgp.xiaomimimo.com/v1',
+    )
+  })
+
+  test('sets Xiaomi MiMo Token Plan OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('xiaomi-mimo-token', ['--model', 'mimo-v2-flash'])
+
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2-flash')
+  })
+})
+
 describe('applyProviderFlag - venice', () => {
   test('sets Venice OpenAI-compatible defaults and mirrors VENICE_API_KEY', () => {
     process.env.VENICE_API_KEY = 'venice-secret-key'
@@ -545,6 +582,81 @@ describe('applyProviderFlag - venice', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.venice.ai/api/v1')
     expect(process.env.OPENAI_MODEL).toBe('venice-uncensored')
     expect(process.env.OPENAI_API_KEY).toBe('venice-secret-key')
+  })
+})
+
+describe('applyProviderFlag - atlas-cloud', () => {
+  test('sets Atlas Cloud OpenAI-compatible defaults and mirrors ATLAS_CLOUD_API_KEY', () => {
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+
+    const result = applyProviderFlag('atlas-cloud', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-ai/deepseek-v4-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('atlas-secret-key')
+  })
+
+  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+
+    applyProviderFlag('atlas-cloud', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('atlas-secret-key')
+  })
+
+  test('clears a stale OPENAI_API_KEY when no Atlas Cloud key is set', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+
+    applyProviderFlag('atlas-cloud', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('keeps a copied Atlas key in OPENAI_API_KEY when selecting atlas-cloud', () => {
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+    process.env.OPENAI_API_KEY = 'atlas-secret-key'
+
+    applyProviderFlag('atlas-cloud', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('atlas-secret-key')
+  })
+
+  test('clears a copied Atlas key from OPENAI_API_KEY when switching to another provider', () => {
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+    process.env.OPENAI_API_KEY = 'atlas-secret-key'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('replaces a stale base URL belonging to another known provider', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.venice.ai/api/v1'
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+
+    applyProviderFlag('atlas-cloud', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.atlascloud.ai/v1')
+  })
+
+  test('preserves a custom base URL that matches no known provider', () => {
+    process.env.OPENAI_BASE_URL = 'https://llm-proxy.internal.example/v1'
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+
+    applyProviderFlag('atlas-cloud', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llm-proxy.internal.example/v1')
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    process.env.ATLAS_CLOUD_API_KEY = 'atlas-secret-key'
+
+    applyProviderFlag('atlas-cloud', ['--model', 'zai-org/glm-5'])
+
+    expect(process.env.OPENAI_MODEL).toBe('zai-org/glm-5')
   })
 })
 

@@ -83,14 +83,16 @@ import { getSkillToolCommands, getMcpSkillCommands } from '../commands.js'
 import type { Command } from '../types/command.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { getProjectRoot } from '../bootstrap/state.js'
-import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
+import {
+  formatCommandsWithinBudget,
+  SUBAGENT_SKILL_LISTING_CHAR_BUDGET,
+} from '../tools/SkillTool/prompt.js'
 import { getContextWindowForModel } from './context.js'
 import type { DiscoverySignal } from '../services/skillSearch/signals.js'
 // Conditional require for DCE. All skill-search string literals that would
 // otherwise leak into external builds live inside these modules. The only
-// surfaces in THIS file are: the maybe() call (gated via spread below) and
-// the skill_listing suppression check (uses the same skillSearchModules null
-// check). The type-only DiscoverySignal import above is erased at compile time.
+// direct surface in THIS file is the maybe() call gated via spread below. The
+// type-only DiscoverySignal import above is erased at compile time.
 /* eslint-disable @typescript-eslint/no-require-imports */
 const skillSearchModules = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? {
@@ -266,6 +268,21 @@ export const AUTO_MODE_ATTACHMENT_CONFIG = {
   TURNS_BETWEEN_ATTACHMENTS: 5,
   FULL_REMINDER_EVERY_N_ATTACHMENTS: 5,
 } as const
+
+const SKILL_LISTING_SUPPRESSED_QUERY_SOURCES = new Set([
+  'compact',
+  'extract_memories',
+  'session_memory',
+])
+
+export function shouldIncludeSkillListingAttachment(
+  querySource?: QuerySource,
+): boolean {
+  return !(
+    typeof querySource === 'string' &&
+    SKILL_LISTING_SUPPRESSED_QUERY_SOURCES.has(querySource)
+  )
+}
 
 const MAX_MEMORY_LINES = 200
 // Line cap alone doesn't bound size (200 × 500-char lines = 100KB).  The
@@ -873,7 +890,9 @@ export async function getAttachments(
     maybe('nested_memory', () => getNestedMemoryAttachments(context)),
     // relevant_memories moved to async prefetch (startRelevantMemoryPrefetch)
     maybe('dynamic_skill', () => getDynamicSkillAttachments(context)),
-    maybe('skill_listing', () => getSkillListingAttachments(context)),
+    ...(shouldIncludeSkillListingAttachment(querySource)
+      ? [maybe('skill_listing', () => getSkillListingAttachments(context))]
+      : []),
     // Inter-turn skill discovery now runs via startSkillDiscoveryPrefetch
     // (query.ts, concurrent with the main turn). The blocking call that
     // previously lived here was the assistant_turn signal — 97% of those
@@ -2734,12 +2753,19 @@ async function getSkillListingAttachments(
     `Sending ${newSkills.length} skills via attachment (${isInitial ? 'initial' : 'dynamic'}, ${sent.size} total sent)`,
   )
 
-  // Format within budget using existing logic
+  // Subagents can each receive their own initial listing. Keep those
+  // discoverability hints compact; the Skill tool still loads full content.
   const contextWindowTokens = getContextWindowForModel(
     toolUseContext.options.mainLoopModel,
     getSdkBetas(),
   )
-  const content = formatCommandsWithinBudget(newSkills, contextWindowTokens)
+  const content = formatCommandsWithinBudget(
+    newSkills,
+    contextWindowTokens,
+    toolUseContext.agentId
+      ? { maxCharBudget: SUBAGENT_SKILL_LISTING_CHAR_BUDGET }
+      : undefined,
+  )
 
   return [
     {

@@ -1,6 +1,6 @@
-import chalk from 'chalk'
 import { color } from '../../components/design-system/color.js'
 import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
+import { renderSponsorLink } from './tipLink.js'
 import type { Tip, TipContext, TipSponsor } from './types.js'
 
 const DEFAULT_FREQUENCY = 10
@@ -29,6 +29,11 @@ const XIAOMI_MIMO: TipSponsor = {
   url: 'https://api.xiaomimimo.com/v1',
 }
 
+const ATLAS_CLOUD: TipSponsor = {
+  name: 'Atlas Cloud',
+  url: 'https://www.atlascloud.ai/',
+}
+
 function renderSponsoredTip(
   sponsor: TipSponsor,
   body: string,
@@ -36,10 +41,12 @@ function renderSponsoredTip(
 ): string {
   const green = color('success', ctx.theme)
   const label = sponsor.label ?? 'Sponsored'
-  const badge = green(`${label} · ${sponsor.name}`)
+  // Sponsor name becomes a clickable hyperlink to its URL rather than printing
+  // the raw URL inline; falls back to the dimmed URL where OSC 8 is unsupported.
+  const { display, trailing } = renderSponsorLink(sponsor.name, sponsor.url)
+  const badge = green(`${label} · ${display}`)
   const text = green(body)
-  const url = sponsor.url ? ` ${chalk.dim(sponsor.url)}` : ''
-  return `${badge} — ${text}${url}`
+  return `${badge} — ${text}${trailing}`
 }
 
 export const sponsoredTips: Tip[] = [
@@ -146,6 +153,18 @@ export const sponsoredTips: Tip[] = [
       renderSponsoredTip(
         XIAOMI_MIMO,
         "MiMo's true value: efficiently solving developers' real problems",
+        ctx,
+      ),
+    cooldownSessions: 20,
+    isRelevant: async () => sponsoredTipsEnabled(),
+  },
+  {
+    id: 'atlas-cloud-platform',
+    sponsor: ATLAS_CLOUD,
+    content: async ctx =>
+      renderSponsoredTip(
+        ATLAS_CLOUD,
+        'Single AI API · full-modal AI inference platform · 300+ curated models',
         ctx,
       ),
     cooldownSessions: 20,

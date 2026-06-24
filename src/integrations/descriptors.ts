@@ -37,7 +37,8 @@ export interface OpenAIShimTransportConfig {
   preserveReasoningContent?: boolean
   requireReasoningContentOnAssistantMessages?: boolean
   reasoningContentFallback?: '' | 'omit'
-  thinkingRequestFormat?: 'none' | 'deepseek-compatible'
+  thinkingRequestFormat?: 'none' | 'deepseek-compatible' | 'zai-compatible'
+  enableToolStreaming?: boolean
   maxTokensField?: OpenAIShimTokenField
   removeBodyFields?: string[]
   /** Override the endpoint path for this model (e.g., '/responses', '/messages'). */
@@ -112,6 +113,12 @@ export interface SetupMetadata {
   requiresAuth: boolean
   authMode: AuthMode
   credentialEnvVars?: string[]
+  /**
+   * Restrict credential resolution to credentialEnvVars. Without this,
+   * openai-compatible routes also accept OPENAI_API_KEY, which can send a
+   * generic key belonging to another provider to this route's endpoint.
+   */
+  dedicatedCredentialsOnly?: boolean
   setupPrompt?: string
 }
 

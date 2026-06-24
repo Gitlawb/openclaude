@@ -67,7 +67,21 @@ export class StreamingToolExecutor {
    * Queued tools won't start, and in-progress tools will receive synthetic errors.
    */
   discard(): void {
+    if (this.discarded) return
     this.discarded = true
+    this.siblingAbortController.abort('streaming_fallback')
+    for (const tool of this.tools) {
+      if (tool.status === 'yielded') continue
+      this.toolUseContext.queryLifecycle?.endToolUse(tool.id)
+      markToolUseAsComplete(this.toolUseContext, tool.id)
+      tool.pendingProgress.length = 0
+      tool.status = 'yielded'
+    }
+    this.updateInterruptibleState()
+    if (this.progressAvailableResolve) {
+      this.progressAvailableResolve()
+      this.progressAvailableResolve = undefined
+    }
   }
 
   /**

@@ -13,15 +13,30 @@ import type { ThemeName } from '../utils/theme.js'
 import type { LogOption } from './logs.js'
 import type { Message } from './message.js'
 import type { PluginManifest } from './plugin.js'
+import type { LocalizationKey } from '../i18n/types.js'
 
 export type LocalCommandResult =
-  | { type: 'text'; value: string; display?: 'skip' }
+  | {
+      type: 'text'
+      value: string
+      display?: 'skip'
+      shouldQuery?: boolean
+      metaMessages?: string[]
+      nextInput?: string
+      submitNextInput?: boolean
+    }
   | {
       type: 'compact'
       compactionResult: CompactionResult
       displayText?: string
+      nextInput?: string
+      submitNextInput?: boolean
     }
-  | { type: 'skip' } // Skip messages
+  | {
+      type: 'skip'
+      nextInput?: string
+      submitNextInput?: boolean
+    } // Skip messages
 
 export type PromptCommand = {
   type: 'prompt'
@@ -177,6 +192,7 @@ export type CommandAvailability =
 export type CommandBase = {
   availability?: CommandAvailability[]
   description: string
+  localizationKey?: LocalizationKey
   hasUserSpecifiedDescription?: boolean
   /** Defaults to true. Only set when the command has conditional enablement (feature flags, env checks, etc). */
   isEnabled?: () => boolean
@@ -187,6 +203,7 @@ export type CommandBase = {
   isMcp?: boolean
   argumentHint?: string // Hint text for command arguments (displayed in gray after command)
   whenToUse?: string // From the "Skill" spec. Detailed usage scenarios for when to use this command
+  whenToUseLocalizationKey?: LocalizationKey
   version?: string // Version of the command/skill
   disableModelInvocation?: boolean // Whether to disable this command from being invoked by models
   userInvocable?: boolean // Whether users can invoke this skill by typing /skill-name

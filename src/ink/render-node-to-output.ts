@@ -49,6 +49,18 @@ export function didLayoutShift(): boolean {
 export type ScrollHint = { top: number; bottom: number; delta: number }
 let scrollHint: ScrollHint | null = null
 
+function shouldDisableScrollFastPath(): boolean {
+  if (!process.env.TMUX) return false
+  if (process.env.OPENCLAUDE_KONSOLE_TMUX_FAST_SCROLL) return false
+  return (
+    process.env.TERM_PROGRAM === 'konsole' ||
+    process.env.KONSOLE_VERSION !== undefined ||
+    process.env.KONSOLE_DBUS_SESSION !== undefined
+  )
+}
+
+const DISABLE_SCROLL_FAST_PATH = shouldDisableScrollFastPath()
+
 // Rects of position:absolute nodes from the PREVIOUS frame, used by
 // ScrollBox's blit+shift third-pass repair (see usage site). Recorded at
 // three paths — full-render nodeCache.set, node-level blit early-return,
@@ -389,7 +401,13 @@ function isElementNode(node: DOMNode | undefined): node is DOMElement {
 
 function isRenderableElementNode(node: unknown): node is DOMElement {
   if (!node || typeof node !== 'object') return false
-  const candidate = node as Partial<DOMElement> & { nodeName?: string }
+  // Omit nodeName before re-adding it as `string`: a plain intersection
+  // (`Partial<DOMElement> & { nodeName?: string }`) collapses to ElementNames,
+  // which makes the '#text' check below (TextNodes are real at runtime —
+  // see createTextNode in dom.ts) a no-overlap comparison.
+  const candidate = node as Omit<Partial<DOMElement>, 'nodeName'> & {
+    nodeName?: string
+  }
   return (
     candidate.nodeName !== undefined &&
     candidate.nodeName !== '#text' &&
@@ -774,13 +792,16 @@ function renderNodeToOutput(
         const sticky =
           node.stickyScroll ?? Boolean(node.attributes['stickyScroll'])
         const prevMaxScroll = Math.max(0, prevScrollHeight - prevInnerHeight)
-        // Positional check only valid when content grew — virtualization can
-        // transiently SHRINK scrollHeight (tail unmount + stale heightCache
-        // spacer) making scrollTop >= prevMaxScroll true by artifact, not
-        // because the user was at bottom.
         const grew = scrollHeight >= prevScrollHeight
-        const atBottom =
-          sticky || (grew && scrollTopBeforeFollow >= prevMaxScroll)
+        // Growth follow must compare against the previous max: a user who was
+        // exactly at bottom before streaming adds a row is now below the new
+        // maxScroll, but should still follow. When content shrinks, use the
+        // current maxScroll to avoid treating virtualization height artifacts
+        // as a real "was at bottom" signal.
+        const positionallyAtBottom = grew
+          ? scrollTopBeforeFollow >= prevMaxScroll
+          : scrollTopBeforeFollow >= maxScroll
+        const atBottom = sticky || positionallyAtBottom
         if (atBottom && (node.pendingScrollDelta ?? 0) >= 0) {
           node.scrollTop = maxScroll
           node.pendingScrollDelta = undefined
@@ -796,7 +817,7 @@ function renderNodeToOutput(
           // direct scrollTop writes (e.g. the alt-screen-perf test).
           if (
             node.stickyScroll === false &&
-            scrollTopBeforeFollow >= prevMaxScroll
+            positionallyAtBottom
           ) {
             node.stickyScroll = true
           }
@@ -924,8 +945,9 @@ function renderNodeToOutput(
           const heightDelta = scrollHeight - prevHeight
           const safeForFastPath =
             !hint ||
-            heightDelta === 0 ||
-            (hint.delta > 0 && heightDelta === hint.delta)
+            (!DISABLE_SCROLL_FAST_PATH &&
+              (heightDelta === 0 ||
+                (hint.delta > 0 && heightDelta === hint.delta)))
           // scrollHint is set above when hint is captured. If safeForFastPath
           // is false the full path renders a next.screen that doesn't match
           // the DECSTBM shift — emitting DECSTBM leaves stale rows (seen as
@@ -1463,7 +1485,27 @@ function renderScrolledChildren(
         // the subtree so when this child re-enters it doesn't fire clears
         // at positions now occupied by siblings. The viewport-clear on
         // scroll-change handles the visible-area repaint.
-        if (!preserveCulledCache) dropSubtreeCache(childElem)
+        //
+        // IMPORTANT: before dropping cache, emit a clear at the child's
+        // last known screen position. Without this, when a culled child
+        // later re-enters the viewport without a full viewport clear
+        // (scrolled=false), the prevScreen blit carries stale content
+        // that neither viewport-clear nor position-change clear removes,
+        // and ghost characters persist on the terminal indefinitely.
+        // See: renderScrolledChildren's scrolled=false path.
+        if (!preserveCulledCache) {
+          if (cached) {
+            // Defensive Math.floor: cached coords may be fractional
+            // if a prior rounding path was missed; ensure integer positions.
+            output.clear({
+              x: Math.floor(cached.x),
+              y: Math.floor(cached.y),
+              width: Math.floor(cached.width),
+              height: Math.floor(cached.height),
+            })
+          }
+          dropSubtreeCache(childElem)
+        }
         continue
       }
     }

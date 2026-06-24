@@ -6,6 +6,17 @@ import {
 
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
 
+type GithubModelsCredentialsModule =
+  typeof import('./githubModelsCredentials.js')
+
+function importFreshGithubModelsCredentials(
+  cacheKey: string,
+): Promise<GithubModelsCredentialsModule> {
+  return import(
+    `./githubModelsCredentials.js?${cacheKey}`
+  ) as Promise<GithubModelsCredentialsModule>
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/githubModelsCredentials.test.ts')
 })
@@ -24,9 +35,8 @@ afterEach(() => {
 
 describe('readGithubModelsToken', () => {
   test('returns undefined in bare mode', async () => {
-    const { readGithubModelsToken } = await import(
-      './githubModelsCredentials.js?read-bare-mode'
-    )
+    const { readGithubModelsToken } =
+      await importFreshGithubModelsCredentials('read-bare-mode')
 
     process.env.CLAUDE_CODE_SIMPLE = '1'
     expect(readGithubModelsToken()).toBeUndefined()
@@ -35,9 +45,8 @@ describe('readGithubModelsToken', () => {
 
 describe('saveGithubModelsToken / clearGithubModelsToken', () => {
   test('save returns failure in bare mode', async () => {
-    const { saveGithubModelsToken } = await import(
-      './githubModelsCredentials.js?save-bare-mode'
-    )
+    const { saveGithubModelsToken } =
+      await importFreshGithubModelsCredentials('save-bare-mode')
 
     process.env.CLAUDE_CODE_SIMPLE = '1'
     const r = saveGithubModelsToken('abc')
@@ -46,12 +55,10 @@ describe('saveGithubModelsToken / clearGithubModelsToken', () => {
   })
 
   test('clear succeeds in bare mode', async () => {
-    const { clearGithubModelsToken } = await import(
-      './githubModelsCredentials.js?clear-bare-mode'
-    )
+    const { clearGithubModelsToken } =
+      await importFreshGithubModelsCredentials('clear-bare-mode')
 
     process.env.CLAUDE_CODE_SIMPLE = '1'
     expect(clearGithubModelsToken().success).toBe(true)
   })
 })
-

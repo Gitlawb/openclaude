@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "files": [
+    "src/state/AppState.types.test.tsx",
+    "src/state/AppState.tsx",
+    "src/optionalModules.d.ts",
+    "src/optionalModules.types.test.ts",
+    "src/bridge/replBridgeTransport.types.test.ts",
+    "src/bridge/replBridgeTransport.ts",
+    "src/bridge/replBridge.ts",
+    "src/global.d.ts",
+    "src/types/utils.types.test.ts",
+    "src/types/utils.ts"
+  ],
+  "include": []
+}

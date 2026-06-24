@@ -11,6 +11,7 @@ import {
   recordTipShown,
 } from './tipHistory.js'
 import { getRelevantTips } from './tipRegistry.js'
+import { shouldShowEarningTip, buildEarningTip } from './gitlawbEarn.js'
 import type { Tip, TipContext } from './types.js'
 
 export function selectTipWithLongestTimeSinceShown(
@@ -52,6 +53,13 @@ export async function getTipToShowOnSpinner(
   // Check if tips are disabled (default to true if not set)
   if (getSettings_DEPRECATED().spinnerTipsEnabled === false) {
     return undefined
+  }
+
+  // Opt-in earning users (`/ads on <code>`) see Gitlawb sponsored tips on a
+  // per-turn cadence, bypassing the per-startup sponsored gate — they opted in
+  // to earn, so we surface (and credit) ads frequently rather than once a session.
+  if (shouldShowEarningTip()) {
+    return buildEarningTip()
   }
 
   const tips = await getRelevantTips(context)

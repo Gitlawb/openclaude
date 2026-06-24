@@ -25,6 +25,7 @@ import {
   buildVeniceProfileEnv,
   buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
+  buildAtlasCloudProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   type ProfileFileLocation,
@@ -43,7 +44,13 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
-import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
+import {
+  isFireworksBaseUrl,
+  isNearaiBaseUrl,
+  isXaiBaseUrl,
+  isXiaomiMimoBaseUrl,
+  resolveEnvOnlyProviderRouteId,
+} from '../integrations/routeMetadata.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -63,6 +70,7 @@ export type ProviderProfileInput = {
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
+  maxContextLength?: ProviderProfile['maxContextLength']
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -78,9 +86,19 @@ type ProfileCompatibilityMode =
   | 'gemini'
   | 'mistral'
   | 'github'
+  | 'github-enterprise'
   | 'bedrock'
   | 'vertex'
   | 'openai'
+
+function isGithubCompatibilityMode(
+  compatibilityMode: ProfileCompatibilityMode,
+): boolean {
+  return (
+    compatibilityMode === 'github' ||
+    compatibilityMode === 'github-enterprise'
+  )
+}
 
 function resolveProfileCompatibility(provider: string): {
   route: ResolvedProfileRoute
@@ -88,7 +106,10 @@ function resolveProfileCompatibility(provider: string): {
 } {
   const route = resolveProfileRoute(provider)
 
-  if (route.gatewayId === 'github') {
+  if (provider === 'github-enterprise' || route.gatewayId === 'github-enterprise') {
+    return { route, compatibilityMode: 'github-enterprise' }
+  }
+  if (provider === 'github' || route.gatewayId === 'github') {
     return { route, compatibilityMode: 'github' }
   }
   if (route.gatewayId === 'bedrock') {
@@ -111,6 +132,43 @@ function resolveProfileCompatibility(provider: string): {
   }
 
   return { route, compatibilityMode: 'openai' }
+}
+
+function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl?.trim()) return undefined
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.origin === 'https://api.githubcopilot.com') {
+      return undefined
+    }
+    return parsed.origin
+  } catch {
+    return undefined
+  }
+}
+
+function buildGithubCompatibleProfileEnv(options: {
+  model: string
+  baseUrl?: string
+  gatewayId?: string
+  apiKey?: string
+}): ProfileEnv {
+  const env = buildGithubProfileEnv({
+    model: options.model,
+    baseUrl: options.baseUrl,
+  })
+
+  if (options.gatewayId === 'github-enterprise') {
+    const enterpriseUrl = deriveGithubEnterpriseUrl(options.baseUrl)
+    if (enterpriseUrl) {
+      env.GITHUB_ENTERPRISE_URL = enterpriseUrl
+    }
+    if (options.apiKey?.trim()) {
+      env.GITHUB_COPILOT_KEY = options.apiKey.trim()
+    }
+  }
+
+  return env
 }
 
 function trimValue(value: string | undefined): string {
@@ -171,6 +229,14 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     return null
   }
 
+  const maxContextLength =
+    typeof profile.maxContextLength === 'number' &&
+    Number.isFinite(profile.maxContextLength) &&
+    profile.maxContextLength > 0 &&
+    Number.isInteger(profile.maxContextLength)
+      ? profile.maxContextLength
+      : undefined
+
   const sanitized: ProviderProfile = {
     id,
     name,
@@ -191,6 +257,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   }
   if (customHeaders) {
     sanitized.customHeaders = customHeaders
+  }
+  if (maxContextLength !== undefined) {
+    sanitized.maxContextLength = maxContextLength
   }
   return sanitized
 }
@@ -231,6 +300,7 @@ function toProfile(
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
     customHeaders: input.customHeaders,
+    maxContextLength: input.maxContextLength,
   })
 }
 
@@ -376,6 +446,8 @@ function hasCompleteProviderSelection(
   }
   if (processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) {
     return (
+      trimOrUndefined(processEnv.GITHUB_ENTERPRISE_URL) !== undefined ||
+      trimOrUndefined(processEnv.GITHUB_COPILOT_KEY) !== undefined ||
       trimOrUndefined(processEnv.GITHUB_TOKEN) !== undefined ||
       trimOrUndefined(processEnv.GH_TOKEN) !== undefined ||
       trimOrUndefined(processEnv.OPENAI_MODEL) !== undefined
@@ -400,7 +472,8 @@ function hasConflictingProviderFlagsForProfile(
     (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
     (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
     (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
-    (compatibilityMode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
+    (!isGithubCompatibilityMode(compatibilityMode) &&
+      processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
     (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
     (compatibilityMode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
@@ -474,7 +547,11 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (compatibilityMode === 'github') {
+  if (isGithubCompatibilityMode(compatibilityMode)) {
+    const expectedGheUrl =
+      profile.provider === 'github-enterprise'
+        ? deriveGithubEnterpriseUrl(profile.baseUrl)
+        : undefined
     return (
       processEnv.CLAUDE_CODE_USE_GITHUB !== undefined &&
       processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
@@ -484,7 +561,11 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model))
+      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.GITHUB_ENTERPRISE_URL, expectedGheUrl) &&
+      (profile.provider !== 'github-enterprise' ||
+        !includeApiKey ||
+        sameOptionalEnvValue(processEnv.GITHUB_COPILOT_KEY, profile.apiKey))
     )
   }
 
@@ -516,6 +597,12 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
+  const expectedContextWindows = profile.maxContextLength
+    ? JSON.stringify({
+        [getPrimaryModel(profile.model)]: profile.maxContextLength,
+      })
+    : undefined
+
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
     processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
@@ -530,13 +617,17 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
+    sameOptionalEnvValue(
+      processEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
+      expectedContextWindows,
+    ) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
       : true) &&
-    (profile.baseUrl?.toLowerCase().includes('x.ai')
+    (isXaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
       : true) &&
@@ -548,6 +639,18 @@ function isProcessEnvAlignedWithProfile(
       profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.MIMO_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('atlascloud')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
+      : true) &&
+    (isNearaiBaseUrl(profile.baseUrl)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.NEARAI_API_KEY, profile.apiKey)
+      : true) &&
+    (isFireworksBaseUrl(profile.baseUrl)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.FIREWORKS_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -614,10 +717,15 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       GEMINI_MODEL: primaryModel,
       ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
     }
-  } else if (compatibilityMode === 'github') {
-    profileEnv = buildGithubProfileEnv({
+  } else if (isGithubCompatibilityMode(compatibilityMode)) {
+    profileEnv = buildGithubCompatibleProfileEnv({
       model: primaryModel,
       baseUrl: profile.baseUrl,
+      gatewayId:
+        profile.provider === 'github-enterprise'
+          ? 'github-enterprise'
+          : route.gatewayId,
+      apiKey: profile.apiKey,
     })
   } else if (compatibilityMode === 'bedrock') {
     profileEnv = buildBedrockProfileEnv({
@@ -637,7 +745,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     const supportsApiFormat = routeSupportsApiFormatSelection(capabilityRouteId)
     const supportsAuthHeaders = routeSupportsAuthHeaders(capabilityRouteId)
     const normalizedProfileBaseUrl =
-      route.routeId === 'xiaomi-mimo'
+      route.routeId === 'xiaomi-mimo' || route.routeId === 'xiaomi-mimo-token'
         ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
         : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
@@ -674,18 +782,36 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.routeId === 'bankr' || profile.baseUrl.toLowerCase().includes('bankr')) {
         openAIProfileEnv.BNKR_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xai' || profile.baseUrl.toLowerCase().includes('x.ai')) {
+      if (route.routeId === 'xai' || isXaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.XAI_API_KEY = profile.apiKey
       }
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xiaomi-mimo' || profile.baseUrl.toLowerCase().includes('api.xiaomimimo.com') || profile.baseUrl.toLowerCase().includes('api.mimo-v2.com')) {
+      if (
+        route.routeId === 'xiaomi-mimo' ||
+        route.routeId === 'xiaomi-mimo-token' ||
+        isXiaomiMimoBaseUrl(profile.baseUrl)
+      ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
+        openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'nearai' || isNearaiBaseUrl(profile.baseUrl)) {
+        openAIProfileEnv.NEARAI_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
+        openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
+    }
+    if (profile.maxContextLength) {
+      openAIProfileEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+        [primaryModel]: profile.maxContextLength,
+      })
     }
 
     profileEnv = openAIProfileEnv
@@ -919,9 +1045,22 @@ function buildOpenAICompatibleStartupEnv(
       authHeader: activeProfile.authHeader,
       authScheme: activeProfile.authScheme,
       authHeaderValue: activeProfile.authHeaderValue,
+      maxContextLength: activeProfile.maxContextLength,
       processEnv: {},
     })
     if (strictEnv) {
+      // Atlas Cloud is dedicatedCredentialsOnly: its route ignores
+      // OPENAI_API_KEY, so a generic OpenAI profile pointed at Atlas must
+      // persist the dedicated key too or it relaunches unauthenticated.
+      if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
+        strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+      }
+      if (isNearaiBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.NEARAI_API_KEY = activeProfile.apiKey
+      }
+      if (isFireworksBaseUrl(activeProfile.baseUrl)) {
+        strictEnv.FIREWORKS_API_KEY = activeProfile.apiKey
+      }
       return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
@@ -929,25 +1068,25 @@ function buildOpenAICompatibleStartupEnv(
   const env: ProfileEnv = {
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+    ...(activeProfile.apiFormat ? { OPENAI_API_FORMAT: activeProfile.apiFormat } : {}),
+    ...(activeProfile.authHeader ? { OPENAI_AUTH_HEADER: activeProfile.authHeader } : {}),
+    ...(activeProfile.authScheme ? { OPENAI_AUTH_SCHEME: activeProfile.authScheme } : {}),
+    ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),
+    ...(activeProfile.maxContextLength
+      ? {
+          CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+            [getPrimaryModel(activeProfile.model)]: activeProfile.maxContextLength,
+          }),
+        }
+      : {}),
   }
-  if (activeProfile.apiFormat) {
-    env.OPENAI_API_FORMAT = activeProfile.apiFormat
-  }
-  if (activeProfile.authHeader) {
-    env.OPENAI_AUTH_HEADER = activeProfile.authHeader
-    env.OPENAI_AUTH_SCHEME = activeProfile.authScheme ?? (
-      activeProfile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-    )
-    if (activeProfile.authHeaderValue) {
-      env.OPENAI_AUTH_HEADER_VALUE = activeProfile.authHeaderValue
-    }
-  }
+
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
-    if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
+    if (isXaiBaseUrl(activeProfile.baseUrl)) {
       env.XAI_API_KEY = activeProfile.apiKey
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
@@ -958,6 +1097,15 @@ function buildOpenAICompatibleStartupEnv(
       activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
     ) {
       env.MIMO_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
+      env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+    }
+    if (isNearaiBaseUrl(activeProfile.baseUrl)) {
+      env.NEARAI_API_KEY = activeProfile.apiKey
+    }
+    if (isFireworksBaseUrl(activeProfile.baseUrl)) {
+      env.FIREWORKS_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY
@@ -1023,13 +1171,26 @@ function buildStartupProfileFromActiveProfile(
         : null
     }
     case 'github':
+    case 'github-enterprise': {
       return {
-        profile: 'github',
-        env: applySupportedProfileCustomHeaders(activeProfile, buildGithubProfileEnv({
-          model: getPrimaryModel(activeProfile.model),
-          baseUrl: activeProfile.baseUrl,
-        })),
+        profile:
+          activeProfile.provider === 'github-enterprise'
+            ? 'github-enterprise'
+            : 'github',
+        env: applySupportedProfileCustomHeaders(
+          activeProfile,
+          buildGithubCompatibleProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            gatewayId:
+              activeProfile.provider === 'github-enterprise'
+                ? 'github-enterprise'
+                : 'github',
+          }),
+        ),
       }
+    }
     case 'bedrock':
       return {
         profile: 'bedrock',
@@ -1097,6 +1258,24 @@ function buildStartupProfileFromActiveProfile(
         return env
           ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
+      }
+
+      if (route.vendorId === 'atlas-cloud') {
+        const env =
+          buildAtlasCloudProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.vendorId === 'nearai') {
+        const env = buildOpenAICompatibleStartupEnv(activeProfile)
+        return env ? { profile: 'openai', env } : null
       }
 
       // xAI OAuth profile (provider=xai with no API key). Tag the startup

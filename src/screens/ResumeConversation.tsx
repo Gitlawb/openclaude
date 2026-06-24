@@ -63,9 +63,9 @@ type Props = {
   initialSearchQuery?: string;
   disableSlashCommands?: boolean;
   forkSession?: boolean;
-  taskListId?: string;
   filterByPr?: boolean | number | string;
   thinkingConfig: ThinkingConfig;
+  fallbackModel?: string;
   onTurnComplete?: (messages: Message[]) => void | Promise<void>;
 };
 export function ResumeConversation({
@@ -85,9 +85,9 @@ export function ResumeConversation({
   initialSearchQuery,
   disableSlashCommands = false,
   forkSession,
-  taskListId,
   filterByPr,
   thinkingConfig,
+  fallbackModel,
   onTurnComplete
 }: Props): React.ReactNode {
   const {
@@ -303,7 +303,7 @@ export function ResumeConversation({
     return <CrossProjectMessage command={crossProjectCommand} />;
   }
   if (resumeData) {
-    return <REPL debug={debug} commands={commands} initialTools={initialTools} initialMessages={resumeData.messages} initialFileHistorySnapshots={resumeData.fileHistorySnapshots} initialContentReplacements={resumeData.contentReplacements} initialAgentName={resumeData.agentName} initialAgentColor={resumeData.agentColor} mcpClients={mcpClients} dynamicMcpConfig={dynamicMcpConfig} strictMcpConfig={strictMcpConfig} systemPrompt={systemPrompt} appendSystemPrompt={appendSystemPrompt} mainThreadAgentDefinition={resumeData.mainThreadAgentDefinition} baseMainLoopModel={baseMainLoopModel} hasExplicitModelOverride={hasExplicitModelOverride} autoConnectIdeFlag={autoConnectIdeFlag} disableSlashCommands={disableSlashCommands} taskListId={taskListId} thinkingConfig={thinkingConfig} onTurnComplete={onTurnComplete} />;
+    return <REPL debug={debug} commands={commands} initialTools={initialTools} initialMessages={resumeData.messages} initialFileHistorySnapshots={resumeData.fileHistorySnapshots} initialContentReplacements={resumeData.contentReplacements} initialAgentName={resumeData.agentName} initialAgentColor={resumeData.agentColor} mcpClients={mcpClients} dynamicMcpConfig={dynamicMcpConfig} strictMcpConfig={strictMcpConfig} systemPrompt={systemPrompt} appendSystemPrompt={appendSystemPrompt} mainThreadAgentDefinition={resumeData.mainThreadAgentDefinition} baseMainLoopModel={baseMainLoopModel} hasExplicitModelOverride={hasExplicitModelOverride} autoConnectIdeFlag={autoConnectIdeFlag} disableSlashCommands={disableSlashCommands} thinkingConfig={thinkingConfig} fallbackModel={fallbackModel} onTurnComplete={onTurnComplete} />;
   }
   if (loading) {
     return <Box>

@@ -55,30 +55,41 @@ export const call: LocalCommandCall = async (args, context) => {
     // Try session memory compaction first if no custom instructions
     // (session memory compaction doesn't support custom instructions)
     if (!customInstructions) {
-      const sessionMemoryResult = await trySessionMemoryCompaction(
-        messages,
-        context.agentId,
-      )
-      if (sessionMemoryResult) {
-        getUserContext.cache.clear?.()
-        runPostCompactCleanup()
-        // Reset cache read baseline so the post-compact drop isn't flagged
-        // as a break. compactConversation does this internally; SM-compact doesn't.
-        if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
-          notifyCompaction(
-            context.options.querySource ?? 'compact',
-            context.agentId,
-          )
-        }
-        markPostCompaction()
-        // Suppress warning immediately after successful compaction
-        suppressCompactWarning()
+      context.onCompactProgress?.({
+        type: 'hooks_start',
+        hookType: 'pre_compact',
+      })
+      context.onCompactProgress?.({ type: 'compact_start' })
+      try {
+        const sessionMemoryResult = await trySessionMemoryCompaction(
+          messages,
+          context.agentId,
+        )
+        if (sessionMemoryResult) {
+          getUserContext.cache.clear?.()
+          runPostCompactCleanup()
+          // Reset cache read baseline so the post-compact drop isn't flagged
+          // as a break. compactConversation does this internally; SM-compact doesn't.
+          if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
+            notifyCompaction(
+              context.options.querySource ?? 'compact',
+              context.agentId,
+            )
+          }
+          markPostCompaction()
+          // Suppress warning immediately after successful compaction
+          suppressCompactWarning()
 
-        return {
-          type: 'compact',
-          compactionResult: sessionMemoryResult,
-          displayText: buildDisplayText(context),
+          return {
+            type: 'compact',
+            compactionResult: sessionMemoryResult,
+            displayText: buildDisplayText(context),
+          }
         }
+      } finally {
+        // Always close progress for the session-memory attempt, whether it
+        // succeeded, returned null (falls through to other compaction), or threw.
+        context.onCompactProgress?.({ type: 'compact_end' })
       }
     }
 

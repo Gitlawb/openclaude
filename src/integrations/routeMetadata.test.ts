@@ -7,6 +7,7 @@ import {
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
   resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 
@@ -32,26 +33,52 @@ test('getRouteProviderTypeLabel falls back safely for unknown routes', () => {
 })
 
 test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback for openai-compatible routes', () => {
+  expect(getRouteCredentialEnvVars('custom')).toEqual([
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('openrouter')).toEqual([
     'OPENROUTER_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('deepseek')).toEqual([
     'DEEPSEEK_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('hicap')).toEqual([
     'HICAP_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('venice')).toEqual([
     'VENICE_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
   expect(getRouteCredentialEnvVars('xiaomi-mimo')).toEqual([
     'MIMO_API_KEY',
+    'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
+})
+
+test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {
+  expect(getRouteCredentialEnvVars('atlas-cloud')).toEqual([
+    'ATLAS_CLOUD_API_KEY',
+  ])
+  expect(
+    getRouteCredentialValue('atlas-cloud', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+    }),
+  ).toBeUndefined()
+  expect(
+    getRouteCredentialValue('atlas-cloud', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+      ATLAS_CLOUD_API_KEY: 'atlas-key',
+    }),
+  ).toBe('atlas-key')
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -65,6 +92,61 @@ test('getRouteCredentialValue reads the first configured route credential', () =
       OPENAI_API_KEY: 'sk-openai-fallback',
     }),
   ).toBe('sk-openai-fallback')
+})
+
+test('route credential discovery reads OPENAI_API_KEYS before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'sk-openai-a,sk-openai-b',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-a,sk-openai-b')
+  expect(
+    resolveRouteCredentialValue({
+      baseUrl: 'https://api.openai.com/v1',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_KEYS: 'sk-openai-a,sk-openai-b',
+      },
+    }),
+  ).toBe('sk-openai-a,sk-openai-b')
+})
+
+test('route credential discovery ignores delimiter-only OPENAI_API_KEYS before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: ', ,',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
+})
+
+test('route credential discovery ignores placeholder OpenAI credentials', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'SUA_CHAVE',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
+  expect(
+    resolveRouteCredentialValue({
+      baseUrl: 'https://api.openai.com/v1',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_KEYS: 'SUA_CHAVE',
+        OPENAI_API_KEY: 'SUA_CHAVE',
+      },
+    }),
+  ).toBeUndefined()
+})
+
+test('route credential discovery ignores mixed placeholder OpenAI pools before singular fallback', () => {
+  expect(
+    getRouteCredentialValue('openai', {
+      OPENAI_API_KEYS: 'sk-openai-a,SUA_CHAVE',
+      OPENAI_API_KEY: 'sk-openai-single',
+    }),
+  ).toBe('sk-openai-single')
 })
 
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
@@ -115,6 +197,7 @@ test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', 
     }),
   ).toBe('venice')
 })
+
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -209,4 +292,42 @@ test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials
       OPENAI_API_KEY: 'openai-key',
     }),
   ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer MiniMax with pooled OpenAI credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      MINIMAX_API_KEY: 'minimax-key',
+      OPENAI_API_KEYS: 'openai-key-a,openai-key-b',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv infers Near AI with NEARAI_API_KEY and stale OPENAI_API_KEY', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+      OPENAI_API_KEY: 'stale-openai-key',
+    }),
+  ).toBe('nearai')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Near AI when OPENAI_BASE_URL points elsewhere', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Near AI with explicit provider flag', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      NEARAI_API_KEY: 'nearai-key',
+      OPENAI_API_KEY: 'openai-key',
+      CLAUDE_CODE_USE_GEMINI: '1',
+    }),
+  ).toBe('gemini')
 })

@@ -16,6 +16,7 @@ import { logError } from '../../utils/log.js';
 import { Select } from '../CustomSelect/select.js';
 import { Dialog } from '../design-system/Dialog.js';
 import { AgentDetail } from './AgentDetail.js';
+import { AgentDetailDialog } from './AgentDetailDialog.js';
 import { AgentEditor } from './AgentEditor.js';
 import { AgentNavigationFooter } from './AgentNavigationFooter.js';
 import { AgentsList } from './AgentsList.js';
@@ -507,26 +508,19 @@ export function AgentsMenu(t0) {
           t15 = $[99];
         }
         let t16;
-        if ($[100] !== agentToDisplay || $[101] !== allAgents || $[102] !== mergedTools || $[103] !== t15) {
-          t16 = <AgentDetail agent={agentToDisplay} tools={mergedTools} allAgents={allAgents} onBack={t15} />;
+        if ($[100] !== agentToDisplay || $[101] !== allAgents || $[102] !== mergedTools || $[103] !== t15 || $[105] !== t14 || $[106] !== agentToDisplay.agentType) {
+          t16 = <AgentDetailDialog title={agentToDisplay.agentType} onCancel={t14} hideInputGuide={true} agent={agentToDisplay} tools={mergedTools} allAgents={allAgents} onBack={t15} />;
           $[100] = agentToDisplay;
           $[101] = allAgents;
           $[102] = mergedTools;
           $[103] = t15;
+          $[105] = t14;
+          $[106] = agentToDisplay.agentType;
           $[104] = t16;
         } else {
           t16 = $[104];
         }
-        let t17;
-        if ($[105] !== agentToDisplay.agentType || $[106] !== t14 || $[107] !== t16) {
-          t17 = <Dialog title={agentToDisplay.agentType} onCancel={t14} hideInputGuide={true}>{t16}</Dialog>;
-          $[105] = agentToDisplay.agentType;
-          $[106] = t14;
-          $[107] = t16;
-          $[108] = t17;
-        } else {
-          t17 = $[108];
-        }
+        const t17 = t16;
         let t18;
         if ($[109] === Symbol.for("react.memo_cache_sentinel")) {
           t18 = <AgentNavigationFooter instructions="Press Enter or Esc to go back" />;

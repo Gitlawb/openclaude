@@ -133,6 +133,48 @@ test('opencode profile prefers OPENCODE_API_KEY from process env over persisted'
   assert.equal(env.OPENAI_API_KEY, 'sk-process-key')
 })
 
+test('opencode profile preserves generic pooled OpenAI fallback credentials', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'opencode',
+    persisted: profile('opencode', {}),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEYS: 'live-a,live-b',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_KEYS, 'live-a,live-b')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
+test('opencode profile preserves invalid generic pools for launch validation', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'opencode',
+    persisted: profile('opencode', {}),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEYS: 'live-a,SUA_CHAVE',
+      OPENAI_API_KEY: 'live-single',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_KEYS, 'live-a,SUA_CHAVE')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+test('opencode profile lets dedicated OpenCode credentials override generic pools', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'opencode',
+    persisted: profile('opencode', {}),
+    goal: 'balanced',
+    processEnv: {
+      OPENCODE_API_KEY: 'opencode-live',
+      OPENAI_API_KEYS: 'live-a,live-b',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_KEY, 'opencode-live')
+  assert.equal(env.OPENAI_API_KEYS, undefined)
+})
 test('opencode profile handles empty api key gracefully', async () => {
   const env = await buildLaunchEnv({
     profile: 'opencode',
