@@ -609,8 +609,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     payg3pOptions.push(customOpus)
   } else {
     // Add Opus 4.1, Opus 4.7, Opus 4.6 and Opus 4.6 1M
+    // Opus 4.8 is intentionally omitted here until 3P rollout is active;
+    // getDefaultOpusModel() keeps non-first-party usage on Opus 4.7.
     payg3pOptions.push(getOpus41Option()) // This is the default opus
-    payg3pOptions.push(getOpus48Option(fastMode))
     payg3pOptions.push(getOpus47Option(fastMode))
     payg3pOptions.push(getOpus46Option(fastMode))
     if (checkOpus1mAccess()) {
