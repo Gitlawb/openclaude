@@ -13,6 +13,7 @@ function setAds(ads: { enabled: boolean; earnCode?: string } | undefined): void 
 
 const ORIGINAL_ADS_BASE_URL = process.env.ADS_BASE_URL
 const ORIGINAL_TIP_EVERY = process.env.OPENCLAUDE_ADS_TIP_EVERY
+const ORIGINAL_FETCH = globalThis.fetch
 let originalAds = getGlobalConfig().ads
 
 beforeEach(() => {
@@ -26,6 +27,7 @@ beforeEach(() => {
 
 // Restore env + global ads config so nothing leaks into other suites in the run.
 afterEach(() => {
+  globalThis.fetch = ORIGINAL_FETCH
   saveGlobalConfig(c => ({ ...c, ads: originalAds }))
   if (ORIGINAL_ADS_BASE_URL === undefined) delete process.env.ADS_BASE_URL
   else process.env.ADS_BASE_URL = ORIGINAL_ADS_BASE_URL
@@ -71,5 +73,39 @@ describe('gitlawb earning tips', () => {
     setAds({ enabled: true, earnCode: 'earn_abc' })
     const text = await buildEarningTip().content({ theme: 'dark' })
     expect(text.toLowerCase()).toContain('gitlawb.com')
+  })
+
+  test('content renders a fetched ad (advertiser + ad copy) on the success path', async () => {
+    setAds({ enabled: true, earnCode: 'earn_abc' })
+    globalThis.fetch = (async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          impression_id: 'imp1',
+          token: 'tok',
+          tip_text: 'Serverless Postgres that scales to zero',
+          name: 'Neon',
+          link: 'https://neon.tech',
+          label: 'Sponsored by Neon',
+          dwell_ms: 4000,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as typeof fetch
+
+    const text = await buildEarningTip().content({ theme: 'dark' })
+    expect(text).toContain('Serverless Postgres that scales to zero') // ad copy
+    expect(text).toContain('Neon') // real advertiser, not the Gitlawb fallback
+    expect(text.toLowerCase()).not.toContain('gitlawb.com')
+  })
+
+  test('content falls back when the ad has blank copy (no blank-ad credit)', async () => {
+    setAds({ enabled: true, earnCode: 'earn_abc' })
+    globalThis.fetch = (async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({ impression_id: 'imp1', token: 'tok', tip_text: '   ', name: 'X', dwell_ms: 4000 }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as typeof fetch
+
+    const text = await buildEarningTip().content({ theme: 'dark' })
+    expect(text.toLowerCase()).toContain('gitlawb.com') // degraded to static line
   })
 })

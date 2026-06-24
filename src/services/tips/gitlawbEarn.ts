@@ -103,7 +103,9 @@ export function buildEarningTip(): Tip {
       } catch {
         tip = null
       }
-      if (!tip) return renderEarningTip(fallback, ctx, false)
+      // A malformed/empty ad payload must not render a blank line and then
+      // credit a never-seen ad — degrade to the static fallback instead.
+      if (!tip || !tip.text.trim()) return renderEarningTip(fallback, ctx, false)
 
       const delay = Math.max(0, Math.min(tip.dwellMs, MAX_CONFIRM_DELAY_MS))
       // unref'd so this best-effort confirm never keeps a short-lived CLI run

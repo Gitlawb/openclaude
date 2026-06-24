@@ -125,6 +125,13 @@ export async function fetchNextTip(
   }
 }
 
+/** Coerce an API number to a finite integer, or undefined when malformed. */
+function toFiniteInt(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : undefined
+}
+
 /**
  * Confirm a shown tip after its dwell elapsed, crediting the viewer. Returns the
  * settle status + amount earned. Throws only on transport failure; callers in
@@ -149,9 +156,8 @@ export async function confirmTip(
     const data = (await resp.json().catch(() => ({}))) as Record<string, unknown>
     return {
       status: String(data.status ?? (resp.ok ? 'unknown' : 'error')),
-      earnedMicro: Number(data.earned_micro ?? 0),
-      balanceMicro:
-        data.balance_micro !== undefined ? Number(data.balance_micro) : undefined,
+      earnedMicro: toFiniteInt(data.earned_micro) ?? 0,
+      balanceMicro: toFiniteInt(data.balance_micro),
     }
   } finally {
     cancel()

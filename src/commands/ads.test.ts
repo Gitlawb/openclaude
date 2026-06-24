@@ -4,16 +4,18 @@ import adsCmd from './ads.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 
 const ORIGINAL_ADS_BASE_URL = process.env.ADS_BASE_URL
+const ORIGINAL_ADS_CONFIG = getGlobalConfig().ads
 
-// Unreachable host → the background warm-earn fails fast and never hits the
-// network. (bun test sets NODE_ENV=test, so saveGlobalConfig writes in-memory.)
+// Point at an unreachable host so nothing in these tests hits the network.
+// (bun test sets NODE_ENV=test, so saveGlobalConfig writes in-memory.)
 beforeEach(() => {
   process.env.ADS_BASE_URL = 'http://127.0.0.1:0'
   saveGlobalConfig(c => ({ ...c, ads: undefined }))
 })
 
-// Restore env so we don't leak ADS_BASE_URL into other suites in the same run.
+// Restore env + global ads config so neither leaks into other suites in the run.
 afterEach(() => {
+  saveGlobalConfig(c => ({ ...c, ads: ORIGINAL_ADS_CONFIG }))
   if (ORIGINAL_ADS_BASE_URL === undefined) delete process.env.ADS_BASE_URL
   else process.env.ADS_BASE_URL = ORIGINAL_ADS_BASE_URL
 })
@@ -47,6 +49,10 @@ describe('/ads command', () => {
     const { node, text } = await run('on earn_typed_inline')
     expect(node).toBeTruthy()
     expect(text).toBeUndefined()
+    // A code typed inline is already exposed → the dialog must warn to rotate it.
+    expect(
+      (node as React.ReactElement<{ warnExposed?: boolean }>).props.warnExposed,
+    ).toBe(true)
     // The inline code is ignored; nothing is persisted from the command line.
     expect(getGlobalConfig().ads?.enabled).toBeFalsy()
   })
