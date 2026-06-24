@@ -18,6 +18,7 @@ import type {
   KeybindingContextName,
   ParsedKeystroke,
 } from '../../../keybindings/types.js'
+import type { Notification } from '../../../context/notifications.js'
 import { getDefaultAppState } from '../../../state/AppStateStore.js'
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../../../tools/ExitPlanModeTool/constants.js'
 
@@ -29,7 +30,7 @@ const unwritablePlanPath = join(
   'plan.md',
 )
 
-const addNotification = mock(() => {})
+const addNotification = mock((_notification: Notification) => {})
 
 function createTestStreams() {
   let output = ''
@@ -211,7 +212,7 @@ describe('ExitPlanModePermissionRequest write guard (rendered)', () => {
       // The write-failure guard must queue the plan-save-error notification…
       await waitFor(() =>
         addNotification.mock.calls.some(
-          call => (call[0] as { key?: string } | undefined)?.key === 'plan-save-error',
+          call => call[0]?.key === 'plan-save-error',
         ),
       )
 
