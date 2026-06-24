@@ -55,6 +55,25 @@ export interface CapabilityFlags {
   supportsEmbeddings?: boolean
 }
 
+export type ReasoningControlMode = 'levels' | 'toggle' | 'always-on'
+export type ReasoningEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type ReasoningWireFormat =
+  | 'reasoning_effort'
+  | 'reasoning_object'
+  | 'thinking_type'
+  | 'deepseek_compatible'
+  | 'zai_compatible'
+  | 'none'
+export type ReasoningDisableFormat = 'thinking_type_disabled'
+
+export interface ReasoningControlMetadata {
+  mode: ReasoningControlMode
+  levels?: ReasoningEffortLevel[]
+  defaultLevel?: ReasoningEffortLevel
+  wireFormat?: ReasoningWireFormat
+  disableFormat?: ReasoningDisableFormat
+}
+
 export interface TransportConfig {
   kind: TransportKind
   headers?: Record<string, string>
@@ -84,6 +103,7 @@ export interface ModelCatalogEntry {
   hidden?: boolean
   modelDescriptorId?: string
   capabilities?: CapabilityFlags
+  reasoning?: ReasoningControlMetadata
   contextWindow?: number
   maxOutputTokens?: number
   transportOverrides?: CatalogTransportOverrides
@@ -311,6 +331,7 @@ export interface ModelDescriptor {
   defaultModel: string
   providerModelMap?: Partial<Record<string, string>>
   capabilities: CapabilityFlags
+  reasoning?: ReasoningControlMetadata
   contextWindow?: number
   maxOutputTokens?: number
   cacheConfig?: CacheConfig

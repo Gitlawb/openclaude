@@ -12,6 +12,7 @@ import {
 import {
   convertEffortValueToLevel,
   type EffortValue,
+  modelSupportsWireEffort,
   standardEffortToOpenAI,
   type OpenAIEffortLevel,
 } from 'src/utils/effort.js'
@@ -329,8 +330,9 @@ export async function getAnthropicClient({
 }): Promise<Anthropic> {
   // Convert the runtime effort value to the OpenAI-shaped enum the shim
   // expects. Undefined → shim falls back to descriptor/alias defaults.
+  const effortModel = providerOverride?.model ?? model
   const shimReasoningEffort: OpenAIEffortLevel | undefined =
-    effortValue !== undefined
+    effortValue !== undefined && effortModel && modelSupportsWireEffort(effortModel)
       ? standardEffortToOpenAI(convertEffortValueToLevel(effortValue))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID

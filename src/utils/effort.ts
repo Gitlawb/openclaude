@@ -7,6 +7,16 @@ import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
+import {
+  getCatalogEntriesForRoute,
+  getModel,
+  resolveActiveRouteIdFromEnv,
+} from '../integrations/index.js'
+import type {
+  CapabilityFlags,
+  ReasoningControlMetadata,
+  ReasoningWireFormat,
+} from '../integrations/descriptors.js'
 import { isEnvTruthy } from './envUtils.js'
 import type { EffortLevel } from 'src/entrypoints/sdk/runtimeTypes.js'
 
@@ -30,8 +40,123 @@ export const OPENAI_EFFORT_LEVELS = [
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
 export type EffortValue = EffortLevel | number
 
-// @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
-export function modelSupportsEffort(model: string): boolean {
+export type ReasoningControlResolution = {
+  supportsReasoning: boolean
+  controllable: boolean
+  mode?: ReasoningControlMetadata['mode']
+  levels: EffortLevel[]
+  defaultLevel?: EffortValue
+  wireFormat?: ReasoningWireFormat
+  source: 'metadata' | 'capability' | 'legacy' | 'none'
+}
+
+const DEFAULT_REASONING_LEVELS: EffortLevel[] = ['low', 'medium', 'high']
+
+function isSupportedEffortLevel(level: string): level is EffortLevel {
+  return (EFFORT_LEVELS as readonly string[]).includes(level)
+}
+
+function normalizeReasoningLevels(
+  levels: ReasoningControlMetadata['levels'] | undefined,
+): EffortLevel[] {
+  const normalized = (levels ?? DEFAULT_REASONING_LEVELS).filter(
+    isSupportedEffortLevel,
+  )
+  return normalized.length > 0 ? normalized : [...DEFAULT_REASONING_LEVELS]
+}
+
+function normalizeReasoningDefaultLevel(
+  level: ReasoningControlMetadata['defaultLevel'] | undefined,
+  levels: EffortLevel[],
+): EffortLevel | undefined {
+  if (!level || !isSupportedEffortLevel(level)) {
+    return undefined
+  }
+  return levels.includes(level) ? level : undefined
+}
+
+function metadataWireFormatSupportsEffort(
+  wireFormat: ReasoningWireFormat | undefined,
+): boolean {
+  // PR 1 only enables the existing OpenAI-compatible effort serializer.
+  // Other wire formats are typed for follow-up provider PRs, but must not
+  // silently flow through as top-level reasoning_effort before their request
+  // shapers are implemented.
+  return wireFormat === 'reasoning_effort'
+}
+
+function resolveCatalogReasoningMetadata(model: string): {
+  capabilities?: CapabilityFlags
+  reasoning?: ReasoningControlMetadata
+} | undefined {
+  const routeId = resolveActiveRouteIdFromEnv(process.env)
+  if (!routeId || routeId === 'anthropic') {
+    return undefined
+  }
+
+  const normalizedModel = model.trim().split('?', 1)[0]!.trim().toLowerCase()
+  const entry = getCatalogEntriesForRoute(routeId).find(catalogEntry =>
+    catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
+    catalogEntry.id.trim().toLowerCase() === normalizedModel,
+  )
+
+  if (!entry) {
+    return undefined
+  }
+
+  const descriptor = entry.modelDescriptorId
+    ? getModel(entry.modelDescriptorId)
+    : undefined
+
+  return {
+    capabilities: entry.capabilities ?? descriptor?.capabilities,
+    reasoning: entry.reasoning ?? descriptor?.reasoning,
+  }
+}
+
+function resolveMetadataReasoningControl(
+  model: string,
+): ReasoningControlResolution | undefined {
+  const metadata = resolveCatalogReasoningMetadata(model)
+  if (!metadata) {
+    return undefined
+  }
+
+  const { capabilities, reasoning } = metadata
+  if (!reasoning) {
+    return capabilities?.supportsReasoning === undefined
+      ? undefined
+      : {
+          supportsReasoning: capabilities.supportsReasoning,
+          controllable: false,
+          levels: [],
+          source: 'capability',
+        }
+  }
+
+  const levels = reasoning.mode === 'levels'
+    ? normalizeReasoningLevels(reasoning.levels)
+    : []
+  const wireFormat = reasoning.wireFormat
+  const controllable = Boolean(
+    capabilities?.supportsReasoning !== false &&
+    metadataWireFormatSupportsEffort(wireFormat) &&
+    reasoning.mode === 'levels' &&
+    levels.length > 0,
+  )
+
+  return {
+    supportsReasoning: capabilities?.supportsReasoning ?? true,
+    controllable,
+    mode: reasoning.mode,
+    levels,
+    defaultLevel: normalizeReasoningDefaultLevel(reasoning.defaultLevel, levels),
+    wireFormat,
+    source: 'metadata',
+  }
+}
+
+function legacyModelSupportsEffort(model: string): boolean {
   const m = model.toLowerCase()
   if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
     return true
@@ -74,9 +199,64 @@ export function modelSupportsEffort(model: string): boolean {
   return getAPIProvider() === 'firstParty'
 }
 
+function resolveLegacyReasoningControl(model: string): ReasoningControlResolution {
+  if (!legacyModelSupportsEffort(model)) {
+    return {
+      supportsReasoning: false,
+      controllable: false,
+      levels: [],
+      source: 'none',
+    }
+  }
+
+  return {
+    supportsReasoning: true,
+    controllable: true,
+    mode: 'levels',
+    levels: getLegacyAvailableEffortLevels(model),
+    defaultLevel: getLegacyDefaultEffortForModel(model),
+    wireFormat: 'reasoning_effort',
+    source: 'legacy',
+  }
+}
+
+export function resolveModelReasoningControl(
+  model: string,
+): ReasoningControlResolution {
+  const metadata = resolveMetadataReasoningControl(model)
+  if (metadata) {
+    return metadata
+  }
+
+  return resolveLegacyReasoningControl(model)
+}
+
+// @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
+export function modelSupportsEffort(model: string): boolean {
+  if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
+    return true
+  }
+  const supported3P = get3PModelCapabilityOverride(model, 'effort')
+  if (supported3P !== undefined) {
+    return supported3P
+  }
+  return resolveModelReasoningControl(model).controllable
+}
+
+export function modelSupportsWireEffort(model: string): boolean {
+  if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
+    return true
+  }
+  const supported3P = get3PModelCapabilityOverride(model, 'effort')
+  if (supported3P !== undefined) {
+    return supported3P
+  }
+  const control = resolveModelReasoningControl(model)
+  return Boolean(control.controllable && metadataWireFormatSupportsEffort(control.wireFormat))
+}
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'max' effort.
 // Per API docs, 'max' is Opus 4.6 only for public models — other models return an error.
-export function modelSupportsMaxEffort(model: string): boolean {
+function legacyModelSupportsMaxEffort(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'max_effort')
   if (supported3P !== undefined) {
     return supported3P
@@ -93,8 +273,8 @@ export function modelSupportsMaxEffort(model: string): boolean {
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'xhigh' effort.
 // xhigh is reserved for OpenAI/Codex models and OpenCode Claude opus 4-7 / 4-8.
 // All other effort-supporting models reject xhigh at the API.
-export function modelSupportsXHighEffort(model: string): boolean {
-  if (!modelSupportsEffort(model)) {
+function legacyModelSupportsXHighEffort(model: string): boolean {
+  if (!legacyModelSupportsEffort(model)) {
     return false
   }
   const supported3P = get3PModelCapabilityOverride(model, 'xhigh_effort')
@@ -133,8 +313,8 @@ export function modelUsesOpenAIEffort(model: string): boolean {
   return true
 }
 
-export function getAvailableEffortLevels(model: string): EffortLevel[] {
-  if (!modelSupportsEffort(model)) {
+function getLegacyAvailableEffortLevels(model: string): EffortLevel[] {
+  if (!legacyModelSupportsEffort(model)) {
     return []
   }
   // OpenCode Claude and Gemini models use /messages or /models/gemini-*
@@ -150,15 +330,38 @@ export function getAvailableEffortLevels(model: string): EffortLevel[] {
     return [...OPENAI_EFFORT_LEVELS] as EffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
-  if (modelSupportsXHighEffort(model)) {
+  if (legacyModelSupportsXHighEffort(model)) {
     levels.push('xhigh')
   }
-  if (modelSupportsMaxEffort(model)) {
+  if (legacyModelSupportsMaxEffort(model)) {
     levels.push('max')
   }
   return levels
 }
 
+export function modelSupportsMaxEffort(model: string): boolean {
+  const control = resolveModelReasoningControl(model)
+  if (control.source === 'metadata' || control.source === 'capability') {
+    return control.levels.includes('max')
+  }
+  return legacyModelSupportsMaxEffort(model)
+}
+
+export function modelSupportsXHighEffort(model: string): boolean {
+  const control = resolveModelReasoningControl(model)
+  if (control.source === 'metadata' || control.source === 'capability') {
+    return control.levels.includes('xhigh')
+  }
+  return legacyModelSupportsXHighEffort(model)
+}
+
+export function getAvailableEffortLevels(model: string): EffortLevel[] {
+  const control = resolveModelReasoningControl(model)
+  if (control.source === 'metadata' || control.source === 'capability') {
+    return [...control.levels]
+  }
+  return getLegacyAvailableEffortLevels(model)
+}
 export function getEffortLevelLabel(level: EffortLevel | OpenAIEffortLevel): string {
   if (level === 'xhigh') return 'Extra High'
   if (level === 'max') return 'Max'
@@ -272,6 +475,10 @@ export function resolveAppliedEffort(
   if (envOverride === null) {
     return undefined
   }
+  if (!modelSupportsEffort(model)) {
+    return undefined
+  }
+
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
   // API rejects 'max' on non-Opus-4.6 Anthropic models — downgrade to 'high'.
@@ -342,6 +549,15 @@ export function convertEffortValueToLevel(value: EffortValue): EffortLevel {
   return 'high'
 }
 
+export function getDefaultEffortForModel(
+  model: string,
+): EffortValue | undefined {
+  const control = resolveModelReasoningControl(model)
+  if (control.source === 'metadata' || control.source === 'capability') {
+    return control.defaultLevel
+  }
+  return getLegacyDefaultEffortForModel(model)
+}
 /**
  * Get user-facing description for effort levels
  *
@@ -405,7 +621,7 @@ export function getOpusDefaultEffortConfig(): OpusDefaultEffortConfig {
 }
 
 // @[MODEL LAUNCH]: Update the default effort levels for new models
-export function getDefaultEffortForModel(
+function getLegacyDefaultEffortForModel(
   model: string,
 ): EffortValue | undefined {
   if (process.env.USER_TYPE === 'ant') {
@@ -448,7 +664,7 @@ export function getDefaultEffortForModel(
   }
 
   // When ultrathink feature is on, default effort to medium (ultrathink bumps to high)
-  if (isUltrathinkEnabled() && modelSupportsEffort(model)) {
+  if (isUltrathinkEnabled() && legacyModelSupportsEffort(model)) {
     return 'medium'
   }
 

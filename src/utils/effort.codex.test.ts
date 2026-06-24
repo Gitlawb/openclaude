@@ -15,6 +15,7 @@ import * as actualThinking from './thinking.js'
 import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
 import * as actualProviders from './model/providers.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
+import * as actualIntegrations from '../integrations/index.js'
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
@@ -31,6 +32,9 @@ afterEach(() => {
 async function importFreshEffortModule(options: {
   provider: 'codex' | 'openai'
   supportsCodexReasoningEffort: boolean
+  routeId?: string
+  catalogEntries?: any[]
+  modelDescriptors?: Record<string, any>
 }) {
   mock.module('./model/providers.js', () => ({
     ...actualProviders,
@@ -43,6 +47,12 @@ async function importFreshEffortModule(options: {
   mock.module('../services/api/providerConfig.js', () => ({
     ...actualProviderConfig,
     supportsCodexReasoningEffort: () => options.supportsCodexReasoningEffort,
+  }))
+  mock.module('../integrations/index.js', () => ({
+    ...actualIntegrations,
+    resolveActiveRouteIdFromEnv: () => options.routeId,
+    getCatalogEntriesForRoute: () => options.catalogEntries ?? [],
+    getModel: (id: string) => options.modelDescriptors?.[id],
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
@@ -265,4 +275,174 @@ test('modelUsesOpenAIEffort: Claude/Gemini are excluded even on the openai provi
   const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
   // Standard branch: no OPENAI_EFFORT_LEVELS, just the supported standard levels
   expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+})
+
+test('supportsReasoning-only catalog entries do not enable effort or wire mutation', async () => {
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'atlas-cloud',
+    catalogEntries: [
+      {
+        id: 'moonshotai/kimi-k2.5',
+        apiName: 'moonshotai/kimi-k2.5',
+        capabilities: { supportsReasoning: true },
+      },
+    ],
+  })
+
+  expect(resolveModelReasoningControl('moonshotai/kimi-k2.5')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'capability',
+  })
+  expect(modelSupportsEffort('moonshotai/kimi-k2.5')).toBe(false)
+  expect(modelSupportsWireEffort('moonshotai/kimi-k2.5')).toBe(false)
+  expect(getAvailableEffortLevels('moonshotai/kimi-k2.5')).toEqual([])
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.5', 'high')).toBeUndefined()
+})
+
+test('explicit reasoning metadata enables model-level effort without provider-wide inference', async () => {
+  const {
+    getAvailableEffortLevels,
+    getDefaultEffortForModel,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'atlas-cloud',
+    catalogEntries: [
+      {
+        id: 'moonshotai/kimi-k2.6',
+        apiName: 'moonshotai/kimi-k2.6',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high'],
+          defaultLevel: 'medium',
+          wireFormat: 'reasoning_effort',
+        },
+      },
+      {
+        id: 'xai/grok-build-0.1',
+        apiName: 'xai/grok-build-0.1',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'always-on',
+          wireFormat: 'none',
+        },
+      },
+    ],
+  })
+
+  expect(resolveModelReasoningControl('moonshotai/kimi-k2.6')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'medium',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(modelSupportsEffort('moonshotai/kimi-k2.6')).toBe(true)
+  expect(modelSupportsWireEffort('moonshotai/kimi-k2.6')).toBe(true)
+  expect(getAvailableEffortLevels('moonshotai/kimi-k2.6')).toEqual([
+    'low',
+    'medium',
+    'high',
+  ])
+  expect(getDefaultEffortForModel('moonshotai/kimi-k2.6')).toBe('medium')
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.6', undefined)).toBe('medium')
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'xhigh')).toBe('high')
+
+  expect(resolveModelReasoningControl('xai/grok-build-0.1')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'metadata',
+    wireFormat: 'none',
+  })
+  expect(modelSupportsEffort('xai/grok-build-0.1')).toBe(false)
+  expect(modelSupportsWireEffort('xai/grok-build-0.1')).toBe(false)
+  expect(resolveAppliedEffort('xai/grok-build-0.1', 'high')).toBeUndefined()
+})
+
+test('explicit non-controllable metadata opts out even when the model matches legacy rules', async () => {
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+    routeId: 'custom-gateway',
+    catalogEntries: [
+      {
+        id: 'gpt-5.4',
+        apiName: 'gpt-5.4',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'always-on',
+          wireFormat: 'none',
+        },
+      },
+    ],
+  })
+
+  expect(resolveModelReasoningControl('gpt-5.4')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'metadata',
+    wireFormat: 'none',
+  })
+  expect(modelSupportsEffort('gpt-5.4')).toBe(false)
+  expect(modelSupportsWireEffort('gpt-5.4')).toBe(false)
+  expect(getAvailableEffortLevels('gpt-5.4')).toEqual([])
+  expect(resolveAppliedEffort('gpt-5.4', 'high')).toBeUndefined()
+})
+
+test('toggle reasoning metadata stays non-controllable until toggle serialization exists', async () => {
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'custom-gateway',
+    catalogEntries: [
+      {
+        id: 'toggle-model',
+        apiName: 'toggle-model',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'toggle',
+          wireFormat: 'reasoning_effort',
+        },
+      },
+    ],
+  })
+
+  expect(resolveModelReasoningControl('toggle-model')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'metadata',
+    mode: 'toggle',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(modelSupportsEffort('toggle-model')).toBe(false)
+  expect(modelSupportsWireEffort('toggle-model')).toBe(false)
+  expect(getAvailableEffortLevels('toggle-model')).toEqual([])
+  expect(resolveAppliedEffort('toggle-model', 'high')).toBeUndefined()
 })
