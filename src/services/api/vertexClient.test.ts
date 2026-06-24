@@ -207,3 +207,20 @@ test('resolved Vertex auth headers win over caller-supplied Authorization', asyn
   // The Google auth credential must not be overridable by caller headers.
   expect(capture.headers?.get('authorization')).toBe('Bearer vertex-token')
 })
+
+test('rejects a message request with a missing/invalid model', async () => {
+  const client = new AnthropicVertex({
+    region: 'us-east5',
+    projectId: 'vertex-project',
+    authClient: { getRequestHeaders: () => new Headers() },
+    maxRetries: 0,
+  })
+
+  await expect(
+    client.buildRequest({
+      method: 'post',
+      path: '/v1/messages',
+      body: { messages: [], max_tokens: 1 },
+    } as Parameters<typeof client.buildRequest>[0]),
+  ).rejects.toThrow('Expected `model` to be a non-empty string')
+})
