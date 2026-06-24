@@ -19,6 +19,14 @@ type FakeFile = {
   error?: unknown
 }
 
+type FakeReadCall = {
+  filePath: string
+  offset: number
+  maxLines?: number
+  maxBytes?: number
+  truncateOnByteLimit?: boolean
+}
+
 function file(name: string): TestDirent {
   return {
     name,
@@ -76,16 +84,20 @@ function createFakeDeps({
   tree,
   files = {},
   onRead,
+  throwAfterRead = true,
 }: {
   tree: Record<string, TestDirent[]>
   files?: Record<string, FakeFile>
   onRead?: (filePath: string, signal: AbortSignal) => Promise<void> | void
+  throwAfterRead?: boolean
 }) {
   const openedDirs: string[] = []
   const readPaths: string[] = []
+  const readCalls: FakeReadCall[] = []
 
   return {
     openedDirs,
+    readCalls,
     readPaths,
     deps: {
       readdir: async (dirPath: string) => {
@@ -104,11 +116,21 @@ function createFakeDeps({
         _maxLines?: number,
         _maxBytes?: number,
         signal?: AbortSignal,
+        options?: { truncateOnByteLimit?: boolean },
       ) => {
+        readCalls.push({
+          filePath,
+          offset: _offset,
+          maxLines: _maxLines,
+          maxBytes: _maxBytes,
+          truncateOnByteLimit: options?.truncateOnByteLimit,
+        })
         readPaths.push(filePath)
         signal?.throwIfAborted()
         await onRead?.(filePath, signal ?? new AbortController().signal)
-        signal?.throwIfAborted()
+        if (throwAfterRead) {
+          signal?.throwIfAborted()
+        }
 
         const fakeFile = files[filePath]
         if (fakeFile?.error) throw fakeFile.error
@@ -314,18 +336,83 @@ test('scanMemoryFiles does not schedule every file in a broad directory at once'
   await promise
 })
 
+test('scanMemoryFiles bounds header reads by lines and bytes', async () => {
+  const root = '/memory'
+  const { deps, readCalls } = createFakeDeps({
+    tree: {
+      [root]: [file('note.md')],
+    },
+  })
+
+  await __test.scanMemoryFilesWithDependencies(
+    root,
+    new AbortController().signal,
+    deps,
+  )
+
+  expect(readCalls).toEqual([
+    {
+      filePath: join(root, 'note.md'),
+      offset: 0,
+      maxLines: __test.FRONTMATTER_MAX_LINES,
+      maxBytes: __test.FRONTMATTER_MAX_BYTES,
+      truncateOnByteLimit: true,
+    },
+  ])
+})
+
 test('scanMemoryFiles excludes MEMORY.md with the current case-sensitive basename rule', async () => {
   tempDir = await mkdtemp(join(tmpdir(), 'memoryScan-'))
   await writeFile(join(tempDir, 'MEMORY.md'), '# index')
-  await writeMemoryFile(join(tempDir, 'memory.md'))
   await writeMemoryFile(join(tempDir, 'user_role.md'))
 
   const result = await scanMemoryFiles(tempDir, new AbortController().signal)
+
+  expect(result.map(r => r.filename)).toEqual(['user_role.md'])
+})
+
+test('scanMemoryFiles preserves case-sensitive MEMORY.md exclusion semantics', async () => {
+  const root = '/memory'
+  const { deps, readPaths } = createFakeDeps({
+    tree: {
+      [root]: [file('MEMORY.md'), file('memory.md'), file('user_role.md')],
+    },
+  })
+
+  const result = await __test.scanMemoryFilesWithDependencies(
+    root,
+    new AbortController().signal,
+    deps,
+  )
 
   expect(result.map(r => r.filename).sort()).toEqual([
     'memory.md',
     'user_role.md',
   ])
+  expect(readPaths).not.toContain(join(root, 'MEMORY.md'))
+})
+
+test('scanMemoryFiles treats non-string descriptions as absent', async () => {
+  const root = '/memory'
+  const { deps } = createFakeDeps({
+    tree: {
+      [root]: [file('number-description.md')],
+    },
+    files: {
+      [join(root, 'number-description.md')]: {
+        content: '---\ndescription: 123\ntype: user\n---\nBody',
+      },
+    },
+  })
+
+  const result = await __test.scanMemoryFilesWithDependencies(
+    root,
+    new AbortController().signal,
+    deps,
+  )
+
+  expect(result).toHaveLength(1)
+  expect(result[0]?.description).toBeNull()
 })
 
 test('scanMemoryFiles skips unreadable files without discarding valid siblings', async () => {
@@ -369,6 +456,29 @@ test('scanMemoryFiles returns promptly when the signal is already aborted', asyn
   expect(result).toEqual([])
   expect(openedDirs).toEqual([])
   expect(readPaths).toEqual([])
+})
+
+test('scanMemoryFiles drops headers when the signal aborts after a read', async () => {
+  const root = '/memory'
+  const controller = new AbortController()
+  const { deps, readPaths } = createFakeDeps({
+    tree: {
+      [root]: [file('late-abort.md')],
+    },
+    onRead: () => {
+      controller.abort()
+    },
+    throwAfterRead: false,
+  })
+
+  const result = await __test.scanMemoryFilesWithDependencies(
+    root,
+    controller.signal,
+    deps,
+  )
+
+  expect(readPaths).toEqual([join(root, 'late-abort.md')])
+  expect(result).toEqual([])
 })
 
 test('scanMemoryFiles stops scheduling additional reads after abort', async () => {

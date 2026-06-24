@@ -22,6 +22,7 @@ export type MemoryHeader = {
 
 const MAX_MEMORY_FILES = 200
 const FRONTMATTER_MAX_LINES = 30
+const FRONTMATTER_MAX_BYTES = 64 * 1024
 const MAX_DEPTH = 3
 const HEADER_READ_CONCURRENCY = 8
 
@@ -36,8 +37,9 @@ type MemoryScanDependencies = {
     filePath: string,
     offset: number,
     maxLines: number,
-    maxBytes: undefined,
+    maxBytes: number,
     signal: AbortSignal,
+    options: { truncateOnByteLimit: true },
   ) => Promise<Pick<ReadFileRangeResult, 'content' | 'mtimeMs'>>
 }
 
@@ -85,7 +87,13 @@ async function scanMemoryFilesWithDependencies(
 
     const workers = Array.from({ length: HEADER_READ_CONCURRENCY }, async () => {
       while (!signal.aborted) {
-        const next = await fileIterator.next()
+        let next: IteratorResult<string>
+        try {
+          next = await fileIterator.next()
+        } catch (error) {
+          if (signal.aborted) return
+          throw error
+        }
         if (next.done) return
         const order = nextOrder++
 
@@ -96,6 +104,7 @@ async function scanMemoryFilesWithDependencies(
             signal,
             deps,
           )
+          if (signal.aborted) return
           insertNewestHeader(topHeaders, { header, order })
         } catch {
           if (signal.aborted) return
@@ -174,16 +183,21 @@ async function readMemoryHeader(
     filePath,
     0,
     FRONTMATTER_MAX_LINES,
-    undefined,
+    FRONTMATTER_MAX_BYTES,
     signal,
+    { truncateOnByteLimit: true },
   )
   const { frontmatter } = parseFrontmatter(content, filePath)
+  const description =
+    typeof frontmatter.description === 'string' && frontmatter.description
+      ? frontmatter.description
+      : null
 
   return {
     filename: relativePath,
     filePath,
     mtimeMs,
-    description: frontmatter.description || null,
+    description,
     type: parseMemoryType(frontmatter.type),
   }
 }
@@ -212,6 +226,8 @@ function insertNewestHeader(
 }
 
 export const __test = {
+  FRONTMATTER_MAX_BYTES,
+  FRONTMATTER_MAX_LINES,
   HEADER_READ_CONCURRENCY,
   scanMemoryFilesWithDependencies,
 }
