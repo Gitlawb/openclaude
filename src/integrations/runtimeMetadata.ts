@@ -26,6 +26,7 @@ import {
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
+import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 
 function normalizeModelApiName(
   value: string | undefined,
@@ -164,6 +165,7 @@ export function openAIShimSupportsApiFormatForModel(
 
 function inferRemoteModelOpenAIShimConfig(
   modelApiName: string | undefined,
+  catalogEntry: ModelCatalogEntry | null,
 ): Partial<OpenAIShimTransportConfig> | undefined {
   const normalizedModel = normalizeModelApiName(modelApiName)
   if (!normalizedModel) {
@@ -207,17 +209,16 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
+  // Only infer the Z.AI GLM shim for routes without a catalog entry
+  // (direct/aggregator aliases like `glm-5.2` or `openrouter/zhipu/glm-5.2`).
+  // Catalog-backed GLM routes declare their own contract via
+  // `transportOverrides.openaiShim`: Z.AI-contract routes (zai, opencode-go,
+  // atlas-cloud) opt in explicitly, while non-Z.AI ones (nearai, fireworks)
+  // keep their provider-specific request shape instead of this shim.
   const hasGlm = segments.some(s => /^glm-\d/.test(s))
   const isFireworks = segments.some(s => s === 'fireworks')
-  if (hasGlm && !isFireworks) {
-    return {
-      preserveReasoningContent: true,
-      requireReasoningContentOnAssistantMessages: true,
-      reasoningContentFallback: '',
-      thinkingRequestFormat: 'zai-compatible',
-      maxTokensField: 'max_tokens',
-      removeBodyFields: ['store'],
-    }
+  if (hasGlm && !isFireworks && !catalogEntry) {
+    return { ...ZAI_GLM_OPENAI_SHIM }
   }
 
   return undefined
@@ -280,7 +281,7 @@ export function resolveOpenAIShimRuntimeContext(options?: {
       ? {
           maxTokensField: 'max_tokens' as const,
         }
-      : inferRemoteModelOpenAIShimConfig(options?.model)
+      : inferRemoteModelOpenAIShimConfig(options?.model, catalogEntry)
 
   return {
     routeId,
