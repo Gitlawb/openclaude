@@ -208,6 +208,28 @@ test('resolved Vertex auth headers win over caller-supplied Authorization', asyn
   expect(capture.headers?.get('authorization')).toBe('Bearer vertex-token')
 })
 
+test('rewrites count_tokens?beta=true through the same Vertex endpoint', async () => {
+  const client = new AnthropicVertex({
+    region: 'us-east5',
+    projectId: 'vertex-project',
+    authClient: { getRequestHeaders: () => new Headers({ Authorization: 'Bearer t' }) },
+    maxRetries: 0,
+  })
+
+  const options = {
+    method: 'post',
+    path: '/v1/messages/count_tokens?beta=true',
+    body: { messages: [{ role: 'user', content: 'hi' }] },
+  } as Parameters<typeof client.buildRequest>[0]
+
+  await client.buildRequest(options)
+
+  expect(options.path).toBe(
+    '/projects/vertex-project/locations/us-east5/publishers/anthropic/models/count-tokens:rawPredict',
+  )
+  expect((options.body as Record<string, unknown>)?.anthropic_version).toBe('vertex-2023-10-16')
+})
+
 test('rejects a message request with a missing/invalid model', async () => {
   const client = new AnthropicVertex({
     region: 'us-east5',
