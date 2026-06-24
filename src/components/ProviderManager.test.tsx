@@ -323,6 +323,10 @@ function mockProviderManagerDependencies(
       authUrl?: string
       browserOpened?: boolean | null
       message?: string
+      submitManualCallback?: (input: string) => {
+        ok: boolean
+        error?: string
+      }
     }
   },
 ): void {
@@ -1501,6 +1505,143 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
   )
 
   await mounted.dispose()
+})
+
+test('ProviderManager Codex OAuth waiting state masks the paste field and delegates a good callback', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  delete process.env.SSH_CONNECTION
+  delete process.env.SSH_CLIENT
+
+  const onDone = mock(() => {})
+  const submitManualCallback = mock((_input: string) => ({ ok: true }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      // Stay in `waiting` (never call onAuthenticated) so the manual-paste UI
+      // renders. The hook returns a spy submitManualCallback.
+      useCodexOAuthFlow: () => ({
+        state: 'waiting',
+        authUrl: 'https://chatgpt.com/codex',
+        browserOpened: true,
+        submitManualCallback,
+      }),
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
+  mounted.stdin.write('\r')
+
+  // Non-SSH session shows the generic "paste the callback URL" hint and the input.
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Callback URL') &&
+      frame.includes('paste the full callback URL'),
+  )
+
+  const callbackUrl =
+    'http://localhost:41100/auth/callback?code=goodsecret&state=s'
+  mounted.stdin.write(callbackUrl)
+  // The pasted secret must be masked — the raw code must never reach the frame.
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => !frame.includes('goodsecret') && frame.includes('Callback URL'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForCondition(() => submitManualCallback.mock.calls.length > 0)
+  expect(submitManualCallback).toHaveBeenCalledWith(callbackUrl)
+  // A successful submit leaves no inline error on screen.
+  expect(
+    stripAnsi(extractLastFrame(mounted.getOutput())),
+  ).not.toContain('State mismatch')
+
+  await mounted.dispose()
+})
+
+test('ProviderManager Codex OAuth waiting state shows the SSH banner and surfaces a bad-callback error', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  process.env.SSH_CONNECTION = '10.0.0.1 22 10.0.0.2 22'
+  delete process.env.SSH_CLIENT
+
+  const onDone = mock(() => {})
+  const submitManualCallback = mock((_input: string) => ({
+    ok: false,
+    error: 'State mismatch',
+  }))
+
+  try {
+    mockProviderManagerDependencies(
+      () => undefined,
+      async () => undefined,
+      {
+        useCodexOAuthFlow: () => ({
+          state: 'waiting',
+          authUrl: 'https://chatgpt.com/codex',
+          browserOpened: true,
+          submitManualCallback,
+        }),
+      },
+    )
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    const mounted = await mountProviderManager(ProviderManager, {
+      mode: 'first-run',
+      onDone,
+    })
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Set up provider') && frame.includes('Codex OAuth'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Codex OAuth')
+    mounted.stdin.write('\r')
+
+    // SSH session shows the dedicated banner instead of the generic hint.
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('SSH session detected') &&
+        frame.includes('Callback URL'),
+    )
+
+    mounted.stdin.write('http://localhost:41100/auth/callback?code=x&state=s')
+    mounted.stdin.write('\r')
+
+    // A rejected callback renders the inline error returned by the hook.
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('State mismatch'),
+    )
+    expect(submitManualCallback).toHaveBeenCalledTimes(1)
+
+    await mounted.dispose()
+  } finally {
+    delete process.env.SSH_CONNECTION
+  }
 })
 
 test('ProviderManager first-run Codex OAuth surfaces credential storage warnings', async () => {
