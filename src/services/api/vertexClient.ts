@@ -248,10 +248,15 @@ export class AnthropicVertex extends BaseAnthropic {
       }
 
       const model = options.body['model']
+      if (typeof model !== 'string' || model.trim() === '') {
+        throw new Error(
+          'Expected `model` to be a non-empty string for post /v1/messages',
+        )
+      }
       delete options.body['model']
       const stream = options.body['stream'] ?? false
       const specifier = stream ? 'streamRawPredict' : 'rawPredict'
-      options.path = `/projects/${this.projectId}/locations/${this.region}/publishers/anthropic/models/${model}:${specifier}`
+      options.path = `/projects/${this.projectId}/locations/${this.region}/publishers/anthropic/models/${encodeURIComponent(model)}:${specifier}`
     }
 
     if (
