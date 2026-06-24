@@ -887,12 +887,12 @@ test('Anthropic model with high CLAUDE_CODE_MAX_OUTPUT_TOKENS still caps at mode
   expect(getMaxOutputTokensForModel('claude-3-opus')).toBe(4_096)
 })
 
-test('modelSupports1M recognizes the current default Opus (4.7) as 1M-capable', () => {
+test('modelSupports1M recognizes the current default Opus (4.8) as 1M-capable', () => {
   const original = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
   delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
   try {
-    // Regression: the firstParty default session model is claude-opus-4-7[1m]
-    // (getDefaultMainLoopModelSetting), so dropping 4.7 here downgrades a 1M
+    // Regression: the firstParty default session model is claude-opus-4-8[1m]
+    // (getDefaultMainLoopModelSetting), so dropping 4.8 here downgrades a 1M
     // session to 200K and trips a spurious "Context limit reached" — exactly
     // what resolveSkillModelOverride relies on this predicate to prevent.
     expect(modelSupports1M('claude-opus-4-8')).toBe(true)
