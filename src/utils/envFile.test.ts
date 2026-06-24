@@ -149,6 +149,21 @@ BAZ=qux
     })
   })
 
+  it('collapses escaped backslashes inside quoted values', () => {
+    // The value content is C:\\Users\\me — escaped backslashes that the
+    // closing-quote scanner already treats as single backslashes, so the
+    // unescaper must collapse them too.
+    const result = parseEnvFile('FOO="C:\\\\Users\\\\me"')
+    expect(result).toEqual({ FOO: 'C:\\Users\\me' })
+  })
+
+  it('keeps lone backslashes in quoted values intact', () => {
+    // A single backslash before an ordinary character is not an escape and
+    // must survive verbatim (e.g. a Windows path written without doubling).
+    const result = parseEnvFile('FOO="C:\\Users\\me"')
+    expect(result).toEqual({ FOO: 'C:\\Users\\me' })
+  })
+
   it('strips inline comments from unquoted values', () => {
     const result = parseEnvFile('FOO=bar # comment\nBAZ=qux')
     expect(result).toEqual({ FOO: 'bar', BAZ: 'qux' })
