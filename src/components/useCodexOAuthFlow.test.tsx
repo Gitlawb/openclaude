@@ -434,9 +434,15 @@ test('exposes submitManualCallback in the waiting state and delegates success an
       }
     | undefined
 
+  // Stable reference: a fresh inline `onAuthenticated` on every render would
+  // re-run the hook's effect each render, restarting the OAuth flow and
+  // looping setStatus → render → setStatus ("Maximum update depth exceeded").
+  // The other tests in this file memoize the callback for the same reason.
+  const onAuthenticated = async (): Promise<void> => {}
+
   function Harness(): React.ReactNode {
     const status = useCodexOAuthFlow({
-      onAuthenticated: async () => {},
+      onAuthenticated,
       deps,
     })
     latestStatus = status as typeof latestStatus
