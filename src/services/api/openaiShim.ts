@@ -2236,6 +2236,10 @@ function convertNonStreamingResponseToAnthropicMessage(
 ) {
   const choice = data.choices?.[0]
   const content: Array<Record<string, unknown>> = []
+  // An empty tool_calls array is still truthy; treat it as "no structured tool
+  // calls" so raw "Tool calls requested" text recovery is not skipped.
+  const hasStructuredToolCalls =
+    (choice?.message?.tool_calls?.length ?? 0) > 0
 
   // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
   // reasoning_content while content stays null. Preserve it as a thinking
@@ -2250,7 +2254,7 @@ function convertNonStreamingResponseToAnthropicMessage(
       : null
   if (typeof rawContent === 'string' && rawContent) {
     const strippedContent = stripThinkTags(rawContent)
-    const rawToolCalls = choice?.message?.tool_calls
+    const rawToolCalls = hasStructuredToolCalls
       ? null
       : parseRawToolCallsRequestedText(strippedContent)
     if (rawToolCalls) {
@@ -2283,7 +2287,7 @@ function convertNonStreamingResponseToAnthropicMessage(
     const joined = parts.join('\n')
     if (joined) {
       const strippedContent = stripThinkTags(joined)
-      const rawToolCalls = choice?.message?.tool_calls
+      const rawToolCalls = hasStructuredToolCalls
         ? null
         : parseRawToolCallsRequestedText(strippedContent)
       if (rawToolCalls) {
@@ -2304,7 +2308,7 @@ function convertNonStreamingResponseToAnthropicMessage(
     }
   }
 
-  if (choice?.message?.tool_calls) {
+  if (hasStructuredToolCalls && choice?.message?.tool_calls) {
     for (const tc of choice.message.tool_calls) {
       const input = normalizeToolArguments(
         tc.function.name,

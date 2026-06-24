@@ -310,12 +310,16 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
-        // OpenCode Go quota exhaustion is also "quota exhausted", but it has a
-        // specific, actionable assistant message (subscribe / reset timing).
-        // Let it fall through to the standard shouldRetry=false terminal path,
-        // which rethrows the original APIError so getAssistantMessageFromError
-        // can surface that message instead of this generic guidance.
-        if (isQuotaExhausted(error) && !isOpenCodeGoQuotaError(error)) {
+        // OpenCode Go quota exhaustion is terminal and carries a specific,
+        // actionable assistant message (subscribe / reset timing). Throw here —
+        // before the fast-mode 429 fallback below — so fast mode can't retry or
+        // cooldown a quota-exhausted subscription. Wrapping the original
+        // APIError preserves the OpenCode Go message via
+        // getAssistantMessageFromError instead of the generic guidance.
+        if (isOpenCodeGoQuotaError(error)) {
+          throw new CannotRetryError(error, retryContext);
+        }
+        if (isQuotaExhausted(error)) {
           throw new CannotRetryError(
             new Error(
               'API quota exhausted or not enabled.\n' +

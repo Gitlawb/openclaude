@@ -76,9 +76,10 @@ async function importFreshWithRetryModule(
     | 'gemini'
     | 'codex'
     | 'foundry' = 'firstParty',
-  options?: {
+  options: {
     logForDebugging?: ReturnType<typeof mock>
-  },
+    forceFastMode?: boolean
+  } = {},
 ) {
   mock.restore()
   originalProvidersModule ??= await importActualProviders()
@@ -99,6 +100,13 @@ async function importFreshWithRetryModule(
     isGithubNativeAnthropicMode: () => false,
     usesAnthropicAccountFlow: () => false,
   }))
+  if (options.forceFastMode) {
+    const realFastMode = await import('../../utils/fastMode.js')
+    mock.module('src/utils/fastMode.js', () => ({
+      ...realFastMode,
+      isFastModeEnabled: () => true,
+    }))
+  }
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -411,6 +419,52 @@ describe('OpenAI-compatible retry classification', () => {
     expect((caught as Error).message).not.toContain(
       'API quota exhausted or not enabled',
     )
+  })
+
+  test('terminates OpenCode Go quota 429 immediately in fast mode (no fast-mode retry/cooldown)', async () => {
+    // Regression for #1749 (CodeRabbit): the OpenCode Go terminal throw must run
+    // BEFORE the fast-mode 429 fallback, otherwise fast mode retries/cooldowns a
+    // quota-exhausted subscription instead of surfacing the quota message.
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai', { forceFastMode: true })
+    const error = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({
+        error: { type: 'GoUsageLimitError', message: 'subscription limit reached' },
+      }),
+      new Headers({
+        'x-opencode-request-url': 'https://opencode.ai/zen/go/v1/messages',
+      }),
+    )
+    let attempts = 0
+
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+            fastMode: true,
+          },
+        ),
+      )
+    } catch (e) {
+      caught = e
+    }
+
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    // Fired exactly once — fast mode did not retry or enter cooldown.
+    expect(attempts).toBe(1)
+    expect((caught as { originalError?: unknown }).originalError).toBe(error)
   })
 
   test('keeps parseable 402 affordability errors on the max_tokens retry path', async () => {

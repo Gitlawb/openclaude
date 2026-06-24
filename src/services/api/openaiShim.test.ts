@@ -9732,21 +9732,27 @@ function makeJsonChatCompletion(body: Record<string, unknown>): Response {
 async function collectFallbackEvents(
   body: Record<string, unknown>,
 ): Promise<Array<Record<string, unknown>>> {
+  const previousFetch = globalThis.fetch
   globalThis.fetch = (async () => makeJsonChatCompletion(body)) as unknown as FetchType
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  const result = await client.beta.messages
-    .create({
-      model: 'fake-model',
-      messages: [{ role: 'user', content: 'hi' }],
-      max_tokens: 64,
-      stream: true,
-    })
-    .withResponse()
-  const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) {
-    events.push(event)
+  try {
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const result = await client.beta.messages
+      .create({
+        model: 'fake-model',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 64,
+        stream: true,
+      })
+      .withResponse()
+    const events: Array<Record<string, unknown>> = []
+    for await (const event of result.data) {
+      events.push(event)
+    }
+    return events
+  } finally {
+    // Restore so the global fetch stub does not leak past this helper.
+    globalThis.fetch = previousFetch
   }
-  return events
 }
 
 test('JSON fallback: preserves tool_calls as a tool_use block', async () => {
@@ -9899,4 +9905,36 @@ test('JSON fallback: recovers raw-text tool call into tool_use block', async () 
     | undefined
   expect(stopEvent?.delta?.stop_reason).toBe('tool_use')
 
+})
+
+test('JSON fallback: empty tool_calls array does not block raw-text recovery', async () => {
+  // tool_calls: [] is truthy; it must be treated as "no structured tool calls"
+  // so the raw "Tool calls requested" recovery still runs.
+  const events = await collectFallbackEvents({
+    id: 'chatcmpl-json-empty-tc',
+    model: 'fake-model',
+    choices: [
+      {
+        message: {
+          role: 'assistant',
+          tool_calls: [],
+          content:
+            'Tool calls requested:\n- Bash({"command":"ls"}) [id: call_empty_tc]',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  })
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call_empty_tc',
+    name: 'Bash',
+  })
 })
