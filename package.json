@@ -1,6 +1,6 @@
 {
-  "name": "@gitlawb/openclaude",
-  "version": "0.20.0",
+  "name": "@onlinechefgroep/openclaude",
+  "version": "0.20.1-fix.1",
   "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
@@ -149,7 +149,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gitlawb/openclaude.git"
+    "url": "github:OnlineChefGroep/openclaude"
   },
   "keywords": [
     "claude-code",
@@ -163,7 +163,7 @@
   ],
   "license": "SEE LICENSE FILE",
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "overrides": {
     "ip-address": "10.2.0",
