@@ -2346,27 +2346,48 @@ class OpenAIShimMessages {
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
 
     if (isGithubWithCodexTransport) {
-      const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
-      if (!apiKey) {
-        throw new Error(
-          'GitHub Copilot auth is required. Run /onboard-github to sign in.',
-        )
-      }
+      let didRefreshCopilotCodexToken = false
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+        if (!apiKey) {
+          throw new Error(
+            'GitHub Copilot auth is required. Run /onboard-github to sign in.',
+          )
+        }
 
-      return performCodexRequest({
-        request,
-        credentials: {
-          apiKey,
-          source: 'env',
-        },
-        params,
-        defaultHeaders: {
-          ...this.defaultHeaders,
-          ...filterAnthropicHeaders(options?.headers),
-          ...COPILOT_HEADERS,
-        },
-        signal: options?.signal,
-      })
+        try {
+          return await performCodexRequest({
+            request,
+            credentials: {
+              apiKey,
+              source: 'env',
+            },
+            params,
+            defaultHeaders: {
+              ...this.defaultHeaders,
+              ...filterAnthropicHeaders(options?.headers),
+              ...COPILOT_HEADERS,
+            },
+            signal: options?.signal,
+          })
+        } catch (error) {
+          if (
+            !didRefreshCopilotCodexToken &&
+            error instanceof APIError &&
+            error.status === 401
+          ) {
+            const lowerMsg = error.message.toLowerCase()
+            if (lowerMsg.includes('token expired') || lowerMsg.includes('token has expired')) {
+              didRefreshCopilotCodexToken = true
+              const refreshed = await refreshCopilotTokenOn401()
+              if (refreshed && process.env.OPENAI_API_KEY?.trim()) {
+                continue
+              }
+            }
+          }
+          throw error
+        }
+      }
     }
 
     if (request.transport === 'codex_responses' && !isGithubMode) {
@@ -3004,8 +3025,9 @@ class OpenAIShimMessages {
       const headers: Record<string, string> = { ...baseHeaders }
       const authValue =
         explicitCustomAuthHeaderValue ||
+        refreshedCopilotToken ||
         credentialLease?.value ||
-        (credentialPool ? '' : refreshedCopilotToken || singleAuthValue)
+        (credentialPool ? '' : singleAuthValue)
 
       if (authValue) {
         if (hasCustomAuthHeader && customAuthHeader) {
