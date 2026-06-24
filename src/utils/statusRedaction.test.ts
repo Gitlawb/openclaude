@@ -7,18 +7,6 @@ import {
 } from '../test/sharedMutationLock.js'
 import { redactPathForStatus, redactUrlForStatus } from './redaction.js'
 
-const REAL_HOMEDIR = homedir()
-const ORIGINAL_HOME = process.env.HOME
-const ORIGINAL_USERPROFILE = process.env.USERPROFILE
-
-function restoreEnvValue(key: 'HOME' | 'USERPROFILE', value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[key]
-  } else {
-    process.env[key] = value
-  }
-}
-
 describe('redactUrlForStatus', () => {
   test('redacts username and password in proxy URLs', () => {
     const redacted = redactUrlForStatus(
@@ -94,33 +82,44 @@ describe('redactUrlForStatus', () => {
 })
 
 describe('redactPathForStatus', () => {
+  let originalHome: string | undefined
+  let originalUserProfile: string | undefined
+  const realHomeDir = homedir()
+
   beforeEach(async () => {
     await acquireSharedMutationLock('utils/statusRedaction.test.ts')
-    process.env.HOME = REAL_HOMEDIR
-    restoreEnvValue('USERPROFILE', ORIGINAL_USERPROFILE)
+    originalHome = process.env.HOME
+    originalUserProfile = process.env.USERPROFILE
+    process.env.HOME = realHomeDir
   })
 
   afterEach(() => {
     try {
-      // Defensive: tests below mutate env. Restore so subsequent suites see
-      // the real environment.
-      restoreEnvValue('HOME', ORIGINAL_HOME)
-      restoreEnvValue('USERPROFILE', ORIGINAL_USERPROFILE)
+      if (originalHome === undefined) {
+        delete process.env.HOME
+      } else {
+        process.env.HOME = originalHome
+      }
+      if (originalUserProfile === undefined) {
+        delete process.env.USERPROFILE
+      } else {
+        process.env.USERPROFILE = originalUserProfile
+      }
     } finally {
       releaseSharedMutationLock()
     }
   })
 
-  test('shortens POSIX home directory paths to ~', () => {
-    process.env.HOME = REAL_HOMEDIR
-    const result = redactPathForStatus(`${REAL_HOMEDIR}/secrets/client.key`)
+  test('shortens home directory paths to ~', () => {
+    process.env.HOME = realHomeDir
+    const result = redactPathForStatus(`${realHomeDir}/secrets/client.key`)
     expect(result).toBe('~/secrets/client.key')
-    expect(result).not.toContain(REAL_HOMEDIR)
+    expect(result).not.toContain(realHomeDir)
   })
 
   test('handles the home directory exactly', () => {
-    process.env.HOME = REAL_HOMEDIR
-    expect(redactPathForStatus(REAL_HOMEDIR)).toBe('~')
+    process.env.HOME = realHomeDir
+    expect(redactPathForStatus(realHomeDir)).toBe('~')
   })
 
   test('redacts via USERPROFILE when HOME does not match (Windows-style)', () => {
@@ -158,17 +157,12 @@ describe('redactPathForStatus', () => {
   })
 
   test('does not redact a path that merely contains "home" as a segment', () => {
-    // E.g. `/opt/home/backup/ca.crt` — substring match must not trigger.
     expect(redactPathForStatus('/opt/home/backup/ca.crt')).toBe(
       '/opt/home/backup/ca.crt',
     )
   })
 
   test('does not redact a sibling directory whose name shares a home prefix', () => {
-    // Regression: `/home/alice2/project` must NOT match `/home/alice`
-    // even though the latter is a string prefix of the former. The
-    // boundary check at redaction.ts requires a `/` (or `\` on
-    // Windows) immediately after the candidate prefix.
     const fakeHome = '/home/alice'
     delete process.env.USERPROFILE
     process.env.HOME = fakeHome
@@ -178,7 +172,6 @@ describe('redactPathForStatus', () => {
     expect(redactPathForStatus('/home/alice.bak/file')).toBe(
       '/home/alice.bak/file',
     )
-    // But the true prefix path still redacts correctly.
     expect(redactPathForStatus('/home/alice/project')).toBe(
       '~/project',
     )

@@ -225,6 +225,15 @@ export function redactSensitiveInfo(text: string): string {
     (_, prefix: string) => `${prefix}[REDACTED]`,
   )
 
+  // Post-processing: GENERIC_HEADER_FIELD_PATTERN excludes `[`, `]`, `)`, `}`
+  // from the capture group to avoid over-redaction, so a value like
+  // `foo[bar]` would match only `foo` and leave `[bar]` exposed.  Absorb
+  // trailing bracket pairs or single bracket chars that immediately follow.
+  redacted = redacted.replace(
+    /\[REDACTED\](?:\[[^\]]*\]|[)\]}])+/g,
+    '[REDACTED]',
+  )
+
   return redacted
 }
 
@@ -247,6 +256,9 @@ export function jsonRedactor(key: string, value: unknown): unknown {
     'outputtokens',
     'cachereadinputtokens',
     'cachecreationinputtokens',
+    'maxtokens',
+    'tokensremaining',
+    'tokencount',
   ]
   if (EXCLUDED_KEYS.includes(normalizedKey)) {
     return value

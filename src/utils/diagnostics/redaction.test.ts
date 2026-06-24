@@ -18,9 +18,17 @@ beforeEach(() => {
     capturedStderr += data
   })
 })
+
+// Module-scope mock so it is registered before any test runs.  When another
+// test file (e.g. sessionTitle.test.ts) imports debug.ts first, the cached
+// module already resolved process.js without the mock.  We use a cache-busting
+// query param for all debug.ts imports below so that a fresh module instance
+// is created and picks up this mock.
 mock.module('../process.js', () => ({
   writeToStderr: writeToStderrMock,
 }))
+
+const DEBUG_CACHE_KEY = 'logForDebugging'
 
 describe('diagnostic redaction', () => {
   test('collects every known provider secret env var from the centralized registry', () => {
@@ -187,19 +195,61 @@ describe('redactSensitiveInfo', () => {
 
     expect(jsonFormatted).toBe('"private_key: [REDACTED]"')
   })
+
+  // Regression: GENERIC_HEADER_FIELD_PATTERN excludes `)`, `}`, `]` from
+  // its value capture group so a value like `abc(def)` would match only
+  // `abc(def` and leave `)` exposed without the post-processing pass.
+  test('redacts values with trailing parens', () => {
+    expect(redactSensitiveInfo('token=abc(def)')).toBe(
+      'token=[REDACTED]',
+    )
+  })
+
+  test('redacts values with trailing braces', () => {
+    expect(redactSensitiveInfo('token=abc{def}')).toBe(
+      'token=[REDACTED]',
+    )
+  })
+
+  test('redacts values with trailing brackets', () => {
+    // Regression: GENERIC_HEADER_FIELD_PATTERN excludes `[` from the value
+    // capture group, so `foo[bar]` would match only `foo` and leak `[bar]`.
+    expect(redactSensitiveInfo('password: foo[bar]')).toBe(
+      'password: [REDACTED]',
+    )
+  })
+
+  test('redacts values with nested trailing parens', () => {
+    expect(redactSensitiveInfo('token=abc(def(ghi))')).toBe(
+      'token=[REDACTED]',
+    )
+  })
 })
 
 describe('logForDebugging', () => {
+  afterAll(() => {
+    // mock.module is process-global in Bun and mock.restore() does not undo
+    // it.  Restore writeToStderr to its real behavior so downstream test
+    // files don't inherit a mock or no-op.
+    mock.module('../process.js', () => ({
+      writeToStderr: (data: string) => {
+        if (!process.stderr.destroyed) process.stderr.write(data)
+      },
+    }))
+  })
+
   beforeAll(async () => {
-    // Dynamic import so mock.module takes effect before debug.ts loads process.js
-    const debug = await import('../debug.js')
+    // Cache-busting query param ensures a fresh module instance even when
+    // another test file already loaded debug.ts before mock.module was
+    // registered (e.g. sessionTitle.test.ts).
+    const debug = await import(`../debug.js?cache=${DEBUG_CACHE_KEY}`)
     debug.setHasFormattedOutput(true)
   })
 
   let originalDebug: string | undefined
   let originalArgv: string[]
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalDebug = process.env.DEBUG
     originalArgv = [...process.argv]
     process.env.DEBUG = '1'
@@ -207,6 +257,15 @@ describe('logForDebugging', () => {
     if (!process.argv.includes('--debug-to-stderr')) {
       process.argv.push('--debug-to-stderr')
     }
+
+    // isDebugMode and isDebugToStdErr are lodash memoize wrappers. If a
+    // previous test file imported debug.ts and called either (e.g. through
+    // shouldLogDebugMessage), the cache already holds `false` for the
+    // earlier env/argv values.  We use the cache-busting key so this import
+    // returns the same fresh instance as beforeAll.
+    const debug = await import(`../debug.js?cache=${DEBUG_CACHE_KEY}`)
+    debug.isDebugMode.cache.clear?.()
+    debug.isDebugToStdErr.cache.clear?.()
   })
 
   afterEach(() => {
@@ -219,7 +278,7 @@ describe('logForDebugging', () => {
   })
 
   test('redacts multiline PEM private key from debug output', async () => {
-    const debug = await import('../debug.js')
+    const debug = await import(`../debug.js?cache=${DEBUG_CACHE_KEY}`)
 
     const multiline = [
       'private_key: -----BEGIN RSA PRIVATE KEY-----',
