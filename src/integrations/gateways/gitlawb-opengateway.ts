@@ -110,6 +110,12 @@ export default defineGateway({
         label: 'Qwen 3.7 Max (via Opengateway)',
         modelDescriptorId: 'qwen3.7-max',
       },
+      {
+        id: 'opengateway-glm-5.2',
+        apiName: 'z-ai/glm-5.2',
+        label: 'GLM 5.2 (via Opengateway)',
+        modelDescriptorId: 'glm-5.2',
+      },
       // OpenRouter :free endpoint — bills $0 and bypasses the gateway credit
       // gate, so it works even with an empty credit balance.
       {
