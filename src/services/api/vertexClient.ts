@@ -22,7 +22,6 @@ type VertexGoogleAuth = {
 }
 
 type AnthropicVertexOptions = Omit<ClientOptions, 'baseURL'> & {
-  accessToken?: string | null
   authClient?: VertexAuthClient
   baseURL?: string | null
   googleAuth?: VertexGoogleAuth
@@ -138,15 +137,13 @@ export class AnthropicVertex extends BaseAnthropic {
   // Re-declare the resource surface that the upstream @anthropic-ai/vertex-sdk
   // client exposed. BaseAnthropic does not declare these, so typed consumers
   // (client.ts, the SDK calling `.messages`) would otherwise lose the types.
-  messages: Resources.Messages
-  beta: Resources.Beta
+  messages: Omit<Resources.Messages, 'batches'>
+  beta: Omit<Resources.Beta, 'messages'> & { messages: Omit<Resources.Beta.Messages, 'batches'> }
   region: string
   projectId: string | null
-  accessToken: string | null
   private readonly authClientPromise: Promise<VertexAuthClient>
 
   constructor({
-    accessToken = null,
     authClient,
     baseURL = readEnv('ANTHROPIC_VERTEX_BASE_URL'),
     googleAuth,
@@ -186,7 +183,6 @@ export class AnthropicVertex extends BaseAnthropic {
     this.beta = makeBetaResource(this)
     this.region = region
     this.projectId = projectId
-    this.accessToken = accessToken
 
     if (authClient && googleAuth) {
       throw new Error(
@@ -260,9 +256,9 @@ export class AnthropicVertex extends BaseAnthropic {
     }
 
     if (
-      options.path === '/v1/messages/count_tokens' ||
-      (options.path === '/v1/messages/count_tokens?beta=true' &&
-        options.method === 'post')
+      options.method === 'post' &&
+      (options.path === '/v1/messages/count_tokens' ||
+        options.path === '/v1/messages/count_tokens?beta=true')
     ) {
       if (!this.projectId) {
         throw new Error(
