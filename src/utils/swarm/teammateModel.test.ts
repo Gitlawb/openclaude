@@ -39,3 +39,12 @@ test('getHardcodedTeammateModelFallback returns the current default Opus (4.8) f
 
   expect(getHardcodedTeammateModelFallback()).toBe('claude-opus-4-8')
 })
+
+test('getHardcodedTeammateModelFallback is provider-aware (Bedrock gets the Opus 4.8 Bedrock id)', async () => {
+  const { getHardcodedTeammateModelFallback } =
+    await importFreshTeammateModelModule('bedrock')
+
+  expect(getHardcodedTeammateModelFallback()).toBe(
+    'us.anthropic.claude-opus-4-8-v1',
+  )
+})
