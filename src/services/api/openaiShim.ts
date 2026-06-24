@@ -118,6 +118,11 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Copilot-Integration-Id': 'vscode-chat',
 }
 
+function isCopilotTokenExpiredError(text: string): boolean {
+  const lower = text.toLowerCase()
+  return lower.includes('token expired') || lower.includes('token has expired')
+}
+
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 }
@@ -2376,8 +2381,7 @@ class OpenAIShimMessages {
             error instanceof APIError &&
             error.status === 401
           ) {
-            const lowerMsg = error.message.toLowerCase()
-            if (lowerMsg.includes('token expired') || lowerMsg.includes('token has expired')) {
+            if (isCopilotTokenExpiredError(error.message)) {
               didRefreshCopilotCodexToken = true
               const refreshed = await refreshCopilotTokenOn401()
               if (refreshed && process.env.OPENAI_API_KEY?.trim()) {
@@ -3479,8 +3483,7 @@ class OpenAIShimMessages {
       // iteration's buildHeadersForAttempt picks it up instead of the stale
       // singleAuthValue captured before the loop.
       if (isGithubCopilot && response.status === 401 && !didRefreshCopilotToken) {
-        const lowerBody = errorBody.toLowerCase()
-        if (lowerBody.includes('token expired') || lowerBody.includes('token has expired')) {
+        if (isCopilotTokenExpiredError(errorBody)) {
           didRefreshCopilotToken = true
           const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
           const refreshed = await refreshCopilotTokenOn401()

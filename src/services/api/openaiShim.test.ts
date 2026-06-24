@@ -7852,3 +7852,226 @@ test('GitHub Copilot 401 codex_responses retries with refreshed token', async ()
     mock.module('./codexShim.js', () => realCodexModule)
   }
 })
+
+test('GitHub Copilot 401 with credential pool uses refreshed token not pool key', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  try {
+    const refreshSpy = mock(async () => {
+      process.env.GITHUB_TOKEN = 'refreshed-token'
+      process.env.OPENAI_API_KEY = 'refreshed-token'
+      return true
+    })
+
+    mock.module('../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    delete process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEYS = 'initial-token,second-key'
+    process.env.GITHUB_TOKEN = 'initial-token'
+
+    let fetchCallCount = 0
+    let usedAuthHeaders: string[] = []
+
+    globalThis.fetch = ((_input, init) => {
+      fetchCallCount++
+      const headers = init?.headers as Record<string, string> | undefined
+      usedAuthHeaders.push(headers?.Authorization ?? '')
+
+      if (fetchCallCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { message: 'token expired' } }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }
+
+      return Promise.resolve(makeChatCompletionResponse('gpt-4'))
+    }) as unknown as typeof globalThis.fetch
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-pool')
+
+    const client = createClient({}) as OpenAIShimClient
+
+    const response = await client.beta.messages.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    })
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1)
+    expect(fetchCallCount).toBe(2)
+    expect(usedAuthHeaders[0]).toBe('Bearer initial-token')
+    expect(usedAuthHeaders[1]).toBe('Bearer refreshed-token')
+    expect(response).toBeDefined()
+  } finally {
+    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
+  }
+})
+
+test('GitHub Copilot 401 with "token has expired" triggers refresh', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  try {
+    const refreshSpy = mock(async () => {
+      process.env.GITHUB_TOKEN = 'refreshed-token'
+      process.env.OPENAI_API_KEY = 'refreshed-token'
+      return true
+    })
+
+    mock.module('../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    process.env.OPENAI_API_KEY = 'initial-token'
+    process.env.GITHUB_TOKEN = 'initial-token'
+
+    let fetchCallCount = 0
+
+    globalThis.fetch = ((_input, init) => {
+      fetchCallCount++
+
+      if (fetchCallCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { message: 'token has expired' } }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+      }
+
+      return Promise.resolve(makeChatCompletionResponse('gpt-4'))
+    }) as unknown as typeof globalThis.fetch
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-has-expired')
+
+    const client = createClient({}) as OpenAIShimClient
+
+    const response = await client.beta.messages.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    })
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1)
+    expect(fetchCallCount).toBe(2)
+    expect(response).toBeDefined()
+  } finally {
+    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
+  }
+})
+
+test('GitHub Copilot 401 without expired-token message does not trigger refresh', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  try {
+    const refreshSpy = mock(async () => true)
+
+    mock.module('../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    process.env.OPENAI_API_KEY = 'initial-token'
+    process.env.GITHUB_TOKEN = 'initial-token'
+
+    let fetchCallCount = 0
+
+    globalThis.fetch = ((_input) => {
+      fetchCallCount++
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { message: 'invalid token' } }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-no-refresh')
+
+    const client = createClient({}) as OpenAIShimClient
+
+    await expect(
+      client.beta.messages.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 32,
+        stream: false,
+      }),
+    ).rejects.toThrow()
+
+    expect(refreshSpy).toHaveBeenCalledTimes(0)
+    expect(fetchCallCount).toBe(1)
+  } finally {
+    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
+  }
+})
+
+test('GitHub Copilot 401 refresh returning same token does not update auth', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  try {
+    const refreshSpy = mock(async () => {
+      process.env.GITHUB_TOKEN = 'initial-token'
+      process.env.OPENAI_API_KEY = 'initial-token'
+      return true
+    })
+
+    mock.module('../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    process.env.OPENAI_API_KEY = 'initial-token'
+    process.env.GITHUB_TOKEN = 'initial-token'
+
+    let fetchCallCount = 0
+    let usedAuthHeaders: string[] = []
+
+    globalThis.fetch = ((_input, init) => {
+      fetchCallCount++
+      const headers = init?.headers as Record<string, string> | undefined
+      usedAuthHeaders.push(headers?.Authorization ?? '')
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { message: 'token expired' } }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-same-token')
+
+    const client = createClient({}) as OpenAIShimClient
+
+    await expect(
+      client.beta.messages.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 32,
+        stream: false,
+      }),
+    ).rejects.toThrow()
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1)
+    expect(fetchCallCount).toBeGreaterThanOrEqual(2)
+    expect(usedAuthHeaders.every(h => h === 'Bearer initial-token')).toBe(true)
+  } finally {
+    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
+  }
+})
