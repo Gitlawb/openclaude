@@ -1,8 +1,18 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+
+// A real path whose parent directory does not exist, so the tool's writeFile()
+// rejects with a genuine ENOENT. Using this instead of mocking the core
+// fs/promises module keeps the write-failure tests isolated — mock.module() on
+// a core module is process-global and can leak into other files.
+function makeUnwritablePlanPath(): string {
+  return join(tmpdir(), `oc-exitplan-missing-${Date.now()}-${Math.random()}`, 'plan.md')
+}
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import {
   setDynamicTeamContext,
@@ -44,7 +54,6 @@ afterAll(async () => {
     // Restore mock modules back to their actual implementations
     mock.module('../../utils/plans.js', () => actualPlans)
     mock.module('../../utils/teammateMailbox.js', () => actualTeammateMailbox)
-    mock.module('fs/promises', () => require('fs/promises'))
   } finally {
     releaseSharedMutationLock()
   }
@@ -65,19 +74,10 @@ function makeCtx() {
 }
 
 test('surfaces write error when plan file write fails and asserts no side effects (standard)', async () => {
-  const simulatedError = new Error('Simulated write failure')
-  const writeFileMock = mock(async () => {
-    throw simulatedError
-  })
-
-  mock.module('fs/promises', () => ({
-    writeFile: writeFileMock,
-  }))
-
   const persistFileSnapshotIfRemoteMock = mock(() => Promise.resolve())
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
-    getPlanFilePath: () => '/tmp/test-plan.md',
+    getPlanFilePath: () => makeUnwritablePlanPath(),
     getPlan: () => 'plan content',
     persistFileSnapshotIfRemote: persistFileSnapshotIfRemoteMock,
   }))
@@ -102,6 +102,8 @@ test('surfaces write error when plan file write fails and asserts no side effect
   )
 
   try {
+    // The real writeFile rejects (ENOENT — parent dir is missing). The tool
+    // must surface that error and run none of the post-write side effects.
     await expect(
       mod.ExitPlanModeV2Tool.call(
         { plan: 'edited plan content' } as never,
@@ -109,33 +111,22 @@ test('surfaces write error when plan file write fails and asserts no side effect
         (() => Promise.resolve({ behavior: 'allow' })) as never,
         {} as never,
       ),
-    ).rejects.toThrow(simulatedError)
+    ).rejects.toThrow()
 
-    expect(writeFileMock).toHaveBeenCalled()
     expect(persistFileSnapshotIfRemoteMock).not.toHaveBeenCalled()
     expect(setAppStateMock).not.toHaveBeenCalled()
   } finally {
     mock.restore()
     clearDynamicTeamContext()
     mock.module('../../utils/plans.js', () => actualPlans)
-    mock.module('fs/promises', () => require('fs/promises'))
   }
 })
 
 test('surfaces write error when plan file write fails and asserts no teammate approval side effects', async () => {
-  const simulatedError = new Error('Simulated write failure')
-  const writeFileMock = mock(async () => {
-    throw simulatedError
-  })
-
-  mock.module('fs/promises', () => ({
-    writeFile: writeFileMock,
-  }))
-
   const persistFileSnapshotIfRemoteMock = mock(() => Promise.resolve())
   mock.module('../../utils/plans.js', () => ({
     ...actualPlans,
-    getPlanFilePath: () => '/tmp/test-plan.md',
+    getPlanFilePath: () => makeUnwritablePlanPath(),
     getPlan: () => 'plan content',
     persistFileSnapshotIfRemote: persistFileSnapshotIfRemoteMock,
   }))
@@ -170,6 +161,8 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
   )
 
   try {
+    // The real writeFile rejects (ENOENT — parent dir is missing). The tool
+    // must surface that error before sending any teammate approval request.
     await expect(
       mod.ExitPlanModeV2Tool.call(
         { plan: 'edited plan content' } as never,
@@ -177,9 +170,8 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
         (() => Promise.resolve({ behavior: 'allow' })) as never,
         {} as never,
       ),
-    ).rejects.toThrow(simulatedError)
+    ).rejects.toThrow()
 
-    expect(writeFileMock).toHaveBeenCalled()
     expect(persistFileSnapshotIfRemoteMock).not.toHaveBeenCalled()
     expect(writeToMailboxMock).not.toHaveBeenCalled()
     expect(setAppStateMock).not.toHaveBeenCalled()
@@ -188,6 +180,5 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
     clearDynamicTeamContext()
     mock.module('../../utils/plans.js', () => actualPlans)
     mock.module('../../utils/teammateMailbox.js', () => actualTeammateMailbox)
-    mock.module('fs/promises', () => require('fs/promises'))
   }
 })

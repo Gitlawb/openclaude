@@ -3,6 +3,7 @@ import type { UUID } from 'crypto';
 import figures from 'figures';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from 'src/context/notifications.js';
+import type { Notification } from 'src/context/notifications.js';
 import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
 import { useAppState, useAppStateStore, useSetAppState } from 'src/state/AppState.js';
@@ -149,6 +150,36 @@ export function autoNameSessionFromPlan(plan: string, setAppState: (updater: (pr
       };
     });
   }).catch(logError);
+}
+/**
+ * @internal Exported for testing. Persists the plan file before exiting plan
+ * mode. Returns true on success. On write failure it logs, queues a
+ * 'plan-save-error' notification, and returns false so the caller stays in
+ * plan mode (does not grant permissions or resolve the tool use).
+ */
+export async function persistPlanFileBeforeExit({
+  planFilePath,
+  currentPlan,
+  addNotification
+}: {
+  planFilePath: string;
+  currentPlan: string;
+  addNotification: (content: Notification) => void;
+}): Promise<boolean> {
+  try {
+    await writeFile(planFilePath, currentPlan, 'utf-8');
+    void persistFileSnapshotIfRemote();
+    return true;
+  } catch (e) {
+    logError(`Failed to save plan file to ${planFilePath}: ${e}`);
+    addNotification({
+      key: 'plan-save-error',
+      text: `Failed to save plan file: ${e instanceof Error ? e.message : String(e)}`,
+      color: 'warning',
+      priority: 'high'
+    });
+    return false;
+  }
 }
 export function ExitPlanModePermissionRequest({
   toolUseConfirm,
@@ -339,19 +370,10 @@ export function ExitPlanModePermissionRequest({
   };
   async function handleResponse(value: ResponseValue): Promise<void> {
     if (value !== 'no' && value !== 'ultraplan' && isV2 && planFilePath) {
-      try {
-        await writeFile(planFilePath, currentPlan, 'utf-8');
-        void persistFileSnapshotIfRemote();
-      } catch (e) {
-        logError(`Failed to save plan file to ${planFilePath}: ${e}`);
-        addNotification({
-          key: 'plan-save-error',
-          text: `Failed to save plan file: ${e instanceof Error ? e.message : String(e)}`,
-          color: 'warning',
-          priority: 'high'
-        });
-        return;
-      }
+      const saved = await persistPlanFileBeforeExit({ planFilePath, currentPlan, addNotification });
+      // Write failed — stay in plan mode rather than granting permissions on a
+      // plan that was never persisted to disk.
+      if (!saved) return;
     }
 
     const trimmedFeedback = planFeedback.trim();
