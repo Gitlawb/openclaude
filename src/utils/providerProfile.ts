@@ -25,6 +25,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   normalizeXiaomiMimoBaseUrl,
+  resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
   maskSecretForDisplay,
@@ -101,12 +102,14 @@ const PROFILE_ENV_KEYS = [
   'BANKR_MODEL',
   'XAI_API_KEY',
   'XAI_CREDENTIAL_SOURCE',
+  'AIMLAPI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
   'OPENCODE_API_KEY',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
 
@@ -178,6 +181,7 @@ export type ProfileEnv = {
   BANKR_MODEL?: string
   XAI_API_KEY?: string
   XAI_CREDENTIAL_SOURCE?: 'oauth'
+  AIMLAPI_API_KEY?: string
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
   ATLAS_CLOUD_API_KEY?: string
@@ -185,6 +189,7 @@ export type ProfileEnv = {
   FIREWORKS_API_KEY?: string
   OPENCODE_API_KEY?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
+  CLAUDE_CODE_PROVIDER_ROUTE_ID?: string
 }
 
 export type ProfileFile = {
@@ -846,12 +851,16 @@ export function buildOpenAIProfileEnv(options: {
     ) ||
     (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
     defaultModel
+  const resolvedBaseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
+    DEFAULT_OPENAI_BASE_URL
 
   return {
-    OPENAI_BASE_URL:
-      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
-      DEFAULT_OPENAI_BASE_URL,
+    ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'aimlapi' && key
+      ? { AIMLAPI_API_KEY: key }
+      : {}),
+    OPENAI_BASE_URL: resolvedBaseUrl,
     OPENAI_MODEL: normalizedModel,
     ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
     ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
@@ -1822,14 +1831,42 @@ export async function buildLaunchEnv(options: {
   // precedence — because dedicatedCredentialsOnly routes ignore
   // OPENAI_API_KEY, so dropping them would leave the relaunched profile
   // unauthenticated.
+  const resolvedOpenAIRouteId = resolveRouteIdFromBaseUrl(env.OPENAI_BASE_URL)
+  const persistedOpenAIRouteId = persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+  const shouldUsePersistedOpenAIRouteId =
+    !resolvedOpenAIRouteId &&
+    !!persistedOpenAIRouteId &&
+    !!persistedOpenAIBaseUrl &&
+    env.OPENAI_BASE_URL === persistedOpenAIBaseUrl
+  const effectiveOpenAIRouteId =
+    resolvedOpenAIRouteId ||
+    (shouldUsePersistedOpenAIRouteId ? persistedOpenAIRouteId : undefined)
+  if (resolvedOpenAIRouteId && resolvedOpenAIRouteId !== 'openai') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = resolvedOpenAIRouteId
+  } else if (shouldUsePersistedOpenAIRouteId && persistedOpenAIRouteId) {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = persistedOpenAIRouteId
+  } else {
+    delete env.CLAUDE_CODE_PROVIDER_ROUTE_ID
+  }
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
+    'AIMLAPI_API_KEY',
     'MIMO_API_KEY',
     'VENICE_API_KEY',
   ] as const) {
+    // AI/ML API accepts the generic OPENAI_API_KEY, so it does not need an
+    // unconditional carry-over. Only mirror AIMLAPI_API_KEY when the launch
+    // actually targets the aimlapi route — otherwise an ambient or persisted
+    // AI/ML key would leak into an unrelated OpenAI-compatible session.
+    if (dedicatedKey === 'AIMLAPI_API_KEY' && effectiveOpenAIRouteId !== 'aimlapi') {
+      continue
+    }
     const dedicatedValue =
+      (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
+        ? sanitizeApiKey(openAICredential.value)
+        : undefined) ||
       sanitizeApiKey(processEnv[dedicatedKey]) ||
       sanitizeApiKey(persistedEnv[dedicatedKey])
     if (dedicatedValue) {

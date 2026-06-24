@@ -52,6 +52,11 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'OPENAI_API_KEYS',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('aimlapi')).toEqual([
+    'AIMLAPI_API_KEY',
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('venice')).toEqual([
     'VENICE_API_KEY',
     'OPENAI_API_KEYS',
@@ -156,6 +161,25 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
 })
 
+test('AI/ML API route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('aimlapi')).toBe('https://api.aimlapi.com/v1')
+  expect(getRouteDefaultModel('aimlapi')).toBe('gpt-4o')
+  expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1')).toBe('aimlapi')
+  expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1/chat/completions')).toBe('aimlapi')
+})
+
+test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'aimlapi',
+      processEnv: {
+        AIMLAPI_API_KEY: 'SUA_CHAVE',
+        OPENAI_API_KEY: 'sk-openai-fallback',
+      },
+    }),
+  ).toBe('sk-openai-fallback')
+})
+
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('xiaomi-mimo')).toBe('https://api.xiaomimimo.com/v1')
   expect(getRouteDefaultModel('xiaomi-mimo')).toBe('mimo-v2.5-pro')
@@ -196,6 +220,22 @@ test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', 
       VENICE_API_KEY: 'venice-key',
     }),
   ).toBe('venice')
+})
+
+test('resolveActiveRouteIdFromEnv treats AI/ML API credential-only env as AI/ML API', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+})
+
+test('resolveActiveRouteIdFromEnv ignores placeholder AI/ML API credential-only env', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      AIMLAPI_API_KEY: 'SUA_CHAVE',
+    }),
+  ).toBe('anthropic')
 })
 
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
@@ -266,6 +306,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8', 'hicap'],
+  ['AI/ML API', 'https://api.aimlapi.com/v1', 'gpt-4o', 'aimlapi'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(

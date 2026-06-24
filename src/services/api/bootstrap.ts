@@ -3,6 +3,7 @@ import isEqual from 'lodash-es/isEqual.js'
 import type { RouteDiscoveryResult } from '../../integrations/discoveryService.js'
 import {
   discoverModelsForRoute,
+  getRouteDiscoveryHeaders,
   resolveDiscoveryRouteIdFromBaseUrl,
 } from '../../integrations/discoveryService.js'
 import {
@@ -10,7 +11,10 @@ import {
   getGateway,
   getVendor,
 } from '../../integrations/index.js'
-import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
+import {
+  getRouteDescriptor,
+  resolveRouteCredentialValue,
+} from '../../integrations/routeMetadata.js'
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from './credentialPool.js'
 import {
   getAnthropicApiKey,
@@ -196,6 +200,19 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
   }
 }
 
+function getSafeBaseUrlForDebug(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    parsed.username = ''
+    parsed.password = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return 'invalid-base-url'
+  }
+}
+
 type FetchLocalOpenAIModelOptionsDeps = {
   discoverModelsForRoute?: typeof discoverModelsForRoute
   getAdditionalModelOptionsCacheScope?: typeof getAdditionalModelOptionsCacheScope
@@ -233,25 +250,42 @@ export async function fetchLocalOpenAIModelOptions(
     ? undefined
     : firstUsableCredential(routeCredential)
 
+  // Routes whose catalog declares a public `/models` (discovery.requiresAuth:
+  // false) must not receive credentials on the background probe: drop the
+  // apiKey and any env-sourced custom headers, keeping only the route's own
+  // attribution headers.
+  const discoveryRequiresAuth =
+    !routeId ||
+    getRouteDescriptor(routeId)?.catalog?.discovery?.requiresAuth !== false
+  const discoveryApiKey = discoveryRequiresAuth ? apiKey : undefined
+  const discoveryHeaders = discoveryRequiresAuth
+    ? parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS)
+    : undefined
+  const fallbackHeaders = routeId
+    ? getRouteDiscoveryHeaders(routeId, { headers: discoveryHeaders })
+    : discoveryHeaders
+
   const discoverModels = deps.discoverModelsForRoute ?? discoverModelsForRoute
   const listModels = deps.listOpenAICompatibleModels ?? listOpenAICompatibleModels
   const discovered = routeId
     ? await discoverModels(routeId, {
         baseUrl,
-        apiKey,
-        headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
+        apiKey: discoveryApiKey,
+        headers: discoveryHeaders,
       })
     : null
   const models =
     getDiscoveredModelApiNames(discovered) ??
     (await listModels({
       baseUrl,
-      apiKey,
-      headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
+      apiKey: discoveryApiKey,
+      headers: fallbackHeaders,
     }))
 
   if (models === null) {
-    logForDebugging('[Bootstrap] Local OpenAI model discovery failed')
+    logForDebugging(
+      `[Bootstrap] OpenAI-compatible model discovery failed for ${getSafeBaseUrlForDebug(baseUrl)}`,
+    )
     return null
   }
 

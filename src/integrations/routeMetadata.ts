@@ -218,7 +218,11 @@ function hasUsableEnvCredentialValue(
     return false
   }
 
-  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+  if (
+    envVar === 'OPENAI_API_KEYS' ||
+    envVar === 'OPENAI_API_KEY' ||
+    envVar === 'AIMLAPI_API_KEY'
+  ) {
     return hasUsableOpenAICredential(value)
   }
   return value.trim() !== ''
@@ -463,6 +467,10 @@ function hasConflictingOpenAIBaseUrlForRoute(
   )
 }
 
+function isAimlapiBaseUrl(baseUrl?: string): boolean {
+  return normalizeHost(baseUrl) === 'api.aimlapi.com'
+}
+
 function hasNoExplicitNonOpenAICompatibleProvider(
   processEnv: NodeJS.ProcessEnv,
 ): boolean {
@@ -474,6 +482,23 @@ function hasNoExplicitNonOpenAICompatibleProvider(
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
+export function hasAimlapiEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasUsableOpenAICredential(processEnv.AIMLAPI_API_KEY) &&
+    !hasAnyUsableOpenAICredential(processEnv) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MIMO_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isAimlapiBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
 }
 
@@ -570,7 +595,15 @@ export function hasFireworksEnvOnlyProviderIntent(
 
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | 'venice' | 'xiaomi-mimo' | 'nearai' | 'fireworks' | null {
+):
+  | 'xai'
+  | 'minimax'
+  | 'aimlapi'
+  | 'venice'
+  | 'xiaomi-mimo'
+  | 'nearai'
+  | 'fireworks'
+  | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
     hasMiniMaxEnvOnlyProviderIntent(processEnv)
@@ -584,6 +617,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
     return 'minimax'
+  }
+
+  if (hasAimlapiEnvOnlyProviderIntent(processEnv)) {
+    return 'aimlapi'
   }
 
   if (hasVeniceEnvOnlyProviderIntent(processEnv)) {

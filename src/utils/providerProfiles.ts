@@ -654,6 +654,9 @@ function isProcessEnvAlignedWithProfile(
         [primaryModel]: profile.maxContextLength,
       })
     : undefined
+  const isAimlapiRoute =
+    profile.provider === 'aimlapi' ||
+    resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
 
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
@@ -682,6 +685,10 @@ function isProcessEnvAlignedWithProfile(
     (isXaiBaseUrl(profile.baseUrl)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
+      : true) &&
+    (isAimlapiRoute
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.AIMLAPI_API_KEY, profile.apiKey)
       : true) &&
     (profile.baseUrl?.toLowerCase().includes('api.venice.ai')
       ? !includeApiKey ||
@@ -807,6 +814,10 @@ export function applyProviderProfileToProcessEnv(
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
       OPENAI_MODEL: primaryModel,
     }
+    const isAimlapiProfile =
+      profile.provider === 'aimlapi' ||
+      route.routeId === 'aimlapi' ||
+      resolveRouteIdFromBaseUrl(profile.baseUrl) === 'aimlapi'
     if (supportsApiFormat && profile.apiFormat) {
       openAIProfileEnv.OPENAI_API_FORMAT = profile.apiFormat
     }
@@ -840,6 +851,9 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'xai' || isXaiBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.XAI_API_KEY = profile.apiKey
       }
+      if (isAimlapiProfile) {
+        openAIProfileEnv.AIMLAPI_API_KEY = profile.apiKey
+      }
       if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
@@ -859,6 +873,14 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'fireworks' || isFireworksBaseUrl(profile.baseUrl)) {
         openAIProfileEnv.FIREWORKS_API_KEY = profile.apiKey
       }
+    }
+    if (isAimlapiProfile) {
+      const ambientOpenAIKey = trimOrUndefined(process.env.OPENAI_API_KEY)
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
+      openAIProfileEnv.OPENAI_API_KEY =
+        openAIProfileEnv.OPENAI_API_KEY ?? ambientOpenAIKey
+      openAIProfileEnv.AIMLAPI_API_KEY =
+        openAIProfileEnv.AIMLAPI_API_KEY ?? ambientOpenAIKey
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
@@ -1097,6 +1119,9 @@ function buildOpenAICompatibleStartupEnv(
   if (isCodexBaseUrl(activeProfile.baseUrl)) {
     return null
   }
+  const isAimlapiProfile =
+    activeProfile.provider === 'aimlapi' ||
+    resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
 
   if (activeProfile.apiKey) {
     const strictEnv = buildOpenAIProfileEnv({
@@ -1112,6 +1137,10 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
+      if (isAimlapiProfile) {
+        strictEnv.AIMLAPI_API_KEY = activeProfile.apiKey
+        strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
+      }
       // Atlas Cloud is dedicatedCredentialsOnly: its route ignores
       // OPENAI_API_KEY, so a generic OpenAI profile pointed at Atlas must
       // persist the dedicated key too or it relaunches unauthenticated.
@@ -1144,6 +1173,9 @@ function buildOpenAICompatibleStartupEnv(
       : {}),
   }
 
+  if (isAimlapiProfile) {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
+  }
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
@@ -1151,6 +1183,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isXaiBaseUrl(activeProfile.baseUrl)) {
       env.XAI_API_KEY = activeProfile.apiKey
+    }
+    if (isAimlapiProfile) {
+      env.AIMLAPI_API_KEY = activeProfile.apiKey
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
       env.VENICE_API_KEY = activeProfile.apiKey

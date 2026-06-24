@@ -21,6 +21,7 @@ const FALLBACK_SECRET_ENV_KEYS: readonly string[] = [
   'MISTRAL_API_KEY',
   'BNKR_API_KEY',
   'XAI_API_KEY',
+  'AIMLAPI_API_KEY',
 ]
 
 function readDescriptorCredentialEnvKeys(): readonly string[] {

@@ -17,6 +17,7 @@ const originalCwd = process.cwd()
 const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'CLAUDE_CONFIG_DIR',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
@@ -62,6 +63,7 @@ const RESTORED_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'AIMLAPI_API_KEY',
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
@@ -275,7 +277,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       'provider_test',
     )
     expect(getFreshAPIProvider()).toBe('openai')
-  })
+  }, 20_000)
 
   test('mistral profile sets CLAUDE_CODE_USE_MISTRAL and clears openai flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -827,6 +829,73 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.FIREWORKS_API_KEY).toBe('fireworks-test-key')
     expect(getFreshAPIProvider()).toBe('openai')
   })
+
+  test('aimlapi profile applies OpenAI-compatible env with AIMLAPI_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-test-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.aimlapi.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_API_KEY).toBe('aimlapi-test-key')
+    expect(process.env.AIMLAPI_API_KEY).toBe('aimlapi-test-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+    expect(getFreshAPIProvider()).toBe('openai')
+  }, 20_000)
+
+  test('keyless custom AIMLAPI profile preserves route identity with ambient OpenAI key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEY = 'ambient-openai-key'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        name: 'AI/ML API Proxy',
+        provider: 'aimlapi',
+        baseUrl: 'https://proxy.example.com/v1',
+        model: 'gpt-4o',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-openai-key')
+    expect(process.env.AIMLAPI_API_KEY).toBe('ambient-openai-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+  }, 20_000)
+
+  test('openai profile on AI/ML API route mirrors AIMLAPI_API_KEY', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-test-key',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.aimlapi.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_API_KEY).toBe('aimlapi-test-key')
+    expect(process.env.AIMLAPI_API_KEY).toBe('aimlapi-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  }, 20_000)
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -1448,6 +1517,31 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(String(process.env.FIREWORKS_API_KEY)).toBe('fireworks-test-key')
   })
 
+  test('re-applies AI/ML API active profile when AIMLAPI_API_KEY is missing (env drift)', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const aimlapiProfile = buildProfile({
+      id: 'saved_aimlapi',
+      provider: 'aimlapi',
+      name: 'AI/ML API',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+      apiKey: 'aimlapi-test-key',
+    })
+    applyProviderProfileToProcessEnv(aimlapiProfile)
+
+    // Simulate relaunch where the shell exported OPENAI vars but not AIMLAPI_API_KEY
+    delete process.env.AIMLAPI_API_KEY
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [aimlapiProfile],
+      activeProviderProfileId: 'saved_aimlapi',
+    } as any)
+
+    expect(applied?.id).toBe('saved_aimlapi')
+    expect(String(process.env.AIMLAPI_API_KEY)).toBe('aimlapi-test-key')
+  })
+
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -1789,6 +1883,20 @@ describe('getProviderPresetDefaults', () => {
     )
     expect(defaults.model).toBe('mimo-v2.5-pro')
     expect(defaults.apiKey).toBe('tp-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('aimlapi preset defaults to the official AI/ML API endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'aimlapi-live-key'
+
+    const defaults = getProviderPresetDefaults('aimlapi')
+
+    expect(defaults.provider).toBe('aimlapi')
+    expect(defaults.name).toBe('AI/ML API')
+    expect(defaults.baseUrl).toBe('https://api.aimlapi.com/v1')
+    expect(defaults.model).toBe('gpt-4o')
+    expect(defaults.apiKey).toBe('aimlapi-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
@@ -2239,6 +2347,177 @@ describe('setActiveProviderProfile', () => {
         OPENAI_API_KEY: 'mimo-test-key',
         MIMO_API_KEY: 'mimo-test-key',
       })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists AI/ML API profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const aimlapiProfile = buildProfile({
+        id: 'aimlapi_prof',
+        name: 'AI/ML API',
+        provider: 'aimlapi',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-test-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [aimlapiProfile],
+      }))
+
+      const result = setActiveProviderProfile('aimlapi_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('aimlapi_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        AIMLAPI_API_KEY: 'aimlapi-test-key',
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+        OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEY: 'aimlapi-test-key',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {},
+      })
+
+      expect(startupEnv.OPENAI_API_KEY).toBe('aimlapi-test-key')
+      expect(startupEnv.AIMLAPI_API_KEY).toBe('aimlapi-test-key')
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('custom (proxy) AI/ML API profiles preserve AIMLAPI startup identity', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const aimlapiProxyProfile = buildProfile({
+        id: 'aimlapi_proxy_prof',
+        name: 'AI/ML API Proxy',
+        provider: 'aimlapi',
+        baseUrl: 'https://proxy.example.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-test-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [aimlapiProxyProfile],
+      }))
+
+      const result = setActiveProviderProfile('aimlapi_proxy_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('aimlapi_proxy_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toMatchObject({
+        AIMLAPI_API_KEY: 'aimlapi-test-key',
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+        OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEY: 'aimlapi-test-key',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {},
+      })
+
+      expect(startupEnv.OPENAI_API_KEY).toBe('aimlapi-test-key')
+      expect(startupEnv.AIMLAPI_API_KEY).toBe('aimlapi-test-key')
+      expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('keyless custom (proxy) AI/ML API profiles preserve AIMLAPI route identity', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const aimlapiProxyProfile = buildProfile({
+        id: 'aimlapi_proxy_prof',
+        name: 'AI/ML API Proxy',
+        provider: 'aimlapi',
+        baseUrl: 'https://proxy.example.com/v1',
+        model: 'gpt-4o',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [aimlapiProxyProfile],
+      }))
+
+      setActiveProviderProfile('aimlapi_proxy_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'aimlapi',
+        OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          AIMLAPI_API_KEY: 'ambient-aimlapi-key',
+        },
+      })
+
+      expect(startupEnv.AIMLAPI_API_KEY).toBe('ambient-aimlapi-key')
+      expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('aimlapi')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
