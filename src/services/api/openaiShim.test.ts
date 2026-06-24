@@ -9716,6 +9716,8 @@ test('GitHub Copilot 401 chat_completions with providerOverride does not trigger
   } finally {
     mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
   }
+})
+
 // --- JSON fallback regression tests (#1749) -------------------------------
 // Some OpenAI-compatible providers ignore `stream: true` and return a full
 // `application/json` chat completion. The fallback inside
@@ -9935,6 +9937,40 @@ test('JSON fallback: empty tool_calls array does not block raw-text recovery', a
   expect(toolStart?.content_block).toMatchObject({
     type: 'tool_use',
     id: 'call_empty_tc',
+    name: 'Bash',
+  })
+})
+
+test('JSON fallback: empty tool_calls does not block raw-text recovery on array content', async () => {
+  // Companion to the string-content case above: the array-content branch must
+  // also treat tool_calls: [] as "no structured tool calls" so raw recovery runs.
+  const events = await collectFallbackEvents({
+    id: 'chatcmpl-json-empty-tc-array',
+    model: 'fake-model',
+    choices: [
+      {
+        message: {
+          role: 'assistant',
+          tool_calls: [],
+          content: [
+            { type: 'text', text: 'Tool calls requested:' },
+            { type: 'text', text: '- Bash({"command":"ls"}) [id: call_empty_tc_arr]' },
+          ],
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  })
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call_empty_tc_arr',
     name: 'Bash',
   })
 })
