@@ -564,7 +564,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
   }
 
-  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
+  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.8 + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
     if (checkSonnet1mAccess()) {
