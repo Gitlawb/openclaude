@@ -89,6 +89,7 @@ import {
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -1011,6 +1012,30 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
  * Anthropic-format BetaRawMessageStreamEvent objects.
  */
 /**
+ * Hard cap on the in-memory SSE buffer for every shim stream parser.
+ * A provider that streams a long event without a delimiter (or sends
+ * an unbounded frame without a trailing newline) would otherwise let
+ * `buffer` grow until the process OOMs. 1MB is well above any legitimate
+ * small enough to fail fast before the runtime is threatened.
+ */
+const SSE_BUFFER_MAX_BYTES = 1_000_000
+
+/**
+ * Append a decoded chunk to the SSE buffer and enforce the size cap.
+ * Centralised so every stream converter (anthropicSsePassthrough,
+ * geminiSseToAnthropic, openaiStreamToAnthropic) shares the same
+ * guard — previously only the OpenAI path was protected.
+ */
+function appendSseChunk(buffer: string, decoded: string): string {
+  const next = buffer + decoded
+  if (next.length > SSE_BUFFER_MAX_BYTES) {
+    throw new Error(
+      'SSE buffer exceeded 1MB — possible missing newline delimiter from provider',
+    )
+  }
+  return next
+}
+/**
  * Passthrough for Anthropic Messages API SSE streams.
  * The response events are already in AnthropicStreamEvent format —
  * we just parse the SSE frames and yield them directly.
@@ -1043,7 +1068,7 @@ async function* anthropicSsePassthrough(
       const { done, value } = await readWithAbort()
       if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
+              buffer = appendSseChunk(buffer, decoder.decode(value, { stream: true }))
       const chunks = buffer.split('\n\n')
       buffer = chunks.pop() ?? ''
 
@@ -1116,7 +1141,7 @@ async function* geminiSseToAnthropic(
       const { done, value } = await readWithAbort()
       if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
+              buffer = appendSseChunk(buffer, decoder.decode(value, { stream: true }))
       const chunks = buffer.split('\n\n')
       buffer = chunks.pop() ?? ''
 
@@ -1433,10 +1458,7 @@ async function* openaiStreamToAnthropic(
       const { done, value } = await readWithTimeout()
       if (done) break
 
-      buffer += decoder.decode(value, { stream: true })
-      if (buffer.length > 1_000_000) {
-        throw new Error('SSE buffer exceeded 1MB — possible missing newline delimiter from provider')
-      }
+        buffer = appendSseChunk(buffer, decoder.decode(value, { stream: true }))
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
 
@@ -1827,11 +1849,13 @@ class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
+    private timeoutMs?: number
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }, timeoutMs?: number) {
     this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
+        this.timeoutMs = timeoutMs
   }
 
   create(
@@ -2620,7 +2644,7 @@ class OpenAIShimMessages {
       method: 'POST' as const,
       headers,
       body: serializedBody,
-      signal: options?.signal,
+      signal: requestSignal,
     })
 
     const maxSelfHealAttempts = isLocal
@@ -2633,7 +2657,7 @@ class OpenAIShimMessages {
       requestUrl: string,
       preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
     ): never => {
-      if (options?.signal?.aborted) {
+      if (requestSignal.aborted) {
         throw error
       }
 
@@ -2709,7 +2733,12 @@ class OpenAIShimMessages {
       : request.baseUrl.includes('anthropic') ? 'anthropic'
       : 'openai'
     const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const { signal: requestSignal, cleanup: cleanupRequestSignal } = createCombinedAbortSignal(
+      options?.signal,
+      { timeoutMs: this.timeoutMs },
+    )
+    try {
+for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         response = await fetchWithProxyRetry(
           requestUrl,
@@ -2717,7 +2746,7 @@ class OpenAIShimMessages {
         )
       } catch (error) {
         const isAbortError =
-          options?.signal?.aborted === true ||
+          requestSignal.aborted === true ||
           (typeof DOMException !== 'undefined' &&
             error instanceof DOMException &&
             error.name === 'AbortError') ||
@@ -2795,7 +2824,7 @@ class OpenAIShimMessages {
               method: 'POST',
               headers,
               body: stableStringifyJson(responsesBody),
-              signal: options?.signal,
+              signal: requestSignal,
             })
           } catch (error) {
             throwClassifiedTransportError(error, responsesUrl)
@@ -2883,6 +2912,9 @@ class OpenAIShimMessages {
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
       new Headers(),
     )
+        } finally {
+    cleanupRequestSignal()
+  }
   }
 
   private _convertNonStreamingResponse(
@@ -3100,7 +3132,7 @@ class OpenAIShimBeta {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
 
   constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
-    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
+    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride, timeoutMs)
     this.reasoningEffort = reasoningEffort
   }
 }
@@ -3118,7 +3150,7 @@ export function createOpenAIShimClient(options: {
 
   const beta = new OpenAIShimBeta({
     ...(options.defaultHeaders ?? {}),
-  }, options.reasoningEffort, options.providerOverride)
+  }, options.reasoningEffort, options.providerOverride, options.timeout)
 
   return {
     beta,
