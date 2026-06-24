@@ -627,7 +627,7 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     // in the transcript the model is about to see. sentSkillNames is
     // process-local, so without this every resume re-announces the same
     // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
-    if (message.attachment.type === 'skill_listing') {
+    if (attachment.type === 'skill_listing') {
       suppressNextSkillListing()
     }
   }
