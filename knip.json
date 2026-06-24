@@ -9,6 +9,7 @@
     "scripts/**/*.ts",
     "bin/openclaude",
     "src/**/*.test.{ts,tsx}",
+    "src/**/*.fixture.ts",
     "src/**/__tests__/**/*.{ts,tsx}",
     "tests/**/*.test.ts"
   ],
