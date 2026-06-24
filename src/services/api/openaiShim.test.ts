@@ -8075,3 +8075,54 @@ test('GitHub Copilot 401 refresh returning same token does not update auth', asy
     mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
   }
 })
+
+test('GitHub Copilot 401 codex_responses with providerOverride does not trigger refresh', async () => {
+  const realGithubModule = realGithubModelsCredentials
+  try {
+    const refreshSpy = mock(async () => {
+      process.env.GITHUB_TOKEN = 'refreshed-token'
+      process.env.OPENAI_API_KEY = 'refreshed-token'
+      return true
+    })
+
+    mock.module('../../utils/githubModelsCredentials.js', () => ({
+      ...realGithubModule,
+      refreshCopilotTokenOn401: refreshSpy,
+    }))
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+    process.env.OPENAI_API_KEY = 'stored-copilot-token'
+    process.env.GITHUB_TOKEN = 'stored-copilot-token'
+
+    // Mock fetch so performCodexRequest gets a 401 response (no codexShim mock needed)
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { message: 'token expired' } }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )) as unknown as typeof globalThis.fetch
+
+    const { createOpenAIShimClient: createClient } =
+      await importFreshOpenAIShim('copilot-401-override-codex')
+
+    // providerOverride.apiKey differs from OPENAI_API_KEY → credential source gate blocks refresh
+    const client = createClient({
+      providerOverride: { model: 'gpt-5', baseURL: 'https://api.githubcopilot.com', apiKey: 'override-token' },
+    }) as OpenAIShimClient
+
+    await expect(
+      client.beta.messages.create({
+        model: 'gpt-5',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 32,
+        stream: false,
+      }),
+    ).rejects.toThrow()
+
+    expect(refreshSpy).toHaveBeenCalledTimes(0)
+  } finally {
+    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
+  }
+})

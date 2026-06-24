@@ -2381,11 +2381,17 @@ class OpenAIShimMessages {
             error instanceof APIError &&
             error.status === 401
           ) {
-            if (isCopilotTokenExpiredError(error.message)) {
+            if (
+              apiKey === (process.env.OPENAI_API_KEY ?? '') &&
+              isCopilotTokenExpiredError(error.message)
+            ) {
               didRefreshCopilotCodexToken = true
               const refreshed = await refreshCopilotTokenOn401()
-              if (refreshed && process.env.OPENAI_API_KEY?.trim()) {
-                continue
+              if (refreshed) {
+                const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
+                if (newApiKey && newApiKey !== apiKey) {
+                  continue
+                }
               }
             }
           }
