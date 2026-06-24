@@ -9,7 +9,13 @@ const originalEnv = { ...process.env }
 const originalPlatform = process.platform
 const mockedClipboardPath = join(process.cwd(), 'openclaude-clipboard.txt')
 
-const generateTempFilePathMock = mock(() => mockedClipboardPath)
+const generateTempFilePathMock = mock(
+  (
+    _prefix?: string,
+    _extension?: string,
+    _options?: { contentHash?: string },
+  ) => mockedClipboardPath,
+)
 
 // Mirrors the execFileNoThrow/execFileNoThrowWithCwd signature so that
 // recorded calls keep usable tuple types ([file, args, options]).
@@ -21,14 +27,65 @@ const execFileNoThrowMock = mock(
   ) => ({ code: 0, stdout: '', stderr: '' }),
 )
 
-function installOscMocks(): void {
+type ExecFileNoThrowModule = typeof import('../../utils/execFileNoThrow.js')
+type TempfileModule = typeof import('../../utils/tempfile.js')
+
+type RealOscModules = {
+  execFileNoThrow: ExecFileNoThrowModule
+  tempfile: TempfileModule
+}
+
+let realOscModules: RealOscModules | undefined
+
+// Bun's mock.module is process-global and cannot be reliably reverted (neither
+// mock.restore() nor a re-register under a different specifier form displaces
+// it). So instead of trying to undo these mocks, gate them: when this suite is
+// not actively running, every mocked export delegates to the real module, so a
+// later suite that imports execFileNoThrow.js / tempfile.js (e.g. via worktree)
+// transparently gets the genuine implementation instead of our stubs.
+let oscMocksActive = false
+
+async function importRealOscModules(): Promise<RealOscModules> {
+  if (realOscModules) return realOscModules
+
+  const cacheKey = `${Date.now()}-${Math.random()}`
+  realOscModules = {
+    execFileNoThrow: (await import(
+      `../../utils/execFileNoThrow.ts?osc-real-${cacheKey}`
+    )) as ExecFileNoThrowModule,
+    tempfile: (await import(
+      `../../utils/tempfile.ts?osc-real-${cacheKey}`
+    )) as TempfileModule,
+  }
+  return realOscModules
+}
+
+// Spread the real surfaces so these mocks keep the full module surface, and
+// gate every overridden export on `oscMocksActive` so they pass through to the
+// real implementation whenever this suite is not the one running.
+function installOscMocks(real: RealOscModules): void {
   mock.module('../../utils/execFileNoThrow.js', () => ({
-    execFileNoThrow: execFileNoThrowMock,
-    execFileNoThrowWithCwd: execFileNoThrowMock,
+    ...real.execFileNoThrow,
+    execFileNoThrow: (...args: Parameters<typeof real.execFileNoThrow.execFileNoThrow>) =>
+      oscMocksActive
+        ? execFileNoThrowMock(...args)
+        : real.execFileNoThrow.execFileNoThrow(...args),
+    execFileNoThrowWithCwd: (
+      ...args: Parameters<typeof real.execFileNoThrow.execFileNoThrowWithCwd>
+    ) =>
+      oscMocksActive
+        ? execFileNoThrowMock(...args)
+        : real.execFileNoThrow.execFileNoThrowWithCwd(...args),
   }))
 
   mock.module('../../utils/tempfile.js', () => ({
-    generateTempFilePath: generateTempFilePathMock,
+    ...real.tempfile,
+    generateTempFilePath: (
+      ...args: Parameters<typeof real.tempfile.generateTempFilePath>
+    ) =>
+      oscMocksActive
+        ? generateTempFilePathMock(...args)
+        : real.tempfile.generateTempFilePath(...args),
   }))
 }
 
@@ -58,7 +115,8 @@ async function waitForExecCall(
 describe('Windows clipboard fallback', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('ink/termio/osc.test.ts')
-    installOscMocks()
+    installOscMocks(await importRealOscModules())
+    oscMocksActive = true
     execFileNoThrowMock.mockClear()
     generateTempFilePathMock.mockClear()
     process.env = { ...originalEnv }
@@ -70,6 +128,7 @@ describe('Windows clipboard fallback', () => {
   afterEach(() => {
     try {
       mock.restore()
+      oscMocksActive = false
       process.env = { ...originalEnv }
       Object.defineProperty(process, 'platform', { value: originalPlatform })
     } finally {
@@ -115,7 +174,8 @@ describe('Windows clipboard fallback', () => {
 describe('clipboard path behavior remains stable', () => {
   beforeEach(async () => {
     await acquireSharedMutationLock('ink/termio/osc.test.ts')
-    installOscMocks()
+    installOscMocks(await importRealOscModules())
+    oscMocksActive = true
     execFileNoThrowMock.mockClear()
     process.env = { ...originalEnv }
     delete process.env['SSH_CONNECTION']
@@ -125,6 +185,7 @@ describe('clipboard path behavior remains stable', () => {
   afterEach(() => {
     try {
       mock.restore()
+      oscMocksActive = false
       process.env = { ...originalEnv }
       Object.defineProperty(process, 'platform', { value: originalPlatform })
     } finally {
