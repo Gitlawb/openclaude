@@ -488,6 +488,14 @@ function parseOpenCodeGoLimitError(
   return null
 }
 
+// True when the error is an OpenCode Go subscription/free quota exhaustion
+// (429 with FreeUsageLimitError / GoUsageLimitError from the opencode.ai Go
+// gateway). Callers use this to keep the specific OpenCode Go assistant
+// message intact instead of clobbering it with the generic quota guard.
+export function isOpenCodeGoQuotaError(error: unknown): boolean {
+  return error instanceof APIError && parseOpenCodeGoLimitError(error) !== null
+}
+
 function formatResetDuration(seconds: number): string {
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
