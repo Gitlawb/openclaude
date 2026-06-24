@@ -6114,6 +6114,41 @@ test('Groq: keeps max_completion_tokens and strips unsupported store', async () 
   expect(requestBody?.store).toBeUndefined()
 })
 
+
+test('Groq: strips reasoning_effort even when compat inference matches the model', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
+  process.env.OPENAI_API_KEY = 'gsk-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-r1-distill-llama-70b',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ reasoningEffort: 'xhigh' }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-r1-distill-llama-70b',
+    system: 'you are groq',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
 test('Moonshot: echoes reasoning_content on assistant tool-call messages', async () => {
   // Regression for: "API Error: 400 {"error":{"message":"thinking is enabled
   // but reasoning_content is missing in assistant tool call message at index

@@ -16,6 +16,7 @@ import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
 import * as actualProviders from './model/providers.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
 import * as actualIntegrations from '../integrations/index.js'
+import * as actualRuntimeMetadata from '../integrations/runtimeMetadata.js'
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
@@ -35,6 +36,7 @@ async function importFreshEffortModule(options: {
   routeId?: string
   catalogEntries?: any[]
   modelDescriptors?: Record<string, any>
+  openaiShimConfig?: any
 }) {
   mock.module('./model/providers.js', () => ({
     ...actualProviders,
@@ -51,8 +53,18 @@ async function importFreshEffortModule(options: {
   mock.module('../integrations/index.js', () => ({
     ...actualIntegrations,
     resolveActiveRouteIdFromEnv: () => options.routeId,
-    getCatalogEntriesForRoute: () => options.catalogEntries ?? [],
+    getCatalogEntriesForRoute: (routeId: string) =>
+      routeId === options.routeId ? (options.catalogEntries ?? []) : [],
     getModel: (id: string) => options.modelDescriptors?.[id],
+  }))
+  mock.module('../integrations/runtimeMetadata.js', () => ({
+    ...actualRuntimeMetadata,
+    resolveOpenAIShimRuntimeContext: () => ({
+      routeId: options.routeId ?? null,
+      descriptor: null,
+      catalogEntry: null,
+      openaiShimConfig: options.openaiShimConfig ?? {},
+    }),
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
@@ -445,4 +457,202 @@ test('toggle reasoning metadata stays non-controllable until toggle serializatio
   expect(modelSupportsWireEffort('toggle-model')).toBe(false)
   expect(getAvailableEffortLevels('toggle-model')).toEqual([])
   expect(resolveAppliedEffort('toggle-model', 'high')).toBeUndefined()
+})
+
+test('compat DeepSeek routes can use /effort without catalog reasoning metadata', async () => {
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'atlas-cloud',
+    catalogEntries: [
+      {
+        id: 'deepseek-ai/deepseek-v3.2',
+        apiName: 'deepseek-ai/deepseek-v3.2',
+        capabilities: { supportsReasoning: true },
+      },
+    ],
+  })
+
+  expect(resolveModelReasoningControl('deepseek-ai/deepseek-v3.2')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'compat',
+    wireFormat: 'deepseek_compatible',
+  })
+  expect(modelSupportsEffort('deepseek-ai/deepseek-v3.2')).toBe(true)
+  expect(modelSupportsWireEffort('deepseek-ai/deepseek-v3.2')).toBe(true)
+  expect(getAvailableEffortLevels('deepseek-ai/deepseek-v3.2')).toEqual([
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+  ])
+  expect(resolveAppliedEffort('deepseek-ai/deepseek-v3.2', 'xhigh')).toBe('xhigh')
+})
+
+test('compat DeepSeek routes stay non-controllable when the runtime shim strips reasoning_effort', async () => {
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'groq',
+    openaiShimConfig: {
+      thinkingRequestFormat: 'deepseek-compatible',
+      removeBodyFields: ['store', 'reasoning_effort'],
+    },
+  })
+
+  expect(resolveModelReasoningControl('deepseek-r1-distill-llama-70b')).toMatchObject({
+    supportsReasoning: false,
+    controllable: false,
+    source: 'none',
+  })
+  expect(modelSupportsEffort('deepseek-r1-distill-llama-70b')).toBe(false)
+  expect(modelSupportsWireEffort('deepseek-r1-distill-llama-70b')).toBe(false)
+  expect(getAvailableEffortLevels('deepseek-r1-distill-llama-70b')).toEqual([])
+  expect(resolveAppliedEffort('deepseek-r1-distill-llama-70b', 'xhigh')).toBeUndefined()
+})
+
+test('compat Z.AI routes expose only verified levels and clamp stale values', async () => {
+  const {
+    getAvailableEffortLevels,
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'zai',
+  })
+
+  expect(resolveModelReasoningControl('glm-5.2')).toMatchObject({
+    controllable: true,
+    source: 'compat',
+    wireFormat: 'zai_compatible',
+    levels: ['high', 'xhigh'],
+  })
+  expect(getAvailableEffortLevels('glm-5.2')).toEqual(['high', 'xhigh'])
+  expect(resolveAppliedEffort('glm-5.2', 'low')).toBe('high')
+  expect(resolveAppliedEffort('glm-5.2', 'xhigh')).toBe('xhigh')
+
+  expect(resolveModelReasoningControl('GLM-5.1')).toMatchObject({
+    controllable: true,
+    source: 'compat',
+    wireFormat: 'zai_compatible',
+    levels: ['high'],
+  })
+  expect(modelSupportsEffort('GLM-5.1')).toBe(true)
+  expect(modelSupportsWireEffort('GLM-5.1')).toBe(true)
+  expect(resolveAppliedEffort('GLM-5.1', 'xhigh')).toBe('high')
+})
+
+test('provider override support context ignores ambient catalog metadata', async () => {
+  const { modelSupportsShimReasoningEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+    routeId: 'custom-gateway',
+    catalogEntries: [
+      {
+        id: 'gpt-5.4',
+        apiName: 'gpt-5.4',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'always-on',
+          wireFormat: 'none',
+        },
+      },
+    ],
+  })
+
+  expect(modelSupportsShimReasoningEffort(
+    'gpt-5.4',
+    undefined,
+    undefined,
+    { routeId: 'openai', useRuntimeFallback: false },
+  )).toBe(true)
+})
+test('OpenAI shim reasoning request plan centralizes DeepSeek and Z.AI serialization', async () => {
+  const { resolveOpenAIShimReasoningRequestPlan } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'deepseek-v4-pro',
+    requestedEffort: 'xhigh',
+    requestThinkingType: 'enabled',
+    thinkingRequestFormat: 'deepseek-compatible',
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'max',
+    wireFormat: 'deepseek_compatible',
+    source: 'compat',
+  })
+
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'glm-5.2',
+    requestedEffort: 'xhigh',
+    thinkingRequestFormat: 'zai-compatible',
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'max',
+    wireFormat: 'zai_compatible',
+    source: 'compat',
+  })
+
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'GLM-5.1',
+    requestedEffort: 'high',
+    thinkingRequestFormat: 'zai-compatible',
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: undefined,
+    wireFormat: 'zai_compatible',
+    source: 'compat',
+  })
+})
+
+test('explicit non-generic metadata wire formats stay non-controllable until planner support exists', async () => {
+  const {
+    modelSupportsEffort,
+    modelSupportsWireEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'custom-gateway',
+    catalogEntries: [
+      {
+        id: 'custom-deepseek-model',
+        apiName: 'custom-deepseek-model',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['high', 'xhigh'],
+          wireFormat: 'deepseek_compatible',
+        },
+      },
+    ],
+  })
+
+  expect(resolveModelReasoningControl('custom-deepseek-model')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'metadata',
+    wireFormat: 'deepseek_compatible',
+  })
+  expect(modelSupportsEffort('custom-deepseek-model')).toBe(false)
+  expect(modelSupportsWireEffort('custom-deepseek-model')).toBe(false)
 })

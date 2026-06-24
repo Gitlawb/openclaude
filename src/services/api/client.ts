@@ -12,6 +12,7 @@ import {
 import {
   convertEffortValueToLevel,
   type EffortValue,
+  modelSupportsShimReasoningEffort,
   modelSupportsWireEffort,
   standardEffortToOpenAI,
   type OpenAIEffortLevel,
@@ -45,6 +46,7 @@ import {
   getXiaomiMimoBaseUrlOverride,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
+import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
   shouldUseFirstPartyAnthropicAuth,
   type ProviderOverride,
@@ -331,8 +333,30 @@ export async function getAnthropicClient({
   // Convert the runtime effort value to the OpenAI-shaped enum the shim
   // expects. Undefined → shim falls back to descriptor/alias defaults.
   const effortModel = providerOverride?.model ?? model
+  const providerOverrideRuntimeContext = providerOverride && effortModel
+    ? resolveOpenAIShimRuntimeContext({
+      processEnv: process.env,
+      baseUrl: providerOverride.baseURL,
+      model: effortModel,
+      preferBaseUrlRoute: true,
+    })
+    : undefined
+  const providerOverrideShimConfig = providerOverrideRuntimeContext?.openaiShimConfig
+  const supportsShimReasoningEffort = effortModel
+    ? providerOverrideShimConfig
+      ? modelSupportsShimReasoningEffort(
+        effortModel,
+        providerOverrideShimConfig.thinkingRequestFormat,
+        providerOverrideShimConfig.removeBodyFields,
+        {
+          routeId: providerOverrideRuntimeContext?.routeId,
+          useRuntimeFallback: false,
+        },
+      )
+      : modelSupportsWireEffort(effortModel)
+    : false
   const shimReasoningEffort: OpenAIEffortLevel | undefined =
-    effortValue !== undefined && effortModel && modelSupportsWireEffort(effortModel)
+    effortValue !== undefined && supportsShimReasoningEffort
       ? standardEffortToOpenAI(convertEffortValueToLevel(effortValue))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID

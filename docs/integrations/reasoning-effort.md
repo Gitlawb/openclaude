@@ -35,6 +35,8 @@ The `/effort` resolver is intentionally conservative:
 
 This means existing OpenAI, Codex, Claude, Gemini, and configured 3P override behavior remains active, while catalogs can safely mark models with `supportsReasoning` before their exact request shape has been audited.
 
+A temporary compatibility layer also preserves verified request shaping that existed before per-model `reasoning` metadata. For example, DeepSeek-compatible routes can still map `/effort xhigh` to provider `reasoning_effort: "max"`, and Z.AI GLM routes can still map supported controls through their `thinking` request shape. These compatibility rules are intentionally centralized in the effort resolver so they can be removed as catalogs gain explicit `reasoning` metadata.
+
 ## Provider and Gateway Rules
 
 Annotate reasoning per exact model on the route where it was verified. Aggregating gateways must not add reasoning controls at the provider level because different upstream models accept different parameters and levels.

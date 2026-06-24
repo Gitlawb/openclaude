@@ -38,6 +38,7 @@ import {
 } from '../../utils/codexCredentials.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
+import { resolveOpenAIShimReasoningRequestPlan } from '../../utils/effort.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
@@ -207,36 +208,6 @@ function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
   } catch {
     return false
   }
-}
-
-function normalizeDeepSeekReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
-): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
-}
-
-function normalizeZaiReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
-): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
-}
-
-function supportsZaiReasoningEffort(model: string | undefined): boolean {
-  const normalized = model?.trim().split('?', 1)[0]?.trim().toLowerCase()
-  return normalized === 'glm-5.2'
-}
-
-function normalizeThinkingType(
-  value: string | undefined,
-): 'enabled' | 'disabled' | undefined {
-  const normalized = value?.trim().toLowerCase()
-  if (normalized === 'disabled') {
-    return 'disabled'
-  }
-  if (normalized === 'enabled' || normalized === 'adaptive') {
-    return 'enabled'
-  }
-  return undefined
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -2439,6 +2410,7 @@ class OpenAIShimMessages {
       baseUrl: request.baseUrl,
       model: request.resolvedModel,
       treatAsLocal: isLocalProviderUrl(request.baseUrl),
+      preferBaseUrlRoute: Boolean(this.providerOverride),
     })
     const shimConfig = runtimeShimContext.openaiShimConfig
     // When endpointPath is overridden, the body format must match the target
@@ -2462,6 +2434,14 @@ class OpenAIShimMessages {
       ),
     })
 
+    const reasoningRequestPlan = resolveOpenAIShimReasoningRequestPlan({
+      model: request.resolvedModel,
+      requestedEffort: request.reasoning?.effort,
+      requestThinkingType: (params.thinking as { type?: string } | undefined)?.type,
+      defaultThinkingType: request.thinking?.type,
+      thinkingRequestFormat: shimConfig.thinkingRequestFormat,
+    })
+
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
       messages: openaiMessages,
@@ -2472,8 +2452,8 @@ class OpenAIShimMessages {
      // request carries a reasoning effort (set via /effort, model alias default,
      // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
      // most OpenAI-compatible endpoints read it from this top-level field.
-    if (request.reasoning) {
-      body.reasoning_effort = request.reasoning.effort
+    if (reasoningRequestPlan.wireFormat === 'reasoning_effort' && reasoningRequestPlan.reasoningEffort) {
+      body.reasoning_effort = reasoningRequestPlan.reasoningEffort
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
@@ -2527,48 +2507,32 @@ class OpenAIShimMessages {
     if (params.temperature !== undefined) body.temperature = params.temperature
     if (params.top_p !== undefined) body.top_p = params.top_p
 
-    if (shimConfig.thinkingRequestFormat === 'deepseek-compatible') {
-      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
-      const deepSeekThinkingType =
-        normalizeThinkingType(requestedThinkingType)
-
-      if (deepSeekThinkingType) {
-        body.thinking = { type: deepSeekThinkingType }
+    if (reasoningRequestPlan.wireFormat === 'deepseek_compatible') {
+      if (reasoningRequestPlan.thinkingType) {
+        body.thinking = { type: reasoningRequestPlan.thinkingType }
       }
-
-      if (deepSeekThinkingType === 'enabled') {
-        const effort = request.reasoning?.effort
-        if (effort) {
-          body.reasoning_effort = normalizeDeepSeekReasoningEffort(effort)
-        }
+      if (reasoningRequestPlan.reasoningEffort) {
+        body.reasoning_effort = reasoningRequestPlan.reasoningEffort
       }
     }
 
-    if (shimConfig.thinkingRequestFormat === 'zai-compatible') {
-      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
-      const zaiThinkingType =
-        normalizeThinkingType(requestedThinkingType) ??
-        normalizeThinkingType(request.thinking?.type)
-      const zaiSupportsReasoningEffort = supportsZaiReasoningEffort(
-        request.resolvedModel,
-      )
-
-      if (zaiThinkingType === 'disabled') {
-        body.thinking = { type: 'disabled' }
+    if (reasoningRequestPlan.wireFormat === 'zai_compatible') {
+      if (reasoningRequestPlan.thinkingType) {
+        body.thinking = { type: reasoningRequestPlan.thinkingType }
+      }
+      if (reasoningRequestPlan.thinkingType === 'disabled') {
         delete body.reasoning_effort
-      } else if (zaiThinkingType === 'enabled' || request.reasoning?.effort) {
-        body.thinking = { type: 'enabled' }
+      } else if (reasoningRequestPlan.reasoningEffort) {
+        body.reasoning_effort = reasoningRequestPlan.reasoningEffort
+      } else {
+        delete body.reasoning_effort
       }
+    }
 
-      if (zaiThinkingType !== 'disabled' && request.reasoning?.effort) {
-        if (zaiSupportsReasoningEffort) {
-          body.reasoning_effort = normalizeZaiReasoningEffort(
-            request.reasoning.effort,
-          )
-        } else {
-          delete body.reasoning_effort
-        }
-      }
+    // Route/model strip rules are authoritative even when compatibility
+    // serializers add provider-specific reasoning fields later in the pipeline.
+    for (const field of shimConfig.removeBodyFields ?? []) {
+      delete body[field]
     }
 
     if (params.tools && params.tools.length > 0) {
