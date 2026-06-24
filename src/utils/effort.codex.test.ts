@@ -10,13 +10,17 @@ import {
 // downstream tests that load it via openaiShim/client/codexShim crash with
 // "Export named 'X' not found in module".
 import * as actualAuth from './auth.js'
-import * as actualProviderConfig from '../services/api/providerConfig.js'
 import * as actualThinking from './thinking.js'
 import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
-import * as actualProviders from './model/providers.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
-import * as actualIntegrations from '../integrations/index.js'
-import * as actualRuntimeMetadata from '../integrations/runtimeMetadata.js'
+
+function restoreMockedModulesToActual(): void {
+  mock.module('./model/modelSupportOverrides.js', () => actualModelSupportOverrides)
+  mock.module('./auth.js', () => actualAuth)
+  mock.module('./thinking.js', () => actualThinking)
+  mock.module('src/services/analytics/growthbook.js', () => actualGrowthbook)
+}
+
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
@@ -25,6 +29,7 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    restoreMockedModulesToActual()
   } finally {
     releaseSharedMutationLock()
   }
@@ -38,33 +43,9 @@ async function importFreshEffortModule(options: {
   modelDescriptors?: Record<string, any>
   openaiShimConfig?: any
 }) {
-  mock.module('./model/providers.js', () => ({
-    ...actualProviders,
-    getAPIProvider: () => options.provider,
-  }))
   mock.module('./model/modelSupportOverrides.js', () => ({
     ...actualModelSupportOverrides,
     get3PModelCapabilityOverride: () => undefined,
-  }))
-  mock.module('../services/api/providerConfig.js', () => ({
-    ...actualProviderConfig,
-    supportsCodexReasoningEffort: () => options.supportsCodexReasoningEffort,
-  }))
-  mock.module('../integrations/index.js', () => ({
-    ...actualIntegrations,
-    resolveActiveRouteIdFromEnv: () => options.routeId,
-    getCatalogEntriesForRoute: (routeId: string) =>
-      routeId === options.routeId ? (options.catalogEntries ?? []) : [],
-    getModel: (id: string) => options.modelDescriptors?.[id],
-  }))
-  mock.module('../integrations/runtimeMetadata.js', () => ({
-    ...actualRuntimeMetadata,
-    resolveOpenAIShimRuntimeContext: () => ({
-      routeId: options.routeId ?? null,
-      descriptor: null,
-      catalogEntry: null,
-      openaiShimConfig: options.openaiShimConfig ?? {},
-    }),
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
@@ -82,7 +63,54 @@ async function importFreshEffortModule(options: {
       fallback,
   }))
 
-  return import(`./effort.js?ts=${Date.now()}-${Math.random()}`)
+  const effort = await import(`./effort.js?ts=${Date.now()}-${Math.random()}`)
+  const reasoningContext = (
+    options.provider !== undefined ||
+    options.supportsCodexReasoningEffort !== undefined ||
+    options.routeId !== undefined ||
+    options.catalogEntries !== undefined ||
+    options.modelDescriptors !== undefined ||
+    options.openaiShimConfig !== undefined
+  )
+    ? {
+        apiProvider: options.provider,
+        supportsCodexReasoningEffort: options.supportsCodexReasoningEffort,
+        routeId: options.routeId,
+        catalogEntries: options.catalogEntries,
+        modelDescriptors: options.modelDescriptors,
+        openaiShimConfig: options.openaiShimConfig,
+      }
+    : undefined
+
+  return {
+    ...effort,
+    resolveModelReasoningControl: (model: string) =>
+      effort.resolveModelReasoningControl(model, reasoningContext),
+    modelSupportsEffort: (model: string) =>
+      effort.modelSupportsEffort(model, reasoningContext),
+    modelSupportsWireEffort: (model: string) =>
+      effort.modelSupportsWireEffort(model, reasoningContext),
+    getAvailableEffortLevels: (model: string) =>
+      effort.getAvailableEffortLevels(model, reasoningContext),
+    modelUsesOpenAIEffort: (model: string) =>
+      effort.modelUsesOpenAIEffort(model, reasoningContext),
+    getDefaultEffortForModel: (model: string) =>
+      effort.getDefaultEffortForModel(model, reasoningContext),
+    resolveAppliedEffort: (model: string, appStateEffortValue: unknown) =>
+      effort.resolveAppliedEffort(model, appStateEffortValue, reasoningContext),
+    modelSupportsShimReasoningEffort: (
+      model: string,
+      thinkingRequestFormat?: unknown,
+      removeBodyFields?: string[],
+      context?: unknown,
+    ) =>
+      effort.modelSupportsShimReasoningEffort(
+        model,
+        thinkingRequestFormat,
+        removeBodyFields,
+        context ?? reasoningContext,
+      ),
+  }
 }
 
 test('gpt-5.4 on the ChatGPT Codex backend supports effort selection', async () => {
