@@ -1,15 +1,26 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import * as realIndexModule from './index.js'
 
 const mockPush = mock<(state: any) => Promise<any>>()
 
 let resolvePush: (() => void) | null = null
 
-mock.module('./index.js', () => ({
-  createSyncState: () => ({ lastKnownChecksum: null, serverChecksums: new Map(), serverMaxEntries: null }),
-  pushTeamMemory: mockPush,
-  pullTeamMemory: async () => ({ success: true, filesWritten: 0, entryCount: 0 }),
-  isTeamMemorySyncAvailable: () => true,
-}))
+// Snapshot the real ./index.js exports before mock.module() overrides them.
+// bun's mock.module() is process-global and mock.restore() does NOT undo it
+// (see spawnCtxAgent.test.ts / compact.test.ts), so we (re)register the mock in
+// beforeEach and restore the real module in afterEach. That keeps the mock live
+// for every test here while ensuring it does not silently bleed into any future
+// test file that imports teamMemorySync/index.
+const realIndex = { ...realIndexModule }
+
+function installIndexMock(): void {
+  mock.module('./index.js', () => ({
+    createSyncState: () => ({ lastKnownChecksum: null, serverChecksums: new Map(), serverMaxEntries: null }),
+    pushTeamMemory: mockPush,
+    pullTeamMemory: async () => ({ success: true, filesWritten: 0, entryCount: 0 }),
+    isTeamMemorySyncAvailable: () => true,
+  }))
+}
 
 type WatcherModule = typeof import('./watcher.js')
 let mod: WatcherModule
@@ -19,6 +30,10 @@ async function freshMod(): Promise<WatcherModule> {
   m._resetWatcherStateForTesting({ syncState: { lastKnownChecksum: null, serverChecksums: new Map(), serverMaxEntries: null } })
   return m
 }
+
+beforeEach(() => {
+  installIndexMock()
+})
 
 afterEach(async () => {
   if (resolvePush) {
@@ -40,6 +55,8 @@ afterEach(async () => {
   }
   resolvePush = null
   mockPush.mockReset()
+  // Restore the real module so the global mock does not bleed into other files.
+  mock.module('./index.js', () => realIndex)
 })
 
 function hangPush(): void {
@@ -71,7 +88,11 @@ describe('rescheduleCount behavior', () => {
     mod._resetWatcherStateForTesting()
   })
 
-  test('resets to 0 when executePush completes', async () => {
+  // executePush() does not own the rescheduleCount reset — that lives in
+  // onDebounceFire() (covered above) and _resetWatcherStateForTesting(). This
+  // test only asserts what executePush() actually guarantees: pushInProgress
+  // returns to false once the push settles.
+  test('clears pushInProgress when executePush completes', async () => {
     mod = await freshMod()
     hangPush()
 
@@ -82,7 +103,43 @@ describe('rescheduleCount behavior', () => {
     await mod._test.currentPushPromise
 
     expect(mod._test.pushInProgress).toBe(false)
-    expect(mod._test.rescheduleCount).toBe(0)
+  })
+
+  test('skips the capped follow-up push when suppression is set mid-flight', async () => {
+    mod = await freshMod()
+    let callCount = 0
+    let resolveFirst!: (v: unknown) => void
+    mockPush.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        return new Promise(resolve => {
+          resolveFirst = resolve
+          resolvePush = () => resolve({ success: true, filesUploaded: 0 })
+        })
+      }
+      return Promise.resolve({ success: true, filesUploaded: 0 })
+    })
+
+    // First push in flight, then drive past the reschedule cap so onDebounceFire
+    // queues a serialized follow-up executePush().
+    mod._test.currentPushPromise = mod._test.executePush()
+    expect(mod._test.pushInProgress).toBe(true)
+    for (let i = 0; i <= mod._test.MAX_RESCHEDULE_ATTEMPTS; i++) {
+      mod._test.onDebounceFire()
+    }
+    expect(callCount).toBe(1)
+    expect(mod._test.isFollowUpQueued).toBe(true)
+
+    // A permanent failure suppresses pushes while the first one is still in
+    // flight. The queued follow-up must not fire a second, identical call.
+    mod._test.pushSuppressedReason = 'no_oauth'
+
+    resolveFirst({ success: true, filesUploaded: 0 })
+    await mod._test.currentPushPromise
+
+    expect(callCount).toBe(1)
+
+    mod._test.pushSuppressedReason = null
   })
 
   test('capped reschedule chains follow-up push after in-flight push completes', async () => {

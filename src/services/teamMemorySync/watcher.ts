@@ -147,6 +147,11 @@ function onDebounceFire(): void {
         const nextPromise = (currentPushPromise ?? Promise.resolve())
           .then(() => {
             isFollowUpQueued = false
+            // If a permanent failure set suppression while the in-flight push
+            // was running, skip this queued follow-up: re-reading disk and
+            // re-uploading would just repeat the same failing call.
+            // schedulePush already short-circuits on suppression; mirror it.
+            if (pushSuppressedReason !== null) return
             return executePush()
           })
           .finally(() => {
@@ -433,6 +438,8 @@ export const _test = {
   get currentPushPromise(): Promise<void> | null { return currentPushPromise },
   set currentPushPromise(v: Promise<void> | null) { currentPushPromise = v },
   get hasPendingChanges(): boolean { return hasPendingChanges },
+  get pushSuppressedReason(): string | null { return pushSuppressedReason },
+  set pushSuppressedReason(v: string | null) { pushSuppressedReason = v },
   schedulePush,
   onDebounceFire,
   executePush,
