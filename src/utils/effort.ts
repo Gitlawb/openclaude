@@ -592,7 +592,8 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
     const shouldEnableThinking = thinkingType === 'enabled' || options.requestedEffort !== undefined
     const metadataZaiSupportsReasoningEffort =
       metadataWireFormat === 'zai_compatible' &&
-      (options.reasoningControl?.levels.includes('xhigh') ||
+      (options.reasoningControl?.levels.includes('high') ||
+        options.reasoningControl?.levels.includes('xhigh') ||
         options.reasoningControl?.levels.includes('max') ||
         options.reasoningControl?.levels.includes('medium') ||
         options.reasoningControl?.levels.includes('low'))

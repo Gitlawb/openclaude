@@ -673,6 +673,16 @@ test('explicit compat metadata wire formats are controllable and feed the reques
           wireFormat: 'deepseek_compatible',
         },
       },
+      {
+        id: 'custom-zai-high-only',
+        apiName: 'custom-zai-high-only',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['high'],
+          wireFormat: 'zai_compatible',
+        },
+      },
     ],
   })
 
@@ -694,6 +704,27 @@ test('explicit compat metadata wire formats are controllable and feed the reques
     thinkingType: 'enabled',
     reasoningEffort: 'max',
     wireFormat: 'deepseek_compatible',
+    source: 'metadata',
+  })
+
+  const zaiReasoningControl = resolveModelReasoningControl('custom-zai-high-only')
+  expect(zaiReasoningControl).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    wireFormat: 'zai_compatible',
+    levels: ['high'],
+  })
+  expect(modelSupportsEffort('custom-zai-high-only')).toBe(true)
+  expect(modelSupportsWireEffort('custom-zai-high-only')).toBe(true)
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-zai-high-only',
+    requestedEffort: 'high',
+    reasoningControl: zaiReasoningControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'high',
+    wireFormat: 'zai_compatible',
     source: 'metadata',
   })
 })
