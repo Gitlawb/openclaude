@@ -223,12 +223,12 @@ test('Cloudflare Workers AI route only matches api.cloudflare.com, not the share
     resolveRouteIdFromBaseUrl(
       'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/anthropic',
     ),
-  ).not.toBe('cloudflare')
+  ).toBe(null)
   expect(
     resolveRouteIdFromBaseUrl(
       'https://gateway.ai.cloudflare.com/v1/acc-123/my-gw/openai',
     ),
-  ).not.toBe('cloudflare')
+  ).toBe(null)
 })
 
 test('Xiaomi MiMo route metadata uses official OpenAI-compatible defaults', () => {
