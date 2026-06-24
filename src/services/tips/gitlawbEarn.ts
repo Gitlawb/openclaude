@@ -52,11 +52,21 @@ export function resetEarningCadenceForTesting(): void {
   pickCounter = 0
 }
 
-function renderEarningTip(body: string, ctx: TipContext, earning: boolean): string {
+function renderEarningTip(
+  body: string,
+  ctx: TipContext,
+  earning: boolean,
+  ad?: { name?: string; link?: string },
+): string {
   const green = color('success', ctx.theme)
   const label = earning ? 'Sponsored +credits' : 'Sponsored'
-  const badge = green(`${label} · ${GITLAWB.name}`)
-  const url = GITLAWB.url ? ` ${chalk.dim(GITLAWB.url)}` : ''
+  // Attribute to the real advertiser and point at the ad's click URL (the
+  // partner's tracker — that's what records the click and pays us). Fall back to
+  // Gitlawb only for the static no-ad line.
+  const sponsor = ad?.name?.trim() || GITLAWB.name
+  const badge = green(`${label} · ${sponsor}`)
+  const linkUrl = ad?.link?.trim() || GITLAWB.url
+  const url = linkUrl ? ` ${chalk.dim(linkUrl)}` : ''
   return `${badge} — ${green(body)}${url}`
 }
 
@@ -96,7 +106,7 @@ export function buildEarningTip(): Tip {
       }, delay)
       ;(timer as { unref?: () => void }).unref?.()
 
-      return renderEarningTip(tip.text, ctx, true)
+      return renderEarningTip(tip.text, ctx, true, { name: tip.name, link: tip.link })
     },
   }
 }
