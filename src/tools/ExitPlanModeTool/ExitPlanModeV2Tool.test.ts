@@ -111,7 +111,9 @@ test('surfaces write error when plan file write fails and asserts no side effect
         (() => Promise.resolve({ behavior: 'allow' })) as never,
         {} as never,
       ),
-    ).rejects.toThrow()
+      // Assert the specific ENOENT write failure (missing parent dir) rather
+      // than any error, so the test locks in the intended failure behavior.
+    ).rejects.toThrow(/ENOENT/)
 
     expect(persistFileSnapshotIfRemoteMock).not.toHaveBeenCalled()
     expect(setAppStateMock).not.toHaveBeenCalled()
@@ -170,7 +172,9 @@ test('surfaces write error when plan file write fails and asserts no teammate ap
         (() => Promise.resolve({ behavior: 'allow' })) as never,
         {} as never,
       ),
-    ).rejects.toThrow()
+      // Assert the specific ENOENT write failure (missing parent dir) rather
+      // than any error, so the test locks in the intended failure behavior.
+    ).rejects.toThrow(/ENOENT/)
 
     expect(persistFileSnapshotIfRemoteMock).not.toHaveBeenCalled()
     expect(writeToMailboxMock).not.toHaveBeenCalled()
