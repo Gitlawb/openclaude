@@ -189,10 +189,9 @@ export function logError(error: unknown): void {
     // Always add to in-memory log (no dependencies needed)
     addToInMemoryErrorLog(errorInfo)
 
-    // Sanitize error message in-place instead of creating a new Error,
-    // so downstream sinks still see the original error name, cause, and
-    // any custom properties.
-    err.message = sanitizedErrorStr
+    // Sanitize error message and stack separately so err.message doesn't
+    // get replaced with the full stack trace when err.stack is present.
+    err.message = redactSensitiveInfo(err.message)
     if (err.stack) {
       err.stack = redactSensitiveInfo(err.stack)
     }

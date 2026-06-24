@@ -1,4 +1,5 @@
 import {
+  afterAll,
   afterEach,
   beforeEach,
   describe,
@@ -35,6 +36,10 @@ mock.module('./channelAllowlist.js', () => ({
     return false
   },
 }))
+
+afterAll(() => {
+  mock.restore()
+})
 
 function cap(extra: Record<string, unknown> = {}): ServerCapabilities {
   return {

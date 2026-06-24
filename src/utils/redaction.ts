@@ -537,7 +537,7 @@ export function redactHomePath(
   const normalizedHome = homeDir.replace(/[/\\]+$/, '')
   if (!normalizedHome) return value
   return value.replace(
-    new RegExp(`${escapeRegExp(normalizedHome)}(?=$|[/\\\\])`, 'g'),
+    new RegExp(`${escapeRegExp(normalizedHome)}(?=$|[/\\\\])`, 'gi'),
     '~',
   )
 }

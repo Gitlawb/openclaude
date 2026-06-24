@@ -245,9 +245,10 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   }
 
   // --dangerously-load-development-channels confirmation. On accept, append
-  // dev channels to any --channels list already set in main.tsx. Org policy
-  // is NOT bypassed — gateChannelServer() still runs; this flag only exists
-  // to sidestep the --channels approved-server allowlist.
+  // dev channels to any --channels list already set in main.tsx. The OAuth
+  // and org-policy gates were removed from gateChannelServer(), so this flag
+  // is the only barrier for non-allowlisted server entries — gateChannelServer
+  // still runs the allowlist check for each entry.
   if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
     // gateChannelServer and ChannelsNotice read tengu_harbor after this
     // function returns. A cold disk cache (fresh install, or first run after

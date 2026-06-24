@@ -13,8 +13,9 @@
  * remote user — the model doesn't have to infer the convention.
  *
  * feature('KAIROS') || feature('KAIROS_CHANNELS') (replaced with true in
- * OpenClaude build). Runtime gate via isChannelsEnabled() — always true
- * in OpenClaude. No OAuth or org policy requirement.
+ * OpenClaude build). Runtime gate via isChannelsEnabled() — still reads the
+ * tengu_harbor feature gate and can return false. No OAuth or org policy
+ * requirement.
  *
  * OpenClaude: allowlisted plugins (telegram, discord, imessage, fakechat)
  * pass the allowlist check automatically when listed via --channels.
@@ -261,7 +262,8 @@ export function gateChannelServer(
   // Overall runtime gate. After capability so normal MCP servers never hit
   // this path. Before auth/policy so the killswitch works regardless of
   // session state.
-  // OpenClaude: isChannelsEnabled() now always returns true (no GrowthBook).
+  // isChannelsEnabled() reads the tengu_harbor feature gate and can return
+  // false (e.g. cold disk cache on first run).
   if (!isChannelsEnabled()) {
     return {
       action: 'skip',
