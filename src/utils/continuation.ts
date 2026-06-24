@@ -5,28 +5,98 @@ import { tokenCountWithEstimation } from './tokens.js'
  * but stopped (potentially due to truncation or missed tool calls).
  */
 
-export const CONTINUATION_SIGNALS = [
-  // English: Action-transition phrases (requires intent + action)
-  /\bso now (i|let me|we) (need to|have to|should|must|will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|start|begin|apply|identify|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize)\b/i,
-  /\bnow i('ll| will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|go|proceed|start|begin|apply|identify|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize)\b/i,
-  /\bi (will|shall|now|need to|have to|must|should) (now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|go|proceed|start|begin|apply|identify|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize)\b/i,
-  /\blet me (go ahead and |now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|proceed|start|begin|apply|update|create|identify|inspect|analyze|review|search|summarize|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize)\b/i,
-  /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build|get started|begin|start|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize)\b/i,
-  /\b(moving on to|next step is to|starting to|proceeding to|continuing with|applying (the|these) changes|creating|writing|editing|updating|fixing|implementing|adding|running|checking|making|building|starting|beginning|going|proceeding|identifying|inspecting|analyzing|reviewing|searching|processing|downloading|uploading|converting|compiling|training|evaluating|testing|continuing|generating|summarizing|extracting|merging|deploying|installing|configuring|refactoring|optimizing|doing)\b/i,
-  // French: Support for common continuation phrasing (relaxed boundaries for accents and apostrophes)
-  /(^|\s)(je passe (à|au)|ensuite|l'étape suivante est de|je continue avec|au suivant|passons à|je reviens vers vous|je suis en train d'|je vais maintenant)(\s|$|[a-zà-ÿ])/i,
-  /(^|\s)(je (vais|dois|dois maintenant|vais maintenant) (faire|créer|écrire|modifier|ajouter|tester|vérifier|lancer|exécuter|procéder|démarrer|commencer|identifier|analyser|inspecter|revoir|chercher))(\s|$|[a-zà-ÿ])/i,
-  /(^|\s)((lancement|exécution|vérification|modification|mise à jour|analyse|inspection|recherche) de)(\s|$|[a-zà-ÿ])/i,
-  // Universal: Sentence ending with a colon indicates intent to list/act
-  /:\s*$/,
-  // Universal: Open task marker indicates pending work
-  /◻/,
-  // Imperative/declarative patterns (no subject required — handles cases like
-  // "Need to process files", "Now create files", "Next I process files")
-  /\bneed to (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|start|begin|go|proceed|apply|identify|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize|summarize)\b/i,
-  /\bnow (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|start|begin|go|proceed|apply|identify|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize|summarize)\b(?!\s+you\b)/i,
-  /\bnext (i|we)\s+(need to|will|shall|should|must)?\s*(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|start|begin|go|proceed|apply|identify|inspect|analyze|review|search|process|download|upload|convert|compile|train|evaluate|test|continue|generate|extract|merge|deploy|install|configure|refactor|optimize|summarize)\b/i,
-]
+// Shared verb list used across all continuation patterns.
+// Build regexes from this array so maintenance stays in one place.
+const ACTION_VERBS = [
+  'do',
+  'create',
+  'write',
+  'edit',
+  'update',
+  'fix',
+  'implement',
+  'add',
+  'run',
+  'check',
+  'make',
+  'build',
+  'set up',
+  'start',
+  'begin',
+  'go',
+  'proceed',
+  'apply',
+  'identify',
+  'inspect',
+  'analyze',
+  'review',
+  'search',
+  'process',
+  'download',
+  'upload',
+  'convert',
+  'compile',
+  'train',
+  'evaluate',
+  'test',
+  'continue',
+  'generate',
+  'extract',
+  'merge',
+  'deploy',
+  'install',
+  'configure',
+  'refactor',
+  'optimize',
+  'summarize',
+] as const
+
+// Base verb alternatives used across most regexes (no "summarize" in older patterns, but harmless)
+const VERB_ALT = ACTION_VERBS.join('|')
+
+// Gerund forms for progressive/participle patterns
+const VERB_ING = ACTION_VERBS.map(v => {
+  // Handle special cases: "set up" -> "setting up", "do" -> "doing"
+  if (v === 'set up') return 'setting up'
+  if (v === 'do') return 'doing'
+  if (v === 'go') return 'going'
+  if (v === 'run') return 'running'
+  if (v === 'begin') return 'beginning'
+  if (v === 'make') return 'making'
+  if (v === 'write') return 'writing'
+  if (v === 'take') return 'taking'
+  // Default: add -ing
+  return v.replace(/e$/, '') + 'ing'
+}).join('|')
+
+// Build continuation-signal regexes from the shared verb list.
+// (Using function to keep construction readable.)
+function buildContinuationSignals(): RegExp[] {
+  const v = VERB_ALT
+  return [
+    // English: Action-transition phrases (requires intent + action)
+    new RegExp(`\\bso now (i|let me|we) (need to|have to|should|must|will) (${v})\\b`, 'i'),
+    new RegExp(`\\bnow i('ll| will) (${v})\\b`, 'i'),
+    new RegExp(`\\bi (will|shall|now|need to|have to|must|should) (now )?(${v})\\b`, 'i'),
+    new RegExp(`\\blet me (go ahead and |now )?(${v})\\b`, 'i'),
+    new RegExp(`\\btime to (do|${v.replace(/^do\|/, '')}|get started|begin|start)\\b`, 'i'),
+    new RegExp(`\\b(moving on to|next step is to|starting to|proceeding to|continuing with|applying (the|these) changes|${VERB_ING})\\b`, 'i'),
+    // French: Support for common continuation phrasing (relaxed boundaries for accents and apostrophes)
+    /(^|\s)(je passe (à|au)|ensuite|l'étape suivante est de|je continue avec|au suivant|passons à|je reviens vers vous|je suis en train d'|je vais maintenant)(\s|$|[a-zà-ÿ])/i,
+    /(^|\s)(je (vais|dois|dois maintenant|vais maintenant) (faire|créer|écrire|modifier|ajouter|tester|vérifier|lancer|exécuter|procéder|démarrer|commencer|identifier|analyser|inspecter|revoir|chercher))(\s|$|[a-zà-ÿ])/i,
+    /(^|\s)((lancement|exécution|vérification|modification|mise à jour|analyse|inspection|recherche) de)(\s|$|[a-zà-ÿ])/i,
+    // Universal: Sentence ending with a colon indicates intent to list/act
+    /:\s*$/,
+    // Universal: Open task marker indicates pending work
+    /◻/,
+    // Imperative/declarative patterns (no subject required)
+    new RegExp(`\\bneed to (${v})\\b`, 'i'),
+    new RegExp(`\\bnow (${v})\\b(?!\\s+you\\b)`, 'i'),
+    new RegExp(`\\bnext (i|we)\\s+(need to|will|shall|should|must)?\\s*(${v})\\b`, 'i'),
+  ]
+}
+
+export const CONTINUATION_SIGNALS = buildContinuationSignals()
 
 export const COMPLETION_MARKERS = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if|no issues|lgtm)\b/i
 
@@ -106,7 +176,7 @@ export function analyzeContinuationIntent(
     if (hasTerminalPunctuation) {
       const strongIntent = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|continuing with|proceeding to|next step is to)\b/i.test(lowerText) || 
                            /je suis en train d'/i.test(lowerText) || /◻/.test(lastText)
-      const presentProgressive = /\bnow \w+ing\b/i.test(lateText)
+      const presentProgressive = new RegExp(`\\bnow (?:${VERB_ING})\\b`, 'i').test(lateText)
       const endsWithColon = /:\s*$/.test(lastText)
       if (strongIntent || endsWithColon || presentProgressive) {
         return { shouldNudge: true, reason: 'continuation_signal' }

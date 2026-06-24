@@ -145,6 +145,115 @@ describe('Agent loop continuation nudge', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Fix 3b: Expanded continuation coverage (PR #1713 review feedback)
+// ---------------------------------------------------------------------------
+describe('Expanded continuation coverage', () => {
+  test('newly added verbs trigger continuation', async () => {
+    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+
+    // Verbs added in the PR: process, download, compile, train, evaluate, etc.
+    expect(analyzeContinuationIntent("Now I will process the data").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Let me download the file").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Time to compile the source").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("I need to train the model").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("So now I will evaluate the results").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Now I'll test the endpoint").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Let me extract the archive").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("I will merge the changes").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Time to deploy to production").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Now I will install the package").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("I need to configure the server").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Let me refactor this component").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Time to optimize the query").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Now I will upload the artifact").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("I need to convert the format").shouldNudge).toBe(true)
+  })
+
+  test('imperative / declarative patterns trigger continuation', async () => {
+    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+
+    // "Need to ..." pattern
+    expect(analyzeContinuationIntent("Need to update the config").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Need to process these files").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Need to deploy the changes").shouldNudge).toBe(true)
+
+    // "Now ..." pattern (without subject)
+    expect(analyzeContinuationIntent("Now create the component").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Now run the tests").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Now compile everything").shouldNudge).toBe(true)
+
+    // "Now ..." should NOT match "Now you ..." (excluded by negative lookahead)
+    expect(analyzeContinuationIntent("Now you can run the app").shouldNudge).toBe(false)
+
+    // "Next I/We ..." pattern
+    expect(analyzeContinuationIntent("Next I will fix the bug").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Next we need to add tests").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Next I should deploy").shouldNudge).toBe(true)
+  })
+
+  test('present-progressive fallback triggers continuation', async () => {
+    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+
+    // "now processing", "now compiling", "now deploying" with restricted verb list
+    expect(analyzeContinuationIntent("Task done. Now processing the next batch.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Finished step 1. Now compiling the assets.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Complete. Now deploying to staging.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("All set. Now testing the endpoint.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Done. Now installing dependencies.").shouldNudge).toBe(true)
+
+    // Should NOT match passive/non-action ing-words (regression guard for review feedback)
+    expect(analyzeContinuationIntent("Now being processed by the system").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("Now waiting for user input").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("Now having some issues").shouldNudge).toBe(false)
+  })
+
+  test('completion marker correctly suppressed by nearby continuation signal', async () => {
+    const { analyzeContinuationIntent } = await import('../utils/continuation.js')
+
+    // "complete" appears mid-sentence before continuation signal — should nudge
+    expect(analyzeContinuationIntent("The download is complete. Now processing the files.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("The analysis is done. Let me update the report.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Compilation finished. Now deploying the build.").shouldNudge).toBe(true)
+
+    // "done" at the very end without continuation signal — no nudge
+    expect(analyzeContinuationIntent("All tests pass. Task done.").shouldNudge).toBe(false)
+    expect(analyzeContinuationIntent("The implementation is complete.").shouldNudge).toBe(false)
+  })
+
+  test('shared verb list in continuation.ts avoids duplication', async () => {
+    const content = await file('utils/continuation.ts').text()
+
+    // Should have ACTION_VERBS array and build regexes from it
+    expect(content).toContain('ACTION_VERBS')
+    expect(content).toContain('buildContinuationSignals')
+    expect(content).toContain('VERB_ALT')
+    expect(content).toContain('VERB_ING')
+
+    // The verb list should appear only once as an array definition,
+    // not repeated across multiple inline regexes
+    const verbDeclarations = content.match(/ACTION_VERBS\s*=\s*\[/g)
+    expect(verbDeclarations).toHaveLength(1)
+  })
+})
+
+describe('MAX_CONTINUATION_NUDGES limit', () => {
+  test('MAX_CONTINUATION_NUDGES is set to 20', async () => {
+    const content = await file('query.ts').text()
+
+    const match = content.match(/MAX_CONTINUATION_NUDGES\s*=\s*(\d+)/)
+    expect(match).not.toBeNull()
+    expect(Number(match![1])).toBe(20)
+  })
+
+  test('nudge count is compared to MAX_CONTINUATION_NUDGES', async () => {
+    const content = await file('query.ts').text()
+
+    // The guard must exist: continuationNudgeCount < MAX_CONTINUATION_NUDGES
+    expect(content).toContain('continuationNudgeCount < MAX_CONTINUATION_NUDGES')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Fix 4: Web search result count improvements
 // ---------------------------------------------------------------------------
 describe('Web search result count improvements', () => {
