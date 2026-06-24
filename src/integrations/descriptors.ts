@@ -57,6 +57,11 @@ export interface CapabilityFlags {
 
 export type ReasoningControlMode = 'levels' | 'toggle' | 'always-on'
 export type ReasoningEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/**
+ * reasoning_effort, deepseek_compatible, and zai_compatible are wired into
+ * request serialization today. Other values are reserved until their serializer
+ * paths are implemented.
+ */
 export type ReasoningWireFormat =
   | 'reasoning_effort'
   | 'reasoning_object'

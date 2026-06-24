@@ -683,6 +683,26 @@ test('explicit compat metadata wire formats are controllable and feed the reques
           wireFormat: 'zai_compatible',
         },
       },
+      {
+        id: 'custom-zai-low-only',
+        apiName: 'custom-zai-low-only',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low'],
+          wireFormat: 'zai_compatible',
+        },
+      },
+      {
+        id: 'custom-deepseek-low-only',
+        apiName: 'custom-deepseek-low-only',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low'],
+          wireFormat: 'deepseek_compatible',
+        },
+      },
     ],
   })
 
@@ -727,4 +747,24 @@ test('explicit compat metadata wire formats are controllable and feed the reques
     wireFormat: 'zai_compatible',
     source: 'metadata',
   })
+
+  expect(resolveModelReasoningControl('custom-zai-low-only')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'metadata',
+    wireFormat: 'zai_compatible',
+    levels: [],
+  })
+  expect(modelSupportsEffort('custom-zai-low-only')).toBe(false)
+  expect(modelSupportsWireEffort('custom-zai-low-only')).toBe(false)
+
+  expect(resolveModelReasoningControl('custom-deepseek-low-only')).toMatchObject({
+    supportsReasoning: true,
+    controllable: false,
+    source: 'metadata',
+    wireFormat: 'deepseek_compatible',
+    levels: [],
+  })
+  expect(modelSupportsEffort('custom-deepseek-low-only')).toBe(false)
+  expect(modelSupportsWireEffort('custom-deepseek-low-only')).toBe(false)
 })

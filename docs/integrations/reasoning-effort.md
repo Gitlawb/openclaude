@@ -16,8 +16,6 @@ reasoning: {
   defaultLevel?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   wireFormat?:
     | 'reasoning_effort'
-    | 'reasoning_object'
-    | 'thinking_type'
     | 'deepseek_compatible'
     | 'zai_compatible'
     | 'none'
@@ -45,6 +43,10 @@ Annotate reasoning per exact model on the route where it was verified. Aggregati
 Prefer catalog-entry metadata when a gateway route differs from the canonical model descriptor. For example, a model may support reasoning directly from its vendor but reject `reasoning_effort` through a gateway.
 
 Use `mode: 'always-on'` with `wireFormat: 'none'` for models that emit reasoning but do not have a verified control parameter on that route.
+
+Currently wired metadata formats are `reasoning_effort`, `deepseek_compatible`, and `zai_compatible`. The descriptor type also reserves `reasoning_object` and `thinking_type`, but those formats are not request-plumbed yet and should not be used to enable `/effort`.
+
+For `deepseek_compatible` and `zai_compatible`, metadata levels must be limited to `high` and/or `xhigh`. These serializers emit provider `high` for `high` and provider `max` for `xhigh`; they cannot faithfully represent `low`, `medium`, or standard `max` as distinct UI levels.
 
 ## Adding Support
 

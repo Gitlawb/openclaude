@@ -80,6 +80,7 @@ export type ReasoningControlContext = OpenAIShimReasoningSupportContext & {
 
 const DEFAULT_REASONING_LEVELS: EffortLevel[] = ['low', 'medium', 'high']
 const OPENAI_SHIM_COMPAT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh']
+const OPENAI_SHIM_METADATA_COMPAT_LEVELS: EffortLevel[] = ['high', 'xhigh']
 
 function getReasoningApiProvider(
   context?: ReasoningControlContext,
@@ -109,6 +110,17 @@ function normalizeReasoningLevels(
     isSupportedEffortLevel,
   )
   return normalized.length > 0 ? normalized : [...DEFAULT_REASONING_LEVELS]
+}
+
+function normalizeMetadataReasoningLevels(
+  wireFormat: ReasoningWireFormat | undefined,
+  levels: ReasoningControlMetadata['levels'] | undefined,
+): EffortLevel[] {
+  const normalized = normalizeReasoningLevels(levels)
+  if (wireFormat === 'deepseek_compatible' || wireFormat === 'zai_compatible') {
+    return normalized.filter(level => OPENAI_SHIM_METADATA_COMPAT_LEVELS.includes(level))
+  }
+  return normalized
 }
 
 function normalizeReasoningDefaultLevel(
@@ -346,10 +358,10 @@ function resolveMetadataReasoningControl(
         }
   }
 
-  const levels = reasoning.mode === 'levels'
-    ? normalizeReasoningLevels(reasoning.levels)
-    : []
   const wireFormat = reasoning.wireFormat
+  const levels = reasoning.mode === 'levels'
+    ? normalizeMetadataReasoningLevels(wireFormat, reasoning.levels)
+    : []
   const controllable = Boolean(
     capabilities?.supportsReasoning !== false &&
     metadataWireFormatSupportsEffort(wireFormat) &&
@@ -512,6 +524,13 @@ export function modelSupportsShimReasoningEffort(
   }
 
   if (context?.useRuntimeFallback === false) {
+    if (
+      context.routeId == null &&
+      thinkingRequestFormat === undefined &&
+      !removeBodyFields?.includes('reasoning_effort')
+    ) {
+      return resolveLegacyReasoningControl(model, context).controllable
+    }
     return false
   }
 
@@ -593,10 +612,7 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
     const metadataZaiSupportsReasoningEffort =
       metadataWireFormat === 'zai_compatible' &&
       (options.reasoningControl?.levels.includes('high') ||
-        options.reasoningControl?.levels.includes('xhigh') ||
-        options.reasoningControl?.levels.includes('max') ||
-        options.reasoningControl?.levels.includes('medium') ||
-        options.reasoningControl?.levels.includes('low'))
+        options.reasoningControl?.levels.includes('xhigh'))
     const reasoningEffort = options.requestedEffort &&
       (metadataZaiSupportsReasoningEffort || (
         metadataWireFormat !== 'zai_compatible' &&
