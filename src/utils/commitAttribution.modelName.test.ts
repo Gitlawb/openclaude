@@ -9,6 +9,7 @@ test('sanitizeModelName maps Opus 4.8 and 4.7 to their public names', () => {
   expect(sanitizeModelName('claude-opus-4-8')).toBe('claude-opus-4-8')
   expect(sanitizeModelName('claude-opus-4-8[1m]')).toBe('claude-opus-4-8')
   expect(sanitizeModelName('claude-opus-4-7')).toBe('claude-opus-4-7')
+  expect(sanitizeModelName('claude-opus-4-7[1m]')).toBe('claude-opus-4-7')
   // Existing families still resolve correctly.
   expect(sanitizeModelName('claude-opus-4-6')).toBe('claude-opus-4-6')
   // A genuinely unknown opus-4 variant still falls back to the family name.
