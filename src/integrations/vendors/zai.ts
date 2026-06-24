@@ -62,10 +62,10 @@ export default defineVendor({
         modelDescriptorId: 'GLM-5.1',
       },
       {
-        id: 'GLM-5-Turbo',
-        apiName: 'GLM-5-Turbo',
+        id: 'glm-5-turbo',
+        apiName: 'glm-5-turbo',
         label: 'GLM-5-Turbo',
-        modelDescriptorId: 'GLM-5-Turbo',
+        modelDescriptorId: 'glm-5-turbo',
       },
       {
         id: 'GLM-4.7',
