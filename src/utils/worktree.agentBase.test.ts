@@ -1,40 +1,23 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { expect, test } from 'bun:test'
 import { execFileSync } from 'child_process'
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import {
-  acquireSharedMutationLock,
-  releaseSharedMutationLock,
-} from '../test/sharedMutationLock.js'
-import {
-  getClaudeConfigHomeDir,
-  setClaudeConfigHomeDirForTesting,
-} from './envUtils.js'
 
 // Regression for #1586 — an agent worktree (isolation: "worktree") must be
 // based on the parent session's current HEAD, not origin/<defaultBranch>.
 // Otherwise the isolated agent sees an older tree and misses files that only
 // exist on the active branch.
 //
-// The parent cwd is passed explicitly (createAgentWorktree's `cwd` option)
-// rather than via the ambient getCwd(): bun runs test files concurrently in
-// one process and a sibling test mutates the global cwd state, which would
-// otherwise race this test.
-//
-// Isolation: bun's mock.module is process-global, so a neighboring suite that
-// mocks './execFileNoThrow.js' (used by worktree.ts to shell out to git) could
-// otherwise bind into this test. We hold the shared mutation lock for the whole
-// test so we never run interleaved with those suites, and import the worktree
-// module only after the lock is held — via a cache-busted dynamic import — so
-// the binding is resolved against the real module, never a leaked mock.
-async function importCreateAgentWorktree() {
-  const mod = await import(`./worktree.js?ts=${Date.now()}-${Math.random()}`)
-  return mod.createAgentWorktree
-}
-
-let repoDir: string
-let cfgDir: string
+// createAgentWorktree shells out to git via execFileNoThrow.js. That module is
+// mocked process-globally by several other suites, and Bun's `mock.module`
+// cannot be reliably reverted once leaked, so importing worktree.ts into this
+// shared test process makes the test hostage to suite ordering (it would fail
+// with "not in a git repository" when a sibling's stub leaks in). Instead we
+// run the actual createAgentWorktree call in a clean child process
+// (worktree.agentBase.fixture.ts), which loads only the real modules. The git
+// repo setup and all assertions use real git directly here, which no mock can
+// touch.
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -50,66 +33,75 @@ function git(cwd: string, ...args: string[]): string {
   }).trim()
 }
 
-beforeEach(async () => {
-  await acquireSharedMutationLock('utils/worktree.agentBase.test.ts')
+const FIXTURE = join(import.meta.dir, 'worktree.agentBase.fixture.ts')
 
-  cfgDir = mkdtempSync(join(tmpdir(), 'openclaude-wt-cfg-'))
-  setClaudeConfigHomeDirForTesting(cfgDir)
-  getClaudeConfigHomeDir.cache?.clear?.()
+function runCreateAgentWorktree(
+  cfgDir: string,
+  repoDir: string,
+  name: string,
+): { worktreePath: string } {
+  const stdout = execFileSync(
+    process.execPath,
+    ['run', FIXTURE, cfgDir, repoDir, name],
+    { encoding: 'utf8' },
+  )
+  return JSON.parse(stdout) as { worktreePath: string }
+}
 
-  repoDir = mkdtempSync(join(tmpdir(), 'openclaude-wt-repo-'))
-  git(repoDir, 'init', '-b', 'main')
-  writeFileSync(join(repoDir, 'base.txt'), 'base\n')
-  git(repoDir, 'add', '.')
-  git(repoDir, 'commit', '-m', 'base on main')
-  const mainSha = git(repoDir, 'rev-parse', 'HEAD')
+test(
+  'agent worktree is based on the parent session HEAD, not origin/main',
+  () => {
+    const cfgDir = mkdtempSync(join(tmpdir(), 'openclaude-wt-cfg-'))
+    const repoDir = mkdtempSync(join(tmpdir(), 'openclaude-wt-repo-'))
 
-  // Fake an origin/main remote-tracking ref pinned to the OLD main commit, so
-  // the pre-fix code path (which prefers origin/<defaultBranch>) would base the
-  // worktree on a tree that lacks the feature file below.
-  git(repoDir, 'update-ref', 'refs/remotes/origin/main', mainSha)
+    try {
+      git(repoDir, 'init', '-b', 'main')
+      writeFileSync(join(repoDir, 'base.txt'), 'base\n')
+      git(repoDir, 'add', '.')
+      git(repoDir, 'commit', '-m', 'base on main')
+      const mainSha = git(repoDir, 'rev-parse', 'HEAD')
 
-  // Move onto a feature branch and add a file that exists only there.
-  git(repoDir, 'checkout', '-b', 'feature')
-  writeFileSync(join(repoDir, 'feature-only.txt'), 'feature\n')
-  git(repoDir, 'add', '.')
-  git(repoDir, 'commit', '-m', 'add feature-only file')
-})
+      // Fake an origin/main remote-tracking ref pinned to the OLD main commit,
+      // so the pre-fix code path (which prefers origin/<defaultBranch>) would
+      // base the worktree on a tree that lacks the feature file below.
+      git(repoDir, 'update-ref', 'refs/remotes/origin/main', mainSha)
 
-afterEach(() => {
-  try {
-    setClaudeConfigHomeDirForTesting(undefined)
-    getClaudeConfigHomeDir.cache?.clear?.()
-    for (const dir of [repoDir, cfgDir]) {
+      // Move onto a feature branch and add a file that exists only there.
+      git(repoDir, 'checkout', '-b', 'feature')
+      writeFileSync(join(repoDir, 'feature-only.txt'), 'feature\n')
+      git(repoDir, 'add', '.')
+      git(repoDir, 'commit', '-m', 'add feature-only file')
+
+      const parentHead = git(repoDir, 'rev-parse', 'HEAD')
+
+      const result = runCreateAgentWorktree(cfgDir, repoDir, 'issue-1586-base')
+
+      expect(result.worktreePath).toBeDefined()
+      expect(existsSync(result.worktreePath)).toBe(true)
+
+      // The worktree must carry the parent's committed state: the feature-only
+      // file (absent from origin/main) is present, and HEAD matches the
+      // parent's commit.
+      expect(existsSync(join(result.worktreePath, 'feature-only.txt'))).toBe(
+        true,
+      )
+      expect(git(result.worktreePath, 'rev-parse', 'HEAD')).toBe(parentHead)
+
+      // Cleanup the worktree registration before the temp repo is removed.
       try {
-        rmSync(dir, { recursive: true, force: true })
+        git(repoDir, 'worktree', 'remove', '--force', result.worktreePath)
       } catch {
-        // best-effort cleanup
+        // ignore — the rm below handles the directory
+      }
+    } finally {
+      for (const dir of [repoDir, cfgDir]) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // best-effort cleanup
+        }
       }
     }
-  } finally {
-    releaseSharedMutationLock()
-  }
-})
-
-test('agent worktree is based on the parent session HEAD, not origin/main', async () => {
-  const parentHead = git(repoDir, 'rev-parse', 'HEAD')
-
-  const createAgentWorktree = await importCreateAgentWorktree()
-  const result = await createAgentWorktree('issue-1586-base', { cwd: repoDir })
-
-  expect(result.worktreePath).toBeDefined()
-  expect(existsSync(result.worktreePath)).toBe(true)
-
-  // The worktree must carry the parent's committed state: the feature-only file
-  // (absent from origin/main) is present, and HEAD matches the parent's commit.
-  expect(existsSync(join(result.worktreePath, 'feature-only.txt'))).toBe(true)
-  expect(git(result.worktreePath, 'rev-parse', 'HEAD')).toBe(parentHead)
-
-  // Cleanup the worktree registration before the temp repo is removed.
-  try {
-    git(repoDir, 'worktree', 'remove', '--force', result.worktreePath)
-  } catch {
-    // ignore — afterEach rm handles the directory
-  }
-})
+  },
+  15_000,
+)
