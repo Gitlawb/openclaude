@@ -2352,8 +2352,9 @@ class OpenAIShimMessages {
 
     if (isGithubWithCodexTransport) {
       let didRefreshCopilotCodexToken = false
+      let refreshedCopilotCodexToken: string | undefined
       for (let attempt = 0; attempt < 2; attempt++) {
-        const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+        const apiKey = refreshedCopilotCodexToken ?? this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
         if (!apiKey) {
           throw new Error(
             'GitHub Copilot auth is required. Run /onboard-github to sign in.',
@@ -2390,6 +2391,7 @@ class OpenAIShimMessages {
               if (refreshed) {
                 const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
                 if (newApiKey && newApiKey !== apiKey) {
+                  refreshedCopilotCodexToken = newApiKey
                   continue
                 }
               }
@@ -3498,7 +3500,9 @@ class OpenAIShimMessages {
             if (newApiKey && newApiKey !== oldToken) {
               refreshedCopilotToken = newApiKey
             }
-            continue
+            if (attempt < maxAttempts - 1) {
+              continue
+            }
           }
         }
       }
