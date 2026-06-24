@@ -1278,6 +1278,7 @@ test('/model applies auto provider surface for single-model static descriptor pr
       'google/gemini-3.1-flash-lite',
       'minimax/minimax-m3',
       'qwen/qwen3.7-max',
+      'z-ai/glm-5.2',
       'nvidia/nemotron-3-ultra-550b-a55b:free',
     ])
   } finally {
