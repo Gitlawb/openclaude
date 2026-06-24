@@ -1056,9 +1056,15 @@ function getLegacyDefaultEffortForModel(
   // the model launch DRI and research. Default effort is a sensitive setting
   // that can greatly affect model quality and bashing.
 
-  // Default effort on Opus 4.6 to medium for Pro.
+  // Default effort on the recent Opus models (4.8/4.7/4.6) to medium for Pro.
   // Max/Team also get medium when the tengu_grey_step2 config is enabled.
-  if (model.toLowerCase().includes('opus-4-6')) {
+  // getDefaultOpusModel() now returns opus48 for first-party users.
+  const lowerModel = model.toLowerCase()
+  if (
+    lowerModel.includes('opus-4-8') ||
+    lowerModel.includes('opus-4-7') ||
+    lowerModel.includes('opus-4-6')
+  ) {
     if (isProSubscriber()) {
       return 'medium'
     }
