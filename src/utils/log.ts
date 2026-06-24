@@ -184,8 +184,7 @@ export function logError(error: unknown): void {
     // inherited getters (name) resolve through the prototype chain.
     // Object.assign copies own enumerable properties (cause, custom props).
     // message and stack are own non-enumerable properties that Object.assign
-    // copies anyway (Object.assign handles non-enumerable own properties);
-    // they are then overwritten with their redacted versions below.
+    // does NOT copy, so they must be assigned explicitly below.
     const sanitizedErr = Object.assign(Object.create(err), err)
     sanitizedErr.message = redactSensitiveInfo(err.message)
     if (err.stack) {

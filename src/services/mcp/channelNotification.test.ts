@@ -422,4 +422,26 @@ describe('filterPermissionRelayClients', () => {
     const filtered = filterPermissionRelayClients(clients, () => true)
     expect(filtered).toHaveLength(0)
   })
+
+  // Regression: claude/channel/permission: false must also be treated as
+  // a miss (truthiness check, not !== undefined) so a channel server that
+  // explicitly disables permission relay is not selected.
+  test('rejects client with explicit false claude/channel/permission capability', () => {
+    setAllowedChannels([{ kind: 'server', name: 'slack', dev: true }])
+    const clients = [
+      {
+        type: 'connected' as const,
+        name: 'slack',
+        capabilities: {
+          experimental: {
+            'claude/channel': {},
+            'claude/channel/permission': false,
+          },
+        },
+        config: {},
+      },
+    ]
+    const filtered = filterPermissionRelayClients(clients, () => true)
+    expect(filtered).toHaveLength(0)
+  })
 })

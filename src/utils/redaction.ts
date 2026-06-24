@@ -543,9 +543,16 @@ export function redactHomePath(
 }
 
 export function redactLikelySecrets(value: string): string {
+  // Run redactSensitiveInfo first for comprehensive coverage of all
+  // well-known credential patterns (AKIA keys, x-api-key, Authorization,
+  // PEM private keys, generic *_API_KEY env vars, etc.), then apply
+  // LIKELY_SECRET_VALUE_PATTERNS as a catch-all for patterns that
+  // redactSensitiveInfo doesn't cover (e.g. bare Bearer tokens in
+  // free-form text, Mistral-specific key patterns).
+  const firstPass = redactSensitiveInfo(value)
   return LIKELY_SECRET_VALUE_PATTERNS.reduce(
     (current, { pattern, replacement }) => current.replace(pattern, replacement),
-    value,
+    firstPass,
   )
 }
 
