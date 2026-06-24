@@ -26,6 +26,7 @@ import {
   setYoloClassifierApproval,
 } from '../../../utils/classifierApprovals.js'
 import { errorMessage } from '../../../utils/errors.js'
+import { redactSensitiveInfo } from '../../../utils/redaction.js'
 import type { PermissionDecision } from '../../../utils/permissions/PermissionResult.js'
 import type { PermissionUpdate } from '../../../utils/permissions/PermissionUpdateSchema.js'
 import { hasPermissionsToUseTool } from '../../../utils/permissions/permissions.js'
@@ -357,7 +358,7 @@ function handleInteractivePermission(
         request_id: channelRequestId,
         tool_name: ctx.tool.name,
         description,
-        input_preview: truncateForPreview(displayInput),
+        input_preview: redactSensitiveInfo(truncateForPreview(displayInput)),
       }
 
       for (const client of channelClients) {

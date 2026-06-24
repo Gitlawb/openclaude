@@ -189,20 +189,23 @@ export function logError(error: unknown): void {
     // Always add to in-memory log (no dependencies needed)
     addToInMemoryErrorLog(errorInfo)
 
-    // Sanitize error message and stack separately so err.message doesn't
-    // get replaced with the full stack trace when err.stack is present.
-    err.message = redactSensitiveInfo(err.message)
+    // Build a sanitized copy so callers that keep a reference to the
+    // original error don't see redacted message/stack as a side effect.
+    // Object.assign copies own enumerable properties (name, message, stack,
+    // cause, custom props) while preserving the prototype chain.
+    const sanitizedErr = Object.assign(Object.create(err), err)
+    sanitizedErr.message = redactSensitiveInfo(err.message)
     if (err.stack) {
-      err.stack = redactSensitiveInfo(err.stack)
+      sanitizedErr.stack = redactSensitiveInfo(err.stack)
     }
 
     // If sink not attached, queue the event
     if (errorLogSink === null) {
-      errorQueue.push({ type: 'error', error: err })
+      errorQueue.push({ type: 'error', error: sanitizedErr })
       return
     }
 
-    errorLogSink.logError(err)
+    errorLogSink.logError(sanitizedErr)
   } catch {
     // pass
   }
