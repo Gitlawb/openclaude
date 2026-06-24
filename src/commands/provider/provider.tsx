@@ -695,10 +695,10 @@ function ProviderChooser({
       description: 'OpenAI and similar OpenAI-compatible APIs',
     },
     {
-      label: 'Google AI / Gemini Subscription',
+      label: 'Google AI / Gemini',
       value: 'gemini',
       description:
-        'Use your Google AI Premium plan, Gemini API key, access token, or local ADC',
+        'Use a Gemini API key, access token, or local ADC',
     },
     {
       label: mistralMetadata.label,
