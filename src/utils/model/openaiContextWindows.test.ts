@@ -46,7 +46,7 @@ afterEach(() => {
       }
     }
   } finally {
-    releaseSharedMutationLock('openaiContextWindows.test.ts')
+    releaseSharedMutationLock()
   }
 })
 

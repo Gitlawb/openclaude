@@ -16,7 +16,13 @@ type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS'
 
 export type OpenAILimitOverrideMatches = {
+  // Exact env-var override match (highest precedence).
   exact?: number
+  // settings.json `modelLimits` match (exact or prefix). Sits between the exact
+  // env override and the built-in catalog, mirroring the documented resolution
+  // order env → settings → catalog.
+  settings?: number
+  // Prefix env-var override match (lowest precedence among overrides).
   prefix?: number
 }
 
@@ -187,11 +193,14 @@ export function getOpenAIContextWindowMatches(
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): OpenAILimitOverrideMatches {
-  return lookupExternalLimitMatches(
-    'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
-    model,
-    processEnv,
-  )
+  return {
+    ...lookupExternalLimitMatches(
+      'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS',
+      model,
+      processEnv,
+    ),
+    settings: lookupSettingsLimit('contextWindow', model, processEnv),
+  }
 }
 
 export function getOpenAIMaxOutputTokens(
@@ -211,9 +220,12 @@ export function getOpenAIMaxOutputTokenMatches(
   model: string | undefined,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): OpenAILimitOverrideMatches {
-  return lookupExternalLimitMatches(
-    'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
-    model,
-    processEnv,
-  )
+  return {
+    ...lookupExternalLimitMatches(
+      'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS',
+      model,
+      processEnv,
+    ),
+    settings: lookupSettingsLimit('maxOutputTokens', model, processEnv),
+  }
 }

@@ -239,6 +239,13 @@ export type GlobalConfig = {
   apiKeyHelper?: string
   projects?: Record<string, ProjectConfig>
   numStartups: number
+  // Per-model context window / max output token overrides, keyed by model name
+  // (optionally host-qualified as `<host>:<model>`). Resolved between env-var
+  // overrides and the built-in catalog. See openaiContextWindows.ts.
+  modelLimits?: Record<
+    string,
+    { contextWindow?: number; maxOutputTokens?: number } | null
+  >
   installMethod?: InstallMethod
   autoUpdates?: boolean
   // Flag to distinguish protection-based disabling from user preference
