@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import {
   buildBackgroundSessionLaunch,
   buildBackgroundChildProcessConfig,
@@ -74,17 +74,17 @@ async function waitFor(condition: () => boolean): Promise<void> {
   throw new Error('condition was not met')
 }
 
-const tempDirs: string[] = []
-
-async function tempFile(name: string): Promise<string> {
+async function withTempFile<T>(
+  name: string,
+  run: (path: string) => Promise<T>,
+): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'openclaude-bg-test-'))
-  tempDirs.push(dir)
-  return join(dir, name)
+  try {
+    return await run(join(dir, name))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 }
-
-afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true })))
-})
 
 describe('background session CLI parsing', () => {
   it('builds a print-mode child command and preserves provider/model flags', () => {
@@ -398,154 +398,160 @@ describe('background session CLI parsing', () => {
 
 describe('background session log streaming', () => {
   it('emits a multi-megabyte existing log exactly with bounded allocations', async () => {
-    const path = await tempFile('stdout.log')
-    const chunkSize = LOG_STREAM_CHUNK_SIZE
-    const contents = Buffer.alloc(chunkSize * 32 + 123)
-    for (let i = 0; i < contents.length; i++) contents[i] = i % 251
-    await writeFile(path, contents)
+    await withTempFile('stdout.log', async path => {
+      const chunkSize = LOG_STREAM_CHUNK_SIZE
+      const contents = Buffer.alloc(chunkSize * 32 + 123)
+      for (let i = 0; i < contents.length; i++) contents[i] = i % 251
+      await writeFile(path, contents)
 
-    const allocations: number[] = []
-    const output = new TestOutput()
-    const offset = await printExistingLog(path, {
-      output,
-      chunkSize,
-      createBuffer: size => {
-        allocations.push(size)
-        return Buffer.alloc(size)
-      },
+      const allocations: number[] = []
+      const output = new TestOutput()
+      const offset = await printExistingLog(path, {
+        output,
+        chunkSize,
+        createBuffer: size => {
+          allocations.push(size)
+          return Buffer.alloc(size)
+        },
+      })
+
+      expect(offset).toBe(contents.length)
+      expect(output.bytes()).toEqual(contents)
+      expect(Math.max(...allocations)).toBeLessThanOrEqual(chunkSize)
+      expect(allocations.length).toBeGreaterThan(1)
     })
-
-    expect(offset).toBe(contents.length)
-    expect(output.bytes()).toEqual(contents)
-    expect(Math.max(...allocations)).toBeLessThanOrEqual(chunkSize)
-    expect(allocations.length).toBeGreaterThan(1)
   })
 
   it('follow mode emits existing and appended content exactly once in order', async () => {
-    const path = await tempFile('stdout.log')
-    const output = new TestOutput()
-    await writeFile(path, Buffer.from('existing-'))
+    await withTempFile('stdout.log', async path => {
+      const output = new TestOutput()
+      await writeFile(path, Buffer.from('existing-'))
 
-    const offset = await printExistingLog(path, { output, chunkSize: 4 })
-    const scheduler = createManualScheduler()
-    const abort = new AbortController()
-    const following = followLogFile(path, offset, {
-      output,
-      chunkSize: 4,
-      signal: abort.signal,
-      setInterval: scheduler.setInterval,
-      clearInterval: scheduler.clearInterval,
+      const offset = await printExistingLog(path, { output, chunkSize: 4 })
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, offset, {
+        output,
+        chunkSize: 4,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      await writeFile(path, Buffer.from('existing-appended'))
+      scheduler.tick()
+      await waitFor(() => output.bytes().toString() === 'existing-appended')
+      abort.abort()
+      await following
+
+      expect(output.bytes().toString()).toBe('existing-appended')
     })
-
-    await writeFile(path, Buffer.from('existing-appended'))
-    scheduler.tick()
-    await waitFor(() => output.bytes().toString() === 'existing-appended')
-    abort.abort()
-    await following
-
-    expect(output.bytes().toString()).toBe('existing-appended')
   })
 
   it('splits a large appended range into bounded chunks', async () => {
-    const path = await tempFile('stdout.log')
-    const chunkSize = 16
-    await writeFile(path, Buffer.from('seed'))
-    const appended = Buffer.alloc(chunkSize * 2 + 5, 7)
-    await writeFile(path, Buffer.concat([Buffer.from('seed'), appended]))
+    await withTempFile('stdout.log', async path => {
+      const chunkSize = 16
+      await writeFile(path, Buffer.from('seed'))
+      const appended = Buffer.alloc(chunkSize * 2 + 5, 7)
+      await writeFile(path, Buffer.concat([Buffer.from('seed'), appended]))
 
-    const output = new TestOutput()
-    const scheduler = createManualScheduler()
-    const abort = new AbortController()
-    const following = followLogFile(path, 4, {
-      output,
-      chunkSize,
-      signal: abort.signal,
-      setInterval: scheduler.setInterval,
-      clearInterval: scheduler.clearInterval,
+      const output = new TestOutput()
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, 4, {
+        output,
+        chunkSize,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      scheduler.tick()
+      await waitFor(() => output.bytes().length === appended.length)
+      abort.abort()
+      await following
+
+      expect(output.bytes()).toEqual(appended)
+      expect(output.chunks.map(chunk => chunk.length)).toEqual([16, 16, 5])
     })
-
-    scheduler.tick()
-    await waitFor(() => output.bytes().length === appended.length)
-    abort.abort()
-    await following
-
-    expect(output.bytes()).toEqual(appended)
-    expect(output.chunks.map(chunk => chunk.length)).toEqual([16, 16, 5])
   })
 
   it('waits for drain before reading or writing more when stdout applies backpressure', async () => {
-    const path = await tempFile('stdout.log')
-    await writeFile(path, Buffer.from('abcdef'))
-    const output = new TestOutput()
-    output.writeResults.push(false)
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('abcdef'))
+      const output = new TestOutput()
+      output.writeResults.push(false)
 
-    let settled = false
-    const printing = printExistingLog(path, { output, chunkSize: 3 }).then(
-      offset => {
-        settled = true
-        return offset
-      },
-    )
+      let settled = false
+      const printing = printExistingLog(path, { output, chunkSize: 3 }).then(
+        offset => {
+          settled = true
+          return offset
+        },
+      )
 
-    await waitFor(() => output.chunks.length === 1)
-    expect(output.bytes().toString()).toBe('abc')
-    expect(settled).toBe(false)
+      await waitFor(() => output.chunks.length === 1)
+      expect(output.bytes().toString()).toBe('abc')
+      expect(settled).toBe(false)
 
-    output.emit('drain')
-    await expect(printing).resolves.toBe(6)
-    expect(output.bytes().toString()).toBe('abcdef')
-    expect(output.chunks.map(chunk => chunk.length)).toEqual([3, 3])
+      output.emit('drain')
+      await expect(printing).resolves.toBe(6)
+      expect(output.bytes().toString()).toBe('abcdef')
+      expect(output.chunks.map(chunk => chunk.length)).toEqual([3, 3])
+    })
   })
 
   it('resets the follow read position when the log is truncated', async () => {
-    const path = await tempFile('stdout.log')
-    await writeFile(path, Buffer.from('abcdef'))
-    const output = new TestOutput()
-    const scheduler = createManualScheduler()
-    const abort = new AbortController()
-    const following = followLogFile(path, 6, {
-      output,
-      chunkSize: 8,
-      signal: abort.signal,
-      setInterval: scheduler.setInterval,
-      clearInterval: scheduler.clearInterval,
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('abcdef'))
+      const output = new TestOutput()
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, 6, {
+        output,
+        chunkSize: 8,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      await writeFile(path, Buffer.from('xy'))
+      scheduler.tick()
+      await waitFor(() => output.bytes().toString() === 'xy')
+      abort.abort()
+      await following
+
+      expect(output.bytes().toString()).toBe('xy')
     })
-
-    await writeFile(path, Buffer.from('xy'))
-    scheduler.tick()
-    await waitFor(() => output.bytes().toString() === 'xy')
-    abort.abort()
-    await following
-
-    expect(output.bytes().toString()).toBe('xy')
   })
 
   it('tolerates temporary file disappearance while following', async () => {
-    const path = await tempFile('stdout.log')
-    await writeFile(path, Buffer.from('seed'))
-    const output = new TestOutput()
-    const scheduler = createManualScheduler()
-    const abort = new AbortController()
-    const following = followLogFile(path, 4, {
-      output,
-      chunkSize: 8,
-      signal: abort.signal,
-      setInterval: scheduler.setInterval,
-      clearInterval: scheduler.clearInterval,
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('seed'))
+      const output = new TestOutput()
+      const scheduler = createManualScheduler()
+      const abort = new AbortController()
+      const following = followLogFile(path, 4, {
+        output,
+        chunkSize: 8,
+        signal: abort.signal,
+        setInterval: scheduler.setInterval,
+        clearInterval: scheduler.clearInterval,
+      })
+
+      await unlink(path)
+      scheduler.tick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(output.bytes().length).toBe(0)
+
+      await writeFile(path, Buffer.from('new'))
+      scheduler.tick()
+      await waitFor(() => output.bytes().toString() === 'new')
+      abort.abort()
+      await following
+
+      expect(output.bytes().toString()).toBe('new')
     })
-
-    await unlink(path)
-    scheduler.tick()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(output.bytes().length).toBe(0)
-
-    await writeFile(path, Buffer.from('new'))
-    scheduler.tick()
-    await waitFor(() => output.bytes().toString() === 'new')
-    abort.abort()
-    await following
-
-    expect(output.bytes().toString()).toBe('new')
   })
 
   it('prevents writes after signal cleanup during an in-flight poll', async () => {
@@ -658,22 +664,23 @@ describe('background session log streaming', () => {
   })
 
   it('handles EPIPE and destroyed stdout without throwing', async () => {
-    const path = await tempFile('stdout.log')
-    await writeFile(path, Buffer.from('closed-pipe'))
+    await withTempFile('stdout.log', async path => {
+      await writeFile(path, Buffer.from('closed-pipe'))
 
-    const epipeOutput = new TestOutput()
-    epipeOutput.writeError = Object.assign(new Error('broken pipe'), {
-      code: 'EPIPE',
+      const epipeOutput = new TestOutput()
+      epipeOutput.writeError = Object.assign(new Error('broken pipe'), {
+        code: 'EPIPE',
+      })
+      await expect(
+        printExistingLog(path, { output: epipeOutput, chunkSize: 4 }),
+      ).resolves.toBe(0)
+
+      const destroyedOutput = new TestOutput()
+      destroyedOutput.destroyed = true
+      await expect(
+        printExistingLog(path, { output: destroyedOutput, chunkSize: 4 }),
+      ).resolves.toBe(0)
+      expect(destroyedOutput.bytes().length).toBe(0)
     })
-    await expect(
-      printExistingLog(path, { output: epipeOutput, chunkSize: 4 }),
-    ).resolves.toBe(0)
-
-    const destroyedOutput = new TestOutput()
-    destroyedOutput.destroyed = true
-    await expect(
-      printExistingLog(path, { output: destroyedOutput, chunkSize: 4 }),
-    ).resolves.toBe(0)
-    expect(destroyedOutput.bytes().length).toBe(0)
   })
 })
