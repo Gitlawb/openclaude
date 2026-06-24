@@ -203,7 +203,7 @@ function createPermissionContext(
         logForDebugging(
           `Aborting: tool=${tool.name} isAbort=${isAbort} hasFeedback=${!!feedback} isSubagent=${sub}`,
         )
-        toolUseContext.abortController.abort()
+        toolUseContext.abortController.abort('interrupt')
       }
       return { behavior: 'ask', message, contentBlocks }
     },

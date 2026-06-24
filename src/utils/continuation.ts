@@ -64,7 +64,6 @@ const VERB_ING = ACTION_VERBS.map(v => {
   if (v === 'begin') return 'beginning'
   if (v === 'make') return 'making'
   if (v === 'write') return 'writing'
-  if (v === 'take') return 'taking'
   // Default: add -ing
   return v.replace(/e$/, '') + 'ing'
 }).join('|')

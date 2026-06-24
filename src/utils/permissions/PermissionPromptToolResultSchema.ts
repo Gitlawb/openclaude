@@ -119,12 +119,12 @@ export function permissionPromptToolResultToPermissionDecision(
       updatedInput,
       decisionReason,
     }
-	  } else if (result.behavior === 'deny' && result.interrupt) {
-	    logForDebugging(
-	      `SDK permission prompt deny+interrupt: tool=${tool.name} message=${result.message}`,
-	    )
-	    toolUseContext.abortController.abort('interrupt')
-  }
+    } else if (result.behavior === 'deny' && result.interrupt) {
+      logForDebugging(
+        `SDK permission prompt deny+interrupt: tool=${tool.name} message=${result.message}`,
+      )
+      toolUseContext.abortController.abort('interrupt')
+    }
   return {
     ...result,
     decisionReason,

@@ -500,21 +500,21 @@ async function* queryLoop(
       queryCheckpoint('query_snip_end')
     }
 
-	    // Apply microcompact before autocompact
-	    queryCheckpoint('query_microcompact_start')
-	    const microcompactResult = await deps.microcompact(
-	      messagesForQuery,
-	      toolUseContext,
-	      querySource,
-	    )
-	    messagesForQuery = microcompactResult.messages
-	    // For cached microcompact (cache editing), defer boundary message until after
-	    // the API response so we can use actual cache_deleted_input_tokens.
-	    // Gated behind feature() so the string is eliminated from external builds.
-	    const pendingCacheEdits = feature('CACHED_MICROCOMPACT')
-	      ? microcompactResult.compactionInfo?.pendingCacheEdits
-	      : undefined
-	    queryCheckpoint('query_microcompact_end')
+    // Apply microcompact before autocompact
+    queryCheckpoint('query_microcompact_start')
+    const microcompactResult = await deps.microcompact(
+      messagesForQuery,
+      toolUseContext,
+      querySource,
+    )
+    messagesForQuery = microcompactResult.messages
+    // For cached microcompact (cache editing), defer boundary message until after
+    // the API response so we can use actual cache_deleted_input_tokens.
+    // Gated behind feature() so the string is eliminated from external builds.
+    const pendingCacheEdits = feature('CACHED_MICROCOMPACT')
+      ? microcompactResult.compactionInfo?.pendingCacheEdits
+      : undefined
+    queryCheckpoint('query_microcompact_end')
 
     // Project the collapsed context view and maybe commit more collapses.
     // Runs BEFORE autocompact so that if collapse gets us under the

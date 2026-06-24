@@ -1041,7 +1041,7 @@ function runHeadlessStreaming(
   const sigintHandler = () => {
     logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGINT' })
     if (abortController && !abortController.signal.aborted) {
-      abortController.abort()
+      abortController.abort('interrupt')
     }
     void gracefulShutdown(0)
   }
