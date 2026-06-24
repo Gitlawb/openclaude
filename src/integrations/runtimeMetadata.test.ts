@@ -517,6 +517,20 @@ describe('resolveOpenAIShimRuntimeContext - provider override route preference',
     expect(result.openaiShimConfig.removeBodyFields).toBeUndefined()
     expect(result.openaiShimConfig.thinkingRequestFormat).toBeUndefined()
   })
+
+  it('applies the full Z.AI GLM shim to the direct zai vendor catalog route', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'glm-5.2',
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      processEnv: {},
+    })
+
+    expect(result.routeId).toBe('zai')
+    expect(result.catalogEntry?.id).toBe('glm-5.2')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+  })
 })
 
 describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
