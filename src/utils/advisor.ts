@@ -89,6 +89,8 @@ export function getExperimentAdvisorModels():
 export function modelSupportsAdvisor(model: string): boolean {
   const m = model.toLowerCase()
   return (
+    m.includes('opus-4-8') ||
+    m.includes('opus-4-7') ||
     m.includes('opus-4-6') ||
     m.includes('sonnet-4-6') ||
     process.env.USER_TYPE === 'ant'
@@ -99,6 +101,8 @@ export function modelSupportsAdvisor(model: string): boolean {
 export function isValidAdvisorModel(model: string): boolean {
   const m = model.toLowerCase()
   return (
+    m.includes('opus-4-8') ||
+    m.includes('opus-4-7') ||
     m.includes('opus-4-6') ||
     m.includes('sonnet-4-6') ||
     process.env.USER_TYPE === 'ant'

@@ -30,3 +30,12 @@ test('getHardcodedTeammateModelFallback returns a Mistral fallback in mistral mo
 
   expect(getHardcodedTeammateModelFallback()).toBe('devstral-latest')
 })
+
+test('getHardcodedTeammateModelFallback returns the current default Opus (4.8) for first party', async () => {
+  // Regression for #1769: the fallback hardcoded Opus 4.6 while the default Opus
+  // is now 4.8, so new teammates spawned on an older model.
+  const { getHardcodedTeammateModelFallback } =
+    await importFreshTeammateModelModule('firstParty')
+
+  expect(getHardcodedTeammateModelFallback()).toBe('claude-opus-4-8')
+})

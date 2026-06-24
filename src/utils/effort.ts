@@ -641,7 +641,8 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
   }
 }
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'max' effort.
-// Per API docs, 'max' is Opus 4.6 only for public models — other models return an error.
+// Per API docs, 'max' is supported on the recent Opus models (4.8/4.7/4.6) for
+// public models — other models return an error.
 function legacyModelSupportsMaxEffort(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'max_effort')
   if (supported3P !== undefined) {
