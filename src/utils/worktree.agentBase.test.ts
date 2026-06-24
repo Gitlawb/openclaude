@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { execaSync } from 'execa'
+import { execFileSync } from 'child_process'
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -28,7 +28,6 @@ import {
 // test so we never run interleaved with those suites, and import the worktree
 // module only after the lock is held — via a cache-busted dynamic import — so
 // the binding is resolved against the real module, never a leaked mock.
-//
 async function importCreateAgentWorktree() {
   const mod = await import(`./worktree.js?ts=${Date.now()}-${Math.random()}`)
   return mod.createAgentWorktree
@@ -38,15 +37,17 @@ let repoDir: string
 let cfgDir: string
 
 function git(cwd: string, ...args: string[]): string {
-  return execaSync('git', args, {
+  return execFileSync('git', args, {
     cwd,
+    encoding: 'utf8',
     env: {
+      ...process.env,
       GIT_AUTHOR_NAME: 'Test',
       GIT_AUTHOR_EMAIL: 'test@example.com',
       GIT_COMMITTER_NAME: 'Test',
       GIT_COMMITTER_EMAIL: 'test@example.com',
     },
-  }).stdout.trim()
+  }).trim()
 }
 
 beforeEach(async () => {
@@ -111,6 +112,4 @@ test('agent worktree is based on the parent session HEAD, not origin/main', asyn
   } catch {
     // ignore — afterEach rm handles the directory
   }
-  // Real git operations (init, commit, branch, worktree add) can exceed the
-  // default 5s Bun timeout on slower/Windows runners, so allow more headroom.
-}, 15_000)
+})

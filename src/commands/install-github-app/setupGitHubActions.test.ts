@@ -6,7 +6,6 @@ import {
 } from '../../test/sharedMutationLock.js'
 
 type BrowserModule = typeof import('../../utils/browser.js')
-type ConfigModule = typeof import('../../utils/config.js')
 type ExecFileNoThrowModule = typeof import('../../utils/execFileNoThrow.js')
 
 type ExecCall = {
@@ -16,7 +15,6 @@ type ExecCall = {
 
 type RealModules = {
   browser: BrowserModule
-  config: ConfigModule
   execFileNoThrow: ExecFileNoThrowModule
 }
 
@@ -46,9 +44,6 @@ async function importRealModules(): Promise<RealModules> {
     browser: (await import(
       `../../utils/browser.ts?setup-actions-real-${cacheKey}`
     )) as BrowserModule,
-    config: (await import(
-      `../../utils/config.ts?setup-actions-real-${cacheKey}`
-    )) as ConfigModule,
     execFileNoThrow: (await import(
       `../../utils/execFileNoThrow.ts?setup-actions-real-${cacheKey}`
     )) as ExecFileNoThrowModule,
@@ -172,11 +167,7 @@ function handleGhCommand(args: string[]) {
 }
 
 function installMocks(real: RealModules): void {
-  // Spread the real surface so this process-global mock doesn't strip the rest
-  // of config.js for unrelated suites that load after this one (a partial mock
-  // leaks "named export not found" into any later importer of config.js).
   mock.module('src/utils/config.js', () => ({
-    ...real.config,
     saveGlobalConfig: mock((updater: (current: GlobalConfig) => GlobalConfig) => {
       setupConfig = updater(setupConfig)
     }),
@@ -221,7 +212,6 @@ afterEach(() => {
   try {
     mock.restore()
     if (realModules) {
-      mock.module('src/utils/config.js', () => realModules!.config)
       mock.module(
         '../../utils/execFileNoThrow.js',
         () => realModules!.execFileNoThrow,
