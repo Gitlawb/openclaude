@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test'
-import { buildSdkUrl, isLocalhostBaseUrl } from './workSecret.ts'
+import {
+  buildSdkUrl,
+  isInsecureHttpBaseUrl,
+  isLocalhostBaseUrl,
+} from './workSecret.ts'
 
 // Regression coverage: buildSdkUrl must decide localhost from the parsed
 // hostname only, not from "localhost" appearing elsewhere in the URL.
@@ -65,4 +69,36 @@ test('isLocalhostBaseUrl: false for a regular remote hostname', () => {
 
 test('isLocalhostBaseUrl: false for a malformed URL', () => {
   expect(isLocalhostBaseUrl('not a url')).toBe(false)
+})
+
+// isInsecureHttpBaseUrl decides whether the HTTPS credential guard fires. It
+// must catch plaintext HTTP to any non-loopback host, including mixed-case
+// schemes the URL parser normalizes to `http:`.
+
+test('isInsecureHttpBaseUrl: true for plain http remote host', () => {
+  expect(isInsecureHttpBaseUrl('http://api.example.com')).toBe(true)
+})
+
+test('isInsecureHttpBaseUrl: true for mixed-case HTTP scheme', () => {
+  expect(isInsecureHttpBaseUrl('HTTP://api.example.com')).toBe(true)
+  expect(isInsecureHttpBaseUrl('Http://api.example.com')).toBe(true)
+})
+
+test('isInsecureHttpBaseUrl: false for localhost over http', () => {
+  expect(isInsecureHttpBaseUrl('http://localhost:8080')).toBe(false)
+  expect(isInsecureHttpBaseUrl('http://127.0.0.1:3000')).toBe(false)
+})
+
+test('isInsecureHttpBaseUrl: false for https remote host', () => {
+  expect(isInsecureHttpBaseUrl('https://api.example.com')).toBe(false)
+  expect(isInsecureHttpBaseUrl('HTTPS://api.example.com')).toBe(false)
+})
+
+test('isInsecureHttpBaseUrl: true when localhost is only substring of remote host', () => {
+  expect(isInsecureHttpBaseUrl('http://evil.localhost.com')).toBe(true)
+  expect(isInsecureHttpBaseUrl('http://evil.example.com/localhost')).toBe(true)
+})
+
+test('isInsecureHttpBaseUrl: false for a malformed URL', () => {
+  expect(isInsecureHttpBaseUrl('not a url')).toBe(false)
 })

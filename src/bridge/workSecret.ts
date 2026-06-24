@@ -52,6 +52,26 @@ export function isLocalhostBaseUrl(baseUrl: string): boolean {
 }
 
 /**
+ * Whether a base URL would send traffic to a non-localhost host over plaintext
+ * HTTP, which must be rejected to keep credentials off the wire.
+ *
+ * The scheme is read from the parsed URL (`protocol === 'http:'`) rather than a
+ * `startsWith('http://')` test so that mixed-case schemes like `HTTP://` — which
+ * the URL parser normalizes to `http:` and would otherwise carry credentials in
+ * the clear — are still caught. A malformed URL is treated as not-insecure (the
+ * safe default: the callers fall through to their normal handling).
+ */
+export function isInsecureHttpBaseUrl(baseUrl: string): boolean {
+  let protocol: string
+  try {
+    protocol = new URL(baseUrl).protocol
+  } catch {
+    return false
+  }
+  return protocol === 'http:' && !isLocalhostBaseUrl(baseUrl)
+}
+
+/**
  * Build a WebSocket SDK URL from the API base URL and session ID.
  * Strips the HTTP(S) protocol and constructs a ws(s):// ingress URL.
  *
