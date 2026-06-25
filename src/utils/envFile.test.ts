@@ -164,6 +164,15 @@ BAZ=qux
     expect(result).toEqual({ FOO: 'C:\\Users\\me' })
   })
 
+  it('collapses an escaped backslash adjacent to the closing quote', () => {
+    // The value content is a\\ — the escaped backslash sits right before the
+    // terminator, the trickiest interaction between findClosingQuote (which
+    // counts the even backslash run and keeps scanning) and unescapeQuotedValue
+    // (which must collapse the pair to one trailing backslash).
+    const result = parseEnvFile('FOO="a\\\\"')
+    expect(result).toEqual({ FOO: 'a\\' })
+  })
+
   it('strips inline comments from unquoted values', () => {
     const result = parseEnvFile('FOO=bar # comment\nBAZ=qux')
     expect(result).toEqual({ FOO: 'bar', BAZ: 'qux' })
