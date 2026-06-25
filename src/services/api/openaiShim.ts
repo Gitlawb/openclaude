@@ -2348,7 +2348,8 @@ class OpenAIShimMessages {
   ): Promise<Response> {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
-    const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
+    const isGithubCopilotEndpoint = isGithubMode && (githubEndpointType === 'copilot' || githubEndpointType === 'ghe')
+    const isGithubWithCodexTransport = isGithubCopilotEndpoint && request.transport === 'codex_responses'
 
     if (isGithubWithCodexTransport) {
       let didRefreshCopilotCodexToken = false
