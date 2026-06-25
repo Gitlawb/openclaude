@@ -217,12 +217,14 @@ export function getSonnet46_1MOption(): ModelOption {
 
 export function getOpus46_1MOption(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
+  // 3P pins Opus 4.6; first-party resolves the `opus` alias to the current
+  // default (Opus 4.8), so the label must follow the provider.
+  const opusName = is3P ? 'Opus 4.6' : 'Opus 4.8'
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.6 for long sessions${getOpus46PricingSuffix(fastMode)}`,
-    descriptionForModel:
-      'Opus 4.6 with 1M context window - for long sessions with large codebases',
+    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode)}`,
+    descriptionForModel: `${opusName} with 1M context window - for long sessions with large codebases`,
   }
 }
 
@@ -295,7 +297,7 @@ export function getMaxOpus46_1MOption(fastMode = false): ModelOption {
   return {
     value: 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.6 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode)}`,
+    description: `Opus 4.8 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode)}`,
   }
 }
 
