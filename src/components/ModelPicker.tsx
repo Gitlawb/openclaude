@@ -44,6 +44,17 @@ export type Props = {
   onRefresh?: () => void;
 };
 const NO_PREFERENCE = '__NO_PREFERENCE__';
+function normalizeModelPickerValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function optionMatchesPickerValue(option: ModelOption, value: string): boolean {
+  const optionKey = normalizeModelPickerValue(option.value);
+  const valueKey = normalizeModelPickerValue(value);
+  return optionKey !== null && valueKey !== null && optionKey === valueKey;
+}
 function mapDiscoveryToneToColor(tone: ModelPickerDiscoveryState['tone']): 'error' | 'warning' | 'success' | 'subtle' {
   switch (tone) {
     case 'error':
@@ -100,7 +111,7 @@ export function ModelPicker(t0) {
   const modelOptions = optionsOverride ?? t3;
   let t4;
   bb0: {
-    if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => opt.value === initial)) {
+    if (initial !== null && isModelAllowed(initial) && !modelOptions.some(opt => optionMatchesPickerValue(opt, initial))) {
       let t5;
       if ($[4] !== initial) {
         t5 = modelDisplayString(initial);
@@ -148,7 +159,7 @@ export function ModelPicker(t0) {
   const selectOptions = t5;
   let t6;
   if ($[14] !== initialValue || $[15] !== selectOptions) {
-    t6 = selectOptions.some(_ => _.value === initialValue) ? initialValue : selectOptions[0]?.value ?? undefined;
+    t6 = selectOptions.find(_ => optionMatchesPickerValue(_, initialValue))?.value ?? selectOptions[0]?.value ?? undefined;
     $[14] = initialValue;
     $[15] = selectOptions;
     $[16] = t6;
@@ -322,15 +333,14 @@ export function ModelPicker(t0) {
   const t19 = <Box marginBottom={1} flexDirection="column">{t15}{t17}{t18}{discoveryLine}</Box>;
   const t20 = onCancel ?? _temp4;
   let t21;
-  if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== initialValue || $[53] !== selectOptions || $[54] !== t20 || $[55] !== visibleCount) {
-    t21 = <Box flexDirection="column"><Select defaultValue={initialValue} defaultFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={t20} visibleOptionCount={visibleCount} /></Box>;
+  if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== selectOptions || $[53] !== t20 || $[54] !== visibleCount) {
+    t21 = <Box flexDirection="column"><Select defaultValue={initialFocusValue} defaultFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={t20} visibleOptionCount={visibleCount} /></Box>;
     $[49] = handleFocus;
     $[50] = handleSelect;
     $[51] = initialFocusValue;
-    $[52] = initialValue;
-    $[53] = selectOptions;
-    $[54] = t20;
-    $[55] = visibleCount;
+    $[52] = selectOptions;
+    $[53] = t20;
+    $[54] = visibleCount;
     $[56] = t21;
   } else {
     t21 = $[56];

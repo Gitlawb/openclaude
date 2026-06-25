@@ -30,6 +30,8 @@ export interface OpenAIShimUiConfig {
 export interface OpenAIShimTransportConfig {
   headers?: Record<string, string>
   supportsApiFormatSelection?: boolean
+  defaultApiFormat?: 'chat_completions' | 'responses' | 'responses_compat'
+  requiredApiFormat?: 'chat_completions' | 'responses' | 'responses_compat'
   supportsAuthHeaders?: boolean
   ui?: OpenAIShimUiConfig
   defaultAuthHeader?: OpenAIShimAuthHeaderConfig

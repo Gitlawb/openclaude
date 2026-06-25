@@ -55,6 +55,14 @@ function matchesCatalogEntryModel(
     return true
   }
 
+  if (
+    (entry.aliases ?? []).some(
+      alias => normalizeModelApiName(alias) === modelApiName,
+    )
+  ) {
+    return true
+  }
+
   if (!entry.modelDescriptorId) {
     return false
   }

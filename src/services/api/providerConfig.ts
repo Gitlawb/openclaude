@@ -274,7 +274,11 @@ function resolveRouteCatalogAliasApiName(options: {
   }
 
   const entry = getCatalogEntriesForRoute(routeId).find(catalogEntry =>
-    (catalogEntry.aliases ?? []).some(alias => normalizeModelLookupKey(alias) === normalizedModel),
+    normalizeModelLookupKey(catalogEntry.apiName) === normalizedModel ||
+    normalizeModelLookupKey(catalogEntry.id) === normalizedModel ||
+    (catalogEntry.aliases ?? []).some(
+      alias => normalizeModelLookupKey(alias) === normalizedModel,
+    ),
   )
   return entry?.apiName ?? options.model
 }
@@ -872,23 +876,35 @@ export function resolveProviderRequest(options?: {
     ? buildGithubEnterpriseCopilotBaseUrl(gheBaseUrl)
     : undefined
 
-  const requestedApiFormat =
+  const runtimeShimContext =
+    isGithubMode
+      ? null
+      : resolveOpenAIShimRuntimeContext({
+          processEnv,
+          baseUrl: finalBaseUrl,
+          model: descriptor.baseModel,
+          treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
+        })
+  const explicitApiFormat =
     isGithubMode
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(processEnv.OPENAI_API_FORMAT)
+  const requiredApiFormat =
+    isGithubMode
+      ? undefined
+      : parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.requiredApiFormat)
+  const requestedApiFormat =
+    requiredApiFormat &&
+    (explicitApiFormat === undefined || explicitApiFormat === 'chat_completions')
+      ? requiredApiFormat
+      : explicitApiFormat ??
+        parseOpenAICompatibleApiFormat(runtimeShimContext?.openaiShimConfig.defaultApiFormat)
   const supportsRequestedApiFormat =
     (requestedApiFormat !== 'responses' && requestedApiFormat !== 'responses_compat') ||
     (() => {
-      const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-        processEnv,
-        baseUrl: finalBaseUrl,
-        model: descriptor.baseModel,
-        treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
-      })
-
       return openAIShimSupportsApiFormatForModel(
-        runtimeShimContext.openaiShimConfig,
+        runtimeShimContext?.openaiShimConfig,
         'responses',
         descriptor.baseModel,
       )

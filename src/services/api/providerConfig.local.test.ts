@@ -167,7 +167,62 @@ test('uses responses transport when OpenAI-compatible API format requests respon
   })
 })
 
-test('uses responses transport for Hicap gpt models when requested', () => {
+test('uses responses transport for Hicap gpt-5.5 models when requested', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('defaults Hicap gpt-5.5 to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('forces Hicap gpt-5.5 to responses even when chat completions is configured', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('preserves explicit responses_compat for Hicap gpt-5.5', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.5'
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses_compat',
+    requestedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('uses responses transport for Hicap gpt-5.4 when requested', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
   process.env.OPENAI_MODEL = 'gpt-5.4'
@@ -181,16 +236,57 @@ test('uses responses transport for Hicap gpt models when requested', () => {
   })
 })
 
+test('defaults Hicap gpt-5.4 to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('forces Hicap gpt-5.4 to responses even when chat completions is configured', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('preserves explicit responses_compat for Hicap gpt-5.4', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'responses_compat'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses_compat',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
 test('falls back to chat completions for non-gpt Hicap models when responses is requested', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
-  process.env.OPENAI_MODEL = 'claude-opus-4.7'
+  process.env.OPENAI_MODEL = 'claude-opus-4.8'
   process.env.OPENAI_API_FORMAT = 'responses'
 
   expect(resolveProviderRequest()).toMatchObject({
     transport: 'chat_completions',
-    requestedModel: 'claude-opus-4.7',
-    resolvedModel: 'claude-opus-4.7',
+    requestedModel: 'claude-opus-4.8',
+    resolvedModel: 'claude-opus-4.8',
     baseUrl: 'https://api.hicap.ai/v1',
   })
 })

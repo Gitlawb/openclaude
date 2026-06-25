@@ -686,7 +686,7 @@ test('uses Hicap api-key auth header for the Hicap route', async () => {
   const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
 
   await client.beta.messages.create({
-    model: 'claude-opus-4.7',
+    model: 'claude-opus-4.8',
     messages: [{ role: 'user', content: 'hello' }],
     max_tokens: 64,
     stream: false,
@@ -7277,6 +7277,56 @@ test('Z.AI GLM-5.2: streaming requests with tools send tool_stream', async () =>
   expect(requestBody?.tool_stream).toBe(true)
 })
 
+test('Hicap GLM-5.2: uses Z.AI-compatible request shaping', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.HICAP_API_KEY = 'sk-hicap-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.2',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({ reasoningEffort: 'xhigh' }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'GLM-5.2',
+    messages: [{ role: 'user', content: 'run pwd' }],
+    tools: [
+      {
+        name: 'Bash',
+        description: 'Run a shell command',
+        input_schema: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      },
+    ],
+    max_tokens: 64,
+    stream: true,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.2')
+  expect(requestBody?.store).toBeUndefined()
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.tool_stream).toBe(true)
+})
 test('Z.AI GLM-5.2: remote tool incompatibility does not use local toolless retry', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'

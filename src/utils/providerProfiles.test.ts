@@ -650,7 +650,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       buildProfile({
         provider: 'openai',
         baseUrl: 'https://api.hicap.ai/v1',
-        model: 'claude-opus-4.7',
+        model: 'claude-opus-4.8',
         authHeader: 'api-key',
         authScheme: 'raw',
         authHeaderValue: 'hicap-header-value',
@@ -1499,6 +1499,35 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
+
+  test('uses saved valid Hicap /model choice when rehydrating active profile', async () => {
+    const {
+      _setSavedModelOverrideForTesting,
+      applyActiveProviderProfileFromConfig,
+      getProviderProfiles,
+    } = await importFreshProviderProfileModules()
+    _setSavedModelOverrideForTesting('gpt-5.4')
+    const activeProfile = buildProfile({
+      id: 'saved_hicap',
+      provider: 'hicap',
+      baseUrl: 'https://api.hicap.ai/v1',
+      model: 'glm-5.2',
+    })
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any)
+
+    expect(applied?.id).toBe(activeProfile.id)
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.hicap.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    const saved = getProviderProfiles({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
+    } as any).find((profile: ProviderProfile) => profile.id === activeProfile.id)
+    expect(saved?.model).toBe('glm-5.2')
+  })
 })
 
 describe('persistActiveProviderProfileModel', () => {
@@ -1702,7 +1731,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('hicap')
     expect(defaults.name).toBe('Hicap')
     expect(defaults.baseUrl).toBe('https://api.hicap.ai/v1')
-    expect(defaults.model).toBe('claude-opus-4.7')
+    expect(defaults.model).toBe('claude-opus-4.8')
     expect(defaults.apiKey).toBe('hicap-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })

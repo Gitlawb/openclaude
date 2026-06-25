@@ -34,6 +34,7 @@ import {
 } from './providerProfile.js'
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
+  getCatalogEntriesForRoute,
   getProviderPresetUiMetadata,
   normalizeXiaomiMimoBaseUrl,
   routeSupportsApiFormatSelection,
@@ -56,6 +57,7 @@ import {
   sanitizeProfileCustomHeaders,
   serializeProfileCustomHeaders,
 } from './providerCustomHeaders.js'
+import { getSettings_DEPRECATED } from './settings/settings.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
@@ -206,6 +208,54 @@ function resolveProfileCapabilityRouteId(
     resolveRouteIdFromBaseUrl(baseUrl) ??
     resolveProfileRoute(provider).routeId
   )
+}
+
+function normalizeProfileModelLookupKey(model: string | undefined): string {
+  return model?.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+function profileSupportsModel(profile: ProviderProfile, model: string): boolean {
+  const normalizedModel = normalizeProfileModelLookupKey(model)
+  if (!normalizedModel) {
+    return false
+  }
+
+  if (
+    parseModelList(profile.model).some(
+      configured => normalizeProfileModelLookupKey(configured) === normalizedModel,
+    )
+  ) {
+    return true
+  }
+
+  const routeId = resolveProfileCapabilityRouteId(profile.provider, profile.baseUrl)
+  return getCatalogEntriesForRoute(routeId).some(
+    entry =>
+      normalizeProfileModelLookupKey(entry.apiName) === normalizedModel ||
+      normalizeProfileModelLookupKey(entry.id) === normalizedModel ||
+      (entry.aliases ?? []).some(
+        alias => normalizeProfileModelLookupKey(alias) === normalizedModel,
+      ),
+  )
+}
+
+let savedModelOverrideForTesting: string | undefined
+
+export function _setSavedModelOverrideForTesting(model: string | undefined): void {
+  savedModelOverrideForTesting = model
+}
+
+function getSavedModelOverrideForProfile(
+  profile: ProviderProfile,
+): string | undefined {
+  const savedModel = trimOrUndefined(
+    savedModelOverrideForTesting ?? getSettings_DEPRECATED()?.model,
+  )
+  if (!savedModel || !profileSupportsModel(profile, savedModel)) {
+    return undefined
+  }
+
+  return savedModel
 }
 
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
@@ -492,9 +542,11 @@ function isProcessEnvAlignedWithProfile(
   profile: ProviderProfile,
   options?: {
     includeApiKey?: boolean
+    primaryModel?: string
   },
 ): boolean {
   const includeApiKey = options?.includeApiKey ?? true
+  const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   const { compatibilityMode } = resolveProfileCompatibility(profile.provider)
 
   if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
@@ -509,7 +561,7 @@ function isProcessEnvAlignedWithProfile(
     return (
       !hasProviderSelectionFlags(processEnv) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
     )
@@ -525,7 +577,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.MISTRAL_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
     )
@@ -541,7 +593,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.GEMINI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.GEMINI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.GEMINI_MODEL, primaryModel) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
     )
@@ -561,7 +613,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.OPENAI_MODEL, primaryModel) &&
       sameOptionalEnvValue(processEnv.GITHUB_ENTERPRISE_URL, expectedGheUrl) &&
       (profile.provider !== 'github-enterprise' ||
         !includeApiKey ||
@@ -578,7 +630,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BEDROCK_BASE_URL, profile.baseUrl)
     )
   }
@@ -592,14 +644,14 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
       processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, primaryModel) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_VERTEX_BASE_URL, profile.baseUrl)
     )
   }
 
   const expectedContextWindows = profile.maxContextLength
     ? JSON.stringify({
-        [getPrimaryModel(profile.model)]: profile.maxContextLength,
+        [primaryModel]: profile.maxContextLength,
       })
     : undefined
 
@@ -612,7 +664,7 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-    sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+    sameOptionalEnvValue(processEnv.OPENAI_MODEL, primaryModel) &&
     sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
     sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
@@ -675,9 +727,12 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv[PROFILE_ENV_APPLIED_ID]
 }
 
-export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
+export function applyProviderProfileToProcessEnv(
+  profile: ProviderProfile,
+  options?: { primaryModel?: string },
+): void {
   const { route, compatibilityMode } = resolveProfileCompatibility(profile.provider)
-  const primaryModel = getPrimaryModel(profile.model)
+  const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   let profileEnv: ProfileEnv
 
   if (route.routeId === 'unknown-fallback') {
@@ -865,12 +920,20 @@ export function applyActiveProviderProfileFromConfig(
       return undefined
     }
 
-    if (isProcessEnvAlignedWithProfile(processEnv, activeProfile)) {
+    const savedPrimaryModel = getSavedModelOverrideForProfile(activeProfile)
+    if (
+      isProcessEnvAlignedWithProfile(processEnv, activeProfile, {
+        primaryModel: savedPrimaryModel,
+      })
+    ) {
       return activeProfile
     }
   }
 
-  applyProviderProfileToProcessEnv(activeProfile)
+  const savedPrimaryModel = getSavedModelOverrideForProfile(activeProfile)
+  applyProviderProfileToProcessEnv(activeProfile, {
+    primaryModel: savedPrimaryModel,
+  })
   return activeProfile
 }
 

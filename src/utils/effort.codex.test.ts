@@ -914,16 +914,26 @@ test('explicit compat metadata wire formats are controllable and feed the reques
     source: 'metadata',
   })
 
-  expect(resolveModelReasoningControl('custom-zai-low-only')).toMatchObject({
+  const zaiLowOnlyControl = resolveModelReasoningControl('custom-zai-low-only')
+  expect(zaiLowOnlyControl).toMatchObject({
     supportsReasoning: true,
-    controllable: false,
+    controllable: true,
     source: 'metadata',
     wireFormat: 'zai_compatible',
-    levels: [],
+    levels: ['low'],
   })
-  expect(modelSupportsEffort('custom-zai-low-only')).toBe(false)
-  expect(modelSupportsWireEffort('custom-zai-low-only')).toBe(false)
-
+  expect(modelSupportsEffort('custom-zai-low-only')).toBe(true)
+  expect(modelSupportsWireEffort('custom-zai-low-only')).toBe(true)
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-zai-low-only',
+    requestedEffort: 'low',
+    reasoningControl: zaiLowOnlyControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'high',
+    wireFormat: 'zai_compatible',
+    source: 'metadata',
+  })
   expect(resolveModelReasoningControl('custom-deepseek-low-only')).toMatchObject({
     supportsReasoning: true,
     controllable: false,

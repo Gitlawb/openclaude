@@ -445,7 +445,7 @@ test('opengateway validation accepts OPENAI_API_KEY as fallback', async () => {
 
 test.each([
   ['opengateway', 'https://opengateway.gitlawb.com/v1', 'mimo-v2.5-pro'],
-  ['hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7'],
+  ['hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8'],
   ['venice', 'https://api.venice.ai/api/v1', 'venice-uncensored'],
   ['xiaomi mimo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro'],
   ['opencode', 'https://opencode.ai/zen/v1', 'gpt-5.4'],

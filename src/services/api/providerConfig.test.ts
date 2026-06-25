@@ -68,6 +68,30 @@ test('resolveProviderRequest leaves OpenRouter routing untouched without explici
   expect(request.baseUrl).toBe('https://openrouter.ai/api/v1')
 })
 
+test('resolveProviderRequest maps Hicap discovered GLM aliases to static model ids', () => {
+  const request = resolveProviderRequest({
+    model: 'zai-org/GLM-5.2',
+    baseUrl: 'https://api.hicap.ai/v1',
+    processEnv: {},
+  })
+
+  expect(request.requestedModel).toBe('zai-org/GLM-5.2')
+  expect(request.resolvedModel).toBe('glm-5.2')
+  expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
+})
+
+test('resolveProviderRequest canonicalizes Hicap catalog model casing', () => {
+  const request = resolveProviderRequest({
+    model: 'GLM-5.2',
+    baseUrl: 'https://api.hicap.ai/v1',
+    processEnv: {},
+  })
+
+  expect(request.requestedModel).toBe('GLM-5.2')
+  expect(request.resolvedModel).toBe('glm-5.2')
+  expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
+})
+
 test('resolveProviderRequest leaves Hicap routing untouched without explicit aliases', () => {
   const request = resolveProviderRequest({
     model: 'claude-opus-4-7',

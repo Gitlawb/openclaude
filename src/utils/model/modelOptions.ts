@@ -1,6 +1,11 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
-import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
+import { getCatalogEntriesForRoute } from '../../integrations/index.js'
+import { resolveRouteIdFromBaseUrl } from '../../integrations/routeMetadata.js'
+import {
+  getAdditionalModelOptionsCacheScope,
+  resolveProviderRequest,
+} from '../../services/api/providerConfig.js'
 import {
   isClaudeAISubscriber,
   isMaxSubscriber,
@@ -510,13 +515,28 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     return standardOptions
   }
 
-  if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    const activeOpenAIOptions = getActiveOpenAIModelOptionsCache()
+  const activeRouteCatalogOptions = getActiveOpenAIRouteCatalogOptions()
+  const openAIModelOptionsScope = getAdditionalModelOptionsCacheScope()
+  const activeProfile = getActiveProviderProfile()
+  if (
+    activeRouteCatalogOptions.length > 0 ||
+    openAIModelOptionsScope?.startsWith('openai:')
+  ) {
+    const activeOpenAIOptions = activeProfile
+      ? getActiveOpenAIModelOptionsCache()
+      : []
+    const scopedOptions = openAIModelOptionsScope?.startsWith('openai:')
+      ? getScopedAdditionalModelOptions()
+      : []
+    const sourceOptions = activeOpenAIOptions.length > 0
+      ? activeOpenAIOptions
+      : scopedOptions
     return [
       getDefaultOptionForUser(fastMode),
-      ...(activeOpenAIOptions.length > 0
-        ? activeOpenAIOptions
-        : getScopedAdditionalModelOptions()),
+      ...mergeModelOptionsByNormalizedValue(
+        sourceOptions,
+        activeRouteCatalogOptions,
+      ),
     ]
   }
 
@@ -678,6 +698,118 @@ function getKnownModelOption(model: string): ModelOption | null {
   }
 }
 
+function normalizeRouteModelOptionKey(model: string): string {
+  return model.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+function getActiveOpenAIRouteId(): string | null {
+  const openAIFlag = process.env.CLAUDE_CODE_USE_OPENAI?.trim().toLowerCase()
+  if (!openAIFlag || ['0', 'false', 'no', 'off'].includes(openAIFlag)) {
+    return null
+  }
+
+  const scope = getAdditionalModelOptionsCacheScope()
+  if (scope?.startsWith('openai:')) {
+    const partitionIndex = scope.lastIndexOf(':')
+    if (partitionIndex > 'openai:'.length) {
+      const baseUrl = scope.slice('openai:'.length, partitionIndex)
+      return resolveRouteIdFromBaseUrl(baseUrl)
+    }
+  }
+
+  return resolveRouteIdFromBaseUrl(resolveProviderRequest().baseUrl)
+}
+
+function mergeModelOptionsByNormalizedValue(
+  primaryOptions: ModelOption[],
+  additionalOptions: ModelOption[],
+): ModelOption[] {
+  const merged: ModelOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of [...primaryOptions, ...additionalOptions]) {
+    if (typeof option.value !== 'string') {
+      continue
+    }
+
+    const value = option.value.trim()
+    const key = normalizeRouteModelOptionKey(value)
+    if (!key || seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    merged.push({
+      ...option,
+      value,
+    })
+  }
+
+  return merged
+}
+
+function getActiveOpenAIRouteCatalogOptions(): ModelOption[] {
+  const routeId = getActiveOpenAIRouteId()
+  if (!routeId) {
+    return []
+  }
+
+  return getCatalogEntriesForRoute(routeId).flatMap(entry => {
+    const value = entry.apiName.trim()
+    if (!value) {
+      return []
+    }
+
+    return [{
+      value,
+      label: entry.label ?? value,
+      description: entry.apiName,
+    }]
+  })
+}
+
+function getRouteCatalogModelOption(value: ModelSetting): ModelOption | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const routeId = getActiveOpenAIRouteId()
+  if (!routeId) {
+    return null
+  }
+
+  const normalizedValue = normalizeRouteModelOptionKey(value)
+  if (!normalizedValue) {
+    return null
+  }
+
+  const catalogEntry = getCatalogEntriesForRoute(routeId).find(entry =>
+    normalizeRouteModelOptionKey(entry.apiName) === normalizedValue ||
+    normalizeRouteModelOptionKey(entry.id) === normalizedValue ||
+    (entry.aliases ?? []).some(
+      alias => normalizeRouteModelOptionKey(alias) === normalizedValue,
+    ),
+  )
+  if (!catalogEntry) {
+    return null
+  }
+
+  return {
+    value: catalogEntry.apiName,
+    label: catalogEntry.label ?? catalogEntry.apiName,
+    description: catalogEntry.apiName,
+  }
+}
+
+function optionMatchesModel(option: ModelOption, model: ModelSetting): boolean {
+  if (option.value === model) {
+    return true
+  }
+
+  const catalogOption = getRouteCatalogModelOption(model)
+  return catalogOption !== null && option.value === catalogOption.value
+}
+
 export function getModelOptions(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
     return filterModelOptionsByAllowlist(getModelOptionsBase(fastMode))
@@ -689,7 +821,7 @@ export function getModelOptions(fastMode = false): ModelOption[] {
   const envCustomModel = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
   if (
     envCustomModel &&
-    !options.some(existing => existing.value === envCustomModel)
+    !options.some(existing => optionMatchesModel(existing, envCustomModel))
   ) {
     options.push({
       value: envCustomModel,
@@ -702,8 +834,12 @@ export function getModelOptions(fastMode = false): ModelOption[] {
 
   // Append additional model options fetched during bootstrap
   for (const opt of getScopedAdditionalModelOptions()) {
-    if (!options.some(existing => existing.value === opt.value)) {
-      options.push(opt)
+    const catalogOption = getRouteCatalogModelOption(opt.value)
+    const nextOption = catalogOption ? { ...opt, ...catalogOption } : opt
+    if (
+      !options.some(existing => optionMatchesModel(existing, nextOption.value))
+    ) {
+      options.push(nextOption)
     }
   }
 
@@ -717,7 +853,10 @@ export function getModelOptions(fastMode = false): ModelOption[] {
   } else if (initialMainLoopModel !== null) {
     customModel = initialMainLoopModel
   }
-  if (customModel === null || options.some(opt => opt.value === customModel)) {
+  if (
+    customModel === null ||
+    options.some(opt => optionMatchesModel(opt, customModel))
+  ) {
     return filterModelOptionsByAllowlist(options)
   } else if (customModel === 'opusplan') {
     return filterModelOptionsByAllowlist([...options, getOpusPlanOption()])
@@ -736,6 +875,12 @@ export function getModelOptions(fastMode = false): ModelOption[] {
       getMergedOpus1MOption(fastMode),
     ])
   } else {
+    const catalogOption = getRouteCatalogModelOption(customModel)
+    if (catalogOption) {
+      options.push(catalogOption)
+      return filterModelOptionsByAllowlist(options)
+    }
+
     // Try to show a human-readable label for known Anthropic models, with an
     // upgrade hint if the alias now resolves to a newer version.
     const knownOption = getKnownModelOption(customModel)

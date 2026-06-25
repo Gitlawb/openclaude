@@ -1,10 +1,15 @@
 import axios from 'axios'
 import isEqual from 'lodash-es/isEqual.js'
+import type { RouteDiscoveryResult } from '../../integrations/discoveryService.js'
 import {
   discoverModelsForRoute,
   resolveDiscoveryRouteIdFromBaseUrl,
 } from '../../integrations/discoveryService.js'
-import { getGateway, getVendor } from '../../integrations/index.js'
+import {
+  getCatalogEntriesForRoute,
+  getGateway,
+  getVendor,
+} from '../../integrations/index.js'
 import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from './credentialPool.js'
 import {
@@ -60,6 +65,54 @@ type BootstrapCachePayload = {
   clientData: Record<string, unknown> | null
   additionalModelOptions: ModelOption[]
   additionalModelOptionsScope: string
+}
+
+function normalizeDiscoveredModelLookupKey(model: string): string {
+  return model.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+export function _getDiscoveredModelApiNamesForTesting(
+  discovered: RouteDiscoveryResult | null,
+): string[] | null {
+  const discoveredModels = discovered?.models
+    .map(model => model.apiName)
+    .filter(model => model.trim())
+  return discoveredModels?.length ? discoveredModels : null
+}
+
+function buildLocalOpenAIModelOptions(options: {
+  models: string[]
+  routeId: string | null
+  routeLabel: string
+}): ModelOption[] {
+  const seen = new Set<string>()
+  const catalogEntries = options.routeId
+    ? getCatalogEntriesForRoute(options.routeId)
+    : []
+
+  return options.models.flatMap(model => {
+    const normalizedModel = normalizeDiscoveredModelLookupKey(model)
+    const catalogEntry = catalogEntries.find(
+      entry =>
+        normalizeDiscoveredModelLookupKey(entry.apiName) === normalizedModel ||
+        normalizeDiscoveredModelLookupKey(entry.id) === normalizedModel ||
+        (entry.aliases ?? []).some(
+          alias => normalizeDiscoveredModelLookupKey(alias) === normalizedModel,
+        ),
+    )
+    const value = catalogEntry?.apiName ?? model
+    const key = normalizeDiscoveredModelLookupKey(value)
+    if (!key || seen.has(key)) {
+      return []
+    }
+
+    seen.add(key)
+    return [{
+      value,
+      label: catalogEntry?.label ?? model,
+      description: `Detected from ${options.routeLabel}`,
+    }]
+  })
 }
 
 async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
@@ -177,9 +230,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
       })
     : null
   const models =
-    (discovered && discovered.source !== 'error'
-      ? discovered.models.map(model => model.apiName)
-      : null) ??
+    _getDiscoveredModelApiNamesForTesting(discovered) ??
     (await listOpenAICompatibleModels({
       baseUrl,
       apiKey,
@@ -194,11 +245,11 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
   return {
     clientData: getGlobalConfig().clientDataCache ?? null,
     additionalModelOptionsScope: scope,
-    additionalModelOptions: models.map(model => ({
-      value: model,
-      label: model,
-      description: `Detected from ${routeLabel}`,
-    })),
+    additionalModelOptions: buildLocalOpenAIModelOptions({
+      models,
+      routeId,
+      routeLabel,
+    }),
   }
 }
 

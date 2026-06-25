@@ -265,7 +265,7 @@ test.each([
   ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', 'nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia-nim'],
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
-  ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
+  ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8', 'hicap'],
   ['Xiaomi MiMo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro', 'xiaomi-mimo'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(

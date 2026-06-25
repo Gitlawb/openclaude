@@ -80,7 +80,8 @@ export type ReasoningControlContext = OpenAIShimReasoningSupportContext & {
 
 const DEFAULT_REASONING_LEVELS: EffortLevel[] = ['low', 'medium', 'high']
 const OPENAI_SHIM_COMPAT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh']
-const OPENAI_SHIM_METADATA_COMPAT_LEVELS: EffortLevel[] = ['high', 'xhigh']
+const DEEPSEEK_METADATA_COMPAT_LEVELS: EffortLevel[] = ['high', 'xhigh']
+const ZAI_METADATA_COMPAT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh']
 
 function getReasoningApiProvider(
   context?: ReasoningControlContext,
@@ -117,8 +118,11 @@ function normalizeMetadataReasoningLevels(
   levels: ReasoningControlMetadata['levels'] | undefined,
 ): EffortLevel[] {
   const normalized = normalizeReasoningLevels(levels)
-  if (wireFormat === 'deepseek_compatible' || wireFormat === 'zai_compatible') {
-    return normalized.filter(level => OPENAI_SHIM_METADATA_COMPAT_LEVELS.includes(level))
+  if (wireFormat === 'deepseek_compatible') {
+    return normalized.filter(level => DEEPSEEK_METADATA_COMPAT_LEVELS.includes(level))
+  }
+  if (wireFormat === 'zai_compatible') {
+    return normalized.filter(level => ZAI_METADATA_COMPAT_LEVELS.includes(level))
   }
   return normalized
 }
@@ -614,8 +618,7 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
     const shouldEnableThinking = thinkingType === 'enabled' || options.requestedEffort !== undefined
     const metadataZaiSupportsReasoningEffort =
       metadataWireFormat === 'zai_compatible' &&
-      (options.reasoningControl?.levels.includes('high') ||
-        options.reasoningControl?.levels.includes('xhigh'))
+      (options.reasoningControl?.levels.length ?? 0) > 0
     const reasoningEffort = options.requestedEffort &&
       (metadataZaiSupportsReasoningEffort || (
         metadataWireFormat !== 'zai_compatible' &&

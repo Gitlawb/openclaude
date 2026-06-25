@@ -184,6 +184,91 @@ describe('resolveOpenAIShimRuntimeContext - Z.AI GLM-5.2', () => {
   })
 })
 
+describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
+  it('uses Hicap static model limits and per-model shim overrides', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'claude-opus-4.8',
+        baseUrl: 'https://api.hicap.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: 128_000 })
+
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'kimi-k2.7-code',
+        baseUrl: 'https://api.hicap.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 262_144 })
+
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-5.4',
+        baseUrl: 'https://api.hicap.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 1_050_000, maxOutputTokens: 128_000 })
+
+    const glm = resolveOpenAIShimRuntimeContext({
+      model: 'glm-5.2',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(glm.catalogEntry?.id).toBe('hicap-glm-5.2')
+    expect(glm.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(glm.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(glm.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(glm.openaiShimConfig.removeBodyFields).toContain('store')
+    expect(glm.openaiShimConfig.enableToolStreaming).toBe(true)
+
+    const discoveredGlm = resolveOpenAIShimRuntimeContext({
+      model: 'zai-org/GLM-5.2',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(discoveredGlm.catalogEntry?.id).toBe('hicap-glm-5.2')
+    expect(discoveredGlm.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(discoveredGlm.openaiShimConfig.maxTokensField).toBe('max_tokens')
+
+    const gpt54 = resolveOpenAIShimRuntimeContext({
+      model: 'gpt-5.4',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(gpt54.routeId).toBe('hicap')
+    expect(gpt54.catalogEntry?.id).toBe('hicap-gpt-5.4')
+    expect(gpt54.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    expect(gpt54.openaiShimConfig.requiredApiFormat).toBe('responses')
+    expect(gpt54.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
+
+    const gpt55 = resolveOpenAIShimRuntimeContext({
+      model: 'gpt-5.5',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(gpt55.catalogEntry?.id).toBe('hicap-gpt-5.5')
+    expect(gpt55.openaiShimConfig.requiredApiFormat).toBe('responses')
+    expect(gpt55.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
+
+    const grok = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.3',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+    ])
+  })
+})
+
 describe('resolveOpenAIShimRuntimeContext - provider override route preference', () => {
   it('does not inherit ambient route config when the preferred base URL is unrecognized', () => {
     const result = resolveOpenAIShimRuntimeContext({
