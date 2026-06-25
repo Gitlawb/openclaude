@@ -19,7 +19,7 @@ c => {
   };
 },
 // Opus Pro → default, or pinned 4.0/4.1 → opus alias. Both land on the
-// current Opus default (4.6 for 1P).
+// current Opus default (4.8 for 1P).
 c => {
   const isLegacyRemap = Boolean(c.legacyOpusMigrationTimestamp);
   const ts = c.legacyOpusMigrationTimestamp ?? c.opusProMigrationTimestamp;
