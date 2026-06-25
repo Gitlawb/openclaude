@@ -18,7 +18,10 @@ import * as actualProviderProfiles from '../providerProfiles.js'
 import * as actualProviders from './providers.js'
 import * as actualAuth from '../auth.js'
 import * as actualProviderConfig from '../../services/api/providerConfig.js'
+import * as actualSettings from '../settings/settings.js'
+import * as actualModelAllowlist from './modelAllowlist.js'
 import type { ProviderProfile } from '../config.js'
+import type { SettingsJson } from '../settings/types.js'
 
 // Snapshot the real modules before any mock.module runs. bun live-repoints the
 // `actual*` namespaces to the active mock, so these plain-object copies are the
@@ -27,6 +30,8 @@ const realProviderProfiles = { ...actualProviderProfiles }
 const realProviders = { ...actualProviders }
 const realAuth = { ...actualAuth }
 const realProviderConfig = { ...actualProviderConfig }
+const realSettings = { ...actualSettings }
+const realModelAllowlist = { ...actualModelAllowlist }
 
 // bun's mock.module is process-wide and mock.restore() does NOT undo it, so
 // per-test mocks installed in a harness would persist and leak into later
@@ -42,6 +47,31 @@ let activeProfilesOverride: Partial<typeof actualProviderProfiles> | null = null
 // providerConfig surface so the persisted mock doesn't strip resolveProviderRequest
 // etc. from later suites (e.g. providerConfig.local).
 let activeCacheScopeOverride: string | null = null
+// Overrides getSettings_DEPRECATED (read by BOTH the filterModelOptionsByAllowlist
+// gate in modelOptions.ts AND isModelAllowed in modelAllowlist.js) only while an
+// allowlist test sets it. Many sibling suites (ModelPicker/ProviderManager/...)
+// mock.module('../settings/settings.js') process-wide, which defeats
+// setSessionSettingsCache, so drive the allowlist deterministically here rather
+// than through the shared settings cache. Gated + passthrough so it doesn't leak.
+let activeSettingsOverride: SettingsJson | null = null
+
+mock.module('../settings/settings.js', () => ({
+  ...realSettings,
+  getSettings_DEPRECATED: () =>
+    activeSettingsOverride ?? realSettings.getSettings_DEPRECATED(),
+}))
+
+// Sibling suites (ModelPicker/...) also mock modelAllowlist's isModelAllowed
+// process-wide, so override it here too (gated + passthrough) and drive it from
+// the same activeSettingsOverride allowlist, matching the gate above. Mirrors
+// the agent.test.ts allowlist pattern.
+mock.module('./modelAllowlist.js', () => ({
+  ...realModelAllowlist,
+  isModelAllowed: (model: string) => {
+    const allowlist = activeSettingsOverride?.availableModels
+    return allowlist ? allowlist.includes(model) : realModelAllowlist.isModelAllowed(model)
+  },
+}))
 
 mock.module('../../services/api/providerConfig.js', () => ({
   ...realProviderConfig,
@@ -124,15 +154,17 @@ async function importFreshModelOptionsModule(
 beforeEach(() => {
   activeProfilesOverride = null
   activeCacheScopeOverride = null
+  activeSettingsOverride = null
   setSessionSettingsCache({ settings: {}, errors: [] })
   resetModelStringsForTestingOnly()
 })
 
 afterEach(() => {
-  // Clear the gates so the persisted provider/auth/profile/providerConfig mocks
-  // fall through to the real implementations for every later suite.
+  // Clear the gates so the persisted provider/auth/profile/providerConfig/settings
+  // mocks fall through to the real implementations for every later suite.
   activeProfilesOverride = null
   activeCacheScopeOverride = null
+  activeSettingsOverride = null
   resetSettingsCache()
   resetModelStringsForTestingOnly()
 })
@@ -427,10 +459,11 @@ test('getModelOptions: allowlist filters cross-profile options by the decoded ta
   })
 
   // Only glm-5.1 (and the active model) are permitted; blocked-model is not.
-  setSessionSettingsCache({
-    settings: { availableModels: ['kimi-k2.6', 'glm-5.1'] },
-    errors: [],
-  })
+  // Drive the allowlist through the gated getSettings_DEPRECATED override so it
+  // is immune to sibling suites that mock the settings module process-wide.
+  activeSettingsOverride = {
+    availableModels: ['kimi-k2.6', 'glm-5.1'],
+  } as SettingsJson
 
   const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
