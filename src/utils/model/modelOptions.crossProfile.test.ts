@@ -399,3 +399,63 @@ test('getModelOptionsBase: 3P path omits inactive profile options when env NOT a
     }
   }
 })
+
+test('getModelOptions: allowlist filters cross-profile options by the decoded target model', async () => {
+  // Regression for #1119: filterModelOptionsByAllowlist must evaluate the
+  // allowlist against the decoded target model (parseSwitchProfileValue(value).model),
+  // not the raw `__switch_profile__:<id>:<model>` wrapper. An allowed cross-profile
+  // model must stay; a denied one must drop. Uses this suite's per-test isolated
+  // settings cache (set below, reset in afterEach) rather than the shared cache
+  // that made the earlier version flaky.
+  const active = buildProviderProfileFixture({
+    id: 'profile_active',
+    name: 'Active',
+    baseUrl: 'https://api.kimi.com/coding/',
+    model: 'kimi-k2.6',
+  })
+  const allowedInactive = buildProviderProfileFixture({
+    id: 'profile_allowed',
+    name: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    model: 'glm-5.1',
+  })
+  const deniedInactive = buildProviderProfileFixture({
+    id: 'profile_denied',
+    name: 'Blocked',
+    baseUrl: 'https://blocked.example/v1',
+    model: 'blocked-model',
+  })
+
+  // Only glm-5.1 (and the active model) are permitted; blocked-model is not.
+  setSessionSettingsCache({
+    settings: { availableModels: ['kimi-k2.6', 'glm-5.1'] },
+    errors: [],
+  })
+
+  const previousFlag = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  try {
+    const { getModelOptions } = await importFreshModelOptionsModule({
+      getProviderProfiles: () => [active, allowedInactive, deniedInactive],
+      getActiveProviderProfile: () => active,
+      getProfileModelOptions: profile => [
+        { value: profile.model, label: profile.model, description: profile.name },
+      ],
+    })
+
+    const switchTargets = getModelOptions(false)
+      .filter(o => o.switchToProfileId !== undefined)
+      .map(o => o.switchToProfileId)
+
+    // Allowed cross-profile model kept; denied one filtered out by the decoded
+    // (not the encoded) model id.
+    expect(switchTargets).toContain('profile_allowed')
+    expect(switchTargets).not.toContain('profile_denied')
+  } finally {
+    if (previousFlag === undefined) {
+      delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    } else {
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = previousFlag
+    }
+  }
+})
