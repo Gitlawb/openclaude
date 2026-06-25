@@ -12,6 +12,7 @@ import {
 import {
   convertEffortValueToLevel,
   type EffortValue,
+  resolveAppliedEffort,
   modelSupportsShimReasoningEffort,
   modelSupportsWireEffort,
   standardEffortToOpenAI,
@@ -342,22 +343,38 @@ export async function getAnthropicClient({
     })
     : undefined
   const providerOverrideShimConfig = providerOverrideRuntimeContext?.openaiShimConfig
+  const providerOverrideEffortContext = providerOverrideRuntimeContext
+    ? {
+        routeId: providerOverrideRuntimeContext.routeId,
+        useRuntimeFallback: false,
+        openaiShimConfig: providerOverrideShimConfig,
+        apiProvider: providerOverrideRuntimeContext.routeId === 'openai'
+          ? 'openai' as const
+          : providerOverrideRuntimeContext.routeId === 'codex'
+            ? 'codex' as const
+            : undefined,
+      }
+    : undefined
   const supportsShimReasoningEffort = effortModel
     ? providerOverrideShimConfig
       ? modelSupportsShimReasoningEffort(
         effortModel,
         providerOverrideShimConfig.thinkingRequestFormat,
         providerOverrideShimConfig.removeBodyFields,
-        {
-          routeId: providerOverrideRuntimeContext?.routeId,
-          useRuntimeFallback: false,
-        },
+        providerOverrideEffortContext,
       )
       : modelSupportsWireEffort(effortModel)
     : false
+  const appliedProviderOverrideEffort = effortModel && effortValue !== undefined
+    ? resolveAppliedEffort(
+      effortModel,
+      effortValue,
+      providerOverrideEffortContext,
+    )
+    : undefined
   const shimReasoningEffort: OpenAIEffortLevel | undefined =
-    effortValue !== undefined && supportsShimReasoningEffort
-      ? standardEffortToOpenAI(convertEffortValueToLevel(effortValue))
+    appliedProviderOverrideEffort !== undefined && supportsShimReasoningEffort
+      ? standardEffortToOpenAI(convertEffortValueToLevel(appliedProviderOverrideEffort))
       : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID

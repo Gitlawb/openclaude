@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import {
+  _clearRegistryForTesting,
+  ensureIntegrationsLoaded,
+  registerGateway,
+} from '../../integrations/index.js'
 import { getAnthropicClient } from './client.js'
 
 type FetchType = typeof globalThis.fetch
@@ -1435,6 +1440,88 @@ test('providerOverride custom OpenAI-compatible gpt effort uses legacy support',
     max_tokens: 64,
     stream: false,
   })
+
+  expect(requestBody?.reasoning_effort).toBe('high')
+})
+test('providerOverride clamps stale effort against metadata levels', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-provider-override-metadata-clamp',
+        model: 'metadata-high-only-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  _clearRegistryForTesting()
+  try {
+    registerGateway({
+      id: 'metadata-effort-test',
+      label: 'Metadata Effort Test',
+      defaultBaseUrl: 'https://metadata-effort.example.test/v1',
+      setup: { requiresAuth: true, authMode: 'api-key' },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'static',
+        models: [
+          {
+            id: 'metadata-high-only-model',
+            apiName: 'metadata-high-only-model',
+            capabilities: { supportsReasoning: true },
+            reasoning: {
+              mode: 'levels',
+              levels: ['high'],
+              wireFormat: 'reasoning_effort',
+            },
+          },
+        ],
+      },
+    })
+
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'low',
+      providerOverride: {
+        model: 'metadata-high-only-model',
+        baseURL: 'https://metadata-effort.example.test/v1',
+        apiKey: 'provider-test-key',
+      },
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'unused',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } finally {
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+  }
 
   expect(requestBody?.reasoning_effort).toBe('high')
 })

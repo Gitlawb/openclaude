@@ -674,6 +674,16 @@ test('explicit compat metadata wire formats are controllable and feed the reques
         },
       },
       {
+        id: 'custom-deepseek-with-max',
+        apiName: 'custom-deepseek-with-max',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['high', 'max', 'xhigh'],
+          wireFormat: 'deepseek_compatible',
+        },
+      },
+      {
         id: 'custom-zai-high-only',
         apiName: 'custom-zai-high-only',
         capabilities: { supportsReasoning: true },
@@ -725,6 +735,14 @@ test('explicit compat metadata wire formats are controllable and feed the reques
     reasoningEffort: 'max',
     wireFormat: 'deepseek_compatible',
     source: 'metadata',
+  })
+
+  expect(resolveModelReasoningControl('custom-deepseek-with-max')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    wireFormat: 'deepseek_compatible',
+    levels: ['high', 'xhigh'],
   })
 
   const zaiReasoningControl = resolveModelReasoningControl('custom-zai-high-only')
