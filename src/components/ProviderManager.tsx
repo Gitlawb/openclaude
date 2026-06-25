@@ -819,6 +819,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   // array reference, causing Select to re-render and feel sluggish.
   const hasProfiles = profiles.length > 0
   const hasSelectableProviders = hasProfiles || githubProviderAvailable
+  // A non-Anthropic provider (a saved profile or GitHub Models) is currently
+  // active. The switch-back-to-Anthropic recovery option must stay reachable
+  // in that case even when no profiles are saved and GitHub credentials have
+  // gone away (cleared storage / removed env token); otherwise the user is
+  // stranded on an unusable provider with no way back. Scoped to the activate
+  // path only — edit/delete still require an actual profile.
+  const isNonAnthropicProviderActive = isGithubActive || activeProfileId != null
+  const canSwitchActiveProvider =
+    hasSelectableProviders || isNonAnthropicProviderActive
   const menuOptions = React.useMemo(
     () => [
       {
@@ -830,7 +839,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         value: 'activate',
         label: 'Set active provider',
         description: 'Switch the active provider profile',
-        disabled: !hasSelectableProviders,
+        disabled: !canSwitchActiveProvider,
       },
       {
         value: 'edit',
@@ -870,6 +879,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     ],
     [
       hasSelectableProviders,
+      canSwitchActiveProvider,
       hasProfiles,
       hasStoredCodexOAuthCredentials,
       hasStoredXaiOAuthCredentials,
@@ -2196,6 +2206,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // Use memoized menuOptions from component scope
     const hasProfiles = profiles.length > 0
     const hasSelectableProviders = hasProfiles || githubProviderAvailable
+    const canSwitchActiveProvider =
+      hasSelectableProviders || isGithubActive || activeProfileId != null
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -2241,7 +2253,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 setScreen('select-preset')
                 break
               case 'activate':
-                if (hasSelectableProviders) {
+                if (canSwitchActiveProvider) {
                   setScreen('select-active')
                 }
                 break

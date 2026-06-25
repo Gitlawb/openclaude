@@ -2197,3 +2197,103 @@ test('ProviderManager hides Codex OAuth setup in bare mode', async () => {
   expect(output).toContain('Set up provider')
   expect(output).not.toContain('Codex OAuth')
 })
+
+test('ProviderManager switches back to Anthropic via the manager UI: resets the model and clears managed env', async () => {
+  // GitHub Models is the active provider with no saved profiles. Selecting the
+  // "Use Anthropic (built-in)" recovery option must reset the session model and
+  // drop the managed CLAUDE_CODE_USE_* flags. This is the production switch-back
+  // path; the existing util tests only cover the sentinel in isolation.
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  delete process.env.CLAUDE_CODE_SIMPLE
+
+  // Capture the real providerProfiles module before any mock replaces it so the
+  // Anthropic sentinel id and preset helpers stay intact.
+  const realProviderProfiles = await import('../utils/providerProfiles.js')
+
+  const githubSyncRead = mock(() => undefined)
+  const githubAsyncRead = mock(async () => undefined)
+  mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+    getProviderProfiles: () => [],
+    getActiveProviderProfile: () => null,
+  })
+
+  const clearActiveProviderProfile = mock(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('CLAUDE_CODE_USE_')) {
+        delete process.env[key]
+      }
+    }
+    return true
+  })
+  const clearHydratedGithubModelsTokenFromEnv = mock(() => {})
+
+  mock.module('../utils/providerProfiles.js', () => ({
+    ...realProviderProfiles,
+    applyActiveProviderProfileFromConfig: () => {},
+    getProviderProfiles: () => [],
+    getActiveProviderProfile: () => null,
+    setActiveProviderProfile: mock(() => null),
+    clearActiveProviderProfile,
+  }))
+  mock.module('../utils/githubModelsCredentials.js', () => ({
+    clearGithubModelsToken: () => ({ success: true }),
+    clearHydratedGithubModelsTokenFromEnv,
+    GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+    hydrateGithubModelsTokenFromSecureStorage: () => {},
+    readGithubModelsToken: () => undefined,
+    readGithubModelsTokenAsync: async () => undefined,
+  }))
+  mock.module('../utils/providerStartupOverrides.js', () => ({
+    clearStartupProviderOverrides: () => null,
+  }))
+
+  const onDoneResults: Array<Record<string, unknown>> = []
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    onDone: result => {
+      if (result && typeof result === 'object') {
+        onDoneResults.push(result as Record<string, unknown>)
+      }
+    },
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Set active provider'),
+  )
+
+  // Open "Set active provider" (second menu item).
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  // Options here are [GitHub Models (active), Use Anthropic (built-in)]; move
+  // down to the switch-back option and select it.
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Use Anthropic (built-in)'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => onDoneResults.length > 0)
+
+  const result = onDoneResults[0]
+  expect(result.action).toBe('activated')
+  expect(String(result.activeProviderName)).toMatch(/anthropic/i)
+  expect(typeof result.activeProviderModel).toBe('string')
+  expect((result.activeProviderModel as string).length).toBeGreaterThan(0)
+  expect(
+    Object.keys(process.env).some(key => key.startsWith('CLAUDE_CODE_USE_')),
+  ).toBe(false)
+  expect(clearActiveProviderProfile).toHaveBeenCalled()
+
+  await mounted.dispose()
+})
