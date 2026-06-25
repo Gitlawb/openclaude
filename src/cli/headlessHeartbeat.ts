@@ -3,6 +3,7 @@ import { writeToStderr } from 'src/utils/process.js'
 
 export const HEADLESS_HEARTBEAT_MIN_INTERVAL_MS = 5_000
 export const HEADLESS_HEARTBEAT_MAX_INTERVAL_MS = 2_147_483_647
+const FALLBACK_HEARTBEAT_UUID = '00000000-0000-4000-8000-000000000000'
 
 export type HeadlessHeartbeatPhase =
   | 'startup'
@@ -159,7 +160,7 @@ export function createHeadlessHeartbeat(
       background_tasks: sanitizeBackgroundTaskCounts(
         safelyGet(options.getBackgroundTaskCounts, {}),
       ),
-      uuid: safelyGet(createUuid, ''),
+      uuid: safelyGet(createUuid, FALLBACK_HEARTBEAT_UUID),
       session_id: safelyGet(options.getSessionId, '') ?? '',
     }
 

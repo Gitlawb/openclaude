@@ -234,7 +234,7 @@ describe('createHeadlessHeartbeat', () => {
       state: 'running',
       pending_permission_requests: 0,
       background_tasks: {},
-      uuid: '',
+      uuid: '00000000-0000-4000-8000-000000000000',
       session_id: '',
     })
   })

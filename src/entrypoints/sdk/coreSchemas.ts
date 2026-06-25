@@ -1776,8 +1776,8 @@ export const SDKHeartbeatMessageSchema = lazySchema(() =>
       type: z.literal('system'),
       subtype: z.literal('heartbeat'),
       timestamp: z.string(),
-      elapsed_ms: z.number(),
-      since_last_activity_ms: z.number(),
+      elapsed_ms: z.number().int().nonnegative(),
+      since_last_activity_ms: z.number().int().nonnegative(),
       state: z.enum([
         'starting',
         'running',
@@ -1796,9 +1796,9 @@ export const SDKHeartbeatMessageSchema = lazySchema(() =>
         'flushing',
         'shutting_down',
       ]),
-      heartbeat_index: z.number(),
-      pending_permission_requests: z.number(),
-      background_tasks: z.record(z.string(), z.number()),
+      heartbeat_index: z.number().int().positive(),
+      pending_permission_requests: z.number().int().nonnegative(),
+      background_tasks: z.record(z.string(), z.number().int().positive()),
       uuid: UUIDPlaceholder(),
       session_id: z.string(),
     })

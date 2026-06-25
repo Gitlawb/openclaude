@@ -3,6 +3,7 @@ import {
   AccountInfoSchema,
   SDKAssistantMessageSchema,
   SDKSystemMessageSchema,
+  SDKHeartbeatMessageSchema,
   SDKCompactBoundaryMessageSchema,
   SDKMessageSchema,
   SDKUserMessageSchema,
@@ -212,6 +213,41 @@ describe('SDK Zod schemas (type generation source)', () => {
     for (const msg of messages) {
       const result = schema.safeParse(msg)
       expect(result.success).toBe(true)
+    }
+  })
+
+  test('SDKHeartbeatMessageSchema rejects values outside the producer contract', () => {
+    const schema = SDKHeartbeatMessageSchema()
+    const validHeartbeat = {
+      type: 'system',
+      subtype: 'heartbeat',
+      timestamp: '2026-06-25T12:00:30.000Z',
+      elapsed_ms: 30_000,
+      since_last_activity_ms: 30_000,
+      state: 'running',
+      phase: 'in_turn',
+      heartbeat_index: 1,
+      pending_permission_requests: 0,
+      background_tasks: { local_agent: 1 },
+      uuid: '12345678-1234-1234-1234-123456789012',
+      session_id: '12345678-1234-1234-1234-123456789012',
+    }
+
+    expect(schema.safeParse(validHeartbeat).success).toBe(true)
+
+    for (const invalidHeartbeat of [
+      { ...validHeartbeat, elapsed_ms: -1 },
+      { ...validHeartbeat, elapsed_ms: 1.5 },
+      { ...validHeartbeat, since_last_activity_ms: -1 },
+      { ...validHeartbeat, since_last_activity_ms: 1.5 },
+      { ...validHeartbeat, heartbeat_index: 0 },
+      { ...validHeartbeat, heartbeat_index: 1.5 },
+      { ...validHeartbeat, pending_permission_requests: -1 },
+      { ...validHeartbeat, pending_permission_requests: 1.5 },
+      { ...validHeartbeat, background_tasks: { local_agent: 0 } },
+      { ...validHeartbeat, background_tasks: { local_agent: 1.5 } },
+    ]) {
+      expect(schema.safeParse(invalidHeartbeat).success).toBe(false)
     }
   })
 
