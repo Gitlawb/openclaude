@@ -448,16 +448,89 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     supportsReasoning: true,
     controllable: true,
     source: 'metadata',
-    levels: ['low', 'medium', 'high'],
+    levels: ['low', 'medium', 'high', 'xhigh'],
     wireFormat: 'reasoning_effort',
   })
   expect(getAvailableEffortLevels('moonshotai/kimi-k2.6')).toEqual([
     'low',
     'medium',
     'high',
+    'xhigh',
   ])
-  expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'xhigh')).toBe('high')
+  expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'xhigh')).toBe('xhigh')
   expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'max')).toBe('high')
+
+  const verifiedAtlasReasoningModels = [
+    'deepseek-ai/deepseek-v4-pro',
+    'deepseek-ai/deepseek-v4-flash',
+    'deepseek-ai/deepseek-v3.2',
+    'deepseek-ai/DeepSeek-V3.2-Exp',
+    'anthropic/claude-opus-4.8',
+    'anthropic/claude-sonnet-4.6',
+    'anthropic/claude-sonnet-4.6-coding',
+    'anthropic/claude-haiku-4.5-20251001',
+    'anthropic/claude-haiku-4.5-20251001-coding',
+    'openai/gpt-5.5',
+    'openai/gpt-5.4',
+    'google/gemini-3.5-flash',
+    'google/gemini-3.1-pro-preview',
+    'xai/grok-4.3',
+    'zai-org/glm-5.2',
+    'zai-org/glm-5.1',
+    'zai-org/glm-5',
+    'zai-org/glm-5-turbo',
+    'zai-org/glm-5v-turbo',
+    'zai-org/glm-4.7',
+    'zai-org/GLM-4.6',
+    'minimaxai/minimax-m3',
+    'minimaxai/minimax-m2.7',
+    'minimaxai/minimax-m2.5',
+    'qwen/qwen3.7-max',
+    'qwen/qwen3.7-plus',
+    'qwen/qwen3.6-plus',
+    'qwen/qwen3.6-35b-a3b',
+    'qwen/qwen3.5-397b-a17b',
+    'qwen/qwen3.5-122b-a10b',
+    'qwen/qwen3.5-35b-a3b',
+    'qwen/qwen3.5-27b',
+    'qwen/qwen3-vl-30b-a3b-thinking',
+    'Qwen/Qwen3-Next-80B-A3B-Thinking',
+  ]
+  for (const model of verifiedAtlasReasoningModels) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high', 'xhigh'],
+      wireFormat: 'reasoning_effort',
+    })
+    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('xhigh')
+    expect(resolveAppliedEffort(model, 'max')).toBe('high')
+  }
+
+  const verifiedAtlasHighOnlyReasoningModels = [
+    'bytedance/doubao-seed-2.0-pro-260215',
+    'bytedance/doubao-seed-2.0-code-preview-260215',
+    'bytedance/doubao-seed-2.0-lite-260428',
+    'bytedance/doubao-seed-2.0-mini-260428',
+  ]
+  for (const model of verifiedAtlasHighOnlyReasoningModels) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high'],
+      wireFormat: 'reasoning_effort',
+    })
+    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high'])
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('high')
+  }
+
+  expect(resolveModelReasoningControl('owl')).toMatchObject({
+    supportsReasoning: false,
+    controllable: false,
+  })
 
   expect(resolveModelReasoningControl('moonshotai/kimi-k2.7-code')).toMatchObject({
     supportsReasoning: true,

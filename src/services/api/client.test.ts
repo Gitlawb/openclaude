@@ -1576,7 +1576,7 @@ test('providerOverride Atlas Kimi metadata emits top-level reasoning_effort and 
     stream: false,
   })
 
-  expect(requestBody?.reasoning_effort).toBe('high')
+  expect(requestBody?.reasoning_effort).toBe('xhigh')
 })
 
 test('providerOverride Atlas Grok Build uses always-on no-wire reasoning metadata', async () => {
