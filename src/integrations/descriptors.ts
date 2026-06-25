@@ -103,6 +103,7 @@ export type ReadinessProbeKind = 'ollama-generation' | 'openai-compatible-models
 export interface ModelCatalogEntry {
   id: string
   apiName: string
+  aliases?: string[]
   label?: string
   default?: boolean
   hidden?: boolean

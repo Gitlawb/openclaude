@@ -460,6 +460,16 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
   expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'xhigh')).toBe('xhigh')
   expect(resolveAppliedEffort('moonshotai/kimi-k2.6', 'max')).toBe('high')
 
+  expect(resolveModelReasoningControl('glm-5.2')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high', 'xhigh'],
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('glm-5.2')).toEqual(['low', 'medium', 'high', 'xhigh'])
+  expect(resolveAppliedEffort('glm-5.2', 'xhigh')).toBe('xhigh')
+
   const verifiedAtlasReasoningModels = [
     'deepseek-ai/deepseek-v4-pro',
     'deepseek-ai/deepseek-v4-flash',

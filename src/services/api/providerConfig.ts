@@ -19,6 +19,7 @@ import {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
 } from 'src/utils/providerProfile.js'
+import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -247,6 +248,35 @@ function readNestedString(
     if (stringValue) return stringValue
   }
   return undefined
+}
+
+function normalizeModelLookupKey(model: string): string {
+  return model.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+function resolveRouteCatalogAliasApiName(options: {
+  model: string
+  baseUrl: string | undefined
+  processEnv: NodeJS.ProcessEnv
+}): string {
+  const normalizedModel = normalizeModelLookupKey(options.model)
+  if (!normalizedModel) return options.model
+
+  const runtimeShimContext = resolveOpenAIShimRuntimeContext({
+    processEnv: options.processEnv,
+    baseUrl: options.baseUrl,
+    model: options.model,
+    treatAsLocal: options.baseUrl ? isLocalProviderUrl(options.baseUrl) : false,
+  })
+  const routeId = runtimeShimContext.routeId
+  if (!routeId || routeId === 'anthropic' || routeId === 'openai') {
+    return options.model
+  }
+
+  const entry = getCatalogEntriesForRoute(routeId).find(catalogEntry =>
+    (catalogEntry.aliases ?? []).some(alias => normalizeModelLookupKey(alias) === normalizedModel),
+  )
+  return entry?.apiName ?? options.model
 }
 
 function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
@@ -879,7 +909,11 @@ export function resolveProviderRequest(options?: {
     ? normalizeGithubCopilotModel(descriptor.baseModel)
     : (isGithubModels || isGithubCustom || isGithubGhe
       ? normalizeGithubModelsApiModel(descriptor.baseModel)
-      : descriptor.baseModel)
+      : resolveRouteCatalogAliasApiName({
+          model: descriptor.baseModel,
+          baseUrl: finalBaseUrl,
+          processEnv,
+        }))
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }

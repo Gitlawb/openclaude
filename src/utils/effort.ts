@@ -317,7 +317,10 @@ function resolveCatalogReasoningMetadata(
   const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
   const entry = entries.find(catalogEntry =>
     catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
-    catalogEntry.id.trim().toLowerCase() === normalizedModel,
+    catalogEntry.id.trim().toLowerCase() === normalizedModel ||
+    (catalogEntry.aliases ?? []).some(alias =>
+      alias.trim().split('?', 1)[0]?.trim().toLowerCase() === normalizedModel,
+    ),
   )
 
   if (!entry) {

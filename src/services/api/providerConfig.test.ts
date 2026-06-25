@@ -24,3 +24,51 @@ test('resolveProviderRequest exposes model-query thinking defaults', () => {
   expect(request.resolvedModel).toBe('glm-5.2')
   expect(request.thinking).toEqual({ type: 'disabled' })
 })
+
+test('resolveProviderRequest maps explicit route catalog aliases to API model ids', () => {
+  const request = resolveProviderRequest({
+    model: 'glm-5.2?reasoning=high',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    processEnv: {},
+  })
+
+  expect(request.requestedModel).toBe('glm-5.2?reasoning=high')
+  expect(request.resolvedModel).toBe('zai-org/glm-5.2')
+  expect(request.reasoning).toEqual({ effort: 'high' })
+})
+
+test('resolveProviderRequest maps explicit Atlas coding aliases without ambiguity', () => {
+  expect(resolveProviderRequest({
+    model: 'claude-sonnet-4-6',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    processEnv: {},
+  }).resolvedModel).toBe('anthropic/claude-sonnet-4.6')
+
+  expect(resolveProviderRequest({
+    model: 'claude-sonnet-4-6-coding',
+    baseUrl: 'https://api.atlascloud.ai/v1',
+    processEnv: {},
+  }).resolvedModel).toBe('anthropic/claude-sonnet-4.6-coding')
+})
+
+test('resolveProviderRequest leaves OpenRouter routing untouched without explicit aliases', () => {
+  const request = resolveProviderRequest({
+    model: 'gpt-5-mini',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    processEnv: {},
+  })
+
+  expect(request.resolvedModel).toBe('gpt-5-mini')
+  expect(request.baseUrl).toBe('https://openrouter.ai/api/v1')
+})
+
+test('resolveProviderRequest leaves Hicap routing untouched without explicit aliases', () => {
+  const request = resolveProviderRequest({
+    model: 'claude-opus-4-7',
+    baseUrl: 'https://api.hicap.ai/v1',
+    processEnv: {},
+  })
+
+  expect(request.resolvedModel).toBe('claude-opus-4-7')
+  expect(request.baseUrl).toBe('https://api.hicap.ai/v1')
+})
