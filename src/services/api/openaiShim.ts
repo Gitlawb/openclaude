@@ -3494,14 +3494,16 @@ class OpenAIShimMessages {
         if (isCopilotTokenExpiredError(errorBody)) {
           didRefreshCopilotToken = true
           const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
-          const refreshed = await refreshCopilotTokenOn401()
-          if (refreshed) {
-            const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
-            if (newApiKey && newApiKey !== oldToken) {
-              refreshedCopilotToken = newApiKey
-            }
-            if (attempt < maxAttempts - 1) {
-              continue
+          if (oldToken === (process.env.OPENAI_API_KEY ?? '')) {
+            const refreshed = await refreshCopilotTokenOn401()
+            if (refreshed) {
+              const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
+              if (newApiKey && newApiKey !== oldToken) {
+                refreshedCopilotToken = newApiKey
+              }
+              if (attempt < maxAttempts - 1) {
+                continue
+              }
             }
           }
         }

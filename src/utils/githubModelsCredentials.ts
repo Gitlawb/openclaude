@@ -1,6 +1,7 @@
 import { isBareMode, isEnvTruthy } from './envUtils.js'
 import { getSecureStorage } from './secureStorage/index.js'
 import { exchangeForCopilotToken } from '../services/github/deviceFlow.js'
+import { logForDebugging } from './debug.js'
 
 /** JSON key in the shared OpenClaude secure storage blob. */
 export const GITHUB_MODELS_STORAGE_KEY = 'githubModels' as const
@@ -262,7 +263,11 @@ export async function refreshCopilotTokenOn401(): Promise<boolean> {
     process.env.GITHUB_TOKEN = refreshed.token
     process.env.OPENAI_API_KEY = refreshed.token
     return true
-  } catch {
+  } catch (error) {
+    logForDebugging(
+      `[refreshCopilotTokenOn401] failed: ${error instanceof Error ? error.message : String(error)}`,
+      { level: 'warn' },
+    )
     return false
   }
 }
