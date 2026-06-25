@@ -3493,9 +3493,9 @@ class OpenAIShimMessages {
       // singleAuthValue captured before the loop.
       if (isGithubCopilot && response.status === 401 && !didRefreshCopilotToken) {
         if (isCopilotTokenExpiredError(errorBody)) {
-          didRefreshCopilotToken = true
           const oldToken = headers.Authorization?.replace(/^Bearer\s+/i, '') || ''
           if (oldToken === (process.env.OPENAI_API_KEY ?? '')) {
+            didRefreshCopilotToken = true
             const refreshed = await refreshCopilotTokenOn401()
             if (refreshed) {
               const newApiKey = process.env.OPENAI_API_KEY?.trim() || ''
