@@ -25,7 +25,7 @@ import type { MarketplaceSource } from './schemas.js'
 // @ts-expect-error -- query-string cache-buster: the import specifier ends with `?bust=...`
 // so TypeScript cannot resolve the bare path. The runtime import works under Bun (treats the
 // query string as a distinct module id that bypasses other test files' mock.module registrations).
-import { _test } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
+import { _test, removeMarketplaceSource } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
 
 const { loadAndCacheMarketplace } = _test
 
@@ -514,4 +514,42 @@ describe('isCaseInsensitiveFsAt — probes the volume, not the platform', () => 
       false,
     )
   })
+})
+
+describe('removeMarketplaceSource — prototype-shadowing names', () => {
+  let originalFs: FsOperations
+
+  beforeEach(() => {
+    originalFs = getFsImplementation()
+    // No config file on disk → loadKnownMarketplacesConfig returns an empty
+    // config. Writes are stubbed so the test stays hermetic even if a
+    // regression let execution fall past the "not found" guard.
+    const enoent = (): never => {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), {
+        code: 'ENOENT',
+      })
+    }
+    setFsImplementation({
+      ...originalFs,
+      readFile: async () => enoent(),
+      mkdir: async () => {},
+      rm: async () => {},
+    })
+  })
+
+  afterEach(() => {
+    setFsImplementation(originalFs)
+  })
+
+  // A marketplace name that shadows an Object.prototype member must report
+  // "not found" — not resolve the inherited member via the prototype chain and
+  // then crash / silently mis-act on a bogus entry.
+  test.each(['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf'])(
+    'reports "not found" for prototype-shadowing name %p',
+    async name => {
+      await expect(removeMarketplaceSource(name)).rejects.toThrow(
+        `Marketplace '${name}' not found`,
+      )
+    },
+  )
 })

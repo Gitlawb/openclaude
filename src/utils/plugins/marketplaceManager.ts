@@ -326,6 +326,26 @@ export function saveMarketplaceToSettings(
  *
  * @returns Configuration object mapping marketplace names to their metadata
  */
+/**
+ * Marketplace names are user-supplied and are used directly as object keys for
+ * membership and lookup (`config[name]`) all over this module. On a normal
+ * object, a name that shadows an `Object.prototype` member — `constructor`,
+ * `__proto__`, `toString`, `hasOwnProperty`, … — resolves up the prototype
+ * chain to an inherited value, so `config[name]` is truthy even when no such
+ * marketplace is registered. That makes "not found" guards pass and then act on
+ * a bogus inherited entry (silently mis-deleting or crashing on
+ * `entry.installLocation`). Returning a null-prototype object makes every
+ * `config[name]` lookup own-property-exact.
+ */
+function toNullProtoConfig(
+  config: KnownMarketplacesConfig,
+): KnownMarketplacesConfig {
+  return Object.assign(
+    Object.create(null) as KnownMarketplacesConfig,
+    config,
+  )
+}
+
 export async function loadKnownMarketplacesConfig(): Promise<KnownMarketplacesConfig> {
   const fs = getFsImplementation()
   const configFile = getKnownMarketplacesFile()
@@ -344,10 +364,10 @@ export async function loadKnownMarketplacesConfig(): Promise<KnownMarketplacesCo
       })
       throw new ConfigParseError(errorMsg, configFile, data)
     }
-    return parsed.data
+    return toNullProtoConfig(parsed.data)
   } catch (error) {
     if (isENOENT(error)) {
-      return {}
+      return toNullProtoConfig({})
     }
     // If it's already a ConfigParseError, re-throw it
     if (error instanceof ConfigParseError) {
@@ -377,7 +397,7 @@ export async function loadKnownMarketplacesConfigSafe(): Promise<KnownMarketplac
   } catch {
     // Inner function already logged via logForDebugging. Don't logError here —
     // corrupted user config isn't a Claude Code bug, shouldn't hit the error file.
-    return {}
+    return toNullProtoConfig({})
   }
 }
 
