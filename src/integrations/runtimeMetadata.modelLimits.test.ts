@@ -13,41 +13,43 @@ import {
 // getOpenAIContextWindow / getOpenAIMaxOutputTokens, not a settings-blind
 // variant) for prefix and host-qualified keys, and that env overrides win.
 
-type ConfigShape = {
+type SettingsShape = {
   modelLimits?: Record<
     string,
-    { contextWindow?: number; maxOutputTokens?: number } | null
-  > | null
+    { contextWindow?: number; maxOutputTokens?: number }
+  >
 }
 
-let mockConfig: ConfigShape = {}
-// Gate the getGlobalConfig override so the process-global mock.module is a
-// transparent passthrough to the real config whenever this suite is not the one
-// running — otherwise a later integrations test that reads getGlobalConfig()
-// would see this suite's stub config leak in.
-let configOverrideActive = false
-let realConfigModule: typeof import('../utils/config.js') | undefined
+let mockSettings: SettingsShape = {}
+// Gate the getInitialSettings override so the process-global mock.module is a
+// transparent passthrough to the real settings whenever this suite is not the
+// one running — otherwise a later integrations test that reads
+// getInitialSettings() would see this suite's stub settings leak in.
+let settingsOverrideActive = false
+let realSettingsModule:
+  | typeof import('../utils/settings/settings.js')
+  | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('integrations/runtimeMetadata.modelLimits.test.ts')
   mock.restore()
-  mockConfig = {}
-  realConfigModule ??= (await import(
-    `../utils/config.js?modelLimitsReal=${Date.now()}-${Math.random()}`
-  )) as typeof import('../utils/config.js')
-  const real = realConfigModule
-  mock.module('../utils/config.js', () => ({
+  mockSettings = {}
+  realSettingsModule ??= (await import(
+    `../utils/settings/settings.js?modelLimitsReal=${Date.now()}-${Math.random()}`
+  )) as typeof import('../utils/settings/settings.js')
+  const real = realSettingsModule
+  mock.module('../utils/settings/settings.js', () => ({
     ...real,
-    getGlobalConfig: () =>
-      configOverrideActive ? mockConfig : real.getGlobalConfig(),
+    getInitialSettings: () =>
+      settingsOverrideActive ? mockSettings : real.getInitialSettings(),
   }))
-  configOverrideActive = true
+  settingsOverrideActive = true
 })
 
 afterEach(() => {
   try {
     mock.restore()
-    configOverrideActive = false
+    settingsOverrideActive = false
   } finally {
     releaseSharedMutationLock()
   }
@@ -59,7 +61,7 @@ async function importFresh() {
 }
 
 test('resolveModelRuntimeLimits resolves settings modelLimits for an exact model key', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'my-custom-deployment': { contextWindow: 123_456, maxOutputTokens: 4_096 },
     },
@@ -76,7 +78,7 @@ test('resolveModelRuntimeLimits resolves settings modelLimits for an exact model
 })
 
 test('resolveModelRuntimeLimits prefers a host-qualified settings key', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'my-custom-deployment': { contextWindow: 100_000 },
       'api.private-llm.test:my-custom-deployment': { contextWindow: 262_144 },
@@ -94,7 +96,7 @@ test('resolveModelRuntimeLimits prefers a host-qualified settings key', async ()
 })
 
 test('resolveModelRuntimeLimits resolves a prefix settings key', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'my-custom': { contextWindow: 333_333 },
     },
@@ -110,7 +112,7 @@ test('resolveModelRuntimeLimits resolves a prefix settings key', async () => {
 })
 
 test('resolveModelRuntimeLimits lets an env override win over settings modelLimits', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'my-custom-deployment': { contextWindow: 999 },
     },

@@ -9,7 +9,7 @@
  * Resolution order: env var → settings.json `modelLimits` → built-in catalog.
  */
 
-import { getGlobalConfig } from '../config.js'
+import { getInitialSettings } from '../settings/settings.js'
 
 type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
@@ -146,7 +146,7 @@ function lookupExternalLimit(
 function readSettingsLimits(key: SettingsLimitKey): Record<string, number> {
   let limits: unknown
   try {
-    limits = getGlobalConfig().modelLimits
+    limits = getInitialSettings().modelLimits
   } catch {
     return {}
   }

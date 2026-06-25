@@ -12,32 +12,47 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
 }
 
-type ConfigShape = {
+type SettingsShape = {
+  // Deliberately permissive (allows null entries) so the defensive-handling
+  // test can feed malformed shapes that real settings typing would reject.
   modelLimits?: Record<
     string,
     { contextWindow?: number; maxOutputTokens?: number } | null
-  > | null
+  >
 }
 
-let mockConfig: ConfigShape = {}
+let mockSettings: SettingsShape = {}
+// Gate the getInitialSettings override so the process-global mock.module is a
+// transparent passthrough to the real settings whenever this suite is not the
+// one running — settings.js is read by many suites, so a stub must not leak.
+let settingsOverrideActive = false
+let realSettingsModule:
+  | typeof import('../settings/settings.js')
+  | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiContextWindows.test.ts')
   mock.restore()
-  mockConfig = {}
+  mockSettings = {}
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
   delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_BASE_URL
-  const actualConfig = await import(`../config.js?ts=${Date.now()}-${Math.random()}`)
-  mock.module('../config.js', () => ({
-    ...actualConfig,
-    getGlobalConfig: () => mockConfig,
+  realSettingsModule ??= (await import(
+    `../settings/settings.js?ts=${Date.now()}-${Math.random()}`
+  )) as typeof import('../settings/settings.js')
+  const real = realSettingsModule
+  mock.module('../settings/settings.js', () => ({
+    ...real,
+    getInitialSettings: () =>
+      settingsOverrideActive ? mockSettings : real.getInitialSettings(),
   }))
+  settingsOverrideActive = true
 })
 
 afterEach(() => {
   try {
     mock.restore()
+    settingsOverrideActive = false
     for (const [key, value] of Object.entries(originalEnv)) {
       if (value === undefined) {
         delete process.env[key]
@@ -56,7 +71,7 @@ async function importFresh() {
 }
 
 test('settings modelLimits resolves context window when no env override is set', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'qwen3.6-plus': { contextWindow: 1_048_576, maxOutputTokens: 32_768 },
     },
@@ -71,7 +86,7 @@ test('env override takes precedence over settings modelLimits', async () => {
   process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
     'qwen3.6-plus': 524_288,
   })
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'qwen3.6-plus': { contextWindow: 1_048_576 },
     },
@@ -82,7 +97,7 @@ test('env override takes precedence over settings modelLimits', async () => {
 })
 
 test('settings modelLimits supports prefix matching on the model name', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'qwen3': { contextWindow: 262_144 },
     },
@@ -94,7 +109,7 @@ test('settings modelLimits supports prefix matching on the model name', async ()
 
 test('settings modelLimits supports host-qualified keys', async () => {
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'qwen3.6-plus': { contextWindow: 200_000 },
       'openrouter.ai:qwen3.6-plus': { contextWindow: 1_048_576 },
@@ -106,7 +121,7 @@ test('settings modelLimits supports host-qualified keys', async () => {
 })
 
 test('missing modelLimits returns undefined', async () => {
-  mockConfig = {}
+  mockSettings = {}
   const { getOpenAIContextWindow, getOpenAIMaxOutputTokens } = await importFresh()
 
   expect(getOpenAIContextWindow('whatever')).toBeUndefined()
@@ -114,7 +129,7 @@ test('missing modelLimits returns undefined', async () => {
 })
 
 test('invalid modelLimits entries are skipped without throwing', async () => {
-  mockConfig = {
+  mockSettings = {
     modelLimits: {
       'bad-zero': { contextWindow: 0 },
       'bad-negative': { contextWindow: -1 },
