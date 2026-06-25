@@ -6,7 +6,7 @@ import {
   ORDERED_PROVIDER_PRESETS,
   PROVIDER_PRESET_MANIFEST,
   type ProviderPreset,
-} from './generated/integrationArtifacts.generated.js'
+} from './generated/integrationManifest.generated.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,

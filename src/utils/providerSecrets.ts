@@ -1,10 +1,11 @@
 import type { ProviderPresetManifestEntry } from '../integrations/descriptors.js'
-import {
-  ANTHROPIC_PROXY_DESCRIPTORS,
-  GATEWAY_DESCRIPTORS,
-  PROVIDER_PRESET_MANIFEST,
-  VENDOR_DESCRIPTORS,
-} from '../integrations/generated/integrationArtifacts.generated.js'
+// Import the preset manifest from the lightweight manifest module (it only
+// imports a compile-time type, so it pulls in zero descriptor data). The heavy
+// descriptor arrays live in integrationArtifacts.generated.js and are required
+// lazily below so that merely importing this module on the bootstrap startup
+// path (bootstrap -> providerConfig -> providerProfile -> providerSecrets) does
+// not eagerly evaluate the full descriptor graph.
+import { PROVIDER_PRESET_MANIFEST } from '../integrations/generated/integrationManifest.generated.js'
 
 // Manually-curated fallback. Kept defensive for legacy and OAuth/token
 // credential paths that either predate descriptors or are accepted by
@@ -32,10 +33,17 @@ function readDescriptorCredentialEnvKeys(): readonly string[] {
     }
   }
 
+  // Lazy require so the descriptor graph is only evaluated on the first (and,
+  // thanks to getKnownProviderSecretEnvKeys's cache, only) call, rather than at
+  // module import time. Same pattern as the lazy requires in integrations/index.ts.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const artifacts =
+    require('../integrations/generated/integrationArtifacts.generated.js') as typeof import('../integrations/generated/integrationArtifacts.generated.js')
+
   const descriptorsWithSetup = [
-    ...VENDOR_DESCRIPTORS,
-    ...GATEWAY_DESCRIPTORS,
-    ...(ANTHROPIC_PROXY_DESCRIPTORS as readonly { setup?: { credentialEnvVars?: readonly string[] } }[]),
+    ...artifacts.VENDOR_DESCRIPTORS,
+    ...artifacts.GATEWAY_DESCRIPTORS,
+    ...(artifacts.ANTHROPIC_PROXY_DESCRIPTORS as readonly { setup?: { credentialEnvVars?: readonly string[] } }[]),
   ]
   for (const descriptor of descriptorsWithSetup) {
     for (const key of descriptor.setup?.credentialEnvVars ?? []) {
